@@ -224,21 +224,47 @@ const QuotationTracker = () => {
     fetchClients();
     fetchProducts();
     if (enquiryId) {
-      // Auto-fetch enquiry data and populate client_id when user manually opens form
-      fetchEnquiryData(enquiryId);
+      // Auto-fetch enquiry data and populate client_id, then open the form
+      fetchEnquiryData(enquiryId).then(() => {
+        // Open the form automatically when enquiryId is present
+        setShowForm(true);
+      });
     }
   }, [enquiryId]);
 
   // Auto-fetch enquiry data when enquiry_id is present
   const fetchEnquiryData = async (enquiryId) => {
     try {
+      // Validate enquiryId
+      if (!enquiryId) {
+        console.warn('No enquiry ID provided');
+        return;
+      }
+
+      // Validate UUID format (basic check)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(enquiryId)) {
+        console.error('Invalid enquiry ID format:', enquiryId);
+        return;
+      }
+
       const { data: enquiry, error } = await supabase
         .from('marketing_enquiries')
-        .select('id, enquiry_number, client_id, client_name')
+        .select('id, enquiry_number, client_id')
         .eq('id', enquiryId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Log detailed error information
+        console.error('Error fetching enquiry data:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          enquiryId: enquiryId
+        });
+        return;
+      }
 
       if (enquiry) {
         // Auto-populate client_id from enquiry
@@ -247,9 +273,16 @@ const QuotationTracker = () => {
           enquiry_id: enquiry.id,
           client_id: enquiry.client_id || prev.client_id,
         }));
+      } else {
+        console.warn('Enquiry not found for ID:', enquiryId);
       }
     } catch (error) {
-      console.error('Error fetching enquiry data:', error);
+      // Log detailed error information
+      console.error('Error fetching enquiry data:', {
+        message: error?.message || 'Unknown error',
+        stack: error?.stack,
+        enquiryId: enquiryId
+      });
     }
   };
 

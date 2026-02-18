@@ -30,6 +30,7 @@ const QuotationForm = ({
   const [enquiries, setEnquiries] = useState([]);
   const [clients, setClients] = useState([]);
   const [products, setProducts] = useState([]);
+  const [selectedEnquiry, setSelectedEnquiry] = useState(null);
   const [items, setItems] = useState([{ id: 'item-1', name: 'Item 1', productId: null, productName: '' }, { id: 'item-2', name: 'Item 2', productId: null, productName: '' }]);
   const [costHeads, setCostHeads] = useState(defaultCostHeads);
   const [costingData, setCostingData] = useState({});
@@ -100,6 +101,7 @@ const QuotationForm = ({
         setItems([{ id: 'item-1', name: 'Item 1', productId: null, productName: '' }, { id: 'item-2', name: 'Item 2', productId: null, productName: '' }]);
         setCostHeads(defaultCostHeads);
         setCostingData({});
+        setSelectedEnquiry(null);
         
         // Auto-fetch enquiry data and populate client_id when enquiryId is provided
         if (enquiryId) {
@@ -112,24 +114,62 @@ const QuotationForm = ({
   // Auto-fetch enquiry data when enquiry_id is present
   const fetchEnquiryData = async (enquiryId) => {
     try {
+      // Validate enquiryId
+      if (!enquiryId) {
+        console.warn('No enquiry ID provided');
+        return;
+      }
+
+      // Validate UUID format (basic check)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(enquiryId)) {
+        console.error('Invalid enquiry ID format:', enquiryId);
+        return;
+      }
+
       const { data: enquiry, error } = await supabase
         .from('marketing_enquiries')
-        .select('id, enquiry_number, client_id, client_name')
+        .select(`
+          id, 
+          enquiry_number, 
+          client_id,
+          marketing_clients:client_id (id, client_name)
+        `)
         .eq('id', enquiryId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Log detailed error information
+        console.error('Error fetching enquiry data:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          enquiryId: enquiryId
+        });
+        return;
+      }
 
       if (enquiry) {
+        // Store enquiry details for display
+        setSelectedEnquiry(enquiry);
         // Auto-populate client_id from enquiry
         setFormData(prev => ({
           ...prev,
           enquiry_id: enquiry.id,
           client_id: enquiry.client_id || prev.client_id,
         }));
+      } else {
+        console.warn('Enquiry not found for ID:', enquiryId);
+        setSelectedEnquiry(null);
       }
     } catch (error) {
-      console.error('Error fetching enquiry data:', error);
+      // Log detailed error information
+      console.error('Error fetching enquiry data:', {
+        message: error?.message || 'Unknown error',
+        stack: error?.stack,
+        enquiryId: enquiryId
+      });
     }
   };
 
@@ -144,7 +184,13 @@ const QuotationForm = ({
     try {
       const { data } = await supabase
         .from('marketing_enquiries')
-        .select('id, enquiry_number, client_id, is_converted_to_quotation')
+        .select(`
+          id, 
+          enquiry_number, 
+          client_id, 
+          is_converted_to_quotation,
+          marketing_clients:client_id (id, client_name)
+        `)
         .order('created_at', { ascending: false });
       setEnquiries(data || []);
     } catch (error) {
@@ -764,6 +810,28 @@ const QuotationForm = ({
 
         <form onSubmit={handleSubmit} className="p-4 sm:p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+            {/* Display enquiry information if enquiryId is provided from convert button */}
+            {selectedEnquiry && enquiryId && (
+              <div className="md:col-span-2">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-blue-900">Related Enquiry (From Convert)</p>
+                      <p className="text-sm text-blue-700 mt-1">
+                        <span className="font-medium">Enquiry Number:</span> {selectedEnquiry.enquiry_number}
+                        {selectedEnquiry.marketing_clients && (
+                          <span className="ml-4">
+                            <span className="font-medium">Client:</span> {selectedEnquiry.marketing_clients.client_name}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Enquiry Selection Dropdown */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Related Enquiry (Optional)
@@ -771,36 +839,32 @@ const QuotationForm = ({
               <select
                 value={formData.enquiry_id}
                 onChange={(e) => {
-                  const enquiryId = e.target.value;
-                  const selectedEnquiry = enquiries.find(e => e.id === enquiryId);
+                  const selectedEnquiryId = e.target.value;
+                  const selectedEnquiryData = enquiries.find(e => e.id === selectedEnquiryId);
                   setFormData({ 
                     ...formData, 
-                    enquiry_id: enquiryId,
-                    client_id: selectedEnquiry?.client_id || formData.client_id
+                    enquiry_id: selectedEnquiryId,
+                    client_id: selectedEnquiryData?.client_id || formData.client_id
                   });
+                  // Update selectedEnquiry for display
+                  if (selectedEnquiryData) {
+                    setSelectedEnquiry(selectedEnquiryData);
+                  } else {
+                    setSelectedEnquiry(null);
+                  }
                 }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
               >
-                <option value="">Select enquiry</option>
-                {enquiries
-                  .filter(enquiry => enquiry.is_converted_to_quotation) // Show only converted enquiries (already have quotations)
-                  .map((enquiry) => (
-                    <option 
-                      key={enquiry.id} 
-                      value={enquiry.id}
-                      style={{
-                        backgroundColor: '#dbeafe', // Light blue background
-                        color: '#1e40af', // Dark blue text
-                        fontWeight: '600'
-                      }}
-                    >
-                      {enquiry.enquiry_number} ✓ (Quotation Already Created)
-                    </option>
-                  ))}
+                <option value="">Select enquiry (optional)</option>
+                {enquiries.map((enquiry) => (
+                  <option 
+                    key={enquiry.id} 
+                    value={enquiry.id}
+                  >
+                    {enquiry.enquiry_number} {enquiry.is_converted_to_quotation ? '(Already Converted)' : ''}
+                  </option>
+                ))}
               </select>
-              <p className="mt-1 text-xs text-blue-600 font-medium">
-                Only enquiries that have already been converted to quotations are shown here
-              </p>
             </div>
 
             <div>

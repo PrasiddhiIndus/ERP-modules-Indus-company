@@ -40,6 +40,7 @@ const EnquiryMaster = () => {
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCalendar, setShowCalendar] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetchEnquiries();
@@ -105,7 +106,14 @@ const EnquiryMaster = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Prevent duplicate submissions
+    if (submitting) {
+      return;
+    }
+    
     try {
+      setSubmitting(true);
       const { data: { user } } = await supabase.auth.getUser();
       
       // Generate unique enquiry number - always uses MAX number for year (never reuses deleted numbers)
@@ -230,6 +238,8 @@ const EnquiryMaster = () => {
     } catch (error) {
       console.error('Error saving enquiry:', error);
       alert('Error saving enquiry: ' + error.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -935,9 +945,12 @@ const EnquiryMaster = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  disabled={submitting}
+                  className={`px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors ${
+                    submitting ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 >
-                  {editingEnquiry ? 'Update Enquiry' : 'Create Enquiry'}
+                  {submitting ? 'Saving...' : (editingEnquiry ? 'Update Enquiry' : 'Create Enquiry')}
                 </button>
               </div>
             </form>
