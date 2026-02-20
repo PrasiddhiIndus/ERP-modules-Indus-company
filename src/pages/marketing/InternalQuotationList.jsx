@@ -81,15 +81,15 @@ const InternalQuotationList = () => {
   };
 
   const handleCreateInternalQuotation = (quotationId) => {
-    navigate(`/marketing/quotation-tracker/internal-quotation/${quotationId}`);
+    navigate(`/app/marketing/quotation-tracker/internal-quotation/${quotationId}`);
   };
 
   const handleViewInternalQuotation = (quotationId) => {
-    navigate(`/marketing/quotation-tracker/internal-quotation/${quotationId}?view=true`);
+    navigate(`/app/marketing/quotation-tracker/internal-quotation/${quotationId}?view=true`);
   };
 
   const handleEditInternalQuotation = (quotationId) => {
-    navigate(`/marketing/quotation-tracker/internal-quotation/${quotationId}`);
+    navigate(`/app/marketing/quotation-tracker/internal-quotation/${quotationId}`);
   };
 
   const handleDeleteInternalQuotation = async (quotationId) => {

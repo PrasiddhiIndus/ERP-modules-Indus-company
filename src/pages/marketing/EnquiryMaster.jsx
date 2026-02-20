@@ -4,6 +4,8 @@ import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, ArrowRight, Search, Calendar, Users, MapPin } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 import DateRangeCalendar from './components/DateRangeCalendar';
+import { parseIndianNumber } from './utils/numberFormat';
+import NumberInput from './components/NumberInput';
 
 const EnquiryMaster = () => {
   const navigate = useNavigate();
@@ -153,7 +155,7 @@ const EnquiryMaster = () => {
       const submitData = {
         ...formData,
         enquiry_number: enquiryNumber,
-        estimated_value: formData.estimated_value ? parseFloat(formData.estimated_value) : null,
+        estimated_value: formData.estimated_value ? parseIndianNumber(formData.estimated_value.toString()) : null,
         expected_closing_date: formData.expected_closing_date || null,
         client_id: formData.client_id || null,
         assigned_to: formData.assigned_to || null,
@@ -302,7 +304,7 @@ const EnquiryMaster = () => {
       }
 
       // Navigate to quotation tracker - enquiry will be marked as converted only after successful quotation creation
-      navigate(`/marketing/quotation-tracker?enquiry_id=${enquiry.id}`);
+      navigate(`/app/marketing/quotation-tracker?enquiry_id=${enquiry.id}`);
     } catch (error) {
       console.error('Error converting enquiry:', error);
       alert('Error converting enquiry: ' + error.message);
@@ -800,7 +802,7 @@ const EnquiryMaster = () => {
                     </select>
                     <button
                       type="button"
-                      onClick={() => navigate('/marketing/client-master')}
+                      onClick={() => navigate('/app/marketing/client-master')}
                       className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center space-x-1"
                     >
                       <Plus className="w-4 h-4" />
@@ -861,12 +863,11 @@ const EnquiryMaster = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Estimated Value (₹)</label>
-                  <input
-                    type="number"
-                    step="0.01"
+                  <NumberInput
                     value={formData.estimated_value}
                     onChange={(e) => setFormData({ ...formData, estimated_value: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="e.g., 5,00,000"
                   />
                 </div>
 

@@ -12,12 +12,14 @@ const ClientMaster = () => {
   const [formData, setFormData] = useState({
     client_name: '',
     industry: '',
+    street_address: '',
     city: '',
     state: '',
     country: 'India',
+    zip_code: '',
     primary_contact_person: '',
-    contact_number: '',
-    contact_email: '',
+    contact_numbers: [''],
+    contact_emails: [''],
   });
 
   useEffect(() => {
@@ -46,11 +48,33 @@ const ClientMaster = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
+      // Filter out empty contact numbers and emails
+      const contactNumbers = formData.contact_numbers.filter(num => num.trim() !== '');
+      const contactEmails = formData.contact_emails.filter(email => email.trim() !== '');
+      
+      // Prepare data for submission - store arrays as JSON strings for Supabase
+      const submitData = {
+        client_name: formData.client_name,
+        industry: formData.industry || null,
+        street_address: formData.street_address || null,
+        city: formData.city || null,
+        state: formData.state || null,
+        country: formData.country || 'India',
+        zip_code: formData.zip_code || null,
+        primary_contact_person: formData.primary_contact_person || null,
+        // Store arrays as JSON strings (Supabase will handle JSONB conversion)
+        contact_numbers: contactNumbers.length > 0 ? JSON.stringify(contactNumbers) : null,
+        contact_emails: contactEmails.length > 0 ? JSON.stringify(contactEmails) : null,
+        // Keep backward compatibility - store first contact as single fields
+        contact_number: contactNumbers.length > 0 ? contactNumbers[0] : null,
+        contact_email: contactEmails.length > 0 ? contactEmails[0] : null,
+      };
+      
       if (editingClient) {
         const { error } = await supabase
           .from('marketing_clients')
           .update({
-            ...formData,
+            ...submitData,
             updated_by: user.id,
             updated_at: new Date().toISOString(),
           })
@@ -61,7 +85,7 @@ const ClientMaster = () => {
         const { error } = await supabase
           .from('marketing_clients')
           .insert([{
-            ...formData,
+            ...submitData,
             created_by: user.id,
             updated_by: user.id,
           }]);
@@ -74,12 +98,14 @@ const ClientMaster = () => {
       setFormData({
         client_name: '',
         industry: '',
+        street_address: '',
         city: '',
         state: '',
         country: 'India',
+        zip_code: '',
         primary_contact_person: '',
-        contact_number: '',
-        contact_email: '',
+        contact_numbers: [''],
+        contact_emails: [''],
       });
       fetchClients();
     } catch (error) {
@@ -90,15 +116,60 @@ const ClientMaster = () => {
 
   const handleEdit = (client) => {
     setEditingClient(client);
+    
+    // Handle contact numbers - support JSON string, array, or single value
+    let contactNumbers = [''];
+    if (client.contact_numbers) {
+      try {
+        // Try to parse as JSON first
+        if (typeof client.contact_numbers === 'string') {
+          const parsed = JSON.parse(client.contact_numbers);
+          contactNumbers = Array.isArray(parsed) ? parsed : [parsed];
+        } else if (Array.isArray(client.contact_numbers)) {
+          contactNumbers = client.contact_numbers;
+        } else {
+          contactNumbers = [client.contact_numbers];
+        }
+      } catch (e) {
+        // If not JSON, treat as single value
+        contactNumbers = [client.contact_numbers];
+      }
+    } else if (client.contact_number) {
+      contactNumbers = [client.contact_number];
+    }
+    
+    // Handle contact emails - support JSON string, array, or single value
+    let contactEmails = [''];
+    if (client.contact_emails) {
+      try {
+        // Try to parse as JSON first
+        if (typeof client.contact_emails === 'string') {
+          const parsed = JSON.parse(client.contact_emails);
+          contactEmails = Array.isArray(parsed) ? parsed : [parsed];
+        } else if (Array.isArray(client.contact_emails)) {
+          contactEmails = client.contact_emails;
+        } else {
+          contactEmails = [client.contact_emails];
+        }
+      } catch (e) {
+        // If not JSON, treat as single value
+        contactEmails = [client.contact_emails];
+      }
+    } else if (client.contact_email) {
+      contactEmails = [client.contact_email];
+    }
+    
     setFormData({
       client_name: client.client_name || '',
       industry: client.industry || '',
+      street_address: client.street_address || '',
       city: client.city || '',
       state: client.state || '',
       country: client.country || 'India',
+      zip_code: client.zip_code || '',
       primary_contact_person: client.primary_contact_person || '',
-      contact_number: client.contact_number || '',
-      contact_email: client.contact_email || '',
+      contact_numbers: contactNumbers.length > 0 ? contactNumbers : [''],
+      contact_emails: contactEmails.length > 0 ? contactEmails : [''],
     });
     setShowForm(true);
     setMenuOpen(null);
@@ -123,17 +194,59 @@ const ClientMaster = () => {
   };
 
   const handleExport = () => {
-    const exportData = clients.map(client => ({
-      'Client Name': client.client_name,
-      'Industry': client.industry,
-      'City': client.city,
-      'State': client.state,
-      'Country': client.country,
-      'Primary Contact Person': client.primary_contact_person,
-      'Contact Number': client.contact_number,
-      'Contact Email': client.contact_email,
-      'Created At': new Date(client.created_at).toLocaleDateString(),
-    }));
+    const exportData = clients.map(client => {
+      // Handle contact numbers - support JSON string, array, or single value
+      let contactNumbers = '';
+      if (client.contact_numbers) {
+        try {
+          if (typeof client.contact_numbers === 'string') {
+            const parsed = JSON.parse(client.contact_numbers);
+            contactNumbers = Array.isArray(parsed) ? parsed.join(', ') : parsed;
+          } else if (Array.isArray(client.contact_numbers)) {
+            contactNumbers = client.contact_numbers.join(', ');
+          } else {
+            contactNumbers = client.contact_numbers;
+          }
+        } catch (e) {
+          contactNumbers = client.contact_numbers;
+        }
+      } else if (client.contact_number) {
+        contactNumbers = client.contact_number;
+      }
+      
+      // Handle contact emails - support JSON string, array, or single value
+      let contactEmails = '';
+      if (client.contact_emails) {
+        try {
+          if (typeof client.contact_emails === 'string') {
+            const parsed = JSON.parse(client.contact_emails);
+            contactEmails = Array.isArray(parsed) ? parsed.join(', ') : parsed;
+          } else if (Array.isArray(client.contact_emails)) {
+            contactEmails = client.contact_emails.join(', ');
+          } else {
+            contactEmails = client.contact_emails;
+          }
+        } catch (e) {
+          contactEmails = client.contact_emails;
+        }
+      } else if (client.contact_email) {
+        contactEmails = client.contact_email;
+      }
+      
+      return {
+        'Client Name': client.client_name,
+        'Industry': client.industry,
+        'Street Address': client.street_address || '',
+        'City': client.city,
+        'State': client.state,
+        'Zip Code': client.zip_code || '',
+        'Country': client.country,
+        'Primary Contact Person': client.primary_contact_person,
+        'Contact Numbers': contactNumbers,
+        'Contact Emails': contactEmails,
+        'Created At': new Date(client.created_at).toLocaleDateString(),
+      };
+    });
     exportToExcel(exportData, 'Clients_Export', 'Clients');
   };
 
@@ -160,12 +273,14 @@ const ClientMaster = () => {
                 setFormData({
                   client_name: '',
                   industry: '',
+                  street_address: '',
                   city: '',
                   state: '',
                   country: 'India',
+                  zip_code: '',
                   primary_contact_person: '',
-                  contact_number: '',
-                  contact_email: '',
+                  contact_numbers: [''],
+                  contact_emails: [''],
                 });
                 setShowForm(true);
               }}
@@ -193,8 +308,8 @@ const ClientMaster = () => {
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">City</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact Person</th>
-                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Contact Number</th>
-                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Contact Email</th>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Contact Numbers</th>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Contact Emails</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
@@ -206,8 +321,50 @@ const ClientMaster = () => {
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.city || '-'}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.state || '-'}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.primary_contact_person || '-'}</td>
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden md:table-cell">{client.contact_number || '-'}</td>
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden lg:table-cell">{client.contact_email || '-'}</td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden md:table-cell">
+                        {(() => {
+                          let numbers = '';
+                          if (client.contact_numbers) {
+                            try {
+                              if (typeof client.contact_numbers === 'string') {
+                                const parsed = JSON.parse(client.contact_numbers);
+                                numbers = Array.isArray(parsed) ? parsed.join(', ') : parsed;
+                              } else if (Array.isArray(client.contact_numbers)) {
+                                numbers = client.contact_numbers.join(', ');
+                              } else {
+                                numbers = client.contact_numbers;
+                              }
+                            } catch (e) {
+                              numbers = client.contact_numbers;
+                            }
+                          } else if (client.contact_number) {
+                            numbers = client.contact_number;
+                          }
+                          return numbers || '-';
+                        })()}
+                      </td>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden lg:table-cell">
+                        {(() => {
+                          let emails = '';
+                          if (client.contact_emails) {
+                            try {
+                              if (typeof client.contact_emails === 'string') {
+                                const parsed = JSON.parse(client.contact_emails);
+                                emails = Array.isArray(parsed) ? parsed.join(', ') : parsed;
+                              } else if (Array.isArray(client.contact_emails)) {
+                                emails = client.contact_emails.join(', ');
+                              } else {
+                                emails = client.contact_emails;
+                              }
+                            } catch (e) {
+                              emails = client.contact_emails;
+                            }
+                          } else if (client.contact_email) {
+                            emails = client.contact_email;
+                          }
+                          return emails || '-';
+                        })()}
+                      </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-right text-sm font-medium relative">
                         <button
                           onClick={() => setMenuOpen(menuOpen === client.id ? null : client.id)}
@@ -292,6 +449,17 @@ const ClientMaster = () => {
                   />
                 </div>
 
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Street Address</label>
+                  <input
+                    type="text"
+                    value={formData.street_address}
+                    onChange={(e) => setFormData({ ...formData, street_address: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="e.g., 123 Main Street, Building A"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
                   <input
@@ -311,6 +479,17 @@ const ClientMaster = () => {
                     onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="e.g., Maharashtra"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Zip Code</label>
+                  <input
+                    type="text"
+                    value={formData.zip_code}
+                    onChange={(e) => setFormData({ ...formData, zip_code: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="e.g., 400001"
                   />
                 </div>
 
@@ -336,26 +515,102 @@ const ClientMaster = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Contact Number</label>
-                  <input
-                    type="text"
-                    value={formData.contact_number}
-                    onChange={(e) => setFormData({ ...formData, contact_number: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="e.g., +91 98765 43210"
-                  />
+                {/* Contact Numbers Section */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Contact Numbers
+                  </label>
+                  <div className="space-y-2">
+                    {formData.contact_numbers.map((number, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={number}
+                          onChange={(e) => {
+                            const newNumbers = [...formData.contact_numbers];
+                            newNumbers[index] = e.target.value;
+                            setFormData({ ...formData, contact_numbers: newNumbers });
+                          }}
+                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          placeholder="e.g., +91 98765 43210"
+                        />
+                        {formData.contact_numbers.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newNumbers = formData.contact_numbers.filter((_, i) => i !== index);
+                              setFormData({ ...formData, contact_numbers: newNumbers });
+                            }}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData({
+                          ...formData,
+                          contact_numbers: [...formData.contact_numbers, ''],
+                        });
+                      }}
+                      className="flex items-center space-x-2 px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add Contact Number</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Contact Email</label>
-                  <input
-                    type="email"
-                    value={formData.contact_email}
-                    onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="e.g., contact@abcindustries.com"
-                  />
+                {/* Contact Emails Section */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Contact Emails
+                  </label>
+                  <div className="space-y-2">
+                    {formData.contact_emails.map((email, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => {
+                            const newEmails = [...formData.contact_emails];
+                            newEmails[index] = e.target.value;
+                            setFormData({ ...formData, contact_emails: newEmails });
+                          }}
+                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                          placeholder="e.g., contact@abcindustries.com"
+                        />
+                        {formData.contact_emails.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newEmails = formData.contact_emails.filter((_, i) => i !== index);
+                              setFormData({ ...formData, contact_emails: newEmails });
+                            }}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData({
+                          ...formData,
+                          contact_emails: [...formData.contact_emails, ''],
+                        });
+                      }}
+                      className="flex items-center space-x-2 px-3 py-2 text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add Contact Email</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 

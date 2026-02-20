@@ -190,7 +190,7 @@ const InternalQuotationForm = () => {
       if (error) throw error;
 
       alert('Internal quotation saved successfully!');
-      navigate('/marketing/quotation-tracker/internal-quotation');
+      navigate('/app/marketing/quotation-tracker/internal-quotation');
     } catch (error) {
       console.error('Error saving internal quotation:', error);
       alert('Error saving internal quotation: ' + error.message);
@@ -265,7 +265,7 @@ const InternalQuotationForm = () => {
               </p>
             </div>
             <button
-              onClick={() => navigate('/marketing/quotation-tracker/internal-quotation')}
+              onClick={() => navigate('/app/marketing/quotation-tracker/internal-quotation')}
               className="p-2 hover:bg-gray-100 rounded-lg"
             >
               <X className="w-5 h-5" />
@@ -547,7 +547,7 @@ const InternalQuotationForm = () => {
               <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => navigate('/marketing/quotation-tracker/internal-quotation')}
+                  onClick={() => navigate('/app/marketing/quotation-tracker/internal-quotation')}
                   className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
                 >
                   Cancel

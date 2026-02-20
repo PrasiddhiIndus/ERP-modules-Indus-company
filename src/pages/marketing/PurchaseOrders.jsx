@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, FileText, Upload } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
+import NumberInput from './components/NumberInput';
+import { parseIndianNumber } from './utils/numberFormat';
 
 const PurchaseOrders = () => {
   const [contracts, setContracts] = useState([]);
@@ -118,7 +120,7 @@ const PurchaseOrders = () => {
       const submitData = {
         ...formData,
         contract_number: contractNumber,
-        po_value: formData.po_value ? parseFloat(formData.po_value) : null,
+        po_value: formData.po_value ? parseIndianNumber(formData.po_value.toString()) : null,
         quotation_id: formData.quotation_id || null,
         enquiry_id: formData.enquiry_id || null,
         client_id: formData.client_id || null,
@@ -492,13 +494,12 @@ const PurchaseOrders = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">PO Value</label>
-                  <input
-                    type="number"
-                    step="0.01"
+                  <label className="block text-sm font-medium text-gray-700 mb-2">PO Value (₹)</label>
+                  <NumberInput
                     value={formData.po_value}
                     onChange={(e) => setFormData({ ...formData, po_value: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    placeholder="e.g., 5,00,000"
                   />
                 </div>
 

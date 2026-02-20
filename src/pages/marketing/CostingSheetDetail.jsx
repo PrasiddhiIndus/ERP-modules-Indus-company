@@ -41,7 +41,7 @@ const CostingSheetDetail = () => {
 
   const handleSaveAndNext = () => {
     // Navigate to internal quotation after saving costing
-    navigate(`/marketing/quotation-tracker/internal-quotation/${id}`);
+    navigate(`/app/marketing/quotation-tracker/internal-quotation/${id}`);
   };
 
   if (loading) {
@@ -72,7 +72,7 @@ const CostingSheetDetail = () => {
             </div>
             <div className="flex gap-3">
               <button
-                onClick={() => navigate('/marketing/quotation-tracker')}
+                onClick={() => navigate('/app/marketing/quotation-tracker')}
                 className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
               >
                 <ArrowLeft className="w-4 h-4" />

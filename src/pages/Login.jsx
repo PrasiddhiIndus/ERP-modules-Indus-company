@@ -23,7 +23,7 @@ const handleSubmit = async (e) => {
   if (error) {
     setError(error.message)
   } else if (data?.session) {
-    navigate('/dashboard')
+    navigate('/app/dashboard')
   }
 
   setLoading(false)

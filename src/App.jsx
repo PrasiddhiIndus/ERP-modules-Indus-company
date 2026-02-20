@@ -81,7 +81,7 @@ const ProtectedRoute = ({ children }) => {
   }
   
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/" replace />;
   }
   return children;
 };
@@ -99,19 +99,19 @@ function App() {
         >
           <Routes>
           {/* Public */}
-          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Login />} />
           <Route path="/register" element={<Register />} />
 
           {/* Protected with Layout */}
           <Route
-            path="/"
+            path="/app"
             element={
               <ProtectedRoute>
                 <Layout />
               </ProtectedRoute>
             }
           >
-
+            <Route index element={<Navigate to="/app/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="fire-tender" element={<FireTender />} />
             <Route path="fire-tender/list" element={<TenderList />} />
@@ -207,7 +207,7 @@ function App() {
           </Route>
 
           {/* Default redirect */}
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
       </AuditConsoleProvider>

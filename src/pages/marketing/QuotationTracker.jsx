@@ -731,6 +731,9 @@ const QuotationTracker = () => {
         client_id: formData.client_id || null,
         enquiry_id: formData.enquiry_id || null,
         assigned_to: formData.assigned_to || null,
+        // Convert empty date strings to null
+        quotation_date: formData.quotation_date || null,
+        valid_until: formData.valid_until || null,
       };
 
       let quotationId;
@@ -879,7 +882,7 @@ const QuotationTracker = () => {
       
       // Clear URL parameter after successful creation
       if (enquiryId) {
-        navigate('/marketing/quotation-tracker', { replace: true });
+        navigate('/app/marketing/quotation-tracker', { replace: true });
       }
     } catch (error) {
       console.error('Error saving quotation:', error);
@@ -935,12 +938,42 @@ const QuotationTracker = () => {
     if (!confirm('Are you sure you want to delete this quotation?')) return;
 
     try {
+      // First, get the quotation to find its enquiry_id
+      const { data: quotation } = await supabase
+        .from('marketing_quotations')
+        .select('enquiry_id')
+        .eq('id', id)
+        .single();
+
+      // Delete the quotation
       const { error } = await supabase
         .from('marketing_quotations')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      // Check if there are any other quotations for this enquiry
+      if (quotation?.enquiry_id) {
+        const { data: otherQuotations } = await supabase
+          .from('marketing_quotations')
+          .select('id')
+          .eq('enquiry_id', quotation.enquiry_id)
+          .limit(1);
+
+        // If no other quotations exist for this enquiry, update the enquiry flag
+        if (!otherQuotations || otherQuotations.length === 0) {
+          await supabase
+            .from('marketing_enquiries')
+            .update({ 
+              is_converted_to_quotation: false,
+              converted_quotation_id: null,
+              status: 'New'
+            })
+            .eq('id', quotation.enquiry_id);
+        }
+      }
+
       fetchQuotations();
       setMenuOpen(null);
     } catch (error) {
@@ -2170,7 +2203,7 @@ Marketing Team`;
             setSelectedQuotation(null);
             // Clear URL parameter after successful save
             if (enquiryId) {
-              navigate('/marketing/quotation-tracker', { replace: true });
+              navigate('/app/marketing/quotation-tracker', { replace: true });
             }
           }}
         />

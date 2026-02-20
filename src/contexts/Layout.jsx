@@ -74,7 +74,7 @@ const Layout = () => {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate("/login");
+    navigate("/");
   };
 
   return (
@@ -100,7 +100,7 @@ const Layout = () => {
           {/* Nav Links */}
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
             <Link
-              to="/dashboard"
+              to="/app/dashboard"
               className="flex items-center space-x-2.5 p-2 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
             >
               <BarChart3 className="w-4 h-4" />
@@ -324,70 +324,70 @@ const Layout = () => {
               {marketingOpen && (
                 <div className="ml-6 mt-0.5 space-y-0.5">
                   <Link
-                    to="marketing"
+                    to="/app/marketing"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <BarChart3 className="w-4 h-4 text-purple-600" />
                     <span className="text-xs">Marketing Dashboard</span>
                   </Link>
                   <Link
-                    to="marketing/enquiry-master"
+                    to="/app/marketing/enquiry-master"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <FileText className="w-4 h-4 text-blue-600" />
                     <span className="text-xs">Enquiry Master</span>
                   </Link>
                   <Link
-                    to="marketing/quotation-tracker"
+                    to="/app/marketing/quotation-tracker"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <RupeeIcon className="w-4 h-4 text-green-600" />
                     <span className="text-xs">Quotation Tracker</span>
                   </Link>
                   <Link
-                    to="marketing/follow-up-planner"
+                    to="/app/marketing/follow-up-planner"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <Calendar className="w-4 h-4 text-orange-600" />
                     <span className="text-xs">Follow-up Planner</span>
                   </Link>
                   <Link
-                    to="marketing/client-master"
+                    to="/app/marketing/client-master"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <Users className="w-4 h-4 text-indigo-600" />
                     <span className="text-xs">Client Master</span>
                   </Link>
                   <Link
-                    to="marketing/product-catalog"
+                    to="/app/marketing/product-catalog"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <Package className="w-4 h-4 text-yellow-600" />
                     <span className="text-xs">Product Catalog</span>
                   </Link>
                   <Link
-                    to="marketing/purchase-orders"
+                    to="/app/marketing/purchase-orders"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <ShoppingCart className="w-4 h-4 text-pink-600" />
                     <span className="text-xs">Purchase Orders</span>
                   </Link>
                   <Link
-                    to="marketing/expo-seminar"
+                    to="/app/marketing/expo-seminar"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <MapPin className="w-4 h-4 text-red-600" />
                     <span className="text-xs">Expo & Seminar</span>
                   </Link>
                   <Link
-                    to="marketing/gst-upload"
+                    to="/app/marketing/gst-upload"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <Receipt className="w-4 h-4 text-teal-600" />
                     <span className="text-xs">GST Documents</span>
                   </Link>
                   <Link
-                    to="marketing/mail-templates"
+                    to="/app/marketing/mail-templates"
                     className="flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <FileText className="w-4 h-4 text-blue-600" />

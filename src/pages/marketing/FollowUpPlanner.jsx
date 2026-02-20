@@ -25,6 +25,8 @@ const FollowUpPlanner = () => {
   const [visitSearchQuery, setVisitSearchQuery] = useState('');
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [selectedFollowUpForRevision, setSelectedFollowUpForRevision] = useState(null);
+  const [revisionCostingSheetId, setRevisionCostingSheetId] = useState(null);
+  const [revisionQuotationId, setRevisionQuotationId] = useState(null);
   const [revisionFormData, setRevisionFormData] = useState({
     upcoming_date: new Date().toISOString().split('T')[0],
     remarks: '',
@@ -341,16 +343,46 @@ const FollowUpPlanner = () => {
       .eq('quotation_id', followUp.quotation_id)
       .order('revision_number', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const nextRevisionNumber = latestRevision ? latestRevision.revision_number + 1 : 1;
 
-    setSelectedFollowUpForRevision(followUp);
+    // Fetch quotation details
+    const { data: quotation } = await supabase
+      .from('marketing_quotations')
+      .select('id, quotation_number')
+      .eq('id', followUp.quotation_id)
+      .single();
+
+    setSelectedFollowUpForRevision({
+      ...followUp,
+      nextRevisionNumber,
+      quotation: quotation
+    });
+    setRevisionQuotationId(followUp.quotation_id);
     setRevisionFormData({
       upcoming_date: new Date().toISOString().split('T')[0],
       remarks: '',
       status: 'Pending',
     });
+    
+    // Load costing sheet ID if it exists
+    if (followUp.quotation_id) {
+      const { data } = await supabase
+        .from('marketing_costing_sheets')
+        .select('id')
+        .eq('quotation_id', followUp.quotation_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (data) {
+        setRevisionCostingSheetId(data.id);
+      } else {
+        setRevisionCostingSheetId(null);
+      }
+    }
+    
     setShowRevisionModal(true);
     setMenuOpen(null);
   };
@@ -365,33 +397,85 @@ const FollowUpPlanner = () => {
         return;
       }
 
-      // Get the latest revision number for this quotation
-      const { data: latestRevision } = await supabase
-        .from('marketing_quotation_revisions')
-        .select('revision_number')
-        .eq('quotation_id', selectedFollowUpForRevision.quotation_id)
-        .order('revision_number', { ascending: false })
-        .limit(1)
-        .single();
+      // Use the pre-calculated revision number
+      const nextRevisionNumber = selectedFollowUpForRevision.nextRevisionNumber || 1;
 
-      const nextRevisionNumber = latestRevision ? latestRevision.revision_number + 1 : 1;
+      // Get quotation details for revision number generation
+      const quotation = selectedFollowUpForRevision.quotation || selectedFollowUpForRevision.marketing_quotations;
+      const baseQuotationNumber = quotation?.quotation_number || '';
+      
+      // Generate revision quotation number (QT/2025/0015/R1)
+      const baseNumber = baseQuotationNumber.split('/R')[0];
+      const revisionQuotationNumber = `${baseNumber}/R${nextRevisionNumber}`;
 
-      // Create revision record
-      const { data: revisionData, error: revisionError } = await supabase
-        .from('marketing_quotation_revisions')
-        .insert([{
-          quotation_id: selectedFollowUpForRevision.quotation_id,
+      // Update existing quotation with revision number
+      const { data: updatedQuotation, error: quotationError } = await supabase
+        .from('marketing_quotations')
+        .update({
+          quotation_number: revisionQuotationNumber,
           revision_number: nextRevisionNumber,
-          revision_date: revisionFormData.upcoming_date,
-          remarks: revisionFormData.remarks,
-          status: revisionFormData.status,
-          created_by: user.id,
           updated_by: user.id,
-        }])
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedFollowUpForRevision.quotation_id)
         .select()
         .single();
 
-      if (revisionError) throw revisionError;
+      if (quotationError) {
+        // If duplicate key error, just update revision_number without changing quotation_number
+        if (quotationError.message.includes('duplicate key') || quotationError.message.includes('unique constraint')) {
+          const { data: retryUpdate, error: retryError } = await supabase
+            .from('marketing_quotations')
+            .update({
+              revision_number: nextRevisionNumber,
+              updated_by: user.id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', selectedFollowUpForRevision.quotation_id)
+            .select()
+            .single();
+          
+          if (retryError) throw retryError;
+        } else {
+          throw quotationError;
+        }
+      }
+
+      // Create revision record
+      const revisionInsertData = {
+        quotation_id: selectedFollowUpForRevision.quotation_id,
+        revision_number: nextRevisionNumber,
+        revision_date: revisionFormData.upcoming_date,
+        remarks: revisionFormData.remarks,
+        created_by: user.id,
+      };
+
+      const { data: revisionData, error: revisionError } = await supabase
+        .from('marketing_quotation_revisions')
+        .insert([revisionInsertData])
+        .select()
+        .single();
+
+      if (revisionError) {
+        // If error is about missing column, try without it
+        if (revisionError.message.includes('revision_quotation_id')) {
+          const { data: retryData, error: retryError } = await supabase
+            .from('marketing_quotation_revisions')
+            .insert([{
+              quotation_id: selectedFollowUpForRevision.quotation_id,
+              revision_number: nextRevisionNumber,
+              revision_date: revisionFormData.upcoming_date,
+              remarks: revisionFormData.remarks,
+              created_by: user.id,
+            }])
+            .select()
+            .single();
+          
+          if (retryError) throw retryError;
+        } else {
+          throw revisionError;
+        }
+      }
 
       // Auto-sync with follow-up planner - create new follow-up entry
       const { error: followUpError } = await supabase
@@ -407,6 +491,7 @@ const FollowUpPlanner = () => {
 
       if (followUpError) {
         console.error('Error creating follow-up:', followUpError);
+        // Continue even if follow-up creation fails
       }
 
       // Update quotation follow-up date
@@ -421,13 +506,15 @@ const FollowUpPlanner = () => {
 
       setShowRevisionModal(false);
       setSelectedFollowUpForRevision(null);
+      setRevisionCostingSheetId(null);
+      setRevisionQuotationId(null);
       setRevisionFormData({
         upcoming_date: new Date().toISOString().split('T')[0],
         remarks: '',
         status: 'Pending',
       });
-      fetchFollowUps();
-      alert(`Revision ${nextRevisionNumber} created successfully!`);
+      await fetchFollowUps();
+      alert(`Revision ${nextRevisionNumber} created successfully and synced with follow-up planner!`);
     } catch (error) {
       console.error('Error saving revision:', error);
       alert('Error saving revision: ' + error.message);
@@ -1097,7 +1184,7 @@ const FollowUpPlanner = () => {
                             <td className="px-3 sm:px-6 py-3 sm:py-4 text-center text-sm font-medium">
                               <button
                                 onClick={() => {
-                                  navigate('/marketing/expo-seminar');
+                                  navigate('/app/marketing/expo-seminar');
                                 }}
                                 className="text-purple-600 hover:text-purple-900 font-medium"
                               >
@@ -1258,18 +1345,24 @@ const FollowUpPlanner = () => {
       {/* Revision Modal */}
       {showRevisionModal && selectedFollowUpForRevision && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
             <div className="p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center">
               <div>
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Add Revision</h2>
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
+                  {selectedFollowUpForRevision.nextRevisionNumber === 1 ? 'Create Revision' : `Add Revision ${selectedFollowUpForRevision.nextRevisionNumber}`}
+                </h2>
                 <p className="text-xs sm:text-sm text-gray-600 mt-1">
-                  Quotation: {selectedFollowUpForRevision.marketing_quotations?.quotation_number || 'N/A'}
+                  Quotation: {selectedFollowUpForRevision.marketing_quotations?.quotation_number || selectedFollowUpForRevision.quotation?.quotation_number || 'N/A'}
+                  {selectedFollowUpForRevision.nextRevisionNumber && ` → ${(selectedFollowUpForRevision.marketing_quotations?.quotation_number || selectedFollowUpForRevision.quotation?.quotation_number || '').split('/R')[0]}/R${selectedFollowUpForRevision.nextRevisionNumber}`}
                 </p>
               </div>
               <button
                 onClick={() => {
                   setShowRevisionModal(false);
                   setSelectedFollowUpForRevision(null);
+                  setRevisionCostingSheetId(null);
+                  setRevisionQuotationId(null);
+                  fetchFollowUps();
                 }}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
@@ -1278,18 +1371,39 @@ const FollowUpPlanner = () => {
             </div>
 
             <form onSubmit={handleRevisionSubmit} className="p-4 sm:p-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Upcoming Date (Follow-up Date) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={revisionFormData.upcoming_date}
-                    onChange={(e) => setRevisionFormData({ ...revisionFormData, upcoming_date: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                    required
-                  />
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Upcoming Date (Follow-up Date) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={revisionFormData.upcoming_date}
+                      onChange={(e) => setRevisionFormData({ ...revisionFormData, upcoming_date: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      This date will auto-sync with the follow-up planner
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Status <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={revisionFormData.status}
+                      onChange={(e) => setRevisionFormData({ ...revisionFormData, status: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Completed">Completed</option>
+                      <option value="Overdue">Overdue</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div>
@@ -1299,28 +1413,42 @@ const FollowUpPlanner = () => {
                   <textarea
                     value={revisionFormData.remarks}
                     onChange={(e) => setRevisionFormData({ ...revisionFormData, remarks: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                    rows={4}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    rows={3}
                     placeholder="Enter revision details, client feedback, or any remarks..."
                     required
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={revisionFormData.status}
-                    onChange={(e) => setRevisionFormData({ ...revisionFormData, status: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                    required
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Overdue">Overdue</option>
-                  </select>
-                </div>
+                {/* Costing Sheet */}
+                {revisionQuotationId && (
+                  <div className="border-t border-gray-200 pt-6">
+                    <h3 className="text-md font-semibold text-gray-900 mb-4">Costing Sheet</h3>
+                    <ExcelCostingSheet
+                      quotationId={revisionQuotationId}
+                      costingSheetId={revisionCostingSheetId}
+                      onCostingChange={(total) => {
+                        // Update revision total if needed
+                      }}
+                      onSaveSuccess={() => {
+                        // Refresh costing sheet ID after save
+                        if (revisionQuotationId) {
+                          supabase
+                            .from('marketing_costing_sheets')
+                            .select('id')
+                            .eq('quotation_id', revisionQuotationId)
+                            .order('created_at', { ascending: false })
+                            .limit(1)
+                            .maybeSingle()
+                            .then(({ data }) => {
+                              if (data) setRevisionCostingSheetId(data.id);
+                            });
+                        }
+                      }}
+                      isViewMode={false}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
@@ -1329,14 +1457,16 @@ const FollowUpPlanner = () => {
                   onClick={() => {
                     setShowRevisionModal(false);
                     setSelectedFollowUpForRevision(null);
+                    setRevisionCostingSheetId(null);
+                    setRevisionQuotationId(null);
                   }}
-                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   Save Revision
                 </button>

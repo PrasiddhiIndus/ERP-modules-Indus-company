@@ -16,15 +16,15 @@ const MarketingNavbar = () => {
   const location = useLocation();
 
   const navItems = [
-    { path: '/marketing', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/marketing/enquiry-master', icon: FileText, label: 'Enquiry Master' },
-    { path: '/marketing/quotation-tracker', icon: DollarSign, label: 'Quotation Tracker' },
-    { path: '/marketing/follow-up-planner', icon: Calendar, label: 'Follow-up Planner' },
-    { path: '/marketing/client-master', icon: Users, label: 'Client Master' },
-    { path: '/marketing/product-catalog', icon: Package, label: 'Product Catalog' },
-    { path: '/marketing/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders' },
-    { path: '/marketing/expo-seminar', icon: MapPin, label: 'Expo & Seminar' },
-    { path: '/marketing/gst-upload', icon: Receipt, label: 'GST Documents' },
+    { path: '/app/marketing', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/app/marketing/enquiry-master', icon: FileText, label: 'Enquiry Master' },
+    { path: '/app/marketing/quotation-tracker', icon: DollarSign, label: 'Quotation Tracker' },
+    { path: '/app/marketing/follow-up-planner', icon: Calendar, label: 'Follow-up Planner' },
+    { path: '/app/marketing/client-master', icon: Users, label: 'Client Master' },
+    { path: '/app/marketing/product-catalog', icon: Package, label: 'Product Catalog' },
+    { path: '/app/marketing/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders' },
+    { path: '/app/marketing/expo-seminar', icon: MapPin, label: 'Expo & Seminar' },
+    { path: '/app/marketing/gst-upload', icon: Receipt, label: 'GST Documents' },
   ];
 
   return (

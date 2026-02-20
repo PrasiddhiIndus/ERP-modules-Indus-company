@@ -145,11 +145,15 @@ const MarketingDashboard = () => {
     }
   };
 
-  const handleViewAllEnquiries = () => {
+  const handleViewAllEnquiries = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (dateRange.startDate && dateRange.endDate) {
-      navigate(`/marketing/enquiry-master?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`);
+      navigate(`/app/marketing/enquiry-master?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`, { replace: false });
     } else {
-      navigate('/marketing/enquiry-master');
+      navigate('/app/marketing/enquiry-master', { replace: false });
     }
   };
 
@@ -278,35 +282,35 @@ const MarketingDashboard = () => {
     {
       icon: FileText,
       label: 'Enquiry Master',
-      path: '/marketing/enquiry-master',
+      path: '/app/marketing/enquiry-master',
       color: 'bg-blue-500',
       hoverColor: 'hover:bg-blue-600',
     },
     {
       icon: RupeeIcon,
       label: 'Quotation Tracker',
-      path: '/marketing/quotation-tracker',
+      path: '/app/marketing/quotation-tracker',
       color: 'bg-green-500',
       hoverColor: 'hover:bg-green-600',
     },
     {
       icon: Calendar,
       label: 'Follow-up Planner',
-      path: '/marketing/follow-up-planner',
+      path: '/app/marketing/follow-up-planner',
       color: 'bg-purple-500',
       hoverColor: 'hover:bg-purple-600',
     },
     {
       icon: MapPin,
       label: 'Expo / Visit Tracker',
-      path: '/marketing/expo-seminar',
+      path: '/app/marketing/expo-seminar',
       color: 'bg-orange-500',
       hoverColor: 'hover:bg-orange-600',
     },
     {
       icon: ShoppingCart,
       label: 'Contracts / Purchase Orders',
-      path: '/marketing/purchase-orders',
+      path: '/app/marketing/purchase-orders',
       color: 'bg-indigo-500',
       hoverColor: 'hover:bg-indigo-600',
     },
@@ -320,25 +324,28 @@ const MarketingDashboard = () => {
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Marketing Dashboard</h1>
             <p className="text-sm sm:text-base text-gray-600 mt-1">Overview of your marketing activities</p>
           </div>
-          {totalNotifications > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="relative p-2 bg-purple-100 rounded-lg hover:bg-purple-200 transition-colors"
-              >
-                <Bell className="w-6 h-6 text-purple-600" />
-                {totalNotifications > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                    {totalNotifications}
-                  </span>
-                )}
-              </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="relative p-2 bg-purple-100 rounded-lg hover:bg-purple-200 transition-colors"
+            >
+              <Bell className="w-6 h-6 text-purple-600" />
+              {totalNotifications > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-semibold rounded-full w-5 h-5 flex items-center justify-center">
+                  {totalNotifications}
+                </span>
+              )}
+            </button>
               {showNotifications && (
                 <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-96 overflow-y-auto">
                   <div className="p-4 border-b border-gray-200 flex justify-between items-center">
                     <h3 className="font-semibold text-gray-900">Notifications</h3>
                     <button
-                      onClick={() => setShowNotifications(false)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowNotifications(false);
+                      }}
                       className="p-1 hover:bg-gray-100 rounded"
                     >
                       <X className="w-4 h-4" />
@@ -352,8 +359,10 @@ const MarketingDashboard = () => {
                         {siteVisitNotifications.map((visit) => (
                           <div
                             key={visit.id}
-                            onClick={() => {
-                              navigate('/marketing/follow-up-planner');
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              navigate('/app/marketing/follow-up-planner', { replace: false });
                               setShowNotifications(false);
                             }}
                             className="p-3 mb-2 bg-yellow-50 border border-yellow-200 rounded-lg hover:bg-yellow-100 transition-colors cursor-pointer"
@@ -402,8 +411,10 @@ const MarketingDashboard = () => {
                         {revisionNotifications.map((revision) => (
                           <div
                             key={revision.id}
-                            onClick={() => {
-                              navigate('/marketing/follow-up-planner');
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              navigate('/app/marketing/follow-up-planner', { replace: false });
                               setShowNotifications(false);
                             }}
                             className="p-3 mb-2 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors cursor-pointer"
@@ -456,16 +467,12 @@ const MarketingDashboard = () => {
                   </div>
                 </div>
               )}
-            </div>
-          )}
+          </div>
         </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 md:mb-8">
-          <div
-            onClick={() => navigate('/marketing/enquiry-master')}
-            className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
-          >
+          <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Enquiries</p>
@@ -533,7 +540,11 @@ const MarketingDashboard = () => {
                   return (
                     <div
                       key={index}
-                      onClick={() => navigate(card.path)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        navigate(card.path, { replace: false });
+                      }}
                       className={`${card.color} ${card.hoverColor} text-white rounded-lg p-4 cursor-pointer transition-all transform hover:scale-105 shadow-md`}
                     >
                       <div className="flex items-center space-x-3">
@@ -586,7 +597,11 @@ const MarketingDashboard = () => {
                       {enquiriesInRange.map((enquiry) => (
                         <div
                           key={enquiry.id}
-                          onClick={() => navigate(`/marketing/enquiry-master?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            navigate(`/app/marketing/enquiry-master?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`, { replace: false });
+                          }}
                           className="bg-white border border-gray-200 rounded-lg p-2.5 cursor-pointer hover:bg-purple-50 hover:border-purple-400 hover:shadow-sm transition-all group active:scale-[0.98]"
                         >
                           <div className="flex items-center justify-between gap-2">

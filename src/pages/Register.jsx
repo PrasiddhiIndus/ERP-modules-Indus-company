@@ -44,7 +44,7 @@ const Register = () => {
     } else {
       setSuccess('Account created successfully!')
       setTimeout(() => {
-        navigate('/dashboard') 
+        navigate('/app/dashboard') 
       }, 1500)
     }
     

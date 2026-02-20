@@ -182,7 +182,8 @@ const QuotationForm = ({
 
   const fetchEnquiries = async () => {
     try {
-      const { data } = await supabase
+      // Fetch all enquiries
+      const { data: enquiriesData } = await supabase
         .from('marketing_enquiries')
         .select(`
           id, 
@@ -192,7 +193,31 @@ const QuotationForm = ({
           marketing_clients:client_id (id, client_name)
         `)
         .order('created_at', { ascending: false });
-      setEnquiries(data || []);
+
+      // Fetch all quotations to check which enquiries actually have quotations
+      const { data: quotationsData } = await supabase
+        .from('marketing_quotations')
+        .select('enquiry_id')
+        .not('enquiry_id', 'is', null);
+
+      // Create a set of enquiry IDs that have quotations
+      const enquiryIdsWithQuotations = new Set(
+        (quotationsData || []).map(q => q.enquiry_id)
+      );
+
+      // Mark enquiries with actual quotations and sort (non-converted first)
+      const enquiriesWithStatus = (enquiriesData || []).map(enquiry => ({
+        ...enquiry,
+        hasQuotation: enquiryIdsWithQuotations.has(enquiry.id)
+      }));
+
+      // Sort: non-converted first, then converted
+      enquiriesWithStatus.sort((a, b) => {
+        if (a.hasQuotation === b.hasQuotation) return 0;
+        return a.hasQuotation ? 1 : -1;
+      });
+
+      setEnquiries(enquiriesWithStatus);
     } catch (error) {
       console.error('Error fetching enquiries:', error);
     }
@@ -560,6 +585,9 @@ const QuotationForm = ({
         total_amount: subtotal,
         gst_amount: gstAmount,
         final_amount: finalAmount,
+        // Convert empty date strings to null
+        quotation_date: formData.quotation_date || null,
+        valid_until: formData.valid_until || null,
       };
 
       let result;
@@ -747,7 +775,7 @@ const QuotationForm = ({
             await supabase
               .from('marketing_quotation_revisions')
               .update({
-                revision_date: formData.quotation_date || new Date().toISOString().split('T')[0],
+                revision_date: formData.quotation_date ? formData.quotation_date : new Date().toISOString().split('T')[0],
                 remarks: formData.payment_terms || revisionRecord.remarks || '',
                 updated_at: new Date().toISOString(),
               })
@@ -854,14 +882,20 @@ const QuotationForm = ({
                   }
                 }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                style={{ maxHeight: '200px', overflowY: 'auto' }}
               >
                 <option value="">Select enquiry (optional)</option>
                 {enquiries.map((enquiry) => (
                   <option 
                     key={enquiry.id} 
                     value={enquiry.id}
+                    style={{
+                      backgroundColor: enquiry.hasQuotation ? '#dbeafe' : 'white',
+                      color: enquiry.hasQuotation ? '#1e40af' : 'inherit',
+                      fontWeight: enquiry.hasQuotation ? '600' : 'inherit'
+                    }}
                   >
-                    {enquiry.enquiry_number} {enquiry.is_converted_to_quotation ? '(Already Converted)' : ''}
+                    {enquiry.enquiry_number}{enquiry.hasQuotation ? ' (Already Converted)' : ''}
                   </option>
                 ))}
               </select>

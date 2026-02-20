@@ -35,7 +35,7 @@ const CostingSheetList = () => {
   };
 
   const handleCreateCosting = (quotationId) => {
-    navigate(`/marketing/quotation-tracker/costing/${quotationId}`);
+    navigate(`/app/marketing/quotation-tracker/costing/${quotationId}`);
   };
 
   return (
