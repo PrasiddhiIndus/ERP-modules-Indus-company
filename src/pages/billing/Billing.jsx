@@ -1,21 +1,69 @@
-import React from "react";
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { BillingProvider } from '../../contexts/BillingContext';
+import BillingDashboard from './BillingDashboard';
+import WOPOManagement from './WOPOManagement';
+import CreateInvoice from './CreateInvoice';
+import CreditNotes from './CreditNotes';
+import EInvoice from './EInvoice';
+import BillingReports from './BillingReports';
+import BillingNotifications from './BillingNotifications';
+
+const TAB_IDS = ['dashboard', 'wopo', 'create-invoice', 'credit-notes', 'e-invoice', 'reports', 'notifications'];
 
 const Billing = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pathTab = location.pathname.replace(/^\/app\/billing\/?/, '') || 'dashboard';
+  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(pathTab) ? pathTab : 'dashboard');
+
+  useEffect(() => {
+    const pathTab = location.pathname.replace(/^\/app\/billing\/?/, '') || 'dashboard';
+    if (TAB_IDS.includes(pathTab)) setActiveTab(pathTab);
+  }, [location.pathname]);
+
+  const tabs = [
+    { id: 'dashboard', component: BillingDashboard },
+    { id: 'wopo', component: WOPOManagement },
+    { id: 'create-invoice', component: CreateInvoice },
+    { id: 'credit-notes', component: CreditNotes },
+    { id: 'e-invoice', component: EInvoice },
+    { id: 'reports', component: BillingReports },
+    { id: 'notifications', component: BillingNotifications },
+  ];
+
+  const ActiveComponent = tabs.find((tab) => tab.id === activeTab)?.component || BillingDashboard;
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    if (tabId === 'dashboard') navigate('/app/billing');
+    else navigate(`/app/billing/${tabId}`);
+  };
+
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="bg-white shadow p-6 rounded-lg mb-6">
-        <h2 className="text-2xl font-semibold mb-4">Billing</h2>
-        <div className="text-center py-12">
-          <div className="text-gray-400 mb-4">
-            <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+    <BillingProvider>
+      <div className="min-h-screen bg-gray-50">
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b border-gray-200">
+          <div className="px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Billing</h1>
+                <p className="text-gray-600 mt-1">Invoices, WO/PO, credit notes & e-invoicing</p>
+              </div>
+              <div className="text-sm text-gray-500">
+                Last updated: {new Date().toLocaleDateString()}
+              </div>
+            </div>
           </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Billing Module</h3>
-          <p className="text-gray-500">This module is under development. Billing functionality will be available soon.</p>
+        </div>
+
+        {/* Main Content */}
+        <div className="flex-1">
+          <ActiveComponent onNavigateTab={handleTabChange} />
         </div>
       </div>
-    </div>
+    </BillingProvider>
   );
 };
 

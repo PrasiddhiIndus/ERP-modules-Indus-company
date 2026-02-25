@@ -106,115 +106,105 @@ const IfspEmployeeMaster = () => {
         return;
       }
 
-      // For now, use mock data until database is set up
-      const mockEmployees = [
-        {
-          id: 1,
-          employee_id: 'EMP001',
-          full_name: 'Rajesh Kumar Sharma',
-          gender: 'Male',
-          date_of_joining: '2020-01-15',
-          designation: 'Manager',
-          date_of_birth: '1985-03-15',
-          blood_group: 'A+',
-          aadhar_no: '123456789012',
-          pan_card_no: 'ABCDE1234F',
-          department: 'HR',
-          personal_no: '9876543210',
-          emergency_no: '9876543211',
-          years_of_experience: 8.5,
-          status: 'Active'
-        },
-        {
-          id: 2,
-          employee_id: 'EMP002',
-          full_name: 'Priya Singh',
-          gender: 'Female',
-          date_of_joining: '2021-06-01',
-          designation: 'Senior Executive',
-          date_of_birth: '1990-07-22',
-          blood_group: 'B+',
-          aadhar_no: '234567890123',
-          pan_card_no: 'BCDEF2345G',
-          department: 'Finance',
-          personal_no: '9876543212',
-          emergency_no: '9876543213',
-          years_of_experience: 5.0,
-          status: 'Active'
-        },
-        {
-          id: 3,
-          employee_id: 'EMP003',
-          full_name: 'Amit Patel',
-          gender: 'Male',
-          date_of_joining: '2019-03-10',
-          designation: 'Senior Manager',
-          date_of_birth: '1988-11-10',
-          blood_group: 'O+',
-          aadhar_no: '345678901234',
-          pan_card_no: 'CDEFG3456H',
-          department: 'Operations',
-          personal_no: '9876543214',
-          emergency_no: '9876543215',
-          years_of_experience: 10.0,
-          status: 'Inactive'
-        }
-      ];
+      const { data, error } = await supabase
+        .from('admin_ifsp_employee_master')
+        .select('*')
+        .eq('user_id', user.id)
+        .order(sortField, { ascending: sortDirection === 'asc' });
 
-      setEmployees(mockEmployees);
-      
-      // Uncomment this when database is ready:
-      // const { data, error } = await supabase
-      //   .from('ifsp_employees')
-      //   .select('*')
-      //   .eq('user_id', user.id)
-      //   .order(sortField, { ascending: sortDirection === 'asc' });
-
-      // if (error) throw error;
-      // setEmployees(data || []);
+      if (error) throw error;
+      setEmployees(data || []);
     } catch (error) {
       console.error('Error fetching employees:', error);
+      setEmployees([]);
     } finally {
       setLoading(false);
     }
   };
 
+  const buildPayload = (userEmail) => {
+    const payload = {
+      employee_id: formData.employee_id || null,
+      full_name: formData.full_name || null,
+      gender: formData.gender || null,
+      date_of_joining: formData.date_of_joining || null,
+      designation: formData.designation || null,
+      date_of_birth: formData.date_of_birth || null,
+      date_of_anniversary: formData.date_of_anniversary || null,
+      blood_group: formData.blood_group || null,
+      aadhar_no: formData.aadhar_no || null,
+      pan_card_no: formData.pan_card_no || null,
+      religion: formData.religion || null,
+      father_name: formData.father_name || null,
+      mother_name: formData.mother_name || null,
+      spouse_name: formData.spouse_name || null,
+      son_name: formData.son_name || null,
+      son_dob: formData.son_dob || null,
+      daughter_name: formData.daughter_name || null,
+      address: formData.address || null,
+      full_address: formData.full_address || null,
+      personal_no: formData.personal_no || null,
+      emergency_no: formData.emergency_no || null,
+      identification_mark: formData.identification_mark || null,
+      years_of_experience: formData.years_of_experience ? parseFloat(formData.years_of_experience) : null,
+      qualification: formData.qualification || null,
+      attachments: Array.isArray(formData.attachments) ? formData.attachments : [],
+      birthday_reminder: formData.birthday_reminder !== false,
+      anniversary_reminder: formData.anniversary_reminder !== false,
+      department: formData.department || null,
+      other_experience: formData.other_experience ? parseFloat(formData.other_experience) : null,
+      ifspl_experience: formData.ifspl_experience ? parseFloat(formData.ifspl_experience) : null,
+      date_of_leaving: formData.date_of_leaving || null,
+      status: formData.status || 'Active',
+      status_reason: formData.status_reason || null,
+      updated_by: userEmail,
+      updated_at: new Date().toISOString(),
+    };
+    return payload;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      // For now, work with mock data
-      const employeeData = {
-        ...formData,
-        id: editingEmployee ? editingEmployee.id : Date.now(), // Generate ID for new employees
-        years_of_experience: formData.years_of_experience ? parseFloat(formData.years_of_experience) : null,
-        other_experience: formData.other_experience ? parseFloat(formData.other_experience) : null,
-        ifspl_experience: formData.ifspl_experience ? parseFloat(formData.ifspl_experience) : null,
-      };
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert('Session expired. Please log in again.');
+        return;
+      }
+      const userEmail = user.email || '';
 
       if (editingEmployee) {
-        // Update existing employee in mock data
-        setEmployees(prev => prev.map(emp => 
-          emp.id === editingEmployee.id ? { ...emp, ...employeeData } : emp
-        ));
+        const payload = buildPayload(userEmail);
+        const { error } = await supabase
+          .from('admin_ifsp_employee_master')
+          .update(payload)
+          .eq('id', editingEmployee.id)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
         alert('Employee updated successfully!');
+        await fetchEmployees();
       } else {
-        // Add new employee to mock data
-        setEmployees(prev => [...prev, employeeData]);
+        const payload = buildPayload(userEmail);
+        const { error } = await supabase
+          .from('admin_ifsp_employee_master')
+          .insert({
+            ...payload,
+            user_id: user.id,
+            created_by: userEmail,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
         alert('Employee added successfully!');
+        await fetchEmployees();
       }
 
       resetForm();
-      
-      // Uncomment this when database is ready:
-      // const { data: { user } } = await supabase.auth.getUser();
-      // if (!user) return;
-      // const { error } = await supabase
-      //   .from('ifsp_employees')
-      //   .update(employeeData)
-      //   .eq('id', editingEmployee.id);
     } catch (error) {
       console.error('Error saving employee:', error);
-      alert('Failed to save employee. Please try again.');
+      alert(error?.message || 'Failed to save employee. Please try again.');
     }
   };
 
@@ -259,50 +249,52 @@ const IfspEmployeeMaster = () => {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this employee?')) {
-      try {
-        // Delete from mock data
-        setEmployees(prev => prev.filter(emp => emp.id !== id));
-        alert('Employee deleted successfully!');
-        
-        // Uncomment this when database is ready:
-        // const { error } = await supabase
-        //   .from('ifsp_employees')
-        //   .delete()
-        //   .eq('id', id);
-        // if (error) throw error;
-      } catch (error) {
-        console.error('Error deleting employee:', error);
-        alert('Failed to delete employee. Please try again.');
-      }
+    if (!window.confirm('Are you sure you want to delete this employee?')) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('admin_ifsp_employee_master')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      setEmployees(prev => prev.filter(emp => emp.id !== id));
+      alert('Employee deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting employee:', error);
+      alert(error?.message || 'Failed to delete employee. Please try again.');
     }
   };
 
   const handleStatusChange = async (id, newStatus, reason) => {
     try {
-      // Update status in mock data
-      setEmployees(prev => prev.map(emp => 
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('admin_ifsp_employee_master')
+        .update({
+          status: newStatus,
+          status_reason: reason || null,
+          status_changed_by: user.email,
+          status_changed_at: new Date().toISOString(),
+          updated_by: user.email,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      setEmployees(prev => prev.map(emp =>
         emp.id === id ? { ...emp, status: newStatus, status_reason: reason } : emp
       ));
       alert(`Employee status changed to ${newStatus} successfully!`);
-      
-      // Uncomment this when database is ready:
-      // const { data: { user } } = await supabase.auth.getUser();
-      // if (!user) return;
-      // const { error } = await supabase
-      //   .from('ifsp_employees')
-      //   .update({ 
-      //     status: newStatus,
-      //     status_reason: reason,
-      //     status_changed_by: user.email,
-      //     status_changed_at: new Date().toISOString(),
-      //     updated_by: user.email
-      //   })
-      //   .eq('id', id);
-      // if (error) throw error;
     } catch (error) {
       console.error('Error updating status:', error);
-      alert('Failed to update status. Please try again.');
+      alert(error?.message || 'Failed to update status. Please try again.');
     }
   };
 
@@ -397,19 +389,6 @@ const IfspEmployeeMaster = () => {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  // Fallback in case of any issues
-  if (!employees || employees.length === 0) {
-    return (
-      <div className="p-6">
-        <h1 className="text-3xl font-bold text-gray-900">IFSPL Employee Master</h1>
-        <p className="text-gray-600 mt-2">Complete employee database with Excel-like functionality</p>
-        <div className="mt-8 text-center">
-          <p className="text-gray-500">No employees found. Click "Add Employee" to get started.</p>
-        </div>
       </div>
     );
   }

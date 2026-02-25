@@ -1,11 +1,13 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, useMemo } from "react";
 import { supabase } from "../lib/supabase";
+import { getAccessibleModules } from "../config/roles";
 
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [profileRow, setProfileRow] = useState(null);
   const [loading, setLoading] = useState(true);
   const userRef = useRef(null);
 
@@ -45,6 +47,7 @@ export const AuthProvider = ({ children }) => {
           const newUser = session?.user ?? null;
           userRef.current = newUser?.id ?? null;
           setUser(newUser);
+          setProfileRow(null);
         }
       } catch (error) {
         console.error('Error getting session:', error);
@@ -75,29 +78,95 @@ export const AuthProvider = ({ children }) => {
       if (userRef.current !== newUserId) {
         userRef.current = newUserId;
         setUser(newUser);
+        setProfileRow(null);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Register user + save extra profile info
-  const signUpWithProfile = async (email, password, fullName, phone, company) => {
+  // Fetch profile from DB when user exists (source of truth for role/team/modules)
+  useEffect(() => {
+    if (!user?.id) {
+      setProfileRow(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, email, username, team, role, allowed_modules")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!error && data) {
+        setProfileRow(data);
+        return;
+      }
+      setProfileRow(null);
+      const meta = user?.user_metadata;
+      if (meta && (meta.role != null || meta.team != null)) {
+        try {
+          await supabase.from("profiles").upsert(
+            {
+              id: user.id,
+              email: user.email,
+              username: meta.full_name ?? user.email?.split("@")[0],
+              team: meta.team ?? null,
+              role: meta.role ?? null,
+              allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+            },
+            { onConflict: "id" }
+          );
+          const { data: retry } = await supabase
+            .from("profiles")
+            .select("id, email, username, team, role, allowed_modules")
+            .eq("id", user.id)
+            .maybeSingle();
+          if (!cancelled && retry) setProfileRow(retry);
+        } catch (_) {}
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // Register user + save role-based profile (username, team, role, allowed_modules for manager)
+  const signUpWithProfile = async (email, password, profileData) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/`,
         data: {
-          full_name: fullName,
-          phone,
-          company,
+          full_name: profileData?.username ?? "",
+          phone: profileData?.phone ?? "",
+          company: profileData?.company ?? "",
+          team: profileData?.team ?? null,
+          role: profileData?.role ?? "executive",
+          allowed_modules: profileData?.allowed_modules ?? [],
         },
       },
     });
 
     if (error) return { error };
 
+    if (data?.user) {
+      try {
+        await supabase.from("profiles").upsert(
+          {
+            id: data.user.id,
+            email: data.user.email,
+            username: profileData?.username ?? "",
+            team: profileData?.team ?? null,
+            role: profileData?.role ?? "executive",
+            allowed_modules: profileData?.allowed_modules ?? [],
+          },
+          { onConflict: "id" }
+        );
+      } catch (_) {
+        // Table or RLS may not exist yet; user_metadata is still set
+      }
+    }
     return { data, error: null };
   };
 
@@ -114,6 +183,11 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async (email, password) => {
     return await supabase.auth.signInWithPassword({ email, password });
+  };
+
+  /** Verify 6-digit email OTP (for "Confirm Your Signup" flow). */
+  const verifyEmailOtp = async (email, token) => {
+    return await supabase.auth.verifyOtp({ email, token: token.trim(), type: "email" });
   };
 
   const signOut = async () => {
@@ -166,8 +240,33 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const userProfile = useMemo(() => {
+    if (!user) return null;
+    if (profileRow) {
+      return {
+        username: profileRow.username ?? user?.email?.split("@")[0],
+        team: profileRow.team ?? null,
+        role: profileRow.role ?? null,
+        allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
+      };
+    }
+    const meta = user?.user_metadata;
+    if (!meta) return null;
+    return {
+      username: meta.full_name ?? user?.email?.split("@")[0],
+      team: meta.team ?? null,
+      role: meta.role ?? null,
+      allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+    };
+  }, [user, profileRow]);
+
+  const accessibleModules = useMemo(
+    () => (userProfile ? getAccessibleModules(userProfile) : new Set()),
+    [userProfile]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession }}>
+    <AuthContext.Provider value={{ user, loading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
       {loading ? (
         <div className="flex items-center justify-center h-screen">
           <p>Loading...</p>

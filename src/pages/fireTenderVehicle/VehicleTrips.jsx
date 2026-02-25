@@ -65,12 +65,12 @@ const VehicleTrips = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('vehicle_trips')
+        .from('operations_fire_tender_vehicle_trips')
         .select(`
           *,
-          vehicles_master!inner(registration_number, vehicle_type)
+          operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
-        .eq('vehicles_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
         .order('start_date_time', { ascending: false });
 
       if (error) throw error;
@@ -88,7 +88,7 @@ const VehicleTrips = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('vehicles_master')
+        .from('operations_fire_tender_vehicle_master')
         .select('id, registration_number, vehicle_type, vehicle_status')
         .eq('user_id', user.id)
         .eq('vehicle_status', 'Available')
@@ -108,18 +108,29 @@ const VehicleTrips = () => {
       if (!user) return;
 
       const tripData = {
-        ...formData,
-        user_id: user.id,
-        odometer_start: formData.odometer_start ? parseFloat(formData.odometer_start) : null,
-        odometer_end: formData.odometer_end ? parseFloat(formData.odometer_end) : null,
-        fuel_added: formData.fuel_added ? parseFloat(formData.fuel_added) : 0,
-        fuel_cost: formData.fuel_cost ? parseFloat(formData.fuel_cost) : 0,
-        approval_date: formData.approved_by ? new Date().toISOString() : null
+        vehicle_id: formData.vehicle_id ? (typeof formData.vehicle_id === 'number' ? formData.vehicle_id : parseInt(formData.vehicle_id, 10)) : null,
+        trip_purpose: formData.trip_purpose || null,
+        issued_to_name: formData.issued_to_name || null,
+        issued_to_department: formData.issued_to_department || null,
+        issued_to_contact: formData.issued_to_contact || null,
+        start_date_time: formData.start_date_time && formData.start_date_time.trim() !== '' ? formData.start_date_time : null,
+        end_date_time: formData.end_date_time && formData.end_date_time.trim() !== '' ? formData.end_date_time : null,
+        origin_location: formData.origin_location || null,
+        destination_location: formData.destination_location || null,
+        odometer_start: formData.odometer_start !== '' && formData.odometer_start != null ? parseFloat(formData.odometer_start) : null,
+        odometer_end: formData.odometer_end !== '' && formData.odometer_end != null ? parseFloat(formData.odometer_end) : null,
+        fuel_added: formData.fuel_added !== '' && formData.fuel_added != null ? parseFloat(formData.fuel_added) : 0,
+        fuel_cost: formData.fuel_cost !== '' && formData.fuel_cost != null ? parseFloat(formData.fuel_cost) : 0,
+        trip_status: formData.trip_status || 'Active',
+        approved_by: formData.approved_by || null,
+        approval_date: formData.approved_by && formData.approved_by.trim() !== '' ? new Date().toISOString() : null,
+        remarks: formData.remarks || null,
+        user_id: user.id
       };
 
       if (editingTrip) {
         const { error } = await supabase
-          .from('vehicle_trips')
+          .from('operations_fire_tender_vehicle_trips')
           .update(tripData)
           .eq('id', editingTrip.id);
 
@@ -127,7 +138,7 @@ const VehicleTrips = () => {
         alert('Trip updated successfully!');
       } else {
         const { error } = await supabase
-          .from('vehicle_trips')
+          .from('operations_fire_tender_vehicle_trips')
           .insert([tripData]);
 
         if (error) throw error;
@@ -169,7 +180,7 @@ const VehicleTrips = () => {
     if (window.confirm('Are you sure you want to complete this trip?')) {
       try {
         const { error } = await supabase
-          .from('vehicle_trips')
+          .from('operations_fire_tender_vehicle_trips')
           .update({ 
             trip_status: 'Completed',
             end_date_time: new Date().toISOString()
@@ -190,7 +201,7 @@ const VehicleTrips = () => {
     if (window.confirm('Are you sure you want to cancel this trip?')) {
       try {
         const { error } = await supabase
-          .from('vehicle_trips')
+          .from('operations_fire_tender_vehicle_trips')
           .update({ trip_status: 'Cancelled' })
           .eq('id', tripId);
 
@@ -208,7 +219,7 @@ const VehicleTrips = () => {
     if (window.confirm('Are you sure you want to delete this trip?')) {
       try {
         const { error } = await supabase
-          .from('vehicle_trips')
+          .from('operations_fire_tender_vehicle_trips')
           .delete()
           .eq('id', id);
 
@@ -264,10 +275,11 @@ const VehicleTrips = () => {
   };
 
   const filteredTrips = trips.filter(trip => {
+    const vm = trip.operations_fire_tender_vehicle_master;
     const matchesSearch = 
-      trip.vehicles_master.registration_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      trip.issued_to_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      trip.trip_purpose.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vm?.registration_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      trip.issued_to_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      trip.trip_purpose?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       trip.origin_location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       trip.destination_location?.toLowerCase().includes(searchTerm.toLowerCase());
     
@@ -609,10 +621,10 @@ const VehicleTrips = () => {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm font-medium text-gray-900">
-                        {trip.vehicles_master.registration_number}
+                        {trip.operations_fire_tender_vehicle_master?.registration_number}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {trip.vehicles_master.vehicle_type}
+                        {trip.operations_fire_tender_vehicle_master?.vehicle_type}
                       </div>
                     </div>
                   </td>

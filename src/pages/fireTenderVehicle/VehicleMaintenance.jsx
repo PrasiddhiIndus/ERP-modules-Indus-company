@@ -57,12 +57,12 @@ const VehicleMaintenance = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('vehicle_maintenance')
+        .from('operations_fire_tender_vehicle_maintenance')
         .select(`
           *,
-          vehicles_master!inner(registration_number, vehicle_type)
+          operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
-        .eq('vehicles_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
         .order('service_date', { ascending: false });
 
       if (error) throw error;
@@ -80,7 +80,7 @@ const VehicleMaintenance = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('vehicles_master')
+        .from('operations_fire_tender_vehicle_master')
         .select('id, registration_number, vehicle_type')
         .eq('user_id', user.id)
         .order('registration_number');
@@ -99,15 +99,23 @@ const VehicleMaintenance = () => {
       if (!user) return;
 
       const maintenanceData = {
-        ...formData,
-        user_id: user.id,
-        cost: parseFloat(formData.cost) || 0,
-        odometer_reading: formData.odometer_reading ? parseFloat(formData.odometer_reading) : null
+        vehicle_id: formData.vehicle_id ? (typeof formData.vehicle_id === 'number' ? formData.vehicle_id : parseInt(formData.vehicle_id, 10)) : null,
+        service_date: formData.service_date && formData.service_date.trim() !== '' ? formData.service_date : null,
+        vendor: formData.vendor || null,
+        service_type: formData.service_type || null,
+        cost: formData.cost !== '' && formData.cost != null ? parseFloat(formData.cost) : 0,
+        odometer_reading: formData.odometer_reading !== '' && formData.odometer_reading != null ? parseFloat(formData.odometer_reading) : null,
+        nature_of_repair: formData.nature_of_repair || null,
+        parts_replaced: formData.parts_replaced || null,
+        next_service_due: formData.next_service_due && formData.next_service_due.trim() !== '' ? formData.next_service_due : null,
+        remarks: formData.remarks || null,
+        attachment_url: formData.attachment_url || null,
+        user_id: user.id
       };
 
       if (editingMaintenance) {
         const { error } = await supabase
-          .from('vehicle_maintenance')
+          .from('operations_fire_tender_vehicle_maintenance')
           .update(maintenanceData)
           .eq('id', editingMaintenance.id);
 
@@ -115,7 +123,7 @@ const VehicleMaintenance = () => {
         alert('Maintenance record updated successfully!');
       } else {
         const { error } = await supabase
-          .from('vehicle_maintenance')
+          .from('operations_fire_tender_vehicle_maintenance')
           .insert([maintenanceData]);
 
         if (error) throw error;
@@ -152,7 +160,7 @@ const VehicleMaintenance = () => {
     if (window.confirm('Are you sure you want to delete this maintenance record?')) {
       try {
         const { error } = await supabase
-          .from('vehicle_maintenance')
+          .from('operations_fire_tender_vehicle_maintenance')
           .delete()
           .eq('id', id);
 
@@ -210,13 +218,14 @@ const VehicleMaintenance = () => {
   };
 
   const filteredMaintenance = maintenance.filter(record => {
+    const vm = record.operations_fire_tender_vehicle_master;
     const matchesSearch = 
-      record.vehicles_master.registration_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      record.vendor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vm?.registration_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.vendor?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       record.service_type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       record.nature_of_repair?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesVehicle = vehicleFilter === 'All' || record.vehicle_id.toString() === vehicleFilter;
+    const matchesVehicle = vehicleFilter === 'All' || record.vehicle_id?.toString() === vehicleFilter;
     const matchesServiceType = serviceTypeFilter === 'All' || record.service_type === serviceTypeFilter;
     
     return matchesSearch && matchesVehicle && matchesServiceType;
@@ -502,10 +511,10 @@ const VehicleMaintenance = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {record.vehicles_master.registration_number}
+                          {record.operations_fire_tender_vehicle_master?.registration_number}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {record.vehicles_master.vehicle_type}
+                          {record.operations_fire_tender_vehicle_master?.vehicle_type}
                         </div>
                         {record.odometer_reading && (
                           <div className="text-xs text-gray-400">
