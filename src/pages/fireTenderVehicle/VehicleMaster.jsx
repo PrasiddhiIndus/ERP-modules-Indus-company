@@ -70,10 +70,10 @@ const VehicleMaster = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('vehicles_master')
+        .from('operations_fire_tender_vehicle_master')
         .select(`
           *,
-          drivers(full_name, contact_number)
+          operations_fire_tender_vehicle_drivers(full_name, contact_number)
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
@@ -93,7 +93,7 @@ const VehicleMaster = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('drivers')
+        .from('operations_fire_tender_vehicle_drivers')
         .select('id, full_name, contact_number, license_number')
         .eq('user_id', user.id)
         .eq('is_active', true)
@@ -113,16 +113,30 @@ const VehicleMaster = () => {
       if (!user) return;
 
       const vehicleData = {
-        ...formData,
-        user_id: user.id,
-        year_of_manufacture: formData.year_of_manufacture ? parseInt(formData.year_of_manufacture) : null,
-        current_odometer_reading: formData.current_odometer_reading ? parseFloat(formData.current_odometer_reading) : 0,
-        assigned_driver_id: formData.assigned_driver_id || null
+        vehicle_type: formData.vehicle_type || null,
+        registration_number: formData.registration_number || null,
+        chassis_number: formData.chassis_number || null,
+        engine_number: formData.engine_number || null,
+        make: formData.make || null,
+        model: formData.model || null,
+        year_of_manufacture: formData.year_of_manufacture ? parseInt(formData.year_of_manufacture, 10) : null,
+        date_of_purchase: formData.date_of_purchase && formData.date_of_purchase.trim() !== '' ? formData.date_of_purchase : null,
+        date_of_commissioning: formData.date_of_commissioning && formData.date_of_commissioning.trim() !== '' ? formData.date_of_commissioning : null,
+        assigned_location: formData.assigned_location || null,
+        assigned_site: formData.assigned_site || null,
+        assigned_department: formData.assigned_department || null,
+        assigned_driver_id: formData.assigned_driver_id ? (typeof formData.assigned_driver_id === 'number' ? formData.assigned_driver_id : parseInt(formData.assigned_driver_id, 10)) : null,
+        vehicle_status: formData.vehicle_status || 'Available',
+        current_odometer_reading: formData.current_odometer_reading !== '' && formData.current_odometer_reading != null ? parseFloat(formData.current_odometer_reading) : 0,
+        last_service_date: formData.last_service_date && formData.last_service_date.trim() !== '' ? formData.last_service_date : null,
+        next_service_due: formData.next_service_due && formData.next_service_due.trim() !== '' ? formData.next_service_due : null,
+        remarks: formData.remarks || null,
+        user_id: user.id
       };
 
       if (editingVehicle) {
         const { error } = await supabase
-          .from('vehicles_master')
+          .from('operations_fire_tender_vehicle_master')
           .update(vehicleData)
           .eq('id', editingVehicle.id);
 
@@ -130,7 +144,7 @@ const VehicleMaster = () => {
         alert('Vehicle updated successfully!');
       } else {
         const { error } = await supabase
-          .from('vehicles_master')
+          .from('operations_fire_tender_vehicle_master')
           .insert([vehicleData]);
 
         if (error) throw error;
@@ -174,7 +188,7 @@ const VehicleMaster = () => {
     if (window.confirm('Are you sure you want to delete this vehicle?')) {
       try {
         const { error } = await supabase
-          .from('vehicles_master')
+          .from('operations_fire_tender_vehicle_master')
           .delete()
           .eq('id', id);
 
@@ -607,11 +621,11 @@ const VehicleMaster = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">
-                      {vehicle.drivers?.full_name || 'Unassigned'}
+                      {vehicle.operations_fire_tender_vehicle_drivers?.full_name || 'Unassigned'}
                     </div>
-                    {vehicle.drivers?.contact_number && (
+                    {vehicle.operations_fire_tender_vehicle_drivers?.contact_number && (
                       <div className="text-xs text-gray-500">
-                        {vehicle.drivers.contact_number}
+                        {vehicle.operations_fire_tender_vehicle_drivers.contact_number}
                       </div>
                     )}
                   </td>

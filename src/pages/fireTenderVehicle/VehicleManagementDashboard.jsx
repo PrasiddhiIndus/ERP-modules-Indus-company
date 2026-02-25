@@ -41,7 +41,7 @@ const VehicleManagementDashboard = () => {
 
       // Fetch vehicle counts by status
       const { data: vehicles, error: vehiclesError } = await supabase
-        .from('vehicles_master')
+        .from('operations_fire_tender_vehicle_master')
         .select('vehicle_status')
         .eq('user_id', user.id);
 
@@ -55,13 +55,14 @@ const VehicleManagementDashboard = () => {
 
       // Fetch document expiries
       const { data: expiries, error: expiriesError } = await supabase
-        .from('vehicle_documents')
+        .from('operations_fire_tender_vehicle_documents')
         .select(`
           expiry_date,
           alert_status,
-          vehicles_master!inner(registration_number)
+          document_type,
+          operations_fire_tender_vehicle_master!inner(registration_number)
         `)
-        .eq('vehicles_master.user_id', user.id);
+        .eq('operations_fire_tender_vehicle_master.user_id', user.id);
 
       if (expiriesError) throw expiriesError;
 
@@ -70,16 +71,16 @@ const VehicleManagementDashboard = () => {
 
       // Fetch active trips
       const { data: trips, error: tripsError } = await supabase
-        .from('vehicle_trips')
+        .from('operations_fire_tender_vehicle_trips')
         .select(`
           id,
           trip_purpose,
           issued_to_name,
           start_date_time,
-          vehicles_master!inner(registration_number)
+          operations_fire_tender_vehicle_master!inner(registration_number)
         `)
         .eq('trip_status', 'Active')
-        .eq('vehicles_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
         .order('start_date_time', { ascending: false })
         .limit(5);
 
@@ -87,7 +88,7 @@ const VehicleManagementDashboard = () => {
 
       // Fetch drivers count
       const { data: drivers, error: driversError } = await supabase
-        .from('drivers')
+        .from('operations_fire_tender_vehicle_drivers')
         .select('id')
         .eq('user_id', user.id)
         .eq('is_active', true);
@@ -270,7 +271,7 @@ const VehicleManagementDashboard = () => {
                 {recentTrips.map((trip) => (
                   <div key={trip.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900">{trip.vehicles_master.registration_number}</p>
+                      <p className="font-medium text-gray-900">{trip.operations_fire_tender_vehicle_master?.registration_number}</p>
                       <p className="text-sm text-gray-600">{trip.trip_purpose}</p>
                       <p className="text-sm text-gray-500">Issued to: {trip.issued_to_name}</p>
                     </div>
@@ -308,7 +309,7 @@ const VehicleManagementDashboard = () => {
                 {upcomingExpiries.map((expiry, index) => (
                   <div key={index} className="flex items-center justify-between p-4 bg-orange-50 rounded-lg">
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900">{expiry.vehicles_master.registration_number}</p>
+                      <p className="font-medium text-gray-900">{expiry.operations_fire_tender_vehicle_master?.registration_number}</p>
                       <p className="text-sm text-gray-600">{expiry.document_type}</p>
                     </div>
                     <div className="text-right">

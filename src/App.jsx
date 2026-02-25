@@ -50,6 +50,7 @@ import GatePass from "./pages/admin/GatePass";
 import FireTenderManufacturing from "./pages/fireTenderManufacturing/FireTenderManufacturing";
 import AMC from "./pages/amc/AMC";
 import Settings from "./pages/Settings";
+import UserManagement from "./pages/UserManagement";
 
 // Marketing Module
 import MarketingDashboard from "./pages/marketing/MarketingDashboard";
@@ -159,6 +160,12 @@ function App() {
             
             {/* Billing */}
             <Route path="billing" element={<Billing />} />
+            <Route path="billing/wopo" element={<Billing />} />
+            <Route path="billing/create-invoice" element={<Billing />} />
+            <Route path="billing/credit-notes" element={<Billing />} />
+            <Route path="billing/e-invoice" element={<Billing />} />
+            <Route path="billing/reports" element={<Billing />} />
+            <Route path="billing/notifications" element={<Billing />} />
             
             {/* Operations */}
             <Route path="operations" element={<Operations />} />
@@ -196,6 +203,9 @@ function App() {
             <Route path="marketing/purchase-orders" element={<PurchaseOrders />} />
             <Route path="marketing/expo-seminar" element={<ExpoSeminar />} />
             <Route path="marketing/gst-upload" element={<GSTUpload />} />
+
+            {/* User Management (admin only) */}
+            <Route path="user-management" element={<UserManagement />} />
 
             {/* Settings */}
             <Route path="settings" element={<Settings />} />

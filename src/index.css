@@ -1,3 +1,127 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* INDUS OS – Command Interface login */
+.login-page {
+  --indus-red: #C8102E;
+  --indus-red-hover: #A50D25;
+  --midnight: #0B1220;
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glow-cyan: rgba(0, 212, 255, 0.25);
+  --glow-red: rgba(200, 16, 46, 0.4);
+}
+
+.login-page .login-grid-bg {
+  background-image:
+    linear-gradient(rgba(30, 144, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 144, 255, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: gridMove 20s linear infinite;
+}
+
+@keyframes gridMove {
+  0% { background-position: 0 0; }
+  100% { background-position: 48px 48px; }
+}
+
+.login-page .login-glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.login-page .login-input:focus {
+  outline: none;
+  border-color: rgba(0, 212, 255, 0.5);
+  box-shadow: 0 0 0 3px var(--glow-cyan);
+}
+
+.login-page .login-btn-primary {
+  background-color: var(--indus-red);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.login-page .login-btn-primary:hover:not(:disabled) {
+  background-color: var(--indus-red-hover);
+  transform: scale(1.02);
+  box-shadow: 0 0 24px var(--glow-red);
+}
+
+.login-page .login-spinner {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: var(--indus-red);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Rotating stat text */
+.login-stat-enter {
+  animation: statFadeIn 0.5s ease-out forwards;
+}
+
+@keyframes statFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Detailed layout – metric cards, sections, dividers */
+.login-page .login-metric-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 0.875rem 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.login-page .login-metric-card:hover {
+  border-color: rgba(30, 144, 255, 0.2);
+  box-shadow: 0 0 20px rgba(30, 144, 255, 0.06);
+}
+
+.login-page .login-capability-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  color: rgba(243, 244, 246, 0.9);
+}
+
+.login-page .login-section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+}
+
+.login-page .login-accent-bar {
+  height: 3px;
+  background: linear-gradient(90deg, #C8102E, #1E90FF);
+  border-radius: 0 0 2px 2px;
+}
+
+.login-page .login-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #10B981;
+  text-transform: uppercase;
+}
+
+.login-page .login-card-badge {
+  font-size: 0.65rem;
+  color: rgba(156, 163, 175, 0.8);
+  letter-spacing: 0.05em;
+}

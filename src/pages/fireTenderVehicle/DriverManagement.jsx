@@ -56,7 +56,7 @@ const DriverManagement = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('drivers')
+        .from('operations_fire_tender_vehicle_drivers')
         .select('*')
         .eq('user_id', user.id)
         .order('full_name');
@@ -77,14 +77,22 @@ const DriverManagement = () => {
       if (!user) return;
 
       const driverData = {
-        ...formData,
-        user_id: user.id,
-        is_active: formData.is_active === 'true' || formData.is_active === true
+        employee_id: formData.employee_id || null,
+        full_name: formData.full_name || null,
+        contact_number: formData.contact_number || null,
+        email: formData.email || null,
+        license_number: formData.license_number || null,
+        license_type: formData.license_type || null,
+        license_expiry_date: formData.license_expiry_date && formData.license_expiry_date.trim() !== '' ? formData.license_expiry_date : null,
+        department: formData.department || null,
+        designation: formData.designation || null,
+        is_active: formData.is_active === 'true' || formData.is_active === true,
+        user_id: user.id
       };
 
       if (editingDriver) {
         const { error } = await supabase
-          .from('drivers')
+          .from('operations_fire_tender_vehicle_drivers')
           .update(driverData)
           .eq('id', editingDriver.id);
 
@@ -92,7 +100,7 @@ const DriverManagement = () => {
         alert('Driver updated successfully!');
       } else {
         const { error } = await supabase
-          .from('drivers')
+          .from('operations_fire_tender_vehicle_drivers')
           .insert([driverData]);
 
         if (error) throw error;
@@ -128,7 +136,7 @@ const DriverManagement = () => {
     if (window.confirm('Are you sure you want to delete this driver?')) {
       try {
         const { error } = await supabase
-          .from('drivers')
+          .from('operations_fire_tender_vehicle_drivers')
           .delete()
           .eq('id', id);
 
@@ -145,7 +153,7 @@ const DriverManagement = () => {
   const handleToggleStatus = async (id, currentStatus) => {
     try {
       const { error } = await supabase
-        .from('drivers')
+        .from('operations_fire_tender_vehicle_drivers')
         .update({ is_active: !currentStatus })
         .eq('id', id);
 

@@ -57,12 +57,12 @@ const VehicleDocuments = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('vehicle_documents')
+        .from('operations_fire_tender_vehicle_documents')
         .select(`
           *,
-          vehicles_master!inner(registration_number, vehicle_type)
+          operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
-        .eq('vehicles_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
         .order('expiry_date', { ascending: true });
 
       if (error) throw error;
@@ -80,7 +80,7 @@ const VehicleDocuments = () => {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from('vehicles_master')
+        .from('operations_fire_tender_vehicle_master')
         .select('id, registration_number, vehicle_type')
         .eq('user_id', user.id)
         .order('registration_number');
@@ -99,15 +99,22 @@ const VehicleDocuments = () => {
       if (!user) return;
 
       const documentData = {
-        ...formData,
+        vehicle_id: formData.vehicle_id ? (typeof formData.vehicle_id === 'number' ? formData.vehicle_id : parseInt(formData.vehicle_id, 10)) : null,
+        document_type: formData.document_type || null,
+        document_number: formData.document_number || null,
+        issue_date: formData.issue_date && formData.issue_date.trim() !== '' ? formData.issue_date : null,
+        expiry_date: formData.expiry_date && formData.expiry_date.trim() !== '' ? formData.expiry_date : null,
+        provider: formData.provider || null,
+        premium_amount: formData.premium_amount !== '' && formData.premium_amount != null ? parseFloat(formData.premium_amount) : null,
+        file_url: formData.file_url || null,
+        remarks: formData.remarks || null,
         user_id: user.id,
-        premium_amount: formData.premium_amount ? parseFloat(formData.premium_amount) : null,
         alert_status: getAlertStatus(formData.expiry_date)
       };
 
       if (editingDocument) {
         const { error } = await supabase
-          .from('vehicle_documents')
+          .from('operations_fire_tender_vehicle_documents')
           .update(documentData)
           .eq('id', editingDocument.id);
 
@@ -115,7 +122,7 @@ const VehicleDocuments = () => {
         alert('Document updated successfully!');
       } else {
         const { error } = await supabase
-          .from('vehicle_documents')
+          .from('operations_fire_tender_vehicle_documents')
           .insert([documentData]);
 
         if (error) throw error;
@@ -161,7 +168,7 @@ const VehicleDocuments = () => {
     if (window.confirm('Are you sure you want to delete this document?')) {
       try {
         const { error } = await supabase
-          .from('vehicle_documents')
+          .from('operations_fire_tender_vehicle_documents')
           .delete()
           .eq('id', id);
 
@@ -218,9 +225,10 @@ const VehicleDocuments = () => {
   };
 
   const filteredDocuments = documents.filter(document => {
+    const vm = document.operations_fire_tender_vehicle_master;
     const matchesSearch = 
-      document.vehicles_master.registration_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      document.document_type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      vm?.registration_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      document.document_type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       document.document_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       document.provider?.toLowerCase().includes(searchTerm.toLowerCase());
     
@@ -485,10 +493,10 @@ const VehicleDocuments = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {document.vehicles_master.registration_number}
+                          {document.operations_fire_tender_vehicle_master?.registration_number}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {document.vehicles_master.vehicle_type}
+                          {document.operations_fire_tender_vehicle_master?.vehicle_type}
                         </div>
                       </div>
                     </td>
