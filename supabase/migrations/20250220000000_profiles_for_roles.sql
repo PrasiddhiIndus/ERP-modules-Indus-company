@@ -1,6 +1,12 @@
 -- Profiles table: stores role, team, and allowed_modules for each user.
 -- Used for listing users in Admin User Management and as source of truth for access.
--- Run this in Supabase SQL Editor if you use Supabase.
+--
+-- IMPORTANT: Run this entire file in Supabase Dashboard → SQL Editor to create
+-- the table and RLS. The app uses user_metadata for roles until you enable profiles:
+--   - To avoid 500 on /rest/v1/profiles, leave VITE_USE_PROFILES_TABLE unset (default).
+--   - After this migration runs successfully, set VITE_USE_PROFILES_TABLE=true in .env
+--     and restart the app to use the profiles table for roles and User Management.
+-- If 500 persists after running this, check Dashboard → Logs (Postgres / API) for the real error.
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -15,6 +21,13 @@ create table if not exists public.profiles (
 
 -- RLS
 alter table public.profiles enable row level security;
+
+-- Drop policies if they exist (safe to re-run this migration)
+drop policy if exists "Users can read own profile" on public.profiles;
+drop policy if exists "Admins can read all profiles" on public.profiles;
+drop policy if exists "Users can insert own profile" on public.profiles;
+drop policy if exists "Users can update own profile" on public.profiles;
+drop policy if exists "Admins can update any profile" on public.profiles;
 
 -- Users can read their own profile
 create policy "Users can read own profile"
