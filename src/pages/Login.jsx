@@ -21,6 +21,12 @@ const isEmailNotConfirmedError = (err) => {
   return msg.includes('email not confirmed') || msg.includes('signup_not_confirmed') || msg.includes('confirm your signup')
 }
 
+const isNetworkOrFetchError = (err) => {
+  if (!err?.message) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('failed to fetch') || msg.includes('cannot reach supabase') || msg.includes('timed out') || msg.includes('networkerror')
+}
+
 const METRICS = [
   { value: '32+', label: 'Years of excellence', icon: Building2 },
   { value: '2000+', label: 'Workforce managed', icon: Users },
@@ -67,6 +73,11 @@ const Login = () => {
       if (isEmailNotConfirmedError(signInError)) {
         setShowVerifyCode(true)
         setError('Check your email for a 6-digit code and enter it below to verify your account.')
+      } else if (isNetworkOrFetchError(signInError)) {
+        setError(
+          signInError.message +
+            ' — Fix: Copy .env.example to .env, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then run "npm run dev" again.'
+        )
       } else {
         setError(signInError.message)
       }
