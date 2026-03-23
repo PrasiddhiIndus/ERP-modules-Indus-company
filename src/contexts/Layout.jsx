@@ -97,6 +97,7 @@ const Layout = () => {
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass")) setAdminOpen(true);
     if (pathname.startsWith("/app/manpower")) setSalesOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
+    if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial")) setSalesOpen(true);
     if (pathname.startsWith("/app/billing")) setBillingOpen(true);
     if (pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations")) setOperationsOpen(true);
     if (pathname.startsWith("/app/projects")) setProjectsOpen(true);
@@ -133,7 +134,7 @@ const Layout = () => {
             {can("overview") && (
               <NavLink to="/app/dashboard" className={topNavClass}>
                 <BarChart3 className="w-4 h-4 shrink-0" />
-                <span className="text-sm font-medium">Overview</span>
+                <span className="text-sm font-medium">Dashboard</span>
               </NavLink>
             )}
 
@@ -260,16 +261,16 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Sales */}
-            {can("sales") && (
+            {/* Commercial (renamed from Sales: Manpower + PO Entry + Contact Log) */}
+            {(can("sales") || can("commercial")) && (
             <div>
               <button
                 onClick={() => setSalesOpen(!salesOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/manpower") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Briefcase className="w-4 h-4 shrink-0" />
-                  <span className="text-sm font-medium">Sales</span>
+                  <span className="text-sm font-medium">Commercial</span>
                 </span>
                 <ChevronDown
                   className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
@@ -291,6 +292,14 @@ const Layout = () => {
                   <NavLink to="manpower/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
                     <span className="text-xs">Internal Quotation</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial" end className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-blue-600" />
+                    <span className="text-xs">PO Entry</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/contact-log" className={subNavClass}>
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <span className="text-xs">Contact Log</span>
                   </NavLink>
                 </div>
               )}
@@ -379,37 +388,42 @@ const Layout = () => {
                   }`}
                 />
               </button>
-
               {billingOpen && (
                 <div className="ml-6 mt-0.5 space-y-0.5">
                   <NavLink to="/app/billing" end className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-purple-600" />
                     <span className="text-xs">Billing Dashboard</span>
                   </NavLink>
-                  <NavLink to="/app/billing/wopo" className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-blue-600" />
-                    <span className="text-xs">WO/PO Management</span>
-                  </NavLink>
                   <NavLink to="/app/billing/create-invoice" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-emerald-600" />
                     <span className="text-xs">Create Invoice</span>
                   </NavLink>
+                  <NavLink to="/app/billing/manage-invoices" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-blue-600" />
+                    <span className="text-xs">Manage Invoices</span>
+                  </NavLink>
+                  <NavLink to="/app/billing/generated-e-invoice" className={subNavClass}>
+                    <FileDigit className="w-4 h-4 shrink-0 text-green-600" />
+                    <span className="text-xs">Generated E-Invoice</span>
+                  </NavLink>
                   <NavLink to="/app/billing/credit-notes" className={subNavClass}>
                     <Receipt className="w-4 h-4 shrink-0 text-amber-600" />
-                    <span className="text-xs">Credit Notes</span>
-                  </NavLink>
-                  <NavLink to="/app/billing/e-invoice" className={subNavClass}>
-                    <FileDigit className="w-4 h-4 shrink-0 text-green-600" />
-                    <span className="text-xs">E-invoice</span>
+                    <span className="text-xs">Credit/Debit Notes</span>
                   </NavLink>
                   <NavLink to="/app/billing/reports" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-indigo-600" />
                     <span className="text-xs">Reports</span>
                   </NavLink>
+                  <NavLink to="/app/billing/tracking" className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-teal-600" />
+                    <span className="text-xs">Tracking</span>
+                  </NavLink>
                   <NavLink to="/app/billing/notifications" className={subNavClass}>
                     <Bell className="w-4 h-4 shrink-0 text-teal-600" />
                     <span className="text-xs">Notifications</span>
                   </NavLink>
+                  {/* After manage workflow: list of IRN-generated invoices */}
+                 
                 </div>
               )}
             </div>
@@ -563,6 +577,7 @@ const Layout = () => {
               <span className="text-sm font-medium">Settings</span>
             </NavLink>
             )}
+
           </nav>
 
           {/* Account Info */}

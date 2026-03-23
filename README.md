@@ -14,3 +14,4 @@
   - [PROJECT_DOCUMENTATION.txt](./PROJECT_DOCUMENTATION.txt) – Plain text (for sharing/printing)
 
 - **Module-specific docs:** See `docs/` (Billing, E-Invoice), `VEHICLE_MANAGEMENT_README.md`, `IFSPL_EMPLOYEE_MASTER_README.md`, `QUOTATION_REVISION_FEATURES.md`.
+- **Billing – changes & process:** [docs/BILLING_CHANGES_AND_PROCESS.md](./docs/BILLING_CHANGES_AND_PROCESS.md) – Lists recent changes (e.g. Tax Invoice PDF download, default PO end dates) and the step-by-step Billing process for anyone to follow.

@@ -1,157 +1,221 @@
 import React, { useState, useMemo } from 'react';
-import { BarChart3, Filter, History, AlertTriangle } from 'lucide-react';
+import { BarChart3, Filter, Users, AlertCircle, FileText, TrendingDown } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 
 const BillingReports = () => {
-  const { wopoList, bills, billingHistory } = useBilling();
-  const [filterMonth, setFilterMonth] = useState('');
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
-  const [filterSite, setFilterSite] = useState('');
+  const { commercialPOs, invoices, paymentAdvice } = useBilling();
+  const [filterClient, setFilterClient] = useState('');
+  const [filterOC, setFilterOC] = useState('');
 
-  const sites = useMemo(() => {
-    const s = new Set(wopoList.map((w) => w.client_name).filter(Boolean));
+  const clients = useMemo(() => {
+    const s = new Set(invoices.map((i) => i.clientLegalName || i.client_name).filter(Boolean));
     return Array.from(s).sort();
-  }, [wopoList]);
+  }, [invoices]);
 
-  const approvedBills = useMemo(() => bills.filter((b) => b.status === 'approved'), [bills]);
+  const ocNumbers = useMemo(() => {
+    const s = new Set(invoices.map((i) => i.ocNumber).filter(Boolean));
+    return Array.from(s).sort();
+  }, [invoices]);
 
-  const filteredBills = useMemo(() => {
-    let list = approvedBills;
-    if (filterYear) {
-      list = list.filter((b) => b.created_at && b.created_at.startsWith(filterYear));
-    }
-    if (filterMonth) {
-      const m = filterMonth.padStart(2, '0');
-      list = list.filter((b) => b.created_at && b.created_at.slice(0, 7) === `${filterYear}-${m}`);
-    }
-    if (filterSite) {
-      list = list.filter((b) => (b.client_name || b.site) === filterSite);
-    }
+  const outstandingDebtors = useMemo(() => {
+    let list = invoices.filter((inv) => (inv.pendingAmount ?? 0) > 0);
+    if (filterClient) list = list.filter((i) => (i.clientLegalName || i.client_name) === filterClient);
+    if (filterOC) list = list.filter((i) => i.ocNumber === filterOC);
     return list;
-  }, [approvedBills, filterYear, filterMonth, filterSite]);
+  }, [invoices, filterClient, filterOC]);
 
-  const estimatedRevenue = useMemo(() => {
-    let total = 0;
-    wopoList.forEach((w) => {
-      if (w.approval_status !== 'approved') return;
-      if (filterSite && w.client_name !== filterSite) return;
-      if (w.rates && typeof w.rates === 'string' && w.rates.match(/[\d,]+/)) {
-        const n = parseFloat(w.rates.replace(/[^0-9.]/g, '')) || 0;
-        total += n;
-      }
-    });
-    return total;
-  }, [wopoList, filterSite]);
+  const gapReport = useMemo(() => {
+    return invoices.filter((inv) => inv.paymentStatus === true && (inv.paStatus || 'Pending') !== 'Received');
+  }, [invoices]);
 
-  const actualBilled = useMemo(() => {
-    let total = 0;
-    filteredBills.forEach((b) => {
-      (b.items || []).forEach((i) => {
-        if (i.amount && typeof i.amount === 'string' && i.amount.match(/[\d,]+/)) {
-          total += parseFloat(i.amount.replace(/[^0-9.]/g, '')) || 0;
-        }
+  const deductionAnalysis = useMemo(() => {
+    const list = [];
+    Object.entries(paymentAdvice || {}).forEach(([invoiceId, pa]) => {
+      const inv = invoices.find((i) => String(i.id) === String(invoiceId));
+      if (!pa.deductionRemarks) return;
+      list.push({
+        invoiceNumber: inv?.taxInvoiceNumber || inv?.bill_number,
+        siteId: inv?.siteId,
+        client: inv?.clientLegalName || inv?.client_name,
+        remarks: pa.deductionRemarks,
+        amount: pa.penaltyDeductionAmount ?? 0,
       });
     });
-    return total;
-  }, [filteredBills]);
+    return list;
+  }, [invoices, paymentAdvice]);
+
+  const lessBilledSites = useMemo(() => {
+    const bySite = {};
+    invoices.forEach((inv) => {
+      const key = inv.siteId || inv.ocNumber;
+      if (!key) return;
+      if (!bySite[key]) bySite[key] = { siteId: inv.siteId, ocNumber: inv.ocNumber, client: inv.clientLegalName || inv.client_name, totalExpected: 0, totalBilled: 0, lessBilled: 0 };
+      bySite[key].totalExpected += inv.expectedPOAmount ?? 0;
+      bySite[key].totalBilled += inv.calculatedInvoiceAmount ?? 0;
+    });
+    return Object.values(bySite)
+      .map((s) => ({ ...s, lessBilled: s.totalExpected - s.totalBilled }))
+      .filter((s) => s.lessBilled > 0)
+      .sort((a, b) => b.lessBilled - a.lessBilled);
+  }, [invoices]);
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="bg-purple-100 p-3 rounded-lg shrink-0">
-            <BarChart3 className="w-6 h-6 text-purple-600" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold text-gray-900">Billing Reports</h2>
-            <p className="text-sm text-gray-600">Estimated vs Actual Billed, filters by Month, Year, Site. Billing History for cancelled bills.</p>
-          </div>
+      <div className="flex items-center space-x-3">
+        <div className="bg-purple-100 p-3 rounded-lg shrink-0">
+          <BarChart3 className="w-6 h-6 text-purple-600" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Report Center</h2>
+          <p className="text-sm text-gray-600">Outstanding Debtors, Gap Report, Deduction Analysis, Less Billed sites</p>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-        <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-          <Filter className="w-4 h-4" />
-          Filters
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-            >
-              {[2023, 2024, 2025, 2026].map((y) => (
-                <option key={y} value={String(y)}>{y}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
-            <select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="">All months</option>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
-                <option key={m} value={String(m)}>{new Date(2000, m - 1).toLocaleString('default', { month: 'long' })}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Site / Client</label>
-            <select
-              value={filterSite}
-              onChange={(e) => setFilterSite(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="">All sites</option>
-              {sites.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Estimated vs Actual Billed */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <p className="text-sm font-medium text-gray-600">Estimated Revenue</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">₹{estimatedRevenue.toLocaleString('en-IN')}</p>
-          <p className="text-xs text-gray-500 mt-1">From approved WO/POs (filtered by site)</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <p className="text-sm font-medium text-gray-600">Actual Billed</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">₹{actualBilled.toLocaleString('en-IN')}</p>
-          <p className="text-xs text-gray-500 mt-1">From approved bills (filtered by month/year/site)</p>
-        </div>
-      </div>
-
-      {/* Billing History – cancelled bills (audit trail) */}
+      {/* Outstanding Debtors */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
-          <History className="w-5 h-5 text-gray-600" />
-          <h3 className="font-semibold text-gray-900">Billing History (cancelled/rejected bills)</h3>
-        </div>
-        <div className="p-4">
-          <p className="text-sm text-gray-500 mb-2">Cancelled bills are moved here for audit; they are not deleted.</p>
-          {billingHistory.length === 0 ? (
-            <p className="text-sm text-gray-500">No cancelled bills in history.</p>
-          ) : (
-            <ul className="divide-y divide-gray-200">
-              {billingHistory.map((b) => (
-                <li key={b.id} className="py-2 flex justify-between items-center text-sm">
-                  <span className="text-gray-900">{b.bill_number} · {b.oc_number} · {b.client_name}</span>
-                  <span className="text-gray-500">Cancelled {b.cancelled_at || b.created_at}</span>
-                </li>
+        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex flex-wrap items-center gap-3">
+          <Users className="w-5 h-5 text-gray-600" />
+          <h3 className="font-semibold text-gray-900">Outstanding Debtors</h3>
+          <div className="flex flex-wrap gap-2 ml-auto">
+            <select
+              value={filterClient}
+              onChange={(e) => setFilterClient(e.target.value)}
+              className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+            >
+              <option value="">All clients</option>
+              {clients.map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
-            </ul>
-          )}
+            </select>
+            <select
+              value={filterOC}
+              onChange={(e) => setFilterOC(e.target.value)}
+              className="px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+            >
+              <option value="">All OC numbers</option>
+              {ocNumbers.map((oc) => (
+                <option key={oc} value={oc}>{oc}</option>
+              ))}
+            </select>
+          </div>
         </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Client / OC</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pending Amount (₹)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {outstandingDebtors.map((inv) => (
+                <tr key={inv.id}>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{inv.taxInvoiceNumber || inv.bill_number}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{inv.clientLegalName || inv.client_name} · {inv.ocNumber}</td>
+                  <td className="px-4 py-3 text-sm text-gray-900">₹{(inv.pendingAmount ?? 0).toLocaleString('en-IN')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {outstandingDebtors.length === 0 && <div className="p-6 text-center text-gray-500 text-sm">No outstanding debtors (filterable by Client or OC).</div>}
+      </div>
+
+      {/* Gap Report */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 bg-red-50 flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 text-red-600" />
+          <h3 className="font-semibold text-gray-900">Gap Report</h3>
+        </div>
+        <p className="px-4 py-2 text-sm text-gray-600">Invoices where Payment = Yes but PA = Pending</p>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Site ID</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {gapReport.map((inv) => (
+                <tr key={inv.id}>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{inv.taxInvoiceNumber || inv.bill_number}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{inv.siteId}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{inv.clientLegalName || inv.client_name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {gapReport.length === 0 && <div className="p-6 text-center text-gray-500 text-sm">No gap: no invoices with payment received but PA missing.</div>}
+      </div>
+
+      {/* Deduction Analysis */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 bg-amber-50 flex items-center gap-2">
+          <FileText className="w-5 h-5 text-amber-600" />
+          <h3 className="font-semibold text-gray-900">Deduction Analysis</h3>
+        </div>
+        <p className="px-4 py-2 text-sm text-gray-600">Remarks from PA pop-up – spot recurring site issues</p>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Site / Client</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Deduction (₹)</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {deductionAnalysis.map((d, idx) => (
+                <tr key={idx}>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{d.invoiceNumber}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{d.siteId} – {d.client}</td>
+                  <td className="px-4 py-3 text-sm text-gray-900">₹{(d.amount || 0).toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{d.remarks}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {deductionAnalysis.length === 0 && <div className="p-6 text-center text-gray-500 text-sm">No deduction remarks yet. Use Manage PA to add.</div>}
+      </div>
+
+      {/* Less Billed sites */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 bg-blue-50 flex items-center gap-2">
+          <TrendingDown className="w-5 h-5 text-blue-600" />
+          <h3 className="font-semibold text-gray-900">Less Billed Sites</h3>
+        </div>
+        <p className="px-4 py-2 text-sm text-gray-600">Sites where total billed &lt; expected (Less Billing)</p>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Site / OC</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Expected (₹)</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Billed (₹)</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Less Billed (₹)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {lessBilledSites.map((s, idx) => (
+                <tr key={idx}>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{s.siteId} · {s.ocNumber}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{s.client}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">₹{(s.totalExpected || 0).toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">₹{(s.totalBilled || 0).toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-amber-700">₹{(s.lessBilled || 0).toLocaleString('en-IN')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {lessBilledSites.length === 0 && <div className="p-6 text-center text-gray-500 text-sm">No less billed sites.</div>}
       </div>
     </div>
   );
