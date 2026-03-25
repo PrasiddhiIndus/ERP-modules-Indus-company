@@ -1,130 +1,184 @@
-import React, { createContext, useContext, useState } from 'react';
-
-const initialWopoList = [
-  {
-    id: 1,
-    oc_number: 'IFSPL-BILL-OC-25/26-00001',
-    category: 'Fire Tender',
-    rates: '₹12,50,000',
-    payment_terms: '30% Advance, 70% on Delivery',
-    wo_number: 'WO-2025-001',
-    client_name: 'ABC Municipal Corp',
-    client_address: '123 Main Rd, City - 400001',
-    hsn_sac: '9985',
-    gst_config: 'GST 18%',
-    billing_type: 'Manpower with Fire Tender',
-    billing_template: 'Lumpsum Billing',
-    start_date: '2025-01-15',
-    end_date: '2025-12-31',
-    status: 'active',
-    approval_status: 'approved',
-    wo_quantity: 10,
-  },
-  {
-    id: 2,
-    oc_number: 'IFSPL-BILL-OC-25/26-00002',
-    category: 'Manpower',
-    rates: 'FM: ₹55,000; DCPO: ₹45,000; F Sup: ₹42,000',
-    designation_rates: [
-      { designation: 'FM', rate: '₹55,000/month' },
-      { designation: 'DCPO', rate: '₹45,000/month' },
-      { designation: 'F Sup', rate: '₹42,000/month' },
-    ],
-    payment_terms: 'Monthly',
-    wo_number: 'WO-2025-002',
-    client_name: 'XYZ Industries',
-    client_address: '456 Industrial Area, Mumbai - 400002',
-    hsn_sac: '9983',
-    gst_config: 'GST 18%',
-    billing_type: 'Manpower',
-    billing_template: 'Monthly Billing',
-    start_date: '2025-02-01',
-    end_date: '2025-06-30',
-    status: 'active',
-    approval_status: 'pending_approval',
-    wo_quantity: 5,
-  },
-  {
-    id: 3,
-    oc_number: 'IFSPL-BILL-OC-25/26-00003',
-    category: 'AMC',
-    rates: '₹2,00,000/year',
-    payment_terms: 'Quarterly',
-    wo_number: 'WO-2024-045',
-    client_name: 'State Fire Dept',
-    client_address: '789 Govt Complex, Delhi - 110001',
-    hsn_sac: '9988',
-    gst_config: 'GST 18%',
-    billing_type: 'AMC',
-    billing_template: 'Monthly Billing',
-    start_date: '2024-04-01',
-    end_date: '2025-03-31',
-    status: 'expiring_soon',
-    approval_status: 'approved',
-    wo_quantity: 12,
-  },
-  {
-    id: 4,
-    oc_number: 'IFSPL-BILL-OC-24/25-00100',
-    category: 'Service',
-    rates: '₹75,000',
-    payment_terms: '100% on Completion',
-    wo_number: 'WO-2024-100',
-    client_name: 'PQR Ltd',
-    client_address: '321 Park St, Pune - 411001',
-    hsn_sac: '9986',
-    gst_config: 'GST 18%',
-    billing_type: 'Service',
-    billing_template: 'Lumpsum Billing',
-    start_date: '2024-06-01',
-    end_date: '2024-12-31',
-    status: 'expired',
-    approval_status: 'approved',
-  },
-  {
-    id: 5,
-    oc_number: 'IFSPL-BILL-OC-25/26-00004',
-    category: 'Fire Tender',
-    rates: '₹18,00,000',
-    payment_terms: '40% Advance, 60% on Commissioning',
-    wo_number: 'WO-2025-010',
-    client_name: 'Metro Rail Corp',
-    client_address: '555 Metro Bhavan, Chennai - 600001',
-    hsn_sac: '9985',
-    gst_config: 'GST 18%',
-    billing_type: 'Manpower with Fire Tender',
-    billing_template: 'Monthly Billing',
-    start_date: '2025-03-01',
-    end_date: '2026-02-28',
-    status: 'active',
-    approval_status: 'draft',
-    wo_quantity: 8,
-  },
-];
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+  getCommercialPOs,
+  setCommercialPOs as saveCommercialPOsLocal,
+  getContactHistory,
+  setContactHistory as saveContactHistoryLocal,
+  getInvoices,
+  setInvoices as saveInvoicesLocal,
+  getCreditDebitNotes,
+  setCreditDebitNotes as saveCreditDebitNotesLocal,
+  getPaymentAdvice,
+  setPaymentAdvice as savePaymentAdviceLocal,
+} from '../data/billingStore';
+import {
+  isBillingDbAvailable,
+  fetchCommercialPOs,
+  saveCommercialPOs as saveCommercialPOsDb,
+  fetchInvoices,
+  saveInvoice as saveInvoiceDb,
+  saveInvoices as saveInvoicesDb,
+  fetchCreditDebitNotes,
+  saveCreditDebitNotes as saveCreditDebitNotesDb,
+  fetchPaymentAdvice,
+  savePaymentAdvice as savePaymentAdviceDb,
+} from '../services/billingApi';
 
 const BillingContext = createContext(null);
 
-// Billing History: cancelled/rejected bills moved here (audit trail – never delete)
-// billingAlerts: { id, type: 'po_expiry'|'qty_breach'|'additional_billing', message, oc_number?, bill_number?, severity }
 export const BillingProvider = ({ children }) => {
-  const [wopoList, setWopoList] = useState(initialWopoList);
-  const [quickBillRequests, setQuickBillRequests] = useState([]);
-  // bills: id, oc_id, oc_number, client_name, wo_number, billing_template, billing_method?, bill_number, status, items: [{ description, quantity, rate (locked), amount, source_ref }], rate_change_senior_approval?, credit_note_status, attachments: [{ name, type, url }], created_at, site?
-  const [bills, setBills] = useState([]);
-  const [billingHistory, setBillingHistory] = useState([]);
-  const [billingAlerts, setBillingAlerts] = useState([]);
+  const [commercialPOs, setCommercialPOsState] = useState([]);
+  const [contactHistory, setContactHistoryState] = useState({});
+  const [invoices, setInvoicesState] = useState([]);
+  const [creditDebitNotes, setCreditDebitNotesState] = useState([]);
+  const [paymentAdvice, setPaymentAdviceState] = useState({});
+  const [invoiceDraft, setInvoiceDraft] = useState(null);
+  const [useDb, setUseDb] = useState(null);
+  const [billingError, setBillingError] = useState(null);
+
+  const loadFromDb = useCallback(async () => {
+    try {
+      const available = await isBillingDbAvailable();
+      setUseDb(!!available);
+      if (!available) return false;
+      const [pos, invs, notes, pa] = await Promise.all([
+        fetchCommercialPOs(),
+        fetchInvoices(),
+        fetchCreditDebitNotes(),
+        fetchPaymentAdvice(),
+      ]);
+      setCommercialPOsState(pos);
+      setInvoicesState(invs);
+      setCreditDebitNotesState(notes);
+      setPaymentAdviceState(pa);
+      contactHistoryFromPOs(pos);
+      return true;
+    } catch (e) {
+      console.warn('Billing DB load failed, using localStorage:', e);
+      setUseDb(false);
+      return false;
+    }
+  }, []);
+
+  function contactHistoryFromPOs(pos) {
+    const byPoId = {};
+    (pos || []).forEach((po) => {
+      if (po.id && (po.contactHistoryLog || []).length) {
+        byPoId[po.id] = po.contactHistoryLog;
+      }
+    });
+    setContactHistoryState(byPoId);
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const ok = await loadFromDb();
+      if (!mounted) return;
+      if (!ok) {
+        setCommercialPOsState(getCommercialPOs());
+        setContactHistoryState(getContactHistory());
+        setInvoicesState(getInvoices());
+        setCreditDebitNotesState(getCreditDebitNotes());
+        setPaymentAdviceState(getPaymentAdvice());
+      }
+    })();
+    return () => { mounted = false; };
+  }, [loadFromDb]);
+
+  const setCommercialPOs = useCallback((updater) => {
+    setCommercialPOsState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setBillingError(null);
+      saveCommercialPOsDb(next)
+        .then(() => setUseDb(true))
+        .catch((e) => {
+          console.warn('Billing DB save POs failed:', e);
+          setBillingError(e?.message || 'Could not save to database. Data saved locally.');
+          setUseDb(false);
+          saveCommercialPOsLocal(next);
+        });
+      setContactHistoryState((byPo) => {
+        const nextByPo = {};
+        (next || []).forEach((po) => {
+          if (po.id && Array.isArray(po.contactHistoryLog) && po.contactHistoryLog.length)
+            nextByPo[po.id] = po.contactHistoryLog;
+        });
+        return nextByPo;
+      });
+      return next;
+    });
+  }, [useDb]);
+
+  const setContactHistory = useCallback((updater) => {
+    setContactHistoryState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (useDb !== true) saveContactHistoryLocal(next);
+      return next;
+    });
+  }, [useDb]);
+
+  const setInvoices = useCallback((updater) => {
+    setInvoicesState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (useDb === true) {
+        saveInvoicesDb(next).catch((e) => console.warn('Billing DB save invoices failed:', e));
+      } else {
+        saveInvoicesLocal(next);
+      }
+      return next;
+    });
+  }, [useDb]);
+
+  const setCreditDebitNotes = useCallback((updater) => {
+    setCreditDebitNotesState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (useDb === true) {
+        saveCreditDebitNotesDb(next).catch((e) => console.warn('Billing DB save credit/debit notes failed:', e));
+      } else {
+        saveCreditDebitNotesLocal(next);
+      }
+      return next;
+    });
+  }, [useDb]);
+
+  const setPaymentAdvice = useCallback((updater) => {
+    setPaymentAdviceState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (useDb === true) {
+        savePaymentAdviceDb(next).catch((e) => console.warn('Billing DB save payment advice failed:', e));
+      } else {
+        savePaymentAdviceLocal(next);
+      }
+      return next;
+    });
+  }, [useDb]);
 
   const value = {
-    wopoList,
-    setWopoList,
-    quickBillRequests,
-    setQuickBillRequests,
-    bills,
-    setBills,
-    billingHistory,
-    setBillingHistory,
-    billingAlerts,
-    setBillingAlerts,
+    commercialPOs,
+    setCommercialPOs,
+    contactHistory,
+    setContactHistory,
+    invoices,
+    setInvoices,
+    creditDebitNotes,
+    setCreditDebitNotes,
+    paymentAdvice,
+    setPaymentAdvice,
+    invoiceDraft,
+    setInvoiceDraft,
+    useBillingDb: !!useDb,
+    billingError,
+    clearBillingError: () => setBillingError(null),
+    refreshBilling: loadFromDb,
+    wopoList: commercialPOs,
+    setWopoList: setCommercialPOs,
+    bills: invoices,
+    setBills: setInvoices,
+    billingHistory: [],
+    setBillingHistory: () => {},
+    billingAlerts: [],
+    setBillingAlerts: () => {},
   };
 
   return <BillingContext.Provider value={value}>{children}</BillingContext.Provider>;

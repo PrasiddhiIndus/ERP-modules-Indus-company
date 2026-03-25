@@ -29,6 +29,7 @@ import InternalQuotationForm from "./pages/manpowerProject/enquiryProjects/Inter
 
 // New module imports
 import Billing from "./pages/billing/Billing";
+import Commercial from "./pages/sales/Commercial";
 import FireTenderVehicleManagement from "./pages/fireTenderVehicle/FireTenderVehicleManagement";
 import Payroll from "./pages/payroll/Payroll";
 import Attendance from "./pages/attendance/Attendance";
@@ -218,14 +219,31 @@ function App() {
             {/* Sales */}
             {/* Manpower Enquiry already exists above */}
             
-            {/* Billing */}
+            {/* Commercial (PO/WO – master source for Billing) */}
+            <Route path="commercial" element={<Commercial />} />
+            <Route path="commercial/po-entry" element={<Commercial />} />
+            <Route path="commercial/contact-log" element={<Commercial />} />
+
+            {/* Billing (includes Reports and Tracking as sub-tabs) */}
             <Route path="billing" element={<Billing />} />
-            <Route path="billing/wopo" element={<Billing />} />
+            <Route path="billing/dashboard" element={<Billing />} />
             <Route path="billing/create-invoice" element={<Billing />} />
+            <Route path="billing/manage-invoices" element={<Billing />} />
+            <Route path="billing/generated-e-invoice" element={<Billing />} />
             <Route path="billing/credit-notes" element={<Billing />} />
-            <Route path="billing/e-invoice" element={<Billing />} />
             <Route path="billing/reports" element={<Billing />} />
+            <Route path="billing/tracking" element={<Billing />} />
+            <Route path="billing/tracking/pa-worklist" element={<Billing />} />
+            <Route path="billing/tracking/penalty-logs" element={<Billing />} />
             <Route path="billing/notifications" element={<Billing />} />
+
+            {/* Redirect old top-level routes to Billing sub-routes */}
+            <Route path="tracking" element={<Navigate to="/app/billing/tracking" replace />} />
+            <Route path="tracking/pa-worklist" element={<Navigate to="/app/billing/tracking/pa-worklist" replace />} />
+            <Route path="tracking/penalty-logs" element={<Navigate to="/app/billing/tracking/penalty-logs" replace />} />
+            <Route path="reports" element={<Navigate to="/app/billing/reports" replace />} />
+            <Route path="reports/outstanding" element={<Navigate to="/app/billing/reports" replace />} />
+            <Route path="reports/deduction-analysis" element={<Navigate to="/app/billing/reports" replace />} />
             
             {/* Operations */}
             <Route path="operations" element={<Operations />} />

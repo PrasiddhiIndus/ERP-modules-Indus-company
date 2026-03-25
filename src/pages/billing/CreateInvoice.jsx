@@ -1,462 +1,607 @@
-import React, { useState, useMemo } from 'react';
-import {
-  FileText,
-  Search,
-  Plus,
-  Send,
-  CheckCircle,
-  XCircle,
-  Receipt,
-  Paperclip,
-  Lock,
-} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FileText, Upload, PlusCircle, X, Eye } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
-
-const BILLING_TEMPLATES = ['Monthly Billing', 'Daily Billing', 'Lumpsum Billing'];
-const BILLING_METHODS = ['Per Day', 'Monthly', 'Lump Sum'];
 
 const getFinancialYear = () => {
   const d = new Date();
   const y = d.getFullYear();
   const m = d.getMonth();
-  if (m >= 3) return `${y}`;
-  return `${y - 1}`;
+  return m >= 3 ? `${y}` : `${y - 1}`;
 };
 
-const generateBillNumber = (sequence) => {
+const generateTaxInvoiceNumber = (sequence) => {
   const y = getFinancialYear();
   const seq = String(sequence).padStart(4, '0');
   return `INV-${y}-${seq}`;
 };
 
-const CreateInvoice = () => {
-  const { wopoList, bills, setBills, billingHistory, setBillingHistory } = useBilling();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [ocNumberSearch, setOcNumberSearch] = useState('');
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedWopo, setSelectedWopo] = useState(null);
-  const [billingMethod, setBillingMethod] = useState('');
-  const [billItems, setBillItems] = useState([]);
-  const [billNumber] = useState(() => generateBillNumber((bills?.length || 0) + 1));
-  const [attachments, setAttachments] = useState([]);
+const APPROVAL_STATUS_SENT = 'sent_for_approval';
 
-  const approvedWopo = useMemo(
-    () => wopoList.filter((w) => w.approval_status === 'approved'),
-    [wopoList]
-  );
+const SELLER = {
+  name: 'Ms Indus Fire Safety Private Limited',
+  address: 'Block No 501, Old NH-8, Opposite GSFC Main Gate, Vadodara, Dashrath, Vadodara',
+  state: 'Gujarat',
+  stateCode: '24',
+  gstin: '24AADCJ2182H1ZS',
+};
 
-  const approvedBillOcIds = useMemo(
-    () => new Set(bills.filter((b) => b.status === 'approved').map((b) => b.oc_id)),
-    [bills]
-  );
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
 
-  const pendingForInvoicing = useMemo(
-    () => approvedWopo.filter((w) => !approvedBillOcIds.has(w.id)),
-    [approvedWopo, approvedBillOcIds]
-  );
-
-  const pendingByTemplate = useMemo(() => {
-    const counts = { 'Monthly Billing': 0, 'Daily Billing': 0, 'Lumpsum Billing': 0 };
-    pendingForInvoicing.forEach((w) => {
-      const t = w.billing_template || '';
-      if (counts[t] !== undefined) counts[t]++;
-    });
-    return counts;
-  }, [pendingForInvoicing]);
-
-  const filteredPending = useMemo(() => {
-    if (!searchTerm.trim()) return pendingForInvoicing;
-    const s = searchTerm.toLowerCase();
-    return pendingForInvoicing.filter(
-      (w) =>
-        w.oc_number?.toLowerCase().includes(s) ||
-        w.wo_number?.toLowerCase().includes(s) ||
-        w.client_name?.toLowerCase().includes(s)
-    );
-  }, [pendingForInvoicing, searchTerm]);
-
-  const filteredBills = useMemo(() => {
-    if (!searchTerm.trim()) return bills;
-    const s = searchTerm.toLowerCase();
-    return bills.filter(
-      (b) =>
-        b.oc_number?.toLowerCase().includes(s) ||
-        b.bill_number?.toLowerCase().includes(s) ||
-        b.client_name?.toLowerCase().includes(s)
-    );
-  }, [bills, searchTerm]);
-
-  // Auto-fetch WO/PO by OC number: returns first approved match
-  const wopoByOcNumber = useMemo(() => {
-    if (!ocNumberSearch.trim()) return null;
-    const oc = ocNumberSearch.trim().toUpperCase();
-    return approvedWopo.find(
-      (w) => w.oc_number && w.oc_number.toUpperCase().includes(oc)
-    ) || null;
-  }, [approvedWopo, ocNumberSearch]);
-
-  const openCreateBill = (wopo) => {
-    setSelectedWopo(wopo);
-    setBillingMethod(wopo.billing_template === 'Monthly Billing' ? 'Monthly' : wopo.billing_template === 'Daily Billing' ? 'Per Day' : 'Lump Sum');
-    setBillItems(buildLockedLineItems(wopo));
-    setAttachments([]);
-    setCreateModalOpen(true);
-  };
-
-  function buildLockedLineItems(wopo) {
-    if (wopo.designation_rates && wopo.designation_rates.length) {
-      return wopo.designation_rates.map((dr) => ({
-        description: dr.designation ? `${dr.designation} – ${dr.rate}` : dr.rate,
-        quantity: 1,
-        rate: dr.rate,
-        amount: dr.rate,
-        source_ref: `${wopo.oc_number} | Designation: ${dr.designation || '–'}`,
-      }));
-    }
-    return [{
-      description: wopo.rates || 'Bill amount',
-      quantity: 1,
-      rate: wopo.rates || '0',
-      amount: wopo.rates || '0',
-      source_ref: `${wopo.oc_number} | Rates`,
-    }];
+function formatDate(d) {
+  if (!d) return '–';
+  try {
+    return new Date(d).toLocaleDateString('en-IN');
+  } catch {
+    return d;
   }
+}
 
-  const updateBillItemQuantity = (idx, quantity) => {
-    const q = Number(quantity) || 0;
-    setBillItems((prev) =>
-      prev.map((item, i) =>
-        i === idx ? { ...item, quantity: q, amount: item.rate } : item
-      )
-    );
-  };
+const CreateInvoice = ({ onNavigateTab }) => {
+  const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft } = useBilling();
+  const [selectedPoId, setSelectedPoId] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [items, setItems] = useState([]); // { description, hsnSac, quantity, rate, amount }
+  const [attendanceFiles, setAttendanceFiles] = useState([]); // [{ name, url }]
+  const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
+  const [viewInvoiceId, setViewInvoiceId] = useState(null);
 
-  const submitBill = () => {
-    if (!selectedWopo || !billingMethod) return;
-    const items = billItems.map((i) => ({
-      ...i,
-      source_ref: i.source_ref || selectedWopo.oc_number,
-    }));
-    const newBill = {
-      id: Math.max(0, ...bills.map((b) => b.id), 0) + 1,
-      oc_id: selectedWopo.id,
-      oc_number: selectedWopo.oc_number,
-      client_name: selectedWopo.client_name,
-      wo_number: selectedWopo.wo_number,
-      billing_template: selectedWopo.billing_template || '',
-      billing_method: billingMethod,
-      bill_number: generateBillNumber(bills.length + 1),
-      status: 'pending_approval',
-      items,
-      credit_note_status: null,
-      attachments: attachments.map((a) => ({ name: a.name || 'file', type: a.type || 'pdf', url: a.url || '' })),
-      created_at: new Date().toISOString().slice(0, 10),
-      site: selectedWopo.client_name,
-    };
-    setBills((prev) => [...prev, newBill]);
-    setCreateModalOpen(false);
-    setSelectedWopo(null);
-  };
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  const setBillStatus = (billId, status) => {
-    if (status === 'rejected') {
-      const bill = bills.find((b) => b.id === billId);
-      if (bill) {
-        setBillingHistory((prev) => [...prev, { ...bill, status: 'cancelled', cancelled_at: new Date().toISOString().slice(0, 10) }]);
-        setBills((prev) => prev.filter((b) => b.id !== billId));
-      }
+  const billablePOs = useMemo(() => {
+    return commercialPOs
+      .filter((p) => p.status === 'active' && p.endDate && p.endDate >= today)
+      .filter((p) => (p.approvalStatus || 'draft') === APPROVAL_STATUS_SENT);
+  }, [commercialPOs, today]);
+
+  const poTableRows = useMemo(() => {
+    return billablePOs.map((po) => {
+      const existingInvoice = invoices.find((i) => String(i.poId) === String(po.id));
+      const hasInvoice = !!existingInvoice;
+      return {
+        ...po,
+        statusLabel: hasInvoice ? 'Created Tax Invoice' : 'Sent to approval',
+        hasInvoice,
+        existingInvoiceId: existingInvoice?.id || null,
+      };
+    });
+  }, [billablePOs, invoices]);
+
+  const selectedPO = useMemo(
+    () => billablePOs.find((p) => String(p.id) === String(selectedPoId) || p.siteId === selectedPoId),
+    [billablePOs, selectedPoId]
+  );
+
+  const editingInvoice = useMemo(() => {
+    if (!invoiceDraft?.invoiceId) return null;
+    return invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) || null;
+  }, [invoiceDraft, invoices]);
+
+  const displayPO = useMemo(() => {
+    if (selectedPO) return selectedPO;
+    if (invoiceDraft?.mode === 'edit' && editingInvoice) {
+      return {
+        id: editingInvoice.poId,
+        siteId: editingInvoice.siteId,
+        locationName: editingInvoice.clientLegalName || '',
+        ocNumber: editingInvoice.ocNumber,
+        poWoNumber: editingInvoice.poWoNumber,
+        legalName: editingInvoice.clientLegalName,
+        billingAddress: editingInvoice.clientAddress,
+        gstin: editingInvoice.gstin,
+        hsnCode: editingInvoice.hsnSac,
+        sacCode: editingInvoice.hsnSac,
+        billingType: editingInvoice.billingType || 'Monthly',
+        paymentTerms: editingInvoice.paymentTerms,
+        billingCycle: 30,
+      };
+    }
+    return null;
+  }, [selectedPO, invoiceDraft, editingInvoice]);
+
+  useEffect(() => {
+    if (!invoiceDraft) return;
+    if (invoiceDraft.mode === 'edit' && editingInvoice) {
+      setSelectedPoId(String(editingInvoice.poId || ''));
+      setInvoiceDate(editingInvoice.invoiceDate || editingInvoice.created_at || today);
+      const atts = Array.isArray(editingInvoice.attachments) ? editingInvoice.attachments : [];
+      setAttendanceFiles(atts.filter((a) => a.type === 'attendance').map((a) => ({ name: a.name, url: a.url })));
+      setDocument2Files(atts.filter((a) => a.type === 'document_2').map((a) => ({ name: a.name, url: a.url })));
+      setItems(
+        (editingInvoice.items || []).map((i) => ({
+          description: i.description || i.designation || '',
+          hsnSac: i.hsnSac || editingInvoice.hsnSac || '',
+          quantity: Number(i.quantity) || 0,
+          rate: Number(i.rate) || 0,
+          amount: round2((Number(i.quantity) || 0) * (Number(i.rate) || 0)),
+        }))
+      );
       return;
     }
-    setBills((prev) =>
-      prev.map((b) => (b.id === billId ? { ...b, status } : b))
+    if (invoiceDraft.mode === 'create' && invoiceDraft.poId) {
+      setSelectedPoId(String(invoiceDraft.poId));
+    }
+  }, [invoiceDraft, editingInvoice, today]);
+
+  useEffect(() => {
+    if (!selectedPO) return;
+    // Only seed items when creating (not when editing with existing items)
+    if (invoiceDraft?.mode === 'edit') return;
+    const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
+    setItems(
+      (selectedPO.ratePerCategory || []).map((r) => ({
+        description: r.description || r.designation || '',
+        hsnSac,
+        quantity: 0,
+        rate: Number(r.rate) || 0,
+        amount: 0,
+      }))
     );
+  }, [selectedPO, invoiceDraft]);
+
+  const updateItem = (idx, patch) => {
+    setItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== idx) return it;
+        const next = { ...it, ...patch };
+        const qty = Number(next.quantity) || 0;
+        const rate = Number(next.rate) || 0;
+        next.amount = round2(qty * rate);
+        return next;
+      })
+    );
+  };
+
+  const taxableValue = useMemo(() => round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0)), [items]);
+  const cgstRate = 9;
+  const sgstRate = 9;
+  const cgstAmt = useMemo(() => round2((taxableValue * cgstRate) / 100), [taxableValue]);
+  const sgstAmt = useMemo(() => round2((taxableValue * sgstRate) / 100), [taxableValue]);
+  const totalValue = useMemo(() => round2(taxableValue + cgstAmt + sgstAmt), [taxableValue, cgstAmt, sgstAmt]);
+
+  const canSave = !!displayPO && items.length > 0;
+  const selectedViewInvoice = useMemo(
+    () => invoices.find((i) => String(i.id) === String(viewInvoiceId)) || null,
+    [invoices, viewInvoiceId]
+  );
+
+  const handleSaveInvoice = () => {
+    if (!displayPO || !canSave) return;
+    const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
+    const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
+    const nextNumericId = Math.max(0, ...invoices.map((i) => Number(i.id) || 0), 0) + 1;
+    const id = existing?.id ?? nextNumericId;
+    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(invoices.length + 1);
+
+    const inv = {
+      ...(existing || {}),
+      id,
+      poId: displayPO.id,
+      siteId: displayPO.siteId,
+      billingType: displayPO.billingType || 'Monthly',
+      taxInvoiceNumber,
+      invoiceDate,
+      clientLegalName: displayPO.legalName,
+      clientAddress: displayPO.billingAddress,
+      gstin: displayPO.gstin,
+      ocNumber: displayPO.ocNumber,
+      poWoNumber: displayPO.poWoNumber,
+      hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
+      items: items.map((i) => ({
+        description: i.description,
+        hsnSac: i.hsnSac,
+        quantity: Number(i.quantity) || 0,
+        rate: Number(i.rate) || 0,
+        amount: round2(i.amount),
+      })),
+      attachments: [
+        ...attendanceFiles.map((f) => ({ name: f.name || 'attendance', type: 'attendance', url: f.url || '#' })),
+        ...document2Files.map((f) => ({ name: f.name || 'document_2', type: 'document_2', url: f.url || '#' })),
+      ],
+      taxableValue,
+      cgstRate,
+      sgstRate,
+      cgstAmt,
+      sgstAmt,
+      calculatedInvoiceAmount: totalValue,
+      totalAmount: totalValue,
+      paStatus: existing?.paStatus || 'Pending',
+      paymentStatus: existing?.paymentStatus || false,
+      pendingAmount: existing?.pendingAmount ?? totalValue,
+      created_at: existing?.created_at || today,
+      createdAt: existing?.createdAt || today,
+      updated_at: today,
+    };
+
+    setInvoices((prev) => {
+      if (existing) return prev.map((p) => (String(p.id) === String(existing.id) ? inv : p));
+      return [...prev, inv];
+    });
+    setInvoiceDraft(null);
+    onNavigateTab && onNavigateTab('manage-invoices');
   };
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="bg-emerald-100 p-3 rounded-lg shrink-0">
-            <FileText className="w-6 h-6 text-emerald-600" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold text-gray-900">Create Invoice</h2>
-            <p className="text-sm text-gray-600">Create bills from approved WO/POs – sent for approval before finalisation</p>
-          </div>
+      <div className="flex items-center space-x-3">
+        <div className="bg-emerald-100 p-3 rounded-lg shrink-0">
+          <FileText className="w-6 h-6 text-emerald-600" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Create Invoice</h2>
+          <p className="text-sm text-gray-600">Select PO sent for approval; invoice format as per template; edit only quantity/rate; save → Manage Invoices</p>
         </div>
       </div>
 
-      {/* Dashboard: Pending bills by billing template */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {BILLING_TEMPLATES.map((template) => (
-          <div
-            key={template}
-            className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-3">
-              <div className="bg-emerald-50 p-2 rounded-lg">
-                <Receipt className="w-5 h-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-600">{template}</p>
-                <p className="text-2xl font-bold text-gray-900">{pendingByTemplate[template] ?? 0}</p>
-                <p className="text-xs text-gray-500">pending for invoicing</p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* OC Number – auto-fetch Client/Commercial for site */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-        <h3 className="font-semibold text-gray-900 mb-2">Enter OC Number (auto-fetch site data)</h3>
-        <div className="flex gap-2 flex-wrap">
-          <input
-            type="text"
-            placeholder="e.g. IFSPL-BILL-OC-25/26-00001"
-            value={ocNumberSearch}
-            onChange={(e) => setOcNumberSearch(e.target.value)}
-            className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-          />
-          {wopoByOcNumber && (
-            <div className="w-full mt-2 p-3 bg-emerald-50 rounded-lg border border-emerald-100 text-sm">
-              <p className="font-medium text-emerald-800">Client / Commercial data</p>
-              <p className="text-gray-700">{wopoByOcNumber.client_name} · {wopoByOcNumber.oc_number}</p>
-              <p className="text-gray-600">{wopoByOcNumber.client_address}</p>
-              <p className="text-gray-500 mt-1">WO: {wopoByOcNumber.wo_number} · {wopoByOcNumber.billing_template}</p>
-              {wopoByOcNumber.approval_status === 'approved' && (
-                <button
-                  type="button"
-                  onClick={() => openCreateBill(wopoByOcNumber)}
-                  className="mt-2 px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700"
-                >
-                  Create bill from this OC
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search by OC number, bill number, client..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-        />
-      </div>
-
-      {/* Approved WO/POs pending bill – Create bill */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <h3 className="font-semibold text-gray-900">Approved WO/POs – Create bill</h3>
-          <p className="text-sm text-gray-500">Select an approved WO/PO to create a bill. Bill will be sent for approval.</p>
-        </div>
-        <div className="p-4 max-h-64 overflow-y-auto">
-          {filteredPending.length === 0 ? (
-            <p className="text-sm text-gray-500">No approved WO/POs pending invoicing.</p>
-          ) : (
-            <ul className="space-y-2">
-              {filteredPending.map((w) => (
-                <li
-                  key={w.id}
-                  className="flex items-center justify-between gap-4 py-2 border-b border-gray-100 last:border-0"
-                >
-                  <div>
-                    <span className="font-medium text-gray-900">{w.oc_number}</span>
-                    <span className="text-gray-500 mx-2">·</span>
-                    <span className="text-sm text-gray-600">{w.client_name}</span>
-                    <span className="text-xs text-gray-400 ml-2">({w.billing_template})</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => openCreateBill(w)}
-                    className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 flex items-center gap-1"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create bill
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <h3 className="font-semibold text-gray-900 p-4 pb-2">1. Select PO/WO (only “Sent to approval”)</h3>
+        {billablePOs.length === 0 ? (
+          <p className="text-sm text-gray-500 px-4 pb-4">
+            No PO found for billing. In Commercial → PO Entry, click <span className="font-medium">Send to approval</span> for a PO.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OC Number</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Site / Location</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO/WO</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {poTableRows.map((row) => (
+                  <tr key={row.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{row.ocNumber || '–'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || '–'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{row.poWoNumber || '–'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                        {row.statusLabel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        {row.hasInvoice && row.existingInvoiceId && (
+                          <button
+                            type="button"
+                            onClick={() => setViewInvoiceId(row.existingInvoiceId)}
+                            title="View Tax Invoice"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPoId(String(row.id))}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
+                        >
+                          <PlusCircle className="w-4 h-4" />
+                          Create Invoice
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-xs text-gray-500 px-4 pt-2 pb-4">Click <strong>Create Invoice</strong> to open the form for the selected PO.</p>
       </div>
 
-      {/* Bills created – status & approve/reject */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <h3 className="font-semibold text-gray-900">Bills created</h3>
-          <p className="text-sm text-gray-500">All bills from this page appear in Credit Notes. Approve to finalise.</p>
-        </div>
-        <div className="overflow-x-auto">
-          {filteredBills.length === 0 ? (
-            <div className="p-6 text-center text-gray-500 text-sm">No bills created yet.</div>
-          ) : (
-            <ul className="divide-y divide-gray-200">
-              {filteredBills.map((b) => (
-                <li key={b.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <span className="font-medium text-gray-900">{b.bill_number}</span>
-                    <span className="text-gray-500 mx-2">·</span>
-                    <span className="text-sm text-gray-600">{b.oc_number}</span>
-                    <span className="text-gray-500 mx-2">·</span>
-                    <span className="text-sm text-gray-600">{b.client_name}</span>
-                    <span className="text-xs text-gray-400 ml-2">({b.billing_template})</span>
-                    <span
-                      className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                        b.status === 'approved'
-                          ? 'bg-green-100 text-green-800'
-                          : b.status === 'pending_approval'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-gray-100 text-gray-700'
-                      }`}
-                    >
-                      {b.status === 'approved' ? 'Approved' : b.status === 'pending_approval' ? 'Pending approval' : 'Draft'}
-                    </span>
-                  </div>
-                  {b.status === 'pending_approval' && (
-                    <span className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setBillStatus(b.id, 'approved')}
-                        className="p-2 rounded-lg text-green-600 hover:bg-green-50"
-                        title="Approve"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setBillStatus(b.id, 'rejected')}
-                        className="p-2 rounded-lg text-red-600 hover:bg-red-50"
-                        title="Reject"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-
-      {/* Create bill modal */}
-      {createModalOpen && selectedWopo && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setCreateModalOpen(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Create bill</h3>
-              <p className="text-sm text-gray-500">Select billing method. Only Quantity is editable; rates and taxes are locked from WO. Rate changes (e.g. Min Wages / Billing method) require senior approval before invoice generation.</p>
-            </div>
-            <div className="px-6 py-4 overflow-y-auto flex-1">
-              <div className="space-y-3 mb-4">
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-gray-500">OC Number</span>
-                    <p className="font-medium">{selectedWopo.oc_number}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Client</span>
-                    <p className="font-medium">{selectedWopo.client_name}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Billing template (WO)</span>
-                    <p className="font-medium">{selectedWopo.billing_template || '–'}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Bill number</span>
-                    <p className="font-medium">{billNumber}</p>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Billing method (before invoice) *</label>
-                  <select
-                    value={billingMethod}
-                    onChange={(e) => setBillingMethod(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">Select method</option>
-                    {BILLING_METHODS.map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Line items (only Quantity editable; rates/taxes locked)</label>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 text-left text-gray-500">
-                        <th className="py-2 pr-2">Description</th>
-                        <th className="py-2 pr-2">Quantity</th>
-                        <th className="py-2 pr-2"><span className="inline-flex items-center gap-1"><Lock className="w-3 h-3" /> Rate</span></th>
-                        <th className="py-2 pr-2"><span className="inline-flex items-center gap-1"><Lock className="w-3 h-3" /> Amount</span></th>
-                        <th className="py-2">Source (traceability)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {billItems.map((item, idx) => (
-                        <tr key={idx} className="border-b border-gray-100">
-                          <td className="py-2 pr-2 text-gray-900">{item.description}</td>
-                          <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              min={0}
-                              value={item.quantity}
-                              onChange={(e) => updateBillItemQuantity(idx, e.target.value)}
-                              className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-emerald-500"
-                            />
-                          </td>
-                          <td className="py-2 pr-2 bg-gray-50 text-gray-700">{item.rate}</td>
-                          <td className="py-2 pr-2 bg-gray-50 text-gray-700">{item.amount}</td>
-                          <td className="py-2 text-xs text-gray-500" title={item.source_ref}>{item.source_ref}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Attachments (PDF/Excel attendance)</label>
-                <div className="flex items-center gap-2 p-3 border border-dashed border-gray-300 rounded-lg bg-gray-50">
-                  <Paperclip className="w-5 h-5 text-gray-400" />
-                  <span className="text-sm text-gray-500">Upload or link PDF/Excel attendance sheets</span>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+      {displayPO && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {invoiceDraft?.mode === 'edit' ? 'Edit' : 'Create'} Invoice – {displayPO.siteId || '–'} – {displayPO.locationName || displayPO.legalName || '–'}
+              </h3>
               <button
                 type="button"
-                onClick={() => setCreateModalOpen(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                onClick={() => {
+                  setSelectedPoId('');
+                  setItems([]);
+                  setAttendanceFiles([]);
+                  setDocument2Files([]);
+                  setInvoiceDraft(null);
+                }}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close"
               >
-                Cancel
+                <X className="w-5 h-5" />
               </button>
-              <button
-                type="button"
-                onClick={submitBill}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2"
-              >
-                <Send className="w-4 h-4" />
-                Submit for approval
-              </button>
+            </div>
+            <div className="p-6 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <p className="text-sm text-gray-500">
+              OC: <span className="font-medium text-gray-700">{displayPO.ocNumber}</span> · PO/WO: <span className="font-medium text-gray-700">{displayPO.poWoNumber}</span>
+            </p>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Invoice Date</label>
+              <input
+                type="date"
+                value={invoiceDate}
+                onChange={(e) => setInvoiceDate(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
+            <div className="border border-gray-200 rounded-lg p-4">
+              <p className="text-xs font-semibold text-gray-500 mb-2">Seller</p>
+              <p className="font-semibold text-gray-900">{SELLER.name}</p>
+              <p className="text-gray-700">{SELLER.address}</p>
+              <p className="text-gray-700">GSTIN: <span className="font-mono">{SELLER.gstin}</span></p>
+              <p className="text-gray-700">State: {SELLER.state} (Code: {SELLER.stateCode})</p>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-4">
+              <p className="text-xs font-semibold text-gray-500 mb-2">Buyer</p>
+              <p className="font-semibold text-gray-900">{displayPO.legalName}</p>
+              <p className="text-gray-700">{displayPO.billingAddress}</p>
+              <p className="text-gray-700">GSTIN: <span className="font-mono">{displayPO.gstin}</span></p>
+              <p className="text-gray-700">Place of Supply: {displayPO.billingAddress?.split(',').pop()?.trim() || '–'}</p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-gray-600">#</th>
+                  <th className="px-3 py-2 text-left text-gray-600">Description</th>
+                  <th className="px-3 py-2 text-left text-gray-600">HSN/SAC</th>
+                  <th className="px-3 py-2 text-left text-gray-600">Qty</th>
+                  <th className="px-3 py-2 text-left text-gray-600">Rate</th>
+                  <th className="px-3 py-2 text-right text-gray-600">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {items.map((it, idx) => (
+                  <tr key={idx}>
+                    <td className="px-3 py-2 text-gray-600">{idx + 1}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900">{it.description}</td>
+                    <td className="px-3 py-2 text-gray-700">{it.hsnSac || '–'}</td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={it.quantity}
+                        onChange={(e) => updateItem(idx, { quantity: e.target.value })}
+                        className="w-24 px-2 py-1 border border-gray-300 rounded"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={it.rate}
+                        onChange={(e) => updateItem(idx, { rate: e.target.value })}
+                        className="w-28 px-2 py-1 border border-gray-300 rounded"
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium">₹{round2(it.amount).toLocaleString('en-IN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="text-sm text-gray-600 space-y-1">
+              <p><span className="text-gray-500">Payment terms:</span> {displayPO.paymentTerms || `${displayPO.billingCycle || 30} days`}</p>
+              <p><span className="text-gray-500">Invoice date:</span> {formatDate(invoiceDate)}</p>
+            </div>
+            <div className="border border-gray-200 rounded-lg p-4 text-sm">
+              <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">₹{taxableValue.toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between"><span className="text-gray-600">CGST ({cgstRate}%)</span><span className="font-medium">₹{cgstAmt.toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between"><span className="text-gray-600">SGST ({sgstRate}%)</span><span className="font-medium">₹{sgstAmt.toLocaleString('en-IN')}</span></div>
+              <div className="flex justify-between border-t border-gray-200 pt-2 mt-2"><span className="text-gray-900 font-semibold">Total</span><span className="text-gray-900 font-semibold">₹{totalValue.toLocaleString('en-IN')}</span></div>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-lg p-4">
+            <h4 className="text-sm font-semibold text-gray-900 mb-3">Attachments (optional)</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Attendance Sheet (Word / Doc) – optional</label>
+                <div className="flex items-center gap-2 p-3 border border-dashed border-gray-300 rounded-lg bg-white">
+                  <Upload className="w-5 h-5 text-gray-400" />
+                  <input
+                    type="file"
+                    accept=".doc,.docx,.pdf,.xlsx,.xls"
+                    multiple
+                    onChange={(e) =>
+                      setAttendanceFiles(
+                        Array.from(e.target.files || []).map((f) => ({
+                          name: f.name,
+                          url: URL.createObjectURL(f),
+                        }))
+                      )
+                    }
+                    className="text-sm"
+                  />
+                </div>
+                {attendanceFiles.length > 0 && (
+                  <p className="text-xs text-green-600 mt-1">{attendanceFiles.length} file(s) selected</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Document 2 (Doc) – optional</label>
+                <div className="flex items-center gap-2 p-3 border border-dashed border-gray-300 rounded-lg bg-white">
+                  <Upload className="w-5 h-5 text-gray-400" />
+                  <input
+                    type="file"
+                    accept=".doc,.docx,.pdf"
+                    multiple
+                    onChange={(e) =>
+                      setDocument2Files(
+                        Array.from(e.target.files || []).map((f) => ({
+                          name: f.name,
+                          url: URL.createObjectURL(f),
+                        }))
+                      )
+                    }
+                    className="text-sm"
+                  />
+                </div>
+                {document2Files.length > 0 && (
+                  <p className="text-xs text-green-600 mt-1">{document2Files.length} file(s) selected</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedPoId('');
+                setItems([]);
+                setAttendanceFiles([]);
+                setDocument2Files([]);
+                setInvoiceDraft(null);
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveInvoice}
+              disabled={!canSave}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {invoiceDraft?.mode === 'edit' ? 'Update Invoice' : 'Save Invoice'}
+            </button>
+          </div>
             </div>
           </div>
         </div>
       )}
+      {selectedViewInvoice && (() => {
+        const inv = selectedViewInvoice;
+        const previewItems = Array.isArray(inv.items) ? inv.items : [];
+        const previewTaxable = inv.taxableValue ?? round2(previewItems.reduce((s, i) => s + (Number(i.amount) || 0), 0));
+        const previewCgstRate = Number(inv.cgstRate) || 9;
+        const previewSgstRate = Number(inv.sgstRate) || 9;
+        const previewCgst = inv.cgstAmt ?? round2((previewTaxable * previewCgstRate) / 100);
+        const previewSgst = inv.sgstAmt ?? round2((previewTaxable * previewSgstRate) / 100);
+        const previewTotal = inv.calculatedInvoiceAmount ?? inv.totalAmount ?? round2(previewTaxable + previewCgst + previewSgst);
+        return (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+                <h3 className="text-lg font-semibold text-gray-900">Tax Invoice Preview – {inv.taxInvoiceNumber || '–'}</h3>
+                <button type="button" onClick={() => setViewInvoiceId(null)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 bg-gray-100">
+                <div className="mx-auto w-full max-w-[840px] bg-white border border-gray-300 shadow-sm">
+                  <div className="bg-blue-900 text-white px-6 py-4">
+                    <h4 className="text-xl font-bold">{SELLER.name}</h4>
+                    <p className="text-xs opacity-90 mt-1">An ISO 9001:2015 Certified Company</p>
+                  </div>
+
+                  <div className="px-6 py-4 border-b border-gray-300">
+                    <h5 className="text-center text-xl font-bold text-gray-900">Tax Invoice</h5>
+                    <p className="text-right text-xs text-gray-500 mt-1">(ORIGINAL FOR RECIPIENT)</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm border-b border-gray-300">
+                    <div>
+                      <p className="font-semibold text-gray-900 mb-1">{SELLER.name}</p>
+                      <p className="text-gray-700">{SELLER.address}</p>
+                      <p className="text-gray-700 mt-1">GSTIN/UIN: {SELLER.gstin}</p>
+                      <p className="text-gray-700">State Name: {SELLER.state}, Code: {SELLER.stateCode}</p>
+                    </div>
+                    <div className="space-y-1 text-gray-700">
+                      <p><span className="font-medium">Invoice No.:</span> {inv.taxInvoiceNumber || '–'}</p>
+                      <p><span className="font-medium">Dated:</span> {formatDate(inv.invoiceDate || inv.created_at)}</p>
+                      <p><span className="font-medium">Buyer Order No.:</span> {inv.poWoNumber || inv.ocNumber || '–'}</p>
+                      <p><span className="font-medium">OC Number:</span> {inv.ocNumber || '–'}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm border-b border-gray-300">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase">Consignee / Ship To</p>
+                      <p className="font-semibold text-gray-900 mt-1">{inv.clientLegalName || '–'}</p>
+                      <p className="text-gray-700">{inv.clientAddress || '–'}</p>
+                      <p className="text-gray-700 mt-1">GSTIN/UIN: {inv.gstin || '–'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase">Buyer / Bill To</p>
+                      <p className="font-semibold text-gray-900 mt-1">{inv.clientLegalName || '–'}</p>
+                      <p className="text-gray-700">{inv.clientAddress || '–'}</p>
+                      <p className="text-gray-700 mt-1">GSTIN/UIN: {inv.gstin || '–'}</p>
+                    </div>
+                  </div>
+
+                  <div className="px-6 py-4 border-b border-gray-300">
+                    <table className="w-full text-sm border border-gray-300">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-2 py-2 border border-gray-300 text-left">SI No.</th>
+                          <th className="px-2 py-2 border border-gray-300 text-left">Description of Goods</th>
+                          <th className="px-2 py-2 border border-gray-300 text-left">HSN/SAC</th>
+                          <th className="px-2 py-2 border border-gray-300 text-left">Qty</th>
+                          <th className="px-2 py-2 border border-gray-300 text-left">Rate</th>
+                          <th className="px-2 py-2 border border-gray-300 text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewItems.length ? previewItems.map((it, idx) => (
+                          <tr key={idx}>
+                            <td className="px-2 py-2 border border-gray-300">{idx + 1}</td>
+                            <td className="px-2 py-2 border border-gray-300">{it.description || it.designation || '–'}</td>
+                            <td className="px-2 py-2 border border-gray-300">{it.hsnSac || inv.hsnSac || '–'}</td>
+                            <td className="px-2 py-2 border border-gray-300">{Number(it.quantity) || 0}</td>
+                            <td className="px-2 py-2 border border-gray-300">₹{round2(Number(it.rate) || 0).toLocaleString('en-IN')}</td>
+                            <td className="px-2 py-2 border border-gray-300 text-right">₹{round2(Number(it.amount) || 0).toLocaleString('en-IN')}</td>
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td className="px-2 py-3 border border-gray-300 text-center text-gray-500" colSpan={6}>No line items</td>
+                          </tr>
+                        )}
+                        <tr>
+                          <td className="px-2 py-2 border border-gray-300" colSpan={5}>CGST ({previewCgstRate}%)</td>
+                          <td className="px-2 py-2 border border-gray-300 text-right">₹{round2(previewCgst).toLocaleString('en-IN')}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-2 py-2 border border-gray-300" colSpan={5}>SGST ({previewSgstRate}%)</td>
+                          <td className="px-2 py-2 border border-gray-300 text-right">₹{round2(previewSgst).toLocaleString('en-IN')}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm border-b border-gray-300">
+                    <div className="space-y-1 text-gray-700">
+                      <p><span className="font-medium">Payment Terms:</span> {inv.paymentTerms || '30 Days'}</p>
+                      <p><span className="font-medium">Invoice Date:</span> {formatDate(inv.invoiceDate || inv.created_at)}</p>
+                    </div>
+                    <div className="border border-gray-300 rounded p-3">
+                      <div className="flex justify-between"><span>Taxable Value</span><span className="font-medium">₹{round2(previewTaxable).toLocaleString('en-IN')}</span></div>
+                      <div className="flex justify-between"><span>CGST</span><span className="font-medium">₹{round2(previewCgst).toLocaleString('en-IN')}</span></div>
+                      <div className="flex justify-between"><span>SGST</span><span className="font-medium">₹{round2(previewSgst).toLocaleString('en-IN')}</span></div>
+                      <div className="flex justify-between border-t border-gray-300 mt-2 pt-2 font-semibold"><span>Total</span><span>₹{round2(previewTotal).toLocaleString('en-IN')}</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
