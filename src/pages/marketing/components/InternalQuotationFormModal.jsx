@@ -36,6 +36,21 @@ const InternalQuotationFormModal = ({
     signed_by: '',
   });
 
+  /** Get costing cell value with legacy key fallback (final_price -> grand_total_supply_cost_with_gst, etc.) */
+  const getCostingValue = (itemId, key) => {
+    if (!costingData) return null;
+    const v = costingData[`${itemId}_${key}`];
+    if (v !== undefined && v !== null && v !== '') return v;
+    const legacy = {
+      grand_total_supply_cost_with_gst: 'final_price',
+      grand_total_supply_cost_excl_gst: 'quotation_rate',
+      quotation_rate_per_unit: 'quotation_rate',
+    };
+    const oldKey = legacy[key];
+    if (oldKey) return costingData[`${itemId}_${oldKey}`];
+    return null;
+  };
+
   useEffect(() => {
     if (isOpen && quotationId) {
       fetchQuotationDetails(quotationId);
@@ -322,17 +337,14 @@ const InternalQuotationFormModal = ({
       let finalAmount = 0;
       
       if (costingData && costingTableItems.length > 0) {
-        const netTotal = costingTableItems.reduce((sum, item) => {
-          const quotationRate = parseFloat(costingData[`${item.id}_quotation_rate`] || 0);
-          return sum + quotationRate;
+        subtotal = costingTableItems.reduce((sum, item) => {
+          const v = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0);
+          return sum + v;
         }, 0);
-        
         finalAmount = costingTableItems.reduce((sum, item) => {
-          const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-          return sum + finalPrice;
+          const v = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0);
+          return sum + v;
         }, 0);
-        
-        subtotal = netTotal;
       } else {
         subtotal = quotation?.total_amount || 0;
         finalAmount = quotation?.final_amount || 0;
@@ -526,11 +538,25 @@ const InternalQuotationFormModal = ({
     });
   };
 
-  // Check if we need a new page based on current Y position
-  const checkNewPage = (doc, yPos, minSpace = 20) => {
-    if (yPos > doc.internal.pageSize.height - minSpace) {
+  // PDF layout constants (A4: 210 x 297 mm) - professional spacing, nothing cut
+  const PDF_LAYOUT = {
+    marginLeft: 20,
+    marginRight: 20,
+    marginTopFirst: 15,
+    marginTopNewPage: 22,
+    footerReserve: 18,   // space for page number at bottom
+    sectionGap: 5,      // gap between major sections
+    lineHeightBody: 4,
+    lineHeightTerms: 4,
+    termsItemGap: 1.5,
+    minSpaceForSection: 45,  // min space before starting Part-2 or footer block
+  };
+
+  const checkNewPage = (doc, yPos, minSpace = PDF_LAYOUT.footerReserve) => {
+    const pageHeight = doc.internal.pageSize.height;
+    if (yPos > pageHeight - minSpace) {
       doc.addPage();
-      return 20; // Reset Y position to top of new page with margin
+      return PDF_LAYOUT.marginTopNewPage;
     }
     return yPos;
   };
@@ -565,8 +591,7 @@ const InternalQuotationFormModal = ({
         line = word + ' ';
         currentY += lineHeight;
         
-        // Check if we need a new page
-        currentY = checkNewPage(doc, currentY, lineHeight + 5);
+        currentY = checkNewPage(doc, currentY, lineHeight + PDF_LAYOUT.footerReserve);
       } else {
         line = testLine;
       }
@@ -615,80 +640,77 @@ const InternalQuotationFormModal = ({
       }
 
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const { marginLeft, marginTopFirst, sectionGap, lineHeightBody } = PDF_LAYOUT;
 
       // --- Logo ---
       doc.addImage(logoBase64, 'PNG', 155, 5, 35, 35);
-      let yPos = 15;
+      let yPos = marginTopFirst;
 
       // --- Ref No. & Date ---
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
-      doc.text(`Ref. No.: ${quotation.quotation_number}`, 20, yPos);
-      yPos += 3.5;
+      doc.text(`Ref. No.: ${quotation.quotation_number}`, marginLeft, yPos);
+      yPos += 4;
       const currentDate = new Date(quotation.quotation_date || new Date()).toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric'
       });
-      doc.text(`Date: ${currentDate}`, 20, yPos);
-      yPos += 10;
+      doc.text(`Date: ${currentDate}`, marginLeft, yPos);
+      yPos += sectionGap + 4;
 
       // --- To Address ---
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
-      doc.text('To,', 20, yPos);
+      doc.text('To,', marginLeft, yPos);
       yPos += 4;
-      
-      // Client name with proper formatting
       if (client.client_name) {
         doc.setFont('helvetica', 'bold');
-        doc.text(client.client_name, 20, yPos);
+        doc.text(client.client_name, marginLeft, yPos);
         doc.setFont('helvetica', 'normal');
-        yPos += 3.5;
+        yPos += 4;
       }
-
-      // Format address with proper spacing and alignment
       const addrParts = [
         client.street,
         client.street2,
         [client.city, client.state, client.zip].filter(Boolean).join(', '),
         client.country,
       ].filter(Boolean);
-
       addrParts.forEach((part) => {
-        doc.text(part, 20, yPos);
-        yPos += 3.5;
+        doc.text(part, marginLeft, yPos);
+        yPos += 4;
       });
-      yPos += 4; // Reduced spacing
+      yPos += sectionGap;
 
       // --- Subject ---
       if (formData.subject_title) {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.text(`Subject: ${formData.subject_title}`, 20, yPos);
-        yPos += 5; // Reduced spacing
+        doc.setFontSize(10);
+        doc.text(`Subject: ${formData.subject_title}`, marginLeft, yPos);
         doc.setFont('helvetica', 'normal');
+        yPos += sectionGap;
       }
 
       // --- Greeting ---
       doc.setFontSize(10);
-      doc.text('Dear Sir,', 20, yPos);
-      yPos += 5; // Reduced spacing
+      doc.text('Dear Sir,', marginLeft, yPos);
+      yPos += sectionGap;
 
-      // --- Body (Subject Content) ---
+      // --- Body (Subject description) ---
       if (formData.subject) {
         doc.setFontSize(9);
-        const bodyWidth = 160;
-        yPos = justifyText(doc, formData.subject, 20, yPos, bodyWidth, 3.5);
-        yPos += 3; // Reduced spacing
-        yPos = checkNewPage(doc, yPos);
+        const bodyWidth = 170;
+        yPos = justifyText(doc, formData.subject, marginLeft, yPos, bodyWidth, lineHeightBody);
+        yPos += sectionGap;
+        yPos = checkNewPage(doc, yPos, PDF_LAYOUT.minSpaceForSection);
       }
 
       // --- Part 1: Commercial Offer ---
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('Part-1: Commercial offer', 20, yPos);
+      doc.setFontSize(10);
+      doc.text('Part-1: Commercial offer', marginLeft, yPos);
       doc.setFont('helvetica', 'normal');
-      yPos += 4; // Proper spacing after heading
+      yPos += sectionGap;
 
       const formatNum = (num) => {
         const formatted = parseFloat(num || 0).toLocaleString('en-IN', {
@@ -699,70 +721,66 @@ const InternalQuotationFormModal = ({
         return `Rs. ${formatted}`;
       };
 
-      // Prepare table data from costing sheet - 5 columns: Sr. No., Item Name, Specification, Rate, Total Amount
+      // Prepare table data: Item Name, Specification, Quotation Rate Per Unit, Grand Total (Excl GST), GST %, GST Amount, Grand Total With GST
       const tableData = [];
+      const pdfHeaders = ['Item Name', 'Specification', 'Quotation Rate Per Unit', 'Grand Total (Excl GST)', 'GST %', 'GST Amount', 'Grand Total With GST'];
       if (costingTableItems.length > 0 && costingData) {
         costingTableItems.forEach((item, index) => {
-          const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-          const itemName = item.name || item.productName || `Item ${index + 1}`;
-          const specification = item.productId ? getProductSpecification(item.productId) : '';
-          
+          const itemName = item.productName || item.name || `Item ${index + 1}`;
+          const specification = item.specification || (item.productId ? getProductSpecification(item.productId) : '') || '-';
+          const quotationRatePerUnit = parseFloat(getCostingValue(item.id, 'quotation_rate_per_unit') || 0);
+          const grandExclGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0);
+          const gstPct = getCostingValue(item.id, 'gst_pct');
+          const gstAmount = parseFloat(getCostingValue(item.id, 'gst_amount') || 0);
+          const grandWithGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0);
           tableData.push([
-            String(index + 1), // Sr. No. as string
-            itemName, // Item Name
-            specification || '-', // Specification
-            formatNum(finalPrice), // Rate
-            formatNum(finalPrice), // Total Amount
+            itemName,
+            specification,
+            formatNum(quotationRatePerUnit),
+            formatNum(grandExclGst),
+            gstPct != null && gstPct !== '' ? String(parseFloat(gstPct)) : '-',
+            formatNum(gstAmount),
+            formatNum(grandWithGst),
           ]);
         });
       } else {
-        // Fallback if no costing data
-        tableData.push([
-          '1', // Sr. No.
-          'Total Amount', // Item Name
-          '-', // Specification
-          formatNum(finalAmount), // Rate
-          formatNum(finalAmount), // Total Amount
-        ]);
+        tableData.push(['Total Amount', '-', formatNum(finalAmount), formatNum(finalAmount), '-', '-', formatNum(finalAmount)]);
       }
 
-      const grandTotal = costingTableItems.length > 0 && costingData
-        ? costingTableItems.reduce((sum, item) => {
-            const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-            return sum + finalPrice;
-          }, 0)
+      const grandExclGstTotal = costingTableItems.length > 0 && costingData
+        ? costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0), 0)
         : finalAmount;
+      const gstAmountTotal = costingTableItems.length > 0 && costingData
+        ? costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'gst_amount') || 0), 0)
+        : 0;
+      const grandWithGstTotal = costingTableItems.length > 0 && costingData
+        ? costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0), 0)
+        : finalAmount;
+      tableData.push(['', 'Grand Total', '', formatNum(grandExclGstTotal), '', formatNum(gstAmountTotal), formatNum(grandWithGstTotal)]);
 
-      // Total row: spans first 3 columns, empty Rate column, total in last column
-      tableData.push(['', 'Total Amount', '', '', formatNum(grandTotal)]);
-
-      // Function to draw header on each page (reuse currentDate already defined above)
       const drawPageHeader = (doc, pageNumber) => {
-        // Draw logo
         doc.addImage(logoBase64, 'PNG', 155, 5, 35, 35);
-        
-        // Draw Ref No. and Date (reuse currentDate variable)
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
-        doc.text(`Ref. No.: ${quotation.quotation_number}`, 20, 15);
-        doc.text(`Date: ${currentDate}`, 20, 18.5);
+        doc.text(`Ref. No.: ${quotation.quotation_number}`, marginLeft, 15);
+        doc.text(`Date: ${currentDate}`, marginLeft, 19);
       };
 
-      // Store the initial startY for first page
       const firstPageStartY = yPos;
+      const tableBottomMargin = PDF_LAYOUT.footerReserve + 8;
 
       autoTable(doc, {
         startY: firstPageStartY,
-        head: [['Sr. No.', 'Item Name', 'Specification', 'Rate', 'Total Amount']],
+        head: [pdfHeaders],
         body: tableData,
         theme: 'grid',
         styles: {
-          fontSize: 8.5,
-          cellPadding: 2.5,
+          fontSize: 7.5,
+          cellPadding: 2,
           lineWidth: 0.1,
           lineColor: [200, 200, 200],
           overflow: 'linebreak',
-          minCellHeight: 10,
+          minCellHeight: 8,
           halign: 'left',
           valign: 'top',
         },
@@ -771,165 +789,118 @@ const InternalQuotationFormModal = ({
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           halign: 'center',
-          lineWidth: 0.2,
-          lineColor: [41, 128, 185],
-          cellPadding: 2.5,
+          fontSize: 7.5,
+          cellPadding: 2,
         },
         alternateRowStyles: {
           fillColor: [248, 249, 250],
         },
         columnStyles: {
-          0: { cellWidth: 12, halign: 'left', valign: 'top', fontStyle: 'normal' },
-          1: { cellWidth: 50, halign: 'left', valign: 'top' },
-          2: { cellWidth: 50, halign: 'left', valign: 'top' },
-          3: { cellWidth: 28, halign: 'center', valign: 'top' },
-          4: { cellWidth: 30, halign: 'center', valign: 'top' },
+          0: { cellWidth: 32, halign: 'left', valign: 'top' },
+          1: { cellWidth: 38, halign: 'left', valign: 'top' },
+          2: { cellWidth: 22, halign: 'right', valign: 'top' },
+          3: { cellWidth: 22, halign: 'right', valign: 'top' },
+          4: { cellWidth: 12, halign: 'right', valign: 'top' },
+          5: { cellWidth: 20, halign: 'right', valign: 'top' },
+          6: { cellWidth: 24, halign: 'right', valign: 'top' },
         },
         pageBreak: 'auto',
         rowPageBreak: 'avoid',
         showHead: 'everyPage',
-        margin: { left: 20, right: 20, top: firstPageStartY, bottom: 10 },
+        margin: { left: marginLeft, right: PDF_LAYOUT.marginRight, top: firstPageStartY, bottom: tableBottomMargin },
         didParsePage: (data) => {
-          // On subsequent pages, force table to start immediately after header with NO gap
           if (data.pageNumber > 1) {
-            // Set startY to 19mm (right after date at 18.5mm) - no space at all
-            data.settings.startY = 19;
-            // Remove all top margin
+            data.settings.startY = PDF_LAYOUT.marginTopNewPage;
             data.settings.margin.top = 0;
+            data.settings.margin.bottom = tableBottomMargin;
           }
         },
         willDrawPage: (data) => {
-          // Draw header on every page before table draws
           drawPageHeader(doc, data.pageNumber);
-          
-          // On subsequent pages, ensure table starts at top with no gap
-          if (data.pageNumber > 1) {
-            // Force the table to start at 19mm (immediately after header)
-            if (data.table && data.table.settings) {
-              data.table.settings.startY = 19;
-              data.table.settings.margin.top = 0;
-            }
+          if (data.pageNumber > 1 && data.table?.settings) {
+            data.table.settings.startY = PDF_LAYOUT.marginTopNewPage;
+            data.table.settings.margin.top = 0;
           }
         },
         didParseCell: (data) => {
-          // Style the total row - match QuotationDetail.jsx pattern
           if (data.row.index === tableData.length - 1) {
             data.cell.styles.fontStyle = 'bold';
             data.cell.styles.fillColor = [230, 240, 255];
             data.cell.styles.textColor = [0, 0, 0];
-            data.cell.styles.halign = 'center';
-            data.cell.styles.valign = 'top';
-            // Merge first 3 cells for "Total Amount" label
-            if (data.column.index === 0) {
-              data.cell.colSpan = 3;
-            } else if (data.column.index < 3) {
-              data.cell.rowSpan = 0; // Hide the spanned cells
-            }
-          }
-        },
-        didDrawCell: (data) => {
-          // Add underline for grand total - match QuotationDetail.jsx
-          if (data.row.index === tableData.length - 1 && data.column.index === 4) {
-            const { x, y, width, height } = data.cell;
-            doc.setDrawColor(41, 128, 185);
-            doc.setLineWidth(0.5);
-            doc.line(x, y + height - 1, x + width, y + height - 1);
+            if (data.column.index === 1) data.cell.styles.halign = 'right';
           }
         },
       });
 
-      // Get the final Y position after table, with proper spacing
-      yPos = doc.lastAutoTable.finalY + 3; // Proper spacing after table
-      // Check if we need a new page
-      yPos = checkNewPage(doc, yPos, 20);
+      yPos = doc.lastAutoTable.finalY + sectionGap;
+      yPos = checkNewPage(doc, yPos, PDF_LAYOUT.minSpaceForSection);
 
       // --- Part 2: Terms & Conditions ---
-      // Check if we have enough space, if not start on new page
-      yPos = checkNewPage(doc, yPos, 30);
-      
-      // Add proper spacing before Terms & Conditions (1 space as requested)
-      yPos += 1;
-      
+      yPos = checkNewPage(doc, yPos, PDF_LAYOUT.minSpaceForSection);
+      yPos += 2;
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('Part-2: Terms & Conditions:', 20, yPos);
-      yPos += 4; // Proper spacing after heading
-
+      doc.setFontSize(10);
+      doc.text('Part-2: Terms & Conditions:', marginLeft, yPos);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+      yPos += sectionGap;
 
-      // Split and clean the lines
+      doc.setFontSize(9);
       const termLines = formData.terms_and_conditions
         ? formData.terms_and_conditions.replace(/\r\n/g, '\n').split('\n').filter((line) => line.trim() !== '')
         : [];
 
-      // Layout settings - optimized for justified alignment
-      const leftMargin = 20;
-      const bulletGap = 2;
-      const textWidth = 160;
-      const lineHeight = 3.2; // Reduced from 3.5 to save space
-      const sectionSpacing = 0.8; // Reduced from 1 to save space
+      const textWidth = 170;
+      const lineHeightTerms = PDF_LAYOUT.lineHeightTerms;
+      const termsItemGap = PDF_LAYOUT.termsItemGap;
 
       termLines.forEach((line) => {
         const cleanLine = line.trim();
-
-        // Detect bullet like a), b), 1., -
         const match = cleanLine.match(/^([•\-\–]|\(?[a-zA-Z0-9]+\)|[0-9]+\.)\s*/);
         let bullet = '';
         let content = cleanLine;
-
         if (match) {
           bullet = match[1];
           content = cleanLine.substring(match[0].length).trim();
         }
+        const contentX = bullet ? marginLeft + 2 + doc.getTextWidth(bullet) + 2 : marginLeft;
+        const contentW = textWidth - (contentX - marginLeft);
 
-        const bulletX = leftMargin;
-        const contentX = bullet ? leftMargin + bulletGap + doc.getTextWidth(bullet) + 2 : leftMargin;
-        const contentWidth = textWidth - (contentX - leftMargin);
-
-        // Draw bullet if present
-        if (bullet) {
-          doc.text(bullet, bulletX, yPos);
-        }
-
-        // Justify the content (multi-line if needed)
+        if (bullet) doc.text(bullet, marginLeft, yPos);
         if (content) {
-          const justifyY = yPos;
-          yPos = justifyText(doc, content, contentX, justifyY, contentWidth, lineHeight);
+          const startY = yPos;
+          yPos = justifyText(doc, content, contentX, startY, contentW, lineHeightTerms);
         } else {
-          yPos += lineHeight;
+          yPos += lineHeightTerms;
         }
-
-        yPos += sectionSpacing;
-
-        // Page overflow check - use smaller minSpace to avoid unnecessary page breaks
-        yPos = checkNewPage(doc, yPos, 15);
+        yPos += termsItemGap;
+        yPos = checkNewPage(doc, yPos, lineHeightTerms + 12);
       });
 
-      // Check if we have enough space for footer section, if not start on new page
-      yPos = checkNewPage(doc, yPos, 25);
-      yPos += 2; // Reduced from 3 to 2 for tighter spacing
+      yPos = checkNewPage(doc, yPos, 32);
+      yPos += sectionGap;
 
-      doc.text('For Indus Fire Safety Pvt. Ltd.', 20, yPos);
-      yPos += 5; // Reduced from 6 to 5
+      doc.text('For Indus Fire Safety Pvt. Ltd.', marginLeft, yPos);
+      yPos += 5;
 
       // --- Signature ---
       if (signatureBase64) {
-        doc.addImage(signatureBase64, 'PNG', 20, yPos, 40, 15);
+        doc.addImage(signatureBase64, 'PNG', marginLeft, yPos, 40, 15);
       } else {
         doc.setDrawColor(180);
         doc.setLineWidth(0.5);
-        doc.rect(20, yPos, 40, 15, 'S');
+        doc.rect(marginLeft, yPos, 40, 15, 'S');
       }
       yPos += 18;
 
       doc.setFont('helvetica', 'bold');
-      doc.text(formData.signed_by || 'Authorized Signatory', 20, yPos);
+      doc.setFontSize(10);
+      doc.text(formData.signed_by || 'Authorized Signatory', marginLeft, yPos);
       yPos += 4;
       doc.setFont('helvetica', 'normal');
-      doc.text('Authorized Signatory', 20, yPos);
+      doc.setFontSize(9);
+      doc.text('Authorized Signatory', marginLeft, yPos);
 
-      // Add page numbers to all pages
       addPageNumbers(doc);
 
       // Download PDF
@@ -1101,80 +1072,69 @@ const InternalQuotationFormModal = ({
     }
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const { marginLeft, marginTopFirst, sectionGap, lineHeightBody } = PDF_LAYOUT;
 
-    // --- Logo ---
     doc.addImage(logoBase64, 'PNG', 155, 5, 35, 35);
-    let yPos = 15;
+    let yPos = marginTopFirst;
 
-    // --- Ref No. & Date ---
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
-    doc.text(`Ref. No.: ${quotation.quotation_number}`, 20, yPos);
-    yPos += 3.5;
+    doc.text(`Ref. No.: ${quotation.quotation_number}`, marginLeft, yPos);
+    yPos += 4;
     const currentDate = new Date(quotation.quotation_date || new Date()).toLocaleDateString('en-GB', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
     });
-    doc.text(`Date: ${currentDate}`, 20, yPos);
-    yPos += 10;
+    doc.text(`Date: ${currentDate}`, marginLeft, yPos);
+    yPos += sectionGap + 4;
 
-    // --- To Address ---
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text('To,', 20, yPos);
+    doc.text('To,', marginLeft, yPos);
     yPos += 4;
-    
-    // Client name with proper formatting
     if (client.client_name) {
       doc.setFont('helvetica', 'bold');
-      doc.text(client.client_name, 20, yPos);
+      doc.text(client.client_name, marginLeft, yPos);
       doc.setFont('helvetica', 'normal');
-      yPos += 3.5;
+      yPos += 4;
     }
-
-    // Format address with proper spacing and alignment
     const addrParts = [
       client.street,
       client.street2,
       [client.city, client.state, client.zip].filter(Boolean).join(', '),
       client.country,
     ].filter(Boolean);
-
     addrParts.forEach((part) => {
-      doc.text(part, 20, yPos);
-      yPos += 3.5;
+      doc.text(part, marginLeft, yPos);
+      yPos += 4;
     });
-    yPos += 4; // Reduced spacing
+    yPos += sectionGap;
 
-    // --- Subject ---
     if (formData.subject_title) {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(`Subject: ${formData.subject_title}`, 20, yPos);
-      yPos += 5; // Reduced spacing
+      doc.setFontSize(10);
+      doc.text(`Subject: ${formData.subject_title}`, marginLeft, yPos);
       doc.setFont('helvetica', 'normal');
+      yPos += sectionGap;
     }
-
-    // --- Greeting ---
     doc.setFontSize(10);
-    doc.text('Dear Sir,', 20, yPos);
-    yPos += 5; // Reduced spacing
+    doc.text('Dear Sir,', marginLeft, yPos);
+    yPos += sectionGap;
 
-    // --- Body (Subject Content) ---
     if (formData.subject) {
       doc.setFontSize(9);
-      const bodyWidth = 160;
-      yPos = justifyText(doc, formData.subject, 20, yPos, bodyWidth, 3.5);
-      yPos += 3; // Reduced spacing
-      yPos = checkNewPage(doc, yPos);
+      const bodyWidth = 170;
+      yPos = justifyText(doc, formData.subject, marginLeft, yPos, bodyWidth, lineHeightBody);
+      yPos += sectionGap;
+      yPos = checkNewPage(doc, yPos, PDF_LAYOUT.minSpaceForSection);
     }
 
-    // --- Part 1: Commercial Offer ---
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('Part-1: Commercial offer', 20, yPos);
+    doc.setFontSize(10);
+    doc.text('Part-1: Commercial offer', marginLeft, yPos);
     doc.setFont('helvetica', 'normal');
-    yPos += 4; // Proper spacing after heading
+    yPos += sectionGap;
 
     const formatNum = (num) =>
       `₹${parseFloat(num || 0).toLocaleString('en-IN', {
@@ -1182,42 +1142,42 @@ const InternalQuotationFormModal = ({
         maximumFractionDigits: 2,
       })}`;
 
-    // Prepare table data from costing sheet - 5 columns: Sr. No., Item Name, Specification, Rate, Total Amount
+    // Prepare table data: Item Name, Specification, Quotation Rate Per Unit, Grand Total (Excl GST), GST %, GST Amount, Grand Total With GST
     const tableData = [];
+    const pdfHeaders = ['Item Name', 'Specification', 'Quotation Rate Per Unit', 'Grand Total (Excl GST)', 'GST %', 'GST Amount', 'Grand Total With GST'];
     if (costingTableItems.length > 0 && costingData) {
       costingTableItems.forEach((item, index) => {
-        const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-        const itemName = item.name || item.productName || `Item ${index + 1}`;
-        const specification = item.productId ? getProductSpecification(item.productId) : '';
-        
+        const itemName = item.productName || item.name || `Item ${index + 1}`;
+        const specification = item.specification || (item.productId ? getProductSpecification(item.productId) : '') || '-';
+        const quotationRatePerUnit = parseFloat(getCostingValue(item.id, 'quotation_rate_per_unit') || 0);
+        const grandExclGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0);
+        const gstPct = getCostingValue(item.id, 'gst_pct');
+        const gstAmount = parseFloat(getCostingValue(item.id, 'gst_amount') || 0);
+        const grandWithGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0);
         tableData.push([
-          String(index + 1), // Sr. No. as string
-          itemName, // Item Name
-          specification || '-', // Specification
-          formatNum(finalPrice), // Rate
-          formatNum(finalPrice), // Total Amount
+          itemName,
+          specification,
+          formatNum(quotationRatePerUnit),
+          formatNum(grandExclGst),
+          gstPct != null && gstPct !== '' ? String(parseFloat(gstPct)) : '-',
+          formatNum(gstAmount),
+          formatNum(grandWithGst),
         ]);
       });
     } else {
-      // Fallback if no costing data
-      tableData.push([
-        '1', // Sr. No.
-        'Total Amount', // Item Name
-        '-', // Specification
-        formatNum(finalAmount), // Rate
-        formatNum(finalAmount), // Total Amount
-      ]);
+      tableData.push(['Total Amount', '-', formatNum(finalAmount), formatNum(finalAmount), '-', '-', formatNum(finalAmount)]);
     }
 
-    const grandTotal = costingTableItems.length > 0 && costingData
-      ? costingTableItems.reduce((sum, item) => {
-          const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-          return sum + finalPrice;
-        }, 0)
+    const grandExclGstTotal = costingTableItems.length > 0 && costingData
+      ? costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0), 0)
       : finalAmount;
-
-    // Total row: spans first 3 columns, empty Rate column, total in last column
-    tableData.push(['', 'Total Amount', '', '', formatNum(grandTotal)]);
+    const gstAmountTotal = costingTableItems.length > 0 && costingData
+      ? costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'gst_amount') || 0), 0)
+      : 0;
+    const grandWithGstTotal = costingTableItems.length > 0 && costingData
+      ? costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0), 0)
+      : finalAmount;
+    tableData.push(['', 'Grand Total', '', formatNum(grandExclGstTotal), '', formatNum(gstAmountTotal), formatNum(grandWithGstTotal)]);
 
     // Function to draw header on each page (reuse currentDate already defined above)
     const drawPageHeader = (doc, pageNumber) => {
@@ -1233,19 +1193,20 @@ const InternalQuotationFormModal = ({
 
     // Store the initial startY for first page
     const firstPageStartY = yPos;
+    const tableBottomMargin = PDF_LAYOUT.footerReserve + 8;
 
     autoTable(doc, {
       startY: firstPageStartY,
-      head: [['Sr. No.', 'Item Name', 'Specification', 'Rate', 'Total Amount']],
+      head: [pdfHeaders],
       body: tableData,
       theme: 'grid',
       styles: {
-        fontSize: 8.5,
-        cellPadding: 2.5,
+        fontSize: 7.5,
+        cellPadding: 2,
         lineWidth: 0.1,
         lineColor: [200, 200, 200],
         overflow: 'linebreak',
-        minCellHeight: 10,
+        minCellHeight: 8,
         halign: 'left',
         valign: 'top',
       },
@@ -1254,165 +1215,116 @@ const InternalQuotationFormModal = ({
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         halign: 'center',
-        lineWidth: 0.2,
-        lineColor: [41, 128, 185],
-        cellPadding: 2.5,
+        fontSize: 7.5,
+        cellPadding: 2,
       },
       alternateRowStyles: {
         fillColor: [248, 249, 250],
       },
       columnStyles: {
-        0: { cellWidth: 12, halign: 'left', valign: 'top', fontStyle: 'normal' },
-        1: { cellWidth: 50, halign: 'left', valign: 'top' },
-        2: { cellWidth: 50, halign: 'left', valign: 'top' },
-        3: { cellWidth: 28, halign: 'right', valign: 'top' },
-        4: { cellWidth: 30, halign: 'right', valign: 'top' },
+        0: { cellWidth: 32, halign: 'left', valign: 'top' },
+        1: { cellWidth: 38, halign: 'left', valign: 'top' },
+        2: { cellWidth: 22, halign: 'right', valign: 'top' },
+        3: { cellWidth: 22, halign: 'right', valign: 'top' },
+        4: { cellWidth: 12, halign: 'right', valign: 'top' },
+        5: { cellWidth: 20, halign: 'right', valign: 'top' },
+        6: { cellWidth: 24, halign: 'right', valign: 'top' },
       },
       pageBreak: 'auto',
       rowPageBreak: 'avoid',
       showHead: 'everyPage',
-      margin: { left: 20, right: 20, top: firstPageStartY, bottom: 10 },
+      margin: { left: marginLeft, right: PDF_LAYOUT.marginRight, top: firstPageStartY, bottom: tableBottomMargin },
       didParsePage: (data) => {
-        // On subsequent pages, force table to start immediately after header with NO gap
         if (data.pageNumber > 1) {
-          // Set startY to 19mm (right after date at 18.5mm) - no space at all
-          data.settings.startY = 19;
-          // Remove all top margin
+          data.settings.startY = PDF_LAYOUT.marginTopNewPage;
           data.settings.margin.top = 0;
+          data.settings.margin.bottom = tableBottomMargin;
         }
       },
       willDrawPage: (data) => {
-        // Draw header on every page before table draws
         drawPageHeader(doc, data.pageNumber);
-        
-        // On subsequent pages, ensure table starts at top with no gap
-        if (data.pageNumber > 1) {
-          // Force the table to start at 19mm (immediately after header)
-          if (data.table && data.table.settings) {
-            data.table.settings.startY = 19;
-            data.table.settings.margin.top = 0;
-          }
+        if (data.pageNumber > 1 && data.table?.settings) {
+          data.table.settings.startY = PDF_LAYOUT.marginTopNewPage;
+          data.table.settings.margin.top = 0;
         }
       },
       didParseCell: (data) => {
-        // Style the total row - match QuotationDetail.jsx pattern
         if (data.row.index === tableData.length - 1) {
           data.cell.styles.fontStyle = 'bold';
           data.cell.styles.fillColor = [230, 240, 255];
           data.cell.styles.textColor = [0, 0, 0];
-          data.cell.styles.halign = 'right';
-          data.cell.styles.valign = 'top';
-          // Merge first 3 cells for "Total Amount" label
-          if (data.column.index === 0) {
-            data.cell.colSpan = 3;
-          } else if (data.column.index < 3) {
-            data.cell.rowSpan = 0; // Hide the spanned cells
-          }
-        }
-      },
-      didDrawCell: (data) => {
-        // Add underline for grand total - match QuotationDetail.jsx
-        if (data.row.index === tableData.length - 1 && data.column.index === 4) {
-          const { x, y, width, height } = data.cell;
-          doc.setDrawColor(41, 128, 185);
-          doc.setLineWidth(0.5);
-          doc.line(x, y + height - 1, x + width, y + height - 1);
+          if (data.column.index === 1) data.cell.styles.halign = 'right';
         }
       },
     });
 
-    // Get the final Y position after table, with proper spacing
-    yPos = doc.lastAutoTable.finalY + 3; // Proper spacing after table
-    // Check if we need a new page
-    yPos = checkNewPage(doc, yPos, 20);
+    yPos = doc.lastAutoTable.finalY + sectionGap;
+    yPos = checkNewPage(doc, yPos, PDF_LAYOUT.minSpaceForSection);
 
-    // --- Part 2: Terms & Conditions ---
-    // Check if we have enough space, if not start on new page
-    yPos = checkNewPage(doc, yPos, 30);
-    
-    // Add proper spacing before Terms & Conditions (1 space as requested)
-    yPos += 1;
-    
+    yPos = checkNewPage(doc, yPos, PDF_LAYOUT.minSpaceForSection);
+    yPos += 2;
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('Part-2: Terms & Conditions:', 20, yPos);
-    yPos += 4; // Proper spacing after heading
-
+    doc.setFontSize(10);
+    doc.text('Part-2: Terms & Conditions:', marginLeft, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
+    yPos += sectionGap;
 
-    // Split and clean the lines
+    doc.setFontSize(9);
     const termLines = formData.terms_and_conditions
       ? formData.terms_and_conditions.replace(/\r\n/g, '\n').split('\n').filter((line) => line.trim() !== '')
       : [];
 
-    // Layout settings - optimized for justified alignment
-    const leftMargin = 20;
-    const bulletGap = 2;
-    const textWidth = 160;
-    const lineHeight = 3.2; // Reduced from 3.5 to save space
-    const sectionSpacing = 0.8; // Reduced from 1 to save space
+    const textWidth = 170;
+    const lineHeightTerms = PDF_LAYOUT.lineHeightTerms;
+    const termsItemGap = PDF_LAYOUT.termsItemGap;
 
     termLines.forEach((line) => {
       const cleanLine = line.trim();
-
-      // Detect bullet like a), b), 1., -
       const match = cleanLine.match(/^([•\-\–]|\(?[a-zA-Z0-9]+\)|[0-9]+\.)\s*/);
       let bullet = '';
       let content = cleanLine;
-
       if (match) {
         bullet = match[1];
         content = cleanLine.substring(match[0].length).trim();
       }
+      const contentX = bullet ? marginLeft + 2 + doc.getTextWidth(bullet) + 2 : marginLeft;
+      const contentW = textWidth - (contentX - marginLeft);
 
-      const bulletX = leftMargin;
-      const contentX = bullet ? leftMargin + bulletGap + doc.getTextWidth(bullet) + 2 : leftMargin;
-      const contentWidth = textWidth - (contentX - leftMargin);
-
-      // Draw bullet if present
-      if (bullet) {
-        doc.text(bullet, bulletX, yPos);
-      }
-
-      // Justify the content (multi-line if needed)
+      if (bullet) doc.text(bullet, marginLeft, yPos);
       if (content) {
-        const justifyY = yPos;
-        yPos = justifyText(doc, content, contentX, justifyY, contentWidth, lineHeight);
+        const startY = yPos;
+        yPos = justifyText(doc, content, contentX, startY, contentW, lineHeightTerms);
       } else {
-        yPos += lineHeight;
+        yPos += lineHeightTerms;
       }
-
-      yPos += sectionSpacing;
-
-      // Page overflow check - use smaller minSpace to avoid unnecessary page breaks
-      yPos = checkNewPage(doc, yPos, 15);
+      yPos += termsItemGap;
+      yPos = checkNewPage(doc, yPos, lineHeightTerms + 12);
     });
 
-    // Check if we have enough space for footer section, if not start on new page
-    yPos = checkNewPage(doc, yPos, 25);
-    yPos += 2; // Reduced from 3 to 2 for tighter spacing
+    yPos = checkNewPage(doc, yPos, 32);
+    yPos += sectionGap;
 
-    doc.text('For Indus Fire Safety Pvt. Ltd.', 20, yPos);
-    yPos += 5; // Reduced from 6 to 5
+    doc.text('For Indus Fire Safety Pvt. Ltd.', marginLeft, yPos);
+    yPos += 5;
 
-    // --- Signature ---
     if (signatureBase64) {
-      doc.addImage(signatureBase64, 'PNG', 20, yPos, 40, 15);
+      doc.addImage(signatureBase64, 'PNG', marginLeft, yPos, 40, 15);
     } else {
       doc.setDrawColor(180);
       doc.setLineWidth(0.5);
-      doc.rect(20, yPos, 40, 15, 'S');
+      doc.rect(marginLeft, yPos, 40, 15, 'S');
     }
     yPos += 18;
 
     doc.setFont('helvetica', 'bold');
-    doc.text(formData.signed_by || 'Authorized Signatory', 20, yPos);
+    doc.setFontSize(10);
+    doc.text(formData.signed_by || 'Authorized Signatory', marginLeft, yPos);
     yPos += 4;
     doc.setFont('helvetica', 'normal');
-    doc.text('Authorized Signatory', 20, yPos);
+    doc.setFontSize(9);
+    doc.text('Authorized Signatory', marginLeft, yPos);
 
-    // Add page numbers to all pages
     addPageNumbers(doc);
 
     return doc.output('blob');
@@ -1537,63 +1449,60 @@ const InternalQuotationFormModal = ({
               </div>
 
 
-              {/* Costing Sheet Table - Same format as QuotationForm */}
+              {/* Costing Sheet Table - Item Name, Specification, Quotation Rate Per Unit, Grand Total (Excl GST), GST %, GST Amount, Grand Total With GST */}
               <div className="mb-6 pt-6 border-t border-gray-200">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-semibold text-gray-900">Costing Sheet</h3>
                 </div>
                 {costingTableItems.length > 0 && costingData ? (
                   <div className="overflow-x-auto border border-gray-300 rounded-lg">
-                    <table className="w-full border-collapse bg-white">
-                      <colgroup>
-                        <col style={{ width: '35%' }} />
-                        <col style={{ width: '50%' }} />
-                        <col style={{ width: '15%' }} />
-                      </colgroup>
+                    <table className="w-full border-collapse bg-white text-sm">
                       <thead>
                         <tr className="bg-gradient-to-r from-green-500 to-green-600 text-white">
-                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider border-r border-green-400">Item Name</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider border-r border-green-400">Specification</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider">Total Amount</th>
+                          <th className="px-2 py-2 text-left text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Item Name</th>
+                          <th className="px-2 py-2 text-left text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Specification</th>
+                          <th className="px-2 py-2 text-right text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Quotation Rate Per Unit</th>
+                          <th className="px-2 py-2 text-right text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Grand Total Supply Cost (Excluding GST)</th>
+                          <th className="px-2 py-2 text-right text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">GST %</th>
+                          <th className="px-2 py-2 text-right text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">GST Amount</th>
+                          <th className="px-2 py-2 text-right text-xs font-semibold uppercase whitespace-nowrap">Grand Total Supply Cost With GST</th>
                         </tr>
                       </thead>
                       <tbody>
                         {costingTableItems.map((item, index) => {
-                          const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
+                          const quotationRatePerUnit = parseFloat(getCostingValue(item.id, 'quotation_rate_per_unit') || 0);
+                          const grandExclGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0);
+                          const gstPct = getCostingValue(item.id, 'gst_pct');
+                          const gstAmount = parseFloat(getCostingValue(item.id, 'gst_amount') || 0);
+                          const grandWithGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0);
                           const specification = item.specification || (item.productId ? getProductSpecification(item.productId) : '');
                           const itemName = item.productName || item.name || `Item ${index + 1}`;
+                          const fmt = (n) => n > 0 ? `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-';
                           return (
-                            <tr key={item.id} className="border-b border-gray-200 hover:bg-green-50/30 transition-colors">
-                              <td className="px-3 py-2 text-sm font-medium text-gray-900 border-r border-gray-200">
-                                {itemName}
-                              </td>
-                              <td className="px-3 py-2 text-sm text-gray-700 border-r border-gray-200">
-                                <div className="max-h-20 overflow-y-auto text-xs">
-                                  {specification || '-'}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-sm font-semibold text-gray-900 text-right">
-                                {finalPrice > 0 ? `₹${finalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
-                              </td>
+                            <tr key={item.id} className="border-b border-gray-200 hover:bg-green-50/30">
+                              <td className="px-2 py-2 font-medium text-gray-900 border-r border-gray-200">{itemName}</td>
+                              <td className="px-2 py-2 text-gray-700 border-r border-gray-200 max-w-xs"><div className="max-h-20 overflow-y-auto text-xs">{specification || '-'}</div></td>
+                              <td className="px-2 py-2 text-right border-r border-gray-200">{fmt(quotationRatePerUnit)}</td>
+                              <td className="px-2 py-2 text-right border-r border-gray-200">{fmt(grandExclGst)}</td>
+                              <td className="px-2 py-2 text-right border-r border-gray-200">{gstPct != null && gstPct !== '' ? Number(gstPct).toLocaleString('en-IN') : '-'}</td>
+                              <td className="px-2 py-2 text-right border-r border-gray-200">{fmt(gstAmount)}</td>
+                              <td className="px-2 py-2 text-right font-semibold text-gray-900">{fmt(grandWithGst)}</td>
                             </tr>
                           );
                         })}
                       </tbody>
                       <tfoot>
                         <tr className="bg-gradient-to-r from-gray-200 to-gray-300 border-t-2 border-gray-400">
-                          <td colSpan={2} className="px-3 py-3 text-sm font-bold text-gray-900 border-r border-gray-400 text-right">
-                            Grand Total
+                          <td colSpan={3} className="px-2 py-3 font-bold text-gray-900 border-r border-gray-400 text-right">Grand Total</td>
+                          <td className="px-2 py-3 text-right font-bold text-gray-900 border-r border-gray-400">
+                            ₹{(costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0), 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-3 py-3 text-sm font-bold text-gray-900 text-right">
-                            ₹{(() => {
-                              const total = costingTableItems.length > 0 && costingData
-                                ? costingTableItems.reduce((sum, item) => {
-                                    const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-                                    return sum + finalPrice;
-                                  }, 0)
-                                : finalAmount;
-                              return total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                            })()}
+                          <td className="px-2 py-3 border-r border-gray-400" />
+                          <td className="px-2 py-3 text-right font-bold text-gray-900 border-r border-gray-400">
+                            ₹{(costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'gst_amount') || 0), 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-2 py-3 text-right font-bold text-gray-900">
+                            ₹{(costingTableItems.reduce((s, item) => s + parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0), 0)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
                       </tfoot>

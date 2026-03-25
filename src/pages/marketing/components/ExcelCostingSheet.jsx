@@ -1,43 +1,64 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { Plus, Trash2, Edit2, X, Save, GripVertical, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Save, ChevronDown } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 
-const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSuccess, isViewMode = false, costingSheetId = null, hideSaveButton = false }, ref) => {
-  // Default cost heads (columns - horizontal)
-  const defaultCostHeads = [
-    { id: 'base_cost', label: 'Base Cost', isEditable: true, isCalculated: false },
-    { id: 'customs_duty', label: 'Customs Duty (If applicable)', isEditable: true, isCalculated: false },
-    { id: 'freight', label: 'Freight / Logistics', isEditable: true, isCalculated: false },
-    { id: 'insurance', label: 'Insurance(If applicable)', isEditable: true, isCalculated: false },
-    { id: 'finance_cost', label: 'Finance Cost', isEditable: true, isCalculated: false },
-    { id: 'business_dev', label: 'Business Development Cost(If applicable)', isEditable: true, isCalculated: false },
-    { id: 'other_cost', label: 'Other / Misc Cost', isEditable: true, isCalculated: false },
-    { id: 'total_cost', label: 'TOTAL COST', isEditable: false, isCalculated: true },
-    { id: 'margin_percent', label: 'Margin %', isEditable: true, isCalculated: false },
-    { id: 'margin_amount', label: 'Margin Amount', isEditable: false, isCalculated: true },
-    { id: 'quotation_rate', label: 'Quotation Rate (Excluding-GST)', isEditable: false, isCalculated: true },
-    { id: 'gst_percent', label: 'GST %', isEditable: true, isCalculated: false },
-    { id: 'final_price', label: 'Final Quoted Price (Incl. GST)', isEditable: false, isCalculated: true },
-  ];
+// Fixed costing sheet column definitions (column names as required – do not add/remove)
+const COSTING_SHEET_COLUMNS = [
+  { id: 'qty', label: 'Qty', isEditable: true, isCalculated: false },
+  { id: 'import_base_cost', label: 'Import Base Cost (In INR)', isEditable: true, isCalculated: false },
+  { id: 'import_custom_duty_pct', label: 'Import Custom Duty %', isEditable: true, isCalculated: false },
+  { id: 'import_custom_duty_amount', label: 'Import Custom Duty Amount', isEditable: false, isCalculated: true },
+  { id: 'import_freight', label: 'Import Freight / Logistics', isEditable: true, isCalculated: false },
+  { id: 'import_transit_insurance_pct', label: 'Import Transit Insurance %', isEditable: true, isCalculated: false },
+  { id: 'import_transit_insurance_amount', label: 'Import Transit Insurance Amount', isEditable: false, isCalculated: true },
+  { id: 'import_cost_per_unit', label: 'Import Cost Per Unit', isEditable: false, isCalculated: true },
+  { id: 'total_import_amount', label: 'Total Import Amount', isEditable: false, isCalculated: true },
+  { id: 'margin_pct', label: 'Margin %', isEditable: true, isCalculated: false },
+  { id: 'margin_amount', label: 'Margin Amount', isEditable: false, isCalculated: true },
+  { id: 'supply_freight', label: 'Supply Freight / Logistic Amount', isEditable: true, isCalculated: false },
+  { id: 'supply_transit_insurance_pct', label: 'Supply Transit Insurance %', isEditable: true, isCalculated: false },
+  { id: 'supply_transit_insurance_amount', label: 'Supply Transit Insurance Amount', isEditable: false, isCalculated: true },
+  { id: 'supply_total_cost', label: 'Supply Total Cost', isEditable: false, isCalculated: true },
+  { id: 'business_dev_pct', label: 'Business Development % (If Applicable)', isEditable: true, isCalculated: false },
+  { id: 'business_dev_cost', label: 'Business Development Cost', isEditable: false, isCalculated: true },
+  { id: 'other_misc_cost', label: 'Other Miscellaneous Cost (If Any)', isEditable: true, isCalculated: false },
+  { id: 'quotation_rate_per_unit', label: 'Quotation Rate Per Unit', isEditable: false, isCalculated: true },
+  { id: 'grand_total_supply_cost_excl_gst', label: 'Grand Total Supply Cost (Excluding GST)', isEditable: false, isCalculated: true },
+  { id: 'gst_pct', label: 'GST %', isEditable: true, isCalculated: false },
+  { id: 'gst_amount', label: 'GST Amount', isEditable: false, isCalculated: true },
+  { id: 'grand_total_supply_cost_with_gst', label: 'Grand Total Supply Cost With GST', isEditable: false, isCalculated: true },
+];
 
+/** Format number with thousand separators (e.g. 1000 → "1,000", 1000.5 → "1,000.5"). Use decimals: 2 for amounts (1,000.00). */
+const formatNumber = (value, decimals = null) => {
+  const n = parseFloat(value);
+  if (value === '' || value === null || value === undefined) return '';
+  if (Number.isNaN(n)) return String(value);
+  if (decimals === 2) {
+    return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
+const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSuccess, isViewMode = false, costingSheetId = null, hideSaveButton = false }, ref) => {
   const [items, setItems] = useState([
     { id: 'item-1', productId: null, productName: '', specification: '' },
     { id: 'item-2', productId: null, productName: '', specification: '' }
   ]);
   const [products, setProducts] = useState([]);
-  const [costHeads, setCostHeads] = useState(defaultCostHeads);
+  const [costHeads] = useState(COSTING_SHEET_COLUMNS);
   const [costingData, setCostingData] = useState({});
   const [editingCell, setEditingCell] = useState(null);
   const [loading, setLoading] = useState(true);
   const [gstPercentage, setGstPercentage] = useState(0);
   const isCalculatingRef = useRef(false);
   const previousInputDataRef = useRef({});
-  const [draggedColumn, setDraggedColumn] = useState(null);
   const [editingItemName, setEditingItemName] = useState(null);
   const [typingMode, setTypingMode] = useState({});
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const itemNameRefs = useRef({});
+  // Fixed columns - no drag/edit/delete
 
   useEffect(() => {
     const loadData = async () => {
@@ -199,14 +220,11 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
         // Restore items and cost heads from stored data
         if (parsedData.items && parsedData.items.length > 0) {
-          // Ensure items have productId, productName, and specification for proper display
-          // If specification is missing but productId exists, fetch it from products
           const restoredItems = parsedData.items.map(item => {
             let specification = item.specification || '';
-            // If no specification stored but productId exists, get it from products array
-            if (!specification && item.productId) {
+            if (!specification && item.productId && products.length) {
               const product = products.find(p => p.id === item.productId);
-              if (product && product.detailed_specifications) {
+              if (product?.detailed_specifications) {
                 const parts = product.detailed_specifications.split('Additional Info:');
                 specification = parts[0].trim();
               }
@@ -220,25 +238,34 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           });
           setItems(restoredItems);
         }
-        if (parsedData.costHeads && parsedData.costHeads.length > 0) {
-          setCostHeads(parsedData.costHeads);
-        }
         if (parsedData.gstPercentage !== undefined && parsedData.gstPercentage !== null) {
           setGstPercentage(parsedData.gstPercentage);
         } else {
           setGstPercentage(0);
         }
 
-        // Restore cell values - use restored items/costHeads if available
         const restoredItems = parsedData.items && parsedData.items.length > 0 ? parsedData.items : items;
-        const restoredHeads = parsedData.costHeads && parsedData.costHeads.length > 0 ? parsedData.costHeads : costHeads;
-        
+        const itemIds = new Set(restoredItems.map((i) => i.id));
+        const newToOldKey = { import_base_cost: 'base_cost', import_custom_duty_pct: 'customs_duty', import_freight: 'freight', import_transit_insurance_pct: 'insurance', margin_pct: 'margin_percent', gst_pct: 'gst_percent', other_misc_cost: 'other_cost' };
         const cellData = {};
+        Object.keys(parsedData).forEach((key) => {
+          if (key === 'items' || key === 'costHeads' || key === 'gstPercentage') return;
+          const match = key.match(/^(.+)_([a-z0-9_]+)$/);
+          if (match && itemIds.has(match[1])) {
+            cellData[key] = parsedData[key];
+          }
+        });
         restoredItems.forEach((item) => {
-          restoredHeads.forEach((head) => {
+          COSTING_SHEET_COLUMNS.forEach((head) => {
             const key = `${item.id}_${head.id}`;
+            if (cellData[key] !== undefined) return;
             if (parsedData[key] !== undefined) {
               cellData[key] = parsedData[key];
+            } else {
+              const oldId = newToOldKey[head.id];
+              if (oldId && parsedData[`${item.id}_${oldId}`] !== undefined) {
+                cellData[key] = parsedData[`${item.id}_${oldId}`];
+              }
             }
           });
         });
@@ -261,6 +288,54 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     return costingData[key] || '';
   };
 
+  /** Builds full cell data (manual + calculated) for save - so DB always gets correct values */
+  const buildFullCostingDataForSave = (itemsList, cellData, defaultGstPct) => {
+    const out = { ...cellData };
+    itemsList.forEach((item) => {
+      const getVal = (costHeadId) => parseFloat(cellData[`${item.id}_${costHeadId}`] || 0) || 0;
+      const qty = Math.max(0, getVal('qty'));
+      const importBaseCost = getVal('import_base_cost');
+      const importCustomDutyPct = getVal('import_custom_duty_pct');
+      const importFreight = getVal('import_freight');
+      const importTransitInsPct = getVal('import_transit_insurance_pct');
+      const supplyFreight = getVal('supply_freight');
+      const supplyTransitInsPct = getVal('supply_transit_insurance_pct');
+      const marginPct = getVal('margin_pct');
+      const businessDevPct = getVal('business_dev_pct');
+      const otherMiscCost = getVal('other_misc_cost');
+      const itemGstPct = getVal('gst_pct') || defaultGstPct;
+
+      const importCustomDutyAmountPerUnit = importBaseCost * (importCustomDutyPct / 100);
+      const importTransitInsAmountPerUnit = importBaseCost * (importTransitInsPct / 100);
+      const importCostPerUnit = importBaseCost + importCustomDutyAmountPerUnit + importFreight + importTransitInsAmountPerUnit;
+      const totalImportAmount = importCostPerUnit * (qty || 0);
+
+      out[`${item.id}_import_custom_duty_amount`] = importCustomDutyAmountPerUnit.toFixed(2);
+      out[`${item.id}_import_transit_insurance_amount`] = importTransitInsAmountPerUnit.toFixed(2);
+      out[`${item.id}_import_cost_per_unit`] = importCostPerUnit.toFixed(2);
+      out[`${item.id}_total_import_amount`] = totalImportAmount.toFixed(2);
+
+      const marginAmount = totalImportAmount * (marginPct / 100);
+      const supplyTransitInsAmount = totalImportAmount * (supplyTransitInsPct / 100);
+      const supplyTotalCost = totalImportAmount + marginAmount + supplyFreight + supplyTransitInsAmount;
+      const businessDevCost = supplyTotalCost * (businessDevPct / 100);
+      const grandTotalExclGst = supplyTotalCost + businessDevCost + otherMiscCost;
+      const quotationRatePerUnit = qty > 0 ? grandTotalExclGst / qty : 0;
+      const gstAmount = grandTotalExclGst * (itemGstPct / 100);
+      const grandTotalWithGst = grandTotalExclGst + gstAmount;
+
+      out[`${item.id}_margin_amount`] = marginAmount.toFixed(2);
+      out[`${item.id}_supply_transit_insurance_amount`] = supplyTransitInsAmount.toFixed(2);
+      out[`${item.id}_supply_total_cost`] = supplyTotalCost.toFixed(2);
+      out[`${item.id}_business_dev_cost`] = businessDevCost.toFixed(2);
+      out[`${item.id}_grand_total_supply_cost_excl_gst`] = grandTotalExclGst.toFixed(2);
+      out[`${item.id}_quotation_rate_per_unit`] = quotationRatePerUnit.toFixed(2);
+      out[`${item.id}_gst_amount`] = gstAmount.toFixed(2);
+      out[`${item.id}_grand_total_supply_cost_with_gst`] = grandTotalWithGst.toFixed(2);
+    });
+    return out;
+  };
+
   const setCellValue = (itemId, costHeadId, value) => {
     const key = `${itemId}_${costHeadId}`;
     setCostingData((prev) => ({
@@ -269,112 +344,77 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     }));
   };
 
-  const calculateTotalCost = (itemId) => {
-    // Get all editable (non-calculated) cost heads except margin_percent and gst_percent
-    const summableHeads = costHeads.filter(head => 
-      !head.isCalculated && 
-      head.id !== 'margin_percent' && 
-      head.id !== 'gst_percent' &&
-      head.id !== 'final_price' &&
-      head.id !== 'quotation_rate' &&
-      head.id !== 'margin_amount' &&
-      head.id !== 'total_cost'
-    );
-    let total = 0;
-    summableHeads.forEach((head) => {
-      const value = parseFloat(getCellValue(itemId, head.id)) || 0;
-      total += value;
-    });
-    return total;
-  };
-
-  const calculateMarginAmount = (itemId) => {
-    const totalCost = calculateTotalCost(itemId);
-    const marginPercent = parseFloat(getCellValue(itemId, 'margin_percent')) || 0;
-    return (totalCost * marginPercent) / 100;
-  };
-
-  const calculateQuotationRate = (itemId) => {
-    const totalCost = calculateTotalCost(itemId);
-    const marginAmount = calculateMarginAmount(itemId);
-    return totalCost + marginAmount;
-  };
-
-  const calculateFinalPrice = (itemId) => {
-    const quotationRate = calculateQuotationRate(itemId);
-    const itemGstPercent = getCellValue(itemId, 'gst_percent');
-    const gstPercent = itemGstPercent ? parseFloat(itemGstPercent) : gstPercentage;
-    const gstAmount = (quotationRate * gstPercent) / 100;
-    return quotationRate + gstAmount;
-  };
-
   const calculateAll = () => {
     if (isCalculatingRef.current) {
       return;
     }
-    
     isCalculatingRef.current = true;
-    
-    // Use functional updates to batch state changes and read from current state
+
     setCostingData((prev) => {
       const newData = { ...prev };
-      
+
       items.forEach((item) => {
-        // Helper function to get value from current state
-        const getCurrentValue = (itemId, costHeadId) => {
-          const key = `${itemId}_${costHeadId}`;
-          return newData[key] || '';
-        };
-        
-        // Calculate total cost - include all editable non-calculated columns except margin_percent and gst_percent
-        const summableHeads = costHeads.filter(head => 
-          !head.isCalculated && 
-          head.id !== 'margin_percent' && 
-          head.id !== 'gst_percent' &&
-          head.id !== 'final_price' &&
-          head.id !== 'quotation_rate' &&
-          head.id !== 'margin_amount' &&
-          head.id !== 'total_cost'
-        );
-        let totalCost = 0;
-        summableHeads.forEach((head) => {
-          const value = parseFloat(getCurrentValue(item.id, head.id)) || 0;
-          totalCost += value;
-        });
-        newData[`${item.id}_total_cost`] = totalCost.toFixed(2);
+        const getVal = (costHeadId) => parseFloat(prev[`${item.id}_${costHeadId}`] || 0) || 0;
+        const qty = Math.max(0, getVal('qty'));
+        const importBaseCost = getVal('import_base_cost');           // D2
+        const importCustomDutyPct = getVal('import_custom_duty_pct'); // E2
+        const importFreight = getVal('import_freight');              // G2
+        const importTransitInsPct = getVal('import_transit_insurance_pct'); // H2
+        const supplyFreight = getVal('supply_freight');              // N2
+        const supplyTransitInsPct = getVal('supply_transit_insurance_pct'); // O2
+        const marginPct = getVal('margin_pct');                       // L2
+        const businessDevPct = getVal('business_dev_pct');            // R2
+        const otherMiscCost = getVal('other_misc_cost');              // T2
+        const itemGstPct = getVal('gst_pct') || gstPercentage;      // W2
 
-        // Calculate margin amount
-        const marginPercent = parseFloat(getCurrentValue(item.id, 'margin_percent')) || 0;
-        const marginAmount = (totalCost * marginPercent) / 100;
+        // F2 = D2*E2/100 (Import Custom Duty Amount - per unit)
+        const importCustomDutyAmountPerUnit = importBaseCost * (importCustomDutyPct / 100);
+        // I2 = D2*H2/100 (Import Transit Insurance Amount - per unit)
+        const importTransitInsAmountPerUnit = importBaseCost * (importTransitInsPct / 100);
+        // J2 = D2+F2+G2+I2 (Import Cost Per Unit)
+        const importCostPerUnit = importBaseCost + importCustomDutyAmountPerUnit + importFreight + importTransitInsAmountPerUnit;
+        // K2 = J2*C2 (Total Import Amount)
+        const totalImportAmount = importCostPerUnit * (qty || 0);
+
+        newData[`${item.id}_import_custom_duty_amount`] = importCustomDutyAmountPerUnit.toFixed(2);
+        newData[`${item.id}_import_transit_insurance_amount`] = importTransitInsAmountPerUnit.toFixed(2);
+        newData[`${item.id}_import_cost_per_unit`] = importCostPerUnit.toFixed(2);
+        newData[`${item.id}_total_import_amount`] = totalImportAmount.toFixed(2);
+
+        // M2 = K2*L2/100 (Margin Amount)
+        const marginAmount = totalImportAmount * (marginPct / 100);
+        // P2 = K2*O2/100 (Supply Transit Insurance Amount)
+        const supplyTransitInsAmount = totalImportAmount * (supplyTransitInsPct / 100);
+        // Q2 = K2+M2+N2+P2 (Supply Total Cost)
+        const supplyTotalCost = totalImportAmount + marginAmount + supplyFreight + supplyTransitInsAmount;
+        // S2 = Q2*R2/100 (Business Development Cost)
+        const businessDevCost = supplyTotalCost * (businessDevPct / 100);
+        // V2 = Q2+S2+T2 (Grand Total Supply Cost Excl GST)
+        const grandTotalExclGst = supplyTotalCost + businessDevCost + otherMiscCost;
+        // Quotation Rate Per Unit = V2/C2
+        const quotationRatePerUnit = qty > 0 ? grandTotalExclGst / qty : 0;
+        // X2 = V2*W2/100 (GST Amount)
+        const gstAmount = grandTotalExclGst * (itemGstPct / 100);
+        // Grand Total With GST = V2+X2
+        const grandTotalWithGst = grandTotalExclGst + gstAmount;
+
         newData[`${item.id}_margin_amount`] = marginAmount.toFixed(2);
-
-        // Calculate quotation rate
-        const quotationRate = totalCost + marginAmount;
-        newData[`${item.id}_quotation_rate`] = quotationRate.toFixed(2);
-
-        // Calculate final price
-        const itemGstPercent = getCurrentValue(item.id, 'gst_percent');
-        const gstPercent = itemGstPercent ? parseFloat(itemGstPercent) : gstPercentage;
-        const gstAmount = (quotationRate * gstPercent) / 100;
-        const finalPrice = quotationRate + gstAmount;
-        newData[`${item.id}_final_price`] = finalPrice.toFixed(2);
+        newData[`${item.id}_supply_transit_insurance_amount`] = supplyTransitInsAmount.toFixed(2);
+        newData[`${item.id}_supply_total_cost`] = supplyTotalCost.toFixed(2);
+        newData[`${item.id}_business_dev_cost`] = businessDevCost.toFixed(2);
+        newData[`${item.id}_grand_total_supply_cost_excl_gst`] = grandTotalExclGst.toFixed(2);
+        newData[`${item.id}_quotation_rate_per_unit`] = quotationRatePerUnit.toFixed(2);
+        newData[`${item.id}_gst_amount`] = gstAmount.toFixed(2);
+        newData[`${item.id}_grand_total_supply_cost_with_gst`] = grandTotalWithGst.toFixed(2);
       });
-      
-      // Calculate grand total
-      const grandTotal = items.reduce((sum, item) => {
-        const finalPriceKey = `${item.id}_final_price`;
-        const finalPrice = parseFloat(newData[finalPriceKey] || 0);
-        return sum + finalPrice;
-      }, 0);
 
-      // Call callback after state update
+      const grandTotal = items.reduce((sum, item) => {
+        return sum + (parseFloat(newData[`${item.id}_grand_total_supply_cost_with_gst`] || 0) || 0);
+      }, 0);
       setTimeout(() => {
-        if (onCostingChange) {
-          onCostingChange(grandTotal);
-        }
+        if (onCostingChange) onCostingChange(grandTotal);
         isCalculatingRef.current = false;
       }, 0);
-      
       return newData;
     });
   };
@@ -408,106 +448,16 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   const handleProductSelect = (itemId, productId) => {
     const selectedProduct = products.find(p => p.id === productId);
     if (selectedProduct) {
-      // Update item with product info
-      setItems(items.map((item) => 
-        item.id === itemId 
+      setItems(items.map((item) =>
+        item.id === itemId
           ? { ...item, productId: productId, productName: selectedProduct.product_name }
           : item
       ));
-      
-      // Auto-populate base cost
       const baseCost = selectedProduct.base_cost_price || 0;
-      setCellValue(itemId, 'base_cost', baseCost);
-      
-      // Auto-populate customs duty from custom_price
-      const customsDuty = selectedProduct.custom_price || 0;
-      setCellValue(itemId, 'customs_duty', customsDuty);
+      setCellValue(itemId, 'import_base_cost', baseCost);
+      const customDutyPct = selectedProduct.custom_price != null && selectedProduct.custom_price !== '' ? selectedProduct.custom_price : 0;
+      setCellValue(itemId, 'import_custom_duty_pct', customDutyPct);
     }
-  };
-
-  const addCostHead = () => {
-    const newHead = {
-      id: `cost_head_${Date.now()}`,
-      label: 'New Cost Head',
-      isEditable: true,
-      isCalculated: false,
-    };
-    // Find the index of final_price column
-    const finalPriceIndex = costHeads.findIndex(head => head.id === 'final_price');
-    if (finalPriceIndex !== -1) {
-      // Insert before final_price
-      const newHeads = [...costHeads];
-      newHeads.splice(finalPriceIndex, 0, newHead);
-      setCostHeads(newHeads);
-    } else {
-      // If final_price not found, add at the end
-      setCostHeads([...costHeads, newHead]);
-    }
-  };
-
-  const handleDragStart = (e, headId) => {
-    setDraggedColumn(headId);
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
-  const handleDrop = (e, targetHeadId) => {
-    e.preventDefault();
-    if (!draggedColumn || draggedColumn === targetHeadId) {
-      setDraggedColumn(null);
-      return;
-    }
-
-    const draggedIndex = costHeads.findIndex(h => h.id === draggedColumn);
-    const targetIndex = costHeads.findIndex(h => h.id === targetHeadId);
-
-    if (draggedIndex === -1 || targetIndex === -1) {
-      setDraggedColumn(null);
-      return;
-    }
-
-    // Don't allow moving calculated columns (except within calculated section)
-    const draggedHead = costHeads[draggedIndex];
-    const targetHead = costHeads[targetIndex];
-    
-    // Prevent moving calculated columns to non-calculated positions and vice versa
-    if (draggedHead.isCalculated !== targetHead.isCalculated) {
-      // Allow only if moving within the same section
-      setDraggedColumn(null);
-      return;
-    }
-
-    const newHeads = [...costHeads];
-    const [removed] = newHeads.splice(draggedIndex, 1);
-    newHeads.splice(targetIndex, 0, removed);
-    setCostHeads(newHeads);
-    setDraggedColumn(null);
-  };
-
-  const deleteCostHead = (headId) => {
-    // Don't allow deleting calculated rows
-    const head = costHeads.find((h) => h.id === headId);
-    if (head && head.isCalculated) {
-      alert('Cannot delete calculated rows');
-      return;
-    }
-    const newHeads = costHeads.filter((head) => head.id !== headId);
-    setCostHeads(newHeads);
-
-    // Remove data for deleted cost head
-    const newData = { ...costingData };
-    items.forEach((item) => {
-      delete newData[`${item.id}_${headId}`];
-    });
-    setCostingData(newData);
-  };
-
-  const editCostHeadLabel = (headId, newLabel) => {
-    setCostHeads(costHeads.map((head) => (head.id === headId ? { ...head, label: newLabel } : head)));
   };
 
   const handleCellChange = (itemId, costHeadId, value) => {
@@ -528,31 +478,34 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
       // Calculate totals from costing sheet
       const grandTotal = items.reduce((sum, item) => {
-        return sum + (parseFloat(getCellValue(item.id, 'final_price')) || 0);
+        return sum + (parseFloat(getCellValue(item.id, 'grand_total_supply_cost_with_gst')) || 0);
       }, 0);
       
       const netTotal = items.reduce((sum, item) => {
-        return sum + (parseFloat(getCellValue(item.id, 'quotation_rate')) || 0);
+        return sum + (parseFloat(getCellValue(item.id, 'grand_total_supply_cost_excl_gst')) || 0);
       }, 0);
       
       const gstAmount = grandTotal - netTotal;
 
-      // Prepare data to save with product information
+      // Recompute all calculated fields so DB gets correct values
+      const fullCellData = buildFullCostingDataForSave(items, costingData, gstPercentage);
+
       const itemsWithProductInfo = items.map(item => {
         const product = products.find(p => p.id === item.productId);
         return {
-          ...item,
+          id: item.id,
+          productId: item.productId || null,
           productName: product?.product_name || item.productName || item.name || '',
           productCode: product?.product_code || '',
-          specification: item.productId ? getProductSpecification(item.productId) : ''
+          specification: item.productId ? getProductSpecification(item.productId) : (item.specification || '')
         };
       });
 
       const dataToSave = {
         items: itemsWithProductInfo,
-        costHeads,
+        costHeads: COSTING_SHEET_COLUMNS,
         gstPercentage,
-        ...costingData,
+        ...fullCellData,
       };
 
       // Check if costing sheet exists
@@ -646,7 +599,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   }
 
   const grandTotal = items.reduce((sum, item) => {
-    return sum + (parseFloat(getCellValue(item.id, 'final_price')) || 0);
+    return sum + (parseFloat(getCellValue(item.id, 'grand_total_supply_cost_with_gst')) || 0);
   }, 0);
 
   return (
@@ -654,7 +607,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Costing Sheet</h3>
-          <p className="text-[9px] text-gray-500 mt-0.5">Items as rows, cost heads as columns</p>
+          <p className="text-[9px] text-gray-500 mt-0.5">Items as rows, cost heads as columns. <span className="bg-[#eff6ff] text-blue-800 px-1.5 py-0.5 rounded border border-blue-200 font-medium">Blue = Manual entry</span></p>
         </div>
         {!isViewMode && (
           <div className="flex flex-wrap gap-1">
@@ -665,14 +618,6 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             >
               <Plus className="w-3 h-3" />
               <span className="hidden sm:inline">Add Item</span>
-            </button>
-            <button
-              onClick={addCostHead}
-              className="flex items-center space-x-1 px-2 py-0.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-[10px] font-medium"
-              title="Add Cost Head Column"
-            >
-              <Plus className="w-3 h-3" />
-              <span className="hidden sm:inline">Add Column</span>
             </button>
             {!hideSaveButton && (
               <button
@@ -704,93 +649,48 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           .overflow-x-auto::-webkit-scrollbar-thumb:hover {
             background: #a855f7;
           }
+          .costing-manual-entry {
+            background-color: #eff6ff;
+            border: 1px solid #bfdbfe;
+          }
+          .costing-manual-entry:hover {
+            background-color: #dbeafe;
+          }
+          .costing-manual-entry:focus-within {
+            outline: 2px solid #3b82f6;
+            outline-offset: -1px;
+          }
         `}</style>
-        <table className="border-collapse bg-white text-xs" style={{ width: '100%', tableLayout: 'fixed' }}>
+        <table className="border-collapse bg-white text-xs costing-sheet-table" style={{ width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '35px' }} />
-            <col style={{ width: '140px' }} />
+            <col style={{ width: '36px', minWidth: '36px' }} />
+            <col style={{ width: '160px', minWidth: '160px' }} />
             {costHeads.map((head) => {
-              // Set fixed widths for all cost head columns
-              let width = '90px';
-              if (head.id === 'customs_duty' || head.id === 'business_dev' || head.id === 'quotation_rate' || head.id === 'final_price') {
-                width = '110px';
-              } else if (head.id === 'margin_percent' || head.id === 'gst_percent') {
-                width = '70px';
-              } else if (head.id === 'total_cost' || head.id === 'margin_amount') {
-                width = '100px';
-              }
-              return <col key={head.id} style={{ width }} />;
+              const isPct = head.id.includes('_pct') || head.id === 'gst_pct';
+              const isAmount = head.isCalculated || head.id.includes('amount') || head.id.includes('cost') || head.id.includes('freight');
+              const w = isPct ? '72px' : (isAmount ? '100px' : '90px');
+              return <col key={head.id} style={{ width: w, minWidth: w }} />;
             })}
-            <col style={{ width: '35px' }} />
+            <col style={{ width: '32px', minWidth: '32px' }} />
           </colgroup>
           <thead>
             <tr className="bg-gradient-to-r from-gray-100 to-gray-200 border-b-2 border-gray-400">
-              <th className="px-1 py-1 text-center text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky left-0 bg-gradient-to-r from-gray-100 to-gray-200 z-10" title="Serial Number">
-                S.No.
+              <th className="px-1 py-1.5 text-center text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky left-0 bg-gradient-to-r from-gray-100 to-gray-200 z-10 whitespace-nowrap" title="Serial Number">
+                Sr. No.
               </th>
-              <th className="px-1 py-1 text-left text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky bg-gradient-to-r from-gray-100 to-gray-200 z-10" style={{ left: '35px' }} title="Item Name - Select or type product name">
+              <th className="px-1 py-1.5 text-left text-[10px] font-bold text-gray-800 border-r border-gray-400 sticky bg-gradient-to-r from-gray-100 to-gray-200 z-10" style={{ left: '36px' }} title="Item Name - Select or type product name">
                 Item Name
               </th>
-              {costHeads.map((head, index) => (
-                <th 
-                  key={head.id} 
-                  className={`px-1 py-1 text-center text-[10px] font-bold text-gray-800 border-r border-gray-400 relative group bg-gradient-to-r from-gray-100 to-gray-200 ${
-                    draggedColumn === head.id ? 'opacity-50' : ''
-                  }`}
-                  draggable={!isViewMode}
-                  onDragStart={(e) => !isViewMode && handleDragStart(e, head.id)}
-                  onDragOver={handleDragOver}
-                  onDrop={(e) => !isViewMode && handleDrop(e, head.id)}
+              {costHeads.map((head) => (
+                <th
+                  key={head.id}
+                  className="px-1 py-1.5 text-center text-[10px] font-bold text-gray-800 border-r border-gray-400 bg-gradient-to-r from-gray-100 to-gray-200 whitespace-nowrap"
                   title={head.label}
                 >
-                  <div className="flex items-center justify-center gap-0.5">
-                    {!isViewMode && (
-                      <GripVertical className="w-2.5 h-2.5 text-gray-500 cursor-move opacity-0 group-hover:opacity-100" />
-                    )}
-                    {editingCell === `label_${head.id}` ? (
-                      <input
-                        type="text"
-                        value={head.label}
-                        onChange={(e) => editCostHeadLabel(head.id, e.target.value)}
-                        onBlur={() => setEditingCell(null)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') setEditingCell(null);
-                        }}
-                        className="px-1 py-0.5 border border-blue-500 text-[10px] w-full focus:outline-none rounded"
-                        autoFocus
-                      />
-                    ) : (
-                      <span
-                        className={`${head.isCalculated ? 'font-bold' : ''} ${!isViewMode ? 'cursor-pointer hover:text-blue-600' : ''} text-[10px] truncate`}
-                        onClick={() => !isViewMode && setEditingCell(`label_${head.id}`)}
-                        title={head.label}
-                      >
-                        {head.label}
-                      </span>
-                    )}
-                    {!isViewMode && (
-                      <button
-                        onClick={() => deleteCostHead(head.id)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-red-600 hover:bg-red-100 rounded"
-                        title="Delete Column"
-                      >
-                        <Trash2 className="w-2.5 h-2.5" />
-                      </button>
-                    )}
-                  </div>
+                  <span className={head.isCalculated ? 'font-bold' : ''}>{head.label}</span>
                 </th>
               ))}
-              {!isViewMode && (
-                <th className="px-1 py-1 text-center bg-gradient-to-r from-gray-100 to-gray-200 border-l-2 border-gray-500">
-                  <button
-                    onClick={addCostHead}
-                    className="p-0.5 text-blue-600 hover:bg-blue-100 rounded"
-                    title="Add Cost Head Column"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                </th>
-              )}
+              <th className="px-1 py-1.5 w-8 border-l border-gray-400 bg-gradient-to-r from-gray-100 to-gray-200 z-10"></th>
             </tr>
           </thead>
           <tbody>
@@ -810,7 +710,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                     )}
                   </div>
                 </td>
-                <td className="px-1 py-1 border-r border-gray-400 sticky bg-white z-10 group-hover:bg-gray-50" style={{ left: '35px' }}>
+                <td className="px-1 py-1 border-r border-gray-400 sticky z-10 group-hover:bg-gray-50 costing-manual-entry bg-[#eff6ff]" style={{ left: '36px' }}>
                   {isViewMode ? (
                     <div className="px-1 py-0.5 text-xs text-gray-700 font-medium truncate">
                       {item.productName || item.name || 'No product selected'}
@@ -917,59 +817,52 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                   const cellValue = getCellValue(item.id, head.id);
                   const isEditing = editingCell === `${item.id}_${head.id}`;
                   const numericValue = parseFloat(cellValue) || 0;
-                  
+                  const isPctCol = head.id.includes('_pct') || head.id === 'gst_pct';
+                  const isManualEntry = !head.isCalculated;
+
                   return (
-                    <td key={`${item.id}_${head.id}`} className={`px-1 py-1 border-r border-gray-400 bg-white ${
-                      draggedColumn === head.id ? 'opacity-50' : ''
-                    }`}>
+                    <td
+                      key={`${item.id}_${head.id}`}
+                      className={`px-1 py-1 border-r border-gray-400 ${isManualEntry ? 'costing-manual-entry bg-[#eff6ff]' : 'bg-white'}`}
+                    >
                       {head.isCalculated ? (
-                        <div className={`text-xs font-semibold text-right whitespace-nowrap ${head.id === 'final_price' ? 'text-green-700' : 'text-gray-800'}`}>
-                          {head.id === 'final_price' 
-                            ? `₹${numericValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-                            : head.id === 'total_cost' || head.id === 'margin_amount' || head.id === 'quotation_rate'
-                            ? `₹${numericValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-                            : cellValue || '0.00'}
+                        <div className={`text-xs font-semibold text-right whitespace-nowrap ${head.id === 'grand_total_supply_cost_with_gst' ? 'text-green-700' : 'text-gray-800'}`}>
+                          ₹{formatNumber(numericValue, 2)}
                         </div>
                       ) : isEditing && !isViewMode ? (
                         <input
                           type="number"
-                          step={head.id === 'gst_percent' || head.id === 'margin_percent' ? '0.01' : '0.01'}
+                          step="0.01"
+                          min="0"
                           value={cellValue}
                           onChange={(e) => setCellValue(item.id, head.id, e.target.value)}
-                          onBlur={() => {
-                            handleCellChange(item.id, head.id, cellValue);
-                          }}
+                          onBlur={() => handleCellChange(item.id, head.id, cellValue)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleCellChange(item.id, head.id, cellValue);
-                            }
-                            if (e.key === 'Escape') {
-                              setEditingCell(null);
-                            }
+                            if (e.key === 'Enter') handleCellChange(item.id, head.id, cellValue);
+                            if (e.key === 'Escape') setEditingCell(null);
                           }}
-                          className="w-full px-1 py-0.5 border border-blue-500 text-xs text-right focus:outline-none rounded"
+                          className="w-full px-1 py-0.5 border border-blue-500 text-xs text-right focus:outline-none rounded bg-white"
                           autoFocus
-                          placeholder={head.id === 'gst_percent' ? gstPercentage.toString() : ''}
+                          placeholder={head.id === 'gst_pct' ? String(gstPercentage) : ''}
+                          title="Manual entry"
                         />
                       ) : (
                         <div
-                          className={`text-xs text-gray-700 text-right px-1 py-0.5 min-h-[20px] flex items-center justify-end ${
-                            isViewMode ? '' : 'cursor-pointer hover:bg-blue-50 rounded'
-                          }`}
+                          className={`text-xs text-gray-700 text-right px-1 py-0.5 min-h-[20px] flex items-center justify-end ${isViewMode ? '' : 'cursor-pointer hover:bg-blue-100 rounded'}`}
                           onClick={() => !isViewMode && setEditingCell(`${item.id}_${head.id}`)}
-                          title={isViewMode ? 'Read only' : 'Click to edit'}
+                          title={isViewMode ? 'Read only' : 'Manual entry - click to edit'}
                         >
-                          {numericValue > 0 ? (
-                            <span>{numericValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          {numericValue > 0 || (head.id === 'qty' && cellValue !== '') ? (
+                            <span>{formatNumber(numericValue)}</span>
                           ) : (
-                            <span className="text-gray-300 text-[10px]">-</span>
+                            <span className="text-gray-400 text-[10px]">Enter</span>
                           )}
                         </div>
                       )}
                     </td>
                   );
                 })}
-                <td className="px-1 py-1 border-l border-gray-400">
+                <td className="px-1 py-1 border-l border-gray-400 bg-white">
                   {!isViewMode && (
                     <button
                       onClick={addItem}
@@ -985,7 +878,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             {!isViewMode && (
               <tr className="bg-gray-100">
                 <td className="px-1 py-1 text-center border-r border-gray-400 sticky bg-gray-100 z-10" style={{ left: 0 }}></td>
-                <td className="px-1 py-1 text-center border-r border-gray-400 sticky bg-gray-100 z-10" style={{ left: '35px' }}>
+                <td className="px-1 py-1 text-center border-r border-gray-400 sticky bg-gray-100 z-10" style={{ left: '36px' }}>
                   <button
                     onClick={addItem}
                     className="flex items-center justify-center gap-1 px-2 py-0.5 text-purple-600 hover:bg-purple-100 rounded text-xs font-medium"
@@ -1005,23 +898,21 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           <tfoot>
             <tr className="bg-gradient-to-r from-gray-200 to-gray-300 text-gray-900 font-bold border-t-2 border-gray-500">
               <td className="px-1 py-1 text-xs border-r border-gray-400 sticky bg-gradient-to-r from-gray-200 to-gray-300 z-20" style={{ left: 0 }}></td>
-              <td className="px-1 py-1 text-xs border-r border-gray-400 sticky bg-gradient-to-r from-gray-200 to-gray-300 z-20 font-semibold" style={{ left: '35px' }}>
+              <td className="px-1 py-1 text-xs border-r border-gray-400 sticky bg-gradient-to-r from-gray-200 to-gray-300 z-20 font-semibold" style={{ left: '36px' }}>
                 Grand Total
               </td>
               {costHeads.map((head) => {
-                if (head.id === 'final_price') {
-                  const columnTotal = items.reduce((sum, item) => {
-                    return sum + (parseFloat(getCellValue(item.id, head.id)) || 0);
-                  }, 0);
+                if (head.id === 'grand_total_supply_cost_with_gst') {
+                  const columnTotal = items.reduce((sum, item) => sum + (parseFloat(getCellValue(item.id, head.id)) || 0), 0);
                   return (
                     <td key={head.id} className="px-1 py-1 text-xs text-right border-r border-gray-400 font-bold whitespace-nowrap text-green-700 bg-green-50">
-                      ₹{columnTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      ₹{formatNumber(columnTotal, 2)}
                     </td>
                   );
                 }
                 return <td key={head.id} className="px-1 py-1 border-r border-gray-400"></td>;
               })}
-              <td className="px-1 py-1 text-xs text-right font-bold bg-gradient-to-r from-gray-200 to-gray-300 whitespace-nowrap border-l border-gray-400"></td>
+              <td className="px-1 py-1 text-xs border-l border-gray-400 bg-gradient-to-r from-gray-200 to-gray-300"></td>
             </tr>
           </tfoot>
         </table>

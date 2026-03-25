@@ -1,6 +1,8 @@
+import { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
+import { checkSupabaseConnection } from "./lib/supabase";
 import Layout from "./contexts/Layout";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
@@ -88,8 +90,66 @@ const ProtectedRoute = ({ children }) => {
 };
 
 
+function ConnectionGuard({ children }) {
+  const [status, setStatus] = useState("checking"); // 'checking' | 'ok' | 'error'
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    checkSupabaseConnection().then(({ ok, message }) => {
+      if (cancelled) return;
+      if (ok) setStatus("ok");
+      else {
+        setStatus("error");
+        setErrorMessage(message || "Connection failed.");
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const retry = () => {
+    setStatus("checking");
+    setErrorMessage("");
+    checkSupabaseConnection().then(({ ok, message }) => {
+      if (ok) setStatus("ok");
+      else {
+        setStatus("error");
+        setErrorMessage(message || "Connection failed.");
+      }
+    });
+  };
+
+  if (status === "checking") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-gray-700">
+        <p className="text-lg">Checking connection...</p>
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 px-4 text-center">
+        <h1 className="text-xl font-semibold text-red-700 mb-2">Cannot load data</h1>
+        <p className="text-gray-700 max-w-md mb-4">{errorMessage}</p>
+        <p className="text-sm text-gray-500 max-w-md mb-4">
+          If this works on another laptop, see <strong>TROUBLESHOOTING.md</strong> in the project: check .env file, restart dev server, and network/firewall.
+        </p>
+        <button
+          type="button"
+          onClick={retry}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+  return children;
+}
+
 function App() {
   return (
+    <ConnectionGuard>
     <AuthProvider>
       <AuditConsoleProvider>
         <Router
@@ -222,6 +282,7 @@ function App() {
         </Router>
       </AuditConsoleProvider>
     </AuthProvider>
+    </ConnectionGuard>
   );
 }
 

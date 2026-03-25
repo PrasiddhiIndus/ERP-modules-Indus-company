@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, ArrowRight, Search, Calendar, Users, MapPin } from 'lucide-react';
+import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, ArrowRight, Search, Calendar, Users, MapPin, UserPlus, RotateCcw } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 import DateRangeCalendar from './components/DateRangeCalendar';
 import { parseIndianNumber } from './utils/numberFormat';
 import NumberInput from './components/NumberInput';
+
+const DOCUMENTS_BUCKET = 'marketing-documents';
+const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
 
 const EnquiryMaster = () => {
   const navigate = useNavigate();
@@ -31,9 +34,15 @@ const EnquiryMaster = () => {
     estimated_value: '',
     expected_closing_date: '',
     status: 'New',
-    assigned_to: '',
+    assigned_to_ids: [],
+    assigned_to_custom_names: [],
   });
+  const [customNamesOptions, setCustomNamesOptions] = useState([]);
+  const [showAddNameInput, setShowAddNameInput] = useState(false);
+  const [newCustomName, setNewCustomName] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [existingDocuments, setExistingDocuments] = useState([]);
+  const [documentsToRemove, setDocumentsToRemove] = useState([]);
   const [dateRange, setDateRange] = useState({
     startDate: searchParams.get('startDate') || '',
     endDate: searchParams.get('endDate') || '',
@@ -43,11 +52,14 @@ const EnquiryMaster = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showCalendar, setShowCalendar] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [viewingBrokenImageIds, setViewingBrokenImageIds] = useState(new Set());
+  const [documentsLoadError, setDocumentsLoadError] = useState(null);
 
   useEffect(() => {
     fetchEnquiries();
     fetchClients();
     fetchUsers();
+    fetchAssignedCustomNames();
     setCurrentPage(1); // Reset to first page when filter changes
   }, [dateRange]);
 
@@ -87,7 +99,7 @@ const EnquiryMaster = () => {
     try {
       const { data } = await supabase
         .from('marketing_clients')
-        .select('id, client_name')
+        .select('id, client_name, primary_contact_person, contact_number, contact_numbers, contact_email, contact_emails, street_address, city, state, country')
         .order('client_name');
       setClients(data || []);
     } catch (error) {
@@ -95,14 +107,105 @@ const EnquiryMaster = () => {
     }
   };
 
+  // When client is selected in New Enquiry form, auto-populate contact and address from Client Master
+  const handleClientChange = (clientId) => {
+    if (!clientId) {
+      setFormData((prev) => ({
+        ...prev,
+        client_id: '',
+        contact_person: '',
+        contact_number: '',
+        contact_email: '',
+        site_location: '',
+      }));
+      return;
+    }
+    const client = clients.find((c) => c.id === clientId);
+    if (!client) {
+      setFormData((prev) => ({ ...prev, client_id: clientId }));
+      return;
+    }
+    // Collect ALL phone numbers from client (single or array/JSON)
+    let contactNumbers = [];
+    if (client.contact_numbers) {
+      try {
+        const parsed = typeof client.contact_numbers === 'string' ? JSON.parse(client.contact_numbers) : client.contact_numbers;
+        contactNumbers = Array.isArray(parsed) ? parsed.filter(Boolean) : [parsed].filter(Boolean);
+      } catch (e) {
+        contactNumbers = [client.contact_numbers].filter(Boolean);
+      }
+    }
+    if (contactNumbers.length === 0 && client.contact_number) {
+      contactNumbers = [client.contact_number];
+    }
+    const contactNumber = contactNumbers.join(', ');
+
+    // Collect ALL emails from client (single or array/JSON)
+    let contactEmails = [];
+    if (client.contact_emails) {
+      try {
+        const parsed = typeof client.contact_emails === 'string' ? JSON.parse(client.contact_emails) : client.contact_emails;
+        contactEmails = Array.isArray(parsed) ? parsed.filter(Boolean) : [parsed].filter(Boolean);
+      } catch (e) {
+        contactEmails = [client.contact_emails].filter(Boolean);
+      }
+    }
+    if (contactEmails.length === 0 && client.contact_email) {
+      contactEmails = [client.contact_email];
+    }
+    const contactEmail = contactEmails.join(', ');
+
+    const addressParts = [client.street_address, client.city, client.state, client.country].filter(Boolean);
+    const siteLocation = addressParts.length > 0 ? addressParts.join(', ') : '';
+    setFormData((prev) => ({
+      ...prev,
+      client_id: clientId,
+      contact_person: client.primary_contact_person || prev.contact_person,
+      contact_number: contactNumber || prev.contact_number,
+      contact_email: contactEmail || prev.contact_email,
+      site_location: siteLocation || prev.site_location,
+    }));
+  };
+
   const fetchUsers = async () => {
     try {
-      const { data } = await supabase.auth.admin.listUsers();
-      setUsers(data?.users || []);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, username')
+        .order('username', { ascending: true, nullsFirst: false });
+      if (error) throw error;
+      setUsers(data || []);
     } catch (error) {
-      // Fallback: try to get current user
+      console.error('Error fetching users:', error);
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) setUsers([user]);
+      if (user) {
+        setUsers([{ id: user.id, email: user.email || '', username: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Me' }]);
+      } else {
+        setUsers([]);
+      }
+    }
+  };
+
+  const fetchAssignedCustomNames = async () => {
+    try {
+      const { data } = await supabase
+        .from('marketing_enquiries')
+        .select('assigned_to_name, assigned_to_custom_names');
+      const names = new Set();
+      (data || []).forEach((row) => {
+        if (row.assigned_to_name?.trim()) names.add(row.assigned_to_name.trim());
+        if (row.assigned_to_custom_names && Array.isArray(row.assigned_to_custom_names)) {
+          row.assigned_to_custom_names.forEach((n) => n?.trim() && names.add(n.trim()));
+        } else if (row.assigned_to_custom_names && typeof row.assigned_to_custom_names === 'string') {
+          try {
+            const arr = JSON.parse(row.assigned_to_custom_names);
+            if (Array.isArray(arr)) arr.forEach((n) => n?.trim() && names.add(n.trim()));
+          } catch (_) {}
+        }
+      });
+      setCustomNamesOptions(Array.from(names).sort());
+    } catch (_) {
+      setCustomNamesOptions([]);
     }
   };
 
@@ -152,13 +255,25 @@ const EnquiryMaster = () => {
       // Generate next number from maximum
       const enquiryNumber = `ENQ/${currentYear}/${String(maxNumber + 1).padStart(4, '0')}`;
 
-      const submitData = {
-        ...formData,
-        enquiry_number: enquiryNumber,
-        estimated_value: formData.estimated_value ? parseIndianNumber(formData.estimated_value.toString()) : null,
-        expected_closing_date: formData.expected_closing_date || null,
+      const assignedIds = Array.isArray(formData.assigned_to_ids) ? formData.assigned_to_ids.filter(Boolean) : [];
+      const assignedNames = Array.isArray(formData.assigned_to_custom_names) ? formData.assigned_to_custom_names.map((n) => (n || '').trim()).filter(Boolean) : [];
+
+      const enquiryPayload = {
+        enquiry_date: formData.enquiry_date || null,
+        source: formData.source || 'Email',
         client_id: formData.client_id || null,
-        assigned_to: formData.assigned_to || null,
+        contact_person: formData.contact_person || null,
+        contact_number: formData.contact_number || null,
+        contact_email: formData.contact_email || null,
+        site_location: formData.site_location || null,
+        description: formData.description || null,
+        estimated_value: formData.estimated_value ? parseIndianNumber(String(formData.estimated_value)) : null,
+        expected_closing_date: formData.expected_closing_date || null,
+        status: formData.status || 'New',
+        assigned_to: assignedIds[0] || null,
+        assigned_to_name: assignedNames[0] || null,
+        assigned_to_ids: assignedIds.length > 0 ? assignedIds : null,
+        assigned_to_custom_names: assignedNames.length > 0 ? assignedNames : null,
       };
 
       let enquiryId;
@@ -166,7 +281,7 @@ const EnquiryMaster = () => {
         const { data, error } = await supabase
           .from('marketing_enquiries')
           .update({
-            ...submitData,
+            ...enquiryPayload,
             updated_by: user.id,
             updated_at: new Date().toISOString(),
           })
@@ -180,7 +295,8 @@ const EnquiryMaster = () => {
         const { data, error } = await supabase
           .from('marketing_enquiries')
           .insert([{
-            ...submitData,
+            ...enquiryPayload,
+            enquiry_number: enquiryNumber,
             created_by: user.id,
             updated_by: user.id,
           }])
@@ -191,37 +307,66 @@ const EnquiryMaster = () => {
         enquiryId = data.id;
       }
 
-      // Handle file uploads
-      if (uploadedFiles.length > 0) {
+      let uploadFailed = 0;
+      if (uploadedFiles.length > 0 && enquiryId) {
         for (const file of uploadedFiles) {
-          const fileExt = file.name.split('.').pop();
-          const fileName = `${Date.now()}_${file.name}`;
+          const fileExt = (file.name.split('.').pop() || '').toLowerCase();
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const fileName = `${Date.now()}_${safeName}`;
           const filePath = `enquiries/${enquiryId}/${fileName}`;
 
           const { error: uploadError } = await supabase.storage
-            .from('marketing-documents')
-            .upload(filePath, file);
+            .from(DOCUMENTS_BUCKET)
+            .upload(filePath, file, { upsert: false });
 
-          if (!uploadError) {
-            const { data: { publicUrl } } = supabase.storage
-              .from('marketing-documents')
-              .getPublicUrl(filePath);
-
-            await supabase.from('marketing_enquiry_documents').insert([{
-              enquiry_id: enquiryId,
-              file_name: file.name,
-              file_path: filePath,
-              file_type: fileExt,
-              file_size: file.size,
-              uploaded_by: user.id,
-            }]);
+          if (uploadError) {
+            console.error('Storage upload failed:', file.name, uploadError);
+            uploadFailed += 1;
+            continue;
           }
+
+          const { error: docError } = await supabase.from(ENQUIRY_DOCUMENTS_TABLE).insert([{
+            enquiry_id: enquiryId,
+            file_name: file.name,
+            file_path: filePath,
+            file_type: fileExt,
+            file_size: file.size ?? null,
+            uploaded_by: user.id,
+          }]);
+
+          if (docError) {
+            console.error('Document record insert failed:', file.name, docError);
+            uploadFailed += 1;
+          }
+        }
+        if (uploadFailed > 0) {
+          alert(`Could not save ${uploadFailed} file(s). Error: ${uploadFailed === uploadedFiles.length ? 'Check that table "' + ENQUIRY_DOCUMENTS_TABLE + '" exists (run marketing_enquiry_documents_schema.sql) and storage bucket "' + DOCUMENTS_BUCKET + '" exists.' : 'See console.'}`);
+        }
+      }
+
+      if (documentsToRemove.length > 0 && enquiryId) {
+        for (const docId of documentsToRemove) {
+          const doc = existingDocuments.find((d) => d.id === docId);
+          if (doc?.file_path) {
+            try {
+              await supabase.storage.from(DOCUMENTS_BUCKET).remove([doc.file_path]);
+            } catch (storageErr) {
+              console.warn('Storage delete failed (file may remain):', doc.file_path, storageErr);
+            }
+          }
+          const { error: delError } = await supabase
+            .from(ENQUIRY_DOCUMENTS_TABLE)
+            .delete()
+            .eq('id', docId);
+          if (delError) console.error('Document row delete failed:', docId, delError);
         }
       }
 
       setShowForm(false);
       setEditingEnquiry(null);
       setUploadedFiles([]);
+      setExistingDocuments([]);
+      setDocumentsToRemove([]);
       setFormData({
         enquiry_date: new Date().toISOString().split('T')[0],
         source: 'Email',
@@ -234,9 +379,13 @@ const EnquiryMaster = () => {
         estimated_value: '',
         expected_closing_date: '',
         status: 'New',
-        assigned_to: '',
+        assigned_to_ids: [],
+        assigned_to_custom_names: [],
       });
+      setShowAddNameInput(false);
+      setNewCustomName('');
       fetchEnquiries();
+      fetchAssignedCustomNames();
     } catch (error) {
       console.error('Error saving enquiry:', error);
       alert('Error saving enquiry: ' + error.message);
@@ -245,12 +394,25 @@ const EnquiryMaster = () => {
     }
   };
 
-  const handleEdit = (enquiry) => {
+  const handleEdit = async (enquiry) => {
     if (enquiry.is_converted_to_quotation) {
       alert('Cannot edit enquiry that has been converted to quotation');
       return;
     }
+    setDocumentsToRemove([]);
     setEditingEnquiry(enquiry);
+    let ids = [];
+    let names = [];
+    if (enquiry.assigned_to_ids) {
+      ids = Array.isArray(enquiry.assigned_to_ids) ? [...enquiry.assigned_to_ids] : (typeof enquiry.assigned_to_ids === 'string' ? (() => { try { const p = JSON.parse(enquiry.assigned_to_ids); return Array.isArray(p) ? p : []; } catch (_) { return []; } })() : []);
+    } else if (enquiry.assigned_to) {
+      ids = [enquiry.assigned_to];
+    }
+    if (enquiry.assigned_to_custom_names) {
+      names = Array.isArray(enquiry.assigned_to_custom_names) ? [...enquiry.assigned_to_custom_names] : (typeof enquiry.assigned_to_custom_names === 'string' ? (() => { try { const p = JSON.parse(enquiry.assigned_to_custom_names); return Array.isArray(p) ? p : []; } catch (_) { return []; } })() : []);
+    } else if (enquiry.assigned_to_name?.trim()) {
+      names = [enquiry.assigned_to_name.trim()];
+    }
     setFormData({
       enquiry_date: enquiry.enquiry_date || new Date().toISOString().split('T')[0],
       source: enquiry.source || 'Email',
@@ -263,18 +425,82 @@ const EnquiryMaster = () => {
       estimated_value: enquiry.estimated_value || '',
       expected_closing_date: enquiry.expected_closing_date || '',
       status: enquiry.status || 'New',
-      assigned_to: enquiry.assigned_to || '',
+      assigned_to_ids: ids,
+      assigned_to_custom_names: names,
     });
+    setShowAddNameInput(false);
+    setNewCustomName('');
+    setUploadedFiles([]);
+
+    const enquiryId = enquiry?.id;
+    let docsList = [];
+    if (enquiryId) {
+      const { data: docs, error: docError } = await supabase
+        .from(ENQUIRY_DOCUMENTS_TABLE)
+        .select('id, file_name, file_path, file_type, file_size')
+        .eq('enquiry_id', enquiryId);
+      if (docError) {
+        console.error('Error fetching enquiry documents for Edit:', docError);
+      } else {
+        docsList = Array.isArray(docs) ? docs : [];
+      }
+      const withUrls = await Promise.all(
+        docsList.map(async (doc) => {
+          const path = doc.file_path;
+          if (!path) return { ...doc, fileUrl: null };
+          try {
+            const { data: signed } = await supabase.storage.from(DOCUMENTS_BUCKET).createSignedUrl(path, 3600);
+            if (signed?.signedUrl) return { ...doc, fileUrl: signed.signedUrl };
+          } catch (_) {}
+          const { data: publicData } = supabase.storage.from(DOCUMENTS_BUCKET).getPublicUrl(path);
+          return { ...doc, fileUrl: publicData?.publicUrl || null };
+        })
+      );
+      setExistingDocuments(withUrls);
+    } else {
+      setExistingDocuments([]);
+    }
+
     setShowForm(true);
   };
 
   const handleView = async (enquiry) => {
-    const { data: documents } = await supabase
-      .from('marketing_enquiry_documents')
-      .select('*')
-      .eq('enquiry_id', enquiry.id);
+    setViewingBrokenImageIds(new Set());
+    setDocumentsLoadError(null);
+    const enquiryId = enquiry?.id;
+    let docsList = [];
+    if (enquiryId) {
+      const { data: documents, error: docError } = await supabase
+        .from(ENQUIRY_DOCUMENTS_TABLE)
+        .select('id, file_name, file_path, file_type, file_size')
+        .eq('enquiry_id', enquiryId);
 
-    setViewingEnquiry({ ...enquiry, documents: documents || [] });
+      if (docError) {
+        console.error('Error fetching enquiry documents for View:', docError);
+        setDocumentsLoadError(docError.message || 'Could not load documents.');
+      } else {
+        docsList = Array.isArray(documents) ? documents : [];
+      }
+    }
+
+    const docsWithUrls = await Promise.all(
+      docsList.map(async (doc) => {
+        const path = doc.file_path;
+        if (!path) return { ...doc, fileUrl: null };
+        try {
+          const { data: signed } = await supabase.storage
+            .from(DOCUMENTS_BUCKET)
+            .createSignedUrl(path, 3600);
+          if (signed?.signedUrl) return { ...doc, fileUrl: signed.signedUrl };
+        } catch (_) {}
+        const { data: publicData } = supabase.storage
+          .from(DOCUMENTS_BUCKET)
+          .getPublicUrl(path);
+        return { ...doc, fileUrl: publicData?.publicUrl || null };
+      })
+    );
+
+    setViewingEnquiry({ ...enquiry, documents: docsWithUrls });
     setShowViewModal(true);
   };
 
@@ -312,21 +538,31 @@ const EnquiryMaster = () => {
   };
 
   const handleExport = () => {
-    const exportData = enquiries.map(enquiry => ({
-      'Enquiry Number': enquiry.enquiry_number,
-      'Enquiry Date': enquiry.enquiry_date,
-      'Source': enquiry.source,
-      'Client': enquiry.marketing_clients?.client_name || '-',
-      'Contact Person': enquiry.contact_person || '-',
-      'Contact Number': enquiry.contact_number || '-',
-      'Contact Email': enquiry.contact_email || '-',
-      'Site Location': enquiry.site_location || '-',
-      'Estimated Value (₹)': enquiry.estimated_value || '-',
-      'Expected Closing Date': enquiry.expected_closing_date || '-',
-      'Status': enquiry.status,
-      'Converted to Quotation': enquiry.is_converted_to_quotation ? 'Yes' : 'No',
-      'Created At': new Date(enquiry.created_at).toLocaleDateString(),
-    }));
+    const exportData = enquiries.map(enquiry => {
+      const customNames = Array.isArray(enquiry.assigned_to_custom_names) ? enquiry.assigned_to_custom_names : (enquiry.assigned_to_name?.trim() ? [enquiry.assigned_to_name] : []);
+      const ids = Array.isArray(enquiry.assigned_to_ids) ? enquiry.assigned_to_ids : (enquiry.assigned_to ? [enquiry.assigned_to] : []);
+      const userLabels = ids.map((id) => {
+        const u = users.find((x) => x.id === id);
+        return u ? (u.username?.trim() ? `${u.username} (${u.email})` : u.email) : id;
+      });
+      const assignedTo = [...customNames, ...userLabels].join('; ') || '-';
+      return {
+        'Enquiry Number': enquiry.enquiry_number,
+        'Enquiry Date': enquiry.enquiry_date,
+        'Source': enquiry.source,
+        'Client': enquiry.marketing_clients?.client_name || '-',
+        'Contact Person': enquiry.contact_person || '-',
+        'Contact Number': enquiry.contact_number || '-',
+        'Contact Email': enquiry.contact_email || '-',
+        'Site Location': enquiry.site_location || '-',
+        'Assigned To': assignedTo,
+        'Estimated Value (₹)': enquiry.estimated_value || '-',
+        'Expected Closing Date': enquiry.expected_closing_date || '-',
+        'Status': enquiry.status,
+        'Converted to Quotation': enquiry.is_converted_to_quotation ? 'Yes' : 'No',
+        'Created At': new Date(enquiry.created_at).toLocaleDateString(),
+      };
+    });
     exportToExcel(exportData, 'Enquiries_Export', 'Enquiries');
   };
 
@@ -401,8 +637,10 @@ const EnquiryMaster = () => {
               <span className="sm:hidden">Export</span>
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 setEditingEnquiry(null);
+                const { data: { user } } = await supabase.auth.getUser();
+                const defaultIds = user?.id ? [user.id] : [];
                 setFormData({
                   enquiry_date: new Date().toISOString().split('T')[0],
                   source: 'Email',
@@ -415,9 +653,16 @@ const EnquiryMaster = () => {
                   estimated_value: '',
                   expected_closing_date: '',
                   status: 'New',
-                  assigned_to: '',
+                  assigned_to_ids: defaultIds,
+                  assigned_to_custom_names: [],
                 });
+                setShowAddNameInput(false);
+                setNewCustomName('');
                 setUploadedFiles([]);
+                setExistingDocuments([]);
+                fetchClients();
+                fetchUsers();
+                fetchAssignedCustomNames();
                 setShowForm(true);
               }}
               className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm sm:text-base"
@@ -741,6 +986,7 @@ const EnquiryMaster = () => {
                   setShowForm(false);
                   setEditingEnquiry(null);
                   setUploadedFiles([]);
+                  setExistingDocuments([]);
                 }}
                 className="p-2 hover:bg-gray-100 rounded-lg"
               >
@@ -789,7 +1035,7 @@ const EnquiryMaster = () => {
                   <div className="flex space-x-2">
                     <select
                       value={formData.client_id}
-                      onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                      onChange={(e) => handleClientChange(e.target.value)}
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       required
                     >
@@ -897,36 +1143,257 @@ const EnquiryMaster = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Assigned To</label>
-                  <select
-                    value={formData.assigned_to}
-                    onChange={(e) => setFormData({ ...formData, assigned_to: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  >
-                    <option value="">Select user</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.email}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1.5 min-h-[2.5rem] px-3 py-1.5 border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-purple-500 focus-within:border-transparent bg-white">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddNameInput(!showAddNameInput)}
+                      className="flex-shrink-0 p-1 rounded text-gray-500 hover:bg-purple-100 hover:text-purple-600 transition-colors"
+                      title="Add name"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                    </button>
+                    <div className="flex-1 flex flex-wrap items-center gap-1 min-h-[1.5rem] py-0.5">
+                      {formData.assigned_to_ids?.map((id) => {
+                        const u = users.find((x) => x.id === id);
+                        const label = u ? (u.username?.trim() || u.email || id) : id;
+                        return (
+                          <span
+                            key={`user-${id}`}
+                            className="inline-flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800 border border-purple-200"
+                          >
+                            <span className="max-w-[100px] truncate" title={u?.email}>{label}</span>
+                            <button
+                              type="button"
+                              onClick={() => setFormData((prev) => ({
+                                ...prev,
+                                assigned_to_ids: (prev.assigned_to_ids || []).filter((x) => x !== id),
+                              }))}
+                              className="hover:bg-purple-200 rounded p-0.5"
+                              aria-label="Remove"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {formData.assigned_to_custom_names?.map((name, idx) => (
+                        <span
+                          key={`custom-${idx}-${name}`}
+                          className="inline-flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded text-xs bg-blue-100 text-blue-800 border border-blue-200"
+                        >
+                          <span className="max-w-[80px] truncate">{name}</span>
+                          <button
+                            type="button"
+                            onClick={() => setFormData((prev) => ({
+                              ...prev,
+                              assigned_to_custom_names: (prev.assigned_to_custom_names || []).filter((_, i) => i !== idx),
+                            }))}
+                            className="hover:bg-blue-200 rounded p-0.5"
+                            aria-label="Remove"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                      {showAddNameInput ? (
+                        <input
+                          type="text"
+                          value={newCustomName}
+                          onChange={(e) => setNewCustomName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const name = newCustomName.trim();
+                              if (name && !(formData.assigned_to_custom_names || []).includes(name)) {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  assigned_to_custom_names: [...(prev.assigned_to_custom_names || []), name],
+                                }));
+                                setCustomNamesOptions((prev) => (prev.includes(name) ? prev : [...prev, name].sort()));
+                                setNewCustomName('');
+                                setShowAddNameInput(false);
+                              }
+                            } else if (e.key === 'Escape') {
+                              setShowAddNameInput(false);
+                              setNewCustomName('');
+                            }
+                          }}
+                          onBlur={() => {
+                            const name = newCustomName.trim();
+                            if (name && !(formData.assigned_to_custom_names || []).includes(name)) {
+                              setFormData((prev) => ({
+                                ...prev,
+                                assigned_to_custom_names: [...(prev.assigned_to_custom_names || []), name],
+                              }));
+                              setCustomNamesOptions((prev) => (prev.includes(name) ? prev : [...prev, name].sort()));
+                            }
+                            setNewCustomName('');
+                            setShowAddNameInput(false);
+                          }}
+                          placeholder="Name, Enter"
+                          className="w-20 min-w-[4rem] px-1.5 py-0.5 text-xs border-0 border-b border-gray-400 rounded-none bg-transparent focus:outline-none focus:ring-0 focus:border-purple-500"
+                          autoFocus
+                        />
+                      ) : (
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            e.target.value = '';
+                            if (!v) return;
+                            if (v.startsWith('user:')) {
+                              const id = v.slice(5);
+                              if (id && !(formData.assigned_to_ids || []).includes(id)) {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  assigned_to_ids: [...(prev.assigned_to_ids || []), id],
+                                }));
+                              }
+                            } else if (v.startsWith('name:')) {
+                              const name = v.slice(5).trim();
+                              if (name && !(formData.assigned_to_custom_names || []).includes(name)) {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  assigned_to_custom_names: [...(prev.assigned_to_custom_names || []), name],
+                                }));
+                              }
+                            }
+                          }}
+                          className="flex-1 min-w-0 max-w-[120px] py-0.5 pl-1 pr-6 text-xs border-0 bg-transparent text-gray-600 focus:ring-0 focus:outline-none cursor-pointer"
+                        >
+                          <option value="">Add user...</option>
+                          {users
+                            .filter((u) => !(formData.assigned_to_ids || []).includes(u.id))
+                            .map((u) => (
+                              <option key={u.id} value={`user:${u.id}`}>
+                                {u.username?.trim() || u.email || u.id}
+                              </option>
+                            ))}
+                          {customNamesOptions
+                            .filter((n) => !(formData.assigned_to_custom_names || []).includes(n))
+                            .map((n) => (
+                              <option key={n} value={`name:${n}`}>{n}</option>
+                            ))}
+                        </select>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Upload Documents</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Upload Documents & Images</label>
+                  {existingDocuments.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs text-gray-600 mb-2">
+                        Already attached ({existingDocuments.filter((d) => !documentsToRemove.includes(d.id)).length}
+                        {documentsToRemove.length > 0 && `, ${documentsToRemove.length} marked for removal`})
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                        {existingDocuments.map((doc) => {
+                          const markedForRemoval = documentsToRemove.includes(doc.id);
+                          const isImage = doc.file_type && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(String(doc.file_type).toLowerCase());
+                          return (
+                            <div
+                              key={doc.id}
+                              className={`relative bg-white border rounded-lg overflow-hidden group ${markedForRemoval ? 'border-red-300 bg-red-50/50 opacity-75' : 'border-gray-200'}`}
+                            >
+                              {markedForRemoval && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-red-100/80 rounded-lg">
+                                  <span className="text-xs font-semibold text-red-700 px-2 py-1 bg-white/90 rounded">Will be removed</span>
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (markedForRemoval) {
+                                    setDocumentsToRemove((prev) => prev.filter((id) => id !== doc.id));
+                                  } else {
+                                    setDocumentsToRemove((prev) => [...prev, doc.id]);
+                                  }
+                                }}
+                                className={`absolute top-1 right-1 z-20 p-1 rounded-full transition-opacity ${markedForRemoval ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-500 hover:bg-red-600'} text-white opacity-0 group-hover:opacity-100 focus:opacity-100`}
+                                title={markedForRemoval ? 'Undo remove' : 'Remove document'}
+                                aria-label={markedForRemoval ? 'Undo remove' : 'Remove document'}
+                              >
+                                {markedForRemoval ? (
+                                  <RotateCcw className="w-3.5 h-3.5" title="Undo remove" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              {isImage && doc.fileUrl ? (
+                                <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="block aspect-square bg-gray-100">
+                                  <img src={doc.fileUrl} alt={doc.file_name} className="w-full h-full object-cover" />
+                                </a>
+                              ) : (
+                                <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                                  <FileText className="w-10 h-10 text-gray-400" />
+                                </div>
+                              )}
+                              <div className="p-2 border-t border-gray-100">
+                                <p className="text-xs font-medium text-gray-900 truncate" title={doc.file_name}>{doc.file_name}</p>
+                                {doc.file_size != null && <p className="text-[10px] text-gray-500">{(Number(doc.file_size) / 1024).toFixed(1)} KB</p>}
+                                {doc.fileUrl && !markedForRemoval && (
+                                  <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-1 text-xs text-purple-600 hover:text-purple-700 font-medium">
+                                    <Eye className="w-3.5 h-3.5" /> View
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <input
                     type="file"
                     multiple
-                    onChange={(e) => setUploadedFiles(Array.from(e.target.files))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+                    onChange={(e) => {
+                      const newFiles = e.target.files ? Array.from(e.target.files) : [];
+                      setUploadedFiles((prev) => [...prev, ...newFiles]);
+                      e.target.value = '';
+                    }}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100"
                   />
                   {uploadedFiles.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {uploadedFiles.map((file, index) => (
-                        <div key={index} className="text-sm text-gray-600 flex items-center space-x-2">
-                          <FileText className="w-4 h-4" />
-                          <span>{file.name}</span>
-                        </div>
-                      ))}
+                    <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      {uploadedFiles.map((file, index) => {
+                        const isImg = file.type.startsWith('image/');
+                        const previewUrl = isImg ? URL.createObjectURL(file) : null;
+                        return (
+                          <div
+                            key={`${file.name}-${index}`}
+                            className="relative bg-white border border-gray-200 rounded-lg overflow-hidden group"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== index))}
+                              className="absolute top-1 right-1 z-10 p-1 rounded-full bg-red-500 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                              aria-label="Remove"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                            {isImg && previewUrl ? (
+                              <div className="aspect-square bg-gray-100">
+                                <img
+                                  src={previewUrl}
+                                  alt={file.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            ) : (
+                              <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                                <FileText className="w-10 h-10 text-gray-400" />
+                              </div>
+                            )}
+                            <div className="p-2 border-t border-gray-100">
+                              <p className="text-xs font-medium text-gray-900 truncate" title={file.name}>{file.name}</p>
+                              <p className="text-[10px] text-gray-500">{file.size ? (file.size / 1024).toFixed(1) + ' KB' : ''}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -939,6 +1406,8 @@ const EnquiryMaster = () => {
                     setShowForm(false);
                     setEditingEnquiry(null);
                     setUploadedFiles([]);
+                    setExistingDocuments([]);
+                    setDocumentsToRemove([]);
                   }}
                   className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                 >
@@ -973,6 +1442,7 @@ const EnquiryMaster = () => {
                 onClick={() => {
                   setShowViewModal(false);
                   setViewingEnquiry(null);
+                  setDocumentsLoadError(null);
                 }}
                 className="p-2 hover:bg-white/20 rounded-lg transition-colors"
               >
@@ -1073,6 +1543,27 @@ const EnquiryMaster = () => {
                       </p>
                     </div>
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Assigned To</label>
+                    <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+                      <p className="text-sm text-gray-900">
+                        {(() => {
+                          const customNames = Array.isArray(viewingEnquiry.assigned_to_custom_names)
+                            ? viewingEnquiry.assigned_to_custom_names
+                            : (viewingEnquiry.assigned_to_name?.trim() ? [viewingEnquiry.assigned_to_name.trim()] : []);
+                          const ids = Array.isArray(viewingEnquiry.assigned_to_ids)
+                            ? viewingEnquiry.assigned_to_ids
+                            : (viewingEnquiry.assigned_to ? [viewingEnquiry.assigned_to] : []);
+                          const userLabels = ids.map((id) => {
+                            const u = users.find((x) => x.id === id);
+                            return u ? (u.username?.trim() ? `${u.username} (${u.email})` : u.email) : id;
+                          });
+                          const all = [...customNames, ...userLabels];
+                          return all.length > 0 ? all.join(', ') : <span className="text-gray-400 italic">Not provided</span>;
+                        })()}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1140,30 +1631,71 @@ const EnquiryMaster = () => {
               <div className="bg-gray-50 rounded-lg p-4 sm:p-5">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <FileText className="w-5 h-5 text-purple-600" />
-                  Documents
+                  Documents & Images
                 </h3>
+                {documentsLoadError && (
+                  <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                    {documentsLoadError} Ensure table &quot;{ENQUIRY_DOCUMENTS_TABLE}&quot; exists — run <code className="text-xs bg-amber-100 px-1 rounded">marketing_enquiry_documents_schema.sql</code> in Supabase SQL Editor.
+                  </div>
+                )}
                 {viewingEnquiry.documents && viewingEnquiry.documents.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {viewingEnquiry.documents.map((doc) => (
-                      <div key={doc.id} className="bg-white border border-gray-200 rounded-lg p-3 flex items-center gap-3 hover:border-purple-300 transition-colors">
-                        <div className="bg-purple-100 p-2 rounded-lg">
-                          <FileText className="w-5 h-5 text-purple-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
-                          {doc.file_size && (
-                            <p className="text-xs text-gray-500 mt-0.5">
-                              {(doc.file_size / 1024).toFixed(2)} KB
-                            </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {viewingEnquiry.documents.map((doc) => {
+                      const fileUrl = doc.fileUrl || (doc.file_path
+                        ? supabase.storage.from(DOCUMENTS_BUCKET).getPublicUrl(doc.file_path).data?.publicUrl
+                        : null);
+                      const isImage = doc.file_type && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(String(doc.file_type).toLowerCase());
+                      const imageBroken = viewingBrokenImageIds.has(doc.id);
+                      const showImage = isImage && fileUrl && !imageBroken;
+                      return (
+                        <div key={doc.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:border-purple-300 transition-colors shadow-sm">
+                          {showImage ? (
+                            <a
+                              href={fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block aspect-square bg-gray-100"
+                            >
+                              <img
+                                src={fileUrl}
+                                alt={doc.file_name || 'Document'}
+                                className="w-full h-full object-cover"
+                                onError={() => setViewingBrokenImageIds((prev) => new Set([...prev, doc.id]))}
+                              />
+                            </a>
+                          ) : (
+                            <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                              <FileText className="w-12 h-12 text-gray-400" />
+                            </div>
                           )}
+                          <div className="p-2 border-t border-gray-100">
+                            <p className="text-xs font-medium text-gray-900 truncate" title={doc.file_name}>{doc.file_name || 'Document'}</p>
+                            {doc.file_size != null && (
+                              <p className="text-[10px] text-gray-500">{(Number(doc.file_size) / 1024).toFixed(1)} KB</p>
+                            )}
+                            {fileUrl && (
+                              <a
+                                href={fileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 mt-1 text-xs text-purple-600 hover:text-purple-700 font-medium"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                View
+                              </a>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="bg-white border border-gray-200 rounded-lg px-3 py-4 text-center">
                     <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                     <p className="text-sm text-gray-400 italic">No documents attached</p>
+                    {!documentsLoadError && (
+                      <p className="text-xs text-gray-500 mt-1">Uploads appear here after save. If you just added files, ensure table &quot;{ENQUIRY_DOCUMENTS_TABLE}&quot; exists and storage bucket &quot;{DOCUMENTS_BUCKET}&quot; is created.</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1175,6 +1707,7 @@ const EnquiryMaster = () => {
                 onClick={() => {
                   setShowViewModal(false);
                   setViewingEnquiry(null);
+                  setDocumentsLoadError(null);
                 }}
                 className="px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
               >

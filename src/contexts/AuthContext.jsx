@@ -182,7 +182,16 @@ export const AuthProvider = ({ children }) => {
   }
 
   const signIn = async (email, password) => {
-    return await supabase.auth.signInWithPassword({ email, password });
+    try {
+      return await supabase.auth.signInWithPassword({ email, password });
+    } catch (err) {
+      const msg = err?.message || String(err);
+      const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError');
+      return {
+        data: { session: null, user: null },
+        error: { message: isNetwork ? 'Cannot reach Supabase. Check .env, restart dev server (npm run dev), and firewall/network.' : msg },
+      };
+    }
   };
 
   /** Verify 6-digit email OTP (for "Confirm Your Signup" flow). */
