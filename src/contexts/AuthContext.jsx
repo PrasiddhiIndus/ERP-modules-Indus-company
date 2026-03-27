@@ -85,50 +85,50 @@ export const AuthProvider = ({ children }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch profile from DB when user exists (source of truth for role/team/modules)
+  // Fetch profile from DB when user exists. If table missing or 500, use user_metadata only.
+  // Set VITE_USE_PROFILES_TABLE=true only after running supabase/migrations/20250220000000_profiles_for_roles.sql
+  // to avoid 500 errors until the profiles table exists.
+  const useProfilesTable = import.meta.env.VITE_USE_PROFILES_TABLE === "true" || import.meta.env.VITE_USE_PROFILES_TABLE === true;
+  const PROFILES_SKIP_KEY = "profiles_skip";
   useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
       return;
     }
+    if (!useProfilesTable) {
+      setProfileRow(null);
+      return;
+    }
+    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(PROFILES_SKIP_KEY) === "1") {
+      setProfileRow(null);
+      return;
+    }
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, email, username, team, role, allowed_modules")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (cancelled) return;
-      if (!error && data) {
-        setProfileRow(data);
-        return;
-      }
-      setProfileRow(null);
-      const meta = user?.user_metadata;
-      if (meta && (meta.role != null || meta.team != null)) {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, email, username, team, role, allowed_modules")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (!error && data) {
+          setProfileRow(data);
+          return;
+        }
         try {
-          await supabase.from("profiles").upsert(
-            {
-              id: user.id,
-              email: user.email,
-              username: meta.full_name ?? user.email?.split("@")[0],
-              team: meta.team ?? null,
-              role: meta.role ?? null,
-              allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
-            },
-            { onConflict: "id" }
-          );
-          const { data: retry } = await supabase
-            .from("profiles")
-            .select("id, email, username, team, role, allowed_modules")
-            .eq("id", user.id)
-            .maybeSingle();
-          if (!cancelled && retry) setProfileRow(retry);
+          sessionStorage.setItem(PROFILES_SKIP_KEY, "1");
         } catch (_) {}
+        setProfileRow(null);
+      } catch (_) {
+        try {
+          sessionStorage.setItem(PROFILES_SKIP_KEY, "1");
+        } catch (_) {}
+        if (!cancelled) setProfileRow(null);
       }
     })();
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, useProfilesTable]);
 
   // Register user + save role-based profile (username, team, role, allowed_modules for manager)
   const signUpWithProfile = async (email, password, profileData) => {
@@ -150,7 +150,7 @@ export const AuthProvider = ({ children }) => {
 
     if (error) return { error };
 
-    if (data?.user) {
+    if (data?.user && useProfilesTable) {
       try {
         await supabase.from("profiles").upsert(
           {
@@ -164,7 +164,7 @@ export const AuthProvider = ({ children }) => {
           { onConflict: "id" }
         );
       } catch (_) {
-        // Table or RLS may not exist yet; user_metadata is still set
+        // Profiles table may not exist or RLS may block; auth still works via user_metadata
       }
     }
     return { data, error: null };
@@ -202,6 +202,9 @@ export const AuthProvider = ({ children }) => {
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
+      try {
+        sessionStorage.removeItem("profiles_skip");
+      } catch (_) {}
       // Clear all Supabase-related localStorage items
       Object.keys(localStorage).forEach(key => {
         if (key.includes('supabase') || key.includes('sb-')) {
@@ -212,6 +215,9 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       return { error: null };
     } catch (err) {
+      try {
+        sessionStorage.removeItem("profiles_skip");
+      } catch (_) {}
       // Even if signOut fails, clear local state and storage
       Object.keys(localStorage).forEach(key => {
         if (key.includes('supabase') || key.includes('sb-')) {
@@ -227,6 +233,9 @@ export const AuthProvider = ({ children }) => {
   const clearInvalidSession = async () => {
     try {
       await supabase.auth.signOut();
+      try {
+        sessionStorage.removeItem("profiles_skip");
+      } catch (_) {}
       // Clear all Supabase-related localStorage items
       Object.keys(localStorage).forEach(key => {
         if (key.includes('supabase') || key.includes('sb-')) {

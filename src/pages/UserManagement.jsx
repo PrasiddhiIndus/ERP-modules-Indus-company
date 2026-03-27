@@ -42,23 +42,31 @@ const UserManagement = () => {
     (async () => {
       setLoading(true);
       setError("");
-      const from = page * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      const { data, error: fetchError, count } = await supabase
-        .from("profiles")
-        .select("id, email, username, team, role, allowed_modules, created_at", { count: "exact" })
-        .order("created_at", { ascending: false })
-        .range(from, to);
-      if (cancelled) return;
-      if (fetchError) {
-        setError(fetchError.message);
-        setList([]);
-        setTotal(0);
-      } else {
-        setList(data ?? []);
-        setTotal(count ?? 0);
+      try {
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data, error: fetchError, count } = await supabase
+          .from("profiles")
+          .select("id, email, username, team, role, allowed_modules, created_at", { count: "exact" })
+          .order("created_at", { ascending: false })
+          .range(from, to);
+        if (cancelled) return;
+        if (fetchError) {
+          setError("Profiles table is not available or access denied. Run the Supabase migration (supabase/migrations/20250220000000_profiles_for_roles.sql) in your project SQL Editor to enable User Management.");
+          setList([]);
+          setTotal(0);
+        } else {
+          setList(data ?? []);
+          setTotal(count ?? 0);
+        }
+      } catch (_) {
+        if (!cancelled) {
+          setError("Profiles table is not available. Run the Supabase migration to enable User Management.");
+          setList([]);
+          setTotal(0);
+        }
       }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, [isAdmin, page]);
@@ -90,32 +98,37 @@ const UserManagement = () => {
     if (!editId) return;
     setSaving(true);
     setError("");
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        team: editForm.team || null,
-        role: editForm.role,
-        allowed_modules: editForm.role === ROLES.MANAGER ? editForm.allowed_modules : [],
-      })
-      .eq("id", editId);
-    setSaving(false);
-    if (updateError) {
-      setError(updateError.message);
-      return;
+    try {
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          team: editForm.team || null,
+          role: editForm.role,
+          allowed_modules: editForm.role === ROLES.MANAGER ? editForm.allowed_modules : [],
+        })
+        .eq("id", editId);
+      if (updateError) {
+        setError(updateError.message || "Profiles table may not be set up. Run the Supabase migration to edit users.");
+        return;
+      }
+      setList((prev) =>
+        prev.map((r) =>
+          r.id === editId
+            ? {
+                ...r,
+                team: editForm.team,
+                role: editForm.role,
+                allowed_modules: editForm.allowed_modules,
+              }
+            : r
+        )
+      );
+      closeEdit();
+    } catch (_) {
+      setError("Unable to save. Profiles table may not be available.");
+    } finally {
+      setSaving(false);
     }
-    setList((prev) =>
-      prev.map((r) =>
-        r.id === editId
-          ? {
-              ...r,
-              team: editForm.team,
-              role: editForm.role,
-              allowed_modules: editForm.allowed_modules,
-            }
-          : r
-      )
-    );
-    closeEdit();
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));

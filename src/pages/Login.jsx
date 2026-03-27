@@ -21,10 +21,19 @@ const isEmailNotConfirmedError = (err) => {
   return msg.includes('email not confirmed') || msg.includes('signup_not_confirmed') || msg.includes('confirm your signup')
 }
 
-const isNetworkOrFetchError = (err) => {
+const NETWORK_ERROR_MESSAGE =
+  'Server unreachable. Check your internet, turn off VPN if needed, or restore the project in Supabase Dashboard (free projects pause when inactive).'
+
+const isNetworkError = (err) => {
   if (!err?.message) return false
   const msg = err.message.toLowerCase()
-  return msg.includes('failed to fetch') || msg.includes('cannot reach supabase') || msg.includes('timed out') || msg.includes('networkerror')
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('network') ||
+    msg.includes('timed out') ||
+    msg.includes('connection') ||
+    msg.includes('unreachable')
+  )
 }
 
 const METRICS = [
@@ -73,11 +82,8 @@ const Login = () => {
       if (isEmailNotConfirmedError(signInError)) {
         setShowVerifyCode(true)
         setError('Check your email for a 6-digit code and enter it below to verify your account.')
-      } else if (isNetworkOrFetchError(signInError)) {
-        setError(
-          signInError.message +
-            ' — Fix: Copy .env.example to .env, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then run "npm run dev" again.'
-        )
+      } else if (isNetworkError(signInError)) {
+        setError(NETWORK_ERROR_MESSAGE)
       } else {
         setError(signInError.message)
       }
@@ -98,7 +104,11 @@ const Login = () => {
     setError('')
     const { data, error: verifyError } = await verifyEmailOtp(email, code)
     if (verifyError) {
-      setError(verifyError.message || 'Invalid or expired code. Try signing in again to get a new code.')
+      setError(
+        isNetworkError(verifyError)
+          ? NETWORK_ERROR_MESSAGE
+          : (verifyError.message || 'Invalid or expired code. Try signing in again to get a new code.')
+      )
       setLoading(false)
       return
     }

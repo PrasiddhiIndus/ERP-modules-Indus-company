@@ -89,12 +89,16 @@ const Layout = () => {
   const [amcOpen, setAmcOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
   const [marketingOpen, setMarketingOpen] = useState(false);
+  const [adminEmployeeOpen, setAdminEmployeeOpen] = useState(true);
+  const [adminStoreOpen, setAdminStoreOpen] = useState(true);
+  const [adminGateOpen, setAdminGateOpen] = useState(true);
+  const [adminMiscOpen, setAdminMiscOpen] = useState(true);
 
   // Keep expandable section open when current path is under that section
   useEffect(() => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
-    if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass")) setAdminOpen(true);
+    if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/manpower")) setSalesOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial")) setSalesOpen(true);
@@ -217,7 +221,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setAdminOpen(!adminOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Cog className="w-4 h-4 shrink-0" />
@@ -231,30 +235,128 @@ const Layout = () => {
               </button>
 
               {adminOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
-                  <NavLink to="ifsp-employee-master" className={subNavClass}>
-                    <Users className="h-4 w-4 shrink-0 text-blue-600" />
-                    <span className="text-xs">IFSPL Employee Master</span>
+                <div className="ml-6 mt-0.5 space-y-1">
+                  <NavLink to="admin/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="h-4 w-4 shrink-0 text-[#1F3A8A]" />
+                    <span className="text-xs">Dashboard</span>
                   </NavLink>
-                  <NavLink to="ifsp-employee-attendance" className={subNavClass}>
-                    <Clock className="w-4 h-4 shrink-0 text-indigo-600" />
-                    <span className="text-xs">IFSPL Employee Attendance</span>
+
+                  <button
+                    onClick={() => setAdminEmployeeOpen(!adminEmployeeOpen)}
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                  >
+                    <span className="flex items-start space-x-2">
+                      <Users className="w-4 h-4 shrink-0 text-blue-600" />
+                      <span className="text-xs font-medium text-left leading-tight">Employee Administration</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminEmployeeOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {adminEmployeeOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="admin/employee/master" className={subNavClass}>
+                        <Users className="h-4 w-4 shrink-0 text-blue-600" />
+                        <span className="text-xs">Employee Master</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/onboarding" className={subNavClass}>
+                        <UserPlus className="h-4 w-4 shrink-0 text-indigo-600" />
+                        <span className="text-xs">Onboarding</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
+                        <Clock className="h-4 w-4 shrink-0 text-amber-600" />
+                        <span className="text-xs">Attendance Inputs</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
+                        <Calendar className="h-4 w-4 shrink-0 text-purple-600" />
+                        <span className="text-xs">Leaves & Permissions</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/compliance-documents" className={subNavClass}>
+                        <ClipboardCheck className="h-4 w-4 shrink-0 text-green-600" />
+                        <span className="text-xs">Compliance & Documents</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/salary-inputs" className={subNavClass}>
+                        <RupeeIcon className="h-4 w-4 shrink-0 text-emerald-600" />
+                        <span className="text-xs">Salary Inputs</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/exit-ff" className={subNavClass}>
+                        <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                        <span className="text-xs">Exit & F&F</span>
+                      </NavLink>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setAdminStoreOpen(!adminStoreOpen)}
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                  >
+                    <span className="flex items-start space-x-2">
+                      <Package className="w-4 h-4 shrink-0 text-orange-600" />
+                      <span className="text-xs font-medium text-left leading-tight">Store & Issue Control</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminStoreOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {adminStoreOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="admin/store/item-master" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-orange-600" /><span className="text-xs">Item Master</span></NavLink>
+                      <NavLink to="admin/store/store-master" className={subNavClass}><Home className="w-4 h-4 shrink-0 text-slate-600" /><span className="text-xs">Store Master</span></NavLink>
+                      <NavLink to="admin/store/site-stock" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-blue-600" /><span className="text-xs">Site Stock</span></NavLink>
+                      <NavLink to="admin/store/issue-entry" className={subNavClass}><FileText className="w-4 h-4 shrink-0 text-indigo-600" /><span className="text-xs">Issue Entry</span></NavLink>
+                      <NavLink to="admin/store/return-entry" className={subNavClass}><Receipt className="w-4 h-4 shrink-0 text-emerald-600" /><span className="text-xs">Return Entry</span></NavLink>
+                      <NavLink to="admin/store/transfer-transit" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-amber-600" /><span className="text-xs">Transfer / Transit</span></NavLink>
+                      <NavLink to="admin/store/requirement-planner" className={subNavClass}><Calculator className="w-4 h-4 shrink-0 text-purple-600" /><span className="text-xs">Requirement Planner</span></NavLink>
+                      <NavLink to="admin/store/reconciliation" className={subNavClass}><CheckCircle className="w-4 h-4 shrink-0 text-teal-600" /><span className="text-xs">Reconciliation</span></NavLink>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setAdminGateOpen(!adminGateOpen)}
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                  >
+                    <span className="flex items-start space-x-2">
+                      <Shield className="w-4 h-4 shrink-0 text-teal-600" />
+                      <span className="text-xs font-medium text-left leading-tight">Gate Pass & Movement Control</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminGateOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {adminGateOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="admin/gate/employee-movement" className={subNavClass}><Users className="w-4 h-4 shrink-0 text-blue-600" /><span className="text-xs">Employee Movement</span></NavLink>
+                      <NavLink to="admin/gate/goods-in-out" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-orange-600" /><span className="text-xs">Goods In / Out</span></NavLink>
+                      <NavLink to="admin/gate/visitor-guest-passes" className={subNavClass}><User className="w-4 h-4 shrink-0 text-indigo-600" /><span className="text-xs">Visitor / Guest Passes</span></NavLink>
+                      <NavLink to="admin/gate/vehicle-passes" className={subNavClass}><Car className="w-4 h-4 shrink-0 text-gray-700" /><span className="text-xs">Vehicle Passes</span></NavLink>
+                      <NavLink to="admin/gate/delivery-courier-post" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-amber-600" /><span className="text-xs">Delivery / Courier / Post</span></NavLink>
+                      <NavLink to="admin/gate/security-console" className={subNavClass}><Shield className="w-4 h-4 shrink-0 text-teal-600" /><span className="text-xs">Security Console</span></NavLink>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setAdminMiscOpen(!adminMiscOpen)}
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                  >
+                    <span className="flex items-start space-x-2">
+                      <Briefcase className="w-4 h-4 shrink-0 text-fuchsia-600" />
+                      <span className="text-xs font-medium text-left leading-tight">Miscellaneous Admin</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminMiscOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {adminMiscOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="admin/misc/events-coordination" className={subNavClass}><Calendar className="w-4 h-4 shrink-0 text-purple-600" /><span className="text-xs">Events Coordination</span></NavLink>
+                      <NavLink to="admin/misc/tour-travel-details" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-red-600" /><span className="text-xs">Tour / Travel Details</span></NavLink>
+                      <NavLink to="admin/misc/admin-tasks-other-requests" className={subNavClass}><ClipboardCheck className="w-4 h-4 shrink-0 text-sky-600" /><span className="text-xs">Admin Tasks / Other Requests</span></NavLink>
+                    </div>
+                  )}
+
+                  <NavLink to="admin/alerts-notifications" className={subNavClass}>
+                    <Bell className="w-4 h-4 shrink-0 text-orange-600" />
+                    <span className="text-xs">Alerts & Notifications</span>
                   </NavLink>
-                  <NavLink to="ifsp-employee-payroll" className={subNavClass}>
-                    <RupeeIcon className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span className="text-xs">IFSPL Employee Payroll</span>
+                  <NavLink to="admin/reports-analytics" className={subNavClass}>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <span className="text-xs">Reports & Analytics</span>
                   </NavLink>
-                  <NavLink to="ifsp-employee-leaves" className={subNavClass}>
-                    <Calendar className="w-4 h-4 shrink-0 text-purple-600" />
-                    <span className="text-xs">IFSPL Employee Leaves</span>
-                  </NavLink>
-                  <NavLink to="store-inventory" className={subNavClass}>
-                    <Package className="w-4 h-4 shrink-0 text-orange-600" />
-                    <span className="text-xs">Store/Inventory</span>
-                  </NavLink>
-                  <NavLink to="gate-pass" className={subNavClass}>
-                    <Home className="w-4 h-4 shrink-0 text-teal-600" />
-                    <span className="text-xs">Gate Pass</span>
+                  <NavLink to="admin/settings-masters" className={subNavClass}>
+                    <Settings className="w-4 h-4 shrink-0 text-gray-700" />
+                    <span className="text-xs">Settings / Masters</span>
                   </NavLink>
                 </div>
               )}
