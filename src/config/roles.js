@@ -51,7 +51,7 @@ export const MODULE_PATH_PREFIXES = {
   overview: ["/app/dashboard"],
   hr: ["/app/hr", "/app/attendance", "/app/payroll", "/app/people-management"],
   compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance"],
-  admin: ["/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass"],
+  admin: ["/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass", "/app/admin"],
   sales: ["/app/manpower", "/app/commercial"],
   marketing: ["/app/marketing"],
   commercial: ["/app/commercial"],

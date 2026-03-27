@@ -50,6 +50,37 @@ import IfspEmployeePayroll from "./pages/admin/IfspEmployeePayroll";
 import IfspEmployeeLeaves from "./pages/admin/IfspEmployeeLeaves";
 import IfspEmployeeMaster from "./pages/admin/IfspEmployeeMaster";
 import GatePass from "./pages/admin/GatePass";
+import AdminOpsDashboard from "./pages/adminOperations/AdminOpsDashboard";
+import AdminOpsAlerts from "./pages/adminOperations/AdminOpsAlerts";
+import AdminOpsReports from "./pages/adminOperations/AdminOpsReports";
+import AdminOpsSettings from "./pages/adminOperations/AdminOpsSettings";
+import {
+  EmployeeOnboardingPage,
+  EmployeeAttendanceInputsPage,
+  EmployeeLeavesPage,
+  EmployeeCompliancePage,
+  EmployeeSalaryInputsPage,
+  EmployeeExitPage,
+} from "./pages/adminOperations/employee/EmployeeAdminPages";
+import {
+  StoreItemMasterPage,
+  StoreMasterPage,
+  StoreSiteStockPage,
+  StoreIssuePage,
+  StoreReturnPage,
+  StoreTransferPage,
+  StorePlannerPage,
+  StoreReconciliationPage,
+} from "./pages/adminOperations/store/StoreAdminPages";
+import {
+  GateEmployeeMovementPage,
+  GateGoodsPage,
+  GateVisitorsPage,
+  GateVehiclesPage,
+  GateDeliveryPage,
+  GateSecurityConsolePage,
+} from "./pages/adminOperations/gate/GateAdminPages";
+import { MiscEventsPage, MiscTravelPage, MiscTasksPage } from "./pages/adminOperations/misc/MiscAdminPages";
 import FireTenderManufacturing from "./pages/fireTenderManufacturing/FireTenderManufacturing";
 import AMC from "./pages/amc/AMC";
 import Settings from "./pages/Settings";
@@ -215,6 +246,40 @@ function App() {
             <Route path="ifsp-employee-leaves" element={<IfspEmployeeLeaves />} />
             <Route path="store-inventory" element={<StoreInventory />} />
             <Route path="gate-pass" element={<GatePass />} />
+
+            {/* Unified Admin module routes */}
+            <Route path="admin" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/dashboard" element={<AdminOpsDashboard />} />
+            <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
+            <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
+            <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
+            <Route path="admin/employee/leaves-permissions" element={<EmployeeLeavesPage />} />
+            <Route path="admin/employee/compliance-documents" element={<EmployeeCompliancePage />} />
+            <Route path="admin/employee/salary-inputs" element={<EmployeeSalaryInputsPage />} />
+            <Route path="admin/employee/exit-ff" element={<EmployeeExitPage />} />
+            <Route path="admin/store/item-master" element={<StoreItemMasterPage />} />
+            <Route path="admin/store/store-master" element={<StoreMasterPage />} />
+            <Route path="admin/store/site-stock" element={<StoreSiteStockPage />} />
+            <Route path="admin/store/issue-entry" element={<StoreIssuePage />} />
+            <Route path="admin/store/return-entry" element={<StoreReturnPage />} />
+            <Route path="admin/store/transfer-transit" element={<StoreTransferPage />} />
+            <Route path="admin/store/requirement-planner" element={<StorePlannerPage />} />
+            <Route path="admin/store/reconciliation" element={<StoreReconciliationPage />} />
+            <Route path="admin/gate/employee-movement" element={<GateEmployeeMovementPage />} />
+            <Route path="admin/gate/goods-in-out" element={<GateGoodsPage />} />
+            <Route path="admin/gate/visitor-guest-passes" element={<GateVisitorsPage />} />
+            <Route path="admin/gate/vehicle-passes" element={<GateVehiclesPage />} />
+            <Route path="admin/gate/delivery-courier-post" element={<GateDeliveryPage />} />
+            <Route path="admin/gate/security-console" element={<GateSecurityConsolePage />} />
+            <Route path="admin/misc/events-coordination" element={<MiscEventsPage />} />
+            <Route path="admin/misc/tour-travel-details" element={<MiscTravelPage />} />
+            <Route path="admin/misc/admin-tasks-other-requests" element={<MiscTasksPage />} />
+            <Route path="admin/alerts-notifications" element={<AdminOpsAlerts />} />
+            <Route path="admin/reports-analytics" element={<AdminOpsReports />} />
+            <Route path="admin/settings-masters" element={<AdminOpsSettings />} />
+
+            {/* Legacy Admin Operations URL redirect */}
+            <Route path="admin-operations/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             
             {/* Sales */}
             {/* Manpower Enquiry already exists above */}
