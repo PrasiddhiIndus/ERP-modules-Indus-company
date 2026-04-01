@@ -50,7 +50,6 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   const [costingData, setCostingData] = useState({});
   const [editingCell, setEditingCell] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [gstPercentage, setGstPercentage] = useState(0);
   const isCalculatingRef = useRef(false);
   const previousInputDataRef = useRef({});
   const [editingItemName, setEditingItemName] = useState(null);
@@ -133,7 +132,6 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         }
       });
     });
-    currentInputData.gstPercentage = gstPercentage;
     currentInputData.itemsLength = items.length;
     currentInputData.costHeadsLength = costHeads.length;
 
@@ -144,7 +142,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       previousInputDataRef.current = currentInputData;
       calculateAll();
     }
-  }, [costingData, items, costHeads, gstPercentage, loading]);
+  }, [costingData, items, costHeads, loading]);
 
   // Update dropdown position on scroll/resize
   useEffect(() => {
@@ -238,11 +236,6 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           });
           setItems(restoredItems);
         }
-        if (parsedData.gstPercentage !== undefined && parsedData.gstPercentage !== null) {
-          setGstPercentage(parsedData.gstPercentage);
-        } else {
-          setGstPercentage(0);
-        }
 
         const restoredItems = parsedData.items && parsedData.items.length > 0 ? parsedData.items : items;
         const itemIds = new Set(restoredItems.map((i) => i.id));
@@ -269,6 +262,19 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             }
           });
         });
+        const legacySheetGst = parsedData.gstPercentage;
+        if (legacySheetGst !== undefined && legacySheetGst !== null && legacySheetGst !== '') {
+          const lg = parseFloat(legacySheetGst);
+          if (!Number.isNaN(lg)) {
+            restoredItems.forEach((item) => {
+              const k = `${item.id}_gst_pct`;
+              const v = cellData[k];
+              if (v === undefined || v === '' || v === null) {
+                cellData[k] = String(lg);
+              }
+            });
+          }
+        }
         setCostingData(cellData);
         // Reset the previous input data ref after loading
         previousInputDataRef.current = {};
@@ -289,7 +295,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   };
 
   /** Builds full cell data (manual + calculated) for save - so DB always gets correct values */
-  const buildFullCostingDataForSave = (itemsList, cellData, defaultGstPct) => {
+  const buildFullCostingDataForSave = (itemsList, cellData) => {
     const out = { ...cellData };
     itemsList.forEach((item) => {
       const getVal = (costHeadId) => parseFloat(cellData[`${item.id}_${costHeadId}`] || 0) || 0;
@@ -303,7 +309,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       const marginPct = getVal('margin_pct');
       const businessDevPct = getVal('business_dev_pct');
       const otherMiscCost = getVal('other_misc_cost');
-      const itemGstPct = getVal('gst_pct') || defaultGstPct;
+      const itemGstPct = getVal('gst_pct');
 
       const importCustomDutyAmountPerUnit = importBaseCost * (importCustomDutyPct / 100);
       const importTransitInsAmountPerUnit = importBaseCost * (importTransitInsPct / 100);
@@ -365,7 +371,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         const marginPct = getVal('margin_pct');                       // L2
         const businessDevPct = getVal('business_dev_pct');            // R2
         const otherMiscCost = getVal('other_misc_cost');              // T2
-        const itemGstPct = getVal('gst_pct') || gstPercentage;      // W2
+        const itemGstPct = getVal('gst_pct');      // W2
 
         // F2 = D2*E2/100 (Import Custom Duty Amount - per unit)
         const importCustomDutyAmountPerUnit = importBaseCost * (importCustomDutyPct / 100);
@@ -488,7 +494,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       const gstAmount = grandTotal - netTotal;
 
       // Recompute all calculated fields so DB gets correct values
-      const fullCellData = buildFullCostingDataForSave(items, costingData, gstPercentage);
+      const fullCellData = buildFullCostingDataForSave(items, costingData);
 
       const itemsWithProductInfo = items.map(item => {
         const product = products.find(p => p.id === item.productId);
@@ -504,7 +510,6 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       const dataToSave = {
         items: itemsWithProductInfo,
         costHeads: COSTING_SHEET_COLUMNS,
-        gstPercentage,
         ...fullCellData,
       };
 
@@ -843,7 +848,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                           }}
                           className="w-full px-1 py-0.5 border border-blue-500 text-xs text-right focus:outline-none rounded bg-white"
                           autoFocus
-                          placeholder={head.id === 'gst_pct' ? String(gstPercentage) : ''}
+                          placeholder=""
                           title="Manual entry"
                         />
                       ) : (
@@ -917,23 +922,6 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           </tfoot>
         </table>
       </div>
-
-      {!isViewMode && (
-        <div className="mt-2 flex flex-col sm:flex-row items-start sm:items-center gap-2 p-2 bg-gray-50 rounded border border-gray-300">
-          <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
-            <span>Default GST %:</span>
-            <input
-              type="number"
-              step="0.01"
-              value={gstPercentage || 0}
-              onChange={(e) => setGstPercentage(parseFloat(e.target.value) || 0)}
-              className="px-2 py-0.5 border border-gray-400 rounded w-16 focus:outline-none focus:border-blue-500 text-center text-xs"
-              placeholder="0.00"
-              min="0"
-            />
-          </label>
-        </div>
-      )}
 
       {/* Product Dropdown Popup */}
       {editingItemName && products.length > 0 && (() => {

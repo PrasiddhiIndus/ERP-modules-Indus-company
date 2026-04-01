@@ -29,6 +29,39 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function daysInMonth(dateStr) {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  return new Date(y, m + 1, 0).getDate();
+}
+
+function sumRatePerCategory(po) {
+  const rows = Array.isArray(po?.ratePerCategory) ? po.ratePerCategory : [];
+  return round2(rows.reduce((s, r) => s + (Number(r?.rate) || 0), 0));
+}
+
+function getUniqueRateRows(po) {
+  const rows = Array.isArray(po?.ratePerCategory) ? po.ratePerCategory : [];
+  const seen = new Set();
+  const unique = [];
+  rows.forEach((r) => {
+    const description = (r?.description || r?.designation || '').trim();
+    const rate = Number(r?.rate) || 0;
+    const key = `${description.toLowerCase()}|${rate}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push({ description, rate });
+  });
+  return unique;
+}
+
+function formatINRWithSign(n) {
+  const v = round2(n);
+  const abs = Math.abs(v).toLocaleString('en-IN');
+  return v < 0 ? `-₹${abs}` : `₹${abs}`;
+}
+
 function formatDate(d) {
   if (!d) return '–';
   try {
@@ -39,7 +72,7 @@ function formatDate(d) {
 }
 
 const CreateInvoice = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft } = useBilling();
+  const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft, refreshBilling } = useBilling();
   const [selectedPoId, setSelectedPoId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([]); // { description, hsnSac, quantity, rate, amount }
@@ -51,22 +84,27 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const billablePOs = useMemo(() => {
     return commercialPOs
-      .filter((p) => p.status === 'active' && p.endDate && p.endDate >= today)
       .filter((p) => (p.approvalStatus || 'draft') === APPROVAL_STATUS_SENT);
-  }, [commercialPOs, today]);
+  }, [commercialPOs]);
 
   const poTableRows = useMemo(() => {
     return billablePOs.map((po) => {
       const existingInvoice = invoices.find((i) => String(i.poId) === String(po.id));
       const hasInvoice = !!existingInvoice;
+      const dCount = daysInMonth(invoiceDate);
+      const rateSum = sumRatePerCategory(po);
+      const contract = Number(po.totalContractValue) || 0;
+      const expected = round2(rateSum * dCount);
+      const remaining = round2(contract - expected);
       return {
         ...po,
         statusLabel: hasInvoice ? 'Created Tax Invoice' : 'Sent to approval',
         hasInvoice,
         existingInvoiceId: existingInvoice?.id || null,
+        _calc: { days: dCount, rateSum, contract, expected, remaining },
       };
     });
-  }, [billablePOs, invoices]);
+  }, [billablePOs, invoices, invoiceDate]);
 
   const selectedPO = useMemo(
     () => billablePOs.find((p) => String(p.id) === String(selectedPoId) || p.siteId === selectedPoId),
@@ -129,16 +167,45 @@ const CreateInvoice = ({ onNavigateTab }) => {
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
     const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
+    const uniqueRates = getUniqueRateRows(selectedPO);
     setItems(
-      (selectedPO.ratePerCategory || []).map((r) => ({
-        description: r.description || r.designation || '',
+      uniqueRates.map((r) => ({
+        description: r.description,
         hsnSac,
         quantity: 0,
-        rate: Number(r.rate) || 0,
+        rate: r.rate,
         amount: 0,
       }))
     );
   }, [selectedPO, invoiceDraft]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const syncCentralData = async () => {
+      try {
+        await refreshBilling?.();
+      } catch {
+        // Non-blocking: UI still works with current in-memory/local data.
+      }
+    };
+
+    syncCentralData();
+    const retryTimer = setTimeout(() => {
+      if (mounted) syncCentralData();
+    }, 700);
+
+    const onFocus = () => {
+      syncCentralData();
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      mounted = false;
+      clearTimeout(retryTimer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refreshBilling]);
 
   const updateItem = (idx, patch) => {
     setItems((prev) =>
@@ -248,6 +315,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OC Number</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Site / Location</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO/WO</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining (₹)</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                 </tr>
@@ -258,6 +326,18 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{row.ocNumber || '–'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || '–'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{row.poWoNumber || '–'}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {Number(row._calc?.contract) > 0 ? (
+                        <span
+                          className={`font-medium ${row._calc.remaining < 0 ? 'text-red-700' : 'text-gray-700'}`}
+                          title={`Contract ₹${row._calc.contract.toLocaleString('en-IN')} − (Rate sum ₹${row._calc.rateSum.toLocaleString('en-IN')} × ${row._calc.days} days = ₹${row._calc.expected.toLocaleString('en-IN')})`}
+                        >
+                          {formatINRWithSign(row._calc.remaining)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">–</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
                         {row.statusLabel}

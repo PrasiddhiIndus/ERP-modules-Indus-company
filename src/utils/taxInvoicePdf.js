@@ -430,3 +430,17 @@ export function downloadTaxInvoicePdf(inv, options = {}) {
 
   doc.save(`Tax_Invoice_${(inv.taxInvoiceNumber || inv.bill_number || 'Invoice').replace(/\s/g, '_')}.pdf`);
 }
+
+/** Shared with UI preview (Manage Invoices / Create Invoice) — matches PDF copy */
+export {
+  SELLER,
+  BANK,
+  TERMS,
+  JURISDICTION,
+  FOOTER_ADDRESS,
+  FOOTER_PHONE,
+  FOOTER_EMAIL,
+  FOOTER_WEB,
+  formatPdfDate,
+  amountInWords,
+};

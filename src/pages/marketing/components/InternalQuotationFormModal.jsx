@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Download, Mail } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import logo from '../../../image/website_logo.webp';
@@ -24,7 +24,9 @@ const InternalQuotationFormModal = ({
   const [loading, setLoading] = useState(false);
   const [signatureSrc, setSignatureSrc] = useState(null);
   const [signatureFile, setSignatureFile] = useState(null);
+  const [signatureRemoved, setSignatureRemoved] = useState(false);
   const [products, setProducts] = useState([]);
+  const signatureInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
     quotation_number: '',
@@ -266,12 +268,30 @@ const InternalQuotationFormModal = ({
   const handleSignatureChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      setSignatureRemoved(false);
       setSignatureFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setSignatureSrc(reader.result);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveSignature = () => {
+    // If currently previewing a blob URL, release it
+    if (signatureSrc && signatureSrc.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(signatureSrc);
+      } catch (e) {
+        // ignore
+      }
+    }
+    setSignatureSrc(null);
+    setSignatureFile(null);
+    setSignatureRemoved(true);
+    if (signatureInputRef.current) {
+      signatureInputRef.current.value = '';
     }
   };
 
@@ -286,6 +306,19 @@ const InternalQuotationFormModal = ({
 
       // Upload signature if new file selected
       let signaturePath = quotation?.signature_path || null;
+      // If user removed the signature and didn't select a new one
+      if (signatureRemoved && !signatureFile) {
+        if (quotation?.signature_path) {
+          try {
+            await supabase.storage
+              .from('quotation-signatures')
+              .remove([quotation.signature_path]);
+          } catch (e) {
+            console.log('Could not delete signature from storage:', e);
+          }
+        }
+        signaturePath = null;
+      }
       if (signatureFile) {
         try {
           const fileExt = signatureFile.name.split('.').pop();
@@ -425,7 +458,7 @@ const InternalQuotationFormModal = ({
       }
       
       // signature_path (may not exist in schema)
-      if (signaturePath) {
+      if (signaturePath || signatureRemoved) {
         try {
           const { error: signaturePathError } = await supabase
             .from('marketing_quotations')
@@ -439,6 +472,7 @@ const InternalQuotationFormModal = ({
             console.log('Signature path saved successfully:', signaturePath);
             // Update local quotation state
             setQuotation(prev => prev ? { ...prev, signature_path: signaturePath } : null);
+            setSignatureRemoved(false);
           }
         } catch (e) {
           console.error('signature_path update error:', e);
@@ -491,6 +525,7 @@ const InternalQuotationFormModal = ({
     
     setSignatureSrc(null);
     setSignatureFile(null);
+    setSignatureRemoved(false);
     onClose();
   };
 
@@ -727,7 +762,9 @@ const InternalQuotationFormModal = ({
       if (costingTableItems.length > 0 && costingData) {
         costingTableItems.forEach((item, index) => {
           const itemName = item.productName || item.name || `Item ${index + 1}`;
-          const specification = item.specification || (item.productId ? getProductSpecification(item.productId) : '') || '-';
+          const specification = item.productId
+            ? (item.specification || getProductSpecification(item.productId) || '-')
+            : '-';
           const quotationRatePerUnit = parseFloat(getCostingValue(item.id, 'quotation_rate_per_unit') || 0);
           const grandExclGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0);
           const gstPct = getCostingValue(item.id, 'gst_pct');
@@ -886,10 +923,6 @@ const InternalQuotationFormModal = ({
       // --- Signature ---
       if (signatureBase64) {
         doc.addImage(signatureBase64, 'PNG', marginLeft, yPos, 40, 15);
-      } else {
-        doc.setDrawColor(180);
-        doc.setLineWidth(0.5);
-        doc.rect(marginLeft, yPos, 40, 15, 'S');
       }
       yPos += 18;
 
@@ -987,13 +1020,15 @@ const InternalQuotationFormModal = ({
         costingTableItems.forEach((item, index) => {
           const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
           const itemName = item.name || item.productName || `Item ${index + 1}`;
-          const specification = item.productId ? getProductSpecification(item.productId) : '';
+          const specification = item.productId
+            ? (item.specification || getProductSpecification(item.productId) || '-')
+            : '-';
           
           // Format with tabs for table alignment
           const rateFormatted = `₹${finalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           const totalFormatted = `₹${finalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           
-          body += `${index + 1}\t${itemName}\t${specification || '-'}\t${rateFormatted}\t${totalFormatted}\n`;
+          body += `${index + 1}\t${itemName}\t${specification}\t${rateFormatted}\t${totalFormatted}\n`;
         });
       } else {
         // Fallback
@@ -1148,7 +1183,9 @@ const InternalQuotationFormModal = ({
     if (costingTableItems.length > 0 && costingData) {
       costingTableItems.forEach((item, index) => {
         const itemName = item.productName || item.name || `Item ${index + 1}`;
-        const specification = item.specification || (item.productId ? getProductSpecification(item.productId) : '') || '-';
+        const specification = item.productId
+          ? (item.specification || getProductSpecification(item.productId) || '-')
+          : '-';
         const quotationRatePerUnit = parseFloat(getCostingValue(item.id, 'quotation_rate_per_unit') || 0);
         const grandExclGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0);
         const gstPct = getCostingValue(item.id, 'gst_pct');
@@ -1310,10 +1347,6 @@ const InternalQuotationFormModal = ({
 
     if (signatureBase64) {
       doc.addImage(signatureBase64, 'PNG', marginLeft, yPos, 40, 15);
-    } else {
-      doc.setDrawColor(180);
-      doc.setLineWidth(0.5);
-      doc.rect(marginLeft, yPos, 40, 15, 'S');
     }
     yPos += 18;
 
@@ -1460,7 +1493,7 @@ const InternalQuotationFormModal = ({
                       <thead>
                         <tr className="bg-gradient-to-r from-green-500 to-green-600 text-white">
                           <th className="px-2 py-2 text-left text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Item Name</th>
-                          <th className="px-2 py-2 text-left text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Specification</th>
+                          <th className="px-2 py-2 text-center text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Specification</th>
                           <th className="px-2 py-2 text-right text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Quotation Rate Per Unit</th>
                           <th className="px-2 py-2 text-right text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">Grand Total Supply Cost (Excluding GST)</th>
                           <th className="px-2 py-2 text-right text-xs font-semibold uppercase border-r border-green-400 whitespace-nowrap">GST %</th>
@@ -1475,13 +1508,17 @@ const InternalQuotationFormModal = ({
                           const gstPct = getCostingValue(item.id, 'gst_pct');
                           const gstAmount = parseFloat(getCostingValue(item.id, 'gst_amount') || 0);
                           const grandWithGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0);
-                          const specification = item.specification || (item.productId ? getProductSpecification(item.productId) : '');
+                          const specification = item.productId
+                            ? (item.specification || getProductSpecification(item.productId) || '-')
+                            : '-';
                           const itemName = item.productName || item.name || `Item ${index + 1}`;
                           const fmt = (n) => n > 0 ? `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-';
                           return (
                             <tr key={item.id} className="border-b border-gray-200 hover:bg-green-50/30">
                               <td className="px-2 py-2 font-medium text-gray-900 border-r border-gray-200">{itemName}</td>
-                              <td className="px-2 py-2 text-gray-700 border-r border-gray-200 max-w-xs"><div className="max-h-20 overflow-y-auto text-xs">{specification || '-'}</div></td>
+                              <td className="px-2 py-2 text-gray-700 border-r border-gray-200 max-w-xs text-center align-middle">
+                                <div className="max-h-20 overflow-y-auto text-xs text-center leading-snug">{specification}</div>
+                              </td>
                               <td className="px-2 py-2 text-right border-r border-gray-200">{fmt(quotationRatePerUnit)}</td>
                               <td className="px-2 py-2 text-right border-r border-gray-200">{fmt(grandExclGst)}</td>
                               <td className="px-2 py-2 text-right border-r border-gray-200">{gstPct != null && gstPct !== '' ? Number(gstPct).toLocaleString('en-IN') : '-'}</td>
@@ -1571,30 +1608,47 @@ const InternalQuotationFormModal = ({
                     <input
                       type="file"
                       accept="image/*"
+                      ref={signatureInputRef}
                       onChange={handleSignatureChange}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                     />
                     {signatureSrc ? (
                       <div className="mt-3">
-                        <img 
-                          src={signatureSrc} 
-                          alt="Signature Preview" 
-                          className="h-24 w-auto max-w-xs object-contain border-2 border-gray-300 rounded-lg bg-white p-3 shadow-md" 
-                          onError={(e) => {
-                            console.error('Error loading signature image from:', signatureSrc);
-                            e.target.style.display = 'none';
-                          }}
-                          onLoad={() => {
-                            console.log('Signature image loaded successfully from:', signatureSrc);
-                          }}
-                        />
+                        <div className="relative inline-block">
+                          <img 
+                            src={signatureSrc} 
+                            alt="Signature Preview" 
+                            className="h-24 w-auto max-w-xs object-contain border-2 border-gray-300 rounded-lg bg-white p-3 shadow-md" 
+                            onError={(e) => {
+                              console.error('Error loading signature image from:', signatureSrc);
+                              e.target.style.display = 'none';
+                            }}
+                            onLoad={() => {
+                              console.log('Signature image loaded successfully from:', signatureSrc);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleRemoveSignature}
+                            className="absolute -top-2 -right-2 bg-white border border-gray-300 rounded-full p-1 shadow hover:bg-red-50"
+                            title="Remove signature"
+                          >
+                            <X className="w-4 h-4 text-red-600" />
+                          </button>
+                        </div>
                         <p className="text-xs text-gray-500 mt-2">Signature Preview</p>
                       </div>
                     ) : quotation?.signature_path ? (
-                      <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
-                        <p>Signature file exists but could not be loaded.</p>
-                        <p className="mt-1">Path: {quotation.signature_path}</p>
-                        <p className="mt-1">Please check browser console for details.</p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Signature saved.</span>
+                        <button
+                          type="button"
+                          onClick={handleRemoveSignature}
+                          className="inline-flex items-center justify-center bg-white border border-gray-300 rounded-full p-1 shadow hover:bg-red-50"
+                          title="Remove signature"
+                        >
+                          <X className="w-4 h-4 text-red-600" />
+                        </button>
                       </div>
                     ) : null}
                   </div>
