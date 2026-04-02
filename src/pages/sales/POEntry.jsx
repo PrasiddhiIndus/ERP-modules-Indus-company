@@ -1,19 +1,29 @@
 import React, { useState, useMemo } from 'react';
-import { FileCheck, Plus, Search, Pencil, Trash2, History, Send } from 'lucide-react';
+import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { ROLES } from '../../config/roles';
 
-const VERTICALS = ['BILL', 'MANP', 'AMC', 'FIRE', 'SERV'];
+const VERTICALS = ['Manpower', 'Projects', 'AMC', 'R&M', 'M&M'];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
 const BILLING_CYCLES = ['30', '45', '60'];
-const DEFAULT_SAC = '9985';
+const DEFAULT_SAC = '';
 const APPROVAL_STATUS = {
   DRAFT: 'draft',
   SENT: 'sent_for_approval',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
 };
 
 function getApprovalBadge(status) {
+  if (status === APPROVAL_STATUS.APPROVED) {
+    return { label: 'Approved by Commercial Manager', cls: 'bg-emerald-100 text-emerald-800' };
+  }
+  if (status === APPROVAL_STATUS.REJECTED) {
+    return { label: 'Rejected by Commercial Manager', cls: 'bg-red-100 text-red-700' };
+  }
   if (status === APPROVAL_STATUS.SENT) {
-    return { label: 'Sent', cls: 'bg-indigo-100 text-indigo-800' };
+    return { label: 'Pending Commercial Manager approval', cls: 'bg-indigo-100 text-indigo-800' };
   }
   return { label: 'Draft', cls: 'bg-gray-100 text-gray-700' };
 }
@@ -39,14 +49,15 @@ function validateGSTIN(value) {
 const initialForm = {
   siteId: '', locationName: '', legalName: '', billingAddress: '', gstin: '',
   currentCoordinator: '', contactNumber: '', ocNumber: '', vertical: 'BILL', ocSeries: '1',
-  poWoNumber: '', ratePerCategory: [{ description: '', rate: '' }],
+  poWoNumber: '', ratePerCategory: [{ description: '', qty: '', rate: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
-  startDate: '', endDate: '', billingType: '', billingCycle: '30', paymentTerms: '',
+  startDate: '', endDate: '', billingType: '', billingCycle: '30', remarks: '',
   revisedPO: false, renewalPending: false,
 };
 
 const POEntry = () => {
   const { commercialPOs, setCommercialPOs } = useBilling();
+  const { userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -54,6 +65,9 @@ const POEntry = () => {
   const [viewHistoryPoId, setViewHistoryPoId] = useState(null);
   const [gstinError, setGstinError] = useState('');
   const [saveError, setSaveError] = useState('');
+  const canApproveCommercialPOs =
+    userProfile?.role === ROLES.ADMIN ||
+    (userProfile?.role === ROLES.MANAGER && !!accessibleModules?.has('commercial'));
 
   const filteredList = useMemo(() => {
     if (!searchTerm.trim()) return commercialPOs;
@@ -77,7 +91,7 @@ const POEntry = () => {
 
   const handleOpenAdd = () => {
     setEditId(null);
-    setFormData({ ...initialForm, ocNumber: generateOCNumber('BILL', nextSeries), ocSeries: nextSeries });
+    setFormData({ ...initialForm, ocSeries: nextSeries });
     setGstinError('');
     setSaveError('');
     setShowForm(true);
@@ -89,14 +103,14 @@ const POEntry = () => {
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
       billingAddress: po.billingAddress || '', gstin: po.gstin || '', currentCoordinator: po.currentCoordinator || '',
       contactNumber: po.contactNumber || '', ocNumber: po.ocNumber || '',
-      vertical: (po.ocNumber && po.ocNumber.split('-')[1]) || 'BILL', ocSeries: (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
+      vertical: po.vertical || (po.ocNumber && po.ocNumber.split('-')[1]) || 'BILL', ocSeries: (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       poWoNumber: po.poWoNumber || '',
       ratePerCategory: Array.isArray(po.ratePerCategory) && po.ratePerCategory.length
-        ? po.ratePerCategory.map((r) => ({ description: r.description || r.designation || '', rate: r.rate ?? '' }))
-        : [{ description: '', rate: '' }],
+        ? po.ratePerCategory.map((r) => ({ description: r.description || r.designation || '', qty: r.qty ?? '', rate: r.rate ?? '' }))
+        : [{ description: '', qty: '', rate: '' }],
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
-      billingType: po.billingType || 'Monthly', billingCycle: String(po.billingCycle || '30'), paymentTerms: po.paymentTerms || '',
+      billingType: po.billingType || 'Monthly', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
       revisedPO: !!po.revisedPO, renewalPending: !!po.renewalPending,
     });
     setGstinError('');
@@ -109,7 +123,7 @@ const POEntry = () => {
     else setGstinError('');
   };
 
-  const addRateRow = () => setFormData((prev) => ({ ...prev, ratePerCategory: [...prev.ratePerCategory, { description: '', rate: '' }] }));
+  const addRateRow = () => setFormData((prev) => ({ ...prev, ratePerCategory: [...prev.ratePerCategory, { description: '', qty: '', rate: '' }] }));
   const updateRateRow = (idx, field, value) =>
     setFormData((prev) => ({ ...prev, ratePerCategory: prev.ratePerCategory.map((r, i) => (i === idx ? { ...r, [field]: value } : r)) }));
   const removeRateRow = (idx) => {
@@ -131,6 +145,34 @@ const POEntry = () => {
     );
   };
 
+  const approvePO = (id) => {
+    if (!canApproveCommercialPOs) return;
+    setCommercialPOs((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              approvalStatus: APPROVAL_STATUS.APPROVED,
+            }
+          : p
+      )
+    );
+  };
+
+  const rejectPO = (id) => {
+    if (!canApproveCommercialPOs) return;
+    setCommercialPOs((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              approvalStatus: APPROVAL_STATUS.REJECTED,
+            }
+          : p
+      )
+    );
+  };
+
   const savePO = () => {
     if (formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
     const trimmedOcNumber = (formData.ocNumber || '').trim();
@@ -145,13 +187,14 @@ const POEntry = () => {
       setSaveError('Duplicate OC Number or PO/WO Number found. Please use unique values.');
       return;
     }
-    const ocNum = formData.ocNumber || generateOCNumber(formData.vertical || 'BILL', formData.ocSeries || '1');
+    const ocNum = trimmedOcNumber;
     const ratesMap = new Map();
     formData.ratePerCategory.forEach((r) => {
       const description = (r.description || '').trim() || 'Other';
       const key = description.toLowerCase();
+      const qty = Number(r.qty) || 0;
       const rate = Number(r.rate) || 0;
-      ratesMap.set(key, { description, rate });
+      ratesMap.set(key, { description, qty, rate });
     });
     const rates = Array.from(ratesMap.values());
     const totalVal = Number(formData.totalContractValue) || 0;
@@ -166,10 +209,10 @@ const POEntry = () => {
         : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
       ocNumber: ocNum, ocSeries: formData.ocSeries || '1', vertical: (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'BILL',
       poWoNumber: formData.poWoNumber.trim(),
-      ratePerCategory: rates.length ? rates : [{ description: 'Other', rate: 0 }], totalContractValue: totalVal,
+      ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0 }], totalContractValue: totalVal,
       sacCode: formData.sacCode.trim() || DEFAULT_SAC, hsnCode: formData.hsnCode.trim(), serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: formData.billingType,
-      billingCycle: Number(formData.billingCycle) || 30, paymentTerms: formData.paymentTerms.trim(),
+      billingCycle: Number(formData.billingCycle) || 30, remarks: formData.remarks.trim(),
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       approvalStatus: prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT,
@@ -239,7 +282,7 @@ const POEntry = () => {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
-                      {po.approvalStatus !== APPROVAL_STATUS.SENT && (
+                      {po.approvalStatus === APPROVAL_STATUS.DRAFT && (
                         <button
                           type="button"
                           onClick={() => sendToApproval(po.id)}
@@ -248,6 +291,26 @@ const POEntry = () => {
                         >
                           <Send className="w-4 h-4" />
                         </button>
+                      )}
+                      {canApproveCommercialPOs && po.approvalStatus === APPROVAL_STATUS.SENT && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => approvePO(po.id)}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            title="Commercial Manager Approve"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => rejectPO(po.id)}
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                            title="Commercial Manager Reject"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </>
                       )}
                       <button type="button" onClick={() => setViewHistoryPoId(po.id)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100" title="View History"><History className="w-4 h-4" /></button>
                       <button type="button" onClick={() => handleOpenEdit(po)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100" title="Edit"><Pencil className="w-4 h-4" /></button>
@@ -286,11 +349,11 @@ const POEntry = () => {
               <section>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">3. Financials</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label><div className="flex gap-2"><input type="text" value={formData.ocNumber} onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" /><select value={formData.vertical} onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value, ocNumber: generateOCNumber(e.target.value, p.ocSeries) }))} className="border border-gray-300 rounded-lg px-3 py-2">{VERTICALS.map((v) => <option key={v} value={v}>{v}</option>)}</select></div></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label><div className="flex gap-2"><input type="text" value={formData.ocNumber} onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" /><select value={formData.vertical} onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-2">{VERTICALS.map((v) => <option key={v} value={v}>{v}</option>)}</select></div></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">PO/WO Number</label><input type="text" value={formData.poWoNumber} onChange={(e) => setFormData((p) => ({ ...p, poWoNumber: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Total Contract Value (₹)</label><input type="number" value={formData.totalContractValue} onChange={(e) => setFormData((p) => ({ ...p, totalContractValue: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" min="0" /></div>
                 </div>
-                <div className="mt-3"><div className="flex justify-between items-center mb-2"><label className="text-sm font-medium text-gray-700">Rate per Category</label><button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button></div><table className="min-w-full border border-gray-200 rounded-lg overflow-hidden"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th><th className="w-10"/></tr></thead><tbody className="divide-y divide-gray-200">{formData.ratePerCategory.map((r, idx) => (<tr key={idx}><td className="px-3 py-2"><input type="text" value={r.description} onChange={(e) => updateRateRow(idx, 'description', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" placeholder="" /></td><td className="px-3 py-2"><input type="number" value={r.rate} onChange={(e) => updateRateRow(idx, 'rate', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" min="0" /></td><td className="px-2 py-1"><button type="button" onClick={() => removeRateRow(idx)} className="text-red-600 hover:bg-red-50 rounded p-1">×</button></td></tr>))}</tbody></table></div>
+                <div className="mt-3"><div className="flex justify-between items-center mb-2"><label className="text-sm font-medium text-gray-700">Rate per Category</label><button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button></div><table className="min-w-full border border-gray-200 rounded-lg overflow-hidden"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th><th className="w-10"/></tr></thead><tbody className="divide-y divide-gray-200">{formData.ratePerCategory.map((r, idx) => (<tr key={idx}><td className="px-3 py-2"><input type="text" value={r.description} onChange={(e) => updateRateRow(idx, 'description', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" placeholder="" /></td><td className="px-3 py-2"><input type="number" value={r.qty} onChange={(e) => updateRateRow(idx, 'qty', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" min="0" /></td><td className="px-3 py-2"><input type="number" value={r.rate} onChange={(e) => updateRateRow(idx, 'rate', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" min="0" /></td><td className="px-2 py-1"><button type="button" onClick={() => removeRateRow(idx)} className="text-red-600 hover:bg-red-50 rounded p-1">×</button></td></tr>))}</tbody></table></div>
               </section>
               <section>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">4. Tax & Service</h4>
@@ -307,7 +370,7 @@ const POEntry = () => {
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => setFormData((p) => ({ ...p, endDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label><select value={formData.billingType} onChange={(e) => setFormData((p) => ({ ...p, billingType: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label><input type="text" value={formData.paymentTerms} onChange={(e) => setFormData((p) => ({ ...p, paymentTerms: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. Net 30 days" /></div>
+                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter remarks" /></div>
                   <div className="flex gap-6"><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Revised PO</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Pending</span></label></div>
                 </div>
               </section>

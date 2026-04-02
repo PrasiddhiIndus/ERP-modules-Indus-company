@@ -57,9 +57,22 @@ export async function fetchCommercialPOs() {
   ]);
 
   const ratesByPo = {};
-  (ratesRes.data || []).forEach((r) => {
+  const sortedRates = [...(ratesRes.data || [])].sort((a, b) => {
+    const ao = Number(a.sort_order) || 0;
+    const bo = Number(b.sort_order) || 0;
+    return ao - bo;
+  });
+  const seenRateKeys = new Set();
+  sortedRates.forEach((r) => {
+    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.sort_order) || 0}`;
+    if (seenRateKeys.has(dedupeKey)) return;
+    seenRateKeys.add(dedupeKey);
     if (!ratesByPo[r.po_id]) ratesByPo[r.po_id] = [];
-    ratesByPo[r.po_id].push({ description: r.description, rate: Number(r.rate) });
+    ratesByPo[r.po_id].push({
+      description: r.description,
+      qty: Number(r.qty) || 0,
+      rate: Number(r.rate),
+    });
   });
   const contactsByPo = {};
   (contactsRes.data || []).forEach((c) => {
@@ -74,6 +87,8 @@ export async function fetchCommercialPOs() {
 
   return (rows || []).map((po) => {
     const c = toCamelCase(po);
+    c.remarks = po.remarks ?? po.payment_terms ?? null;
+    c.paymentTerms = po.payment_terms ?? po.remarks ?? null;
     c.ratePerCategory = ratesByPo[po.id] || [];
     c.contactHistoryLog = contactsByPo[po.id] || [];
     c.id = po.id;
@@ -122,7 +137,8 @@ export async function saveCommercialPOs(list) {
       end_date: po.endDate && String(po.endDate).trim() ? po.endDate : null,
       billing_type: po.billingType || 'Monthly',
       billing_cycle: Number(po.billingCycle) || 30,
-      payment_terms: po.paymentTerms || null,
+      remarks: po.remarks || po.paymentTerms || null,
+      payment_terms: po.paymentTerms || po.remarks || null,
       revised_po: !!po.revisedPO,
       renewal_pending: !!po.renewalPending,
       status: po.status || 'active',
@@ -138,11 +154,12 @@ export async function saveCommercialPOs(list) {
     const rateRows = (po.ratePerCategory || []).map((r, i) => ({
       po_id: savedPoId,
       description: r.description ?? r.designation ?? '',
+      qty: Number(r.qty) || 0,
       rate: Number(r.rate) || 0,
       sort_order: i,
     }));
     if (rateRows.length) {
-      const { error: rateErr } = await table('po_rate_category').insert(rateRows);
+      const { error: rateErr } = await table('po_rate_category').upsert(rateRows, { onConflict: 'po_id,sort_order' });
       if (rateErr) throw new Error(billingErrorMsg(rateErr, 'Rate category save'));
     }
 
