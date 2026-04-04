@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { FileDigit, Search, Eye, Download } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { downloadTaxInvoicePdf } from '../../utils/taxInvoicePdf';
+import { roundInvoiceAmount } from '../../utils/invoiceRound';
 
 function formatDate(d) {
   if (!d) return '–';
@@ -107,7 +108,7 @@ const GeneratedEInvoice = () => {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     ₹
-                    {(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString(
+                    {roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString(
                       'en-IN'
                     )}
                   </td>
@@ -162,7 +163,7 @@ const GeneratedEInvoice = () => {
                 <p><span className="text-gray-500">Client:</span> {selectedInv.clientLegalName || selectedInv.client_name}</p>
                 <p><span className="text-gray-500">OC / Site:</span> {selectedInv.ocNumber} / {selectedInv.siteId || '–'}</p>
                 <p><span className="text-gray-500">Invoice Date:</span> {formatDate(selectedInv.invoiceDate || selectedInv.created_at)}</p>
-                <p><span className="text-gray-500">Amount:</span> ₹{(selectedInv.calculatedInvoiceAmount ?? selectedInv.totalAmount ?? 0).toLocaleString('en-IN')}</p>
+                <p><span className="text-gray-500">Amount:</span> ₹{roundInvoiceAmount(selectedInv.calculatedInvoiceAmount ?? selectedInv.totalAmount ?? 0).toLocaleString('en-IN')}</p>
               </div>
               <div className="space-y-2">
                 <p><span className="text-gray-500">IRN:</span> <span className="font-mono text-green-700">{selectedInv.e_invoice_irn || selectedInv.eInvoiceIrn}</span></p>

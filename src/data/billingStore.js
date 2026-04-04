@@ -206,12 +206,10 @@ function getDefaultInvoices() {
 export const getInvoices = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.INVOICES);
-    const list = raw ? JSON.parse(raw) : null;
-    // When key is missing or stored list is empty, return default invoices so Monthly/Per Day/Lump Sum tabs have data
-    if (!Array.isArray(list) || list.length === 0) return getDefaultInvoices();
-    return list;
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
   } catch {
-    return getDefaultInvoices();
+    return [];
   }
 };
 

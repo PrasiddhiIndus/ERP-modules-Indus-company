@@ -4,6 +4,7 @@
  */
 import jsPDF from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
+import { roundInvoiceAmount } from './invoiceRound';
 
 // Seller (company issuing invoice) – same as CreateInvoice.jsx
 const SELLER = {
@@ -116,7 +117,7 @@ function getInvoiceTotals(inv) {
     cgstAmt = round2((taxableValue * cgstRate) / 100);
     sgstAmt = round2((taxableValue * sgstRate) / 100);
   }
-  const totalAmount = round2(taxableValue + cgstAmt + sgstAmt);
+  const totalAmount = roundInvoiceAmount(round2(taxableValue + cgstAmt + sgstAmt));
   return { taxableValue, cgstRate, sgstRate, cgstAmt, sgstAmt, totalAmount, items };
 }
 
@@ -128,7 +129,7 @@ function getInvoiceTotals(inv) {
  *   render the e-invoice IRN / Ack No / Ack Date + QR block at the top (for Generated E-Invoice).
  *   Normal downloads (Manage Invoices) should omit this so layout stays clean.
  */
-export function downloadTaxInvoicePdf(inv, options = {}) {
+function buildTaxInvoiceDoc(inv, options = {}) {
   if (!inv) return;
   const { includeEinvoiceHeader = false } = options;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -428,7 +429,21 @@ export function downloadTaxInvoicePdf(inv, options = {}) {
   const addrLines = doc.splitTextToSize(FOOTER_ADDRESS, pageW - (margin + 70));
   doc.text(addrLines, margin + 70, footerY2);
 
-  doc.save(`Tax_Invoice_${(inv.taxInvoiceNumber || inv.bill_number || 'Invoice').replace(/\s/g, '_')}.pdf`);
+  const fileName = `Tax_Invoice_${(inv.taxInvoiceNumber || inv.bill_number || 'Invoice').replace(/\s/g, '_')}.pdf`;
+  return { doc, fileName };
+}
+
+export function getTaxInvoicePdfBlobUrl(inv, options = {}) {
+  const built = buildTaxInvoiceDoc(inv, options);
+  if (!built?.doc) return null;
+  const blob = built.doc.output('blob');
+  return URL.createObjectURL(blob);
+}
+
+export function downloadTaxInvoicePdf(inv, options = {}) {
+  const built = buildTaxInvoiceDoc(inv, options);
+  if (!built?.doc) return;
+  built.doc.save(built.fileName);
 }
 
 /** Shared with UI preview (Manage Invoices / Create Invoice) — matches PDF copy */

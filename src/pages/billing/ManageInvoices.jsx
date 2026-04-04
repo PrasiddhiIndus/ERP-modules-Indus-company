@@ -27,6 +27,7 @@ import {
   formatPdfDate,
   amountInWords,
 } from '../../utils/taxInvoicePdf';
+import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import ManagePAModal from './ManagePAModal';
 import GenerateEInvoiceModal from './GenerateEInvoiceModal';
 
@@ -257,7 +258,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                   <td className="px-4 py-3 text-sm text-gray-600">{getInvoiceBillingType(inv)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{inv.ocNumber} / {inv.siteId}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{inv.clientLegalName || inv.client_name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">₹{(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}</td>
                   <td className="px-4 py-3 text-sm">
                     {contract > 0 ? (
                       <span
@@ -391,7 +392,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
         const taxableValue = inv.taxableValue ?? round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0));
         const cgstAmt = inv.cgstAmt ?? round2((taxableValue * cgstRate) / 100);
         const sgstAmt = inv.sgstAmt ?? round2((taxableValue * sgstRate) / 100);
-        const totalAmount = inv.calculatedInvoiceAmount ?? inv.totalAmount ?? round2(taxableValue + cgstAmt + sgstAmt);
+        const totalAmount = roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? round2(taxableValue + cgstAmt + sgstAmt));
         const po = commercialPOs.find((p) => p.id === inv.poId);
         const paymentTerms = inv.paymentTerms || (po ? (po.paymentTerms || `${po.billingCycle || 30} days`) : '30 Days');
         const atts = Array.isArray(inv.attachments) ? inv.attachments : [];
