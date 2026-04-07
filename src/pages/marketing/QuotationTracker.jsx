@@ -9,7 +9,7 @@ import ExcelCostingSheet from './components/ExcelCostingSheet';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, Save, FileDown, Search, RefreshCw, History } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 import jsPDF from 'jspdf';
-import logo from '../../image/website_logo.webp';
+import { INDUS_LOGO_SRC } from '../../constants/branding.js';
 
 const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, hasRevisions }) => {
   const menuRef = useRef(null);
@@ -985,7 +985,7 @@ const QuotationTracker = () => {
 
   const generatePDF = async (quotation) => {
     try {
-      const logoBase64 = await getBase64Image(logo);
+      const logoBase64 = await getBase64Image(INDUS_LOGO_SRC);
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
       // Logo

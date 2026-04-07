@@ -4,7 +4,7 @@ import { useParams, useLocation, Link } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
-import logo from "../../image/website_logo.webp";
+import { INDUS_LOGO_SRC } from "../../constants/branding.js";
 
 const generateQuotationNumber = (index) => {
   const padded = String(index + 1).padStart(4, "0");
@@ -869,7 +869,7 @@ const QuotationDetail = () => {
   };
 
   const generatePDFBlob = async () => {
-    const logoBase64 = await getBase64Image(logo);
+    const logoBase64 = await getBase64Image(INDUS_LOGO_SRC);
     let signatureBase64 = null;
     if (signatureSrc) signatureBase64 = await getBase64Image(signatureSrc);
 

@@ -46,12 +46,21 @@ function validateGSTIN(value) {
   return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/.test(value.toUpperCase());
 }
 
+const GST_SUPPLY_TYPES = [
+  { value: 'intra', label: 'CGST + SGST (same state)' },
+  { value: 'inter', label: 'IGST (other state)' },
+  { value: 'sez_zero', label: '0% GST (SEZ / nil rated)' },
+];
+
 const initialForm = {
-  siteId: '', locationName: '', legalName: '', billingAddress: '', gstin: '',
+  siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '',
   currentCoordinator: '', contactNumber: '', ocNumber: '', vertical: 'BILL', ocSeries: '1',
+  vendorCode: '',
   poWoNumber: '', ratePerCategory: [{ description: '', qty: '', rate: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   startDate: '', endDate: '', billingType: '', billingCycle: '30', remarks: '',
+  invoiceTermsText: '', sellerCin: '', sellerPan: '', msmeRegistrationNo: '', msmeClause: '',
+  gstSupplyType: 'intra',
   revisedPO: false, renewalPending: false,
 };
 
@@ -101,16 +110,21 @@ const POEntry = () => {
     setEditId(po.id);
     setFormData({
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
-      billingAddress: po.billingAddress || '', gstin: po.gstin || '', currentCoordinator: po.currentCoordinator || '',
+      billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '', placeOfSupply: po.placeOfSupply || '',
+      gstin: po.gstin || '', currentCoordinator: po.currentCoordinator || '',
       contactNumber: po.contactNumber || '', ocNumber: po.ocNumber || '',
       vertical: po.vertical || (po.ocNumber && po.ocNumber.split('-')[1]) || 'BILL', ocSeries: (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       poWoNumber: po.poWoNumber || '',
+      vendorCode: po.vendorCode || '',
       ratePerCategory: Array.isArray(po.ratePerCategory) && po.ratePerCategory.length
         ? po.ratePerCategory.map((r) => ({ description: r.description || r.designation || '', qty: r.qty ?? '', rate: r.rate ?? '' }))
         : [{ description: '', qty: '', rate: '' }],
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       billingType: po.billingType || 'Monthly', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
+      invoiceTermsText: po.invoiceTermsText || '', sellerCin: po.sellerCin || '', sellerPan: po.sellerPan || '',
+      msmeRegistrationNo: po.msmeRegistrationNo || '', msmeClause: po.msmeClause || '',
+      gstSupplyType: po.gstSupplyType || 'intra',
       revisedPO: !!po.revisedPO, renewalPending: !!po.renewalPending,
     });
     setGstinError('');
@@ -177,14 +191,20 @@ const POEntry = () => {
     if (formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
     const trimmedOcNumber = (formData.ocNumber || '').trim();
     const trimmedPoWoNumber = (formData.poWoNumber || '').trim();
+    const locNorm = (formData.locationName || '').trim().toLowerCase();
+    const siteNorm = (formData.siteId || '').trim().toLowerCase();
     const hasDuplicatePO = commercialPOs.some((p) => {
       if (editId && p.id === editId) return false;
       const sameOc = trimmedOcNumber && (p.ocNumber || '').trim().toLowerCase() === trimmedOcNumber.toLowerCase();
+      if (sameOc) return true;
       const samePoWo = trimmedPoWoNumber && (p.poWoNumber || '').trim().toLowerCase() === trimmedPoWoNumber.toLowerCase();
-      return sameOc || samePoWo;
+      if (!samePoWo) return false;
+      const pSite = (p.siteId || '').trim().toLowerCase();
+      const pLoc = (p.locationName || '').trim().toLowerCase();
+      return pSite === siteNorm && pLoc === locNorm;
     });
     if (hasDuplicatePO) {
-      setSaveError('Duplicate OC Number or PO/WO Number found. Please use unique values.');
+      setSaveError('Duplicate OC Number, or duplicate PO/WO for the same Site and Location. Same PO with a different location is allowed.');
       return;
     }
     const ocNum = trimmedOcNumber;
@@ -200,11 +220,24 @@ const POEntry = () => {
     const totalVal = Number(formData.totalContractValue) || 0;
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
+    const nowIso = new Date().toISOString();
+    const historyPrev = Array.isArray(prevPo?.updateHistory) ? [...prevPo.updateHistory] : [];
+    if (editId && prevPo) {
+      historyPrev.push({
+        at: nowIso,
+        summary: 'PO/WO updated — requires Commercial approval again',
+      });
+    }
     const po = {
       id: newId, siteId: formData.siteId.trim() || `SITE-${String(newId).slice(0, 8)}`,
       locationName: formData.locationName.trim() || formData.legalName, legalName: formData.legalName.trim(),
-      billingAddress: formData.billingAddress.trim(), gstin: formData.gstin.trim().toUpperCase(),
+      billingAddress: formData.billingAddress.trim(),
+      shippingAddress: formData.shippingAddress.trim(),
+      placeOfSupply: formData.placeOfSupply.trim(),
+      gstin: formData.gstin.trim().toUpperCase(),
       currentCoordinator: formData.currentCoordinator.trim(), contactNumber: formData.contactNumber.trim(),
+      vendorCode: (formData.vendorCode || '').trim(),
+      gstSupplyType: formData.gstSupplyType || 'intra',
       contactHistoryLog: editId ? (commercialPOs.find((p) => p.id === editId)?.contactHistoryLog || [])
         : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
       ocNumber: ocNum, ocSeries: formData.ocSeries || '1', vertical: (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'BILL',
@@ -213,10 +246,16 @@ const POEntry = () => {
       sacCode: formData.sacCode.trim() || DEFAULT_SAC, hsnCode: formData.hsnCode.trim(), serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: formData.billingType,
       billingCycle: Number(formData.billingCycle) || 30, remarks: formData.remarks.trim(),
+      invoiceTermsText: formData.invoiceTermsText.trim(),
+      sellerCin: formData.sellerCin.trim(),
+      sellerPan: formData.sellerPan.trim(),
+      msmeRegistrationNo: formData.msmeRegistrationNo.trim(),
+      msmeClause: formData.msmeClause.trim(),
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
-      approvalStatus: prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT,
-      approvalSentAt: prevPo?.approvalSentAt || null,
+      approvalStatus: editId ? APPROVAL_STATUS.DRAFT : (prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT),
+      approvalSentAt: editId ? null : (prevPo?.approvalSentAt || null),
+      updateHistory: editId ? historyPrev : [],
     };
     if (editId) setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
     else setCommercialPOs((prev) => [...prev, po]);
@@ -274,9 +313,9 @@ const POEntry = () => {
                     </span>
                     {(po.revisedPO || po.renewalPending) && (
                       <span className="ml-1.5 text-xs">
-                        {po.revisedPO && <span className="text-amber-600">Revised</span>}
+                        {po.revisedPO && <span className="text-amber-600">PO Updated</span>}
                         {po.revisedPO && po.renewalPending && ' · '}
-                        {po.renewalPending && <span className="text-orange-600">Renewal</span>}
+                        {po.renewalPending && <span className="text-orange-600">Renewal Due</span>}
                       </span>
                     )}
                   </td>
@@ -334,6 +373,8 @@ const POEntry = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Legal Name (for GST)</label><input type="text" value={formData.legalName} onChange={(e) => setFormData((p) => ({ ...p, legalName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full legal name" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => setFormData((p) => ({ ...p, billingAddress: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
+                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label><textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Place of supply (invoice)</label><input type="text" value={formData.placeOfSupply} onChange={(e) => setFormData((p) => ({ ...p, placeOfSupply: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. Gujarat — optional" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Site / Location ID</label><input type="text" value={formData.siteId} onChange={(e) => setFormData((p) => ({ ...p, siteId: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. SITE-001" /></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label><input type="text" value={formData.locationName} onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
@@ -350,6 +391,7 @@ const POEntry = () => {
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">3. Financials</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label><div className="flex gap-2"><input type="text" value={formData.ocNumber} onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" /><select value={formData.vertical} onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-2">{VERTICALS.map((v) => <option key={v} value={v}>{v}</option>)}</select></div></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label><input type="text" value={formData.vendorCode} onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">PO/WO Number</label><input type="text" value={formData.poWoNumber} onChange={(e) => setFormData((p) => ({ ...p, poWoNumber: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Total Contract Value (₹)</label><input type="number" value={formData.totalContractValue} onChange={(e) => setFormData((p) => ({ ...p, totalContractValue: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" min="0" /></div>
                 </div>
@@ -358,9 +400,28 @@ const POEntry = () => {
               <section>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">4. Tax & Service</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">GST on supply</label>
+                    <select value={formData.gstSupplyType} onChange={(e) => setFormData((p) => ({ ...p, gstSupplyType: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">
+                      {GST_SUPPLY_TYPES.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">SAC Code</label><input type="text" value={formData.sacCode} onChange={(e) => setFormData((p) => ({ ...p, sacCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label><input type="text" value={formData.hsnCode} onChange={(e) => setFormData((p) => ({ ...p, hsnCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Service Description</label><textarea value={formData.serviceDescription} onChange={(e) => setFormData((p) => ({ ...p, serviceDescription: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" rows={2} /></div>
+                </div>
+              </section>
+              <section>
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">4b. Tax invoice print (from this PO only)</h4>
+                <p className="text-xs text-gray-500 mb-3">Terms, seller CIN/PAN/MSME and ship-to are edited here — Create Invoice only uses these values (no duplicate entry).</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Terms &amp; conditions (printed on invoice)</label><textarea value={formData.invoiceTermsText} onChange={(e) => setFormData((p) => ({ ...p, invoiceTermsText: e.target.value }))} rows={5} className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" placeholder="One line per numbered point, or leave blank to use the default template for the PO vertical (BILL / Manpower / …)." /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Seller CIN</label><input type="text" value={formData.sellerCin} onChange={(e) => setFormData((p) => ({ ...p, sellerCin: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Seller PAN</label><input type="text" value={formData.sellerPan} onChange={(e) => setFormData((p) => ({ ...p, sellerPan: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">MSME Udyam registration no.</label><input type="text" value={formData.msmeRegistrationNo} onChange={(e) => setFormData((p) => ({ ...p, msmeRegistrationNo: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
+                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">MSME clause (optional override)</label><textarea value={formData.msmeClause} onChange={(e) => setFormData((p) => ({ ...p, msmeClause: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="If MSME no. is set and this is empty, default MSME wording is used on the invoice." /></div>
                 </div>
               </section>
               <section>
@@ -369,9 +430,9 @@ const POEntry = () => {
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => setFormData((p) => ({ ...p, startDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => setFormData((p) => ({ ...p, endDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label><select value={formData.billingType} onChange={(e) => setFormData((p) => ({ ...p, billingType: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter remarks" /></div>
-                  <div className="flex gap-6"><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Revised PO</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Pending</span></label></div>
+                  <div className="flex flex-wrap gap-6"><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">PO Updated</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Due</span></label></div>
                 </div>
               </section>
             </div>
@@ -385,8 +446,16 @@ const POEntry = () => {
       )}
       {viewHistoryPoId && poForHistory && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Contact History – {poForHistory.ocNumber}</h3>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-[85vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">History – {poForHistory.ocNumber}</h3>
+            <p className="text-sm font-medium text-gray-700 mb-2">PO update log</p>
+            <ul className="text-sm text-gray-600 list-disc pl-5 mb-4 space-y-1">
+              {(poForHistory.updateHistory || []).length === 0 && <li className="list-none text-gray-400">No PO updates recorded yet.</li>}
+              {(poForHistory.updateHistory || []).map((h, i) => (
+                <li key={i}><span className="font-mono text-xs">{h.at ? new Date(h.at).toLocaleString('en-IN') : '–'}</span> — {h.summary || '—'}</li>
+              ))}
+            </ul>
+            <p className="text-sm font-medium text-gray-700 mb-2">Contact history</p>
             <div className="overflow-x-auto"><table className="min-w-full border border-gray-200"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th></tr></thead><tbody className="divide-y divide-gray-200">{(poForHistory.contactHistoryLog || []).map((h, i) => (<tr key={i}><td className="px-3 py-2 text-sm">{h.name}</td><td className="px-3 py-2 text-sm">{h.number}</td><td className="px-3 py-2 text-sm">{h.from || '–'}</td><td className="px-3 py-2 text-sm">{h.to || 'Current'}</td></tr>))}</tbody></table></div>
             <div className="mt-4 flex justify-end"><button type="button" onClick={() => setViewHistoryPoId(null)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button></div>
           </div>

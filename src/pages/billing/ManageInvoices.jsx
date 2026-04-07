@@ -14,20 +14,9 @@ import {
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { generateEInvoice } from '../../services/eInvoiceApi';
-import {
-  downloadTaxInvoicePdf,
-  SELLER,
-  BANK,
-  TERMS,
-  JURISDICTION,
-  FOOTER_ADDRESS,
-  FOOTER_PHONE,
-  FOOTER_EMAIL,
-  FOOTER_WEB,
-  formatPdfDate,
-  amountInWords,
-} from '../../utils/taxInvoicePdf';
+import { downloadTaxInvoicePdf } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
+import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import ManagePAModal from './ManagePAModal';
 import GenerateEInvoiceModal from './GenerateEInvoiceModal';
 
@@ -51,15 +40,6 @@ function formatINRWithSign(n) {
   const v = round2(n);
   const abs = Math.abs(v).toLocaleString('en-IN');
   return v < 0 ? `-₹${abs}` : `₹${abs}`;
-}
-
-function formatDate(d) {
-  if (!d) return '–';
-  try {
-    return new Date(d).toLocaleDateString('en-IN');
-  } catch {
-    return d;
-  }
 }
 
 const BILLING_TYPE_TABS = [
@@ -303,7 +283,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => downloadTaxInvoicePdf(inv)}
+                        onClick={() => void downloadTaxInvoicePdf(inv)}
                         title="Download Tax Invoice PDF"
                         className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                       >
@@ -386,283 +366,18 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
       {selectedInv && (() => {
         const inv = selectedInv;
-        const items = Array.isArray(inv.items) ? inv.items : [];
-        const cgstRate = Number(inv.cgstRate) || 9;
-        const sgstRate = Number(inv.sgstRate) || 9;
-        const taxableValue = inv.taxableValue ?? round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0));
-        const cgstAmt = inv.cgstAmt ?? round2((taxableValue * cgstRate) / 100);
-        const sgstAmt = inv.sgstAmt ?? round2((taxableValue * sgstRate) / 100);
-        const totalAmount = roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? round2(taxableValue + cgstAmt + sgstAmt));
-        const po = commercialPOs.find((p) => p.id === inv.poId);
-        const paymentTerms = inv.paymentTerms || (po ? (po.paymentTerms || `${po.billingCycle || 30} days`) : '30 Days');
-        const atts = Array.isArray(inv.attachments) ? inv.attachments : [];
-        const buyerName = inv.clientLegalName || '–';
-        const buyerLine = buyerName.startsWith('M/s') ? buyerName : `M/s ${buyerName}`;
-        const placeOfSupply = inv.placeOfSupply || inv.clientAddress?.split(',').pop()?.trim() || 'Gujarat';
-        const invoiceNo = inv.taxInvoiceNumber || inv.bill_number || '–';
-        const invoiceDateStr = formatPdfDate(inv.invoiceDate || inv.created_at);
-        const buyerOrderDateStr = inv.poWoDate ? formatPdfDate(inv.poWoDate) : invoiceDateStr;
-        const buyerOrderNo = inv.poWoNumber || inv.ocNumber || '–';
-        const totalQty = items.length ? items.reduce((s, i) => s + (Number(i.quantity) || 0), 0) : 0;
-        const hsnForTax = (items[0] && (items[0].hsnSac || inv.hsnSac)) || inv.hsnSac || '9983';
-        const taxTotal = round2(cgstAmt + sgstAmt);
-        const irn = inv.e_invoice_irn || inv.eInvoiceIrn;
-        const ackNo = inv.e_invoice_ack_no || inv.eInvoiceAckNo;
-        const ackDt = inv.e_invoice_ack_dt || inv.eInvoiceAckDt;
-
         return (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-4">
-            <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] flex flex-col my-4">
-              <div className="shrink-0 border-b border-gray-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2 rounded-t-xl bg-white z-10">
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900">Tax Invoice preview — {invoiceNo}</h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => downloadTaxInvoicePdf(inv)}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewId(null)}
-                    className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
-                    aria-label="Close"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+                <h3 className="text-lg font-semibold text-gray-900">Tax Invoice Preview – {inv.taxInvoiceNumber || '–'}</h3>
+                <button type="button" onClick={() => setViewId(null)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto bg-gray-100 p-4 sm:p-6">
-                <div className="mx-auto w-full max-w-[210mm] bg-white border border-gray-400 shadow-md text-[11px] sm:text-xs text-gray-900 leading-snug">
-                  {/* PDF-style header */}
-                  <div className="bg-[rgb(20,60,120)] text-white px-5 py-3">
-                    <p className="text-base sm:text-lg font-bold uppercase tracking-tight">{SELLER.name}</p>
-                    <p className="text-[10px] sm:text-xs opacity-90 mt-0.5">An ISO 9001:2015 Certified Company</p>
-                  </div>
-
-                  {irn && (
-                    <div className="px-4 py-2 border-b border-gray-300 bg-amber-50/80 text-[10px] sm:text-[11px] space-y-0.5">
-                      <p className="font-semibold text-gray-800">E-Invoice (IRN generated)</p>
-                      <p className="break-all"><span className="font-medium">IRN:</span> {irn}</p>
-                      {ackNo && <p><span className="font-medium">Ack No.:</span> {ackNo}</p>}
-                      {ackDt && <p><span className="font-medium">Ack Date:</span> {formatPdfDate(ackDt)}</p>}
-                    </div>
-                  )}
-
-                  <div className="px-4 py-2 border-b border-gray-300 flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm sm:text-base font-bold">Tax Invoice</p>
-                      <p className="text-[10px] text-gray-600 mt-0.5">(ORIGINAL FOR RECIPIENT)</p>
-                    </div>
-                  </div>
-
-                  {/* Seller + invoice meta (matches PDF columns) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 px-4 py-3 border-b border-gray-300">
-                    <div>
-                      <p className="font-bold text-gray-900">{SELLER.name}</p>
-                      <p className="text-gray-800 mt-1">{SELLER.address}</p>
-                      <p className="mt-1">GSTIN/UIN: <span className="font-mono">{SELLER.gstin}</span></p>
-                      <p>State Name: {SELLER.state}, Code: {SELLER.stateCode}</p>
-                    </div>
-                    <div className="sm:text-right sm:pl-4 space-y-0.5">
-                      <p><span className="font-semibold">Invoice No.:</span> {invoiceNo}</p>
-                      <p><span className="font-semibold">Dated:</span> {invoiceDateStr}</p>
-                      <p><span className="font-semibold">Mode/Terms of Payment:</span> {paymentTerms}</p>
-                      <p><span className="font-semibold">Buyer&apos;s Order No.:</span> {buyerOrderNo}</p>
-                      <p><span className="font-semibold">Dated:</span> {buyerOrderDateStr}</p>
-                      <p className="text-gray-600">OC: {inv.ocNumber || '–'}</p>
-                    </div>
-                  </div>
-
-                  {/* Consignee / Buyer */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 px-4 py-3 border-b border-gray-300">
-                    <div>
-                      <p className="font-bold text-gray-900 mb-1">Consignee (Ship to):</p>
-                      <p className="font-semibold">{buyerLine}</p>
-                      <p className="text-gray-800 mt-1">{inv.clientAddress || '–'}</p>
-                      <p className="mt-1">GSTIN/UIN: <span className="font-mono">{inv.gstin || '–'}</span></p>
-                      <p>State Name: Gujarat, Code: 24</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-gray-900 mb-1">Buyer (Bill to):</p>
-                      <p className="font-semibold">{buyerLine}</p>
-                      <p className="text-gray-800 mt-1">{inv.clientAddress || '–'}</p>
-                      <p className="mt-1">GSTIN/UIN: <span className="font-mono">{inv.gstin || '–'}</span></p>
-                      <p>State Name: Gujarat, Code: 24</p>
-                      <p className="mt-1"><span className="font-semibold">Place of Supply:</span> {placeOfSupply}</p>
-                    </div>
-                  </div>
-
-                  {/* Item table — same columns as PDF */}
-                  <div className="px-2 sm:px-3 py-2 overflow-x-auto border-b border-gray-300">
-                    <table className="w-full min-w-[640px] border-collapse border border-gray-800 text-[10px] sm:text-[11px]">
-                      <thead>
-                        <tr className="bg-gray-200">
-                          <th className="border border-gray-800 px-1 py-1 text-left font-semibold w-8">SI No.</th>
-                          <th className="border border-gray-800 px-1 py-1 text-left font-semibold">Description of Goods</th>
-                          <th className="border border-gray-800 px-1 py-1 text-left font-semibold w-14">HSN/SAC</th>
-                          <th className="border border-gray-800 px-1 py-1 text-left font-semibold w-16">Quantity</th>
-                          <th className="border border-gray-800 px-1 py-1 text-right font-semibold w-14">Rate</th>
-                          <th className="border border-gray-800 px-1 py-1 text-center font-semibold w-10">per</th>
-                          <th className="border border-gray-800 px-1 py-1 text-center font-semibold w-10">Disc. %</th>
-                          <th className="border border-gray-800 px-1 py-1 text-right font-semibold w-16">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.length ? items.map((it, idx) => (
-                          <tr key={idx}>
-                            <td className="border border-gray-800 px-1 py-1">{idx + 1}</td>
-                            <td className="border border-gray-800 px-1 py-1">{(it.description || it.designation || '–').slice(0, 80)}</td>
-                            <td className="border border-gray-800 px-1 py-1 font-mono">{it.hsnSac || inv.hsnSac || '–'}</td>
-                            <td className="border border-gray-800 px-1 py-1">{Number(it.quantity) || 0} NO</td>
-                            <td className="border border-gray-800 px-1 py-1 text-right">{round2(Number(it.rate) || 0).toFixed(2)}</td>
-                            <td className="border border-gray-800 px-1 py-1 text-center">NO</td>
-                            <td className="border border-gray-800 px-1 py-1 text-center">–</td>
-                            <td className="border border-gray-800 px-1 py-1 text-right">{round2(Number(it.amount) || 0).toFixed(2)}</td>
-                          </tr>
-                        )) : (
-                          <tr>
-                            <td colSpan={8} className="border border-gray-800 px-2 py-3 text-center text-gray-500">No line items</td>
-                          </tr>
-                        )}
-                        <tr>
-                          <td className="border border-gray-800 px-1 py-1" colSpan={7}>CGST</td>
-                          <td className="border border-gray-800 px-1 py-1 text-right">{cgstAmt.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                          <td className="border border-gray-800 px-1 py-1" colSpan={7}>SGST</td>
-                          <td className="border border-gray-800 px-1 py-1 text-right">{sgstAmt.toFixed(2)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <div className="flex flex-wrap justify-between gap-2 mt-2 text-[10px] sm:text-[11px] font-semibold px-1">
-                      <span>Total Quantity: {totalQty || (items.length ? 0 : 1)} NO</span>
-                      <span>
-                        Total Amount: Rs.{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} E. &amp; O.E
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="px-4 py-2 border-b border-gray-300">
-                    <p className="font-bold text-gray-900">Amount Chargeable (in words)</p>
-                    <p className="text-gray-800 mt-1">{amountInWords(totalAmount)}</p>
-                  </div>
-
-                  {/* Tax summary table */}
-                  <div className="px-2 sm:px-3 py-2 overflow-x-auto border-b border-gray-300">
-                    <table className="w-full min-w-[560px] border-collapse border border-gray-800 text-[10px] sm:text-[11px]">
-                      <thead>
-                        <tr className="bg-gray-200">
-                          <th className="border border-gray-800 px-1 py-1 font-semibold">HSN/SAC</th>
-                          <th className="border border-gray-800 px-1 py-1 font-semibold">Taxable Value</th>
-                          <th className="border border-gray-800 px-1 py-1 font-semibold">CGST Rate</th>
-                          <th className="border border-gray-800 px-1 py-1 font-semibold">CGST Amount</th>
-                          <th className="border border-gray-800 px-1 py-1 font-semibold">SGST/UTGST Rate</th>
-                          <th className="border border-gray-800 px-1 py-1 font-semibold">SGST/UTGST Amount</th>
-                          <th className="border border-gray-800 px-1 py-1 font-semibold">Total Tax Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="border border-gray-800 px-1 py-1 font-mono">{hsnForTax}</td>
-                          <td className="border border-gray-800 px-1 py-1 text-right">{taxableValue.toFixed(2)}</td>
-                          <td className="border border-gray-800 px-1 py-1 text-center">{cgstRate}%</td>
-                          <td className="border border-gray-800 px-1 py-1 text-right">{cgstAmt.toFixed(2)}</td>
-                          <td className="border border-gray-800 px-1 py-1 text-center">{sgstRate}%</td>
-                          <td className="border border-gray-800 px-1 py-1 text-right">{sgstAmt.toFixed(2)}</td>
-                          <td className="border border-gray-800 px-1 py-1 text-right">{taxTotal.toFixed(2)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <p className="text-[10px] sm:text-[11px] mt-2 px-1">
-                      <span className="font-semibold">Tax Amount (in words):</span> {amountInWords(taxTotal)}
-                    </p>
-                  </div>
-
-                  {/* Terms + Bank */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-4 py-3 border-b border-gray-300">
-                    <div>
-                      <ol className="list-decimal list-inside space-y-1 text-gray-800">
-                        {TERMS.map((t, i) => (
-                          <li key={i} className="pl-0.5">{t}</li>
-                        ))}
-                      </ol>
-                      <p className="mt-3 font-semibold text-gray-900">Customer&apos;s Seal and Signature</p>
-                    </div>
-                    <div>
-                      <p className="font-bold text-gray-900 mb-1">Bank Details</p>
-                      <p className="text-gray-800">A/c Holder&apos;s Name: {BANK.accountHolder}</p>
-                      <p className="text-gray-800">Bank Name: {BANK.bankName}</p>
-                      <p className="text-gray-800">A/c No.: {BANK.accountNo}</p>
-                      <p className="text-gray-800">Branch &amp; IFS Code: {BANK.branchAndIfsc}</p>
-                      <p className="mt-3 text-gray-800">for {SELLER.name}</p>
-                      <p className="font-semibold mt-1">Authorised Signatory</p>
-                    </div>
-                  </div>
-
-                  <p className="text-center font-bold text-sm py-2 border-b border-gray-300">{JURISDICTION}</p>
-
-                  <div className="bg-[rgb(180,40,40)] text-white px-4 py-2 text-[10px] sm:text-[11px]">
-                    <div className="flex flex-wrap gap-x-4 gap-y-1">
-                      <span>Phone: {FOOTER_PHONE}</span>
-                      <span>Website: {FOOTER_WEB}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                      <span>Email: {FOOTER_EMAIL}</span>
-                      <span className="opacity-95">{FOOTER_ADDRESS}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* App metadata + actions (not on printed PDF) */}
-                <div className="mx-auto max-w-[210mm] mt-4 space-y-3">
-                  <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-600">
-                    <p><span className="text-gray-500">PA Status:</span> <span className="font-medium text-gray-900">{inv.paStatus || '–'}</span></p>
-                    <p><span className="text-gray-500">Payment received:</span> <span className="font-medium text-gray-900">{inv.paymentStatus ? 'Yes' : 'No'}</span></p>
-                    <p><span className="text-gray-500">Invoice date (app):</span> {formatDate(inv.invoiceDate || inv.created_at)}</p>
-                  </div>
-
-                  {atts.length > 0 && (
-                    <div className="rounded-lg border border-gray-200 bg-white p-3">
-                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Attachments</h4>
-                      <ul className="text-sm text-gray-600 space-y-1">
-                        {atts.map((a, i) => (
-                          <li key={i}>{a.name || a.type || 'File'}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => downloadTaxInvoicePdf(inv)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download PDF
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setViewId(null);
-                        setInvoiceDraft({ mode: 'edit', invoiceId: inv.id, poId: inv.poId });
-                        onNavigateTab && onNavigateTab('create-invoice');
-                      }}
-                      disabled={!!inv.e_invoice_irn}
-                      className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Pencil className="w-4 h-4" />
-                      Edit Invoice
-                    </button>
-                    <button type="button" onClick={() => setViewId(null)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">
-                      Close
-                    </button>
-                  </div>
-                </div>
+              <div className="p-4 sm:p-6 bg-gray-100">
+                <InvoiceHtmlPreview inv={inv} />
               </div>
             </div>
           </div>

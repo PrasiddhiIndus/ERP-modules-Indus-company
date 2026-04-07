@@ -91,6 +91,7 @@ export async function fetchCommercialPOs() {
     c.paymentTerms = po.payment_terms ?? po.remarks ?? null;
     c.ratePerCategory = ratesByPo[po.id] || [];
     c.contactHistoryLog = contactsByPo[po.id] || [];
+    if (!c.updateHistory && Array.isArray(po.update_history)) c.updateHistory = po.update_history;
     c.id = po.id;
     return c;
   });
@@ -144,6 +145,16 @@ export async function saveCommercialPOs(list) {
       status: po.status || 'active',
       approval_status: po.approvalStatus || 'draft',
       approval_sent_at: po.approvalSentAt || null,
+      vendor_code: po.vendorCode || null,
+      gst_supply_type: po.gstSupplyType || 'intra',
+      update_history: Array.isArray(po.updateHistory) ? po.updateHistory : [],
+      shipping_address: po.shippingAddress || null,
+      invoice_terms_text: po.invoiceTermsText || null,
+      seller_cin: po.sellerCin || null,
+      seller_pan: po.sellerPan || null,
+      msme_registration_no: po.msmeRegistrationNo || null,
+      msme_clause: po.msmeClause || null,
+      place_of_supply: po.placeOfSupply || null,
     };
 
     const { data: saved, error: poError } = await table('po_wo').upsert(payload, { onConflict: 'id' }).select('id').single();
@@ -206,6 +217,9 @@ export async function fetchInvoices() {
       quantity: Number(l.quantity),
       rate: Number(l.rate),
       amount: Number(l.amount),
+      poQty: l.po_qty != null ? Number(l.po_qty) : undefined,
+      actualDuty: l.actual_duty != null ? Number(l.actual_duty) : undefined,
+      authorizedDuty: l.authorized_duty != null ? Number(l.authorized_duty) : undefined,
     });
   });
   const attsByInv = {};
@@ -242,6 +256,24 @@ export async function fetchInvoices() {
     c.e_invoice_ack_dt = inv.e_invoice_ack_dt;
     c.e_invoice_signed_qr = inv.e_invoice_signed_qr;
     c.lessMoreBilling = inv.less_more_billing;
+    c.billNumber = inv.bill_number;
+    c.billingMonth = inv.billing_month;
+    c.sellerCin = inv.seller_cin;
+    c.sellerPan = inv.seller_pan;
+    c.msmeRegistrationNo = inv.msme_registration_no;
+    c.msmeClause = inv.msme_clause;
+    c.billingDurationFrom = inv.billing_duration_from;
+    c.billingDurationTo = inv.billing_duration_to;
+    c.invoiceHeaderRemarks = inv.invoice_header_remarks;
+    c.termsTemplateKey = inv.terms_template_key;
+    c.termsCustomText = inv.terms_custom_text;
+    c.clientShippingAddress = inv.client_shipping_address;
+    c.placeOfSupply = inv.place_of_supply;
+    c.invoiceKind = inv.invoice_kind || 'tax';
+    c.gstSupplyType = inv.gst_supply_type || 'intra';
+    c.igstRate = inv.igst_rate != null ? Number(inv.igst_rate) : 0;
+    c.igstAmt = inv.igst_amt != null ? Number(inv.igst_amt) : 0;
+    c.digitalSignatureDataUrl = inv.digital_signature_data_url;
     c.created_at = inv.created_at;
     c.updated_at = inv.updated_at;
     c.items = linesByInv[inv.id] || [];
@@ -283,6 +315,24 @@ export async function saveInvoice(inv) {
     e_invoice_ack_dt: inv.e_invoice_ack_dt,
     e_invoice_signed_qr: inv.e_invoice_signed_qr,
     less_more_billing: inv.lessMoreBilling,
+    bill_number: inv.billNumber || null,
+    billing_month: inv.billingMonth || null,
+    seller_cin: inv.sellerCin || null,
+    seller_pan: inv.sellerPan || null,
+    msme_registration_no: inv.msmeRegistrationNo || null,
+    msme_clause: inv.msmeClause || null,
+    billing_duration_from: inv.billingDurationFrom || null,
+    billing_duration_to: inv.billingDurationTo || null,
+    invoice_header_remarks: inv.invoiceHeaderRemarks || null,
+    terms_template_key: inv.termsTemplateKey || null,
+    terms_custom_text: inv.termsCustomText || inv.termsText || null,
+    client_shipping_address: inv.clientShippingAddress || null,
+    place_of_supply: inv.placeOfSupply || null,
+    invoice_kind: inv.invoiceKind || 'tax',
+    gst_supply_type: inv.gstSupplyType || 'intra',
+    igst_rate: Number(inv.igstRate) || 0,
+    igst_amt: Number(inv.igstAmt) || 0,
+    digital_signature_data_url: inv.digitalSignatureDataUrl || null,
   };
 
   const { data: saved, error: invError } = await table('invoice').upsert(payload, { onConflict: 'id' }).select('id').single();
@@ -298,6 +348,9 @@ export async function saveInvoice(inv) {
     quantity: Number(it.quantity) || 0,
     rate: Number(it.rate) || 0,
     amount: Number(it.amount) || 0,
+    po_qty: it.poQty != null ? Number(it.poQty) : null,
+    actual_duty: it.actualDuty != null ? Number(it.actualDuty) : null,
+    authorized_duty: it.authorizedDuty != null ? Number(it.authorizedDuty) : null,
   }));
   if (lineRows.length) {
     const { error: lineErr } = await table('invoice_line_item').insert(lineRows);

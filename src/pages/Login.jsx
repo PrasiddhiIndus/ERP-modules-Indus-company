@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import logo from '../image/website_logo.webp'
+import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import {
   Mail,
   Lock,
@@ -125,7 +125,7 @@ const Login = () => {
             {/* Logo + heading */}
             <div className="flex items-center gap-4 shrink-0">
               <img
-                src={logo}
+                src={INDUS_LOGO_SRC}
                 alt="Indus"
                 className="h-12 w-12 xl:h-14 xl:w-14 object-contain shrink-0"
               />
@@ -200,7 +200,7 @@ const Login = () => {
           {/* Mobile: logo + branding */}
           <div className="lg:hidden text-center mb-5 shrink-0">
             <img
-              src={logo}
+              src={INDUS_LOGO_SRC}
               alt="Indus"
               className="h-11 w-11 mx-auto mb-2 object-contain"
             />

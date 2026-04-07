@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Download, Mail } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
-import logo from '../../../image/website_logo.webp';
+import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
 import jsPDF from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 
@@ -664,7 +664,7 @@ const InternalQuotationFormModal = ({
         return;
       }
 
-      const logoBase64 = await getBase64Image(logo);
+      const logoBase64 = await getBase64Image(INDUS_LOGO_SRC);
       let signatureBase64 = null;
       if (signatureSrc) {
         try {
@@ -1096,7 +1096,7 @@ const InternalQuotationFormModal = ({
 
   // Generate PDF blob (same as download but returns blob)
   const generatePDFBlob = async () => {
-    const logoBase64 = await getBase64Image(logo);
+    const logoBase64 = await getBase64Image(INDUS_LOGO_SRC);
     let signatureBase64 = null;
     if (signatureSrc) {
       try {
@@ -1371,7 +1371,7 @@ const InternalQuotationFormModal = ({
         {/* Header with Logo */}
         <div className="p-4 sm:p-6 border-b border-gray-200 flex justify-between items-start sticky top-0 bg-white z-10">
           <div className="flex items-center gap-4">
-            <img src={logo} alt="Logo" className="h-12 w-12 object-contain" />
+            <img src={INDUS_LOGO_SRC} alt="Logo" className="h-12 w-12 object-contain" />
             <div>
               <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
                 Internal Quotation
