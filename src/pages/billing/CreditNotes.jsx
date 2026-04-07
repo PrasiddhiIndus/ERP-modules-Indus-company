@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Receipt, Search, Plus, FileDigit } from 'lucide-react';
+import { Receipt, Search, Plus, Download } from 'lucide-react';
+import { downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
 import { useBilling } from '../../contexts/BillingContext';
 import { generateEInvoice } from '../../services/eInvoiceApi';
 
@@ -118,6 +119,7 @@ const CreditNotes = () => {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">E-Invoice</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Download</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
               </tr>
             </thead>
@@ -129,6 +131,20 @@ const CreditNotes = () => {
                   <td className="px-4 py-3 text-sm text-gray-600">₹{(note.amount || 0).toLocaleString('en-IN')}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{note.reason || '–'}</td>
                   <td className="px-4 py-3 text-sm">{note.e_invoice_irn ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const parent = invoices.find((i) => String(i.id) === String(note.parentInvoiceId));
+                        void downloadCreditDebitNotePdf(note, parent, {
+                          digitalSignatureDataUrl: parent?.digitalSignatureDataUrl,
+                        });
+                      }}
+                      className="inline-flex items-center gap-1 text-sm text-gray-700 hover:text-amber-700"
+                    >
+                      <Download className="w-4 h-4" /> PDF
+                    </button>
+                  </td>
                   <td className="px-4 py-3">
                     {!note.e_invoice_irn && (
                       <button

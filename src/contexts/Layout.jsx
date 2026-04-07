@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { isPathAllowed } from "../config/roles";
+import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import {
   LogOut,
   User,
@@ -123,8 +124,11 @@ const Layout = () => {
       >
         <div className="flex flex-col h-full">
           {/* Logo + Close */}
-          <div className="flex items-center justify-between p-3 border-b">
-            <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+          <div className="flex items-center justify-between p-3 border-b gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <img src={INDUS_LOGO_SRC} alt="" className="h-9 w-9 object-contain shrink-0" width={36} height={36} />
+              <h1 className="text-lg font-bold text-gray-900 truncate">INDUS OS</h1>
+            </div>
             <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-1 rounded-md hover:bg-gray-100"
@@ -711,16 +715,17 @@ const Layout = () => {
       {/* Main Content */}
       <div className="flex-1 flex flex-col lg:ml-56">
         {/* Top Header */}
-        <header className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 rounded-md hover:bg-gray-100"
-          >
-            ☰
-          </button>
-          <h2 className="text-xl font-semibold text-gray-900">
-            Welcome back!
-          </h2>
+        <header className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 rounded-md hover:bg-gray-100 shrink-0"
+            >
+              ☰
+            </button>
+            <img src={INDUS_LOGO_SRC} alt="" className="hidden sm:block h-9 w-9 object-contain shrink-0" width={36} height={36} />
+            <h2 className="text-xl font-semibold text-gray-900 truncate">Welcome back!</h2>
+          </div>
         </header>
 
         {/* Page Content */}

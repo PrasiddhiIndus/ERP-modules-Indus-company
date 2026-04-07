@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 import {
   getCommercialPOs,
   setCommercialPOs as saveCommercialPOsLocal,
@@ -85,6 +86,34 @@ export const BillingProvider = ({ children }) => {
     })();
     return () => { mounted = false; };
   }, [loadFromDb]);
+
+  /** When DB billing is active, refetch POs (and related data) on po_wo changes — e.g. approval_status after Commercial Manager approves. */
+  const refreshDebounceRef = useRef(null);
+  useEffect(() => {
+    if (useDb !== true) return undefined;
+    const scheduleRefresh = () => {
+      if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
+      refreshDebounceRef.current = setTimeout(() => {
+        refreshDebounceRef.current = null;
+        loadFromDb();
+      }, 280);
+    };
+    const channel = supabase
+      .channel('billing-po-wo-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'billing', table: 'po_wo' },
+        () => scheduleRefresh()
+      )
+      .subscribe();
+    return () => {
+      if (refreshDebounceRef.current) {
+        clearTimeout(refreshDebounceRef.current);
+        refreshDebounceRef.current = null;
+      }
+      channel.unsubscribe();
+    };
+  }, [useDb, loadFromDb]);
 
   const setCommercialPOs = useCallback((updater) => {
     setCommercialPOsState((prev) => {
