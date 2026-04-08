@@ -78,6 +78,56 @@ const POEntry = () => {
     userProfile?.role === ROLES.ADMIN ||
     (userProfile?.role === ROLES.MANAGER && !!accessibleModules?.has('commercial'));
 
+  const TextCell = ({ value, className = '' }) => {
+    const display = value ?? '';
+    return (
+      <span className={`block min-w-0 truncate ${className}`} title={typeof display === 'string' ? display : String(display)}>
+        {display || '–'}
+      </span>
+    );
+  };
+
+  const MultilineBadgeText = ({ text }) => {
+    const t = String(text || '');
+    const parts =
+      t.includes('Approved by ') ? ['Approved by', t.replace('Approved by ', '')]
+      : t.includes('Rejected by ') ? ['Rejected by', t.replace('Rejected by ', '')]
+      : t.includes('Pending Commercial Manager approval') ? ['Pending', 'Commercial Manager approval']
+      : [t];
+
+    return (
+      <span className="block text-center leading-tight whitespace-normal">
+        {parts.map((p, i) => (
+          <span key={`${p}-${i}`} className="block">
+            {p}
+          </span>
+        ))}
+      </span>
+    );
+  };
+
+  const OcNumberCell = ({ value }) => {
+    const v = String(value || '');
+    const idx = v.indexOf('-OC-');
+    const line1 = idx >= 0 ? `${v.slice(0, idx)}-OC` : v;
+    const line2 = idx >= 0 ? `-${v.slice(idx + 4)}` : '';
+
+    return (
+      <div className="flex flex-col items-center justify-center min-w-0" title={v}>
+        <span className="block text-center leading-tight truncate max-w-full font-semibold">
+          {line1 || '–'}
+        </span>
+        {line2 ? (
+          <span className="block text-center leading-tight truncate max-w-full text-gray-700 font-semibold">
+            {line2}
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
+  const cleanCellText = (value) => String(value ?? '').replaceAll('|', '').trim();
+
   const filteredList = useMemo(() => {
     if (!searchTerm.trim()) return commercialPOs;
     const s = searchTerm.toLowerCase();
@@ -285,83 +335,132 @@ const POEntry = () => {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
         <input type="text" placeholder="Search by OC, PO number, client, site..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
       </div>
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">OC Number</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site / Location</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client (Legal Name)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO/WO #</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Start – End</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredList.map((po) => (
-                <tr key={po.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{po.ocNumber}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{po.siteId} – {po.locationName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{po.legalName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{po.poWoNumber}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{po.startDate} – {po.endDate}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getApprovalBadge(po.approvalStatus).cls}`}>
-                      {getApprovalBadge(po.approvalStatus).label}
-                    </span>
-                    {(po.revisedPO || po.renewalPending) && (
-                      <span className="ml-1.5 text-xs">
-                        {po.revisedPO && <span className="text-amber-600">PO Updated</span>}
-                        {po.revisedPO && po.renewalPending && ' · '}
-                        {po.renewalPending && <span className="text-orange-600">Renewal Due</span>}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      {po.approvalStatus === APPROVAL_STATUS.DRAFT && (
-                        <button
-                          type="button"
-                          onClick={() => sendToApproval(po.id)}
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                          title="Send to approval"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
-                      )}
-                      {canApproveCommercialPOs && po.approvalStatus === APPROVAL_STATUS.SENT && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => approvePO(po.id)}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                            title="Commercial Manager Approve"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => rejectPO(po.id)}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                            title="Commercial Manager Reject"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                      <button type="button" onClick={() => setViewHistoryPoId(po.id)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100" title="View History"><History className="w-4 h-4" /></button>
-                      <button type="button" onClick={() => handleOpenEdit(po)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100" title="Edit"><Pencil className="w-4 h-4" /></button>
-                      <button type="button" onClick={() => deletePO(po.id)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100" title="Delete"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+        <div className="p-2">
+          <div className="bg-white rounded-lg overflow-hidden">
+            <div className="w-full overflow-x-hidden">
+              <table className="min-w-full w-full table-fixed">
+                <thead>
+                  <tr>
+                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[130px] sm:w-[180px]">
+                      OC Number
+                    </th>
+                    <th className="hidden md:table-cell px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[180px]">
+                      Site / Location
+                    </th>
+                    <th className="hidden lg:table-cell px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[220px]">
+                      Client (Legal Name)
+                    </th>
+                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[95px] sm:w-[140px]">
+                      PO/WO
+                    </th>
+                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[92px] sm:w-[130px]">
+                      Start – End
+                    </th>
+                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[120px] sm:w-[190px]">
+                      Status
+                    </th>
+                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[110px] sm:w-[140px]">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {filteredList.map((po) => {
+                    const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
+                    const approval = getApprovalBadge(po.approvalStatus);
+                    const startDate = cleanCellText(po.startDate);
+                    const endDate = cleanCellText(po.endDate);
+                    return (
+                      <tr key={po.id} className="hover:bg-gray-50 align-top">
+                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-900 min-w-0 text-center">
+                          <OcNumberCell value={po.ocNumber} />
+                        </td>
+                        <td className="hidden md:table-cell px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 min-w-0 text-center">
+                          <TextCell value={siteLocation} className="text-center" />
+                        </td>
+                        <td className="hidden lg:table-cell px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 min-w-0 text-center">
+                          <TextCell value={po.legalName} className="text-center" />
+                        </td>
+                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 text-center">
+                          <TextCell value={po.poWoNumber} className="text-center" />
+                        </td>
+                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 text-center">
+                          <div className="flex flex-col items-center justify-center leading-tight whitespace-nowrap">
+                            <div className="truncate max-w-full" title={startDate || '–'}>
+                              {startDate || '–'}
+                            </div>
+                            <div className="text-gray-400 select-none">-</div>
+                            <div className="truncate max-w-full" title={endDate || '–'}>
+                              {endDate || '–'}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 text-center">
+                          <div className="flex flex-col items-center justify-center gap-1 min-w-0">
+                            <span
+                              className={`inline-flex items-center justify-center px-2 py-1.5 text-[10.5px] sm:text-xs font-semibold rounded-full ${approval.cls} whitespace-normal text-center leading-tight max-w-[120px] sm:max-w-[180px]`}
+                              title={approval.label}
+                            >
+                              <MultilineBadgeText text={approval.label} />
+                            </span>
+                            {(po.revisedPO || po.renewalPending) && (
+                              <span
+                                className="text-[11px] sm:text-xs leading-tight text-center"
+                                title={`${po.revisedPO ? 'PO Updated' : ''}${po.revisedPO && po.renewalPending ? ' · ' : ''}${po.renewalPending ? 'Renewal Due' : ''}`}
+                              >
+                                {po.revisedPO && <span className="block text-amber-700 font-semibold">PO Updated</span>}
+                                {po.renewalPending && <span className="block text-orange-700 font-semibold">Renewal Due</span>}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-2 sm:px-3 py-2 text-center">
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            {po.approvalStatus === APPROVAL_STATUS.DRAFT && (
+                              <button
+                                type="button"
+                                onClick={() => sendToApproval(po.id)}
+                                className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                                title="Send to approval"
+                              >
+                                <Send className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canApproveCommercialPOs && po.approvalStatus === APPROVAL_STATUS.SENT && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => approvePO(po.id)}
+                                  className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                  title="Commercial Manager Approve"
+                                >
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => rejectPO(po.id)}
+                                  className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                  title="Commercial Manager Reject"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                            <button type="button" onClick={() => setViewHistoryPoId(po.id)} className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100" title="View History"><History className="w-4 h-4" /></button>
+                            <button type="button" onClick={() => handleOpenEdit(po)} className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100" title="Edit"><Pencil className="w-4 h-4" /></button>
+                            <button type="button" onClick={() => deletePO(po.id)} className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {filteredList.length === 0 && <div className="p-8 text-center text-gray-500">No PO/WO found. Add one to start.</div>}
+          </div>
         </div>
-        {filteredList.length === 0 && <div className="p-8 text-center text-gray-500">No PO/WO found. Add one to start.</div>}
       </div>
       {showForm && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-4">

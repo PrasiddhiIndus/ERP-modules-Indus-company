@@ -67,6 +67,47 @@ const WOPOManagement = () => {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [formData, setFormData] = useState(initialForm);
 
+  const TextCell = ({ value, className = '' }) => {
+    const display = value ?? '';
+    return (
+      <span
+        className={`block min-w-0 truncate ${className}`}
+        title={typeof display === 'string' ? display : String(display)}
+      >
+        {display}
+      </span>
+    );
+  };
+
+  const StatusBadge = ({ approvalStatus, status }) => {
+    const a = approvalStatus || 'draft';
+    const s = status || 'active';
+    const approvalClass =
+      a === 'approved'
+        ? 'bg-green-100 text-green-800'
+        : a === 'pending_approval'
+        ? 'bg-amber-100 text-amber-800'
+        : a === 'rejected'
+        ? 'bg-red-100 text-red-800'
+        : 'bg-gray-100 text-gray-800';
+    const statusClass =
+      s === 'active'
+        ? 'bg-blue-50 text-blue-700'
+        : s === 'inactive'
+        ? 'bg-gray-100 text-gray-700'
+        : 'bg-gray-100 text-gray-700';
+    return (
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${approvalClass} whitespace-nowrap`}>
+          {APPROVAL_STATUSES[a] || 'Draft'}
+        </span>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusClass} whitespace-nowrap`}>
+          {s}
+        </span>
+      </div>
+    );
+  };
+
   const getDaysUntil = (dateStr) => {
     const d = new Date(dateStr);
     d.setHours(0, 0, 0, 0);
@@ -214,7 +255,7 @@ const WOPOManagement = () => {
       <div className="bg-white rounded-lg shadow-md overflow-hidden flex flex-col">
         <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
           <h3 className="text-lg font-semibold text-gray-900">
-            All WO/PO ({filteredList.length} records)
+            PO / WO Management ({filteredList.length} records)
           </h3>
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-sm text-gray-500">
@@ -253,308 +294,340 @@ const WOPOManagement = () => {
               No WO/PO records found.
             </div>
           ) : (
-            <ul className="divide-y divide-gray-200">
-              {paginatedList.map((row) => (
-                <li key={row.id} className="bg-white">
-                  <div
-                    className="px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => setExpandedId((prev) => (prev === row.id ? null : row.id))}
-                  >
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-gray-900">{row.oc_number}</span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                            {row.category}
-                          </span>
-                          <span className="text-sm text-gray-600">{row.wo_number}</span>
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full ${
-                              row.approval_status === 'approved'
-                                ? 'bg-green-100 text-green-800'
-                                : row.approval_status === 'pending_approval'
-                                ? 'bg-amber-100 text-amber-800'
-                                : row.approval_status === 'rejected'
-                                ? 'bg-red-100 text-red-800'
-                                : 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {APPROVAL_STATUSES[row.approval_status] || 'Draft'}
-                          </span>
-                        </div>
-                        <div className="text-sm text-gray-600 truncate">
-                          {row.client_name}
-                          <span className="text-gray-400 mx-1">·</span>
-                          {row.billing_type}
-                          <span className="text-gray-400 mx-1">·</span>
-                          End: {row.end_date}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                        {row.approval_status === 'draft' && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setList((prev) =>
-                                prev.map((r) =>
-                                  r.id === row.id ? { ...r, approval_status: 'pending_approval' } : r
-                                )
-                              );
-                            }}
-                            className="p-2 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
-                            title="Submit for approval"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        )}
-                        {row.approval_status === 'pending_approval' && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setList((prev) =>
-                                  prev.map((r) =>
-                                    r.id === row.id ? { ...r, approval_status: 'approved' } : r
-                                  )
-                                );
-                              }}
-                              className="p-2 rounded-lg text-green-600 hover:bg-green-50 transition-colors"
-                              title="Approve"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setList((prev) =>
-                                  prev.map((r) =>
-                                    r.id === row.id ? { ...r, approval_status: 'rejected' } : r
-                                  )
-                                );
-                              }}
-                              className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
-                              title="Reject"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setQuickBillRequests((prev) => [
-                              ...prev,
-                              {
-                                id: Math.max(0, ...prev.map((q) => q.id), 0) + 1,
-                                oc_id: row.id,
-                                oc_number: row.oc_number,
-                                requested_at: new Date().toISOString().slice(0, 10),
-                                status: 'pending_approval',
-                              },
-                            ]);
-                          }}
-                          className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors"
-                          title="Quick WO/PO – request quick bill (requires approval)"
+            <div className="w-full overflow-x-auto">
+              <table className="min-w-[1100px] w-full table-fixed">
+                <thead>
+                  <tr className="bg-[#f2f6ff]">
+                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[170px]">
+                      OC Number
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[200px]">
+                      Site / Location
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[260px]">
+                      Client (Legal Name)
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[190px]">
+                      PO/WO
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[180px]">
+                      Start – End
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[190px]">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-right text-sm font-bold text-black border-b border-gray-200 w-[210px]">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {paginatedList.map((row) => {
+                    const ocNumber = row.oc_number || row.ocNumber || '';
+                    const siteLocation =
+                      row.location_name ||
+                      row.locationName ||
+                      row.site_id ||
+                      row.siteId ||
+                      row.site ||
+                      row.location ||
+                      '';
+                    const legalName = row.legal_name || row.legalName || row.client_name || row.clientName || '';
+                    const poWo = row.po_wo_number || row.poWoNumber || row.wo_number || row.woNumber || '';
+                    const startEnd = `${row.start_date || row.startDate || ''}${(row.start_date || row.startDate) && (row.end_date || row.endDate) ? ' – ' : ''}${row.end_date || row.endDate || ''}`;
+                    return (
+                      <React.Fragment key={row.id}>
+                        <tr
+                          className="bg-white hover:bg-gray-50 cursor-pointer align-top"
+                          onClick={() => setExpandedId((prev) => (prev === row.id ? null : row.id))}
                         >
-                          <Zap className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const r = list.find((x) => x.id === row.id);
-                            if (r) {
-                              setFormData({
-                                category: r.category || '',
-                                rates: r.rates || '',
-                                designation_rates: Array.isArray(r.designation_rates)
-                                  ? r.designation_rates.map((dr) => ({ designation: dr.designation || '', rate: dr.rate || '' }))
-                                  : [],
-                                payment_terms: r.payment_terms || '',
-                                wo_number: r.wo_number || '',
-                                client_name: r.client_name || '',
-                                client_address: r.client_address || '',
-                                hsn_sac: r.hsn_sac || '',
-                                gst_config: r.gst_config || '',
-                                billing_type: r.billing_type || '',
-                                billing_template: r.billing_template || '',
-                                start_date: r.start_date || '',
-                                end_date: r.end_date || '',
-                              });
-                              setEditId(r.id);
-                              setShowAddForm(false);
-                            }
-                          }}
-                          className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        {deleteConfirmId === row.id ? (
-                          <span className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(row.id);
-                              }}
-                              className="px-2 py-1 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700"
-                            >
-                              Confirm
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteConfirmId(null);
-                              }}
-                              className="px-2 py-1 text-xs font-medium rounded border border-gray-300 hover:bg-gray-50"
-                            >
-                              Cancel
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteConfirmId(row.id);
-                            }}
-                            className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <td className="px-4 py-3 text-sm text-gray-900">
+                            <TextCell value={ocNumber} className="font-semibold" />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            <TextCell value={siteLocation} />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900">
+                            <TextCell value={legalName} />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            <TextCell value={poWo} />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            <TextCell value={startEnd} />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            <StatusBadge approvalStatus={row.approval_status} status={row.status} />
+                          </td>
+                          <td className="px-4 py-2">
+                            <div className="flex items-center justify-end gap-1">
+                              {row.approval_status === 'draft' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setList((prev) =>
+                                      prev.map((r) =>
+                                        r.id === row.id ? { ...r, approval_status: 'pending_approval' } : r
+                                      )
+                                    );
+                                  }}
+                                  className="p-2 rounded-lg text-amber-700 hover:bg-amber-50 transition-colors"
+                                  title="Submit for approval"
+                                >
+                                  <Send className="w-4 h-4" />
+                                </button>
+                              )}
+                              {row.approval_status === 'pending_approval' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setList((prev) =>
+                                        prev.map((r) =>
+                                          r.id === row.id ? { ...r, approval_status: 'approved' } : r
+                                        )
+                                      );
+                                    }}
+                                    className="p-2 rounded-lg text-green-700 hover:bg-green-50 transition-colors"
+                                    title="Approve"
+                                  >
+                                    <CheckCircle className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setList((prev) =>
+                                        prev.map((r) =>
+                                          r.id === row.id ? { ...r, approval_status: 'rejected' } : r
+                                        )
+                                      );
+                                    }}
+                                    className="p-2 rounded-lg text-red-700 hover:bg-red-50 transition-colors"
+                                    title="Reject"
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setQuickBillRequests((prev) => [
+                                    ...prev,
+                                    {
+                                      id: Math.max(0, ...prev.map((q) => q.id), 0) + 1,
+                                      oc_id: row.id,
+                                      oc_number: row.oc_number,
+                                      requested_at: new Date().toISOString().slice(0, 10),
+                                      status: 'pending_approval',
+                                    },
+                                  ]);
+                                }}
+                                className="p-2 rounded-lg text-blue-700 hover:bg-blue-50 transition-colors"
+                                title="Quick WO/PO – request quick bill (requires approval)"
+                              >
+                                <Zap className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const r = list.find((x) => x.id === row.id);
+                                  if (r) {
+                                    setFormData({
+                                      category: r.category || '',
+                                      rates: r.rates || '',
+                                      designation_rates: Array.isArray(r.designation_rates)
+                                        ? r.designation_rates.map((dr) => ({ designation: dr.designation || '', rate: dr.rate || '' }))
+                                        : [],
+                                      payment_terms: r.payment_terms || '',
+                                      wo_number: r.wo_number || '',
+                                      client_name: r.client_name || '',
+                                      client_address: r.client_address || '',
+                                      hsn_sac: r.hsn_sac || '',
+                                      gst_config: r.gst_config || '',
+                                      billing_type: r.billing_type || '',
+                                      billing_template: r.billing_template || '',
+                                      start_date: r.start_date || '',
+                                      end_date: r.end_date || '',
+                                    });
+                                    setEditId(r.id);
+                                    setShowAddForm(false);
+                                  }
+                                }}
+                                className="p-2 rounded-lg text-blue-700 hover:bg-blue-50 transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              {deleteConfirmId === row.id ? (
+                                <span className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDelete(row.id);
+                                    }}
+                                    className="px-2 py-1 text-xs font-semibold rounded bg-red-600 text-white hover:bg-red-700"
+                                  >
+                                    Confirm
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteConfirmId(null);
+                                    }}
+                                    className="px-2 py-1 text-xs font-semibold rounded border border-gray-300 hover:bg-gray-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteConfirmId(row.id);
+                                  }}
+                                  className="p-2 rounded-lg text-red-700 hover:bg-red-50 transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedId((prev) => (prev === row.id ? null : row.id));
+                                }}
+                                className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+                                aria-expanded={expandedId === row.id}
+                                title={expandedId === row.id ? 'Collapse' : 'Expand'}
+                              >
+                                {expandedId === row.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {expandedId === row.id && (
+                          <tr className="bg-gray-50">
+                            <td className="px-4 pb-4 pt-3" colSpan={7}>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                                <div className={row.designation_rates?.length ? 'sm:col-span-2 lg:col-span-3' : ''}>
+                                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Rates</p>
+                                  {row.designation_rates?.length ? (
+                                    <ul className="text-gray-900 mt-0.5 space-y-1">
+                                      {row.designation_rates.map((dr, i) => (
+                                        <li key={i} className="flex justify-between gap-2">
+                                          <span className="font-medium">{dr.designation}</span>
+                                          <span>{dr.rate}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className="text-gray-900 mt-0.5">{row.rates}</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Payment terms</p>
+                                  <p className="text-gray-900 mt-0.5">{row.payment_terms}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">HSN/SAC</p>
+                                  <p className="text-gray-900 mt-0.5">{row.hsn_sac}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">GST config</p>
+                                  <p className="text-gray-900 mt-0.5">{row.gst_config}</p>
+                                </div>
+                                {row.billing_template && (
+                                  <div>
+                                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Billing template</p>
+                                    <p className="text-gray-900 mt-0.5">{row.billing_template}</p>
+                                  </div>
+                                )}
+                                <div className="sm:col-span-2 lg:col-span-3">
+                                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Client address</p>
+                                  <p className="text-gray-900 mt-0.5">{row.client_address}</p>
+                                </div>
+                                {quickBillRequests.filter((q) => q.oc_id === row.id).length > 0 && (
+                                  <div className="sm:col-span-2 lg:col-span-3">
+                                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Quick WO/PO requests</p>
+                                    <ul className="mt-1 space-y-1">
+                                      {quickBillRequests
+                                        .filter((q) => q.oc_id === row.id)
+                                        .map((qb) => (
+                                          <li key={qb.id} className="flex items-center justify-between gap-2 text-sm">
+                                            <span className="min-w-0">
+                                              <span className="truncate block" title={`Requested ${qb.requested_at}`}>
+                                                Requested {qb.requested_at}
+                                              </span>
+                                              <span
+                                                className={`inline-block mt-1 text-xs px-1.5 py-0.5 rounded ${
+                                                  qb.status === 'approved'
+                                                    ? 'bg-green-100 text-green-800'
+                                                    : qb.status === 'rejected'
+                                                    ? 'bg-red-100 text-red-800'
+                                                    : 'bg-amber-100 text-amber-800'
+                                                }`}
+                                              >
+                                                {qb.status === 'pending_approval' ? 'Pending approval' : qb.status === 'approved' ? 'Approved' : 'Rejected'}
+                                              </span>
+                                            </span>
+                                            {qb.status === 'pending_approval' && (
+                                              <span className="flex gap-1 shrink-0">
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setQuickBillRequests((prev) =>
+                                                      prev.map((r) =>
+                                                        r.id === qb.id ? { ...r, status: 'approved' } : r
+                                                      )
+                                                    );
+                                                  }}
+                                                  className="px-2 py-1 text-xs font-semibold rounded bg-green-600 text-white hover:bg-green-700"
+                                                >
+                                                  Approve
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setQuickBillRequests((prev) =>
+                                                      prev.map((r) =>
+                                                        r.id === qb.id ? { ...r, status: 'rejected' } : r
+                                                      )
+                                                    );
+                                                  }}
+                                                  className="px-2 py-1 text-xs font-semibold rounded border border-gray-300 hover:bg-gray-50"
+                                                >
+                                                  Reject
+                                                </button>
+                                              </span>
+                                            )}
+                                          </li>
+                                        ))}
+                                    </ul>
+                                    <p className="text-xs text-gray-500 mt-1">Approved quick bills will be available for invoicing in E-invoice / next step.</p>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedId((prev) => (prev === row.id ? null : row.id));
-                          }}
-                          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
-                          aria-expanded={expandedId === row.id}
-                        >
-                          {expandedId === row.id ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {expandedId === row.id && (
-                    <div className="px-4 pb-4 pt-0 bg-gray-50 border-t border-gray-100">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-                        <div className={row.designation_rates?.length ? 'sm:col-span-2 lg:col-span-3' : ''}>
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Rates</p>
-                          {row.designation_rates?.length ? (
-                            <ul className="text-gray-900 mt-0.5 space-y-1">
-                              {row.designation_rates.map((dr, i) => (
-                                <li key={i} className="flex justify-between gap-2">
-                                  <span className="font-medium">{dr.designation}</span>
-                                  <span>{dr.rate}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-gray-900 mt-0.5">{row.rates}</p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Payment terms</p>
-                          <p className="text-gray-900 mt-0.5">{row.payment_terms}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">HSN/SAC</p>
-                          <p className="text-gray-900 mt-0.5">{row.hsn_sac}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">GST config</p>
-                          <p className="text-gray-900 mt-0.5">{row.gst_config}</p>
-                        </div>
-                        {row.billing_template && (
-                          <div>
-                            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Billing template</p>
-                            <p className="text-gray-900 mt-0.5">{row.billing_template}</p>
-                          </div>
-                        )}
-                        <div className="sm:col-span-2 lg:col-span-3">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Client address</p>
-                          <p className="text-gray-900 mt-0.5">{row.client_address}</p>
-                        </div>
-                        {quickBillRequests.filter((q) => q.oc_id === row.id).length > 0 && (
-                          <div className="sm:col-span-2 lg:col-span-3">
-                            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Quick WO/PO requests</p>
-                            <ul className="mt-1 space-y-1">
-                              {quickBillRequests
-                                .filter((q) => q.oc_id === row.id)
-                                .map((qb) => (
-                                  <li key={qb.id} className="flex items-center justify-between gap-2 text-sm">
-                                    <span>
-                                      Requested {qb.requested_at}
-                                      <span
-                                        className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
-                                          qb.status === 'approved'
-                                            ? 'bg-green-100 text-green-800'
-                                            : qb.status === 'rejected'
-                                            ? 'bg-red-100 text-red-800'
-                                            : 'bg-amber-100 text-amber-800'
-                                        }`}
-                                      >
-                                        {qb.status === 'pending_approval' ? 'Pending approval' : qb.status === 'approved' ? 'Approved' : 'Rejected'}
-                                      </span>
-                                    </span>
-                                    {qb.status === 'pending_approval' && (
-                                      <span className="flex gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setQuickBillRequests((prev) =>
-                                              prev.map((r) =>
-                                                r.id === qb.id ? { ...r, status: 'approved' } : r
-                                              )
-                                            );
-                                          }}
-                                          className="px-2 py-1 text-xs font-medium rounded bg-green-600 text-white hover:bg-green-700"
-                                        >
-                                          Approve
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setQuickBillRequests((prev) =>
-                                              prev.map((r) =>
-                                                r.id === qb.id ? { ...r, status: 'rejected' } : r
-                                              )
-                                            );
-                                          }}
-                                          className="px-2 py-1 text-xs font-medium rounded border border-gray-300 hover:bg-gray-50"
-                                        >
-                                          Reject
-                                        </button>
-                                      </span>
-                                    )}
-                                  </li>
-                                ))}
-                            </ul>
-                            <p className="text-xs text-gray-500 mt-1">Approved quick bills will be available for invoicing in E-invoice / next step.</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>
