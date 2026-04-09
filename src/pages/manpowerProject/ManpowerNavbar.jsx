@@ -19,8 +19,8 @@ const ManpowerNavbar = () => {
             <div className="flex items-center gap-3 ml-auto">
                 {/* ✅ New Enquiry */}
                 <Link
-                    to="/manpower"
-                    className={`px-4 py-2 rounded text-white ${location.pathname === "/manpower/enquiry"
+                    to="/app/manpower"
+                    className={`px-4 py-2 rounded text-white ${location.pathname === "/app/manpower"
                         ? "bg-red-700"
                         : "bg-red-600 hover:bg-red-700"
                         }`}
@@ -30,8 +30,8 @@ const ManpowerNavbar = () => {
 
                 {/* ✅ Enquiry List */}
                 <Link
-                    to="/manpower/list"
-                    className={`px-4 py-2 rounded text-white ${location.pathname === "/manpower/enquiry/list"
+                    to="/app/manpower/list"
+                    className={`px-4 py-2 rounded text-white ${location.pathname === "/app/manpower/list"
                         ? "bg-yellow-700"
                         : "bg-yellow-600 hover:bg-yellow-700"
                         }`}
@@ -41,8 +41,8 @@ const ManpowerNavbar = () => {
 
                 {/* ✅ Internal Quotation */}
                 <Link
-                    to="/manpower/internal-quotation"
-                    className={`px-4 py-2 rounded text-white ${location.pathname === "/manpower/internal-quotation"
+                    to="/app/manpower/internal-quotation"
+                    className={`px-4 py-2 rounded text-white ${location.pathname === "/app/manpower/internal-quotation"
                         ? "bg-green-700"
                         : "bg-green-600 hover:bg-green-700"
                         }`}
@@ -52,8 +52,8 @@ const ManpowerNavbar = () => {
 
                 {/* ✅ Quotation */}
                 <Link
-                    to="/manpower/quotation"
-                    className={`px-4 py-2 rounded text-white ${location.pathname === "/manpower/quotation"
+                    to="/app/manpower/quotation"
+                    className={`px-4 py-2 rounded text-white ${location.pathname === "/app/manpower/quotation"
                         ? "bg-purple-700"
                         : "bg-purple-600 hover:bg-purple-700"
                         }`}
@@ -74,31 +74,31 @@ const ManpowerNavbar = () => {
                         <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
                             <div className="py-1">
                                 <Link
-                                    to="/manpower/configuration/roles"
+                                    to="/app/manpower/configuration/roles"
                                     className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                                 >
                                     Roles
                                 </Link>
                                 <Link
-                                    to="/manpower/configuration/price-master"
+                                    to="/app/manpower/configuration/price-master"
                                     className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                                 >
                                     Price Master
                                 </Link>
                                 <Link
-                                    to="/manpower/configuration/mail-template"
+                                    to="/app/manpower/configuration/mail-template"
                                     className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                                 >
                                     Mail Template
                                 </Link>
                                 <Link
-                                    to="/manpower/configuration/employee-type"
+                                    to="/app/manpower/configuration/employee-type"
                                     className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                                 >
                                     Employee Type
                                 </Link>
                                 <Link
-                                    to="/manpower/configuration/departments"
+                                    to="/app/manpower/configuration/departments"
                                     className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                                 >
                                     Departments

@@ -67,7 +67,7 @@ const InternalQuotationForm = () => {
     localStorage.setItem("manpower_internal_quotations", JSON.stringify(saved));
 
     alert("Quotation saved successfully!");
-    navigate("/manpower/internal-quotations"); // go back to list
+    navigate("/app/manpower/internal-quotation"); // go back to list
   };
 
   if (loading) {

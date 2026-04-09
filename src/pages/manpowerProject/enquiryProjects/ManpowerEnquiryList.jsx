@@ -68,7 +68,7 @@ const ManpowerEnquiryList = () => {
 
 
   const handleEdit = (id) => {
-    navigate(`/manpower/${id}`);
+    navigate(`/app/manpower/${id}`);
   };
 
   // Pagination

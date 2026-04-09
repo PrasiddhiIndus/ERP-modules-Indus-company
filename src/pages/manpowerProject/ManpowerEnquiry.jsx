@@ -264,7 +264,7 @@ const ManpowerEnquiry = () => {
                 setEndDate("");
             }
 
-            navigate("/manpower/list"); // redirect after save/update
+            navigate("/app/manpower/list"); // redirect after save/update
         } catch (err) {
             console.error(err);
             alert("Failed to save enquiry. Check console for details.");
