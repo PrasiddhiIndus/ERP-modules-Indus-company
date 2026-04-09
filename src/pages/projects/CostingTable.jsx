@@ -1232,7 +1232,7 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
 
       <div className="mt-6 flex flex-wrap gap-3">
         <Link
-          to="/fire-tender/costing"
+          to="/app/fire-tender/costing"
           className="px-5 py-2.5 bg-gray-600 text-white rounded-lg shadow hover:bg-gray-700 transition text-sm sm:text-base"
         >
           ⬅ Back to Costing List

@@ -94,7 +94,7 @@ const CostingList = () => {
                   <tr key={tender.id} className="border-b hover:bg-gray-50">
                     <td className="px-4 py-2">
                       <Link
-                        to={`/fire-tender/costing/${tender.id}`}
+                        to={`/app/fire-tender/costing/${tender.id}`}
                         className="text-blue-600 hover:underline"
                       >
                         {tender.tender_number}

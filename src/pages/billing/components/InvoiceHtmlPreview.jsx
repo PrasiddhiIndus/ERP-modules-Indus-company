@@ -74,7 +74,7 @@ export default function InvoiceHtmlPreview({ inv }) {
   const pan = inv.sellerPan || inv.seller_pan || PDF_SELLER.pan;
   const cinDisp = cin && cin !== '—' ? cin : '–';
   const panDisp = pan && pan !== '—' ? pan : '–';
-  const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no;
+  const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no || PDF_SELLER.msmeUdyamNo;
   const msmeClause = inv.msmeClause || inv.msme_clause || (msmeNo ? DEFAULT_MSME_CLAUSE : '');
 
   const billNo = inv.billNumber || inv.bill_number || '–';
@@ -112,12 +112,12 @@ export default function InvoiceHtmlPreview({ inv }) {
   return (
     <div className="mx-auto w-full max-w-[210mm] bg-white border border-gray-400 shadow-md text-[11px] sm:text-xs text-gray-900 leading-snug">
       <div className="bg-[rgb(22,58,112)] text-white px-4 py-2.5 flex items-center gap-3">
-        <div className="shrink-0 bg-white rounded p-0.5">
+        <div className="shrink-0 bg-white rounded-none border border-white/70 p-0.5">
           <img src={INDUS_LOGO_SRC} alt="" className="h-[3.5rem] w-[3.5rem] object-contain" width={56} height={56} />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-base sm:text-lg font-bold uppercase tracking-tight leading-tight">{PDF_SELLER.name}</p>
-          <p className="text-[10px] sm:text-xs opacity-90 mt-1">An ISO 9001:2015 Certified Company</p>
+          <p className="text-[10px] sm:text-xs opacity-90 mt-1">SECTION 31 OF GST ACT - 2017</p>
         </div>
       </div>
 

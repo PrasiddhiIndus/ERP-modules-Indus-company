@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, Upload, PlusCircle, X, Eye } from 'lucide-react';
+import { FileText, Upload, PlusCircle, X, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 
 const getFinancialYear = () => {
@@ -17,6 +17,8 @@ const generateTaxInvoiceNumber = (sequence) => {
 
 const APPROVAL_STATUS_SENT = 'sent_for_approval';
 
+const PO_TABLE_PAGE_SIZE = 8;
+
 const SELLER = {
   name: 'Ms Indus Fire Safety Private Limited',
   address: 'Block No 501, Old NH-8, Opposite GSFC Main Gate, Vadodara, Dashrath, Vadodara',
@@ -24,6 +26,10 @@ const SELLER = {
   stateCode: '24',
   gstin: '24AADCJ2182H1ZS',
 };
+
+/** Tax Invoice preview blue banner (public/indus-logo.png) */
+const INVOICE_LETTERHEAD_NAME = 'M/S INDUS FIRE SAFETY PRIVATE LIMITED';
+const INVOICE_LETTERHEAD_TAGLINE = 'UNDER SECTION 31 OF GST ACT - 2017';
 
 /** Invoice preview footer: two columns above a thin full-width red strip */
 const INVOICE_CONTACT_STRIP = {
@@ -115,6 +121,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [attendanceFiles, setAttendanceFiles] = useState([]); // [{ name, url }]
   const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
+  const [poPage, setPoPage] = useState(1);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -141,6 +148,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
       };
     });
   }, [billablePOs, invoices, invoiceDate]);
+
+  useEffect(() => {
+    setPoPage(1);
+  }, [poTableRows.length]);
+
+  const poTotalPages = Math.max(1, Math.ceil(poTableRows.length / PO_TABLE_PAGE_SIZE));
+  const poSafePage = Math.min(Math.max(1, poPage), poTotalPages);
+  const poStart = (poSafePage - 1) * PO_TABLE_PAGE_SIZE;
+  const poPaginatedRows = poTableRows.slice(poStart, poStart + PO_TABLE_PAGE_SIZE);
+
+  const goToPoPage = (p) => setPoPage(Math.min(Math.max(1, p), poTotalPages));
 
   const selectedPO = useMemo(
     () => billablePOs.find((p) => String(p.id) === String(selectedPoId) || p.siteId === selectedPoId),
@@ -344,25 +362,31 @@ const CreateInvoice = ({ onNavigateTab }) => {
             No PO found for billing. In Commercial → PO Entry, click <span className="font-medium">Send to approval</span> for a PO.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="px-3 pb-3">
+            <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+              <div className="p-2">
+                <div className="bg-white rounded-lg overflow-hidden">
+                  <div className="w-full max-w-full min-w-0 overflow-x-auto">
+                    <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
+                      <thead>
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OC Number</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Site / Location</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO/WO</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining (₹)</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">OC Number</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[22%]">Site / Location</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">PO/WO</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">Remaining (₹)</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Status</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">Action</th>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {poTableRows.map((row) => (
-                  <tr key={row.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">{row.ocNumber || '–'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || '–'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{row.poWoNumber || '–'}</td>
-                    <td className="px-4 py-3 text-sm">
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {poPaginatedRows.map((row) => (
+                          <tr key={row.id} className="hover:bg-gray-50 align-top">
+                            <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={row.ocNumber || ''}>{row.ocNumber || '–'}</td>
+                            <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || ''}>
+                              {row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || '–'}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={row.poWoNumber || ''}>{row.poWoNumber || '–'}</td>
+                            <td className="px-3 py-2 text-xs text-center">
                       {Number(row._calc?.contract) > 0 ? (
                         <span
                           className={`font-medium ${row._calc.remaining < 0 ? 'text-red-700' : 'text-gray-700'}`}
@@ -374,13 +398,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <span className="text-gray-400">–</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                            <td className="px-3 py-2 text-center">
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
                         {row.statusLabel}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="inline-flex items-center gap-2">
+                            <td className="px-3 py-2 text-center">
+                              <div className="inline-flex items-center justify-center gap-2">
                         {row.hasInvoice && row.existingInvoiceId && (
                           <button
                             type="button"
@@ -405,7 +429,44 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 ))}
               </tbody>
             </table>
-          </div>
+                  </div>
+                </div>
+                </div>
+
+                {poTableRows.length === 0 ? null : (
+                  <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-gray-600">
+                      Showing <span className="font-medium">{poStart + 1}</span>–
+                      <span className="font-medium">{Math.min(poStart + PO_TABLE_PAGE_SIZE, poTableRows.length)}</span> of{' '}
+                      <span className="font-medium">{poTableRows.length}</span> PO{poTableRows.length !== 1 ? 's' : ''}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => goToPoPage(poSafePage - 1)}
+                        disabled={poSafePage <= 1}
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <span className="px-3 py-1.5 text-sm text-gray-700">
+                        Page <span className="font-medium">{poSafePage}</span> of <span className="font-medium">{poTotalPages}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => goToPoPage(poSafePage + 1)}
+                        disabled={poSafePage >= poTotalPages}
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label="Next page"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
         )}
         <p className="text-xs text-gray-500 px-4 pt-2 pb-4">Click <strong>Create Invoice</strong> to open the form for the selected PO.</p>
       </div>
@@ -465,40 +526,43 @@ const CreateInvoice = ({ onNavigateTab }) => {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
-              <thead className="bg-gray-50">
+          <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+            <div className="p-2">
+              <div className="bg-white rounded-lg overflow-hidden">
+                <div className="w-full max-w-full min-w-0 overflow-x-auto">
+                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse text-sm">
+                    <thead>
                 <tr>
-                  <th className="px-3 py-2 text-left text-gray-600">#</th>
-                  <th className="px-3 py-2 text-left text-gray-600">Description</th>
-                  <th className="px-3 py-2 text-left text-gray-600">HSN/SAC</th>
-                  <th className="px-3 py-2 text-left text-gray-600">Qty</th>
-                  <th className="px-3 py-2 text-left text-gray-600">Rate</th>
-                  <th className="px-3 py-2 text-right text-gray-600">Amount</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[6%]">#</th>
+                  <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[40%]">Description</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">HSN/SAC</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Qty</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Rate</th>
+                  <th className="px-3 py-2.5 text-right text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Amount</th>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
                 {items.map((it, idx) => (
                   <tr key={idx}>
-                    <td className="px-3 py-2 text-gray-600">{idx + 1}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900">{it.description}</td>
-                    <td className="px-3 py-2 text-gray-700">{it.hsnSac || '–'}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-gray-700 text-center">{idx + 1}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900 truncate" title={it.description || ''}>{it.description}</td>
+                    <td className="px-3 py-2 text-gray-700 text-center font-mono">{it.hsnSac || '–'}</td>
+                    <td className="px-3 py-2 text-center">
                       <input
                         type="number"
                         min={0}
                         value={it.quantity}
                         onChange={(e) => updateItem(idx, { quantity: e.target.value })}
-                        className="w-24 px-2 py-1 border border-gray-300 rounded"
+                        className="w-24 px-2 py-1 border border-gray-300 rounded-lg text-center"
                       />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 text-center">
                       <input
                         type="number"
                         min={0}
                         value={it.rate}
                         onChange={(e) => updateItem(idx, { rate: e.target.value })}
-                        className="w-28 px-2 py-1 border border-gray-300 rounded"
+                        className="w-28 px-2 py-1 border border-gray-300 rounded-lg text-center"
                       />
                     </td>
                     <td className="px-3 py-2 text-right font-medium">₹{round2(it.amount).toLocaleString('en-IN')}</td>
@@ -506,6 +570,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 ))}
               </tbody>
             </table>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -621,13 +688,28 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
               <div className="p-4 sm:p-6 bg-gray-100">
                 <div className="mx-auto w-full max-w-[840px] bg-white border border-gray-900/20 shadow-sm overflow-hidden rounded-sm">
-                  <div className="bg-blue-900 text-white px-6 py-4">
-                    <h4 className="text-xl font-bold">{SELLER.name}</h4>
-                    <p className="text-xs opacity-90 mt-1">An ISO 9001:2015 Certified Company</p>
+                  <div className="bg-blue-900 text-white px-4 sm:px-6 py-4">
+                    <div className="flex items-center gap-3 sm:gap-4">
+                      <div className="shrink-0 w-[4.5rem] h-[4.5rem] sm:w-20 sm:h-20 bg-white rounded-none border border-white/70 flex items-center justify-center p-1.5 sm:p-2 shadow-sm">
+                        <img
+                          src={`${import.meta.env.BASE_URL}indus-logo.png`.replace(/\/{2,}/g, '/')}
+                          alt="Indus Fire Safety"
+                          className="max-h-full max-w-full object-contain object-center"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <h4 className="text-sm sm:text-base md:text-xl font-bold uppercase tracking-tight text-white leading-tight">
+                          {INVOICE_LETTERHEAD_NAME}
+                        </h4>
+                        <p className="text-[11px] sm:text-xs md:text-sm text-white mt-1 sm:mt-1.5 font-normal leading-snug">
+                          {INVOICE_LETTERHEAD_TAGLINE}
+                        </p>
+                        
+                      </div>
+                    </div>
                   </div>
 
                   <div className="px-6 py-4 border-b border-gray-300">
-                    <h5 className="text-center text-xl font-bold text-gray-900">Tax Invoice</h5>
                     <p className="text-right text-xs text-gray-500 mt-1">(ORIGINAL FOR RECIPIENT)</p>
                   </div>
 

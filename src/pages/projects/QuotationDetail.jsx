@@ -1394,7 +1394,7 @@ const QuotationDetail = () => {
               {/* Action Buttons */}
               <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
                 <Link
-                  to="/fire-tender/quotation"
+                  to="/app/fire-tender/quotation"
                   className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
                 >
                   Cancel

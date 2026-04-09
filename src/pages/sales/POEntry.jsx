@@ -1,12 +1,14 @@
-import React, { useState, useMemo } from 'react';
-import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { ROLES } from '../../config/roles';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const VERTICALS = ['Manpower', 'Projects', 'AMC', 'R&M', 'M&M'];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
 const BILLING_CYCLES = ['30', '45', '60'];
+const PAGE_SIZE = 10;
 const DEFAULT_SAC = '';
 const APPROVAL_STATUS = {
   DRAFT: 'draft',
@@ -59,7 +61,7 @@ const initialForm = {
   poWoNumber: '', ratePerCategory: [{ description: '', qty: '', rate: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   startDate: '', endDate: '', billingType: '', billingCycle: '30', remarks: '',
-  invoiceTermsText: '', sellerCin: '', sellerPan: '', msmeRegistrationNo: '', msmeClause: '',
+  invoiceTermsText: '',
   gstSupplyType: 'intra',
   revisedPO: false, renewalPending: false,
 };
@@ -106,26 +108,6 @@ const POEntry = () => {
     );
   };
 
-  const OcNumberCell = ({ value }) => {
-    const v = String(value || '');
-    const idx = v.indexOf('-OC-');
-    const line1 = idx >= 0 ? `${v.slice(0, idx)}-OC` : v;
-    const line2 = idx >= 0 ? `-${v.slice(idx + 4)}` : '';
-
-    return (
-      <div className="flex flex-col items-center justify-center min-w-0" title={v}>
-        <span className="block text-center leading-tight truncate max-w-full font-semibold">
-          {line1 || '–'}
-        </span>
-        {line2 ? (
-          <span className="block text-center leading-tight truncate max-w-full text-gray-700 font-semibold">
-            {line2}
-          </span>
-        ) : null}
-      </div>
-    );
-  };
-
   const cleanCellText = (value) => String(value ?? '').replaceAll('|', '').trim();
 
   const filteredList = useMemo(() => {
@@ -139,6 +121,14 @@ const POEntry = () => {
         p.siteId?.toLowerCase().includes(s)
     );
   }, [commercialPOs, searchTerm]);
+
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [searchTerm]);
+  const totalPages = Math.max(1, Math.ceil(filteredList.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * PAGE_SIZE;
+  const paginatedList = filteredList.slice(start, start + PAGE_SIZE);
+  const goToPage = (p) => setPage(Math.min(Math.max(1, p), totalPages));
 
   const nextId = useMemo(() => Math.max(0, ...commercialPOs.map((p) => p.id), 0) + 1, [commercialPOs]);
   const nextSeries = useMemo(() => {
@@ -172,8 +162,7 @@ const POEntry = () => {
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       billingType: po.billingType || 'Monthly', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
-      invoiceTermsText: po.invoiceTermsText || '', sellerCin: po.sellerCin || '', sellerPan: po.sellerPan || '',
-      msmeRegistrationNo: po.msmeRegistrationNo || '', msmeClause: po.msmeClause || '',
+      invoiceTermsText: po.invoiceTermsText || '',
       gstSupplyType: po.gstSupplyType || 'intra',
       revisedPO: !!po.revisedPO, renewalPending: !!po.renewalPending,
     });
@@ -297,10 +286,6 @@ const POEntry = () => {
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: formData.billingType,
       billingCycle: Number(formData.billingCycle) || 30, remarks: formData.remarks.trim(),
       invoiceTermsText: formData.invoiceTermsText.trim(),
-      sellerCin: formData.sellerCin.trim(),
-      sellerPan: formData.sellerPan.trim(),
-      msmeRegistrationNo: formData.msmeRegistrationNo.trim(),
-      msmeClause: formData.msmeClause.trim(),
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       approvalStatus: editId ? APPROVAL_STATUS.DRAFT : (prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT),
@@ -324,7 +309,6 @@ const POEntry = () => {
           <div className="bg-blue-100 p-3 rounded-lg shrink-0"><FileCheck className="w-6 h-6 text-blue-600" /></div>
           <div>
             <h2 className="text-xl font-bold text-gray-900">PO / WO Management</h2>
-            <p className="text-sm text-gray-600">Contract details – master source for Billing</p>
           </div>
         </div>
         <button type="button" onClick={handleOpenAdd} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2">
@@ -338,68 +322,80 @@ const POEntry = () => {
       <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
         <div className="p-2">
           <div className="bg-white rounded-lg overflow-hidden">
-            <div className="w-full overflow-x-hidden">
-              <table className="min-w-full w-full table-fixed">
+            <div className="w-full max-w-full min-w-0 overflow-x-hidden">
+              <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[130px] sm:w-[180px]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[26%] md:w-[18%] lg:w-[17%]">
                       OC Number
                     </th>
-                    <th className="hidden md:table-cell px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[180px]">
+                    <th className="hidden md:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[16%] lg:w-[15%]">
                       Site / Location
                     </th>
-                    <th className="hidden lg:table-cell px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[220px]">
+                    <th className="hidden lg:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%]">
                       Client (Legal Name)
                     </th>
-                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[95px] sm:w-[140px]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[14%] md:w-[12%] lg:w-[10%]">
                       PO/WO
                     </th>
-                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[92px] sm:w-[130px]">
-                      Start – End
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[13%] md:w-[11%] lg:w-[11%]">
+                      Start-End
                     </th>
-                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[120px] sm:w-[190px]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[28%] md:w-[24%] lg:w-[15%]">
                       Status
                     </th>
-                    <th className="px-2 sm:px-3 py-3 text-center text-[11px] sm:text-sm font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[110px] sm:w-[140px]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%] md:w-[19%] lg:w-[13%]">
                       Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {filteredList.map((po) => {
+                  {paginatedList.map((po) => {
                     const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
                     const approval = getApprovalBadge(po.approvalStatus);
-                    const startDate = cleanCellText(po.startDate);
-                    const endDate = cleanCellText(po.endDate);
+                    const startDateFmt =
+                      formatDateDdMmYyyy(cleanCellText(po.startDate)) || '–';
+                    const endDateFmt = formatDateDdMmYyyy(cleanCellText(po.endDate)) || '–';
                     return (
                       <tr key={po.id} className="hover:bg-gray-50 align-top">
-                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-900 min-w-0 text-center">
-                          <OcNumberCell value={po.ocNumber} />
+                        <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-900 min-w-0 text-center">
+                          <TextCell
+                            value={po.ocNumber}
+                            className="text-center font-semibold font-mono"
+                          />
                         </td>
-                        <td className="hidden md:table-cell px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 min-w-0 text-center">
+                        <td className="hidden md:table-cell px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 min-w-0 text-center">
                           <TextCell value={siteLocation} className="text-center" />
                         </td>
-                        <td className="hidden lg:table-cell px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 min-w-0 text-center">
+                        <td className="hidden lg:table-cell px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 min-w-0 text-center">
                           <TextCell value={po.legalName} className="text-center" />
                         </td>
-                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 text-center">
+                        <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 text-center">
                           <TextCell value={po.poWoNumber} className="text-center" />
                         </td>
-                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 text-center">
-                          <div className="flex flex-col items-center justify-center leading-tight whitespace-nowrap">
-                            <div className="truncate max-w-full" title={startDate || '–'}>
-                              {startDate || '–'}
-                            </div>
-                            <div className="text-gray-400 select-none">-</div>
-                            <div className="truncate max-w-full" title={endDate || '–'}>
-                              {endDate || '–'}
-                            </div>
+                        <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 text-center">
+                          <div className="flex flex-col items-center justify-center gap-0.5 leading-none text-center min-w-0">
+                            <span
+                              className="font-mono tabular-nums tracking-tight truncate max-w-full"
+                              title={po.startDate ? formatDateDdMmYyyy(cleanCellText(po.startDate)) || String(po.startDate) : ''}
+                            >
+                              {startDateFmt}
+                            </span>
+                            <span className="text-gray-400 select-none font-mono text-[9px] leading-none">
+                              -
+                            </span>
+                            <span
+                              className="font-mono tabular-nums tracking-tight truncate max-w-full"
+                              title={po.endDate ? formatDateDdMmYyyy(cleanCellText(po.endDate)) || String(po.endDate) : ''}
+                            >
+                              {endDateFmt}
+                            </span>
                           </div>
                         </td>
-                        <td className="px-2 sm:px-3 py-3 text-[11px] sm:text-sm text-gray-700 text-center">
+                        <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 text-center">
                           <div className="flex flex-col items-center justify-center gap-1 min-w-0">
                             <span
-                              className={`inline-flex items-center justify-center px-2 py-1.5 text-[10.5px] sm:text-xs font-semibold rounded-full ${approval.cls} whitespace-normal text-center leading-tight max-w-[120px] sm:max-w-[180px]`}
+                              className={`inline-flex items-center justify-center px-1.5 py-1 text-[9px] sm:text-[10.5px] font-semibold rounded-full ${approval.cls} whitespace-normal text-center leading-tight max-w-full`}
                               title={approval.label}
                             >
                               <MultilineBadgeText text={approval.label} />
@@ -415,8 +411,8 @@ const POEntry = () => {
                             )}
                           </div>
                         </td>
-                        <td className="px-2 sm:px-3 py-2 text-center">
-                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                        <td className="px-1 sm:px-2 py-1.5 text-center min-w-0">
+                          <div className="flex items-center justify-center gap-1 flex-wrap">
                             {po.approvalStatus === APPROVAL_STATUS.DRAFT && (
                               <button
                                 type="button"
@@ -462,13 +458,62 @@ const POEntry = () => {
           </div>
         </div>
       </div>
+
+      {filteredList.length > 0 && (
+        <div className="px-4 py-3 border border-gray-300 border-t-0 rounded-b-xl bg-gray-50 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-gray-600">
+            Showing <span className="font-medium">{start + 1}</span>–
+            <span className="font-medium">{Math.min(start + PAGE_SIZE, filteredList.length)}</span> of{' '}
+            <span className="font-medium">{filteredList.length}</span> PO{filteredList.length !== 1 ? 's' : ''}
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => goToPage(safePage - 1)}
+              disabled={safePage <= 1}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <span className="px-3 py-1.5 text-sm text-gray-700">
+              Page <span className="font-medium">{safePage}</span> of <span className="font-medium">{totalPages}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => goToPage(safePage + 1)}
+              disabled={safePage >= totalPages}
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Next page"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
       {showForm && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-start justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full my-8 max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200 sticky top-0 bg-white"><h3 className="text-lg font-semibold text-gray-900">{editId ? 'Edit PO/WO' : 'Add PO/WO'}</h3></div>
-            <div className="p-6 space-y-6">
-              <section>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">1. Client Identity</h4>
+          <div className="bg-white rounded-2xl shadow-xl max-w-5xl w-full my-8 max-h-[90vh] overflow-y-auto border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200 sticky top-0 bg-white/95 backdrop-blur flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 leading-tight">{editId ? 'Edit PO/WO' : 'Add PO/WO'}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Fill in the client, PO details, and billing rules.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Close"
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-4 sm:p-6 space-y-5 bg-gray-50">
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <h4 className="text-sm font-semibold text-gray-900">1. Client Identity</h4>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Legal Name (for GST)</label><input type="text" value={formData.legalName} onChange={(e) => setFormData((p) => ({ ...p, legalName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full legal name" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => setFormData((p) => ({ ...p, billingAddress: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
@@ -479,15 +524,15 @@ const POEntry = () => {
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label><input type="text" value={formData.locationName} onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                 </div>
               </section>
-              <section>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">2. Contact (POC)</h4>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-900 mb-4">2. Contact (POC)</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Current Coordinator</label><input type="text" value={formData.currentCoordinator} onChange={(e) => setFormData((p) => ({ ...p, currentCoordinator: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label><input type="text" value={formData.contactNumber} onChange={(e) => setFormData((p) => ({ ...p, contactNumber: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                 </div>
               </section>
-              <section>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">3. Financials</h4>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-900 mb-4">3. PO / Financials</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label><div className="flex gap-2"><input type="text" value={formData.ocNumber} onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" /><select value={formData.vertical} onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-2">{VERTICALS.map((v) => <option key={v} value={v}>{v}</option>)}</select></div></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label><input type="text" value={formData.vendorCode} onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
@@ -496,8 +541,8 @@ const POEntry = () => {
                 </div>
                 <div className="mt-3"><div className="flex justify-between items-center mb-2"><label className="text-sm font-medium text-gray-700">Rate per Category</label><button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button></div><table className="min-w-full border border-gray-200 rounded-lg overflow-hidden"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th><th className="w-10"/></tr></thead><tbody className="divide-y divide-gray-200">{formData.ratePerCategory.map((r, idx) => (<tr key={idx}><td className="px-3 py-2"><input type="text" value={r.description} onChange={(e) => updateRateRow(idx, 'description', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" placeholder="" /></td><td className="px-3 py-2"><input type="number" value={r.qty} onChange={(e) => updateRateRow(idx, 'qty', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" min="0" /></td><td className="px-3 py-2"><input type="number" value={r.rate} onChange={(e) => updateRateRow(idx, 'rate', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" min="0" /></td><td className="px-2 py-1"><button type="button" onClick={() => removeRateRow(idx)} className="text-red-600 hover:bg-red-50 rounded p-1">×</button></td></tr>))}</tbody></table></div>
               </section>
-              <section>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">4. Tax & Service</h4>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-900 mb-4">4. Tax & Service</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">GST on supply</label>
@@ -512,30 +557,29 @@ const POEntry = () => {
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Service Description</label><textarea value={formData.serviceDescription} onChange={(e) => setFormData((p) => ({ ...p, serviceDescription: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" rows={2} /></div>
                 </div>
               </section>
-              <section>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">4b. Tax invoice print (from this PO only)</h4>
-                <p className="text-xs text-gray-500 mb-3">Terms, seller CIN/PAN/MSME and ship-to are edited here — Create Invoice only uses these values (no duplicate entry).</p>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-900 mb-2">4b. Tax invoice print (from this PO only)</h4>
+                <p className="text-xs text-gray-500 mb-3">Terms and ship-to are edited here. Seller CIN, PAN, and MSME details are taken from the standard invoice template (not per PO).</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Terms &amp; conditions (printed on invoice)</label><textarea value={formData.invoiceTermsText} onChange={(e) => setFormData((p) => ({ ...p, invoiceTermsText: e.target.value }))} rows={5} className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" placeholder="One line per numbered point, or leave blank to use the default template for the PO vertical (BILL / Manpower / …)." /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Seller CIN</label><input type="text" value={formData.sellerCin} onChange={(e) => setFormData((p) => ({ ...p, sellerCin: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Seller PAN</label><input type="text" value={formData.sellerPan} onChange={(e) => setFormData((p) => ({ ...p, sellerPan: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">MSME Udyam registration no.</label><input type="text" value={formData.msmeRegistrationNo} onChange={(e) => setFormData((p) => ({ ...p, msmeRegistrationNo: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">MSME clause (optional override)</label><textarea value={formData.msmeClause} onChange={(e) => setFormData((p) => ({ ...p, msmeClause: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="If MSME no. is set and this is empty, default MSME wording is used on the invoice." /></div>
                 </div>
               </section>
-              <section>
-                <h4 className="text-sm font-semibold text-gray-700 mb-3">5. Timelines & Rules</h4>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-900 mb-4">5. Timelines & Rules</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => setFormData((p) => ({ ...p, startDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => setFormData((p) => ({ ...p, endDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label><select value={formData.billingType} onChange={(e) => setFormData((p) => ({ ...p, billingType: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter remarks" /></div>
+                  <p className="md:col-span-2 text-xs font-semibold text-gray-700">
+                    Select to enable PO updates and Renewal reminders
+                  </p>
                   <div className="flex flex-wrap gap-6"><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">PO Updated</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Due</span></label></div>
                 </div>
               </section>
             </div>
-            <div className="p-6 border-t border-gray-200 flex justify-end gap-2">
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2 bg-white sticky bottom-0">
               {saveError && <p className="text-sm text-red-600 mr-auto self-center">{saveError}</p>}
               <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
               <button type="button" onClick={savePO} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">{editId ? 'Update' : 'Save'} PO/WO</button>

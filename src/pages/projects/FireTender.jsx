@@ -242,7 +242,7 @@ const FireTender = () => {
 
       alert(id ? "Tender updated successfully!" : "Tender saved successfully!");
       setFormData(initialFormData);
-      navigate("/fire-tender");
+      navigate("/app/fire-tender");
     } catch (err) {
       console.error("Error saving tender:", err.message);
       alert("Failed to save tender!");

@@ -168,7 +168,7 @@ const QuotationList = () => {
                   <tr key={q.id} className="border-b hover:bg-gray-50">
                     <td className="px-4 py-2">
                       <Link
-                        to={`/fire-tender/quotation/${q.id}`}
+                        to={`/app/fire-tender/quotation/${q.id}`}
                         state={{ quotation: q }}
                         className="text-blue-600 hover:underline"
                       >

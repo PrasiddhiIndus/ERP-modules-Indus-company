@@ -117,7 +117,7 @@ const TenderList = () => {
                             </div>
 
                             <div className="flex flex-wrap gap-2 mt-3 md:mt-0">
-                                <button onClick={() => navigate(`/fire-tender/${tender.id}`)} className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600">Edit</button>
+                                <button onClick={() => navigate(`/app/fire-tender/${tender.id}`)} className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600">Edit</button>
                                 <button onClick={() => handleApprove(tender.id)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">Approve</button>
                                 <button onClick={() => handleReject(tender.id)} className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Reject</button>
                                 <button onClick={() => handleDelete(tender.id)} className="px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700">Delete</button>

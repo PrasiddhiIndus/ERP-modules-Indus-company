@@ -31,15 +31,27 @@ function fetchCompanyLogoDataUrlForPdf() {
   return companyLogoDataUrlPromise;
 }
 
-// Seller (company issuing invoice) – same as CreateInvoice.jsx
+/** PAN embedded in GSTIN (positions 3–12 of a valid 15-char GSTIN). */
+function panEmbeddedInGstin(gstin) {
+  const g = String(gstin || '').trim().toUpperCase();
+  if (g.length !== 15) return '';
+  return g.slice(2, 12);
+}
+
+const SELLER_GSTIN = '24AADCJ2182H1ZS';
+
+// Seller (company issuing invoice) — single source for CIN / PAN / MSME on all invoice PDFs & HTML preview
 const SELLER = {
   name: 'M/s Indus Fire Safety Private Limited',
   address: 'Block No 501, Old NH-8, Opposite GSFC Main Gate, Vadodara, Dashrath, Vadodara',
   state: 'Gujarat',
   stateCode: '24',
-  gstin: '24AADCJ2182H1ZS',
-  cin: '—',
-  pan: '—',
+  gstin: SELLER_GSTIN,
+  /** Companies Act CIN — set here once; optional per-invoice DB fields still override if present. */
+  cin: '',
+  pan: panEmbeddedInGstin(SELLER_GSTIN),
+  /** MSME Udyam no. — set here once; optional per-invoice DB fields still override if present. */
+  msmeUdyamNo: '',
 };
 
 export const DEFAULT_MSME_CLAUSE =
@@ -308,7 +320,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.text(SELLER.name.toUpperCase(), MARGIN + 24, 11);
   doc.setFontSize(FONT.small);
   doc.setFont(undefined, 'normal');
-  doc.text('An ISO 9001:2015 Certified Company', MARGIN + 24, 17);
+  doc.text('SECTION 31 OF GST ACT - 2017', MARGIN + 24, 17);
   doc.setTextColor(0, 0, 0);
   y = headerStripH + 5;
 
@@ -396,7 +408,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   yL += LH(FONT.body);
   doc.text('PAN: ' + (pan && pan !== '—' ? pan : '–'), MARGIN, yL);
   yL += LH(FONT.body);
-  const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no;
+  const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no || SELLER.msmeUdyamNo;
   const msmeClause = inv.msmeClause || inv.msme_clause || (msmeNo ? DEFAULT_MSME_CLAUSE : '');
   doc.setFont(undefined, 'bold');
   doc.text('MSME Udyam: ' + (msmeNo || '–'), MARGIN, yL);

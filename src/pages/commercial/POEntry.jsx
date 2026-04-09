@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const VERTICALS = ['BILL', 'MANP', 'AMC', 'FIRE', 'SERV'];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
@@ -308,29 +309,29 @@ const POEntry = () => {
       <div className="rounded-xl border border-gray-200 shadow-sm overflow-hidden bg-[#f2f6ff]">
         <div className="p-2">
           <div className="bg-white rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-[1100px] w-full table-fixed">
+            <div className="w-full max-w-full min-w-0 overflow-x-hidden">
+              <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[170px] bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[17%] min-w-0 bg-[#f2f6ff]">
                   OC Number
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[220px] bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-[#f2f6ff]">
                   Site / Location
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[280px] bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[19%] min-w-0 bg-[#f2f6ff]">
                   Client (Legal Name)
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[190px] bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[10%] min-w-0 bg-[#f2f6ff]">
                   PO/WO
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[190px] bg-[#f2f6ff]">
-                  Start – End
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[11%] min-w-0 bg-[#f2f6ff]">
+                  Start-End
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[190px] bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-[#f2f6ff]">
                   Status
                 </th>
-                <th className="px-4 py-3 text-right text-sm font-bold text-black border-b border-gray-200 w-[200px] bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-right text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[13%] min-w-0 bg-[#f2f6ff]">
                   Actions
                 </th>
                   </tr>
@@ -338,27 +339,41 @@ const POEntry = () => {
                 <tbody className="divide-y divide-gray-200 bg-white">
                   {filteredList.map((po) => {
                     const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
-                    const startEnd =
-                      `${po.startDate || ''}${po.startDate && po.endDate ? ' – ' : ''}${po.endDate || ''}` || '–';
+                    const startFmt = formatDateDdMmYyyy(po.startDate) || '–';
+                    const endFmt = formatDateDdMmYyyy(po.endDate) || '–';
                     const approval = getApprovalBadge(po.approvalStatus);
                     return (
                       <tr key={po.id} className="hover:bg-gray-50 align-top">
-                        <td className="px-4 py-3 text-sm text-gray-900">
-                          <TextCell value={po.ocNumber} className="font-semibold" />
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-900 min-w-0">
+                          <TextCell value={po.ocNumber} className="font-semibold font-mono" />
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0">
                           <TextCell value={siteLocation} />
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-900">
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-900 min-w-0">
                           <TextCell value={po.legalName} />
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0">
                           <TextCell value={po.poWoNumber} />
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          <TextCell value={startEnd} />
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0 text-center">
+                          <div className="flex flex-col items-center justify-center gap-0.5 leading-none min-w-0">
+                            <span
+                              className="font-mono tabular-nums tracking-tight truncate max-w-full"
+                              title={po.startDate || ''}
+                            >
+                              {startFmt}
+                            </span>
+                            <span className="text-gray-400 select-none font-mono text-[10px] leading-none">-</span>
+                            <span
+                              className="font-mono tabular-nums tracking-tight truncate max-w-full"
+                              title={po.endDate || ''}
+                            >
+                              {endFmt}
+                            </span>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
                             <span
                               className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${approval.cls}`}
@@ -377,8 +392,8 @@ const POEntry = () => {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center justify-end gap-1">
+                        <td className="px-2 sm:px-3 py-2 min-w-0">
+                          <div className="flex items-center justify-end gap-0.5 flex-wrap">
                             {po.approvalStatus !== APPROVAL_STATUS.SENT && (
                               <button
                                 type="button"

@@ -610,7 +610,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
                     <p className="text-sm">
                       Please add accessories in the{" "}
                       <a 
-                        href="/fire-tender/configuration/accessories" 
+                        href="/app/fire-tender/configuration/accessories" 
                         className="text-blue-600 hover:underline font-semibold"
                         target="_blank"
                       >

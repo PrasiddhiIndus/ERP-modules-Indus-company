@@ -208,23 +208,27 @@ const ManageInvoices = ({ onNavigateTab }) => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax Invoice #</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Billing type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">OC / Site</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Remaining (₹)</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">E-Inv</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {paginatedInvoices.map((inv) => (
-                <tr key={inv.id} className="hover:bg-gray-50">
+        <div className="px-3 pb-3">
+          <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+            <div className="p-2">
+              <div className="bg-white rounded-lg overflow-hidden">
+                <div className="w-full max-w-full min-w-0 overflow-x-auto">
+                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Tax Invoice #</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Billing type</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">OC / Site</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Amount</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Remaining (₹)</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[8%]">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {paginatedInvoices.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-gray-50 align-top">
                   {(() => {
                     const po = commercialPOs.find((p) => String(p.id) === String(inv.poId));
                     const contract = Number(po?.totalContractValue) || 0;
@@ -234,12 +238,22 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     const remaining = round2(contract - expected);
                     return (
                       <>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{inv.taxInvoiceNumber || inv.bill_number}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{getInvoiceBillingType(inv)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{inv.ocNumber} / {inv.siteId}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{inv.clientLegalName || inv.client_name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}</td>
-                  <td className="px-4 py-3 text-sm">
+                        <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
+                          {inv.taxInvoiceNumber || inv.bill_number}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={getInvoiceBillingType(inv) || ''}>
+                          {getInvoiceBillingType(inv)}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={`${inv.ocNumber || ''} / ${inv.siteId || ''}`}>
+                          {inv.ocNumber} / {inv.siteId}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-700 truncate" title={inv.clientLegalName || inv.client_name || ''}>
+                          {inv.clientLegalName || inv.client_name}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums">
+                          ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-center">
                     {contract > 0 ? (
                       <span
                         className={`font-medium ${remaining < 0 ? 'text-red-700' : 'text-gray-700'}`}
@@ -251,15 +265,15 @@ const ManageInvoices = ({ onNavigateTab }) => {
                       <span className="text-gray-400">–</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-sm">
+                        <td className="px-3 py-2 text-xs text-center">
                     {inv.e_invoice_irn ? (
                       <span className="text-green-600">Yes</span>
                     ) : (
                       <span className="text-gray-400">No</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                        <td className="px-3 py-2 text-center">
+                          <div className="flex flex-wrap items-center justify-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => setViewId(inv.id)}
@@ -323,6 +337,10 @@ const ManageInvoices = ({ onNavigateTab }) => {
               ))}
             </tbody>
           </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         {filteredInvoices.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
