@@ -504,6 +504,10 @@ const Layout = () => {
                     <FileText className="w-4 h-4 shrink-0 text-emerald-600" />
                     <span className="text-xs">Create Invoice</span>
                   </NavLink>
+                  <NavLink to="/app/billing/add-on-invoices" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-violet-600" />
+                    <span className="text-xs">Add-On Invoices</span>
+                  </NavLink>
                   <NavLink to="/app/billing/manage-invoices" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-blue-600" />
                     <span className="text-xs">Manage Invoices</span>

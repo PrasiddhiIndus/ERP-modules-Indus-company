@@ -4,7 +4,12 @@
  */
 import jsPDF from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
-import { roundInvoiceAmount, formatAmountUpTo3Decimals, formatInvoiceTotalDisplay } from './invoiceRound';
+import {
+  roundInvoiceAmount,
+  formatAmountUpTo3Decimals,
+  formatInvoiceTotalDisplay,
+  normalizeGstSupplyType,
+} from './invoiceRound';
 import { getTermsForVertical } from './invoiceTermsTemplates';
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 
@@ -167,7 +172,7 @@ function amountInWords(amount) {
  */
 export function getInvoiceTotals(inv) {
   const items = Array.isArray(inv.items) ? inv.items : [];
-  const gstMode = inv.gstSupplyType || inv.gst_supply_type || 'intra';
+  const gstMode = normalizeGstSupplyType(inv.gstSupplyType ?? inv.gst_supply_type);
   let taxableValue = Number(inv.taxableValue);
   let cgstRate = Number(inv.cgstRate) || 9;
   let sgstRate = Number(inv.sgstRate) || 9;
@@ -237,6 +242,8 @@ export function resolveTermsLines(inv) {
 function docTitleForKind(kind) {
   if (kind === 'proforma') return 'PROFORMA INVOICE';
   if (kind === 'draft') return 'DRAFT INVOICE';
+  if (kind === 'credit_note') return 'CREDIT NOTE';
+  if (kind === 'debit_note') return 'DEBIT NOTE';
   return 'TAX INVOICE';
 }
 
@@ -428,8 +435,16 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const billingDur =
     durFrom && durTo ? `${formatPdfDate(durFrom)} to ${formatPdfDate(durTo)}` : durFrom || durTo ? formatPdfDate(durFrom || durTo) : '–';
 
+  const origTaxNo =
+    inv.originalTaxInvoiceNumber ||
+    inv.original_tax_invoice_number ||
+    inv.parentTaxInvoiceNumber ||
+    inv.parent_tax_invoice_number;
   const meta = [
     ['Invoice No.', invoiceNo],
+    ...(origTaxNo && (invoiceKind === 'credit_note' || invoiceKind === 'debit_note')
+      ? [['Original Tax Invoice No.', String(origTaxNo)]]
+      : []),
     ['Bill No.', billNo],
     ['Billing Month', billMonth],
     ['Billing Duration', billingDur],
@@ -549,6 +564,11 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     tableBody.push([
       { content: 'IGST @ ' + igstRate + '%', colSpan: 7, styles: subtotalRowStyle },
       { content: formatMoney2(igstAmt), styles: subtotalRowStyle },
+    ]);
+  } else if (gstMode === 'sez_zero') {
+    tableBody.push([
+      { content: 'GST @ 0% (SEZ / nil rated)', colSpan: 7, styles: subtotalRowStyle },
+      { content: formatMoney2(0), styles: subtotalRowStyle },
     ]);
   }
 
@@ -699,8 +719,30 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   return { doc, fileName };
 }
 
-/** Credit / Debit note — same signature option as invoices */
+/**
+ * Credit / Debit note PDF — full tax-invoice layout when invoice_snapshot exists; else simple legacy layout.
+ */
 export async function downloadCreditDebitNotePdf(note, parentInvoice, options = {}) {
+  const snap = note.invoiceSnapshot || note.invoice_snapshot;
+  if (snap && typeof snap === 'object') {
+    const logoDataUrl = await fetchCompanyLogoDataUrlForPdf();
+    const inv = {
+      ...snap,
+      digitalSignatureDataUrl:
+        snap.digitalSignatureDataUrl ||
+        snap.digital_signature_data_url ||
+        options.digitalSignatureDataUrl ||
+        parentInvoice?.digitalSignatureDataUrl ||
+        parentInvoice?.digital_signature_data_url,
+    };
+    const built = buildTaxInvoiceDoc(inv, { ...options, logoDataUrl });
+    if (built?.doc) {
+      const num = inv.taxInvoiceNumber || inv.bill_number || note.noteTaxInvoiceNumber || note.id;
+      const kind = note.type === 'debit' ? 'Debit' : 'Credit';
+      built.doc.save(`${kind}_Note_${String(num).replace(/\s/g, '_')}.pdf`);
+    }
+    return;
+  }
   const logoDataUrl = await fetchCompanyLogoDataUrlForPdf();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();

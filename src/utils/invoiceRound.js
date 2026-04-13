@@ -1,3 +1,14 @@
+/** PO / invoice: same-state CGST+SGST, other-state IGST, SEZ/nil rated. */
+export function normalizeGstSupplyType(raw) {
+  const v = String(raw ?? 'intra')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  if (v === 'inter' || v === 'igst') return 'inter';
+  if (v === 'sez_zero' || v === 'sez_0%' || v === 'sez0') return 'sez_zero';
+  return 'intra';
+}
+
 export function roundInvoiceAmount(value) {
   const n = Number(value) || 0;
   const abs = Math.abs(n);

@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, Upload, PlusCircle, X, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileText, Upload, PlusCircle, X, Eye, ChevronLeft, ChevronRight, Ruler } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
+import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
+import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
+import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 
 const getFinancialYear = () => {
   const d = new Date();
@@ -16,8 +19,14 @@ const generateTaxInvoiceNumber = (sequence) => {
 };
 
 const APPROVAL_STATUS_SENT = 'sent_for_approval';
+const APPROVAL_STATUS_APPROVED = 'approved';
 
 const PO_TABLE_PAGE_SIZE = 8;
+const BILLING_TABS = [
+  { id: 'Per Day', label: 'Daily' },
+  { id: 'Monthly', label: 'Monthly' },
+  { id: 'Lump Sum', label: 'Lump Sum' },
+];
 
 const SELLER = {
   name: 'Ms Indus Fire Safety Private Limited',
@@ -27,48 +36,46 @@ const SELLER = {
   gstin: '24AADCJ2182H1ZS',
 };
 
-/** Tax Invoice preview blue banner (public/indus-logo.png) */
-const INVOICE_LETTERHEAD_NAME = 'M/S INDUS FIRE SAFETY PRIVATE LIMITED';
-const INVOICE_LETTERHEAD_TAGLINE = 'UNDER SECTION 31 OF GST ACT - 2017';
-
-/** Invoice preview footer: two columns above a thin full-width red strip */
-const INVOICE_CONTACT_STRIP = {
-  phone: '9724746316, 9930271155',
-  email: 'info@indusfiresafety.com',
-  website: 'www.indusfiresafety.com',
-  address: 'Block No 501, Old NH-8, Opposite GSFC Main Gate, Vadodara, Gujarat - 390010',
-};
-
-function InvoiceContactBanner() {
-  return (
-    <div className="border-t border-gray-200 bg-white w-full">
-      <div className="w-full px-4 sm:px-6 py-3 sm:py-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8 text-[11px] sm:text-xs text-gray-900 leading-relaxed">
-          <div className="space-y-2 text-left min-w-0">
-            <p className="break-words">
-              <span className="font-semibold">Phone:</span> {INVOICE_CONTACT_STRIP.phone}
-            </p>
-            <p className="break-words">
-              <span className="font-semibold">Email:</span> {INVOICE_CONTACT_STRIP.email}
-            </p>
-          </div>
-          <div className="min-w-0 text-left">
-            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-2.5 text-left items-start">
-              <span className="font-semibold whitespace-nowrap pt-0.5">Website:</span>
-              <span className="break-words min-w-0 leading-snug">{INVOICE_CONTACT_STRIP.website}</span>
-              <span className="font-semibold whitespace-nowrap pt-0.5 self-start">Address:</span>
-              <span className="break-words min-w-0 leading-snug">{INVOICE_CONTACT_STRIP.address}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="w-full h-6 bg-red-600 shrink-0" aria-hidden />
-    </div>
-  );
-}
-
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function round3(n) {
+  return Math.round((Number(n) || 0) * 1000) / 1000;
+}
+
+function safeNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function computeArrivedQty(poQty, actualDuty, authorizedDuty) {
+  const po = safeNumber(poQty);
+  const act = safeNumber(actualDuty);
+  const auth = safeNumber(authorizedDuty);
+  if (po <= 0 || act <= 0 || auth <= 0) return 0;
+  return round3((po * act) / auth);
+}
+
+function computeDutyRatioQty(actualDuty, authorizedDuty) {
+  const act = safeNumber(actualDuty);
+  const auth = safeNumber(authorizedDuty);
+  if (act <= 0 || auth <= 0) return 0;
+  return round3(act / auth);
+}
+
+/** Lump sum PO lines: Rate = (actual/auth)×PO rate [− category penalty if penalty mode]. */
+function computeLumpSumEffectiveRate(poRate, actualDuty, authorizedDuty, categoryPenalty, subtractPenalty) {
+  const pr = safeNumber(poRate);
+  const act = safeNumber(actualDuty);
+  const auth = safeNumber(authorizedDuty);
+  if (pr <= 0 || act <= 0 || auth <= 0) return 0;
+  const ratio = act / auth;
+  let r = round2(pr * ratio);
+  if (subtractPenalty) {
+    r = round2(Math.max(0, r - safeNumber(categoryPenalty)));
+  }
+  return r;
 }
 
 function daysInMonth(dateStr) {
@@ -113,6 +120,74 @@ function formatDate(d) {
   }
 }
 
+function formatBillingMonth(ymd) {
+  if (!ymd) return null;
+  const d = new Date(ymd);
+  if (Number.isNaN(d.getTime())) return null;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+function latestRenewalCycle(po) {
+  const cycles = Array.isArray(po?.renewalCycles) ? po.renewalCycles : (Array.isArray(po?.renewal_cycles) ? po.renewal_cycles : []);
+  if (!cycles.length) return null;
+  return cycles[cycles.length - 1] || null;
+}
+
+function isAfterContractEndForInvoice(endDate) {
+  if (!endDate) return false;
+  const end = new Date(String(endDate));
+  if (Number.isNaN(end.getTime())) return false;
+  const today = new Date();
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return todayDay.getTime() > endDay.getTime();
+}
+
+/** Invoice linked to this PO or to a legacy supplementary child row (same billing slot). */
+function findInvoiceForBillablePo(po, allPOs, invoices) {
+  if (!po) return null;
+  const direct = invoices.find((i) => String(i.poId) === String(po.id));
+  if (direct) return direct;
+  if (!po.isSupplementary) {
+    const leg = (allPOs || []).find(
+      (p) =>
+        p.isSupplementary &&
+        String(p.supplementaryParentPoId || p.supplementary_parent_po_id || '') === String(po.id)
+    );
+    if (leg) return invoices.find((i) => String(i.poId) === String(leg.id)) || null;
+  }
+  return null;
+}
+
+function resolveSupplementaryOverrides(po, allPOs) {
+  // Apply latest renewal cycle (if any) for parent PO display as well.
+  const latestSelf = latestRenewalCycle(po);
+  if (!po?.isSupplementary) {
+    if (latestSelf?.po_wo_number) {
+      return {
+        poWoNumber: latestSelf.po_wo_number,
+        totalContractValue: latestSelf.total_contract_value != null ? Number(latestSelf.total_contract_value) : (po.totalContractValue ?? 0),
+        startDate: latestSelf.start_date || po.startDate,
+        endDate: latestSelf.end_date || po.endDate,
+      };
+    }
+    return { poWoNumber: po?.poWoNumber, totalContractValue: po?.totalContractValue, startDate: po?.startDate, endDate: po?.endDate };
+  }
+  const parentId = po.supplementaryParentPoId || po.supplementary_parent_po_id;
+  const parent = (allPOs || []).find((p) => String(p.id) === String(parentId));
+  const latest = latestRenewalCycle(parent);
+  if (latest?.po_wo_number) {
+    return {
+      poWoNumber: latest.po_wo_number,
+      totalContractValue: latest.total_contract_value != null ? Number(latest.total_contract_value) : (po.totalContractValue ?? 0),
+      startDate: latest.start_date || po.startDate,
+      endDate: latest.end_date || po.endDate,
+    };
+  }
+  return { poWoNumber: po?.poWoNumber, totalContractValue: po?.totalContractValue, startDate: po?.startDate, endDate: po?.endDate };
+}
+
 const CreateInvoice = ({ onNavigateTab }) => {
   const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft, refreshBilling } = useBilling();
   const [selectedPoId, setSelectedPoId] = useState('');
@@ -122,32 +197,54 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
   const [poPage, setPoPage] = useState(1);
+  const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
+  const [poBillingTab, setPoBillingTab] = useState('Monthly');
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const billablePOs = useMemo(() => {
-    return commercialPOs
-      .filter((p) => (p.approvalStatus || 'draft') === APPROVAL_STATUS_SENT);
+    return commercialPOs.filter((p) => {
+      if (p.isSupplementary) return false;
+      const st = p.approvalStatus || 'draft';
+      return st === APPROVAL_STATUS_SENT || st === APPROVAL_STATUS_APPROVED;
+    });
   }, [commercialPOs]);
 
+  const billablePOsByTab = useMemo(() => {
+    const tab = String(poBillingTab || '').trim();
+    return billablePOs.filter((p) => {
+      const bt = String(p.billingType || '').trim();
+      return bt === tab;
+    });
+  }, [billablePOs, poBillingTab]);
+
   const poTableRows = useMemo(() => {
-    return billablePOs.map((po) => {
-      const existingInvoice = invoices.find((i) => String(i.poId) === String(po.id));
+    return billablePOsByTab.map((po) => {
+      const over = resolveSupplementaryOverrides(po, billablePOs);
+      const existingInvoice = findInvoiceForBillablePo(po, commercialPOs, invoices);
       const hasInvoice = !!existingInvoice;
       const dCount = daysInMonth(invoiceDate);
       const rateSum = sumRatePerCategory(po);
-      const contract = Number(po.totalContractValue) || 0;
+      const contract = Number(over.totalContractValue) || 0;
       const expected = round2(rateSum * dCount);
       const remaining = round2(contract - expected);
+      const supSt = po.supplementaryRequestStatus || po.supplementary_request_status;
+      const postContractBufferOpen =
+        !po.isSupplementary && supSt === 'approved' && isAfterContractEndForInvoice(po.endDate || po.end_date);
       return {
         ...po,
+        poWoNumber: over.poWoNumber ?? po.poWoNumber,
+        totalContractValue: over.totalContractValue ?? po.totalContractValue,
+        startDate: over.startDate ?? po.startDate,
+        endDate: over.endDate ?? po.endDate,
+        postContractBufferOpen,
         statusLabel: hasInvoice ? 'Created Tax Invoice' : 'Sent to approval',
         hasInvoice,
         existingInvoiceId: existingInvoice?.id || null,
         _calc: { days: dCount, rateSum, contract, expected, remaining },
       };
     });
-  }, [billablePOs, invoices, invoiceDate]);
+  }, [billablePOsByTab, billablePOs, commercialPOs, invoices, invoiceDate]);
 
   useEffect(() => {
     setPoPage(1);
@@ -171,8 +268,26 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [invoiceDraft, invoices]);
 
   const displayPO = useMemo(() => {
-    if (selectedPO) return selectedPO;
+    if (selectedPO) {
+      const over = resolveSupplementaryOverrides(selectedPO, billablePOs);
+      return {
+        ...selectedPO,
+        poWoNumber: over.poWoNumber ?? selectedPO.poWoNumber,
+        totalContractValue: over.totalContractValue ?? selectedPO.totalContractValue,
+        startDate: over.startDate ?? selectedPO.startDate,
+        endDate: over.endDate ?? selectedPO.endDate,
+      };
+    }
     if (invoiceDraft?.mode === 'edit' && editingInvoice) {
+      const linkedPo =
+        editingInvoice.poId != null
+          ? commercialPOs.find((p) => String(p.id) === String(editingInvoice.poId))
+          : null;
+      const gstRaw =
+        editingInvoice.gstSupplyType ||
+        editingInvoice.gst_supply_type ||
+        linkedPo?.gstSupplyType ||
+        linkedPo?.gst_supply_type;
       return {
         id: editingInvoice.poId,
         siteId: editingInvoice.siteId,
@@ -181,16 +296,70 @@ const CreateInvoice = ({ onNavigateTab }) => {
         poWoNumber: editingInvoice.poWoNumber,
         legalName: editingInvoice.clientLegalName,
         billingAddress: editingInvoice.clientAddress,
+        shippingAddress: editingInvoice.clientShippingAddress || editingInvoice.client_shipping_address || '',
+        placeOfSupply: editingInvoice.placeOfSupply || editingInvoice.place_of_supply || '',
         gstin: editingInvoice.gstin,
         hsnCode: editingInvoice.hsnSac,
         sacCode: editingInvoice.hsnSac,
         billingType: editingInvoice.billingType || 'Monthly',
         paymentTerms: editingInvoice.paymentTerms,
+        invoiceTermsText: editingInvoice.termsCustomText || editingInvoice.terms_custom_text || '',
+        sellerCin: editingInvoice.sellerCin || editingInvoice.seller_cin || '',
+        sellerPan: editingInvoice.sellerPan || editingInvoice.seller_pan || '',
+        msmeRegistrationNo: editingInvoice.msmeRegistrationNo || editingInvoice.msme_registration_no || '',
+        msmeClause: editingInvoice.msmeClause || editingInvoice.msme_clause || '',
         billingCycle: 30,
+        gstSupplyType: gstRaw,
       };
     }
     return null;
-  }, [selectedPO, invoiceDraft, editingInvoice]);
+  }, [selectedPO, invoiceDraft, editingInvoice, commercialPOs]);
+
+  const isManpowerMonthly = useMemo(() => {
+    if (!displayPO) return false;
+    const vertical =
+      displayPO.vertical ||
+      displayPO.poVertical ||
+      (displayPO.ocNumber ? String(displayPO.ocNumber).split('-')[1] : '');
+    const isManpower = String(vertical || '').toLowerCase() === 'manpower';
+    const isMonthly = String(displayPO.billingType || '').toLowerCase() === 'monthly';
+    return isManpower && isMonthly;
+  }, [displayPO]);
+
+  const isMonthlyBilling = useMemo(() => {
+    if (!displayPO) return false;
+    return String(displayPO.billingType || '').toLowerCase() === 'monthly';
+  }, [displayPO]);
+
+  const isLumpSumBilling = useMemo(() => {
+    if (!displayPO) return false;
+    return String(displayPO.billingType || '').toLowerCase() === 'lump sum';
+  }, [displayPO]);
+
+  const poForLogic = useMemo(() => {
+    if (invoiceDraft?.mode === 'edit' && editingInvoice?.poId) {
+      return commercialPOs.find((p) => String(p.id) === String(editingInvoice.poId)) || null;
+    }
+    return selectedPO || null;
+  }, [invoiceDraft, editingInvoice, commercialPOs, selectedPO]);
+
+  const monthlyDutyQtyMode = useMemo(() => {
+    if (!isMonthlyBilling) return 'po_geometry';
+    const m = String(poForLogic?.monthlyDutyQtyMode || poForLogic?.monthly_duty_qty_mode || '').trim();
+    return m === 'duty_ratio' ? 'duty_ratio' : 'po_geometry';
+  }, [isMonthlyBilling, poForLogic]);
+
+  const lumpSumBillingMode = useMemo(() => {
+    if (!isLumpSumBilling) return 'normal';
+    const m = String(poForLogic?.lumpSumBillingMode || poForLogic?.lump_sum_billing_mode || '').trim().toLowerCase();
+    if (m === 'penalty') return 'penalty';
+    if (m === 'truck' || m === 'fire_tender') return 'truck';
+    return 'normal';
+  }, [isLumpSumBilling, poForLogic]);
+
+  const lumpSumPenaltyActive = lumpSumBillingMode === 'penalty';
+  const lumpSumTruckActive = lumpSumBillingMode === 'truck';
+  const lineTableColSpan = 6 + (lumpSumPenaltyActive ? 1 : 0);
 
   useEffect(() => {
     if (!invoiceDraft) return;
@@ -200,65 +369,153 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const atts = Array.isArray(editingInvoice.attachments) ? editingInvoice.attachments : [];
       setAttendanceFiles(atts.filter((a) => a.type === 'attendance').map((a) => ({ name: a.name, url: a.url })));
       setDocument2Files(atts.filter((a) => a.type === 'document_2').map((a) => ({ name: a.name, url: a.url })));
+      const editIsLump = String(editingInvoice.billingType || '').toLowerCase() === 'lump sum';
+      const editPo = commercialPOs.find((p) => String(p.id) === String(editingInvoice.poId));
+      const editPenaltyMode =
+        editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'penalty';
+      const editInvDate = editingInvoice.invoiceDate || editingInvoice.invoice_date || today;
       setItems(
-        (editingInvoice.items || []).map((i) => ({
-          description: i.description || i.designation || '',
-          hsnSac: i.hsnSac || editingInvoice.hsnSac || '',
-          quantity: Number(i.quantity) || 0,
-          rate: Number(i.rate) || 0,
-          amount: round2((Number(i.quantity) || 0) * (Number(i.rate) || 0)),
-        }))
+        (editingInvoice.items || []).map((i) => {
+          const isTruck = !!i.isTruckLine;
+          const qty = Number(i.quantity) || 0;
+          const rate = Number(i.rate) || 0;
+          const poPenSnap = i.penalty != null ? Number(i.penalty) : 0;
+          const desc = (i.description || i.designation || '').trim();
+          const matchCat = (editPo?.ratePerCategory || []).find(
+            (r) => (r.description || r.designation || '').trim() === desc
+          );
+          const geometryEnabled =
+            isTruck ? false : editIsLump ? true : !!(i.actualDuty != null || i.authorizedDuty != null || i.poQty != null);
+          const poRef =
+            i.poReferenceRate != null
+              ? Number(i.poReferenceRate)
+              : i.po_reference_rate != null
+                ? Number(i.po_reference_rate)
+                : matchCat
+                  ? Number(matchCat.rate) || 0
+                  : undefined;
+          const poLinePen =
+            editPenaltyMode && !isTruck ? Math.max(0, poPenSnap || Number(matchCat?.penalty) || 0) : 0;
+          const actD = i.actualDuty != null ? Number(i.actualDuty) : undefined;
+          const authD =
+            i.authorizedDuty != null ? Number(i.authorizedDuty) : daysInMonth(editInvDate);
+          let quantity = qty;
+          let lineRate = rate;
+          let amount = isTruck ? round2(qty * rate) : round2(Number(i.amount) || 0);
+          if (editIsLump && !isTruck && geometryEnabled) {
+            const poQ = i.poQty != null ? Number(i.poQty) : 0;
+            const act = actD ?? 0;
+            const auth = authD ?? daysInMonth(editInvDate);
+            const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editPenaltyMode);
+            quantity = computeArrivedQty(poQ, act, auth);
+            lineRate = eff;
+            amount = round2(quantity * eff);
+          }
+          return {
+            description: i.description || i.designation || '',
+            hsnSac: i.hsnSac || editingInvoice.hsnSac || '',
+            isTruckLine: isTruck,
+            geometryEnabled,
+            poQty: i.poQty != null ? Number(i.poQty) : undefined,
+            poReferenceRate: poRef,
+            poLinePenalty: poLinePen,
+            actualDuty: actD,
+            authorizedDuty: i.authorizedDuty != null ? Number(i.authorizedDuty) : undefined,
+            quantity,
+            rate: lineRate,
+            amount,
+          };
+        })
       );
       return;
     }
     if (invoiceDraft.mode === 'create' && invoiceDraft.poId) {
       setSelectedPoId(String(invoiceDraft.poId));
     }
-  }, [invoiceDraft, editingInvoice, today]);
+  }, [invoiceDraft, editingInvoice, today, commercialPOs]);
 
   useEffect(() => {
     if (!selectedPO) return;
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
     const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
+    const authDutyDefault = daysInMonth(invoiceDate);
+    const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
+
+    if (isLump) {
+      const rows = Array.isArray(selectedPO.ratePerCategory) ? selectedPO.ratePerCategory : [];
+      const nextRows = rows.map((x) => {
+        const desc = ((x.description || x.designation || '').trim()) || 'Other';
+        const poRate = Number(x.rate) || 0;
+        const qty = Number(x.qty) || 0;
+        const pen = Math.max(0, Number(x.penalty) || 0);
+        return {
+          description: desc,
+          hsnSac,
+          isTruckLine: false,
+          geometryEnabled: true,
+          poQty: qty,
+          poReferenceRate: poRate,
+          poLinePenalty: pen,
+          actualDuty: 0,
+          authorizedDuty: authDutyDefault,
+          quantity: computeArrivedQty(qty, 0, authDutyDefault),
+          rate: computeLumpSumEffectiveRate(poRate, 0, authDutyDefault, pen, lumpSumPenaltyActive),
+          amount: 0,
+        };
+      });
+      setItems(
+        nextRows.length
+          ? nextRows
+          : [
+              {
+                description: 'Other',
+                hsnSac,
+                isTruckLine: false,
+                geometryEnabled: true,
+                poQty: 0,
+                poReferenceRate: 0,
+                poLinePenalty: 0,
+                actualDuty: 0,
+                authorizedDuty: authDutyDefault,
+                quantity: 0,
+                rate: 0,
+                amount: 0,
+              },
+            ]
+      );
+      return;
+    }
+
     const uniqueRates = getUniqueRateRows(selectedPO);
     setItems(
       uniqueRates.map((r) => ({
         description: r.description,
         hsnSac,
+        isTruckLine: false,
+        geometryEnabled: false,
+        poQty: safeNumber(selectedPO?.ratePerCategory?.find((x) => (x?.description || x?.designation || '').trim() === r.description)?.qty),
+        actualDuty: 0,
+        authorizedDuty: authDutyDefault,
         quantity: 0,
         rate: r.rate,
         amount: 0,
+        poReferenceRate: undefined,
+        poLinePenalty: 0,
       }))
     );
-  }, [selectedPO, invoiceDraft]);
+  }, [selectedPO, invoiceDraft, invoiceDate, lumpSumPenaltyActive]);
 
+  // Single sync on mount only — avoid repeat refresh (focus / delayed) wiping in-memory fields
+  // such as CN/DN request status before async invoice saves finish or if DB columns lag migrations.
   useEffect(() => {
-    let mounted = true;
-
-    const syncCentralData = async () => {
+    void (async () => {
       try {
         await refreshBilling?.();
       } catch {
-        // Non-blocking: UI still works with current in-memory/local data.
+        /* ignore */
       }
-    };
-
-    syncCentralData();
-    const retryTimer = setTimeout(() => {
-      if (mounted) syncCentralData();
-    }, 700);
-
-    const onFocus = () => {
-      syncCentralData();
-    };
-    window.addEventListener('focus', onFocus);
-
-    return () => {
-      mounted = false;
-      clearTimeout(retryTimer);
-      window.removeEventListener('focus', onFocus);
-    };
+    })();
   }, [refreshBilling]);
 
   const updateItem = (idx, patch) => {
@@ -266,20 +523,118 @@ const CreateInvoice = ({ onNavigateTab }) => {
       prev.map((it, i) => {
         if (i !== idx) return it;
         const next = { ...it, ...patch };
-        const qty = Number(next.quantity) || 0;
+        const poQty = next.poQty != null ? safeNumber(next.poQty) : 0;
+        const actualDuty = next.actualDuty != null ? safeNumber(next.actualDuty) : 0;
+        const authorizedDuty = next.authorizedDuty != null ? safeNumber(next.authorizedDuty) : 0;
+        const qtyRaw = safeNumber(next.quantity);
+
+        if (next.isTruckLine) {
+          const qty = isManpowerMonthly ? round3(qtyRaw) : qtyRaw;
+          const rate = Number(next.rate) || 0;
+          next.quantity = qty;
+          next.amount = round2(qty * rate);
+          return next;
+        }
+
+        if (isMonthlyBilling && next.geometryEnabled) {
+          const qty =
+            monthlyDutyQtyMode === 'duty_ratio'
+              ? computeDutyRatioQty(actualDuty, authorizedDuty)
+              : computeArrivedQty(poQty, actualDuty, authorizedDuty);
+          const rate = Number(next.rate) || 0;
+          next.quantity = qty;
+          next.amount = round2(qty * rate);
+          return next;
+        }
+
+        if (isLumpSumBilling && next.geometryEnabled) {
+          const poRef = safeNumber(next.poReferenceRate);
+          const pen = safeNumber(next.poLinePenalty);
+          const effRate = computeLumpSumEffectiveRate(poRef, actualDuty, authorizedDuty, pen, lumpSumPenaltyActive);
+          const qty = computeArrivedQty(poQty, actualDuty, authorizedDuty);
+          next.rate = effRate;
+          next.quantity = qty;
+          next.amount = round2(qty * effRate);
+          return next;
+        }
+
+        if (isLumpSumBilling && !next.geometryEnabled) {
+          const qty = isManpowerMonthly ? round3(qtyRaw) : qtyRaw;
+          const rate = Number(next.rate) || 0;
+          next.quantity = qty;
+          next.amount = round2(qty * rate);
+          return next;
+        }
+
+        const qty = isManpowerMonthly ? round3(qtyRaw) : qtyRaw;
         const rate = Number(next.rate) || 0;
+        next.quantity = qty;
         next.amount = round2(qty * rate);
         return next;
       })
     );
   };
 
+  const addTruckLine = () => {
+    if (!displayPO) return;
+    const hsn = displayPO.hsnCode || displayPO.sacCode || '';
+    setItems((prev) => [
+      ...prev,
+      {
+        description: '',
+        hsnSac: hsn,
+        isTruckLine: true,
+        geometryEnabled: false,
+        quantity: 0,
+        rate: 0,
+        amount: 0,
+        poReferenceRate: undefined,
+        poLinePenalty: 0,
+        poQty: undefined,
+        actualDuty: undefined,
+        authorizedDuty: undefined,
+      },
+    ]);
+  };
+
+  const removeTruckLine = (idx) => {
+    setItems((prev) => {
+      if (!prev[idx]?.isTruckLine) return prev;
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
   const taxableValue = useMemo(() => round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0)), [items]);
+
+  const gstSupplyType = useMemo(
+    () => normalizeGstSupplyType(displayPO?.gstSupplyType || displayPO?.gst_supply_type),
+    [displayPO]
+  );
+
   const cgstRate = 9;
   const sgstRate = 9;
-  const cgstAmt = useMemo(() => round2((taxableValue * cgstRate) / 100), [taxableValue]);
-  const sgstAmt = useMemo(() => round2((taxableValue * sgstRate) / 100), [taxableValue]);
-  const totalValue = useMemo(() => round2(taxableValue + cgstAmt + sgstAmt), [taxableValue, cgstAmt, sgstAmt]);
+  const igstRate = 18;
+
+  const cgstAmt = useMemo(() => {
+    if (gstSupplyType !== 'intra') return 0;
+    return round2((taxableValue * cgstRate) / 100);
+  }, [taxableValue, cgstRate, gstSupplyType]);
+
+  const sgstAmt = useMemo(() => {
+    if (gstSupplyType !== 'intra') return 0;
+    return round2((taxableValue * sgstRate) / 100);
+  }, [taxableValue, sgstRate, gstSupplyType]);
+
+  const igstAmt = useMemo(() => {
+    if (gstSupplyType !== 'inter') return 0;
+    return round2((taxableValue * igstRate) / 100);
+  }, [taxableValue, igstRate, gstSupplyType]);
+
+  const totalValueRaw = useMemo(() => {
+    if (gstSupplyType === 'sez_zero') return round2(taxableValue);
+    return round2(taxableValue + cgstAmt + sgstAmt + igstAmt);
+  }, [taxableValue, cgstAmt, sgstAmt, igstAmt, gstSupplyType]);
+  const totalValue = useMemo(() => roundInvoiceAmount(totalValueRaw), [totalValueRaw]);
 
   const canSave = !!displayPO && items.length > 0;
   const selectedViewInvoice = useMemo(
@@ -295,14 +650,37 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const id = existing?.id ?? nextNumericId;
     const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(invoices.length + 1);
 
+    const poRow = commercialPOs.find((p) => String(p.id) === String(displayPO.id));
+    let canonicalPoId = displayPO.id;
+    let billingParent = poRow;
+    if (poRow?.isSupplementary) {
+      const pid = poRow.supplementaryParentPoId || poRow.supplementary_parent_po_id;
+      billingParent = commercialPOs.find((p) => String(p.id) === String(pid));
+      canonicalPoId = pid || displayPO.id;
+    }
+    const supSt = billingParent?.supplementaryRequestStatus || billingParent?.supplementary_request_status;
+    const postContractBillingMoment =
+      billingParent &&
+      !billingParent.isSupplementary &&
+      supSt === 'approved' &&
+      isAfterContractEndForInvoice(billingParent.endDate || billingParent.end_date);
+
     const inv = {
       ...(existing || {}),
       id,
-      poId: displayPO.id,
+      poId: canonicalPoId,
       siteId: displayPO.siteId,
       billingType: displayPO.billingType || 'Monthly',
       taxInvoiceNumber,
       invoiceDate,
+      billNumber: existing?.billNumber || existing?.bill_number || taxInvoiceNumber,
+      billingMonth: existing?.billingMonth || existing?.billing_month || formatBillingMonth(invoiceDate),
+      billingDurationFrom: existing?.billingDurationFrom || existing?.billing_duration_from || displayPO.startDate || displayPO.start_date || null,
+      billingDurationTo: existing?.billingDurationTo || existing?.billing_duration_to || displayPO.endDate || displayPO.end_date || null,
+      invoiceHeaderRemarks:
+        existing?.invoiceHeaderRemarks ||
+        existing?.invoice_header_remarks ||
+        (displayPO.remarks || displayPO.paymentTerms || displayPO.payment_terms || null),
       clientLegalName: displayPO.legalName,
       clientAddress: displayPO.billingAddress,
       gstin: displayPO.gstin,
@@ -312,10 +690,41 @@ const CreateInvoice = ({ onNavigateTab }) => {
       items: items.map((i) => ({
         description: i.description,
         hsnSac: i.hsnSac,
-        quantity: Number(i.quantity) || 0,
+        quantity: isManpowerMonthly ? round3(i.quantity) : (Number(i.quantity) || 0),
         rate: Number(i.rate) || 0,
         amount: round2(i.amount),
+        isTruckLine: !!i.isTruckLine,
+        poReferenceRate:
+          isLumpSumBilling && !i.isTruckLine && i.poReferenceRate != null ? safeNumber(i.poReferenceRate) : null,
+        penalty:
+          isLumpSumBilling && !i.isTruckLine && lumpSumPenaltyActive ? Math.max(0, safeNumber(i.poLinePenalty)) : 0,
+        poQty:
+          ((isMonthlyBilling || isLumpSumBilling) && i.geometryEnabled && !i.isTruckLine && i.poQty != null
+            ? safeNumber(i.poQty)
+            : null),
+        actualDuty:
+          i.geometryEnabled &&
+          !i.isTruckLine &&
+          (isMonthlyBilling || isLumpSumBilling) &&
+          i.actualDuty != null
+            ? safeNumber(i.actualDuty)
+            : null,
+        authorizedDuty:
+          i.geometryEnabled &&
+          !i.isTruckLine &&
+          (isMonthlyBilling || isLumpSumBilling) &&
+          i.authorizedDuty != null
+            ? safeNumber(i.authorizedDuty)
+            : null,
       })),
+      // Snapshots from PO (or existing invoice) — used by PDF + shared HTML preview
+      clientShippingAddress: displayPO.shippingAddress || displayPO.shipping_address || null,
+      placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply || null,
+      termsCustomText: displayPO.invoiceTermsText || null,
+      sellerCin: displayPO.sellerCin || null,
+      sellerPan: displayPO.sellerPan || null,
+      msmeRegistrationNo: displayPO.msmeRegistrationNo || null,
+      msmeClause: displayPO.msmeClause || null,
       attachments: [
         ...attendanceFiles.map((f) => ({ name: f.name || 'attendance', type: 'attendance', url: f.url || '#' })),
         ...document2Files.map((f) => ({ name: f.name || 'document_2', type: 'document_2', url: f.url || '#' })),
@@ -325,6 +734,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
       sgstRate,
       cgstAmt,
       sgstAmt,
+      gstSupplyType,
+      igstRate: gstSupplyType === 'inter' ? igstRate : 0,
+      igstAmt: gstSupplyType === 'inter' ? igstAmt : 0,
       calculatedInvoiceAmount: totalValue,
       totalAmount: totalValue,
       paStatus: existing?.paStatus || 'Pending',
@@ -333,6 +745,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       created_at: existing?.created_at || today,
       createdAt: existing?.createdAt || today,
       updated_at: today,
+      isPostContractBuffer: existing ? !!existing.isPostContractBuffer : !!postContractBillingMoment,
     };
 
     setInvoices((prev) => {
@@ -354,15 +767,54 @@ const CreateInvoice = ({ onNavigateTab }) => {
           <p className="text-sm text-gray-600">Select PO sent for approval; invoice format as per template; edit only quantity/rate; save → Manage Invoices</p>
         </div>
       </div>
+      <div>
+        <button
+          type="button"
+          onClick={() => onNavigateTab && onNavigateTab('add-on-invoices')}
+          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-lg hover:bg-violet-100"
+        >
+          Open Add-On Invoices
+        </button>
+      </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <h3 className="font-semibold text-gray-900 p-4 pb-2">1. Select PO/WO (only “Sent to approval”)</h3>
+        <h3 className="font-semibold text-gray-900 p-4 pb-2">1. Select PO/WO (sent or approved)</h3>
+        <p className="text-xs text-gray-500 px-4 pb-2 -mt-1">
+          After contract end, Commercial enables post-contract billing on the same OC — you still pick this row; buffer invoices are moved to the renewed PO/WO when renewal is approved.
+        </p>
         {billablePOs.length === 0 ? (
           <p className="text-sm text-gray-500 px-4 pb-4">
             No PO found for billing. In Commercial → PO Entry, click <span className="font-medium">Send to approval</span> for a PO.
           </p>
         ) : (
           <div className="px-3 pb-3">
+            <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
+              {BILLING_TABS.map((t) => {
+                const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
+                const bufferOpen = billablePOs.filter(
+                  (p) =>
+                    String(p.billingType || '').trim() === t.id &&
+                    (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
+                    isAfterContractEndForInvoice(p.endDate || p.end_date)
+                ).length;
+                const active = poBillingTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setPoBillingTab(t.id)}
+                    className={[
+                      'px-3 py-1.5 rounded-lg text-sm border',
+                      active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                    ].join(' ')}
+                    title={bufferOpen ? `${bufferOpen} OC(s) with post-contract billing open in ${t.label}` : undefined}
+                  >
+                    {t.label} <span className={active ? 'text-white/90' : 'text-gray-500'}>({count})</span>
+                    {bufferOpen ? <span className={active ? 'ml-2 text-amber-100' : 'ml-2 text-amber-700'}>buffer {bufferOpen}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
             <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
               <div className="p-2">
                 <div className="bg-white rounded-lg overflow-hidden">
@@ -380,7 +832,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
                         {poPaginatedRows.map((row) => (
-                          <tr key={row.id} className="hover:bg-gray-50 align-top">
+                          <tr
+                            key={row.id}
+                            className={[
+                              'align-top',
+                              row.postContractBufferOpen ? 'bg-amber-50 hover:bg-amber-100/60' : 'hover:bg-gray-50',
+                            ].join(' ')}
+                          >
                             <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={row.ocNumber || ''}>{row.ocNumber || '–'}</td>
                             <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || ''}>
                               {row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || '–'}
@@ -402,6 +860,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
                         {row.statusLabel}
                       </span>
+                      {row.postContractBufferOpen ? (
+                        <span className="block text-[10px] text-amber-800 font-medium mt-1">Post-contract window</span>
+                      ) : null}
                     </td>
                             <td className="px-3 py-2 text-center">
                               <div className="inline-flex items-center justify-center gap-2">
@@ -503,11 +964,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
               <input
                 type="date"
                 value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg"
+                readOnly
+                disabled
+                className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700"
               />
             </div>
           </div>
+
+          {null}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
             <div className="border border-gray-200 rounded-lg p-4">
@@ -536,41 +1000,296 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[6%]">#</th>
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[40%]">Description</th>
                   <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">HSN/SAC</th>
+                  {null ? (
+                    <>
+                      <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">PO Qty</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Actual</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Auth</th>
+                    </>
+                  ) : null}
                   <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Qty</th>
                   <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Rate</th>
+                  {lumpSumPenaltyActive ? (
+                    <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Penalty (₹)</th>
+                  ) : null}
                   <th className="px-3 py-2.5 text-right text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Amount</th>
                 </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                {items.map((it, idx) => (
-                  <tr key={idx}>
-                    <td className="px-3 py-2 text-gray-700 text-center">{idx + 1}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900 truncate" title={it.description || ''}>{it.description}</td>
-                    <td className="px-3 py-2 text-gray-700 text-center font-mono">{it.hsnSac || '–'}</td>
-                    <td className="px-3 py-2 text-center">
+                {items.map((it, idx) => {
+                  const canDutyRuler = !it.isTruckLine && (isMonthlyBilling || isLumpSumBilling);
+                  const rateDerived =
+                    (isMonthlyBilling && it.geometryEnabled) ||
+                    (isLumpSumBilling && !it.isTruckLine && it.geometryEnabled);
+                  return (
+                  <React.Fragment key={idx}>
+                  <tr className={activeGeometryRowIdx === idx ? 'bg-indigo-50/60' : undefined}>
+                    <td className="px-3 py-2 text-gray-700 text-center align-middle">
+                      <div className="flex flex-col items-center gap-1">
+                        <span>{idx + 1}</span>
+                        {it.isTruckLine ? (
+                          <button
+                            type="button"
+                            onClick={() => removeTruckLine(idx)}
+                            className="text-[10px] text-red-600 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 font-medium text-gray-900 align-middle" title={it.description || ''}>
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        {it.isTruckLine ? (
+                          <input
+                            type="text"
+                            value={it.description}
+                            onChange={(e) => updateItem(idx, { description: e.target.value })}
+                            className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
+                            placeholder="Truck / transport line"
+                          />
+                        ) : (
+                          <span className="truncate">{it.description}</span>
+                        )}
+                        {canDutyRuler ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveGeometryRowIdx(idx);
+                              updateItem(idx, { geometryEnabled: !it.geometryEnabled });
+                            }}
+                            className={[
+                              'shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md border',
+                              it.geometryEnabled
+                                ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50',
+                            ].join(' ')}
+                            title={
+                              isLumpSumBilling
+                                ? 'Duty-based rate (Lump sum)'
+                                : 'Geometry calculator (Monthly)'
+                            }
+                            aria-label="Duty geometry calculator"
+                          >
+                            <Ruler className="w-4 h-4" />
+                          </button>
+                        ) : null}
+                      </div>
+                      {it.isTruckLine ? (
+                        <span className="mt-1 inline-block text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Truck line</span>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 text-gray-700 text-center font-mono align-middle">
+                      {it.isTruckLine ? (
+                        <input
+                          type="text"
+                          value={it.hsnSac || ''}
+                          onChange={(e) => updateItem(idx, { hsnSac: e.target.value })}
+                          className="w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono"
+                        />
+                      ) : (
+                        it.hsnSac || '–'
+                      )}
+                    </td>
+                    {null ? (
+                      <>
+                        <td className="px-3 py-2 text-center">
+                          <input
+                            type="number"
+                            min={0}
+                            value={it.poQty ?? 0}
+                            onChange={(e) => updateItem(idx, { poQty: e.target.value })}
+                            className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-center"
+                            step="1"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <input
+                            type="number"
+                            min={0}
+                            value={it.actualDuty ?? 0}
+                            onChange={(e) => updateItem(idx, { actualDuty: e.target.value })}
+                            className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-center"
+                            step="1"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <input
+                            type="number"
+                            min={0}
+                            value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
+                            onChange={(e) => updateItem(idx, { authorizedDuty: e.target.value })}
+                            className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-center"
+                            step="1"
+                          />
+                        </td>
+                      </>
+                    ) : null}
+                    <td className="px-3 py-2 text-center align-middle">
                       <input
                         type="number"
                         min={0}
+                        step={
+                          (isMonthlyBilling || (isLumpSumBilling && it.geometryEnabled)) && !it.isTruckLine
+                            ? '0.001'
+                            : undefined
+                        }
                         value={it.quantity}
                         onChange={(e) => updateItem(idx, { quantity: e.target.value })}
                         className="w-24 px-2 py-1 border border-gray-300 rounded-lg text-center"
+                        readOnly={
+                          (isMonthlyBilling && it.geometryEnabled) ||
+                          (isLumpSumBilling && it.geometryEnabled && !it.isTruckLine)
+                        }
                       />
                     </td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-3 py-2 text-center align-middle">
                       <input
                         type="number"
                         min={0}
                         value={it.rate}
                         onChange={(e) => updateItem(idx, { rate: e.target.value })}
                         className="w-28 px-2 py-1 border border-gray-300 rounded-lg text-center"
+                        readOnly={rateDerived}
                       />
                     </td>
-                    <td className="px-3 py-2 text-right font-medium">₹{round2(it.amount).toLocaleString('en-IN')}</td>
+                    {lumpSumPenaltyActive ? (
+                      <td className="px-3 py-2 text-center align-middle text-xs text-gray-700">
+                        {it.isTruckLine ? (
+                          '–'
+                        ) : (
+                          <span title="From PO Rate per Category">₹{safeNumber(it.poLinePenalty).toLocaleString('en-IN')}</span>
+                        )}
+                      </td>
+                    ) : null}
+                    <td className="px-3 py-2 text-right font-medium align-middle">₹{round2(it.amount).toLocaleString('en-IN')}</td>
                   </tr>
-                ))}
+                  {isMonthlyBilling && it.geometryEnabled ? (
+                    <tr className="bg-gray-50">
+                      <td colSpan={lineTableColSpan} className="px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                          <span className="font-semibold text-gray-700">Geometry (Monthly) calculator</span>
+                          {monthlyDutyQtyMode === 'po_geometry' ? (
+                            <label className="inline-flex items-center gap-2">
+                              <span className="text-gray-600">PO Qty</span>
+                              <input
+                                type="number"
+                                min={0}
+                                value={it.poQty ?? 0}
+                                readOnly
+                                className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-gray-100 text-gray-700"
+                                step="1"
+                              />
+                            </label>
+                          ) : null}
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">Actual duty</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={it.actualDuty ?? 0}
+                              onChange={(e) => updateItem(idx, { actualDuty: e.target.value })}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
+                              step="1"
+                            />
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">Authorised duty</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
+                              onChange={(e) => updateItem(idx, { authorizedDuty: e.target.value })}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
+                              step="1"
+                            />
+                          </label>
+                          <span className="text-gray-500">
+                            {monthlyDutyQtyMode === 'duty_ratio'
+                              ? 'Qty = (Actual ÷ Authorised) (3 decimals) — per PO Entry rule'
+                              : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals) — per PO Entry rule'}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {isLumpSumBilling && !it.isTruckLine && it.geometryEnabled ? (
+                    <tr className="bg-amber-50/40">
+                      <td colSpan={lineTableColSpan} className="px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                          <span className="font-semibold text-gray-800">Lump sum — duty geometry</span>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">PO Qty</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={it.poQty ?? 0}
+                              onChange={(e) => updateItem(idx, { poQty: e.target.value })}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
+                              step="1"
+                            />
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">PO rate (₹)</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={it.poReferenceRate ?? 0}
+                              readOnly
+                              className="w-28 px-2 py-1 border border-gray-300 rounded-md text-center bg-gray-100 text-gray-700"
+                              step="0.01"
+                            />
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">Actual duty</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={it.actualDuty ?? 0}
+                              onChange={(e) => updateItem(idx, { actualDuty: e.target.value })}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
+                              step="1"
+                            />
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">Authorised duty</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
+                              onChange={(e) => updateItem(idx, { authorizedDuty: e.target.value })}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
+                              step="1"
+                            />
+                          </label>
+                          <span className="text-gray-600 max-w-md">
+                            Qty = (Actual ÷ Authorised) × PO Qty (3 decimals).{' '}
+                            {lumpSumPenaltyActive
+                              ? 'Rate = (Actual ÷ Authorised) × PO rate − Penalty (from PO). Amount = Qty × Rate.'
+                              : 'Rate = (Actual ÷ Authorised) × PO rate. Amount = Qty × Rate.'}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
                 </div>
+                {lumpSumTruckActive ? (
+                  <div className="px-2 pt-2 pb-1 border-t border-gray-100 bg-white">
+                    <button
+                      type="button"
+                      onClick={addTruckLine}
+                      className="text-sm font-medium text-blue-600 hover:underline"
+                    >
+                      + Add truck line (Qty × Rate only)
+                    </button>
+                    <p className="text-[11px] text-gray-500 mt-1">PO-based lines above keep the duty-based rate formula; truck lines are added separately.</p>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -579,11 +1298,31 @@ const CreateInvoice = ({ onNavigateTab }) => {
             <div className="text-sm text-gray-600 space-y-1">
               <p><span className="text-gray-500">Payment terms:</span> {displayPO.paymentTerms || `${displayPO.billingCycle || 30} days`}</p>
               <p><span className="text-gray-500">Invoice date:</span> {formatDate(invoiceDate)}</p>
+              <p>
+                <span className="text-gray-500">GST on supply (from PO):</span>{' '}
+                <span className="font-medium text-gray-800">
+                  {gstSupplyType === 'inter'
+                    ? `IGST (${igstRate}%)`
+                    : gstSupplyType === 'sez_zero'
+                      ? '0% (SEZ / nil rated)'
+                      : `CGST + SGST (${cgstRate}% + ${sgstRate}%)`}
+                </span>
+              </p>
             </div>
             <div className="border border-gray-200 rounded-lg p-4 text-sm">
               <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">₹{taxableValue.toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between"><span className="text-gray-600">CGST ({cgstRate}%)</span><span className="font-medium">₹{cgstAmt.toLocaleString('en-IN')}</span></div>
-              <div className="flex justify-between"><span className="text-gray-600">SGST ({sgstRate}%)</span><span className="font-medium">₹{sgstAmt.toLocaleString('en-IN')}</span></div>
+              {gstSupplyType === 'intra' ? (
+                <>
+                  <div className="flex justify-between"><span className="text-gray-600">CGST ({cgstRate}%)</span><span className="font-medium">₹{cgstAmt.toLocaleString('en-IN')}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">SGST ({sgstRate}%)</span><span className="font-medium">₹{sgstAmt.toLocaleString('en-IN')}</span></div>
+                </>
+              ) : null}
+              {gstSupplyType === 'inter' ? (
+                <div className="flex justify-between"><span className="text-gray-600">IGST ({igstRate}%)</span><span className="font-medium">₹{igstAmt.toLocaleString('en-IN')}</span></div>
+              ) : null}
+              {gstSupplyType === 'sez_zero' ? (
+                <div className="flex justify-between"><span className="text-gray-600">GST</span><span className="font-medium">₹0 (nil rated)</span></div>
+              ) : null}
               <div className="flex justify-between border-t border-gray-200 pt-2 mt-2"><span className="text-gray-900 font-semibold">Total</span><span className="text-gray-900 font-semibold">₹{totalValue.toLocaleString('en-IN')}</span></div>
             </div>
           </div>
@@ -667,140 +1406,27 @@ const CreateInvoice = ({ onNavigateTab }) => {
           </div>
         </div>
       )}
-      {selectedViewInvoice && (() => {
-        const inv = selectedViewInvoice;
-        const previewItems = Array.isArray(inv.items) ? inv.items : [];
-        const previewTaxable = inv.taxableValue ?? round2(previewItems.reduce((s, i) => s + (Number(i.amount) || 0), 0));
-        const previewCgstRate = Number(inv.cgstRate) || 9;
-        const previewSgstRate = Number(inv.sgstRate) || 9;
-        const previewCgst = inv.cgstAmt ?? round2((previewTaxable * previewCgstRate) / 100);
-        const previewSgst = inv.sgstAmt ?? round2((previewTaxable * previewSgstRate) / 100);
-        const previewTotal = inv.calculatedInvoiceAmount ?? inv.totalAmount ?? round2(previewTaxable + previewCgst + previewSgst);
-        return (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
-              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
-                <h3 className="text-lg font-semibold text-gray-900">Tax Invoice Preview – {inv.taxInvoiceNumber || '–'}</h3>
-                <button type="button" onClick={() => setViewInvoiceId(null)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-4 sm:p-6 bg-gray-100">
-                <div className="mx-auto w-full max-w-[840px] bg-white border border-gray-900/20 shadow-sm overflow-hidden rounded-sm">
-                  <div className="bg-blue-900 text-white px-4 sm:px-6 py-4">
-                    <div className="flex items-center gap-3 sm:gap-4">
-                      <div className="shrink-0 w-[4.5rem] h-[4.5rem] sm:w-20 sm:h-20 bg-white rounded-none border border-white/70 flex items-center justify-center p-1.5 sm:p-2 shadow-sm">
-                        <img
-                          src={`${import.meta.env.BASE_URL}indus-logo.png`.replace(/\/{2,}/g, '/')}
-                          alt="Indus Fire Safety"
-                          className="max-h-full max-w-full object-contain object-center"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1 text-left">
-                        <h4 className="text-sm sm:text-base md:text-xl font-bold uppercase tracking-tight text-white leading-tight">
-                          {INVOICE_LETTERHEAD_NAME}
-                        </h4>
-                        <p className="text-[11px] sm:text-xs md:text-sm text-white mt-1 sm:mt-1.5 font-normal leading-snug">
-                          {INVOICE_LETTERHEAD_TAGLINE}
-                        </p>
-                        
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="px-6 py-4 border-b border-gray-300">
-                    <p className="text-right text-xs text-gray-500 mt-1">(ORIGINAL FOR RECIPIENT)</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm border-b border-gray-300">
-                    <div>
-                      <p className="font-semibold text-gray-900 mb-1">{SELLER.name}</p>
-                      <p className="text-gray-700">{SELLER.address}</p>
-                      <p className="text-gray-700 mt-1">GSTIN/UIN: {SELLER.gstin}</p>
-                      <p className="text-gray-700">State Name: {SELLER.state}, Code: {SELLER.stateCode}</p>
-                    </div>
-                    <div className="space-y-1 text-gray-700">
-                      <p><span className="font-medium">Invoice No.:</span> {inv.taxInvoiceNumber || '–'}</p>
-                      <p><span className="font-medium">Dated:</span> {formatDate(inv.invoiceDate || inv.created_at)}</p>
-                      <p><span className="font-medium">Buyer Order No.:</span> {inv.poWoNumber || inv.ocNumber || '–'}</p>
-                      <p><span className="font-medium">OC Number:</span> {inv.ocNumber || '–'}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm border-b border-gray-300">
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase">Consignee / Ship To</p>
-                      <p className="font-semibold text-gray-900 mt-1">{inv.clientLegalName || '–'}</p>
-                      <p className="text-gray-700">{inv.clientAddress || '–'}</p>
-                      <p className="text-gray-700 mt-1">GSTIN/UIN: {inv.gstin || '–'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase">Buyer / Bill To</p>
-                      <p className="font-semibold text-gray-900 mt-1">{inv.clientLegalName || '–'}</p>
-                      <p className="text-gray-700">{inv.clientAddress || '–'}</p>
-                      <p className="text-gray-700 mt-1">GSTIN/UIN: {inv.gstin || '–'}</p>
-                    </div>
-                  </div>
-
-                  <div className="px-6 py-4 border-b border-gray-300">
-                    <table className="w-full text-sm border border-gray-300">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-2 py-2 border border-gray-300 text-left">SI No.</th>
-                          <th className="px-2 py-2 border border-gray-300 text-left">Description of Goods</th>
-                          <th className="px-2 py-2 border border-gray-300 text-left">HSN/SAC</th>
-                          <th className="px-2 py-2 border border-gray-300 text-left">Qty</th>
-                          <th className="px-2 py-2 border border-gray-300 text-left">Rate</th>
-                          <th className="px-2 py-2 border border-gray-300 text-right">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewItems.length ? previewItems.map((it, idx) => (
-                          <tr key={idx}>
-                            <td className="px-2 py-2 border border-gray-300">{idx + 1}</td>
-                            <td className="px-2 py-2 border border-gray-300">{it.description || it.designation || '–'}</td>
-                            <td className="px-2 py-2 border border-gray-300">{it.hsnSac || inv.hsnSac || '–'}</td>
-                            <td className="px-2 py-2 border border-gray-300">{Number(it.quantity) || 0}</td>
-                            <td className="px-2 py-2 border border-gray-300">₹{round2(Number(it.rate) || 0).toLocaleString('en-IN')}</td>
-                            <td className="px-2 py-2 border border-gray-300 text-right">₹{round2(Number(it.amount) || 0).toLocaleString('en-IN')}</td>
-                          </tr>
-                        )) : (
-                          <tr>
-                            <td className="px-2 py-3 border border-gray-300 text-center text-gray-500" colSpan={6}>No line items</td>
-                          </tr>
-                        )}
-                        <tr>
-                          <td className="px-2 py-2 border border-gray-300" colSpan={5}>CGST ({previewCgstRate}%)</td>
-                          <td className="px-2 py-2 border border-gray-300 text-right">₹{round2(previewCgst).toLocaleString('en-IN')}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-2 py-2 border border-gray-300" colSpan={5}>SGST ({previewSgstRate}%)</td>
-                          <td className="px-2 py-2 border border-gray-300 text-right">₹{round2(previewSgst).toLocaleString('en-IN')}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm border-b border-gray-300">
-                    <div className="space-y-1 text-gray-700">
-                      <p><span className="font-medium">Payment Terms:</span> {inv.paymentTerms || '30 Days'}</p>
-                      <p><span className="font-medium">Invoice Date:</span> {formatDate(inv.invoiceDate || inv.created_at)}</p>
-                    </div>
-                    <div className="border border-gray-300 rounded p-3">
-                      <div className="flex justify-between"><span>Taxable Value</span><span className="font-medium">₹{round2(previewTaxable).toLocaleString('en-IN')}</span></div>
-                      <div className="flex justify-between"><span>CGST</span><span className="font-medium">₹{round2(previewCgst).toLocaleString('en-IN')}</span></div>
-                      <div className="flex justify-between"><span>SGST</span><span className="font-medium">₹{round2(previewSgst).toLocaleString('en-IN')}</span></div>
-                      <div className="flex justify-between border-t border-gray-300 mt-2 pt-2 font-semibold"><span>Total</span><span>₹{round2(previewTotal).toLocaleString('en-IN')}</span></div>
-                    </div>
-                  </div>
-                  <InvoiceContactBanner />
-                </div>
-              </div>
+      {selectedViewInvoice ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-hidden flex flex-col">
+            <div className="shrink-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Tax Invoice Preview – {selectedViewInvoice.taxInvoiceNumber || '–'}
+              </h3>
+              <button type="button" onClick={() => setViewInvoiceId(null)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-gray-100">
+              <InvoiceHtmlPreview inv={selectedViewInvoice} />
             </div>
           </div>
-        );
-      })()}
+        </div>
+      ) : null}
+
+      <div className="mt-8">
+        <RequestCnDnApprovalSection invoices={invoices} setInvoices={setInvoices} onNavigateTab={onNavigateTab} />
+      </div>
     </div>
   );
 };

@@ -64,7 +64,7 @@ export async function fetchCommercialPOs() {
   });
   const seenRateKeys = new Set();
   sortedRates.forEach((r) => {
-    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.sort_order) || 0}`;
+    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.category_penalty) || 0}::${Number(r.sort_order) || 0}`;
     if (seenRateKeys.has(dedupeKey)) return;
     seenRateKeys.add(dedupeKey);
     if (!ratesByPo[r.po_id]) ratesByPo[r.po_id] = [];
@@ -72,6 +72,7 @@ export async function fetchCommercialPOs() {
       description: r.description,
       qty: Number(r.qty) || 0,
       rate: Number(r.rate),
+      penalty: r.category_penalty != null ? Number(r.category_penalty) : 0,
     });
   });
   const contactsByPo = {};
@@ -92,6 +93,19 @@ export async function fetchCommercialPOs() {
     c.ratePerCategory = ratesByPo[po.id] || [];
     c.contactHistoryLog = contactsByPo[po.id] || [];
     if (!c.updateHistory && Array.isArray(po.update_history)) c.updateHistory = po.update_history;
+    c.isSupplementary = !!po.is_supplementary;
+    c.supplementaryParentPoId = po.supplementary_parent_po_id;
+    c.supplementaryRequestStatus = po.supplementary_request_status;
+    c.supplementaryReason = po.supplementary_reason;
+    c.supplementaryRequestedAt = po.supplementary_requested_at;
+    c.supplementaryApprovedAt = po.supplementary_approved_at;
+    c.renewedPoWoNumber = po.renewed_po_wo_number;
+    c.renewedTotalContractValue = po.renewed_total_contract_value != null ? Number(po.renewed_total_contract_value) : null;
+    c.renewedStartDate = po.renewed_start_date;
+    c.renewedEndDate = po.renewed_end_date;
+    c.renewalCycles = Array.isArray(po.renewal_cycles) ? po.renewal_cycles : [];
+    c.monthlyDutyQtyMode = po.monthly_duty_qty_mode || null;
+    c.lumpSumBillingMode = po.lump_sum_billing_mode || null;
     c.id = po.id;
     return c;
   });
@@ -155,6 +169,19 @@ export async function saveCommercialPOs(list) {
       msme_registration_no: po.msmeRegistrationNo || null,
       msme_clause: po.msmeClause || null,
       place_of_supply: po.placeOfSupply || null,
+      is_supplementary: !!po.isSupplementary,
+      supplementary_parent_po_id: po.supplementaryParentPoId || null,
+      supplementary_request_status: po.supplementaryRequestStatus || null,
+      supplementary_reason: po.supplementaryReason || null,
+      supplementary_requested_at: po.supplementaryRequestedAt || null,
+      supplementary_approved_at: po.supplementaryApprovedAt || null,
+      renewed_po_wo_number: po.renewedPoWoNumber || null,
+      renewed_total_contract_value: po.renewedTotalContractValue != null ? Number(po.renewedTotalContractValue) : null,
+      renewed_start_date: po.renewedStartDate && String(po.renewedStartDate).trim() ? po.renewedStartDate : null,
+      renewed_end_date: po.renewedEndDate && String(po.renewedEndDate).trim() ? po.renewedEndDate : null,
+      renewal_cycles: Array.isArray(po.renewalCycles) ? po.renewalCycles : [],
+      monthly_duty_qty_mode: po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim() ? String(po.monthlyDutyQtyMode).trim() : null,
+      lump_sum_billing_mode: po.lumpSumBillingMode && String(po.lumpSumBillingMode).trim() ? String(po.lumpSumBillingMode).trim() : null,
     };
 
     const { data: saved, error: poError } = await table('po_wo').upsert(payload, { onConflict: 'id' }).select('id').single();
@@ -167,6 +194,7 @@ export async function saveCommercialPOs(list) {
       description: r.description ?? r.designation ?? '',
       qty: Number(r.qty) || 0,
       rate: Number(r.rate) || 0,
+      category_penalty: r.penalty != null ? Number(r.penalty) : 0,
       sort_order: i,
     }));
     if (rateRows.length) {
@@ -220,6 +248,9 @@ export async function fetchInvoices() {
       poQty: l.po_qty != null ? Number(l.po_qty) : undefined,
       actualDuty: l.actual_duty != null ? Number(l.actual_duty) : undefined,
       authorizedDuty: l.authorized_duty != null ? Number(l.authorized_duty) : undefined,
+      penalty: l.line_penalty != null ? Number(l.line_penalty) : 0,
+      poReferenceRate: l.po_reference_rate != null ? Number(l.po_reference_rate) : undefined,
+      isTruckLine: !!l.is_truck_line,
     });
   });
   const attsByInv = {};
@@ -270,6 +301,14 @@ export async function fetchInvoices() {
     c.clientShippingAddress = inv.client_shipping_address;
     c.placeOfSupply = inv.place_of_supply;
     c.invoiceKind = inv.invoice_kind || 'tax';
+    c.isAddOn = !!inv.is_add_on;
+    c.addOnType = inv.add_on_type || null;
+    c.isPostContractBuffer = !!inv.is_post_contract_buffer;
+    c.cnDnRequestStatus = inv.cn_dn_request_status || null;
+    c.cnDnRequestNoteType = inv.cn_dn_request_note_type || null;
+    c.cnDnRequestReason = inv.cn_dn_request_reason || null;
+    c.cnDnRequestedAt = inv.cn_dn_requested_at || null;
+    c.cnDnApprovedAt = inv.cn_dn_approved_at || null;
     c.gstSupplyType = inv.gst_supply_type || 'intra';
     c.igstRate = inv.igst_rate != null ? Number(inv.igst_rate) : 0;
     c.igstAmt = inv.igst_amt != null ? Number(inv.igst_amt) : 0;
@@ -329,6 +368,14 @@ export async function saveInvoice(inv) {
     client_shipping_address: inv.clientShippingAddress || null,
     place_of_supply: inv.placeOfSupply || null,
     invoice_kind: inv.invoiceKind || 'tax',
+    is_add_on: !!inv.isAddOn,
+    add_on_type: inv.addOnType || null,
+    is_post_contract_buffer: !!inv.isPostContractBuffer,
+    cn_dn_request_status: inv.cnDnRequestStatus || null,
+    cn_dn_request_note_type: inv.cnDnRequestNoteType || null,
+    cn_dn_request_reason: inv.cnDnRequestReason || null,
+    cn_dn_requested_at: inv.cnDnRequestedAt || null,
+    cn_dn_approved_at: inv.cnDnApprovedAt || null,
     gst_supply_type: inv.gstSupplyType || 'intra',
     igst_rate: Number(inv.igstRate) || 0,
     igst_amt: Number(inv.igstAmt) || 0,
@@ -351,6 +398,9 @@ export async function saveInvoice(inv) {
     po_qty: it.poQty != null ? Number(it.poQty) : null,
     actual_duty: it.actualDuty != null ? Number(it.actualDuty) : null,
     authorized_duty: it.authorizedDuty != null ? Number(it.authorizedDuty) : null,
+    line_penalty: it.penalty != null ? Number(it.penalty) : 0,
+    po_reference_rate: it.poReferenceRate != null ? Number(it.poReferenceRate) : null,
+    is_truck_line: !!it.isTruckLine,
   }));
   if (lineRows.length) {
     const { error: lineErr } = await table('invoice_line_item').insert(lineRows);
@@ -367,6 +417,24 @@ export async function saveInvoice(inv) {
   if (attRows.length) {
     const { error: attErr } = await table('invoice_attachment').insert(attRows);
     if (attErr) throw attErr;
+  }
+
+  // Keep add-on metadata in a dedicated table as well.
+  if (inv.isAddOn) {
+    const addOnPayload = {
+      invoice_id: invoiceId,
+      po_id: inv.poId || null,
+      oc_number: inv.ocNumber || null,
+      client_name: inv.clientLegalName || null,
+      location_name: inv.locationName || null,
+      add_on_type: inv.addOnType || 'Other',
+      remarks: inv.invoiceHeaderRemarks || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error: addOnErr } = await table('add_on_invoice').upsert(addOnPayload, { onConflict: 'invoice_id' });
+    if (addOnErr) throw addOnErr;
+  } else {
+    await table('add_on_invoice').delete().eq('invoice_id', invoiceId);
   }
 
   return invoiceId;
@@ -396,6 +464,8 @@ export async function fetchCreditDebitNotes() {
     reason: r.reason,
     e_invoice_irn: r.e_invoice_irn,
     created_at: r.created_at,
+    noteTaxInvoiceNumber: r.note_tax_invoice_number || null,
+    invoiceSnapshot: r.invoice_snapshot || null,
   }));
 }
 
@@ -407,15 +477,20 @@ export async function saveCreditDebitNotes(list) {
     if (delErr) throw delErr;
   }
   if (list.length === 0) return;
-  const rows = list.map((n) => ({
-    id: n.id,
-    parent_invoice_id: n.parentInvoiceId,
-    parent_tax_invoice_number: n.parentTaxInvoiceNumber,
-    note_type: n.type,
-    amount: Number(n.amount) || 0,
-    reason: n.reason,
-    e_invoice_irn: n.e_invoice_irn,
-  }));
+  const rows = list.map((n) => {
+    const idOk = typeof n.id === 'string' && n.id.length === 36;
+    return {
+      ...(idOk ? { id: n.id } : {}),
+      parent_invoice_id: n.parentInvoiceId,
+      parent_tax_invoice_number: n.parentTaxInvoiceNumber,
+      note_type: n.type,
+      amount: Number(n.amount) || 0,
+      reason: n.reason,
+      e_invoice_irn: n.e_invoice_irn || null,
+      note_tax_invoice_number: n.noteTaxInvoiceNumber || null,
+      invoice_snapshot: n.invoiceSnapshot || null,
+    };
+  });
   const { error } = await table('credit_debit_note').insert(rows);
   if (error) throw error;
 }

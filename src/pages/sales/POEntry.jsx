@@ -17,6 +17,12 @@ const APPROVAL_STATUS = {
   REJECTED: 'rejected',
 };
 
+const SUPPLEMENTARY_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+};
+
 function getApprovalBadge(status) {
   if (status === APPROVAL_STATUS.APPROVED) {
     return { label: 'Approved by Commercial Manager', cls: 'bg-emerald-100 text-emerald-800' };
@@ -43,10 +49,113 @@ function generateOCNumber(vertical, series) {
   return `IFSPL-${vertical}-OC-${fy}-${seq}`;
 }
 
+function isAfterContractEnd(endDate) {
+  if (!endDate) return false;
+  const end = new Date(String(endDate));
+  if (Number.isNaN(end.getTime())) return false;
+  // consider contract ended only after end date (not on same day)
+  const today = new Date();
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return todayDay.getTime() > endDay.getTime();
+}
+
+function ymd(d) {
+  return d && String(d).trim() ? String(d).trim() : '';
+}
+
+function makeCycle({ poWoNumber, totalContractValue, startDate, endDate, approvedAt } = {}) {
+  return {
+    po_wo_number: String(poWoNumber || '').trim(),
+    total_contract_value: totalContractValue === '' || totalContractValue == null ? null : Number(totalContractValue) || 0,
+    start_date: ymd(startDate),
+    end_date: ymd(endDate),
+    approved_at: approvedAt || null,
+  };
+}
+
+function getLatestCycle(cycles, fallback) {
+  const arr = Array.isArray(cycles) ? cycles.filter(Boolean) : [];
+  if (arr.length) return arr[arr.length - 1];
+  return fallback;
+}
+
 function validateGSTIN(value) {
   if (!value || value.length !== 15) return false;
   return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/.test(value.toUpperCase());
 }
+
+function extractStateGuess(placeOfSupply, billingAddress) {
+  const raw = String(placeOfSupply || '').trim() || String(billingAddress || '').trim();
+  if (!raw) return '';
+  // naive: take last comma-separated token as state-ish
+  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return (parts[parts.length - 1] || '').toLowerCase();
+}
+
+function isGujaratSupply(placeOfSupply, billingAddress) {
+  const s = extractStateGuess(placeOfSupply, billingAddress);
+  if (!s) return true; // don't block when state is unknown
+  return s.includes('gujarat') || s === 'gj';
+}
+
+function validateGstSupplyTypeForState(placeOfSupply, billingAddress, gstSupplyType) {
+  const st = String(gstSupplyType || 'intra').trim().toLowerCase();
+  const stateGuess = extractStateGuess(placeOfSupply, billingAddress);
+  if (!stateGuess) return 'Select Place of supply before choosing GST type.';
+  const isGuj = stateGuess.includes('gujarat') || stateGuess === 'gj';
+
+  // SEZ 0% is allowed regardless of state.
+  if (st === 'sez_zero') return '';
+
+  // Gujarat => intra only. Outside Gujarat => inter only.
+  if (isGuj && st === 'inter') {
+    return 'Place of supply is Gujarat. Select CGST+SGST (same state) instead of IGST.';
+  }
+  if (!isGuj && st === 'intra') {
+    return 'Client supply state is outside Gujarat. Select IGST (other state) or 0% GST (SEZ) instead of CGST+SGST.';
+  }
+  return '';
+}
+
+const INDIA_STATES_UT = [
+  'Andaman and Nicobar Islands',
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chandigarh',
+  'Chhattisgarh',
+  'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jammu and Kashmir',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Ladakh',
+  'Lakshadweep',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Puducherry',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+];
 
 const GST_SUPPLY_TYPES = [
   { value: 'intra', label: 'CGST + SGST (same state)' },
@@ -58,16 +167,21 @@ const initialForm = {
   siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '',
   currentCoordinator: '', contactNumber: '', ocNumber: '', vertical: 'BILL', ocSeries: '1',
   vendorCode: '',
-  poWoNumber: '', ratePerCategory: [{ description: '', qty: '', rate: '' }],
+  poWoNumber: '', ratePerCategory: [{ description: '', qty: '', rate: '', penalty: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
+  renewalCycles: [],
+  newCyclePoWoNumber: '', newCycleTotalContractValue: '',
   startDate: '', endDate: '', billingType: '', billingCycle: '30', remarks: '',
+  monthlyDutyQtyMode: '',
+  lumpSumBillingMode: '',
   invoiceTermsText: '',
+  sellerCin: '', sellerPan: '', msmeRegistrationNo: '', msmeClause: '',
   gstSupplyType: 'intra',
   revisedPO: false, renewalPending: false,
 };
 
 const POEntry = () => {
-  const { commercialPOs, setCommercialPOs } = useBilling();
+  const { commercialPOs, setCommercialPOs, setInvoices } = useBilling();
   const { userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -75,10 +189,74 @@ const POEntry = () => {
   const [formData, setFormData] = useState(initialForm);
   const [viewHistoryPoId, setViewHistoryPoId] = useState(null);
   const [gstinError, setGstinError] = useState('');
+  const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
   const canApproveCommercialPOs =
     userProfile?.role === ROLES.ADMIN ||
     (userProfile?.role === ROLES.MANAGER && !!accessibleModules?.has('commercial'));
+
+  const requestSupplementaryBill = (po) => {
+    if (!po) return;
+    if (!isAfterContractEnd(po.endDate || po.end_date)) {
+      window.alert('Post-contract billing can be requested only after the contract end date.');
+      return;
+    }
+    const reason = window.prompt('Reason for post-contract billing (optional):', po.supplementaryReason || '') ?? '';
+    const nowIso = new Date().toISOString();
+    setCommercialPOs((prev) =>
+      prev.map((p) =>
+        p.id === po.id
+          ? {
+              ...p,
+              supplementaryRequestStatus: SUPPLEMENTARY_STATUS.PENDING,
+              supplementaryReason: String(reason || '').trim() || null,
+              supplementaryRequestedAt: nowIso,
+              updateHistory: Array.isArray(p.updateHistory)
+                ? [...p.updateHistory, { at: nowIso, summary: 'Post-contract billing requested' }]
+                : [{ at: nowIso, summary: 'Post-contract billing requested' }],
+            }
+          : p
+      )
+    );
+  };
+
+  const approveSupplementaryBill = (po) => {
+    if (!canApproveCommercialPOs || !po) return;
+    const nowIso = new Date().toISOString();
+    setCommercialPOs((prev) =>
+      prev.map((p) =>
+        p.id === po.id
+          ? {
+              ...p,
+              supplementaryRequestStatus: SUPPLEMENTARY_STATUS.APPROVED,
+              supplementaryApprovedAt: nowIso,
+              updateHistory: Array.isArray(p.updateHistory)
+                ? [...p.updateHistory, { at: nowIso, summary: 'Post-contract billing approved — bill on this OC using Create Invoice' }]
+                : [{ at: nowIso, summary: 'Post-contract billing approved — bill on this OC using Create Invoice' }],
+            }
+          : p
+      )
+    );
+  };
+
+  const rejectSupplementaryBill = (po) => {
+    if (!canApproveCommercialPOs || !po) return;
+    const nowIso = new Date().toISOString();
+    setCommercialPOs((prev) =>
+      prev.map((p) =>
+        p.id === po.id
+          ? {
+              ...p,
+              supplementaryRequestStatus: SUPPLEMENTARY_STATUS.REJECTED,
+              supplementaryApprovedAt: null,
+              updateHistory: Array.isArray(p.updateHistory)
+                ? [...p.updateHistory, { at: nowIso, summary: 'Post-contract billing request rejected' }]
+                : [{ at: nowIso, summary: 'Post-contract billing request rejected' }],
+            }
+          : p
+      )
+    );
+  };
 
   const TextCell = ({ value, className = '' }) => {
     const display = value ?? '';
@@ -111,9 +289,11 @@ const POEntry = () => {
   const cleanCellText = (value) => String(value ?? '').replaceAll('|', '').trim();
 
   const filteredList = useMemo(() => {
-    if (!searchTerm.trim()) return commercialPOs;
+    // Hide supplementary/mock POs from PO Entry UI — only manage the parent PO here.
+    const base = commercialPOs.filter((p) => !p.isSupplementary);
+    if (!searchTerm.trim()) return base;
     const s = searchTerm.toLowerCase();
-    return commercialPOs.filter(
+    return base.filter(
       (p) =>
         p.ocNumber?.toLowerCase().includes(s) ||
         p.poWoNumber?.toLowerCase().includes(s) ||
@@ -142,12 +322,14 @@ const POEntry = () => {
     setEditId(null);
     setFormData({ ...initialForm, ocSeries: nextSeries });
     setGstinError('');
+    setGstTypeError('');
     setSaveError('');
     setShowForm(true);
   };
 
   const handleOpenEdit = (po) => {
     setEditId(po.id);
+    const cycles = Array.isArray(po.renewalCycles) ? po.renewalCycles : [];
     setFormData({
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
       billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '', placeOfSupply: po.placeOfSupply || '',
@@ -155,18 +337,44 @@ const POEntry = () => {
       contactNumber: po.contactNumber || '', ocNumber: po.ocNumber || '',
       vertical: po.vertical || (po.ocNumber && po.ocNumber.split('-')[1]) || 'BILL', ocSeries: (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       poWoNumber: po.poWoNumber || '',
+      renewalCycles: cycles,
+      newCyclePoWoNumber: '',
+      newCycleTotalContractValue: '',
       vendorCode: po.vendorCode || '',
       ratePerCategory: Array.isArray(po.ratePerCategory) && po.ratePerCategory.length
-        ? po.ratePerCategory.map((r) => ({ description: r.description || r.designation || '', qty: r.qty ?? '', rate: r.rate ?? '' }))
-        : [{ description: '', qty: '', rate: '' }],
+        ? po.ratePerCategory.map((r) => ({
+            description: r.description || r.designation || '',
+            qty: r.qty ?? '',
+            rate: r.rate ?? '',
+            penalty: r.penalty ?? r.category_penalty ?? '',
+          }))
+        : [{ description: '', qty: '', rate: '', penalty: '' }],
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       billingType: po.billingType || 'Monthly', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
+      monthlyDutyQtyMode:
+        po.billingType === 'Monthly'
+          ? (po.monthlyDutyQtyMode || po.monthly_duty_qty_mode || 'po_geometry')
+          : '',
+      lumpSumBillingMode:
+        po.billingType === 'Lump Sum'
+          ? (() => {
+              const m = String(po.lumpSumBillingMode || po.lump_sum_billing_mode || 'normal').toLowerCase();
+              if (m === 'fire_tender') return 'truck';
+              return po.lumpSumBillingMode || po.lump_sum_billing_mode || 'normal';
+            })()
+          : '',
       invoiceTermsText: po.invoiceTermsText || '',
+      sellerCin: po.sellerCin || '',
+      sellerPan: po.sellerPan || '',
+      msmeRegistrationNo: po.msmeRegistrationNo || '',
+      msmeClause: po.msmeClause || '',
       gstSupplyType: po.gstSupplyType || 'intra',
       revisedPO: !!po.revisedPO, renewalPending: !!po.renewalPending,
+      approvalStatus: po.approvalStatus || APPROVAL_STATUS.DRAFT,
     });
     setGstinError('');
+    setGstTypeError('');
     setSaveError('');
     setShowForm(true);
   };
@@ -176,7 +384,11 @@ const POEntry = () => {
     else setGstinError('');
   };
 
-  const addRateRow = () => setFormData((prev) => ({ ...prev, ratePerCategory: [...prev.ratePerCategory, { description: '', qty: '', rate: '' }] }));
+  const addRateRow = () =>
+    setFormData((prev) => ({
+      ...prev,
+      ratePerCategory: [...prev.ratePerCategory, { description: '', qty: '', rate: '', penalty: '' }],
+    }));
   const updateRateRow = (idx, field, value) =>
     setFormData((prev) => ({ ...prev, ratePerCategory: prev.ratePerCategory.map((r, i) => (i === idx ? { ...r, [field]: value } : r)) }));
   const removeRateRow = (idx) => {
@@ -200,16 +412,86 @@ const POEntry = () => {
 
   const approvePO = (id) => {
     if (!canApproveCommercialPOs) return;
-    setCommercialPOs((prev) =>
-      prev.map((p) =>
-        p.id === id
+    const nowIso = new Date().toISOString();
+    const prev = commercialPOs;
+    const target = prev.find((p) => p.id === id);
+    if (!target) return;
+
+    const next = prev.map((p) => {
+      if (p.id !== id) return p;
+      const cycles = Array.isArray(p.renewalCycles) ? [...p.renewalCycles] : [];
+      const latestIdx = cycles.length ? cycles.length - 1 : -1;
+      const latest = latestIdx >= 0 ? { ...cycles[latestIdx] } : null;
+      if (latest && !latest.approved_at) {
+        latest.approved_at = nowIso;
+        cycles[latestIdx] = latest;
+      }
+      const hasActiveRenewal = latest && latest.po_wo_number && latest.total_contract_value != null;
+      return {
+        ...p,
+        approvalStatus: APPROVAL_STATUS.APPROVED,
+        ...(cycles.length ? { renewalCycles: cycles } : {}),
+        ...(hasActiveRenewal
           ? {
-              ...p,
-              approvalStatus: APPROVAL_STATUS.APPROVED,
+              poWoNumber: latest.po_wo_number,
+              totalContractValue: Number(latest.total_contract_value) || 0,
+              startDate: latest.start_date || p.startDate,
+              endDate: latest.end_date || p.endDate,
+              supplementaryRequestStatus: null,
+              supplementaryReason: null,
+              supplementaryRequestedAt: null,
+              supplementaryApprovedAt: null,
             }
-          : p
-      )
-    );
+          : {}),
+        updateHistory: Array.isArray(p.updateHistory)
+          ? [...p.updateHistory, { at: nowIso, summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : 'PO approved by Commercial Manager' }]
+          : [{ at: nowIso, summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : 'PO approved by Commercial Manager' }],
+      };
+    });
+
+    const latest = getLatestCycle(target?.renewalCycles, null);
+    let nextWithSupp = next;
+    if (latest?.po_wo_number && latest?.total_contract_value != null) {
+      nextWithSupp = next.map((p) => {
+        if (!p.isSupplementary) return p;
+        if (String(p.supplementaryParentPoId || '') !== String(id)) return p;
+        return {
+          ...p,
+          poWoNumber: latest.po_wo_number,
+          totalContractValue: Number(latest.total_contract_value) || 0,
+          startDate: latest.start_date || p.startDate,
+          endDate: latest.end_date || p.endDate,
+          updateHistory: Array.isArray(p.updateHistory)
+            ? [...p.updateHistory, { at: nowIso, summary: `Legacy supplementary row aligned to renewed PO/WO ${latest.po_wo_number}` }]
+            : [{ at: nowIso, summary: `Legacy supplementary row aligned to renewed PO/WO ${latest.po_wo_number}` }],
+        };
+      });
+
+      const legacySupp = prev.find(
+        (p) => p.isSupplementary && String(p.supplementaryParentPoId || '') === String(id)
+      );
+      setInvoices((invs) =>
+        invs.map((inv) => {
+          const parentMatch = String(inv.poId) === String(id);
+          const legacySuppMatch = legacySupp && String(inv.poId) === String(legacySupp.id);
+          if (!parentMatch && !legacySuppMatch) return inv;
+          const mockPoHit = typeof inv.poWoNumber === 'string' && inv.poWoNumber.includes('-SUPP-');
+          const shouldRoll = legacySuppMatch || inv.isPostContractBuffer || (parentMatch && mockPoHit);
+          if (!shouldRoll) return inv;
+          return {
+            ...inv,
+            poId: id,
+            poWoNumber: latest.po_wo_number,
+            billingDurationFrom: latest.start_date || inv.billingDurationFrom,
+            billingDurationTo: latest.end_date || inv.billingDurationTo,
+            isPostContractBuffer: false,
+            updated_at: nowIso,
+          };
+        })
+      );
+    }
+
+    setCommercialPOs(nextWithSupp);
   };
 
   const rejectPO = (id) => {
@@ -228,34 +510,37 @@ const POEntry = () => {
 
   const savePO = () => {
     if (formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
+    // Validate GST type selection against state
+    const gstErr = validateGstSupplyTypeForState(formData.placeOfSupply, formData.billingAddress, formData.gstSupplyType);
+    if (gstErr) {
+      setGstTypeError(gstErr);
+      return;
+    }
+    setGstTypeError('');
     const trimmedOcNumber = (formData.ocNumber || '').trim();
     const trimmedPoWoNumber = (formData.poWoNumber || '').trim();
     const locNorm = (formData.locationName || '').trim().toLowerCase();
     const siteNorm = (formData.siteId || '').trim().toLowerCase();
     const hasDuplicatePO = commercialPOs.some((p) => {
       if (editId && p.id === editId) return false;
-      const sameOc = trimmedOcNumber && (p.ocNumber || '').trim().toLowerCase() === trimmedOcNumber.toLowerCase();
-      if (sameOc) return true;
       const samePoWo = trimmedPoWoNumber && (p.poWoNumber || '').trim().toLowerCase() === trimmedPoWoNumber.toLowerCase();
       if (!samePoWo) return false;
-      const pSite = (p.siteId || '').trim().toLowerCase();
-      const pLoc = (p.locationName || '').trim().toLowerCase();
-      return pSite === siteNorm && pLoc === locNorm;
+      return true;
     });
     if (hasDuplicatePO) {
-      setSaveError('Duplicate OC Number, or duplicate PO/WO for the same Site and Location. Same PO with a different location is allowed.');
+      setSaveError('Duplicate PO/WO Number is not allowed.');
       return;
     }
     const ocNum = trimmedOcNumber;
-    const ratesMap = new Map();
-    formData.ratePerCategory.forEach((r) => {
-      const description = (r.description || '').trim() || 'Other';
-      const key = description.toLowerCase();
-      const qty = Number(r.qty) || 0;
-      const rate = Number(r.rate) || 0;
-      ratesMap.set(key, { description, qty, rate });
-    });
-    const rates = Array.from(ratesMap.values());
+    const rates = formData.ratePerCategory.map((r) => ({
+      description: (r.description || '').trim() || 'Other',
+      qty: Number(r.qty) || 0,
+      rate: Number(r.rate) || 0,
+      penalty:
+        formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty'
+          ? Math.max(0, Number(r.penalty) || 0)
+          : 0,
+    }));
     const totalVal = Number(formData.totalContractValue) || 0;
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
@@ -281,17 +566,48 @@ const POEntry = () => {
         : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
       ocNumber: ocNum, ocSeries: formData.ocSeries || '1', vertical: (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'BILL',
       poWoNumber: formData.poWoNumber.trim(),
-      ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0 }], totalContractValue: totalVal,
+      renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
+      ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
       sacCode: formData.sacCode.trim() || DEFAULT_SAC, hsnCode: formData.hsnCode.trim(), serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: formData.billingType,
       billingCycle: Number(formData.billingCycle) || 30, remarks: formData.remarks.trim(),
+      monthlyDutyQtyMode: formData.billingType === 'Monthly' ? (formData.monthlyDutyQtyMode || null) : null,
+      lumpSumBillingMode: formData.billingType === 'Lump Sum' ? (formData.lumpSumBillingMode || null) : null,
       invoiceTermsText: formData.invoiceTermsText.trim(),
+      sellerCin: (formData.sellerCin || '').trim(),
+      sellerPan: (formData.sellerPan || '').trim(),
+      msmeRegistrationNo: (formData.msmeRegistrationNo || '').trim(),
+      msmeClause: (formData.msmeClause || '').trim(),
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       approvalStatus: editId ? APPROVAL_STATUS.DRAFT : (prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT),
       approvalSentAt: editId ? null : (prevPo?.approvalSentAt || null),
       updateHistory: editId ? historyPrev : [],
+      // Preserve supplementary workflow fields on edit
+      isSupplementary: !!prevPo?.isSupplementary,
+      supplementaryParentPoId: prevPo?.supplementaryParentPoId || null,
+      supplementarySeq: prevPo?.supplementarySeq || null,
+      supplementaryRequestStatus: prevPo?.supplementaryRequestStatus || null,
+      supplementaryReason: prevPo?.supplementaryReason || null,
+      supplementaryRequestedAt: prevPo?.supplementaryRequestedAt || null,
+      supplementaryApprovedAt: prevPo?.supplementaryApprovedAt || null,
     };
+
+    // If user entered a new cycle (only allowed after contract end), append it (pending approval gate is via PO approval flow).
+    const canAddNewCycle = isAfterContractEnd(formData.endDate);
+    const hasNewCycle = String(formData.newCyclePoWoNumber || '').trim() && (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null);
+    if (canAddNewCycle && hasNewCycle) {
+      po.renewalCycles = [
+        ...(po.renewalCycles || []),
+        makeCycle({
+          poWoNumber: formData.newCyclePoWoNumber,
+          totalContractValue: formData.newCycleTotalContractValue,
+          startDate: formData.startDate,
+          endDate: formData.endDate,
+          approvedAt: null,
+        }),
+      ];
+    }
     if (editId) setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
     else setCommercialPOs((prev) => [...prev, po]);
     setSaveError('');
@@ -413,6 +729,61 @@ const POEntry = () => {
                         </td>
                         <td className="px-1 sm:px-2 py-1.5 text-center min-w-0">
                           <div className="flex items-center justify-center gap-1 flex-wrap">
+                            {!po.isSupplementary && (
+                              <>
+                                {po.supplementaryRequestStatus === SUPPLEMENTARY_STATUS.PENDING ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled
+                                      className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 opacity-80 cursor-not-allowed"
+                                      title="Post-contract billing request pending"
+                                    >
+                                      S
+                                    </button>
+                                    {canApproveCommercialPOs ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => approveSupplementaryBill(po)}
+                                          className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                          title="Approve post-contract billing"
+                                        >
+                                          <CheckCircle className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => rejectSupplementaryBill(po)}
+                                          className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                          title="Reject post-contract billing request"
+                                        >
+                                          <XCircle className="w-4 h-4" />
+                                        </button>
+                                      </>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => requestSupplementaryBill(po)}
+                                    disabled={!isAfterContractEnd(po.endDate || po.end_date)}
+                                    className={[
+                                      'inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border',
+                                      isAfterContractEnd(po.endDate || po.end_date)
+                                        ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                        : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed',
+                                    ].join(' ')}
+                                    title={
+                                      isAfterContractEnd(po.endDate || po.end_date)
+                                        ? 'Request post-contract billing (after contract end)'
+                                        : 'Available only after contract end date'
+                                    }
+                                  >
+                                    S
+                                  </button>
+                                )}
+                              </>
+                            )}
                             {po.approvalStatus === APPROVAL_STATUS.DRAFT && (
                               <button
                                 type="button"
@@ -516,9 +887,38 @@ const POEntry = () => {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Legal Name (for GST)</label><input type="text" value={formData.legalName} onChange={(e) => setFormData((p) => ({ ...p, legalName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full legal name" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => setFormData((p) => ({ ...p, billingAddress: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, formData.gstSupplyType); setGstTypeError(msg); }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label><textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Place of supply (invoice)</label><input type="text" value={formData.placeOfSupply} onChange={(e) => setFormData((p) => ({ ...p, placeOfSupply: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. Gujarat — optional" /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Place of supply (invoice)</label>
+                    <select
+                      value={formData.placeOfSupply}
+                      onChange={(e) => {
+                        const nextState = e.target.value;
+                        setFormData((p) => {
+                          const next = { ...p, placeOfSupply: nextState };
+                          // Auto-define tax slab based on state selection:
+                          // Gujarat => intra (CGST+SGST), else => inter (IGST)
+                          if (next.gstSupplyType !== 'sez_zero') {
+                            next.gstSupplyType = nextState === 'Gujarat' ? 'intra' : 'inter';
+                          }
+                          return next;
+                        });
+                        const msg = validateGstSupplyTypeForState(nextState, formData.billingAddress, formData.gstSupplyType);
+                        setGstTypeError(msg);
+                        if (msg) window.alert(msg);
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                    >
+                      <option value="">Select state/UT…</option>
+                      {INDIA_STATES_UT.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Tax type auto-sets to CGST+SGST for Gujarat; IGST for other states (SEZ 0% remains as selected).
+                    </p>
+                  </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Site / Location ID</label><input type="text" value={formData.siteId} onChange={(e) => setFormData((p) => ({ ...p, siteId: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. SITE-001" /></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label><input type="text" value={formData.locationName} onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
@@ -536,21 +936,176 @@ const POEntry = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label><div className="flex gap-2"><input type="text" value={formData.ocNumber} onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" /><select value={formData.vertical} onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-2">{VERTICALS.map((v) => <option key={v} value={v}>{v}</option>)}</select></div></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label><input type="text" value={formData.vendorCode} onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">PO/WO Number</label><input type="text" value={formData.poWoNumber} onChange={(e) => setFormData((p) => ({ ...p, poWoNumber: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Total Contract Value (₹)</label><input type="number" value={formData.totalContractValue} onChange={(e) => setFormData((p) => ({ ...p, totalContractValue: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" min="0" /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      PO Number (OLD) <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.poWoNumber}
+                      onChange={(e) => setFormData((p) => ({ ...p, poWoNumber: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      disabled={Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0 && formData.approvalStatus === APPROVAL_STATUS.APPROVED}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Total contract value (OLD) <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.totalContractValue}
+                      onChange={(e) => setFormData((p) => ({ ...p, totalContractValue: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      min="0"
+                      disabled={(Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0) && formData.approvalStatus === APPROVAL_STATUS.APPROVED}
+                    />
+                  </div>
                 </div>
-                <div className="mt-3"><div className="flex justify-between items-center mb-2"><label className="text-sm font-medium text-gray-700">Rate per Category</label><button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button></div><table className="min-w-full border border-gray-200 rounded-lg overflow-hidden"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th><th className="w-10"/></tr></thead><tbody className="divide-y divide-gray-200">{formData.ratePerCategory.map((r, idx) => (<tr key={idx}><td className="px-3 py-2"><input type="text" value={r.description} onChange={(e) => updateRateRow(idx, 'description', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" placeholder="" /></td><td className="px-3 py-2"><input type="number" value={r.qty} onChange={(e) => updateRateRow(idx, 'qty', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" min="0" /></td><td className="px-3 py-2"><input type="number" value={r.rate} onChange={(e) => updateRateRow(idx, 'rate', e.target.value)} className="border border-gray-300 rounded px-2 py-1 w-full" min="0" /></td><td className="px-2 py-1"><button type="button" onClick={() => removeRateRow(idx)} className="text-red-600 hover:bg-red-50 rounded p-1">×</button></td></tr>))}</tbody></table></div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      New PO Number <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                    </label>
+                    <div className="grid grid-cols-1 gap-2">
+                      <input
+                        type="text"
+                        value={formData.newCyclePoWoNumber}
+                        onChange={(e) => setFormData((p) => ({ ...p, newCyclePoWoNumber: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        placeholder="New PO/WO number (renewal)"
+                        disabled={!isAfterContractEnd(formData.endDate)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      New Total contract value (₹) <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.newCycleTotalContractValue}
+                      onChange={(e) => setFormData((p) => ({ ...p, newCycleTotalContractValue: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      min="0"
+                      placeholder="New contract value"
+                      disabled={!isAfterContractEnd(formData.endDate)}
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      After Commercial approves renewal, buffer-period tax invoices (and any legacy supplementary PO rows) are aligned to this new PO/WO number and contract dates.
+                    </p>
+                    {!isAfterContractEnd(formData.endDate) ? (
+                      <p className="text-[11px] text-amber-700 mt-1">
+                        New PO/WO details can be added only after the contract end date.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-gray-700 mb-2">Previous renewal cycles</p>
+                    <div className="space-y-1 text-xs text-gray-600">
+                      {formData.renewalCycles.map((c, i) => (
+                        <div key={i} className="flex flex-wrap gap-x-3 gap-y-1">
+                          <span className="font-mono">{c.po_wo_number || '—'}</span>
+                          <span>₹{Number(c.total_contract_value || 0).toLocaleString('en-IN')}</span>
+                          <span>({c.start_date || '—'} to {c.end_date || '—'})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="mt-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-sm font-medium text-gray-700">Rate per Category</label>
+                    <button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button>
+                  </div>
+                  <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
+                        {formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty' ? (
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Penalty (₹)</th>
+                        ) : null}
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
+                        <th className="w-10" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {formData.ratePerCategory.map((r, idx) => (
+                        <tr key={idx}>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={r.description}
+                              onChange={(e) => updateRateRow(idx, 'description', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                              placeholder=""
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={r.qty}
+                              onChange={(e) => updateRateRow(idx, 'qty', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                              min="0"
+                            />
+                          </td>
+                          {formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty' ? (
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={r.penalty ?? ''}
+                                onChange={(e) => updateRateRow(idx, 'penalty', e.target.value)}
+                                className="border border-gray-300 rounded px-2 py-1 w-full"
+                                min="0"
+                                step="0.01"
+                              />
+                            </td>
+                          ) : null}
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={r.rate}
+                              onChange={(e) => updateRateRow(idx, 'rate', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                              min="0"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <button type="button" onClick={() => removeRateRow(idx)} className="text-red-600 hover:bg-red-50 rounded p-1">×</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-900 mb-4">4. Tax & Service</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">GST on supply</label>
-                    <select value={formData.gstSupplyType} onChange={(e) => setFormData((p) => ({ ...p, gstSupplyType: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">
+                    <select
+                      value={formData.gstSupplyType}
+                      onChange={(e) => {
+                        const nextType = e.target.value;
+                        setFormData((p) => ({ ...p, gstSupplyType: nextType }));
+                        const msg = validateGstSupplyTypeForState(formData.placeOfSupply, formData.billingAddress, nextType);
+                        setGstTypeError(msg);
+                        if (msg) window.alert(msg);
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
                       {GST_SUPPLY_TYPES.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>
+                    {gstTypeError && <p className="text-red-600 text-xs mt-1">{gstTypeError}</p>}
                   </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">SAC Code</label><input type="text" value={formData.sacCode} onChange={(e) => setFormData((p) => ({ ...p, sacCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label><input type="text" value={formData.hsnCode} onChange={(e) => setFormData((p) => ({ ...p, hsnCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
@@ -569,8 +1124,92 @@ const POEntry = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => setFormData((p) => ({ ...p, startDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => setFormData((p) => ({ ...p, endDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label><select value={formData.billingType} onChange={(e) => setFormData((p) => ({ ...p, billingType: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
+                    <select
+                      value={formData.billingType}
+                      onChange={(e) => {
+                        const bt = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          billingType: bt,
+                          monthlyDutyQtyMode:
+                            bt === 'Monthly' ? (p.monthlyDutyQtyMode || 'po_geometry') : '',
+                          lumpSumBillingMode:
+                            bt === 'Lump Sum' ? (p.lumpSumBillingMode || 'normal') : '',
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      {BILLING_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
+                  {formData.billingType === 'Monthly' ? (
+                    <div className="md:col-span-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-gray-800">Monthly billing — quantity rule (pick one)</p>
+                      <div className="flex flex-col sm:flex-row flex-wrap gap-4">
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.monthlyDutyQtyMode === 'po_geometry'}
+                            onChange={() => setFormData((p) => ({ ...p, monthlyDutyQtyMode: 'po_geometry' }))}
+                            className="rounded border-gray-300 mt-0.5"
+                          />
+                          <span className="text-sm text-gray-700">
+                            (Actual duty ÷ Authorised duty) × PO quantity = Qty
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.monthlyDutyQtyMode === 'duty_ratio'}
+                            onChange={() => setFormData((p) => ({ ...p, monthlyDutyQtyMode: 'duty_ratio' }))}
+                            className="rounded border-gray-300 mt-0.5"
+                          />
+                          <span className="text-sm text-gray-700">
+                            (Actual duty ÷ Authorised duty) = Qty
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  ) : null}
+                  {formData.billingType === 'Lump Sum' ? (
+                    <div className="md:col-span-2 rounded-lg border border-amber-100 bg-amber-50/50 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-gray-800">Lump sum billing — layout &amp; calculation (pick one)</p>
+                      <div className="flex flex-col gap-2">
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.lumpSumBillingMode === 'penalty'}
+                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'penalty' }))}
+                            className="rounded border-gray-300 mt-0.5"
+                          />
+                          <span className="text-sm text-gray-700">Penalty column on PO (next to Qty); Rate = (Actual÷Auth)×PO rate − Penalty on invoice</span>
+                        </label>
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.lumpSumBillingMode === 'truck'}
+                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'truck' }))}
+                            className="rounded border-gray-300 mt-0.5"
+                          />
+                          <span className="text-sm text-gray-700">Truck rows — add manual Qty×Rate lines on Create Invoice (PO lines keep duty-based rate)</span>
+                        </label>
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.lumpSumBillingMode === 'normal'}
+                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'normal' }))}
+                            className="rounded border-gray-300 mt-0.5"
+                          />
+                          <span className="text-sm text-gray-700">Normal lump sum calculation</span>
+                        </label>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter remarks" /></div>
                   <p className="md:col-span-2 text-xs font-semibold text-gray-700">
                     Select to enable PO updates and Renewal reminders

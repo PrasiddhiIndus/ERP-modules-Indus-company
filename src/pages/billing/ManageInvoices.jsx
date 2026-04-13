@@ -14,11 +14,12 @@ import {
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { generateEInvoice } from '../../services/eInvoiceApi';
-import { downloadTaxInvoicePdf } from '../../utils/taxInvoicePdf';
+import { downloadTaxInvoicePdf, downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import ManagePAModal from './ManagePAModal';
 import GenerateEInvoiceModal from './GenerateEInvoiceModal';
+import { netAfterCnDn } from '../../utils/cnDn';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -50,7 +51,7 @@ const BILLING_TYPE_TABS = [
 ];
 
 const ManageInvoices = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices, setInvoiceDraft } = useBilling();
+  const { commercialPOs, invoices, setInvoices, setInvoiceDraft, creditDebitNotes } = useBilling();
   const [billingTypeFilter, setBillingTypeFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewId, setViewId] = useState(null);
@@ -61,15 +62,17 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const PAGE_SIZE = 10;
 
   const getInvoiceBillingType = (inv) => {
+    if (inv.isAddOn) return 'Add-On';
     if (inv.billingType) return inv.billingType;
     const po = commercialPOs.find((p) => p.id === inv.poId);
     return po?.billingType || 'Monthly';
   };
 
   const filteredInvoices = useMemo(() => {
-    let list = billingTypeFilter === 'All'
-      ? [...invoices]
-      : invoices.filter((inv) => getInvoiceBillingType(inv) === billingTypeFilter);
+    let list =
+      billingTypeFilter === 'All'
+        ? invoices.filter((inv) => !inv.isAddOn)
+        : invoices.filter((inv) => !inv.isAddOn && getInvoiceBillingType(inv) === billingTypeFilter);
     if (searchTerm.trim()) {
       const s = searchTerm.toLowerCase();
       list = list.filter(
@@ -81,6 +84,21 @@ const ManageInvoices = ({ onNavigateTab }) => {
     }
     return list;
   }, [invoices, commercialPOs, billingTypeFilter, searchTerm]);
+
+  const addOnInvoices = useMemo(() => {
+    let list = invoices.filter((inv) => !!inv.isAddOn);
+    if (searchTerm.trim()) {
+      const s = searchTerm.toLowerCase();
+      list = list.filter(
+        (inv) =>
+          inv.taxInvoiceNumber?.toLowerCase().includes(s) ||
+          inv.ocNumber?.toLowerCase().includes(s) ||
+          inv.clientLegalName?.toLowerCase().includes(s) ||
+          inv.addOnType?.toLowerCase().includes(s)
+      );
+    }
+    return list;
+  }, [invoices, searchTerm]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / PAGE_SIZE));
   const start = (page - 1) * PAGE_SIZE;
@@ -153,7 +171,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
   const selectedInv = viewId ? invoices.find((i) => i.id === viewId) : null;
 
-  // Reset to page 1 when filter or search changes
   React.useEffect(() => {
     setPage(1);
   }, [billingTypeFilter, searchTerm]);
@@ -170,7 +187,124 @@ const ManageInvoices = ({ onNavigateTab }) => {
         </div>
       </div>
 
-      {/* Billing type: same tab navigation UI as main Billing tabs */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 bg-violet-50/60">
+          <h3 className="text-sm font-semibold text-violet-800">Add-On Invoices</h3>
+          <p className="text-xs text-violet-700 mt-0.5">Appraisal / gratuity / reimbursement and other add-on bills</p>
+        </div>
+        <div className="px-3 pb-3 pt-3">
+          <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+            <div className="p-2">
+              <div className="bg-white rounded-lg overflow-hidden">
+                <div className="w-full max-w-full min-w-0 overflow-x-auto">
+                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Invoice #</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Type</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">OC / Site</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Amount</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Net after CN/DN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[8%]">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {addOnInvoices.map((inv) => (
+                        <tr key={`addon-${inv.id}`} className="hover:bg-gray-50 align-top">
+                          <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate">
+                            <div className="flex flex-col items-center gap-0.5 min-w-0">
+                              <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
+                              {(inv.cnDnRequestStatus || inv.cn_dn_request_status) === 'pending' ? (
+                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 whitespace-nowrap">CN/DN pending</span>
+                              ) : null}
+                              {(inv.cnDnRequestStatus || inv.cn_dn_request_status) === 'approved' ? (
+                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 whitespace-nowrap">CN/DN approved</span>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center truncate">{inv.addOnType || 'Add-On'}</td>
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center truncate">
+                            {inv.ocNumber} / {inv.siteId}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-700 truncate">{inv.clientLegalName || inv.client_name}</td>
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums">
+                            ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
+                          </td>
+                          <td
+                            className="px-3 py-2 text-xs text-center tabular-nums font-medium text-gray-800"
+                            title="Invoice total − credit notes + debit notes linked to this tax invoice"
+                          >
+                            ₹
+                            {netAfterCnDn(inv.id, creditDebitNotes, inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-center">
+                            {inv.e_invoice_irn ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <div className="flex flex-wrap items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setViewId(inv.id)}
+                                title="View invoice"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => (inv.e_invoice_irn ? null : setGenerateEInvoiceModalId(inv.id))}
+                                disabled={!!inv.e_invoice_irn || generatingEInvoiceId === inv.id}
+                                title={inv.e_invoice_irn ? 'E-Invoice generated' : 'Generate E-Invoice'}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <FileDigit className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void downloadTaxInvoicePdf(inv)}
+                                title="Download Tax Invoice PDF"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setManagePAInvoiceId(inv.id)}
+                                title="Manage PA"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                              >
+                                <FileCheck className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteInvoice(inv.id)}
+                                title="Delete invoice"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {addOnInvoices.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={8}>
+                            No add-on invoices found.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-4 sm:px-6 py-2 border-b border-gray-100 flex items-center justify-between">
           <p className="text-sm font-medium text-gray-600">Billing type</p>
@@ -220,8 +354,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Billing type</th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">OC / Site</th>
                         <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Amount</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Remaining (₹)</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[9%]">Amount</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[9%]">Net after CN/DN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">PO rem. (₹)</th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[8%]">E-Inv</th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Actions</th>
                       </tr>
@@ -229,114 +364,126 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     <tbody className="divide-y divide-gray-200 bg-white">
                       {paginatedInvoices.map((inv) => (
                         <tr key={inv.id} className="hover:bg-gray-50 align-top">
-                  {(() => {
-                    const po = commercialPOs.find((p) => String(p.id) === String(inv.poId));
-                    const contract = Number(po?.totalContractValue) || 0;
-                    const rateSum = sumRatePerCategory(po);
-                    const dCount = daysInMonth(inv.invoiceDate || inv.created_at);
-                    const expected = round2(rateSum * dCount);
-                    const remaining = round2(contract - expected);
-                    return (
-                      <>
-                        <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
-                          {inv.taxInvoiceNumber || inv.bill_number}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={getInvoiceBillingType(inv) || ''}>
-                          {getInvoiceBillingType(inv)}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={`${inv.ocNumber || ''} / ${inv.siteId || ''}`}>
-                          {inv.ocNumber} / {inv.siteId}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-700 truncate" title={inv.clientLegalName || inv.client_name || ''}>
-                          {inv.clientLegalName || inv.client_name}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums">
-                          ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-center">
-                    {contract > 0 ? (
-                      <span
-                        className={`font-medium ${remaining < 0 ? 'text-red-700' : 'text-gray-700'}`}
-                        title={`Contract ₹${contract.toLocaleString('en-IN')} − (Rate sum ₹${rateSum.toLocaleString('en-IN')} × ${dCount} days = ₹${expected.toLocaleString('en-IN')})`}
-                      >
-                        {formatINRWithSign(remaining)}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">–</span>
-                    )}
-                  </td>
-                        <td className="px-3 py-2 text-xs text-center">
-                    {inv.e_invoice_irn ? (
-                      <span className="text-green-600">Yes</span>
-                    ) : (
-                      <span className="text-gray-400">No</span>
-                    )}
-                  </td>
-                        <td className="px-3 py-2 text-center">
-                          <div className="flex flex-wrap items-center justify-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setViewId(inv.id)}
-                        title="View invoice"
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (inv.e_invoice_irn) return;
-                          setInvoiceDraft({ mode: 'edit', invoiceId: inv.id, poId: inv.poId });
-                          onNavigateTab && onNavigateTab('create-invoice');
-                        }}
-                        title={inv.e_invoice_irn ? 'Cannot edit after e-invoice (IRN) generated' : 'Edit invoice'}
-                        disabled={!!inv.e_invoice_irn}
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void downloadTaxInvoicePdf(inv)}
-                        title="Download Tax Invoice PDF"
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => (inv.e_invoice_irn ? null : setGenerateEInvoiceModalId(inv.id))}
-                        disabled={!!inv.e_invoice_irn || generatingEInvoiceId === inv.id}
-                        title={inv.e_invoice_irn ? 'E-Invoice generated' : 'Generate E-Invoice'}
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <FileDigit className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteInvoice(inv.id)}
-                        title="Delete invoice"
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setManagePAInvoiceId(inv.id)}
-                        title="Manage PA"
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                      >
-                        <FileCheck className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                      </>
-                    );
-                  })()}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                          {(() => {
+                            const po = commercialPOs.find((p) => String(p.id) === String(inv.poId));
+                            const contract = Number(po?.totalContractValue) || 0;
+                            const rateSum = sumRatePerCategory(po);
+                            const dCount = daysInMonth(inv.invoiceDate || inv.created_at);
+                            const expected = round2(rateSum * dCount);
+                            const remaining = round2(contract - expected);
+                            const cnSt = inv.cnDnRequestStatus || inv.cn_dn_request_status;
+                            return (
+                              <>
+                                <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
+                                  <div className="flex flex-col items-center gap-0.5 min-w-0">
+                                    <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
+                                    {cnSt === 'pending' ? (
+                                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 whitespace-nowrap">CN/DN pending</span>
+                                    ) : null}
+                                    {cnSt === 'approved' ? (
+                                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 whitespace-nowrap">CN/DN approved</span>
+                                    ) : null}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={getInvoiceBillingType(inv) || ''}>
+                                  {getInvoiceBillingType(inv)}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={`${inv.ocNumber || ''} / ${inv.siteId || ''}`}>
+                                  {inv.ocNumber} / {inv.siteId}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-gray-700 truncate" title={inv.clientLegalName || inv.client_name || ''}>
+                                  {inv.clientLegalName || inv.client_name}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums">
+                                  ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
+                                </td>
+                                <td
+                                  className="px-3 py-2 text-xs text-center tabular-nums font-medium text-gray-800"
+                                  title="Tax invoice total − credits + debits linked to this invoice"
+                                >
+                                  ₹
+                                  {netAfterCnDn(inv.id, creditDebitNotes, inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-center">
+                                  {contract > 0 ? (
+                                    <span
+                                      className={`font-medium ${remaining < 0 ? 'text-red-700' : 'text-gray-700'}`}
+                                      title={`PO contract remaining: Contract ₹${contract.toLocaleString('en-IN')} − (Rate sum ₹${rateSum.toLocaleString('en-IN')} × ${dCount} days = ₹${expected.toLocaleString('en-IN')})`}
+                                    >
+                                      {formatINRWithSign(remaining)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-400">–</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-center">
+                                  {inv.e_invoice_irn ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewId(inv.id)}
+                                      title="View invoice"
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (inv.e_invoice_irn) return;
+                                        setInvoiceDraft({ mode: 'edit', invoiceId: inv.id, poId: inv.poId });
+                                        onNavigateTab && onNavigateTab('create-invoice');
+                                      }}
+                                      title={inv.e_invoice_irn ? 'Cannot edit after e-invoice (IRN) generated' : 'Edit invoice'}
+                                      disabled={!!inv.e_invoice_irn}
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void downloadTaxInvoicePdf(inv)}
+                                      title="Download Tax Invoice PDF"
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                                    >
+                                      <Download className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => (inv.e_invoice_irn ? null : setGenerateEInvoiceModalId(inv.id))}
+                                      disabled={!!inv.e_invoice_irn || generatingEInvoiceId === inv.id}
+                                      title={inv.e_invoice_irn ? 'E-Invoice generated' : 'Generate E-Invoice'}
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      <FileDigit className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteInvoice(inv.id)}
+                                      title="Delete invoice"
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setManagePAInvoiceId(inv.id)}
+                                      title="Manage PA"
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                    >
+                                      <FileCheck className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </>
+                            );
+                          })()}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -382,25 +529,77 @@ const ManageInvoices = ({ onNavigateTab }) => {
         )}
       </div>
 
-      {selectedInv && (() => {
-        const inv = selectedInv;
-        return (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
-              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
-                <h3 className="text-lg font-semibold text-gray-900">Tax Invoice Preview – {inv.taxInvoiceNumber || '–'}</h3>
-                <button type="button" onClick={() => setViewId(null)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+      <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-amber-100 bg-amber-50/90">
+          <h3 className="text-sm font-semibold text-amber-950">Issued credit & debit notes</h3>
+          <p className="text-xs text-amber-900/85 mt-0.5">
+            Same document layout as tax invoices; numbers are CN-… or DN-… with the parent tax invoice number as the base.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Type</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Note #</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Parent tax invoice</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">PDF</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {(creditDebitNotes || []).map((note) => (
+                <tr key={String(note.id)} className="hover:bg-gray-50">
+                  <td className="px-3 py-2 capitalize font-medium">{note.type}</td>
+                  <td className="px-3 py-2 font-mono text-gray-800">{note.noteTaxInvoiceNumber || '–'}</td>
+                  <td className="px-3 py-2 font-mono text-gray-600">{note.parentTaxInvoiceNumber}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">₹{(note.amount || 0).toLocaleString('en-IN')}</td>
+                  <td className="px-3 py-2 text-gray-600">{note.created_at || '–'}</td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const parent = invoices.find((i) => String(i.id) === String(note.parentInvoiceId));
+                        void downloadCreditDebitNotePdf(note, parent, {
+                          digitalSignatureDataUrl: parent?.digitalSignatureDataUrl || parent?.digital_signature_data_url,
+                        });
+                      }}
+                      className="text-amber-700 hover:underline text-xs font-medium"
+                    >
+                      Download
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {(!creditDebitNotes || creditDebitNotes.length === 0) && (
+          <p className="px-4 py-6 text-center text-sm text-gray-500">No credit or debit notes issued yet.</p>
+        )}
+      </div>
 
-              <div className="p-4 sm:p-6 bg-gray-100">
-                <InvoiceHtmlPreview inv={inv} />
+      {selectedInv &&
+        (() => {
+          const inv = selectedInv;
+          return (
+            <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
+                <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+                  <h3 className="text-lg font-semibold text-gray-900">Tax Invoice Preview – {inv.taxInvoiceNumber || '–'}</h3>
+                  <button type="button" onClick={() => setViewId(null)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-4 sm:p-6 bg-gray-100">
+                  <InvoiceHtmlPreview inv={inv} />
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       {managePAInvoiceId && (
         <ManagePAModal

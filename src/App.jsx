@@ -293,6 +293,7 @@ function App() {
             <Route path="billing" element={<Billing />} />
             <Route path="billing/dashboard" element={<Billing />} />
             <Route path="billing/create-invoice" element={<Billing />} />
+            <Route path="billing/add-on-invoices" element={<Billing />} />
             <Route path="billing/manage-invoices" element={<Billing />} />
             <Route path="billing/generated-e-invoice" element={<Billing />} />
             <Route path="billing/credit-notes" element={<Billing />} />

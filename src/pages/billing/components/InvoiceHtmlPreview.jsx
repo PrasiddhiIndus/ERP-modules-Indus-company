@@ -29,6 +29,8 @@ function formatMoney2(n) {
 function docTitleForKind(kind) {
   if (kind === 'proforma') return 'PROFORMA INVOICE';
   if (kind === 'draft') return 'DRAFT INVOICE';
+  if (kind === 'credit_note') return 'CREDIT NOTE';
+  if (kind === 'debit_note') return 'DEBIT NOTE';
   return 'TAX INVOICE';
 }
 
@@ -98,8 +100,16 @@ export default function InvoiceHtmlPreview({ inv }) {
 
   const invoiceNo = inv.taxInvoiceNumber || inv.billNumber || inv.bill_number || '–';
 
+  const origTaxNo =
+    inv.originalTaxInvoiceNumber ||
+    inv.original_tax_invoice_number ||
+    inv.parentTaxInvoiceNumber ||
+    inv.parent_tax_invoice_number;
   const metaRows = [
     ['Invoice No.', invoiceNo],
+    ...(origTaxNo && (invoiceKind === 'credit_note' || invoiceKind === 'debit_note')
+      ? [['Original Tax Invoice No.', String(origTaxNo)]]
+      : []),
     ['Bill No.', billNo],
     ['Billing Month', billMonth],
     ['Billing Duration', billingDur],
@@ -218,6 +228,12 @@ export default function InvoiceHtmlPreview({ inv }) {
               <tr className="bg-slate-50">
                 <td className="border border-slate-400 px-1.5 py-1.5 text-right font-semibold" colSpan={7}>IGST @ {previewIgstRate}%</td>
                 <td className="border border-slate-400 px-1.5 py-1.5 text-right font-semibold tabular-nums">{formatMoney2(previewIgst)}</td>
+              </tr>
+            )}
+            {previewGstMode === 'sez_zero' && (
+              <tr className="bg-slate-50">
+                <td className="border border-slate-400 px-1.5 py-1.5 text-right font-semibold" colSpan={7}>GST @ 0% (SEZ / nil rated)</td>
+                <td className="border border-slate-400 px-1.5 py-1.5 text-right font-semibold tabular-nums">{formatMoney2(0)}</td>
               </tr>
             )}
           </tbody>

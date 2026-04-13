@@ -1,7 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { SectionCard, DenseTable, StatusChip, Badge, FilterBar, TinySelect } from "./components/AdminUi";
 import { mockAlerts } from "./data/mockAdminData";
+import { supabase } from "../../lib/supabase";
+import {
+  employeesWithBirthdayToday,
+  employeesWithAnniversaryToday,
+} from "../../utils/employeeMasterReminders";
 
 const base = "/app/admin";
 
@@ -17,7 +22,70 @@ const tabs = [
 export default function AdminOpsAlerts() {
   const [tab, setTab] = useState("employee");
   const navigate = useNavigate();
-  const rows = mockAlerts.filter((a) => a.tab === tab);
+  const [empMaster, setEmpMaster] = useState([]);
+  const [empLoadError, setEmpLoadError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (tab !== "employee") return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || cancelled) {
+          setEmpMaster([]);
+          return;
+        }
+        const { data, error } = await supabase
+          .from("admin_ifsp_employee_master")
+          .select(
+            "id, employee_id, full_name, date_of_birth, date_of_anniversary, status, birthday_reminder, anniversary_reminder"
+          )
+          .eq("user_id", user.id);
+        if (cancelled) return;
+        if (error) throw error;
+        setEmpMaster(data || []);
+        setEmpLoadError(null);
+      } catch (e) {
+        if (!cancelled) {
+          setEmpMaster([]);
+          setEmpLoadError(e?.message || "Could not load employee master");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
+  const birthdaysToday = tab === "employee" ? employeesWithBirthdayToday(empMaster) : [];
+  const anniversariesToday = tab === "employee" ? employeesWithAnniversaryToday(empMaster) : [];
+
+  const celebrationRows = [];
+  if (tab === "employee") {
+    birthdaysToday.forEach((e, i) => {
+      celebrationRows.push({
+        id: `bday-${e.id}-${i}`,
+        severity: "warning",
+        title: `Birthday: ${e.full_name} (${e.employee_id || "—"})`,
+        due: "Today",
+        assign: "HR / Admin",
+        link: "Employee Master",
+      });
+    });
+    anniversariesToday.forEach((e, i) => {
+      celebrationRows.push({
+        id: `ann-${e.id}-${i}`,
+        severity: "warning",
+        title: `Wedding anniversary: ${e.full_name} (${e.employee_id || "—"})`,
+        due: "Today",
+        assign: "HR / Admin",
+        link: "Employee Master",
+      });
+    });
+  }
+
+  const mockRows = mockAlerts.filter((a) => a.tab === tab);
+  const rows = tab === "employee" ? [...celebrationRows, ...mockRows] : mockRows;
 
   return (
     <div className="space-y-4">
@@ -47,8 +115,18 @@ export default function AdminOpsAlerts() {
             <option>High</option>
             <option>Warning</option>
           </TinySelect>
-          <span className="text-[11px] text-gray-500 self-center">Examples: leave queue, shortages, visitor checkout, F&F assets, transit SLA</span>
+          <span className="text-[11px] text-gray-500 self-center">
+            {tab === "employee"
+              ? "Birthdays and wedding anniversaries (today) are loaded from IFSPL Employee Master for all active employees with reminders on."
+              : "Examples: leave queue, shortages, visitor checkout, F&F assets, transit SLA"}
+          </span>
         </FilterBar>
+        {tab === "employee" && empLoadError && (
+          <p className="text-[11px] text-amber-700 mt-2">{empLoadError}</p>
+        )}
+        {tab === "employee" && !empLoadError && celebrationRows.length === 0 && empMaster.length > 0 && (
+          <p className="text-[11px] text-gray-500 mt-2">No birthdays or anniversaries today.</p>
+        )}
         <div className="mt-3">
           <DenseTable
             columns={[
@@ -80,6 +158,7 @@ export default function AdminOpsAlerts() {
                         Compliance: "employee/compliance-documents",
                         Events: "misc/events-coordination",
                         Transfer: "store/transfer-transit",
+                        "Employee Master": "employee/master",
                       };
                       const p = map[r.link] || "dashboard";
                       navigate(`${base}/${p}`);

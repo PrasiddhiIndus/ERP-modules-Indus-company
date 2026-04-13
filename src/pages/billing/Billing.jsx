@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { BillingProvider } from '../../contexts/BillingContext';
 import BillingDashboard from './BillingDashboard';
 import CreateInvoice from './CreateInvoice';
+import AddOnInvoices from './AddOnInvoices';
 import ManageInvoices from './ManageInvoices';
 import GeneratedEInvoice from './GeneratedEInvoice';
 import CreditNotes from './CreditNotes';
@@ -11,7 +12,7 @@ import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
 
 // Order matches left sidebar: Generated E-Invoice last (after Manage Invoices workflow)
-const TAB_IDS = ['dashboard', 'create-invoice', 'manage-invoices', 'credit-notes', 'reports', 'tracking', 'notifications', 'generated-e-invoice'];
+const TAB_IDS = ['dashboard', 'create-invoice', 'add-on-invoices', 'manage-invoices', 'credit-notes', 'reports', 'tracking', 'notifications', 'generated-e-invoice'];
 
 const getBillingPathTab = (pathname) => {
   const suffix = pathname.replace(/^\/app\/billing\/?/, '') || 'dashboard';
@@ -27,6 +28,7 @@ const Billing = () => {
   const tabs = [
     { id: 'dashboard', component: BillingDashboard },
     { id: 'create-invoice', component: CreateInvoice },
+    { id: 'add-on-invoices', component: AddOnInvoices },
     { id: 'manage-invoices', component: ManageInvoices },
     { id: 'credit-notes', component: CreditNotes },
     { id: 'reports', component: BillingReports },
