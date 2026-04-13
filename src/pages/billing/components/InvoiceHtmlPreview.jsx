@@ -3,10 +3,8 @@ import {
   SELLER as PDF_SELLER,
   BANK,
   JURISDICTION,
-  FOOTER_ADDRESS,
-  FOOTER_PHONE,
-  FOOTER_EMAIL,
-  FOOTER_WEB,
+  INVOICE_LETTERHEAD_FOOTER,
+  INVOICE_LETTERHEAD_STRIP_COLOR,
   formatPdfDate,
   amountInWords,
   getInvoiceTotals,
@@ -59,7 +57,6 @@ export default function InvoiceHtmlPreview({ inv }) {
 
   const previewPaymentTerms = inv.paymentTerms || '30 Days';
   const previewInvoiceDateStr = formatPdfDate(inv.invoiceDate || inv.created_at);
-  const previewOrderDateStr = inv.poWoDate ? formatPdfDate(inv.poWoDate) : previewInvoiceDateStr;
   const previewBuyerOrderNo = inv.poWoNumber || inv.ocNumber || '–';
 
   const buyerName = inv.clientLegalName || inv.client_name || '–';
@@ -79,7 +76,6 @@ export default function InvoiceHtmlPreview({ inv }) {
   const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no || PDF_SELLER.msmeUdyamNo;
   const msmeClause = inv.msmeClause || inv.msme_clause || (msmeNo ? DEFAULT_MSME_CLAUSE : '');
 
-  const billNo = inv.billNumber || inv.bill_number || '–';
   const billMonth = inv.billingMonth || inv.billing_month || '–';
   const durFrom = inv.billingDurationFrom || inv.billing_duration_from;
   const durTo = inv.billingDurationTo || inv.billing_duration_to;
@@ -110,13 +106,11 @@ export default function InvoiceHtmlPreview({ inv }) {
     ...(origTaxNo && (invoiceKind === 'credit_note' || invoiceKind === 'debit_note')
       ? [['Original Tax Invoice No.', String(origTaxNo)]]
       : []),
-    ['Bill No.', billNo],
     ['Billing Month', billMonth],
     ['Billing Duration', billingDur],
-    ['Dated', previewInvoiceDateStr],
+    ['Invoice Date', previewInvoiceDateStr],
     ['Mode/Terms of Payment', previewPaymentTerms],
     ["Buyer's Order No.", previewBuyerOrderNo],
-    ['Order Dated', previewOrderDateStr],
   ];
 
   return (
@@ -141,7 +135,7 @@ export default function InvoiceHtmlPreview({ inv }) {
         <div className="sm:pr-4">
           <p className="font-bold text-gray-900">{PDF_SELLER.name}</p>
           <p className="text-gray-800 mt-1">{PDF_SELLER.address}</p>
-          <p className="mt-1">GSTIN/UIN: <span className="font-mono">{PDF_SELLER.gstin}</span></p>
+          <p className="mt-1">GSTIN : <span className="font-mono">{PDF_SELLER.gstin}</span></p>
           <p>State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}</p>
           <p className="mt-1">CIN: <span className="font-mono">{cinDisp}</span></p>
           <p>PAN: <span className="font-mono">{panDisp}</span></p>
@@ -163,7 +157,7 @@ export default function InvoiceHtmlPreview({ inv }) {
           <p className="font-bold text-gray-900 mb-1">Buyer (Bill to)</p>
           <p className="font-semibold">{buyerNameLine}</p>
           <p className="text-gray-800 mt-1 whitespace-pre-wrap">{buyerAddress}</p>
-          <p className="mt-1">GSTIN/UIN: <span className="font-mono">{buyerGstin}</span></p>
+          <p className="mt-1">GSTIN : <span className="font-mono">{buyerGstin}</span></p>
           <p>State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}</p>
           <p className="mt-1"><span className="font-semibold">Place of Supply:</span> {placeOfSupply}</p>
         </div>
@@ -171,7 +165,7 @@ export default function InvoiceHtmlPreview({ inv }) {
           <p className="font-bold text-gray-900 mb-1">Consignee (Ship to)</p>
           <p className="font-semibold">{buyerNameLine}</p>
           <p className="text-gray-800 mt-1 whitespace-pre-wrap">{shipAddress}</p>
-          <p className="mt-1">GSTIN/UIN: <span className="font-mono">{buyerGstin}</span></p>
+          <p className="mt-1">GSTIN : <span className="font-mono">{buyerGstin}</span></p>
           <p>State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}</p>
         </div>
       </div>
@@ -280,15 +274,34 @@ export default function InvoiceHtmlPreview({ inv }) {
 
       <p className="text-center font-bold text-sm py-2 border-b border-gray-300">{JURISDICTION}</p>
 
-      <div className="bg-[rgb(165,42,42)] text-white px-4 py-2.5 text-[10px] sm:text-[11px] leading-relaxed">
-        <div className="flex flex-wrap gap-x-6 gap-y-1">
-          <span>Phone: {FOOTER_PHONE}</span>
-          <span>Email: {FOOTER_EMAIL}</span>
+      <div className="border-t border-gray-300 bg-white">
+        <div className="grid grid-cols-1 gap-4 px-4 py-3 text-[10px] leading-relaxed text-neutral-800 sm:grid-cols-2 sm:items-start sm:gap-10 sm:px-6 sm:py-4 sm:text-[11px]">
+          <div className="space-y-2.5 text-left">
+            <p>
+              <span className="font-semibold text-neutral-900">Phone:</span>{' '}
+              <span className="tabular-nums text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.phone}</span>
+            </p>
+            <p className="break-words">
+              <span className="font-semibold text-neutral-900">Email:</span>{' '}
+              <span className="text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.email}</span>
+            </p>
+          </div>
+          <div className="space-y-2.5 border-t border-neutral-200 pt-4 text-left sm:border-t-0 sm:border-l sm:border-neutral-200 sm:pt-0 sm:pl-8">
+            <p>
+              <span className="font-semibold text-neutral-900">Address:</span>{' '}
+              <span className="text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.address}</span>
+            </p>
+            <p className="break-all sm:break-words">
+              <span className="font-semibold text-neutral-900">Website:</span>{' '}
+              <span className="text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.website}</span>
+            </p>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1">
-          <span>Website: {FOOTER_WEB}</span>
-          <span className="opacity-95 max-w-[55%] min-w-[12rem]">{FOOTER_ADDRESS}</span>
-        </div>
+        <div
+          className="h-[18px] w-full shrink-0 sm:h-5"
+          style={{ backgroundColor: INVOICE_LETTERHEAD_STRIP_COLOR }}
+          aria-hidden
+        />
       </div>
     </div>
   );

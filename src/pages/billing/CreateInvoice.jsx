@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, Upload, PlusCircle, X, Eye, ChevronLeft, ChevronRight, Ruler } from 'lucide-react';
+import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
+import {
+  formatInvoiceAmountInWords,
+  resolveTermsLines,
+  INVOICE_BANK_DETAILS,
+  INVOICE_JURISDICTION,
+  INVOICE_LETTERHEAD_FOOTER,
+  INVOICE_LETTERHEAD_STRIP_COLOR,
+  INVOICE_SELLER_TEMPLATE,
+} from '../../utils/taxInvoicePdf';
+import { INDUS_LOGO_SRC } from '../../constants/branding.js';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 
@@ -28,13 +38,10 @@ const BILLING_TABS = [
   { id: 'Lump Sum', label: 'Lump Sum' },
 ];
 
-const SELLER = {
-  name: 'Ms Indus Fire Safety Private Limited',
-  address: 'Block No 501, Old NH-8, Opposite GSFC Main Gate, Vadodara, Dashrath, Vadodara',
-  state: 'Gujarat',
-  stateCode: '24',
-  gstin: '24AADCJ2182H1ZS',
-};
+const CREATE_PAGE_TABS = [
+  { id: 'select-po', label: '1. Select PO/WO (sent or approved)' },
+  { id: 'cndn', label: 'Credit / Debit note — request approval' },
+];
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -199,6 +206,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [poPage, setPoPage] = useState(1);
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
   const [poBillingTab, setPoBillingTab] = useState('Monthly');
+  const [createMainTab, setCreateMainTab] = useState('select-po');
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -636,6 +644,43 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [taxableValue, cgstAmt, sgstAmt, igstAmt, gstSupplyType]);
   const totalValue = useMemo(() => roundInvoiceAmount(totalValueRaw), [totalValueRaw]);
 
+  const previewBillMeta = useMemo(() => {
+    if (!displayPO) return null;
+    const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
+    const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
+    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(invoices.length + 1);
+    const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
+    const billingDurationStr =
+      displayPO.startDate || displayPO.start_date
+        ? `${formatDate(displayPO.startDate || displayPO.start_date)} – ${formatDate(displayPO.endDate || displayPO.end_date)}`
+        : '–';
+    const remarksLine =
+      displayPO.remarks ||
+      displayPO.paymentTerms ||
+      displayPO.payment_terms ||
+      displayPO.invoiceTermsText ||
+      null;
+    return {
+      taxInvoiceNumber,
+      billingMonthStr,
+      billingDurationStr,
+      remarksLine,
+    };
+  }, [displayPO, invoiceDraft, invoices, invoiceDate]);
+
+  const invoiceTermsLinesPreview = useMemo(() => {
+    if (!displayPO) return [];
+    return resolveTermsLines({
+      termsCustomText: displayPO.invoiceTermsText,
+      termsText: displayPO.invoiceTermsText,
+      terms_custom_text: displayPO.invoiceTermsText,
+      poVertical: displayPO.vertical || displayPO.poVertical,
+      termsTemplateKey: displayPO.vertical || displayPO.poVertical,
+    });
+  }, [displayPO]);
+
+  const totalInWords = useMemo(() => formatInvoiceAmountInWords(totalValue), [totalValue]);
+
   const canSave = !!displayPO && items.length > 0;
   const selectedViewInvoice = useMemo(
     () => invoices.find((i) => String(i.id) === String(viewInvoiceId)) || null,
@@ -764,9 +809,36 @@ const CreateInvoice = ({ onNavigateTab }) => {
         </div>
         <div>
           <h2 className="text-xl font-bold text-gray-900">Create Invoice</h2>
-          <p className="text-sm text-gray-600">Select PO sent for approval; invoice format as per template; edit only quantity/rate; save → Manage Invoices</p>
+          <p className="text-sm text-gray-600">
+            Raise tax invoices from approved PO/WOs, or use the second tab to request Commercial approval for a credit / debit note.
+          </p>
         </div>
       </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="flex gap-1 px-3 sm:px-4 border-b border-gray-100 overflow-x-auto">
+          {CREATE_PAGE_TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={createMainTab === t.id}
+              onClick={() => setCreateMainTab(t.id)}
+              className={[
+                'px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors shrink-0',
+                createMainTab === t.id
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700',
+              ].join(' ')}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {createMainTab === 'select-po' && (
+      <div className="space-y-4">
       <div>
         <button
           type="button"
@@ -831,7 +903,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
-                        {poPaginatedRows.map((row) => (
+                        {poPaginatedRows.map((row) => {
+                          const rowInvoice =
+                            row.existingInvoiceId != null
+                              ? invoices.find((i) => String(i.id) === String(row.existingInvoiceId))
+                              : null;
+                          const editLockedByIrn = !!rowInvoice?.e_invoice_irn;
+                          return (
                           <tr
                             key={row.id}
                             className={[
@@ -867,14 +945,32 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <td className="px-3 py-2 text-center">
                               <div className="inline-flex items-center justify-center gap-2">
                         {row.hasInvoice && row.existingInvoiceId && (
-                          <button
-                            type="button"
-                            onClick={() => setViewInvoiceId(row.existingInvoiceId)}
-                            title="View Tax Invoice"
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setViewInvoiceId(row.existingInvoiceId)}
+                              title="View Tax Invoice"
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editLockedByIrn) return;
+                                setInvoiceDraft({ mode: 'edit', invoiceId: row.existingInvoiceId, poId: row.id });
+                              }}
+                              title={
+                                editLockedByIrn
+                                  ? 'Cannot edit after e-invoice (IRN) generated'
+                                  : 'Edit Tax Invoice'
+                              }
+                              disabled={editLockedByIrn}
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                         <button
                           type="button"
@@ -887,7 +983,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       </div>
                     </td>
                   </tr>
-                ))}
+                          );
+                        })}
               </tbody>
             </table>
                   </div>
@@ -929,16 +1026,39 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </div>
             </div>
         )}
-        <p className="text-xs text-gray-500 px-4 pt-2 pb-4">Click <strong>Create Invoice</strong> to open the form for the selected PO.</p>
+        <p className="text-xs text-gray-500 px-4 pt-2 pb-4">
+          Use <strong>Create Invoice</strong> for a new bill, or <strong>View</strong> / <strong>Edit</strong> when a tax invoice already exists for that PO (edit is disabled after e-invoice IRN is generated).
+        </p>
       </div>
+      </div>
+      )}
+
+      {createMainTab === 'cndn' && (
+        <div className="space-y-4">
+          <RequestCnDnApprovalSection invoices={invoices} setInvoices={setInvoices} onNavigateTab={onNavigateTab} />
+        </div>
+      )}
 
       {displayPO && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {invoiceDraft?.mode === 'edit' ? 'Edit' : 'Create'} Invoice – {displayPO.siteId || '–'} – {displayPO.locationName || displayPO.legalName || '–'}
-              </h3>
+          <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2 rounded-t-xl z-10">
+              <div className="min-w-0">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
+                  {invoiceDraft?.mode === 'edit' ? 'Edit' : 'Create'} invoice — {displayPO.siteId || '–'}
+                </h3>
+                <p className="text-xs text-gray-500 truncate">{displayPO.locationName || displayPO.legalName || '–'}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="text-xs text-gray-500 whitespace-nowrap">Invoice date</label>
+                <input
+                  type="date"
+                  value={invoiceDate}
+                  readOnly
+                  disabled
+                  className="px-2 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-gray-700 text-xs"
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -954,68 +1074,167 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <p className="text-sm text-gray-500">
-              OC: <span className="font-medium text-gray-700">{displayPO.ocNumber}</span> · PO/WO: <span className="font-medium text-gray-700">{displayPO.poWoNumber}</span>
-            </p>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Invoice Date</label>
-              <input
-                type="date"
-                value={invoiceDate}
-                readOnly
-                disabled
-                className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-700"
-              />
-            </div>
-          </div>
+            <div className="p-4 sm:p-6 bg-slate-100/90 space-y-5">
+              <div className="mx-auto max-w-[920px] border-2 border-neutral-800 bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4 bg-[#1a365d] px-3 sm:px-5 py-3 sm:py-4 text-white">
+                  <img
+                    src={INDUS_LOGO_SRC}
+                    alt=""
+                    className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 rounded-full bg-white object-contain p-1 ring-2 ring-white/50"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm sm:text-base font-bold uppercase leading-tight tracking-wide">
+                      {INVOICE_SELLER_TEMPLATE.name}
+                    </p>
+                    <p className="mt-1 text-[10px] sm:text-[11px] font-medium uppercase tracking-widest text-white/90">
+                      Section 31 of GST Act – 2017
+                    </p>
+                  </div>
+                </div>
 
-          {null}
+                <div className="flex flex-col border-b border-neutral-800 sm:flex-row sm:items-center sm:justify-between gap-1 px-3 py-2.5">
+                  <p className="text-center text-sm font-bold uppercase tracking-wide text-neutral-900 sm:flex-1 sm:text-center">
+                    Tax Invoice
+                  </p>
+                  <p className="text-center text-[10px] font-semibold uppercase tracking-wide text-neutral-500 sm:text-right">
+                    (Original for recipient)
+                  </p>
+                </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
-            <div className="border border-gray-200 rounded-lg p-4">
-              <p className="text-xs font-semibold text-gray-500 mb-2">Seller</p>
-              <p className="font-semibold text-gray-900">{SELLER.name}</p>
-              <p className="text-gray-700">{SELLER.address}</p>
-              <p className="text-gray-700">GSTIN: <span className="font-mono">{SELLER.gstin}</span></p>
-              <p className="text-gray-700">State: {SELLER.state} (Code: {SELLER.stateCode})</p>
-            </div>
-            <div className="border border-gray-200 rounded-lg p-4">
-              <p className="text-xs font-semibold text-gray-500 mb-2">Buyer</p>
-              <p className="font-semibold text-gray-900">{displayPO.legalName}</p>
-              <p className="text-gray-700">{displayPO.billingAddress}</p>
-              <p className="text-gray-700">GSTIN: <span className="font-mono">{displayPO.gstin}</span></p>
-              <p className="text-gray-700">Place of Supply: {displayPO.billingAddress?.split(',').pop()?.trim() || '–'}</p>
-            </div>
-          </div>
+                {previewBillMeta ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-neutral-800 border-b border-neutral-800">
+                    <div className="p-3 sm:p-4 text-xs leading-relaxed space-y-1.5">
+                      <p className="text-[11px] font-bold uppercase text-neutral-600">Seller</p>
+                      <p className="text-sm font-bold text-neutral-900">{INVOICE_SELLER_TEMPLATE.name}</p>
+                      <p className="text-neutral-800">{INVOICE_SELLER_TEMPLATE.address}</p>
+                      <p>
+                        <span className="font-semibold">GSTIN :</span>{' '}
+                        <span className="font-mono">{INVOICE_SELLER_TEMPLATE.gstin}</span>
+                      </p>
+                      <p>
+                        <span className="font-semibold">State Name:</span> {INVOICE_SELLER_TEMPLATE.state}{' '}
+                        <span className="font-semibold">(Code:</span> {INVOICE_SELLER_TEMPLATE.stateCode})
+                      </p>
+                      <p>
+                        <span className="font-semibold">CIN:</span>{' '}
+                        {displayPO.sellerCin || displayPO.seller_cin || INVOICE_SELLER_TEMPLATE.cin || '–'}
+                      </p>
+                      <p>
+                        <span className="font-semibold">PAN:</span>{' '}
+                        {displayPO.sellerPan || displayPO.seller_pan || INVOICE_SELLER_TEMPLATE.pan || '–'}
+                      </p>
+                      <p>
+                        <span className="font-semibold">MSME Udyam:</span>{' '}
+                        {displayPO.msmeRegistrationNo || displayPO.msme_registration_no || INVOICE_SELLER_TEMPLATE.msmeUdyamNo || '–'}
+                      </p>
+                    </div>
+                    <div className="p-3 sm:p-4 text-xs">
+                      <div className="divide-y divide-neutral-300 border border-neutral-300 rounded-md overflow-hidden bg-white">
+                        {[
+                          ['Invoice No.', previewBillMeta.taxInvoiceNumber],
+                          ['Billing Month', previewBillMeta.billingMonthStr],
+                          ['Billing Duration', previewBillMeta.billingDurationStr],
+                          ['Invoice Date:', formatDate(invoiceDate)],
+                          ['Mode / Terms of Payment', displayPO.paymentTerms || `${displayPO.billingCycle || 30} days`],
+                          ["Buyer's Order No.", displayPO.poWoNumber || '–'],
+                        ].map(([label, val]) => (
+                          <div key={label} className="flex justify-between gap-3 px-2.5 py-1.5">
+                            <span className="shrink-0 font-semibold text-neutral-600">{label}</span>
+                            <span className="text-right font-medium text-neutral-900 break-all">{val || '–'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
 
-          <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+                <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-neutral-800 border-b border-neutral-800">
+                  <div className="p-3 sm:p-4 text-xs leading-relaxed space-y-1.5">
+                    <p className="text-[11px] font-bold text-neutral-900">Buyer (Bill to)</p>
+                    <p className="text-sm font-bold text-neutral-900">{displayPO.legalName || '–'}</p>
+                    <p className="text-neutral-800 whitespace-pre-wrap">{displayPO.billingAddress || '–'}</p>
+                    <p>
+                      <span className="font-semibold">GSTIN :</span>{' '}
+                      <span className="font-mono">{displayPO.gstin || '–'}</span>
+                    </p>
+                    <p>
+                      <span className="font-semibold">State Name (Code):</span>{' '}
+                      {displayPO.billingAddress?.split(',').slice(-2).join(',').trim() || '–'}
+                      {displayPO.gstin?.trim() ? ` (Code: ${String(displayPO.gstin).trim().slice(0, 2)})` : ''}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Place of Supply:</span>{' '}
+                      {displayPO.placeOfSupply ||
+                        displayPO.place_of_supply ||
+                        displayPO.billingAddress?.split(',').pop()?.trim() ||
+                        '–'}
+                    </p>
+                  </div>
+                  <div className="p-3 sm:p-4 text-xs leading-relaxed space-y-1.5">
+                    <p className="text-[11px] font-bold text-neutral-900">Consignee (Ship to)</p>
+                    {displayPO.shippingAddress || displayPO.shipping_address ? (
+                      <>
+                        <p className="text-sm font-bold text-neutral-900">{displayPO.legalName || '–'}</p>
+                        <p className="text-neutral-800 whitespace-pre-wrap">
+                          {displayPO.shippingAddress || displayPO.shipping_address}
+                        </p>
+                        <p>
+                          <span className="font-semibold">GSTIN :</span>{' '}
+                          <span className="font-mono">{displayPO.gstin || '–'}</span>
+                        </p>
+                        <p>
+                          <span className="font-semibold">State Name (Code):</span>{' '}
+                          {(displayPO.shippingAddress || displayPO.shipping_address)?.split(',').slice(-2).join(',').trim() || '–'}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="italic text-neutral-500">Same as Bill to</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border-b border-neutral-800 px-3 sm:px-4 py-2.5">
+                  <p className="text-[11px] font-bold text-neutral-900">Description / Remarks</p>
+                  <p className="mt-1 min-h-[1.25rem] text-xs text-neutral-800 whitespace-pre-wrap">
+                    {previewBillMeta?.remarksLine || '–'}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 border-b border-neutral-800 bg-neutral-100/90 px-3 py-1.5 text-[11px] text-neutral-800">
+                  <span>
+                    <span className="font-semibold text-neutral-600">OC:</span> {displayPO.ocNumber || '–'}
+                  </span>
+                  <span className="text-right">
+                    <span className="font-semibold text-neutral-600">Site:</span> {displayPO.siteId || '–'}
+                  </span>
+                </div>
+
+          <div className="border-x-0 border-b border-neutral-800 overflow-hidden bg-[#eef2f7]">
             <div className="p-2">
               <div className="bg-white rounded-lg overflow-hidden">
                 <div className="w-full max-w-full min-w-0 overflow-x-auto">
-                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse text-sm">
+                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse border border-neutral-400 text-sm">
                     <thead>
                 <tr>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[6%]">#</th>
-                  <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[40%]">Description</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">HSN/SAC</th>
+                  <th className="w-[6%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">#</th>
+                  <th className="w-[40%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-left text-[11px] font-bold text-neutral-900">Description</th>
+                  <th className="w-[14%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">HSN/SAC</th>
                   {null ? (
                     <>
-                      <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">PO Qty</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Actual</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Auth</th>
+                      <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">PO Qty</th>
+                      <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Actual</th>
+                      <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Auth</th>
                     </>
                   ) : null}
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Qty</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Rate</th>
+                  <th className="w-[12%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Qty</th>
+                  <th className="w-[14%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Rate</th>
                   {lumpSumPenaltyActive ? (
-                    <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Penalty (₹)</th>
+                    <th className="w-[12%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Penalty (₹)</th>
                   ) : null}
-                  <th className="px-3 py-2.5 text-right text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Amount</th>
+                  <th className="w-[14%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-right text-[11px] font-bold text-neutral-900">Amount</th>
                 </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
+                    <tbody className="bg-white">
                 {items.map((it, idx) => {
                   const canDutyRuler = !it.isTruckLine && (isMonthlyBilling || isLumpSumBilling);
                   const rateDerived =
@@ -1024,7 +1243,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   return (
                   <React.Fragment key={idx}>
                   <tr className={activeGeometryRowIdx === idx ? 'bg-indigo-50/60' : undefined}>
-                    <td className="px-3 py-2 text-gray-700 text-center align-middle">
+                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle text-xs text-neutral-800">
                       <div className="flex flex-col items-center gap-1">
                         <span>{idx + 1}</span>
                         {it.isTruckLine ? (
@@ -1038,7 +1257,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-3 py-2 font-medium text-gray-900 align-middle" title={it.description || ''}>
+                    <td className="border border-neutral-400 px-2 py-2 align-middle text-xs font-medium text-neutral-900" title={it.description || ''}>
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         {it.isTruckLine ? (
                           <input
@@ -1079,7 +1298,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <span className="mt-1 inline-block text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Truck line</span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2 text-gray-700 text-center font-mono align-middle">
+                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle font-mono text-xs text-neutral-800">
                       {it.isTruckLine ? (
                         <input
                           type="text"
@@ -1125,7 +1344,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         </td>
                       </>
                     ) : null}
-                    <td className="px-3 py-2 text-center align-middle">
+                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle">
                       <input
                         type="number"
                         min={0}
@@ -1143,7 +1362,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         }
                       />
                     </td>
-                    <td className="px-3 py-2 text-center align-middle">
+                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle">
                       <input
                         type="number"
                         min={0}
@@ -1154,7 +1373,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       />
                     </td>
                     {lumpSumPenaltyActive ? (
-                      <td className="px-3 py-2 text-center align-middle text-xs text-gray-700">
+                      <td className="border border-neutral-400 px-2 py-2 text-center align-middle text-xs text-neutral-800">
                         {it.isTruckLine ? (
                           '–'
                         ) : (
@@ -1162,11 +1381,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         )}
                       </td>
                     ) : null}
-                    <td className="px-3 py-2 text-right font-medium align-middle">₹{round2(it.amount).toLocaleString('en-IN')}</td>
+                    <td className="border border-neutral-400 px-2 py-2 text-right align-middle text-xs font-semibold text-neutral-900">₹{round2(it.amount).toLocaleString('en-IN')}</td>
                   </tr>
                   {isMonthlyBilling && it.geometryEnabled ? (
                     <tr className="bg-gray-50">
-                      <td colSpan={lineTableColSpan} className="px-3 py-3">
+                      <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
                           <span className="font-semibold text-gray-700">Geometry (Monthly) calculator</span>
                           {monthlyDutyQtyMode === 'po_geometry' ? (
@@ -1215,7 +1434,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   ) : null}
                   {isLumpSumBilling && !it.isTruckLine && it.geometryEnabled ? (
                     <tr className="bg-amber-50/40">
-                      <td colSpan={lineTableColSpan} className="px-3 py-3">
+                      <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
                           <span className="font-semibold text-gray-800">Lump sum — duty geometry</span>
                           <label className="inline-flex items-center gap-2">
@@ -1294,90 +1513,181 @@ const CreateInvoice = ({ onNavigateTab }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="text-sm text-gray-600 space-y-1">
-              <p><span className="text-gray-500">Payment terms:</span> {displayPO.paymentTerms || `${displayPO.billingCycle || 30} days`}</p>
-              <p><span className="text-gray-500">Invoice date:</span> {formatDate(invoiceDate)}</p>
-              <p>
-                <span className="text-gray-500">GST on supply (from PO):</span>{' '}
-                <span className="font-medium text-gray-800">
-                  {gstSupplyType === 'inter'
-                    ? `IGST (${igstRate}%)`
-                    : gstSupplyType === 'sez_zero'
-                      ? '0% (SEZ / nil rated)'
-                      : `CGST + SGST (${cgstRate}% + ${sgstRate}%)`}
-                </span>
-              </p>
-            </div>
-            <div className="border border-gray-200 rounded-lg p-4 text-sm">
-              <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">₹{taxableValue.toLocaleString('en-IN')}</span></div>
-              {gstSupplyType === 'intra' ? (
-                <>
-                  <div className="flex justify-between"><span className="text-gray-600">CGST ({cgstRate}%)</span><span className="font-medium">₹{cgstAmt.toLocaleString('en-IN')}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-600">SGST ({sgstRate}%)</span><span className="font-medium">₹{sgstAmt.toLocaleString('en-IN')}</span></div>
-                </>
-              ) : null}
-              {gstSupplyType === 'inter' ? (
-                <div className="flex justify-between"><span className="text-gray-600">IGST ({igstRate}%)</span><span className="font-medium">₹{igstAmt.toLocaleString('en-IN')}</span></div>
-              ) : null}
-              {gstSupplyType === 'sez_zero' ? (
-                <div className="flex justify-between"><span className="text-gray-600">GST</span><span className="font-medium">₹0 (nil rated)</span></div>
-              ) : null}
-              <div className="flex justify-between border-t border-gray-200 pt-2 mt-2"><span className="text-gray-900 font-semibold">Total</span><span className="text-gray-900 font-semibold">₹{totalValue.toLocaleString('en-IN')}</span></div>
-            </div>
-          </div>
+                <div className="grid grid-cols-1 border-b border-neutral-800 md:grid-cols-2 md:divide-x md:divide-neutral-800 bg-neutral-50/50">
+                  <div className="p-3 sm:p-4 text-xs text-neutral-700 space-y-1.5">
+                    <p className="text-[11px] font-bold uppercase text-neutral-600">Tax summary</p>
+                    <p>
+                      <span className="font-semibold text-neutral-600">GST on supply (from PO):</span>{' '}
+                      {gstSupplyType === 'inter'
+                        ? `IGST (${igstRate}%)`
+                        : gstSupplyType === 'sez_zero'
+                          ? '0% (SEZ / nil rated)'
+                          : `CGST + SGST (${cgstRate}% + ${sgstRate}%)`}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-neutral-600">Payment terms:</span>{' '}
+                      {displayPO.paymentTerms || `${displayPO.billingCycle || 30} days`}
+                    </p>
+                  </div>
+                  <div className="p-3 sm:p-4 text-xs">
+                    <div className="space-y-1.5 border border-neutral-400 bg-white p-3">
+                      <div className="flex justify-between gap-4">
+                        <span className="text-neutral-600">Taxable value</span>
+                        <span className="font-semibold tabular-nums">₹{taxableValue.toLocaleString('en-IN')}</span>
+                      </div>
+                      {gstSupplyType === 'intra' ? (
+                        <>
+                          <div className="flex justify-between gap-4">
+                            <span className="text-neutral-600">CGST ({cgstRate}%)</span>
+                            <span className="font-semibold tabular-nums">₹{cgstAmt.toLocaleString('en-IN')}</span>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <span className="text-neutral-600">SGST ({sgstRate}%)</span>
+                            <span className="font-semibold tabular-nums">₹{sgstAmt.toLocaleString('en-IN')}</span>
+                          </div>
+                        </>
+                      ) : null}
+                      {gstSupplyType === 'inter' ? (
+                        <div className="flex justify-between gap-4">
+                          <span className="text-neutral-600">IGST ({igstRate}%)</span>
+                          <span className="font-semibold tabular-nums">₹{igstAmt.toLocaleString('en-IN')}</span>
+                        </div>
+                      ) : null}
+                      {gstSupplyType === 'sez_zero' ? (
+                        <div className="flex justify-between gap-4">
+                          <span className="text-neutral-600">GST</span>
+                          <span className="font-semibold tabular-nums">₹0 (nil rated)</span>
+                        </div>
+                      ) : null}
+                      <div className="flex justify-between gap-4 border-t border-neutral-400 pt-2 font-bold text-neutral-900">
+                        <span>Total</span>
+                        <span className="tabular-nums">₹{totalValue.toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-          <div className="border border-gray-200 rounded-lg p-4">
-            <h4 className="text-sm font-semibold text-gray-900 mb-3">Attachments (optional)</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Attendance Sheet (Word / Doc) – optional</label>
-                <div className="flex items-center gap-2 p-3 border border-dashed border-gray-300 rounded-lg bg-white">
-                  <Upload className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="file"
-                    accept=".doc,.docx,.pdf,.xlsx,.xls"
-                    multiple
-                    onChange={(e) =>
-                      setAttendanceFiles(
-                        Array.from(e.target.files || []).map((f) => ({
-                          name: f.name,
-                          url: URL.createObjectURL(f),
-                        }))
-                      )
-                    }
-                    className="text-sm"
+                <div className="border-b border-neutral-800 px-3 sm:px-4 py-3">
+                  <p className="text-[11px] font-bold text-neutral-900">Attachments (optional)</p>
+                  <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-md border border-dashed border-neutral-400 bg-neutral-50/80 p-3">
+                      <label className="block text-[11px] font-semibold text-neutral-700 mb-1.5">
+                        Attendance sheet (Word / Doc / PDF)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <Upload className="h-4 w-4 shrink-0 text-neutral-400" />
+                        <input
+                          type="file"
+                          accept=".doc,.docx,.pdf,.xlsx,.xls"
+                          multiple
+                          onChange={(e) =>
+                            setAttendanceFiles(
+                              Array.from(e.target.files || []).map((f) => ({
+                                name: f.name,
+                                url: URL.createObjectURL(f),
+                              }))
+                            )
+                          }
+                          className="w-full min-w-0 text-xs"
+                        />
+                      </div>
+                      {attendanceFiles.length > 0 ? (
+                        <p className="mt-1.5 text-[11px] font-medium text-emerald-700">
+                          {attendanceFiles.length} file(s) selected
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-md border border-dashed border-neutral-400 bg-neutral-50/80 p-3">
+                      <label className="block text-[11px] font-semibold text-neutral-700 mb-1.5">Document 2 (Doc / PDF)</label>
+                      <div className="flex items-center gap-2">
+                        <Upload className="h-4 w-4 shrink-0 text-neutral-400" />
+                        <input
+                          type="file"
+                          accept=".doc,.docx,.pdf"
+                          multiple
+                          onChange={(e) =>
+                            setDocument2Files(
+                              Array.from(e.target.files || []).map((f) => ({
+                                name: f.name,
+                                url: URL.createObjectURL(f),
+                              }))
+                            )
+                          }
+                          className="w-full min-w-0 text-xs"
+                        />
+                      </div>
+                      {document2Files.length > 0 ? (
+                        <p className="mt-1.5 text-[11px] font-medium text-emerald-700">
+                          {document2Files.length} file(s) selected
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-b border-neutral-800 px-3 sm:px-4 py-3">
+                  <p className="text-[11px] font-bold text-neutral-900">Amount chargeable (in words)</p>
+                  <p className="mt-1.5 text-xs font-medium leading-relaxed text-neutral-800">{totalInWords}</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-neutral-800 border-b border-neutral-800">
+                  <div className="p-3 sm:p-4 text-xs leading-relaxed text-neutral-800">
+                    <p className="text-[11px] font-bold text-neutral-900">Bank details</p>
+                    <p className="mt-2">{INVOICE_BANK_DETAILS.accountHolder}</p>
+                    <p>Bank name: {INVOICE_BANK_DETAILS.bankName}</p>
+                    <p>A/c No.: {INVOICE_BANK_DETAILS.accountNo}</p>
+                    <p>{INVOICE_BANK_DETAILS.branchAndIfsc}</p>
+                    <div className="mt-6 pt-2">
+                      <p className="text-neutral-700">for {INVOICE_SELLER_TEMPLATE.name}</p>
+                      <p className="mt-4 font-bold text-neutral-900">Authorised Signatory</p>
+                    </div>
+                  </div>
+                  <div className="p-3 sm:p-4 text-[11px] leading-relaxed text-neutral-800">
+                    <p className="font-bold text-neutral-900">Terms &amp; conditions</p>
+                    <ol className="mt-2 list-decimal space-y-1 pl-4">
+                      {(invoiceTermsLinesPreview.length ? invoiceTermsLinesPreview : ['—']).map((line, i) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ol>
+                    <p className="mt-6 text-center italic text-neutral-600">Customer&apos;s seal and signature</p>
+                  </div>
+                </div>
+
+                <div className="border-b border-neutral-800 px-3 py-2 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-900">{INVOICE_JURISDICTION}</p>
+                </div>
+
+                {/* Letterhead footer: details on white, then empty solid maroon strip */}
+                <div className="w-full border-t border-neutral-300 bg-white">
+                  <div className="grid grid-cols-1 gap-4 px-4 py-3 text-[10px] leading-relaxed text-neutral-800 sm:grid-cols-2 sm:items-start sm:gap-10 sm:px-6 sm:py-4 sm:text-[11px]">
+                    <div className="space-y-2.5 text-left">
+                      <p>
+                        <span className="font-semibold text-neutral-900">Phone:</span>{' '}
+                        <span className="tabular-nums text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.phone}</span>
+                      </p>
+                      <p className="break-words">
+                        <span className="font-semibold text-neutral-900">Email:</span>{' '}
+                        <span className="text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.email}</span>
+                      </p>
+                    </div>
+                    <div className="space-y-2.5 border-t border-neutral-200 pt-4 text-left sm:border-t-0 sm:border-l sm:border-neutral-200 sm:pt-0 sm:pl-8">
+                      <p>
+                        <span className="font-semibold text-neutral-900">Address:</span>{' '}
+                        <span className="text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.address}</span>
+                      </p>
+                      <p className="break-all sm:break-words">
+                        <span className="font-semibold text-neutral-900">Website:</span>{' '}
+                        <span className="text-neutral-800">{INVOICE_LETTERHEAD_FOOTER.website}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className="h-[18px] w-full shrink-0 sm:h-5"
+                    style={{ backgroundColor: INVOICE_LETTERHEAD_STRIP_COLOR }}
+                    aria-hidden
                   />
                 </div>
-                {attendanceFiles.length > 0 && (
-                  <p className="text-xs text-green-600 mt-1">{attendanceFiles.length} file(s) selected</p>
-                )}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Document 2 (Doc) – optional</label>
-                <div className="flex items-center gap-2 p-3 border border-dashed border-gray-300 rounded-lg bg-white">
-                  <Upload className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="file"
-                    accept=".doc,.docx,.pdf"
-                    multiple
-                    onChange={(e) =>
-                      setDocument2Files(
-                        Array.from(e.target.files || []).map((f) => ({
-                          name: f.name,
-                          url: URL.createObjectURL(f),
-                        }))
-                      )
-                    }
-                    className="text-sm"
-                  />
-                </div>
-                {document2Files.length > 0 && (
-                  <p className="text-xs text-green-600 mt-1">{document2Files.length} file(s) selected</p>
-                )}
-              </div>
-            </div>
-          </div>
 
           <div className="flex flex-wrap gap-2">
             <button
@@ -1424,9 +1734,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
         </div>
       ) : null}
 
-      <div className="mt-8">
-        <RequestCnDnApprovalSection invoices={invoices} setInvoices={setInvoices} onNavigateTab={onNavigateTab} />
-      </div>
     </div>
   );
 };

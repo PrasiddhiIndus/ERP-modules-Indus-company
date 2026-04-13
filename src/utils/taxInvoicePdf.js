@@ -166,6 +166,31 @@ function amountInWords(amount) {
   return str;
 }
 
+/** Used by Create Invoice modal / HTML preview to match PDF wording. */
+export function formatInvoiceAmountInWords(amount) {
+  return amountInWords(amount);
+}
+
+export { BANK as INVOICE_BANK_DETAILS, SELLER as INVOICE_SELLER_TEMPLATE };
+export const INVOICE_JURISDICTION = JURISDICTION;
+export const INVOICE_CONTACT_FOOTER = {
+  phone: FOOTER_PHONE,
+  email: FOOTER_EMAIL,
+  web: FOOTER_WEB,
+  address: FOOTER_ADDRESS,
+};
+
+/** Letterhead-style billing footer: address, phone, email, website on white; solid maroon bar below (no text on bar). */
+export const INVOICE_LETTERHEAD_FOOTER = {
+  address: 'Indus House, Block No. 501, Opp. GSFC Main Gate, Dashrath, Vadodara, Gujarat-391740',
+  phone: '+91 265 2343441, +91 265 2343442',
+  email: 'firesafetyin@yahoo.com, info@indusfiresafety.com',
+  website: 'www.indusfiresafety.com',
+};
+
+/** Bottom accent strip (letterhead) — deep maroon, no content. */
+export const INVOICE_LETTERHEAD_STRIP_COLOR = '#800000';
+
 /**
  * Build invoice numbers/amounts from inv (with or without items).
  * Ensures downloaded PDF shows GST even when only header totals were persisted.
