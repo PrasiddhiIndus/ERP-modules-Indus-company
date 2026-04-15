@@ -49,6 +49,11 @@ const BILLING_TYPE_TABS = [
   { id: 'Per Day', label: 'Per Day' },
   { id: 'Lump Sum', label: 'Lump Sum' },
 ];
+const MANAGE_INVOICE_TABS = [
+  { id: 'billing-types', label: 'Billing types' },
+  { id: 'add-on-invoices', label: 'Add-On Invoices' },
+  { id: 'issued-cndn', label: 'Issued credit & debit notes' },
+];
 
 const ManageInvoices = ({ onNavigateTab }) => {
   const { commercialPOs, invoices, setInvoices, setInvoiceDraft, creditDebitNotes } = useBilling();
@@ -59,6 +64,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [generatingEInvoiceId, setGeneratingEInvoiceId] = useState(null);
   const [generateEInvoiceModalId, setGenerateEInvoiceModalId] = useState(null);
   const [page, setPage] = useState(1);
+  const [manageTab, setManageTab] = useState('billing-types');
   const PAGE_SIZE = 10;
 
   const getInvoiceBillingType = (inv) => {
@@ -187,33 +193,76 @@ const ManageInvoices = ({ onNavigateTab }) => {
         </div>
       </div>
 
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="flex gap-1 px-4 sm:px-6 border-b border-gray-100 overflow-x-auto">
+          {MANAGE_INVOICE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setManageTab(tab.id)}
+              className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                manageTab === tab.id
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {manageTab !== 'issued-cndn' ? (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder={
+              manageTab === 'add-on-invoices'
+                ? 'Search add-on invoice number, OC, client, type...'
+                : 'Search by invoice number, OC, client...'
+            }
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      ) : null}
+
+      {manageTab === 'add-on-invoices' ? (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-violet-50/60">
           <h3 className="text-sm font-semibold text-violet-800">Add-On Invoices</h3>
           <p className="text-xs text-violet-700 mt-0.5">Appraisal / gratuity / reimbursement and other add-on bills</p>
         </div>
-        <div className="px-3 pb-3 pt-3">
-          <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
-            <div className="p-2">
-              <div className="bg-white rounded-lg overflow-hidden">
-                <div className="w-full max-w-full min-w-0 overflow-x-auto">
-                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
+        <div className="w-full overflow-x-auto">
+                  <table className="w-full min-w-[1160px] table-fixed border-collapse">
+                    <colgroup>
+                      <col className="w-[14%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[20%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[6%]" />
+                      <col className="w-[14%]" />
+                    </colgroup>
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Invoice #</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Type</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">OC / Site</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Amount</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Net after CN/DN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[8%]">E-Inv</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Actions</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Tax Invoice</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Billing type</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">OC Number</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Amount</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Net after CN/DN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
                       {addOnInvoices.map((inv) => (
                         <tr key={`addon-${inv.id}`} className="hover:bg-gray-50 align-top">
-                          <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate">
+                          <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono overflow-hidden min-w-0" title={inv.taxInvoiceNumber || inv.bill_number || '–'}>
                             <div className="flex flex-col items-center gap-0.5 min-w-0">
                               <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
                               {(inv.cnDnRequestStatus || inv.cn_dn_request_status) === 'pending' ? (
@@ -224,16 +273,18 @@ const ManageInvoices = ({ onNavigateTab }) => {
                               ) : null}
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-xs text-gray-700 text-center truncate">{inv.addOnType || 'Add-On'}</td>
-                          <td className="px-3 py-2 text-xs text-gray-700 text-center truncate">
-                            {inv.ocNumber} / {inv.siteId}
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={inv.addOnType || 'Add-On'}>{inv.addOnType || 'Add-On'}</td>
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center whitespace-nowrap overflow-hidden min-w-0" title={inv.ocNumber || '–'}>
+                            <span className="block max-w-full truncate whitespace-nowrap">{inv.ocNumber || '–'}</span>
                           </td>
-                          <td className="px-3 py-2 text-xs text-gray-700 truncate">{inv.clientLegalName || inv.client_name}</td>
-                          <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums">
+                          <td className="px-3 py-2 text-xs text-gray-700 overflow-hidden min-w-0" title={inv.clientLegalName || inv.client_name || '–'}>
+                            <span className="block max-w-full truncate">{inv.clientLegalName || inv.client_name || '–'}</span>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums whitespace-nowrap">
                             ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
                           </td>
                           <td
-                            className="px-3 py-2 text-xs text-center tabular-nums font-medium text-gray-800"
+                            className="px-3 py-2 text-xs text-center tabular-nums font-medium text-gray-800 whitespace-nowrap"
                             title="Invoice total − credit notes + debit notes linked to this tax invoice"
                           >
                             ₹
@@ -243,7 +294,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                             {inv.e_invoice_irn ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <div className="flex flex-wrap items-center justify-center gap-1.5">
+                            <div className="flex flex-nowrap items-center justify-center gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => setViewId(inv.id)}
@@ -298,13 +349,12 @@ const ManageInvoices = ({ onNavigateTab }) => {
                       ) : null}
                     </tbody>
                   </table>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
+      ) : null}
 
+      {manageTab === 'billing-types' ? (
+      <>
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-4 sm:px-6 py-2 border-b border-gray-100 flex items-center justify-between">
           <p className="text-sm font-medium text-gray-600">Billing type</p>
@@ -330,35 +380,31 @@ const ManageInvoices = ({ onNavigateTab }) => {
         </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search by invoice number, OC, client..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-3 pb-3">
-          <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
-            <div className="p-2">
-              <div className="bg-white rounded-lg overflow-hidden">
-                <div className="w-full max-w-full min-w-0 overflow-x-auto">
-                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
+        <div className="w-full overflow-x-auto">
+                  <table className="w-full min-w-[1160px] table-fixed border-collapse">
+                    <colgroup>
+                      <col className="w-[14%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[20%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[6%]" />
+                      <col className="w-[14%]" />
+                    </colgroup>
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Tax Invoice #</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[12%]">Billing type</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">OC / Site</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[9%]">Amount</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[9%]">Net after CN/DN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">PO rem. (₹)</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[8%]">E-Inv</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Actions</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Tax Invoice</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Billing type</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">OC Number</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Amount</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Net after CN/DN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">PO rem. (₹)</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
@@ -374,7 +420,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                             const cnSt = inv.cnDnRequestStatus || inv.cn_dn_request_status;
                             return (
                               <>
-                                <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
+                                <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
                                   <div className="flex flex-col items-center gap-0.5 min-w-0">
                                     <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
                                     {cnSt === 'pending' ? (
@@ -388,23 +434,29 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={getInvoiceBillingType(inv) || ''}>
                                   {getInvoiceBillingType(inv)}
                                 </td>
-                                <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={`${inv.ocNumber || ''} / ${inv.siteId || ''}`}>
-                                  {inv.ocNumber} / {inv.siteId}
+                                <td
+                                  className="px-3 py-2 text-xs text-gray-700 text-center whitespace-nowrap overflow-hidden min-w-0"
+                                  title={inv.ocNumber || '–'}
+                                >
+                                  <span className="block max-w-full truncate whitespace-nowrap">{inv.ocNumber || '–'}</span>
                                 </td>
-                                <td className="px-3 py-2 text-xs text-gray-700 truncate" title={inv.clientLegalName || inv.client_name || ''}>
-                                  {inv.clientLegalName || inv.client_name}
+                                <td
+                                  className="px-3 py-2 text-xs text-gray-700 overflow-hidden min-w-0"
+                                  title={inv.clientLegalName || inv.client_name || '–'}
+                                >
+                                  <span className="block max-w-full truncate">{inv.clientLegalName || inv.client_name || '–'}</span>
                                 </td>
-                                <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums">
+                                <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums whitespace-nowrap">
                                   ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
                                 </td>
                                 <td
-                                  className="px-3 py-2 text-xs text-center tabular-nums font-medium text-gray-800"
+                                  className="px-3 py-2 text-xs text-center tabular-nums font-medium text-gray-800 whitespace-nowrap"
                                   title="Tax invoice total − credits + debits linked to this invoice"
                                 >
                                   ₹
                                   {netAfterCnDn(inv.id, creditDebitNotes, inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
                                 </td>
-                                <td className="px-3 py-2 text-xs text-center">
+                                <td className="px-3 py-2 text-xs text-center whitespace-nowrap">
                                   {contract > 0 ? (
                                     <span
                                       className={`font-medium ${remaining < 0 ? 'text-red-700' : 'text-gray-700'}`}
@@ -420,7 +472,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                   {inv.e_invoice_irn ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
                                 </td>
                                 <td className="px-3 py-2 text-center">
-                                  <div className="flex flex-wrap items-center justify-center gap-1.5">
+                                  <div className="flex flex-nowrap items-center justify-center gap-1.5">
                                     <button
                                       type="button"
                                       onClick={() => setViewId(inv.id)}
@@ -484,10 +536,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
                       ))}
                     </tbody>
                   </table>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
         {filteredInvoices.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
@@ -528,7 +576,10 @@ const ManageInvoices = ({ onNavigateTab }) => {
           </div>
         )}
       </div>
+      </>
+      ) : null}
 
+      {manageTab === 'issued-cndn' ? (
       <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-amber-100 bg-amber-50/90">
           <h3 className="text-sm font-semibold text-amber-950">Issued credit & debit notes</h3>
@@ -579,6 +630,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           <p className="px-4 py-6 text-center text-sm text-gray-500">No credit or debit notes issued yet.</p>
         )}
       </div>
+      ) : null}
 
       {selectedInv &&
         (() => {

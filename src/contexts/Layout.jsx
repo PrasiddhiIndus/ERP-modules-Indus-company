@@ -389,11 +389,7 @@ const Layout = () => {
                 <div className="ml-6 mt-0.5 space-y-0.5">
                   <NavLink to="manpower" className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-blue-600" />
-                    <span className="text-xs">Manpower Enquiry</span>
-                  </NavLink>
-                  <NavLink to="manpower/list" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-green-600" />
-                    <span className="text-xs">Enquiry List</span>
+                    <span className="text-xs">Manpower Management</span>
                   </NavLink>
                   <NavLink to="manpower/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
@@ -650,12 +646,12 @@ const Layout = () => {
               {fireTenderOpen && (
                 <div className="ml-6 mt-0.5 space-y-0.5">
                   <NavLink to="fire-tender" className={subNavClass}>
-                    <Truck className="w-4 h-4 shrink-0 text-red-600" />
-                    <span className="text-xs">Fire Tender Costing</span>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Fire Tender Dashboard</span>
                   </NavLink>
-                  <NavLink to="fire-tender/list" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-blue-600" />
-                    <span className="text-xs">Fire Tender List</span>
+                  <NavLink to="fire-tender/new" className={subNavClass}>
+                    <Truck className="w-4 h-4 shrink-0 text-orange-600" />
+                    <span className="text-xs">New Tender</span>
                   </NavLink>
                   <NavLink to="fire-tender/costing" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-green-600" />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
+import FireTenderNavbar from "../FireTenderNavbar";
 
 const FireTenderMailTemplatePage = () => {
   const [templates, setTemplates] = useState([]);
@@ -186,6 +187,7 @@ const FireTenderMailTemplatePage = () => {
 
   return (
     <div className="p-6">
+      <FireTenderNavbar />
       {!isFormOpen ? (
         <>
           <div className="flex justify-between items-center mb-4">

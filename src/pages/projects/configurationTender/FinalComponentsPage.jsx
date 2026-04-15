@@ -1,5 +1,6 @@
 // src/pages/projects/configurationTender/FinalComponentsPage.jsx
 import React, { useState } from "react";
+import FireTenderNavbar from "../FireTenderNavbar";
 
 const FinalComponentsPage = () => {
   const [components, setComponents] = useState([
@@ -71,6 +72,7 @@ const FinalComponentsPage = () => {
 
   return (
     <div className="p-6">
+      <FireTenderNavbar />
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Final Components</h2>

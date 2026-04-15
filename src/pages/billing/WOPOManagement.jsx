@@ -251,10 +251,10 @@ const WOPOManagement = () => {
         </div>
       </div>
 
-      {/* All WO/PO – card list with vertical scroll */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden flex flex-col">
-        <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
-          <h3 className="text-lg font-semibold text-gray-900">
+      {/* All WO/PO – table styled like Manage Invoices */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="px-4 py-3 border-b border-gray-200 bg-[#f2f6ff] flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <h3 className="text-sm font-semibold text-gray-900">
             PO / WO Management ({filteredList.length} records)
           </h3>
           <div className="flex items-center gap-3 flex-wrap">
@@ -295,28 +295,28 @@ const WOPOManagement = () => {
             </div>
           ) : (
             <div className="w-full overflow-x-auto">
-              <table className="min-w-[1100px] w-full table-fixed">
+              <table className="min-w-[1100px] w-full table-fixed border-collapse">
                 <thead>
-                  <tr className="bg-[#f2f6ff]">
-                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[170px]">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[170px]">
                       OC Number
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[200px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[200px]">
                       Site / Location
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[260px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[260px]">
                       Client (Legal Name)
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[190px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[190px]">
                       PO/WO
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[180px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[180px]">
                       Start – End
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-bold text-black border-b border-gray-200 w-[190px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[190px]">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-right text-sm font-bold text-black border-b border-gray-200 w-[210px]">
+                    <th className="px-3 py-2.5 text-right text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[210px] whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
@@ -341,25 +341,25 @@ const WOPOManagement = () => {
                           className="bg-white hover:bg-gray-50 cursor-pointer align-top"
                           onClick={() => setExpandedId((prev) => (prev === row.id ? null : row.id))}
                         >
-                          <td className="px-4 py-3 text-sm text-gray-900">
+                          <td className="px-3 py-2 text-xs text-gray-900">
                             <TextCell value={ocNumber} className="font-semibold" />
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
+                          <td className="px-3 py-2 text-xs text-gray-700">
                             <TextCell value={siteLocation} />
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-900">
+                          <td className="px-3 py-2 text-xs text-gray-900">
                             <TextCell value={legalName} />
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
+                          <td className="px-3 py-2 text-xs text-gray-700">
                             <TextCell value={poWo} />
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
+                          <td className="px-3 py-2 text-xs text-gray-700">
                             <TextCell value={startEnd} />
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
+                          <td className="px-3 py-2 text-xs text-gray-700">
                             <StatusBadge approvalStatus={row.approval_status} status={row.status} />
                           </td>
-                          <td className="px-4 py-2">
+                          <td className="px-3 py-2">
                             <div className="flex items-center justify-end gap-1">
                               {row.approval_status === 'draft' && (
                                 <button
@@ -372,7 +372,7 @@ const WOPOManagement = () => {
                                       )
                                     );
                                   }}
-                                  className="p-2 rounded-lg text-amber-700 hover:bg-amber-50 transition-colors"
+                                  className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
                                   title="Submit for approval"
                                 >
                                   <Send className="w-4 h-4" />
@@ -390,7 +390,7 @@ const WOPOManagement = () => {
                                         )
                                       );
                                     }}
-                                    className="p-2 rounded-lg text-green-700 hover:bg-green-50 transition-colors"
+                                    className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors"
                                     title="Approve"
                                   >
                                     <CheckCircle className="w-4 h-4" />
@@ -405,7 +405,7 @@ const WOPOManagement = () => {
                                         )
                                       );
                                     }}
-                                    className="p-2 rounded-lg text-red-700 hover:bg-red-50 transition-colors"
+                                    className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
                                     title="Reject"
                                   >
                                     <XCircle className="w-4 h-4" />
@@ -427,7 +427,7 @@ const WOPOManagement = () => {
                                     },
                                   ]);
                                 }}
-                                className="p-2 rounded-lg text-blue-700 hover:bg-blue-50 transition-colors"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                                 title="Quick WO/PO – request quick bill (requires approval)"
                               >
                                 <Zap className="w-4 h-4" />
@@ -459,7 +459,7 @@ const WOPOManagement = () => {
                                     setShowAddForm(false);
                                   }
                                 }}
-                                className="p-2 rounded-lg text-blue-700 hover:bg-blue-50 transition-colors"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                                 title="Edit"
                               >
                                 <Pencil className="w-4 h-4" />

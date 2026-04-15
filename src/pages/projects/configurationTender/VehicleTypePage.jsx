@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import FireTenderNavbar from "../FireTenderNavbar";
 
 const VehicleTypePage = () => {
   const [vehicleTypes, setVehicleTypes] = useState(["Truck", "Bus"]);
@@ -18,6 +19,7 @@ const VehicleTypePage = () => {
 
   return (
     <div className="p-6">
+      <FireTenderNavbar />
       {/* Header with New button */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Vehicle Type</h2>

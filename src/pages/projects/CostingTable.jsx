@@ -5,7 +5,6 @@ import CostingSummary from "./CostingSummary";
 import { FaTrash } from "react-icons/fa";
 import { supabase } from "../../lib/supabase";
 import auditLogger from "../../lib/auditLogger";
-import FireTenderNavbar from "./FireTenderNavbar";
 
 // 🔹 Convert rows into nested tree structure (unchanged)
 const buildTree = (rows) => {

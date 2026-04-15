@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -24,8 +23,7 @@ const ManpowerEnquiryList = () => {
 
       if (fetchError) {
         console.error("Fetch error:", fetchError);
-        // Check if it's an RLS/permission error
-        if (fetchError.message?.includes('permission') || fetchError.message?.includes('policy') || fetchError.code === 'PGRST301') {
+        if (fetchError.message?.includes("permission") || fetchError.message?.includes("policy") || fetchError.code === "PGRST301") {
           setError("Permission denied. Some enquiries may not be visible due to Row Level Security. Make sure all enquiries have a user_id matching your account.");
         } else {
           setError(`Error loading enquiries: ${fetchError.message}`);
@@ -34,7 +32,9 @@ const ManpowerEnquiryList = () => {
       } else {
         setEnquiries(data || []);
         if (!data || data.length === 0) {
-          setError("No enquiries found. This could be because:\n1. No enquiries have been created yet\n2. Enquiries exist but don't have your user_id set\n3. Row Level Security is filtering them out");
+          setError(
+            "No enquiries found. This could be because:\n1. No enquiries have been created yet\n2. Enquiries exist but don't have your user_id set\n3. Row Level Security is filtering them out"
+          );
         }
       }
     } catch (err) {
@@ -50,33 +50,28 @@ const ManpowerEnquiryList = () => {
     fetchEnquiries();
   }, []);
 
-  const handleApprove = async (id) => {
-    await supabase.from("manpower_enquiries").update({ status: "Approved" }).eq("id", id);
+  const handleApprove = async (rowId) => {
+    await supabase.from("manpower_enquiries").update({ status: "Approved" }).eq("id", rowId);
     fetchEnquiries();
   };
 
-  const handleReject = async (id) => {
-    await supabase.from("manpower_enquiries").update({ status: "Rejected" }).eq("id", id);
+  const handleReject = async (rowId) => {
+    await supabase.from("manpower_enquiries").update({ status: "Rejected" }).eq("id", rowId);
     fetchEnquiries();
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (rowId) => {
     if (!confirm("Delete this enquiry?")) return;
-    await supabase.from("manpower_enquiries").delete().eq("id", id);
+    await supabase.from("manpower_enquiries").delete().eq("id", rowId);
     fetchEnquiries();
   };
 
-
-  const handleEdit = (id) => {
-    navigate(`/app/manpower/${id}`);
+  const handleEdit = (rowId) => {
+    navigate(`/app/manpower/${rowId}`);
   };
 
-  // Pagination
-  const totalPages = Math.ceil(enquiries.length / ITEMS_PER_PAGE);
-  const paginatedEnquiries = enquiries.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
+  const totalPages = Math.ceil(enquiries.length / ITEMS_PER_PAGE) || 1;
+  const paginatedEnquiries = enquiries.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -89,21 +84,16 @@ const ManpowerEnquiryList = () => {
         </div>
       ) : error ? (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-          <p className="text-yellow-800 font-semibold mb-2">⚠️ Notice</p>
+          <p className="text-yellow-800 font-semibold mb-2">Notice</p>
           <p className="text-yellow-700 text-sm whitespace-pre-line">{error}</p>
-          <button 
-            onClick={fetchEnquiries}
-            className="mt-3 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 text-sm"
-          >
+          <button onClick={fetchEnquiries} className="mt-3 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 text-sm">
             Retry
           </button>
         </div>
       ) : enquiries.length === 0 ? (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-blue-800 font-semibold mb-2">ℹ️ No enquiries available yet.</p>
-          <p className="text-blue-700 text-sm">
-            Create a new enquiry using the "New Enquiry" button above, or check if existing enquiries have the correct user_id set.
-          </p>
+          <p className="text-blue-800 font-semibold mb-2">No enquiries available yet.</p>
+          <p className="text-blue-700 text-sm">Create a new enquiry using the &quot;New Enquiry&quot; button above.</p>
         </div>
       ) : (
         <>
@@ -118,33 +108,24 @@ const ManpowerEnquiryList = () => {
                   <p className="text-sm text-gray-600">
                     {e.email} | {e.phone}
                   </p>
-                  <p className="text-sm">
-                    Due: {e.due_date ? new Date(e.due_date).toLocaleDateString() : "N/A"}
-                  </p>
+                  <p className="text-sm">Due: {e.due_date ? new Date(e.due_date).toLocaleDateString() : "N/A"}</p>
                   <p className="text-sm">
                     Enquiry No:{" "}
-                    <span
-                      className={`ml-1 font-semibold ${e.status === "Rejected" ? "text-red-600" : "text-blue-600"
-                        }`}
-                    >
+                    <span className={`ml-1 font-semibold ${e.status === "Rejected" ? "text-red-600" : "text-blue-600"}`}>
                       {e.enquiry_number || "Not Assigned"}
                     </span>
                   </p>
                   <p className="text-sm">
                     Status:{" "}
                     <span
-                      className={`ml-1 font-semibold ${e.status === "Approved"
-                          ? "text-green-600"
-                          : e.status === "Rejected"
-                            ? "text-red-600"
-                            : "text-gray-600"
-                        }`}
+                      className={`ml-1 font-semibold ${
+                        e.status === "Approved" ? "text-green-600" : e.status === "Rejected" ? "text-red-600" : "text-gray-600"
+                      }`}
                     >
                       {e.status || "Pending"}
                     </span>
                   </p>
                 </div>
-
                 <div className="flex flex-wrap gap-2 mt-3 md:mt-0">
                   <button
                     onClick={() => handleApprove(e.id)}
@@ -175,7 +156,6 @@ const ManpowerEnquiryList = () => {
             ))}
           </div>
 
-          {/* Pagination Controls */}
           {totalPages > 1 && (
             <div className="flex justify-center items-center gap-3 mt-6">
               <button

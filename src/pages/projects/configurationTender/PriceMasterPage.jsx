@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import auditLogger from "../../../lib/auditLogger";
+import FireTenderNavbar from "../FireTenderNavbar";
 
 const PriceMasterPage = () => {
   const [priceList, setPriceList] = useState([]);
@@ -308,6 +309,7 @@ const PriceMasterPage = () => {
 
   return (
     <div className="p-6">
+      <FireTenderNavbar />
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <div>

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Plus, Trash2 } from "lucide-react"; // icons
+import FireTenderNavbar from "../FireTenderNavbar";
 
 export default function ManualSubCategoryPage() {
   const [categories, setCategories] = useState([
@@ -40,6 +41,7 @@ export default function ManualSubCategoryPage() {
 
   return (
     <div className="p-6">
+      <FireTenderNavbar />
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Manual Sub Category</h1>

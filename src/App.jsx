@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import FireTender from "./pages/projects/FireTender";
+import FireTenderDashboard from "./pages/projects/FireTenderDashboard";
 import CostingList from "./pages/projects/CostingList";
 import CostingSheet from "./pages/projects/CostingSheet";
 import demoTenders from "./pages/projects/demoTenders";
@@ -21,9 +22,7 @@ import PriceMasterPage from "./pages/projects/configurationTender/PriceMasterPag
 import AccessoriesPage from "./pages/projects/configurationTender/AccessoriesPage";
 import FinalComponentsPage from "./pages/projects/configurationTender/FinalComponentsPage";
 import VehicleTypePage from "./pages/projects/configurationTender/VehicleTypePage";
-import TenderList from "./pages/projects/TenderList";
-import ManpowerEnquiry from "./pages/manpowerProject/ManpowerEnquiry";
-import ManpowerEnquiryList from "./pages/manpowerProject/enquiryProjects/ManpowerEnquiryList";
+import ManpowerManagement from "./pages/manpowerProject/ManpowerManagement";
 import InternalQuotationList from "./pages/manpowerProject/enquiryProjects/InternalQuotationList";
 import InternalQuotationForm from "./pages/manpowerProject/enquiryProjects/InternalQuotationForm";
 
@@ -206,8 +205,9 @@ function App() {
           >
             <Route index element={<Navigate to="/app/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
-            <Route path="fire-tender" element={<FireTender />} />
-            <Route path="fire-tender/list" element={<TenderList />} />
+            <Route path="fire-tender" element={<FireTenderDashboard />} />
+            <Route path="fire-tender/new" element={<FireTender />} />
+            <Route path="fire-tender/list" element={<Navigate to="/app/fire-tender/new" replace />} />
             <Route path="fire-tender/:id" element={<FireTender />} />
             <Route path="fire-tender/costing" element={<CostingList tenders={demoTenders} />} />
             <Route path="fire-tender/costing/:id" element={<CostingSheet tenders={demoTenders} />} />
@@ -221,11 +221,11 @@ function App() {
             <Route path="fire-tender/configuration/final-components" element={<FinalComponentsPage />} />
             <Route path="fire-tender/configuration/vehicle-type" element={<VehicleTypePage />} />
 
-            <Route path="manpower" element={<ManpowerEnquiry />} />
-            <Route path="manpower/list" element={<ManpowerEnquiryList />} />
-            <Route path="manpower/:id" element={<ManpowerEnquiry />} />
+            <Route path="manpower" element={<ManpowerManagement />} />
+            <Route path="manpower/list" element={<Navigate to="/app/manpower" replace />} />
             <Route path="manpower/internal-quotation" element={<InternalQuotationList />} />
             <Route path="manpower/internal-quotation/:id" element={<InternalQuotationForm />} />
+            <Route path="manpower/:id" element={<ManpowerManagement />} />
 
             {/* Reorganized Module Routes */}
             

@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { INDUS_LOGO_SRC } from "../../constants/branding.js";
+import FireTenderNavbar from "./FireTenderNavbar";
 
 const generateQuotationNumber = (index) => {
   const padded = String(index + 1).padStart(4, "0");
@@ -1137,18 +1138,34 @@ const QuotationDetail = () => {
     }
   };
 
-  if (loading) return <div className="flex justify-center items-center h-screen"><p>Loading...</p></div>;
-  if (error || !quotation) return <div className="text-center text-red-600 mt-10">{error ? `Error: ${error}` : "Quotation not found!"}</div>;
+  if (loading) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 text-slate-600">
+        <p className="text-sm font-medium">Loading quotation...</p>
+      </div>
+    );
+  }
+  if (error || !quotation) {
+    return (
+      <div className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-lg rounded-xl border border-red-200 bg-red-50/80 px-6 py-8 text-center shadow-sm">
+          <p className="text-base font-semibold text-red-900">{error ? `Error: ${error}` : "Quotation not found!"}</p>
+        </div>
+      </div>
+    );
+  }
 
   const grandTotal = approvedItems.reduce((sum, item) => sum + parseFloat(item.total || 0), 0);
   const fullAddress = `${quotation.street} ${quotation.street2 ? `${quotation.street2}, ` : ""}${quotation.city}, ${quotation.state} ${quotation.zip}, ${quotation.country}`.trim();
 
   return (
-    <div className="w-full min-h-screen bg-gray-50">
-      <div className="p-4 sm:p-6">
-        <div className="bg-white rounded-lg shadow-xl max-w-5xl mx-auto">
+    <div className="w-full min-h-screen bg-slate-50">
+      <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 space-y-6">
+        <FireTenderNavbar />
+        <div className="h-1.5 shrink-0 rounded-full bg-gradient-to-r from-red-600 via-red-500 to-amber-400" aria-hidden />
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm max-w-6xl mx-auto overflow-hidden">
           {/* Header */}
-          <div className="p-4 sm:p-6 border-b border-gray-200 flex justify-between items-center">
+          <div className="p-4 sm:p-6 border-b border-slate-200 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white">
             <div>
               <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
                 Quotation Details
@@ -1161,13 +1178,13 @@ const QuotationDetail = () => {
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-400 text-sm"
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 text-sm font-semibold"
               >
                 {saving ? "Saving..." : quotation.version > 0 ? "Save & Revise" : "Save"}
               </button>
               <button
                 onClick={handleDownloadPDF}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                className="px-4 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 text-sm font-semibold"
               >
                 Download PDF
               </button>
@@ -1186,7 +1203,7 @@ const QuotationDetail = () => {
             {/* Client Details */}
             <div className="mb-6">
               <h3 className="text-sm font-medium text-gray-700 mb-3">Client Details</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Client Name</p>
                   <p className="text-sm font-medium text-gray-900">{quotation.client || '-'}</p>
@@ -1221,7 +1238,7 @@ const QuotationDetail = () => {
                         setNewTemplate({ name: "", type: "Quotation Template", subject: "", content: "" });
                         setShowCreateTemplate(true);
                       }}
-                      className="px-3 py-1 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700"
+                      className="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700"
                     >
                       + New
                     </button>
@@ -1229,7 +1246,7 @@ const QuotationDetail = () => {
                   <select
                     value={selectedTemplateId}
                     onChange={(e) => applyTemplate(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                     disabled={templateLoading}
                   >
                     <option value="">Select Quotation Template</option>
@@ -1250,7 +1267,7 @@ const QuotationDetail = () => {
                     type="text"
                     value={quotation.subject}
                     onChange={(e) => changeField("subject", e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                     placeholder="Enter subject"
                   />
                 </div>
@@ -1263,7 +1280,7 @@ const QuotationDetail = () => {
                     value={quotation.body}
                     onChange={(e) => changeField("body", e.target.value)}
                     rows={6}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                     placeholder="Enter body text"
                   />
                 </div>
@@ -1305,7 +1322,7 @@ const QuotationDetail = () => {
                       )}
                       <tr className="bg-gray-100 font-semibold">
                         <td colSpan="3" className="px-4 py-3 text-right">Grand Total:</td>
-                        <td className="px-4 py-3 text-right text-purple-600">
+                        <td className="px-4 py-3 text-right text-red-700">
                           INR {Math.round(grandTotal).toLocaleString('en-IN')}
                         </td>
                       </tr>
@@ -1324,7 +1341,7 @@ const QuotationDetail = () => {
                       setNewTemplate({ name: "", type: "Terms & Condition", subject: "", content: "" });
                       setShowCreateTemplate(true);
                     }}
-                    className="px-3 py-1 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700"
+                    className="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700"
                   >
                     + New
                   </button>
@@ -1334,7 +1351,7 @@ const QuotationDetail = () => {
                   <select
                     value={selectedTermsTemplateId}
                     onChange={(e) => applyTerms(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                     disabled={termsLoading}
                   >
                     <option value="">Select Terms Template</option>
@@ -1350,7 +1367,7 @@ const QuotationDetail = () => {
                   value={quotation.terms}
                   onChange={(e) => changeField("terms", e.target.value)}
                   rows={6}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                   placeholder="Enter terms and conditions"
                 />
                 <div className="mt-2 text-xs text-gray-500">
@@ -1370,7 +1387,7 @@ const QuotationDetail = () => {
                       type="text"
                       value={quotation.signedBy}
                       onChange={(e) => changeField("signedBy", e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                       placeholder="Enter name"
                     />
                   </div>
@@ -1402,7 +1419,7 @@ const QuotationDetail = () => {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-400"
+                  className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 font-semibold"
                 >
                   {saving ? "Saving..." : quotation.version > 0 ? "Save & Revise" : "Save"}
                 </button>
@@ -1414,8 +1431,8 @@ const QuotationDetail = () => {
 
       {/* Create Template Modal */}
       {showCreateTemplate && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-[2px] flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4">Create New Template</h3>
             
             <div className="mb-4">
@@ -1424,7 +1441,7 @@ const QuotationDetail = () => {
                 type="text"
                 value={newTemplate.name}
                 onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
-                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                 placeholder="Enter template name"
               />
             </div>
@@ -1434,7 +1451,7 @@ const QuotationDetail = () => {
               <select
                 value={newTemplate.type}
                 onChange={(e) => setNewTemplate({ ...newTemplate, type: e.target.value, subject: "", content: "" })}
-                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
               >
                 <option value="Quotation Template">Quotation Template</option>
                 <option value="Terms & Condition">Terms & Condition</option>
@@ -1448,7 +1465,7 @@ const QuotationDetail = () => {
                   type="text"
                   value={newTemplate.subject}
                   onChange={(e) => setNewTemplate({ ...newTemplate, subject: e.target.value })}
-                  className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                   placeholder="Enter subject"
                 />
               </div>
@@ -1462,7 +1479,7 @@ const QuotationDetail = () => {
               <textarea
                 value={newTemplate.content}
                 onChange={(e) => setNewTemplate({ ...newTemplate, content: e.target.value })}
-                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                 rows={10}
                 placeholder="Enter content"
               />
@@ -1480,7 +1497,7 @@ const QuotationDetail = () => {
               </button>
               <button
                 onClick={handleCreateTemplate}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
               >
                 Create Template
               </button>

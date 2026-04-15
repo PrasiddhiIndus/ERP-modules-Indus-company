@@ -6,6 +6,16 @@ const ManpowerNavbar = () => {
     const [isConfigOpen, setIsConfigOpen] = useState(false);
     const location = useLocation();
 
+    const p = location.pathname;
+    const isManpowerRoot = p === "/app/manpower";
+    const rest = p.replace(/^\/app\/manpower\//, "");
+    const isReservedSubpath =
+        rest.startsWith("internal-quotation") || rest.startsWith("configuration") || rest === "list";
+    const isIdRoute = p.startsWith("/app/manpower/") && rest.length > 0 && !isReservedSubpath && !rest.includes("/");
+    const onEnquiryHub = isManpowerRoot || isIdRoute;
+    const newEnquiryActive = onEnquiryHub && location.search.includes("new=1");
+    const listActive = onEnquiryHub && !location.search.includes("new=1");
+
     const toggleConfigDropdown = () => {
         setIsConfigOpen(!isConfigOpen);
     };
@@ -16,25 +26,17 @@ const ManpowerNavbar = () => {
             <h2 className="text-2xl font-semibold">Manpower Management</h2>
 
             {/* Buttons Row - pushed right */}
-            <div className="flex items-center gap-3 ml-auto">
-                {/* ✅ New Enquiry */}
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 ml-auto">
                 <Link
-                    to="/app/manpower"
-                    className={`px-4 py-2 rounded text-white ${location.pathname === "/app/manpower"
-                        ? "bg-red-700"
-                        : "bg-red-600 hover:bg-red-700"
-                        }`}
+                    to="/app/manpower?new=1"
+                    className={`px-4 py-2 rounded text-white ${newEnquiryActive ? "bg-red-700" : "bg-red-600 hover:bg-red-700"}`}
                 >
-                    New Enquiry 
+                    New Enquiry
                 </Link>
 
-                {/* ✅ Enquiry List */}
                 <Link
-                    to="/app/manpower/list"
-                    className={`px-4 py-2 rounded text-white ${location.pathname === "/app/manpower/list"
-                        ? "bg-yellow-700"
-                        : "bg-yellow-600 hover:bg-yellow-700"
-                        }`}
+                    to="/app/manpower"
+                    className={`px-4 py-2 rounded text-white ${listActive ? "bg-yellow-700" : "bg-yellow-600 hover:bg-yellow-700"}`}
                 >
                     Enquiry List
                 </Link>

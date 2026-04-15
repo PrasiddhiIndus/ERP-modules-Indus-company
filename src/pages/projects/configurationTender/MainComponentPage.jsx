@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../../../lib/supabase";
+import FireTenderNavbar from "../FireTenderNavbar";
 
 const chunkArray = (arr, size) => {
   const result = [];
@@ -230,6 +231,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      <FireTenderNavbar />
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">Main Components & Sub Categories</h2>
         <div className="flex gap-3">

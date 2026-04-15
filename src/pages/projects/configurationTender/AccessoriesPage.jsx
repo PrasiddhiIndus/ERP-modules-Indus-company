@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../../../lib/supabase"; // adjust path
+import FireTenderNavbar from "../FireTenderNavbar";
 
 const AccessoriesPage = () => {
   const [items, setItems] = useState([]);
@@ -224,6 +225,7 @@ const AccessoriesPage = () => {
 
   return (
     <div className="p-6">
+      <FireTenderNavbar />
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold">Accessories</h2>
