@@ -101,6 +101,17 @@ import PurchaseOrders from "./pages/marketing/PurchaseOrders";
 import ExpoSeminar from "./pages/marketing/ExpoSeminar";
 import GSTUpload from "./pages/marketing/GSTUpload";
 
+const DATE_INPUT_MIN = "1900-01-01";
+const DATE_INPUT_MAX = "9999-12-31";
+
+function enforceDateInputRules(input) {
+  if (!(input instanceof HTMLInputElement) || input.type !== "date") return;
+  input.min = DATE_INPUT_MIN;
+  input.max = DATE_INPUT_MAX;
+  input.lang = "en-GB";
+  input.placeholder = "dd-mm-yyyy";
+}
+
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -179,6 +190,36 @@ function ConnectionGuard({ children }) {
 }
 
 function App() {
+  useEffect(() => {
+    const applyRulesToAllDateInputs = () => {
+      document.querySelectorAll('input[type="date"]').forEach((input) => {
+        enforceDateInputRules(input);
+      });
+    };
+
+    const handleDateInputCapture = (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || input.type !== "date") return;
+      enforceDateInputRules(input);
+      const value = String(input.value || "");
+      if (!value) return;
+      const [year = ""] = value.split("-");
+      if (year.length > 4 || value > DATE_INPUT_MAX || value < DATE_INPUT_MIN) {
+        input.value = "";
+      }
+    };
+
+    applyRulesToAllDateInputs();
+    const observer = new MutationObserver(() => applyRulesToAllDateInputs());
+    observer.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("input", handleDateInputCapture, true);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("input", handleDateInputCapture, true);
+    };
+  }, []);
+
   return (
     <ConnectionGuard>
     <AuthProvider>

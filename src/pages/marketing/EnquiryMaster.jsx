@@ -10,6 +10,14 @@ import NumberInput from './components/NumberInput';
 const DOCUMENTS_BUCKET = 'marketing-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
 
+function isValidDateInput(value) {
+  const raw = String(value || '');
+  if (!raw) return true;
+  if (raw.length > 10) return false;
+  const [year = ''] = raw.split('-');
+  return year.length <= 4;
+}
+
 const EnquiryMaster = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -54,6 +62,11 @@ const EnquiryMaster = () => {
   const [submitting, setSubmitting] = useState(false);
   const [viewingBrokenImageIds, setViewingBrokenImageIds] = useState(new Set());
   const [documentsLoadError, setDocumentsLoadError] = useState(null);
+
+  const handleDateInputChange = (field, value) => {
+    if (!isValidDateInput(value)) return;
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
 
   useEffect(() => {
     fetchEnquiries();
@@ -1003,7 +1016,9 @@ const EnquiryMaster = () => {
                   <input
                     type="date"
                     value={formData.enquiry_date}
-                    onChange={(e) => setFormData({ ...formData, enquiry_date: e.target.value })}
+                    onChange={(e) => handleDateInputChange('enquiry_date', e.target.value)}
+                    min="1900-01-01"
+                    max="9999-12-31"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     required
                   />
@@ -1122,7 +1137,9 @@ const EnquiryMaster = () => {
                   <input
                     type="date"
                     value={formData.expected_closing_date}
-                    onChange={(e) => setFormData({ ...formData, expected_closing_date: e.target.value })}
+                    onChange={(e) => handleDateInputChange('expected_closing_date', e.target.value)}
+                    min="1900-01-01"
+                    max="9999-12-31"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                 </div>

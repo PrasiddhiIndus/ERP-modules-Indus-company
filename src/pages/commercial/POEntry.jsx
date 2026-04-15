@@ -37,6 +37,14 @@ function validateGSTIN(value) {
   return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/.test(value.toUpperCase());
 }
 
+function isValidDateInput(value) {
+  const raw = String(value || '');
+  if (!raw) return true;
+  if (raw.length > 10) return false;
+  const [year = ''] = raw.split('-');
+  return year.length <= 4;
+}
+
 const initialForm = {
   siteId: '',
   locationName: '',
@@ -178,6 +186,11 @@ const POEntry = () => {
       ...prev,
       ratePerCategory: prev.ratePerCategory.filter((_, i) => i !== idx),
     }));
+  };
+
+  const handleDateInputChange = (field, value) => {
+    if (!isValidDateInput(value)) return;
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const sendToApproval = (id) => {
@@ -669,7 +682,9 @@ const POEntry = () => {
                     <input
                       type="date"
                       value={formData.startDate}
-                      onChange={(e) => setFormData((p) => ({ ...p, startDate: e.target.value }))}
+                      onChange={(e) => handleDateInputChange('startDate', e.target.value)}
+                      min="1900-01-01"
+                      max="9999-12-31"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>
@@ -678,7 +693,9 @@ const POEntry = () => {
                     <input
                       type="date"
                       value={formData.endDate}
-                      onChange={(e) => setFormData((p) => ({ ...p, endDate: e.target.value }))}
+                      onChange={(e) => handleDateInputChange('endDate', e.target.value)}
+                      min="1900-01-01"
+                      max="9999-12-31"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>
