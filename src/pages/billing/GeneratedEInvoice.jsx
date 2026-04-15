@@ -75,26 +75,26 @@ const GeneratedEInvoice = () => {
           placeholder="Search by invoice #, OC, client, IRN..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
         />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-3 pb-3">
-          <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+          <div className="rounded-xl border border-slate-200/90 overflow-hidden bg-gradient-to-br from-red-50/40 via-white to-amber-50/30 ring-1 ring-slate-900/5">
             <div className="p-2">
               <div className="bg-white rounded-lg overflow-hidden">
                 <div className="w-full max-w-full min-w-0 overflow-x-auto">
                   <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Tax Invoice #</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">OC / Site</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">Amount</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[22%]">IRN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Ack No / Date</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[6%]">Actions</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">Tax Invoice #</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]">OC / Site</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[18%]">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[10%]">Amount</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[22%]">IRN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">Ack No / Date</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[6%]">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">

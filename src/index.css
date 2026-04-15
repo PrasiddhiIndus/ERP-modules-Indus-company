@@ -2,6 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── INDUS ERP: unified data tables (Fire Tender look, accent #dc2626) ───
+   Scoped to main.erp-app-shell so login / public pages are unaffected.
+   Add class `erp-table-exempt` on a <table> to skip (e.g. tax invoice letterhead). */
+main.erp-app-shell table:not(.erp-table-exempt) {
+  border-collapse: collapse;
+}
+
+main.erp-app-shell table:not(.erp-table-exempt) > thead,
+main.erp-app-shell table:not(.erp-table-exempt) thead {
+  background-color: transparent !important;
+  background-image: linear-gradient(90deg, rgb(254 242 242), rgb(255 251 235)) !important;
+  border-bottom: 1px solid rgb(254 202 202) !important;
+}
+
+main.erp-app-shell table:not(.erp-table-exempt) thead th {
+  background-color: transparent !important;
+  background-image: none !important;
+  color: #374151 !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  border-bottom: none !important;
+  vertical-align: middle;
+}
+
+main.erp-app-shell table:not(.erp-table-exempt) tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+main.erp-app-shell table:not(.erp-table-exempt) tbody tr:hover {
+  background-color: rgba(254, 242, 242, 0.55) !important;
+}
+
+main.erp-app-shell .overflow-x-auto {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(220, 38, 38, 0.45) #f3f4f6;
+}
+
+main.erp-app-shell .overflow-x-auto::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-thumb {
+  background: rgba(220, 38, 38, 0.45);
+  border-radius: 4px;
+}
+
+main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(220, 38, 38, 0.65);
+}
+
 /* INDUS OS – Command Interface login */
 .login-page {
   --indus-red: #C8102E;

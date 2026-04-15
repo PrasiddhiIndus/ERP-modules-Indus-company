@@ -1661,7 +1661,7 @@ const InternalQuotationFormModal = ({
                   <button
                     type="button"
                     onClick={handleDownloadPDF}
-                    className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    className="flex items-center space-x-2 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
                   >
                     <Download className="w-4 h-4" />
                     <span>Download PDF</span>

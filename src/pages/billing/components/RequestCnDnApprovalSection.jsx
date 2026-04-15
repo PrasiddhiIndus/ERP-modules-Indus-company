@@ -29,13 +29,13 @@ function invoiceAmount(inv) {
   return roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0);
 }
 
-const tableShellClass = 'rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]';
+const tableShellClass = 'rounded-xl border border-slate-200/90 overflow-hidden bg-gradient-to-br from-red-50/35 via-white to-amber-50/25 ring-1 ring-slate-900/5';
 const innerClass = 'p-2';
 const whiteWrapClass = 'bg-white rounded-lg overflow-hidden';
 const scrollClass = 'w-full max-w-full min-w-0 overflow-x-auto';
 
 const thBase =
-  'px-3 py-2.5 text-left text-xs font-bold text-gray-900 border-b border-gray-200 bg-[#f2f6ff]';
+  'px-3 py-2.5 text-left text-xs font-bold text-gray-900 border-b border-red-100/60';
 const tdBase = 'px-3 py-2 text-xs text-gray-800 align-top';
 const tdMono = `${tdBase} font-mono tabular-nums`;
 const tdNum = `${tdBase} text-right tabular-nums`;

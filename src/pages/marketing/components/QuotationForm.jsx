@@ -841,11 +841,11 @@ const QuotationForm = ({
             {/* Display enquiry information if enquiryId is provided from convert button */}
             {selectedEnquiry && enquiryId && (
               <div className="md:col-span-2">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-blue-900">Related Enquiry (From Convert)</p>
-                      <p className="text-sm text-blue-700 mt-1">
+                      <p className="text-sm font-semibold text-red-900">Related Enquiry (From Convert)</p>
+                      <p className="text-sm text-red-700 mt-1">
                         <span className="font-medium">Enquiry Number:</span> {selectedEnquiry.enquiry_number}
                         {selectedEnquiry.marketing_clients && (
                           <span className="ml-4">

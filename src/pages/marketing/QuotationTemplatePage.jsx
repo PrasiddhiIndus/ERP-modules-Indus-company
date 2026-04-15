@@ -256,7 +256,7 @@ const QuotationTemplatePage = () => {
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleView(t)}
-                              className="text-blue-600 hover:underline text-sm"
+                              className="text-red-600 hover:underline text-sm"
                             >
                               View
                             </button>
@@ -293,12 +293,12 @@ const QuotationTemplatePage = () => {
           </h3>
           
           {/* Template Type Indicator */}
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex items-center">
-              <span className="text-sm font-medium text-blue-800">
+              <span className="text-sm font-medium text-red-800">
                 Template Type: 
               </span>
-              <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">
+              <span className="ml-2 px-2 py-1 bg-red-100 text-red-800 rounded text-sm font-medium">
                 {formData.template_type}
               </span>
             </div>

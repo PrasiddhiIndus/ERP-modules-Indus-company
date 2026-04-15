@@ -136,7 +136,7 @@ const InternalQuotationList = () => {
                 placeholder="Search by quotation number or client name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -201,7 +201,7 @@ const InternalQuotationList = () => {
                               Saved
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                               {quotation.status || 'Sent'}
                             </span>
                           )}
@@ -212,7 +212,7 @@ const InternalQuotationList = () => {
                               <>
                                 <button
                                   onClick={() => handleViewInternalQuotation(quotation.id)}
-                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                   title="View"
                                 >
                                   <Eye className="w-4 h-4" />
@@ -235,7 +235,7 @@ const InternalQuotationList = () => {
                             ) : (
                               <button
                                 onClick={() => handleCreateInternalQuotation(quotation.id)}
-                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
                               >
                                 Create Internal Quotation
                               </button>

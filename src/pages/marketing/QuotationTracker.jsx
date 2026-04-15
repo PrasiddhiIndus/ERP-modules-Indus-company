@@ -1592,7 +1592,7 @@ Marketing Team`;
               className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 text-white rounded-lg text-sm sm:text-base ${
                 activeTab === 'list' ? 'bg-purple-600 hover:bg-purple-700' :
                 activeTab === 'costing' ? 'bg-green-600 hover:bg-green-700' :
-                'bg-blue-600 hover:bg-blue-700'
+                'bg-red-600 hover:bg-red-700'
               }`}
             >
               <Plus className="w-4 h-4" />
@@ -1632,7 +1632,7 @@ Marketing Team`;
               onClick={() => setActiveTab('internal')}
               className={`px-4 py-2 font-medium text-sm sm:text-base whitespace-nowrap ${
                 activeTab === 'internal'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
+                  ? 'border-b-2 border-red-600 text-red-700'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -1687,7 +1687,7 @@ Marketing Team`;
                   }
                 `}</style>
                 <table className="w-full min-w-[1000px] text-xs">
-                  <thead className="bg-gradient-to-r from-purple-50 to-blue-50 border-b border-purple-200">
+                  <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation ID</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
@@ -1744,7 +1744,7 @@ Marketing Team`;
                               quotation.status === 'Sent' 
                                 ? 'bg-green-100 text-green-700 border border-green-200' 
                                 : quotation.status === 'Accepted' 
-                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                ? 'bg-red-100 text-red-800 border border-red-200'
                                 : quotation.status === 'Draft'
                                 ? 'bg-gray-100 text-gray-700 border border-gray-200'
                                 : quotation.status === 'Approved'
@@ -1986,7 +1986,7 @@ Marketing Team`;
                               <div className="flex items-center justify-center gap-1">
                           <button
                                   onClick={() => handleViewCostingSheet(sheet)}
-                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
                                   title="View"
                           >
                                   <Eye className="w-3.5 h-3.5" />
@@ -2029,7 +2029,7 @@ Marketing Team`;
                   placeholder="Search by quotation number or client name..."
                   value={internalSearchQuery}
                   onChange={(e) => setInternalSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
                 />
               </div>
             </div>
@@ -2058,7 +2058,7 @@ Marketing Team`;
                   }
                 `}</style>
                 <table className="w-full min-w-[1000px] text-xs">
-                  <thead className="bg-gradient-to-r from-purple-50 to-blue-50 border-b border-purple-200">
+                  <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation ID</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
@@ -2117,7 +2117,7 @@ Marketing Team`;
                               hasInternalData
                                 ? 'bg-green-100 text-green-700 border border-green-200'
                                 : quotation.status === 'Sent'
-                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                ? 'bg-red-100 text-red-800 border border-red-200'
                                 : quotation.status === 'Draft'
                                 ? 'bg-gray-100 text-gray-700 border border-gray-200'
                                 : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
@@ -2131,7 +2131,7 @@ Marketing Team`;
                                 <>
                                   <button
                                     onClick={() => handleViewInternalQuotation(quotation.id)}
-                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
                                     title="View"
                                   >
                                     <Eye className="w-3.5 h-3.5" />
@@ -2154,7 +2154,7 @@ Marketing Team`;
                               ) : (
                                 <button
                                   onClick={() => handleCreateInternalQuotation(quotation.id)}
-                                  className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+                                  className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 transition-colors"
                                 >
                                   Create Internal Quotation
                                 </button>
@@ -2563,7 +2563,7 @@ Marketing Team`;
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Status</p>
                     <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                      viewingQuotation.status === 'Sent' ? 'bg-blue-100 text-blue-800' :
+                      viewingQuotation.status === 'Sent' ? 'bg-slate-100 text-slate-800' :
                       viewingQuotation.status === 'Draft' ? 'bg-gray-100 text-gray-800' :
                       viewingQuotation.status === 'Approved' ? 'bg-green-100 text-green-800' :
                       'bg-yellow-100 text-yellow-800'

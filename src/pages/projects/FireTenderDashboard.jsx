@@ -2,13 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowRight,
-  BarChart3,
   CalendarDays,
-  CheckCircle2,
   ClipboardList,
   Clock3,
   Calculator,
-  XCircle,
   Factory,
   FilePlus2,
   Loader2,
@@ -124,257 +121,253 @@ const FireTenderDashboard = () => {
     fetchDashboardData();
   }, []);
 
-  const primaryStats = [
-    {
-      title: "Total Tenders",
-      value: metrics.totalTenders,
-      icon: ClipboardList,
-      iconBg: "bg-blue-100",
-      iconColor: "text-blue-600",
-      path: "/app/fire-tender/new",
-    },
-    {
-      title: "Approved",
-      value: metrics.approvedTenders,
-      icon: CheckCircle2,
-      iconBg: "bg-green-100",
-      iconColor: "text-green-600",
-      path: "/app/fire-tender/new",
-    },
-    {
-      title: "Pending Review",
-      value: metrics.pendingTenders,
-      icon: Clock3,
-      iconBg: "bg-amber-100",
-      iconColor: "text-amber-600",
-      path: "/app/fire-tender/new",
-    },
-    {
-      title: "Rejected",
-      value: metrics.rejectedTenders,
-      icon: XCircle,
-      iconBg: "bg-red-100",
-      iconColor: "text-red-600",
-      path: "/app/fire-tender/new",
-    },
-  ];
-
-  const secondaryStats = [
-    {
-      title: "New This Month",
-      value: metrics.newTenders,
-      icon: FilePlus2,
-      iconBg: "bg-sky-100",
-      iconColor: "text-sky-600",
-      path: "/app/fire-tender/new",
-    },
-    {
-      title: "Costing Sheets",
-      value: metrics.costingSheets,
-      icon: Calculator,
-      iconBg: "bg-emerald-100",
-      iconColor: "text-emerald-600",
-      path: "/app/fire-tender/costing",
-    },
-    {
-      title: "Quotations",
-      value: metrics.quotations,
-      icon: ReceiptText,
-      iconBg: "bg-violet-100",
-      iconColor: "text-violet-600",
-      path: "/app/fire-tender/quotation",
-    },
-  ];
-
   const dashboardCards = [
     {
       icon: FilePlus2,
       label: "New Tender",
       path: "/app/fire-tender/new",
-      color: "bg-red-500",
-      hoverColor: "hover:bg-red-600",
+      border: "border-red-200",
+      bg: "bg-red-50/50 hover:bg-red-50",
+      iconWrap: "bg-red-100 text-red-600",
     },
     {
       icon: ClipboardList,
       label: "Tender List",
       path: "/app/fire-tender/new",
-      color: "bg-blue-500",
-      hoverColor: "hover:bg-blue-600",
+      border: "border-blue-200",
+      bg: "bg-blue-50/50 hover:bg-blue-50",
+      iconWrap: "bg-blue-100 text-blue-600",
     },
     {
       icon: Calculator,
       label: "Costing Sheet",
       path: "/app/fire-tender/costing",
-      color: "bg-green-500",
-      hoverColor: "hover:bg-green-600",
+      border: "border-emerald-200",
+      bg: "bg-emerald-50/50 hover:bg-emerald-50",
+      iconWrap: "bg-emerald-100 text-emerald-600",
     },
     {
       icon: ReceiptText,
       label: "Quotation",
       path: "/app/fire-tender/quotation",
-      color: "bg-purple-500",
-      hoverColor: "hover:bg-purple-600",
+      border: "border-violet-200",
+      bg: "bg-violet-50/50 hover:bg-violet-50",
+      iconWrap: "bg-violet-100 text-violet-600",
     },
     {
       icon: Factory,
       label: "Manufacturing",
       path: "/app/fire-tender-manufacturing",
-      color: "bg-orange-500",
-      hoverColor: "hover:bg-orange-600",
+      border: "border-orange-200",
+      bg: "bg-orange-50/50 hover:bg-orange-50",
+      iconWrap: "bg-orange-100 text-orange-600",
     },
   ];
 
+  const cards = [
+    {
+      title: "Tender volume",
+      description: "Overall tender count and monthly intake",
+      icon: ClipboardList,
+      accent: "blue",
+      stats: [
+        { label: "Total tenders", value: metrics.totalTenders },
+        { label: "New this month", value: metrics.newTenders },
+      ],
+      path: "/app/fire-tender/new",
+    },
+    {
+      title: "Approval status",
+      description: "Approved, pending and rejected mix",
+      icon: ShieldCheck,
+      accent: "green",
+      stats: [
+        { label: "Approved", value: metrics.approvedTenders },
+        { label: "Pending review", value: metrics.pendingTenders },
+        { label: "Rejected", value: metrics.rejectedTenders },
+      ],
+      path: "/app/fire-tender/new",
+    },
+    {
+      title: "Costing readiness",
+      description: "Tender records with costing sheets",
+      icon: Calculator,
+      accent: "emerald",
+      stats: [
+        { label: "Costing sheets", value: metrics.costingSheets },
+        {
+          label: "Coverage",
+          value: `${metrics.totalTenders ? Math.round((metrics.costingSheets / metrics.totalTenders) * 100) : 0}%`,
+        },
+      ],
+      path: "/app/fire-tender/costing",
+    },
+    {
+      title: "Quotation output",
+      description: "Issued quotations and completion ratio",
+      icon: ReceiptText,
+      accent: "violet",
+      stats: [
+        { label: "Quotations", value: metrics.quotations },
+        {
+          label: "Coverage",
+          value: `${metrics.totalTenders ? Math.round((metrics.quotations / metrics.totalTenders) * 100) : 0}%`,
+        },
+      ],
+      path: "/app/fire-tender/quotation",
+    },
+    {
+      title: "Pending queue",
+      description: "Open approvals requiring action",
+      icon: Clock3,
+      accent: "amber",
+      stats: [
+        { label: "Pending tenders", value: metrics.pendingTenders },
+        { label: "Rejected", value: metrics.rejectedTenders },
+      ],
+      path: "/app/fire-tender/new",
+    },
+    {
+      title: "Manufacturing flow",
+      description: "Post-quotation manufacturing pipeline",
+      icon: Factory,
+      accent: "rose",
+      stats: [
+        { label: "Costing tenders", value: metrics.costingSheets },
+        { label: "Quotations", value: metrics.quotations },
+      ],
+      path: "/app/fire-tender-manufacturing",
+    },
+  ];
+
+  const accentStyles = {
+    blue: { cardBg: "from-blue-50/80 to-white", iconBg: "bg-blue-100", iconColor: "text-blue-700", keyColor: "text-blue-700" },
+    green: { cardBg: "from-green-50/80 to-white", iconBg: "bg-green-100", iconColor: "text-green-700", keyColor: "text-green-700" },
+    emerald: { cardBg: "from-emerald-50/80 to-white", iconBg: "bg-emerald-100", iconColor: "text-emerald-700", keyColor: "text-emerald-700" },
+    violet: { cardBg: "from-violet-50/80 to-white", iconBg: "bg-violet-100", iconColor: "text-violet-700", keyColor: "text-violet-700" },
+    amber: { cardBg: "from-amber-50/80 to-white", iconBg: "bg-amber-100", iconColor: "text-amber-700", keyColor: "text-amber-700" },
+    rose: { cardBg: "from-rose-50/80 to-white", iconBg: "bg-rose-100", iconColor: "text-rose-700", keyColor: "text-rose-700" },
+  };
+
   return (
-    <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
+    <div className="w-full min-h-screen overflow-y-auto px-4 sm:px-6 py-6 bg-gradient-to-b from-slate-50/70 to-white">
       <FireTenderNavbar />
 
-      <div className="bg-white shadow p-3 sm:p-4 md:p-6 rounded-lg mb-4 md:mb-6">
-        <div className="mb-4 md:mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Fire Tender Dashboard</h1>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 border border-red-100/80 shadow-sm">
+              <Truck className="w-6 h-6 text-red-600" />
+            </div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Fire Tender Dashboard</h1>
+              <p className="text-sm text-gray-500 mt-0.5 max-w-3xl">
               Overview of tenders, approvals, costing, and quotations
-            </p>
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={fetchDashboardData}
             disabled={loading}
-            className="self-start sm:self-auto inline-flex items-center gap-2 p-2 bg-red-50 rounded-lg hover:bg-red-100 transition-colors border border-red-100 text-red-700 disabled:opacity-60"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             title="Refresh data"
           >
-            <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
-            <span className="text-sm font-medium">Refresh</span>
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            <span>{loading ? "Refreshing..." : "Refresh"}</span>
           </button>
         </div>
+      </div>
 
-        {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        {/* Primary stats — same pattern as Marketing (4-up) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 md:mb-8">
-          {primaryStats.map(({ title, value, icon: Icon, iconBg, iconColor, path }) => (
-            <div
-              key={title}
-              role="button"
-              tabIndex={0}
-              onClick={() => navigate(path)}
-              onKeyDown={(e) => e.key === "Enter" && navigate(path)}
-              className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 cursor-pointer hover:shadow-md hover:border-gray-200 transition-shadow"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">{title}</p>
-                  <p className="text-3xl font-bold text-gray-900">{loading ? "…" : value}</p>
-                </div>
-                <div className={`${iconBg} p-3 rounded-lg`}>
-                  <Icon className={`w-6 h-6 ${iconColor}`} />
-                </div>
-              </div>
-            </div>
-          ))}
+      {error && (
+        <div className="mb-4 max-w-6xl mx-auto rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
+      )}
 
-        {/* Secondary stats row */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 md:mb-8">
-          {secondaryStats.map(({ title, value, icon: Icon, iconBg, iconColor, path }) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 mb-6 max-w-6xl mx-auto">
+        {cards.map((card) => {
+          const Icon = card.icon;
+          const style = accentStyles[card.accent];
+          const primaryStat = card.stats[0];
+          const secondaryStats = card.stats.slice(1);
+          return (
             <div
-              key={title}
-              role="button"
-              tabIndex={0}
-              onClick={() => navigate(path)}
-              onKeyDown={(e) => e.key === "Enter" && navigate(path)}
-              className="bg-white rounded-xl shadow-sm p-6 border border-gray-100 cursor-pointer hover:shadow-md hover:border-gray-200 transition-shadow"
+              key={card.title}
+              className={`h-full rounded-xl border border-slate-200 bg-gradient-to-br ${style.cardBg} shadow-sm p-4 text-left transition-all hover:shadow-md`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">{title}</p>
-                  <p className="text-3xl font-bold text-gray-900">{loading ? "…" : value}</p>
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className={`p-2.5 rounded-lg ${style.iconBg} ${style.iconColor} ring-1 ring-black/5 shrink-0`}>
+                    <Icon className="w-4.5 h-4.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-gray-900 text-[14px] leading-5 truncate">{card.title}</h3>
+                    <p className="text-[11px] leading-4 text-gray-500 line-clamp-2">{card.description}</p>
+                  </div>
                 </div>
-                <div className={`${iconBg} p-3 rounded-lg`}>
-                  <Icon className={`w-6 h-6 ${iconColor}`} />
-                </div>
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-white/80 text-slate-600 border border-slate-200 shrink-0">
+                  KPI
+                </span>
               </div>
-            </div>
-          ))}
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Quick Navigation — Marketing-style coloured cards */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-4">Quick Navigation</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div className="rounded-lg border border-white/70 bg-white/85 px-3 py-2.5">
+                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{primaryStat.label}</p>
+                <p className={`mt-1 text-xl leading-6 font-bold tabular-nums ${style.keyColor}`}>
+                  {loading ? "..." : primaryStat.value}
+                </p>
+              </div>
+
+              {secondaryStats.length > 0 && (
+                <div className="mt-3 border-t border-slate-200/80 pt-2.5 space-y-1.5">
+                  {secondaryStats.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-600 truncate">{s.label}</span>
+                      <span className="text-[12px] font-semibold text-slate-800 tabular-nums shrink-0">
+                        {loading ? "..." : s.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="max-w-6xl mx-auto rounded-2xl border border-slate-200 bg-white/90 shadow-sm p-4 sm:p-5">
+        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Quick actions</h2>
+        <p className="text-xs text-gray-500 mb-4">Click any action to open the relevant fire tender page.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                 {dashboardCards.map((card) => {
                   const Icon = card.icon;
                   return (
-                    <div
+                    <button
                       key={card.label}
+                      type="button"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         navigate(card.path, { replace: false });
                       }}
-                      className={`${card.color} ${card.hoverColor} text-white rounded-lg p-4 cursor-pointer transition-all transform hover:scale-[1.02] shadow-md`}
+                      className={`relative h-full min-h-[68px] flex items-center gap-3 p-3.5 rounded-xl border ${card.border} ${card.bg} transition-colors text-left`}
                     >
-                      <div className="flex items-center space-x-3">
-                        <Icon className="w-6 h-6 shrink-0" />
-                        <span className="font-medium">{card.label}</span>
+                      <div className={`p-2 rounded-lg ${card.iconWrap}`}>
+                        <Icon className="w-5 h-5 shrink-0" />
                       </div>
-                    </div>
+                      <span className="font-semibold text-gray-900 text-sm leading-5 pr-2">{card.label}</span>
+                    </button>
                   );
                 })}
-              </div>
-            </div>
-          </div>
-
-          {/* Sidebar — status overview (marketing right-column feel) */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <ShieldCheck className="w-5 h-5 text-indigo-600" />
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Pipeline Health</h2>
-            </div>
-            <div className="space-y-3">
-              <div className="rounded-lg bg-gradient-to-r from-gray-50 to-red-50 border border-gray-100 p-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Approval rate</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {metrics.totalTenders ? Math.round((metrics.approvedTenders / metrics.totalTenders) * 100) : 0}%
-                </p>
-              </div>
-              <div className="rounded-lg bg-gradient-to-r from-gray-50 to-emerald-50 border border-gray-100 p-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Costing coverage</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {metrics.totalTenders ? Math.round((metrics.costingSheets / metrics.totalTenders) * 100) : 0}%
-                </p>
-              </div>
-              <div className="rounded-lg bg-gradient-to-r from-gray-50 to-violet-50 border border-gray-100 p-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotation coverage</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {metrics.totalTenders ? Math.round((metrics.quotations / metrics.totalTenders) * 100) : 0}%
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigate("/app/fire-tender/new")}
-              className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <Target className="w-4 h-4 text-orange-600" />
-              Open tender list
-              <ArrowRight className="w-4 h-4 text-gray-400" />
-            </button>
-          </div>
         </div>
+      </div>
 
-        {/* Recent tenders — full width table inside card */}
-        <div className="mt-6 md:mt-8 bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">
-          <div className="flex items-center justify-between gap-2 mb-4">
+      <div className="mt-6 max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
               <CalendarDays className="w-5 h-5 text-blue-600" />
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Recent Tenders</h2>
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900">Recent Tenders</h2>
             </div>
             <button
               type="button"
@@ -393,14 +386,13 @@ const FireTenderDashboard = () => {
           ) : recentTenders.length === 0 ? (
             <p className="text-sm text-gray-500 py-8 text-center">No tender records found.</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <div className="overflow-x-auto rounded-lg border border-gray-100 max-h-[360px] overflow-y-auto">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="text-left bg-gray-50 text-gray-600 border-b border-gray-100">
                     <th className="px-4 py-3 font-semibold">Enquiry No</th>
                     <th className="px-4 py-3 font-semibold">Client</th>
-                    <th className="px-4 py-3 font-semibold">Tender No</th>
-                    <th className="px-4 py-3 font-semibold">Due Date</th>
+                    <th className="px-4 py-3 font-semibold">Date</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                   </tr>
                 </thead>
@@ -415,7 +407,6 @@ const FireTenderDashboard = () => {
                       >
                         <td className="px-4 py-3 font-medium text-gray-900">{tender.enquiry_number || "—"}</td>
                         <td className="px-4 py-3 text-gray-700 max-w-[200px] truncate">{tender.client || "—"}</td>
-                        <td className="px-4 py-3 text-gray-700">{tender.tender_number || "—"}</td>
                         <td className="px-4 py-3 text-gray-600">{formatDate(tender.due_date)}</td>
                         <td className="px-4 py-3">
                           <span
@@ -435,43 +426,43 @@ const FireTenderDashboard = () => {
           )}
         </div>
 
-        {/* Bottom summary strip — similar to marketing utility row */}
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+          <div className="flex items-center gap-2 mb-2.5">
+            <ShieldCheck className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Pipeline Health</h2>
+          </div>
+          <div className="space-y-2.5">
+            <div className="rounded-lg bg-gradient-to-r from-gray-50 to-red-50 border border-gray-100 p-2.5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Approval rate</p>
+              <p className="text-xl font-bold text-gray-900 mt-0.5">
+                {metrics.totalTenders ? Math.round((metrics.approvedTenders / metrics.totalTenders) * 100) : 0}%
+              </p>
+            </div>
+            <div className="rounded-lg bg-gradient-to-r from-gray-50 to-emerald-50 border border-gray-100 p-2.5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Costing coverage</p>
+              <p className="text-xl font-bold text-gray-900 mt-0.5">
+                {metrics.totalTenders ? Math.round((metrics.costingSheets / metrics.totalTenders) * 100) : 0}%
+              </p>
+            </div>
+            <div className="rounded-lg bg-gradient-to-r from-gray-50 to-violet-50 border border-gray-100 p-2.5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotation coverage</p>
+              <p className="text-xl font-bold text-gray-900 mt-0.5">
+                {metrics.totalTenders ? Math.round((metrics.quotations / metrics.totalTenders) * 100) : 0}%
+              </p>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => navigate("/app/fire-tender/new")}
-            className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-4 text-left hover:bg-gray-100 transition-colors"
+            className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
-            <span className="inline-flex items-center gap-2 font-semibold text-gray-900">
-              <BarChart3 className="w-5 h-5 text-blue-600" />
-              Pending queue
-            </span>
-            <span className="text-2xl font-bold text-gray-900">{metrics.pendingTenders}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/app/fire-tender/costing")}
-            className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-4 text-left hover:bg-gray-100 transition-colors"
-          >
-            <span className="inline-flex items-center gap-2 font-semibold text-gray-900">
-              <Truck className="w-5 h-5 text-emerald-600" />
-              Costing tenders
-            </span>
-            <span className="text-2xl font-bold text-gray-900">{metrics.costingSheets}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/app/fire-tender/quotation")}
-            className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-4 text-left hover:bg-gray-100 transition-colors"
-          >
-            <span className="inline-flex items-center gap-2 font-semibold text-gray-900">
-              <ReceiptText className="w-5 h-5 text-violet-600" />
-              Quotations
-            </span>
-            <span className="text-2xl font-bold text-gray-900">{metrics.quotations}</span>
+            <Target className="w-4 h-4 text-orange-600" />
+            Open tender list
+            <ArrowRight className="w-4 h-4 text-gray-400" />
           </button>
         </div>
       </div>
+
     </div>
   );
 };

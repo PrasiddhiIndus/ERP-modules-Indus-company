@@ -92,7 +92,7 @@ const WOPOManagement = () => {
         : 'bg-gray-100 text-gray-800';
     const statusClass =
       s === 'active'
-        ? 'bg-blue-50 text-blue-700'
+        ? 'bg-red-50 text-red-800'
         : s === 'inactive'
         ? 'bg-gray-100 text-gray-700'
         : 'bg-gray-100 text-gray-700';
@@ -155,8 +155,8 @@ const WOPOManagement = () => {
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center space-x-3">
-          <div className="bg-blue-100 p-3 rounded-lg shrink-0">
-            <FileCheck className="w-6 h-6 text-blue-600" />
+          <div className="bg-red-50 p-3 rounded-xl ring-1 ring-red-100 shrink-0">
+            <FileCheck className="w-6 h-6 text-red-600" />
           </div>
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-gray-900 truncate">WO/PO Management</h2>
@@ -170,7 +170,7 @@ const WOPOManagement = () => {
             setEditId(null);
             setFormData(initialForm);
           }}
-          className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 flex items-center justify-center space-x-2 shrink-0"
+          className="w-full sm:w-auto bg-red-600 text-white px-4 py-2.5 rounded-lg hover:bg-red-700 shadow-sm flex items-center justify-center space-x-2 shrink-0"
         >
           <Plus className="h-5 w-5" />
           <span>Add WO/PO</span>
@@ -246,14 +246,14 @@ const WOPOManagement = () => {
               setSearchTerm(e.target.value);
               setCurrentPage(1);
             }}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
           />
         </div>
       </div>
 
       {/* All WO/PO – table styled like Manage Invoices */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="px-4 py-3 border-b border-gray-200 bg-[#f2f6ff] flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="px-4 py-3 border-b border-red-100/70 bg-gradient-to-r from-red-50/90 to-amber-50/50 flex flex-wrap items-center justify-between gap-2 shrink-0">
           <h3 className="text-sm font-semibold text-gray-900">
             PO / WO Management ({filteredList.length} records)
           </h3>
@@ -298,25 +298,25 @@ const WOPOManagement = () => {
               <table className="min-w-[1100px] w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[170px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[170px]">
                       OC Number
                     </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[200px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[200px]">
                       Site / Location
                     </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[260px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[260px]">
                       Client (Legal Name)
                     </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[190px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[190px]">
                       PO/WO
                     </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[180px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[180px]">
                       Start – End
                     </th>
-                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[190px]">
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[190px]">
                       Status
                     </th>
-                    <th className="px-3 py-2.5 text-right text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[210px] whitespace-nowrap">
+                    <th className="px-3 py-2.5 text-right text-xs font-bold text-black border-b border-red-100/60 w-[210px] whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
@@ -427,7 +427,7 @@ const WOPOManagement = () => {
                                     },
                                   ]);
                                 }}
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
                                 title="Quick WO/PO – request quick bill (requires approval)"
                               >
                                 <Zap className="w-4 h-4" />
@@ -459,7 +459,7 @@ const WOPOManagement = () => {
                                     setShowAddForm(false);
                                   }
                                 }}
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
                                 title="Edit"
                               >
                                 <Pencil className="w-4 h-4" />
@@ -686,7 +686,7 @@ const WOPOManagement = () => {
                           designation_rates: cat === 'Manpower' ? f.designation_rates : [],
                         }));
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                       required
                     >
                       <option value="">Select category</option>
@@ -702,7 +702,7 @@ const WOPOManagement = () => {
                       value={formData.wo_number}
                       onChange={(e) => setFormData((f) => ({ ...f, wo_number: e.target.value }))}
                       placeholder="e.g. WO-2025-001"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     />
                   </div>
                 </div>
@@ -724,7 +724,7 @@ const WOPOManagement = () => {
                                 ),
                               }))
                             }
-                            className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                           >
                             <option value="">Select designation</option>
                             {DESIGNATIONS.filter(
@@ -745,7 +745,7 @@ const WOPOManagement = () => {
                               }))
                             }
                             placeholder="e.g. ₹45,000"
-                            className="w-36 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            className="w-36 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                           />
                           <button
                             type="button"
@@ -770,7 +770,7 @@ const WOPOManagement = () => {
                             designation_rates: [...(f.designation_rates || []), { designation: '', rate: '' }],
                           }))
                         }
-                        className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+                        className="flex items-center gap-1.5 text-sm text-red-600 hover:text-red-700"
                       >
                         <Plus className="w-4 h-4" />
                         Add designation & rate
@@ -785,7 +785,7 @@ const WOPOManagement = () => {
                       value={formData.rates}
                       onChange={(e) => setFormData((f) => ({ ...f, rates: e.target.value }))}
                       placeholder="e.g. ₹12,50,000 or ₹45,000/month"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     />
                   </div>
                 )}
@@ -797,7 +797,7 @@ const WOPOManagement = () => {
                     value={formData.payment_terms}
                     onChange={(e) => setFormData((f) => ({ ...f, payment_terms: e.target.value }))}
                     placeholder="e.g. 30% Advance, 70% on Delivery"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                   />
                 </div>
 
@@ -808,7 +808,7 @@ const WOPOManagement = () => {
                     value={formData.client_name}
                     onChange={(e) => setFormData((f) => ({ ...f, client_name: e.target.value }))}
                     placeholder="Client or company name"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                   />
                 </div>
 
@@ -819,7 +819,7 @@ const WOPOManagement = () => {
                     onChange={(e) => setFormData((f) => ({ ...f, client_address: e.target.value }))}
                     placeholder="Full address"
                     rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                   />
                 </div>
 
@@ -831,7 +831,7 @@ const WOPOManagement = () => {
                       value={formData.hsn_sac}
                       onChange={(e) => setFormData((f) => ({ ...f, hsn_sac: e.target.value }))}
                       placeholder="e.g. 9985, 9983"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -839,7 +839,7 @@ const WOPOManagement = () => {
                     <select
                       value={formData.gst_config}
                       onChange={(e) => setFormData((f) => ({ ...f, gst_config: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     >
                       <option value="">Select GST</option>
                       {GST_OPTIONS.map((g) => (
@@ -854,7 +854,7 @@ const WOPOManagement = () => {
                   <select
                     value={formData.billing_type}
                     onChange={(e) => setFormData((f) => ({ ...f, billing_type: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                   >
                     <option value="">Select billing type</option>
                     {BILLING_TYPES.map((b) => (
@@ -868,7 +868,7 @@ const WOPOManagement = () => {
                   <select
                     value={formData.billing_template}
                     onChange={(e) => setFormData((f) => ({ ...f, billing_template: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                   >
                     <option value="">Select template</option>
                     {BILLING_TEMPLATES.map((t) => (
@@ -884,7 +884,7 @@ const WOPOManagement = () => {
                       type="date"
                       value={formData.start_date}
                       onChange={(e) => setFormData((f) => ({ ...f, start_date: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -893,7 +893,7 @@ const WOPOManagement = () => {
                       type="date"
                       value={formData.end_date}
                       onChange={(e) => setFormData((f) => ({ ...f, end_date: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     />
                   </div>
                 </div>
@@ -958,7 +958,7 @@ const WOPOManagement = () => {
                   }
                   setFormData(initialForm);
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 shadow-sm"
               >
                 {editId ? 'Save' : 'Add WO/PO'}
               </button>

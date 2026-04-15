@@ -778,7 +778,7 @@ const FollowUpPlanner = () => {
                 <p className="text-sm font-medium text-gray-600">Upcoming Follow-ups</p>
                 <p className="text-3xl font-bold text-gray-900">{upcomingFollowUps.length}</p>
               </div>
-              <Calendar className="w-8 h-8 text-blue-600" />
+              <Calendar className="w-8 h-8 text-red-600" />
             </div>
           </div>
           <div className="bg-white rounded-xl shadow-sm p-6">
@@ -1071,7 +1071,7 @@ const FollowUpPlanner = () => {
                       }).length}
                     </p>
                   </div>
-                  <Calendar className="w-8 h-8 text-blue-600" />
+                  <Calendar className="w-8 h-8 text-red-600" />
                 </div>
               </div>
               <div className="bg-white rounded-xl shadow-sm p-6">
@@ -1175,7 +1175,7 @@ const FollowUpPlanner = () => {
                               <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                                 visit.status === 'Pending Paid' ? 'bg-yellow-100 text-yellow-800' :
                                 visit.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                                visit.status === 'Paid' ? 'bg-blue-100 text-blue-800' :
+                                visit.status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
                                 'bg-red-100 text-red-800'
                               }`}>
                                 {visit.status || '-'}
@@ -1519,7 +1519,7 @@ const FollowUpPlanner = () => {
                       return (
                         <div 
                           key={revision.id} 
-                          className="border-l-4 border-blue-500 bg-blue-50 pl-4 py-3 rounded-r-lg hover:bg-blue-100 transition-colors"
+                          className="border-l-4 border-red-600 bg-red-50/80 pl-4 py-3 rounded-r-lg hover:bg-red-50 transition-colors"
                         >
                           <div className="flex justify-between items-start">
                             <div className="flex-1">
@@ -1573,14 +1573,14 @@ const FollowUpPlanner = () => {
               {viewingFollowUp.history && viewingFollowUp.history.length > 0 && (
                 <div>
                   <h3 className="text-md font-semibold text-gray-900 mb-4 flex items-center">
-                    <Calendar className="w-4 h-4 mr-2 text-blue-600" />
+                    <Calendar className="w-4 h-4 mr-2 text-red-600" />
                     Follow-up History ({viewingFollowUp.history.length} {viewingFollowUp.history.length === 1 ? 'Entry' : 'Entries'})
                   </h3>
                   <div className="space-y-3">
                     {viewingFollowUp.history.map((item) => (
                       <div 
                         key={item.id} 
-                        className="border-l-4 border-blue-500 bg-blue-50 pl-4 py-3 rounded-r-lg hover:bg-blue-100 transition-colors"
+                        className="border-l-4 border-red-600 bg-red-50/80 pl-4 py-3 rounded-r-lg hover:bg-red-50 transition-colors"
                       >
                         <div className="flex justify-between items-start">
                           <div className="flex-1">

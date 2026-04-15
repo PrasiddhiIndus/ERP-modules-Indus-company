@@ -982,13 +982,13 @@ const ExpoSeminar = () => {
 
         {activeTab === 'visitors' && (
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="p-4 sm:p-6 border-b bg-gradient-to-r from-purple-50 to-blue-50">
+            <div className="p-4 sm:p-6 border-b border-red-100/60 bg-gradient-to-r from-red-50 to-amber-50">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Site Visit Format</h2>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <button
                     onClick={downloadExcelTemplate}
-                    className="flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    className="flex items-center justify-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 shadow-sm transition-colors text-sm"
                     title="Download Excel template with proper column format"
                   >
                     <Download className="w-4 h-4" />
@@ -1027,7 +1027,7 @@ const ExpoSeminar = () => {
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
                           visit.status === 'Pending Paid' ? 'bg-yellow-100 text-yellow-800' :
                           visit.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                          visit.status === 'Paid' ? 'bg-blue-100 text-blue-800' :
+                          visit.status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
                           'bg-red-100 text-red-800'
                         }`}>
                           {visit.status || '-'}
@@ -1036,7 +1036,7 @@ const ExpoSeminar = () => {
                       <div className="flex space-x-1">
                         <button
                           onClick={() => handleViewSiteVisit(visit)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded"
                           title="View"
                         >
                           <Eye className="w-4 h-4" />
@@ -1147,7 +1147,7 @@ const ExpoSeminar = () => {
                             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
                               visit.status === 'Pending Paid' ? 'bg-yellow-100 text-yellow-800' :
                               visit.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                              visit.status === 'Paid' ? 'bg-blue-100 text-blue-800' :
+                              visit.status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
                               'bg-red-100 text-red-800'
                             }`}>
                               {visit.status || '-'}
@@ -1157,7 +1157,7 @@ const ExpoSeminar = () => {
                             <div className="flex items-center justify-center space-x-1">
                               <button
                                 onClick={() => handleViewSiteVisit(visit)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
                                 title="View"
                               >
                                 <Eye className="w-3.5 h-3.5" />
@@ -2286,7 +2286,7 @@ const ExpoSeminar = () => {
                     <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
                       viewingSiteVisit.status === 'Pending Paid' ? 'bg-yellow-100 text-yellow-800' :
                       viewingSiteVisit.status === 'Approved' ? 'bg-green-100 text-green-800' :
-                      viewingSiteVisit.status === 'Paid' ? 'bg-blue-100 text-blue-800' :
+                      viewingSiteVisit.status === 'Paid' ? 'bg-emerald-100 text-emerald-800' :
                       'bg-red-100 text-red-800'
                     }`}>
                       {viewingSiteVisit.status || '-'}

@@ -186,8 +186,8 @@ const BillingReports = () => {
 
       {/* Less Billed sites */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-blue-50 flex items-center gap-2">
-          <TrendingDown className="w-5 h-5 text-blue-600" />
+        <div className="px-4 py-3 border-b border-red-100/70 bg-gradient-to-r from-red-50/90 to-amber-50/40 flex items-center gap-2">
+          <TrendingDown className="w-5 h-5 text-red-600" />
           <h3 className="font-semibold text-gray-900">Less Billed Sites</h3>
         </div>
         <p className="px-4 py-2 text-sm text-gray-600">Sites where total billed &lt; expected (Less Billing)</p>

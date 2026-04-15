@@ -460,8 +460,8 @@ const InternalQuotationForm = () => {
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr className="bg-blue-50 font-semibold border-t-2 border-gray-300">
-                          <td className="px-3 py-3 text-sm text-gray-900 border-r border-gray-300 sticky left-0 bg-blue-50 z-10">
+                        <tr className="bg-red-50 font-semibold border-t-2 border-gray-300">
+                          <td className="px-3 py-3 text-sm text-gray-900 border-r border-gray-300 sticky left-0 bg-red-50 z-10">
                             Net Total (Excl. GST)
                           </td>
                           {costingTableItems.map((item) => {

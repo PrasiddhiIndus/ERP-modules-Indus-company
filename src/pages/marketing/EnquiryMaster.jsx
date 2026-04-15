@@ -705,7 +705,7 @@ const EnquiryMaster = () => {
                 }
               `}</style>
               <table className="w-full min-w-[1100px] text-xs">
-                <thead className="bg-gradient-to-r from-purple-50 to-blue-50 border-b border-purple-200">
+                <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                   <tr>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Enquiry ID</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
@@ -779,7 +779,7 @@ const EnquiryMaster = () => {
                           enquiry.is_converted_to_quotation 
                             ? 'bg-green-100 text-green-700 border border-green-200' 
                             : enquiry.status === 'New' 
-                            ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                            ? 'bg-red-100 text-red-800 border border-red-200'
                             : enquiry.status === 'In Progress'
                             ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
                             : enquiry.status === 'Follow Up'
@@ -1179,7 +1179,7 @@ const EnquiryMaster = () => {
                       {formData.assigned_to_custom_names?.map((name, idx) => (
                         <span
                           key={`custom-${idx}-${name}`}
-                          className="inline-flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded text-xs bg-blue-100 text-blue-800 border border-blue-200"
+                          className="inline-flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded text-xs bg-red-100 text-red-900 border border-red-200"
                         >
                           <span className="max-w-[80px] truncate">{name}</span>
                           <button
@@ -1188,7 +1188,7 @@ const EnquiryMaster = () => {
                               ...prev,
                               assigned_to_custom_names: (prev.assigned_to_custom_names || []).filter((_, i) => i !== idx),
                             }))}
-                            className="hover:bg-blue-200 rounded p-0.5"
+                            className="hover:bg-red-200 rounded p-0.5"
                             aria-label="Remove"
                           >
                             <X className="w-3 h-3" />
@@ -1433,7 +1433,7 @@ const EnquiryMaster = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
             {/* Header */}
-            <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 sm:p-6 flex justify-between items-center rounded-t-xl">
+            <div className="sticky top-0 bg-gradient-to-r from-red-600 to-red-800 text-white p-4 sm:p-6 flex justify-between items-center rounded-t-xl">
               <div>
                 <h2 className="text-xl sm:text-2xl font-bold">Enquiry Details</h2>
                 <p className="text-sm text-purple-100 mt-1">{viewingEnquiry.enquiry_number}</p>
@@ -1505,7 +1505,7 @@ const EnquiryMaster = () => {
                           viewingEnquiry.is_converted_to_quotation 
                             ? 'bg-green-100 text-green-700 border border-green-200' 
                             : viewingEnquiry.status === 'New' 
-                            ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                            ? 'bg-red-100 text-red-800 border border-red-200'
                             : viewingEnquiry.status === 'In Progress'
                             ? 'bg-yellow-100 text-yellow-700 border border-yellow-200'
                             : viewingEnquiry.status === 'Follow Up'

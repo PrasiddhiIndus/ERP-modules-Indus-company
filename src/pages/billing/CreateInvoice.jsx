@@ -827,7 +827,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
               className={[
                 'px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors shrink-0',
                 createMainTab === t.id
-                  ? 'border-blue-600 text-blue-600'
+                  ? 'border-red-600 text-red-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700',
               ].join(' ')}
             >
@@ -877,7 +877,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     onClick={() => setPoBillingTab(t.id)}
                     className={[
                       'px-3 py-1.5 rounded-lg text-sm border',
-                      active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                      active ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
                     ].join(' ')}
                     title={bufferOpen ? `${bufferOpen} OC(s) with post-contract billing open in ${t.label}` : undefined}
                   >
@@ -887,19 +887,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 );
               })}
             </div>
-            <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+            <div className="rounded-xl border border-slate-200/90 overflow-hidden bg-gradient-to-br from-red-50/40 via-white to-amber-50/30 ring-1 ring-slate-900/5">
               <div className="p-2">
                 <div className="bg-white rounded-lg overflow-hidden">
                   <div className="w-full max-w-full min-w-0 overflow-x-auto">
                     <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                       <thead>
                 <tr>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[18%]">OC Number</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[22%]">Site / Location</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">PO/WO</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">Remaining (₹)</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[14%]">Status</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[16%]">Action</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[18%]">OC Number</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[22%]">Site / Location</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">PO/WO</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]">Remaining (₹)</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">Status</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]">Action</th>
                 </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
@@ -966,7 +966,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   : 'Edit Tax Invoice'
                               }
                               disabled={editLockedByIrn}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
@@ -1502,7 +1502,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <button
                       type="button"
                       onClick={addTruckLine}
-                      className="text-sm font-medium text-blue-600 hover:underline"
+                      className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline"
                     >
                       + Add truck line (Qty × Rate only)
                     </button>

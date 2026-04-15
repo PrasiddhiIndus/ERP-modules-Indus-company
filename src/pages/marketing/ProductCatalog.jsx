@@ -975,7 +975,7 @@ const ProductCatalog = () => {
     return (
       <div className="w-full h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading products...</p>
         </div>
       </div>
@@ -1012,7 +1012,7 @@ const ProductCatalog = () => {
               <span className="hidden sm:inline">Add New Product</span>
               <span className="sm:hidden">Add</span>
             </button>
-            <label className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm sm:text-base cursor-pointer">
+            <label className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm sm:text-base cursor-pointer">
               <Upload className="w-4 h-4" />
               <span className="hidden sm:inline">Import Excel</span>
               <span className="sm:hidden">Import</span>
@@ -1038,8 +1038,8 @@ const ProductCatalog = () => {
 
         {/* Upload Progress */}
         {uploading && uploadProgress && (
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-700">{uploadProgress}</p>
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-700">{uploadProgress}</p>
           </div>
         )}
 
@@ -1114,12 +1114,12 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm font-semibold"
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="font-semibold text-gray-900 break-words cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="font-semibold text-gray-900 break-words cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => handleCellEdit(product.id, 'product_name', product.product_name)}
                               title="Click to edit"
                             >
@@ -1138,13 +1138,13 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                               rows={3}
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="break-words whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="break-words whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => handleCellEdit(product.id, 'specification', specificationOnly || product.detailed_specifications)}
                               title="Click to edit"
                             >
@@ -1163,13 +1163,13 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                               rows={4}
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="break-words whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="break-words whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => handleCellEdit(product.id, 'standard', standard)}
                               title="Click to edit"
                             >
@@ -1191,12 +1191,12 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => handleCellEdit(product.id, 'hsn_code', hsnCode)}
                               title="Click to edit"
                             >
@@ -1218,12 +1218,12 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => handleCellEdit(product.id, 'self_life', selfLife)}
                               title="Click to edit"
                             >
@@ -1242,13 +1242,13 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                               rows={6}
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="break-words whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="break-words whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => handleCellEdit(product.id, 'certification', certification)}
                               title="Click to edit"
                             >
@@ -1271,13 +1271,13 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                               placeholder="0"
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => {
                                 const price = product.standard_selling_price || product.base_cost_price;
                                 handleCellEdit(product.id, 'price', price ? price.toString() : '');
@@ -1307,13 +1307,13 @@ const ProductCatalog = () => {
                                   setEditingCell(null);
                                 }
                               }}
-                              className="w-full px-2 py-1 border border-blue-500 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              className="w-full px-2 py-1 border border-red-500 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                               placeholder="0"
                               autoFocus
                             />
                           ) : (
                             <div 
-                              className="cursor-pointer hover:bg-blue-50 p-1 rounded"
+                              className="cursor-pointer hover:bg-red-50 p-1 rounded"
                               onClick={() => {
                                 const customPrice = product.custom_price;
                                 handleCellEdit(product.id, 'custom_price', customPrice ? customPrice.toString() : '');
@@ -1330,7 +1330,7 @@ const ProductCatalog = () => {
                           <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
                             <button
                               onClick={() => handleEdit(product)}
-                              className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs font-medium whitespace-nowrap"
+                              className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-xs font-medium whitespace-nowrap"
                               title="Edit"
                             >
                               <Edit2 className="w-4 h-4 inline mr-1" />

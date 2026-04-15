@@ -21,6 +21,10 @@ export default {
         'enterprise-text-secondary': '#6B7280',
         'enterprise-border': '#E5E7EB',
         'enterprise-green': '#059669',
+        /** ERP primary accent — matches Tailwind red-600 / Fire Tender CTAs (#dc2626) */
+        'erp-accent': '#dc2626',
+        'erp-accent-hover': '#b91c1c',
+        'erp-accent-soft': '#fef2f2',
       },
       fontFamily: {
         heading: ['Montserrat', 'sans-serif'],

@@ -213,7 +213,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
                 };
                 setPreviewDraft(draft);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-800 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100"
             >
               <Eye className="w-4 h-4" /> Preview
             </button>
@@ -257,7 +257,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
           </div>
 
           <div className="flex items-center justify-between">
-            <button type="button" onClick={addRow} className="text-sm text-blue-600 hover:underline">+ Add row</button>
+            <button type="button" onClick={addRow} className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline">+ Add row</button>
             <div className="text-sm space-y-0.5">
               <p className="text-right">Taxable: <span className="font-medium">₹{taxableValue.toLocaleString('en-IN')}</span></p>
               {gstSupplyType === 'intra' ? <p className="text-right">CGST+SGST: <span className="font-medium">₹{(cgstAmt + sgstAmt).toLocaleString('en-IN')}</span></p> : null}

@@ -286,6 +286,7 @@ function App() {
             
             {/* Commercial (PO/WO – master source for Billing) */}
             <Route path="commercial" element={<Commercial />} />
+            <Route path="commercial/dashboard" element={<Commercial />} />
             <Route path="commercial/po-entry" element={<Commercial />} />
             <Route path="commercial/contact-log" element={<Commercial />} />
 

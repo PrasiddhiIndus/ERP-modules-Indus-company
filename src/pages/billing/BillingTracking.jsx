@@ -39,7 +39,7 @@ const BillingTracking = () => {
             type="button"
             onClick={() => handleSubTabChange(t.id)}
             className={`px-4 py-2 text-sm font-medium rounded-t border-b-2 transition-colors ${
-              activeSubTab === t.id ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'
+              activeSubTab === t.id ? 'border-red-600 text-red-700 bg-red-50/60' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
             {t.label}

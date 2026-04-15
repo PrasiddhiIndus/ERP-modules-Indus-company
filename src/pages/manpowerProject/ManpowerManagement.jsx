@@ -194,15 +194,15 @@ const ManpowerManagement = () => {
               </p>
             </div>
           ) : (
-            <div className="manpower-table-scroll overflow-x-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "#c084fc #f3f4f6" }}>
+            <div className="manpower-table-scroll overflow-x-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(220, 38, 38, 0.45) #f3f4f6" }}>
               <style>{`
                 .manpower-table-scroll::-webkit-scrollbar { height: 8px; }
                 .manpower-table-scroll::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 4px; }
-                .manpower-table-scroll::-webkit-scrollbar-thumb { background: #c084fc; border-radius: 4px; }
-                .manpower-table-scroll::-webkit-scrollbar-thumb:hover { background: #a855f7; }
+                .manpower-table-scroll::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.45); border-radius: 4px; }
+                .manpower-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(220, 38, 38, 0.65); }
               `}</style>
                 <table className="w-full min-w-[1180px] text-xs">
-                  <thead className="bg-gradient-to-r from-purple-50 to-blue-50 border-b border-purple-200">
+                  <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
                       <th className="px-3 py-2.5 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Enquiry No.</th>
                       <th className="px-3 py-2.5 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Client</th>
@@ -216,7 +216,7 @@ const ManpowerManagement = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-100">
                     {paginated.map((e) => (
-                      <tr key={e.id} className="hover:bg-purple-50/30 transition-colors">
+                      <tr key={e.id} className="hover:bg-red-50/35 transition-colors">
                         <td className="px-3 py-2.5 align-middle whitespace-nowrap">
                           <span className="text-xs font-semibold text-gray-900">{e.enquiry_number || "—"}</span>
                         </td>

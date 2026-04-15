@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BillingProvider } from '../../contexts/BillingContext';
 import BillingDashboard from './BillingDashboard';
@@ -25,6 +25,14 @@ const Billing = () => {
   const navigate = useNavigate();
   const activeTab = getBillingPathTab(location.pathname);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    const appShell = document.querySelector('main.erp-app-shell');
+    if (appShell) {
+      appShell.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+  }, [location.pathname]);
+
   const tabs = [
     { id: 'dashboard', component: BillingDashboard },
     { id: 'create-invoice', component: CreateInvoice },
@@ -47,8 +55,8 @@ const Billing = () => {
 
   return (
     <BillingProvider>
-      <div className="min-h-screen bg-gray-50">
-        <div className="flex-1">
+      <div className="min-h-screen bg-slate-50">
+        <div className="mx-auto w-full max-w-[1920px] flex-1">
           <ActiveComponent onNavigateTab={handleTabChange} />
         </div>
       </div>

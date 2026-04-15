@@ -56,9 +56,9 @@ const RupeeIcon = ({ className = '' }) => {
   );
 };
 
-const topLinkBase = "flex items-center space-x-2.5 p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem]";
-const subLinkBase = "flex items-center space-x-2.5 p-1.5 rounded-md hover:bg-gray-100 transition-colors";
-const activeClass = "bg-blue-50 text-blue-700 border-l-2 border-blue-500";
+const topLinkBase = "group flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem]";
+const subLinkBase = "group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors";
+const activeClass = "bg-red-50 text-red-800 border-l-2 border-red-600 shadow-sm";
 const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass : "text-gray-700"}`;
 const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : "text-gray-700"}`;
 
@@ -120,11 +120,11 @@ const Layout = () => {
       <aside
         className={`${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        } lg:translate-x-0 fixed inset-y-0 left-0 z-50 w-56 bg-white shadow-xl transition-transform duration-300 ease-in-out`}
+        } lg:translate-x-0 fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-xl border-r border-slate-200/80 transition-transform duration-300 ease-in-out`}
       >
         <div className="flex flex-col h-full">
           {/* Logo + Close */}
-          <div className="flex items-center justify-between p-3 border-b gap-2">
+          <div className="flex items-center justify-between px-3 py-3.5 border-b border-slate-200/90 gap-2">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <img src={INDUS_LOGO_SRC} alt="" className="h-9 w-9 object-contain shrink-0" width={36} height={36} />
               <h1 className="text-lg font-bold text-gray-900 truncate">INDUS OS</h1>
@@ -138,7 +138,7 @@ const Layout = () => {
           </div>
 
           {/* Nav Links */}
-          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
             {can("overview") && (
               <NavLink to="/app/dashboard" className={topNavClass}>
                 <BarChart3 className="w-4 h-4 shrink-0" />
@@ -151,7 +151,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setHrAdminOpen(!hrAdminOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <UserCheck className="w-4 h-4 shrink-0" />
@@ -165,9 +165,9 @@ const Layout = () => {
               </button>
 
               {hrAdminOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="hr" className={subNavClass}>
-                    <User className="w-4 h-4 shrink-0 text-blue-600" />
+                    <User className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">HR Management</span>
                   </NavLink>
                   <NavLink to="attendance" className={subNavClass}>
@@ -192,7 +192,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setComplianceOpen(!complianceOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Shield className="w-4 h-4 shrink-0" />
@@ -206,13 +206,13 @@ const Layout = () => {
               </button>
 
               {complianceOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="ifsp-employee-compliance" className={subNavClass}>
                     <CheckCircle className="w-4 h-4 shrink-0 text-green-600" />
                     <span className="text-xs">IFSPL Employee Compliance</span>
                   </NavLink>
                   <NavLink to="general-compliance" className={subNavClass}>
-                    <ClipboardCheck className="w-4 h-4 shrink-0 text-blue-600" />
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">General Compliance</span>
                   </NavLink>
                 </div>
@@ -225,7 +225,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setAdminOpen(!adminOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Cog className="w-4 h-4 shrink-0" />
@@ -250,7 +250,7 @@ const Layout = () => {
                     className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >
                     <span className="flex items-start space-x-2">
-                      <Users className="w-4 h-4 shrink-0 text-blue-600" />
+                      <Users className="w-4 h-4 shrink-0 text-red-600" />
                       <span className="text-xs font-medium text-left leading-tight">Employee Administration</span>
                     </span>
                     <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminEmployeeOpen ? "rotate-180" : ""}`} />
@@ -258,7 +258,7 @@ const Layout = () => {
                   {adminEmployeeOpen && (
                     <div className="space-y-0.5">
                       <NavLink to="admin/employee/master" className={subNavClass}>
-                        <Users className="h-4 w-4 shrink-0 text-blue-600" />
+                        <Users className="h-4 w-4 shrink-0 text-red-600" />
                         <span className="text-xs">Employee Master</span>
                       </NavLink>
                       <NavLink to="admin/employee/onboarding" className={subNavClass}>
@@ -302,7 +302,7 @@ const Layout = () => {
                     <div className="space-y-0.5">
                       <NavLink to="admin/store/item-master" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-orange-600" /><span className="text-xs">Item Master</span></NavLink>
                       <NavLink to="admin/store/store-master" className={subNavClass}><Home className="w-4 h-4 shrink-0 text-slate-600" /><span className="text-xs">Store Master</span></NavLink>
-                      <NavLink to="admin/store/site-stock" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-blue-600" /><span className="text-xs">Site Stock</span></NavLink>
+                      <NavLink to="admin/store/site-stock" className={subNavClass}><MapPin className="w-4 h-4 shrink-0 text-red-600" /><span className="text-xs">Site Stock</span></NavLink>
                       <NavLink to="admin/store/issue-entry" className={subNavClass}><FileText className="w-4 h-4 shrink-0 text-indigo-600" /><span className="text-xs">Issue Entry</span></NavLink>
                       <NavLink to="admin/store/return-entry" className={subNavClass}><Receipt className="w-4 h-4 shrink-0 text-emerald-600" /><span className="text-xs">Return Entry</span></NavLink>
                       <NavLink to="admin/store/transfer-transit" className={subNavClass}><Truck className="w-4 h-4 shrink-0 text-amber-600" /><span className="text-xs">Transfer / Transit</span></NavLink>
@@ -323,7 +323,7 @@ const Layout = () => {
                   </button>
                   {adminGateOpen && (
                     <div className="space-y-0.5">
-                      <NavLink to="admin/gate/employee-movement" className={subNavClass}><Users className="w-4 h-4 shrink-0 text-blue-600" /><span className="text-xs">Employee Movement</span></NavLink>
+                      <NavLink to="admin/gate/employee-movement" className={subNavClass}><Users className="w-4 h-4 shrink-0 text-red-600" /><span className="text-xs">Employee Movement</span></NavLink>
                       <NavLink to="admin/gate/goods-in-out" className={subNavClass}><Package className="w-4 h-4 shrink-0 text-orange-600" /><span className="text-xs">Goods In / Out</span></NavLink>
                       <NavLink to="admin/gate/visitor-guest-passes" className={subNavClass}><User className="w-4 h-4 shrink-0 text-indigo-600" /><span className="text-xs">Visitor / Guest Passes</span></NavLink>
                       <NavLink to="admin/gate/vehicle-passes" className={subNavClass}><Car className="w-4 h-4 shrink-0 text-gray-700" /><span className="text-xs">Vehicle Passes</span></NavLink>
@@ -372,7 +372,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setSalesOpen(!salesOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Briefcase className="w-4 h-4 shrink-0" />
@@ -386,17 +386,21 @@ const Layout = () => {
               </button>
 
               {salesOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
+                  <NavLink to="/app/commercial/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-blue-600" />
+                    <span className="text-xs">Commercial Dashboard</span>
+                  </NavLink>
                   <NavLink to="manpower" className={subNavClass}>
-                    <Users className="w-4 h-4 shrink-0 text-blue-600" />
+                    <Users className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Manpower Management</span>
                   </NavLink>
                   <NavLink to="manpower/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
                     <span className="text-xs">Internal Quotation</span>
                   </NavLink>
-                  <NavLink to="/app/commercial" end className={subNavClass}>
-                    <FileCheck className="w-4 h-4 shrink-0 text-blue-600" />
+                  <NavLink to="/app/commercial/po-entry" className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">PO Entry</span>
                   </NavLink>
                   <NavLink to="/app/commercial/contact-log" className={subNavClass}>
@@ -413,7 +417,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setMarketingOpen(!marketingOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/marketing") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/marketing") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <TrendingUp className="w-4 h-4 shrink-0" />
@@ -427,13 +431,13 @@ const Layout = () => {
               </button>
 
               {marketingOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="/app/marketing" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-purple-600" />
                     <span className="text-xs">Marketing Dashboard</span>
                   </NavLink>
                   <NavLink to="/app/marketing/enquiry-master" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-blue-600" />
+                    <FileText className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Enquiry Master</span>
                   </NavLink>
                   <NavLink to="/app/marketing/quotation-tracker" className={subNavClass}>
@@ -465,7 +469,7 @@ const Layout = () => {
                     <span className="text-xs">GST Documents</span>
                   </NavLink>
                   <NavLink to="/app/marketing/mail-templates" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-blue-600" />
+                    <FileText className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Marketing Mail Template</span>
                   </NavLink>
                 </div>
@@ -478,7 +482,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setBillingOpen(!billingOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/billing") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/billing") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <ReceiptIcon className="w-4 h-4 shrink-0" />
@@ -491,7 +495,7 @@ const Layout = () => {
                 />
               </button>
               {billingOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="/app/billing" end className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-purple-600" />
                     <span className="text-xs">Billing Dashboard</span>
@@ -505,7 +509,7 @@ const Layout = () => {
                     <span className="text-xs">Add-On Invoices</span>
                   </NavLink>
                   <NavLink to="/app/billing/manage-invoices" className={subNavClass}>
-                    <FileText className="w-4 h-4 shrink-0 text-blue-600" />
+                    <FileText className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Manage Invoices</span>
                   </NavLink>
                   <NavLink to="/app/billing/generated-e-invoice" className={subNavClass}>
@@ -540,7 +544,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setOperationsOpen(!operationsOpen)}
-                className="flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Wrench className="w-4 h-4 shrink-0" />
@@ -554,7 +558,7 @@ const Layout = () => {
               </button>
 
               {operationsOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="fire-tender-vehicle-management" className={subNavClass}>
                     <Car className="w-4 h-4 shrink-0 text-orange-600" />
                     <span className="text-xs">Fire Tender/Vehicle Management</span>
@@ -573,7 +577,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setProjectsOpen(!projectsOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/projects") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/projects") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Activity className="w-4 h-4 shrink-0" />
@@ -587,7 +591,7 @@ const Layout = () => {
               </button>
 
               {projectsOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="projects-management" className={subNavClass}>
                     <FolderOpen className="w-4 h-4 shrink-0 text-green-600" />
                     <span className="text-xs">Projects Management</span>
@@ -630,7 +634,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setFireTenderOpen(!fireTenderOpen)}
-                className={`flex items-center justify-between w-full p-2 rounded-md hover:bg-gray-100 transition-colors min-h-[2.25rem] ${pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing") ? "bg-blue-50 text-blue-700" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <Truck className="w-4 h-4 shrink-0" />
@@ -644,7 +648,7 @@ const Layout = () => {
               </button>
 
               {fireTenderOpen && (
-                <div className="ml-6 mt-0.5 space-y-0.5">
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="fire-tender" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Fire Tender Dashboard</span>
@@ -687,9 +691,9 @@ const Layout = () => {
           </nav>
 
           {/* Account Info */}
-          <div className="p-3 border-t bg-gray-50">
+          <div className="p-3 border-t border-slate-200/90 bg-slate-50/70">
             <div className="flex items-center space-x-2 mb-2.5">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-rose-700 rounded-full flex items-center justify-center flex-shrink-0">
                 <User className="w-4 h-4 shrink-0 text-white" />
               </div>
               <div className="flex-1 min-w-0">
@@ -713,9 +717,9 @@ const Layout = () => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:ml-56">
+      <div className="flex-1 flex flex-col lg:ml-64">
         {/* Top Header */}
-        <header className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center gap-3">
+        <header className="bg-white shadow-sm border-b border-slate-200/90 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -729,7 +733,7 @@ const Layout = () => {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-6 overflow-y-auto">
+        <main className="erp-app-shell flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

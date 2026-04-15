@@ -176,7 +176,7 @@ export default function InvoiceHtmlPreview({ inv }) {
       </div>
 
       <div className="px-2 sm:px-3 py-2 overflow-x-auto border-b border-gray-300">
-        <table className="w-full min-w-[640px] border-collapse border border-slate-400 text-[10px] sm:text-[11px]">
+        <table className="erp-table-exempt w-full min-w-[640px] border-collapse border border-slate-400 text-[10px] sm:text-[11px]">
           <thead>
             <tr className="bg-[#e1e8f4] text-slate-900">
               <th className="border border-slate-400 px-1.5 py-1.5 text-center font-semibold w-9">Sl.<br />No.</th>

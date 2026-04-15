@@ -184,8 +184,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
       <div className="flex items-center space-x-3">
-        <div className="bg-blue-100 p-3 rounded-lg shrink-0">
-          <FileText className="w-6 h-6 text-blue-600" />
+        <div className="bg-red-50 p-3 rounded-xl ring-1 ring-red-100 shrink-0">
+          <FileText className="w-6 h-6 text-red-600" />
         </div>
         <div>
           <h2 className="text-xl font-bold text-gray-900">Manage Invoices</h2>
@@ -193,8 +193,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="flex gap-1 px-4 sm:px-6 border-b border-gray-100 overflow-x-auto">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 overflow-hidden">
+        <div className="flex gap-1 px-4 sm:px-6 border-b border-slate-100 bg-slate-50/40 overflow-x-auto">
           {MANAGE_INVOICE_TABS.map((tab) => (
             <button
               key={tab.id}
@@ -202,7 +202,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
               onClick={() => setManageTab(tab.id)}
               className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                 manageTab === tab.id
-                  ? 'border-blue-600 text-blue-600'
+                  ? 'border-red-600 text-red-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -224,7 +224,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
             }
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
           />
         </div>
       ) : null}
@@ -249,14 +249,14 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     </colgroup>
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Tax Invoice</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Billing type</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">OC Number</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Amount</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Net after CN/DN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">E-Inv</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Actions</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Tax Invoice</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Billing type</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">OC Number</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Amount</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Net after CN/DN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
@@ -370,7 +370,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
               onClick={() => setBillingTypeFilter(tab.id)}
               className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                 billingTypeFilter === tab.id
-                  ? 'border-blue-600 text-blue-600'
+                  ? 'border-red-600 text-red-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -396,15 +396,15 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     </colgroup>
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Tax Invoice</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Billing type</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">OC Number</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Amount</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Net after CN/DN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">PO rem. (₹)</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">E-Inv</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">Actions</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Tax Invoice</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Billing type</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">OC Number</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Amount</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Net after CN/DN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">PO rem. (₹)</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
@@ -490,7 +490,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                       }}
                                       title={inv.e_invoice_irn ? 'Cannot edit after e-invoice (IRN) generated' : 'Edit invoice'}
                                       disabled={!!inv.e_invoice_irn}
-                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                       <Pencil className="w-4 h-4" />
                                     </button>

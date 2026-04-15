@@ -11,21 +11,21 @@ const QuotationTrackerNavbar = () => {
     };
 
     return (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-200 shadow-sm">
-            <div className="flex items-center justify-between p-4">
+        <div className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200/90 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4">
                 {/* Title */}
-                <h2 className="text-2xl font-semibold">Quotation Tracker</h2>
+                <h2 className="text-xl sm:text-2xl font-semibold text-slate-900">Quotation Tracker</h2>
 
                 {/* Buttons Row - pushed right */}
                 <div className="flex items-center gap-3 ml-auto">
                     {/* Quotation List button */}
                     <Link
                         to="/app/marketing/quotation-tracker"
-                        className={`px-4 py-2 rounded text-white ${
+                        className={`px-4 py-2 rounded-lg text-sm font-medium text-white shadow-sm ${
                             location.pathname === "/app/marketing/quotation-tracker" || 
                             location.pathname === "/app/marketing/quotation-tracker/"
-                                ? "bg-purple-700"
-                                : "bg-purple-600 hover:bg-purple-700"
+                                ? "bg-red-700"
+                                : "bg-red-600 hover:bg-red-700"
                         }`}
                     >
                         Quotation List
@@ -34,7 +34,7 @@ const QuotationTrackerNavbar = () => {
                     {/* Costing Sheet */}
                     <Link
                         to="/app/marketing/quotation-tracker/costing"
-                        className={`px-4 py-2 rounded text-white ${
+                        className={`px-4 py-2 rounded-lg text-sm font-medium text-white shadow-sm ${
                             location.pathname.startsWith("/app/marketing/quotation-tracker/costing")
                                 ? "bg-green-700"
                                 : "bg-green-600 hover:bg-green-700"
@@ -46,10 +46,10 @@ const QuotationTrackerNavbar = () => {
                     {/* Internal Quotation */}
                     <Link
                         to="/app/marketing/quotation-tracker/internal-quotation"
-                        className={`px-4 py-2 rounded text-white ${
+                        className={`px-4 py-2 rounded-lg text-sm font-medium text-white shadow-sm ${
                             location.pathname.startsWith("/app/marketing/quotation-tracker/internal-quotation")
-                                ? "bg-blue-700"
-                                : "bg-blue-600 hover:bg-blue-700"
+                                ? "bg-slate-800"
+                                : "bg-slate-700 hover:bg-slate-800"
                         }`}
                     >
                         Internal Quotation

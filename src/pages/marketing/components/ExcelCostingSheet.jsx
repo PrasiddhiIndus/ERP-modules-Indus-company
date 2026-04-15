@@ -608,17 +608,17 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   }, 0);
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2.5">
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 p-2.5">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-2 gap-2">
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Costing Sheet</h3>
-          <p className="text-[9px] text-gray-500 mt-0.5">Items as rows, cost heads as columns. <span className="bg-[#eff6ff] text-blue-800 px-1.5 py-0.5 rounded border border-blue-200 font-medium">Blue = Manual entry</span></p>
+          <p className="text-[9px] text-gray-500 mt-0.5">Items as rows, cost heads as columns. <span className="bg-red-50 text-red-900 px-1.5 py-0.5 rounded border border-red-200 font-medium">Tint = Manual entry</span></p>
         </div>
         {!isViewMode && (
           <div className="flex flex-wrap gap-1">
             <button
               onClick={addItem}
-              className="flex items-center space-x-1 px-2 py-0.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 text-[10px] font-medium"
+              className="flex items-center space-x-1 px-2 py-0.5 bg-red-600 text-white rounded-md hover:bg-red-700 text-[10px] font-medium"
               title="Add Item Row"
             >
               <Plus className="w-3 h-3" />
@@ -638,7 +638,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         )}
       </div>
 
-      <div className="overflow-x-auto border border-gray-300 rounded-md" style={{ maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: '#c084fc #f3f4f6' }}>
+      <div className="overflow-x-auto border border-gray-300 rounded-md" style={{ maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) #f3f4f6' }}>
         <style>{`
           .overflow-x-auto::-webkit-scrollbar {
             height: 6px;
@@ -648,21 +648,21 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             border-radius: 3px;
           }
           .overflow-x-auto::-webkit-scrollbar-thumb {
-            background: #c084fc;
+            background: rgba(220, 38, 38, 0.45);
             border-radius: 3px;
           }
           .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-            background: #a855f7;
+            background: rgba(220, 38, 38, 0.65);
           }
           .costing-manual-entry {
-            background-color: #eff6ff;
-            border: 1px solid #bfdbfe;
+            background-color: #fef2f2;
+            border: 1px solid #fecaca;
           }
           .costing-manual-entry:hover {
-            background-color: #dbeafe;
+            background-color: #fee2e2;
           }
           .costing-manual-entry:focus-within {
-            outline: 2px solid #3b82f6;
+            outline: 2px solid #dc2626;
             outline-offset: -1px;
           }
         `}</style>
@@ -715,7 +715,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                     )}
                   </div>
                 </td>
-                <td className="px-1 py-1 border-r border-gray-400 sticky z-10 group-hover:bg-gray-50 costing-manual-entry bg-[#eff6ff]" style={{ left: '36px' }}>
+                <td className="px-1 py-1 border-r border-gray-400 sticky z-10 group-hover:bg-gray-50 costing-manual-entry bg-red-50" style={{ left: '36px' }}>
                   {isViewMode ? (
                     <div className="px-1 py-0.5 text-xs text-gray-700 font-medium truncate">
                       {item.productName || item.name || 'No product selected'}
@@ -751,7 +751,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                           }, 200);
                         }}
                         autoFocus
-                        className="w-full px-1 py-0.5 border border-blue-500 text-xs focus:outline-none focus:border-blue-500 rounded"
+                        className="w-full px-1 py-0.5 border border-red-500 text-xs focus:outline-none focus:border-red-600 rounded"
                         placeholder="Type product name"
                       />
                     </div>
@@ -828,7 +828,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                   return (
                     <td
                       key={`${item.id}_${head.id}`}
-                      className={`px-1 py-1 border-r border-gray-400 ${isManualEntry ? 'costing-manual-entry bg-[#eff6ff]' : 'bg-white'}`}
+                      className={`px-1 py-1 border-r border-gray-400 ${isManualEntry ? 'costing-manual-entry bg-red-50' : 'bg-white'}`}
                     >
                       {head.isCalculated ? (
                         <div className={`text-xs font-semibold text-right whitespace-nowrap ${head.id === 'grand_total_supply_cost_with_gst' ? 'text-green-700' : 'text-gray-800'}`}>
@@ -846,14 +846,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                             if (e.key === 'Enter') handleCellChange(item.id, head.id, cellValue);
                             if (e.key === 'Escape') setEditingCell(null);
                           }}
-                          className="w-full px-1 py-0.5 border border-blue-500 text-xs text-right focus:outline-none rounded bg-white"
+                          className="w-full px-1 py-0.5 border border-red-500 text-xs text-right focus:outline-none rounded bg-white"
                           autoFocus
                           placeholder=""
                           title="Manual entry"
                         />
                       ) : (
                         <div
-                          className={`text-xs text-gray-700 text-right px-1 py-0.5 min-h-[20px] flex items-center justify-end ${isViewMode ? '' : 'cursor-pointer hover:bg-blue-100 rounded'}`}
+                          className={`text-xs text-gray-700 text-right px-1 py-0.5 min-h-[20px] flex items-center justify-end ${isViewMode ? '' : 'cursor-pointer hover:bg-red-100 rounded'}`}
                           onClick={() => !isViewMode && setEditingCell(`${item.id}_${head.id}`)}
                           title={isViewMode ? 'Read only' : 'Manual entry - click to edit'}
                         >

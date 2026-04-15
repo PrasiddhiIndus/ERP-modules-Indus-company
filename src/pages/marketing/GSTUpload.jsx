@@ -245,7 +245,7 @@ const GSTUpload = () => {
             <p className="text-sm sm:text-base text-gray-600 mt-1">Manage GST codes, structure, and product/service types</p>
           </div>
           {saving && (
-            <div className="flex items-center px-4 py-2 text-sm text-blue-600">
+            <div className="flex items-center px-4 py-2 text-sm text-red-600">
               <span>Saving...</span>
             </div>
           )}
@@ -267,8 +267,8 @@ const GSTUpload = () => {
           </div>
 
           {/* Summary */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <h3 className="text-sm font-semibold text-blue-900 mb-3">Data Summary</h3>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <h3 className="text-sm font-semibold text-red-900 mb-3">Data Summary</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-white rounded p-3">
                 <p className="text-xs text-gray-600">GST Codes</p>
@@ -416,7 +416,7 @@ const GSTUpload = () => {
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => handleEditRow('gstCodes', index)}
-                                    className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                                    className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
                                   >
                                     Edit
                                   </button>
@@ -543,7 +543,7 @@ const GSTUpload = () => {
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => handleEditRow('gstStructure', index)}
-                                    className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                                    className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
                                   >
                                     Edit
                                   </button>
@@ -650,7 +650,7 @@ const GSTUpload = () => {
                                 <div className="flex gap-2">
                                   <button
                                     onClick={() => handleEditRow('productServiceTypes', index)}
-                                    className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                                    className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700"
                                   >
                                     Edit
                                   </button>

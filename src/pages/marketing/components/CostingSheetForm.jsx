@@ -312,7 +312,7 @@ const CostingSheetForm = ({
                               <div className="flex items-center justify-center gap-2">
                                 <button
                                   onClick={() => handleView(sheet)}
-                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
                                   title="View/Edit"
                                 >
                                   <Eye className="w-4 h-4" />
