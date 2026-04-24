@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FileDigit, Search, Eye, Download } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
-import { downloadTaxInvoicePdf } from '../../utils/taxInvoicePdf';
+import { downloadTaxInvoicePdf, getTaxInvoicePdfBlobUrl } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 
 const PAGE_SIZE = 10;
@@ -52,7 +52,42 @@ const GeneratedEInvoice = () => {
   const goToPage = (p) => setPage(Math.min(Math.max(1, p), totalPages));
 
   const [viewId, setViewId] = useState(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const selectedInv = viewId ? invoices.find((i) => i.id === viewId) : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    let currentUrl = null;
+
+    const buildPdfPreview = async () => {
+      if (!selectedInv) {
+        setPdfPreviewUrl(null);
+        return;
+      }
+      setPdfLoading(true);
+      try {
+        const nextUrl = await getTaxInvoicePdfBlobUrl(selectedInv, { includeEinvoiceHeader: true });
+        if (cancelled) {
+          if (nextUrl) URL.revokeObjectURL(nextUrl);
+          return;
+        }
+        currentUrl = nextUrl;
+        setPdfPreviewUrl(nextUrl);
+      } catch {
+        if (!cancelled) setPdfPreviewUrl(null);
+      } finally {
+        if (!cancelled) setPdfLoading(false);
+      }
+    };
+
+    buildPdfPreview();
+
+    return () => {
+      cancelled = true;
+      if (currentUrl) URL.revokeObjectURL(currentUrl);
+    };
+  }, [selectedInv]);
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
@@ -192,49 +227,31 @@ const GeneratedEInvoice = () => {
 
       {selectedInv && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6">
+          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full p-4 sm:p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               E-Invoice – {selectedInv.taxInvoiceNumber || selectedInv.bill_number}
             </h3>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-sm">
-              <div className="space-y-2">
-                <p><span className="text-gray-500">Client:</span> {selectedInv.clientLegalName || selectedInv.client_name}</p>
-                <p><span className="text-gray-500">OC / Site:</span> {selectedInv.ocNumber} / {selectedInv.siteId || '–'}</p>
-                <p><span className="text-gray-500">Invoice Date:</span> {formatDate(selectedInv.invoiceDate || selectedInv.created_at)}</p>
-                <p><span className="text-gray-500">Amount:</span> ₹{roundInvoiceAmount(selectedInv.calculatedInvoiceAmount ?? selectedInv.totalAmount ?? 0).toLocaleString('en-IN')}</p>
-              </div>
-              <div className="space-y-2">
-                <p><span className="text-gray-500">IRN:</span> <span className="font-mono text-green-700">{selectedInv.e_invoice_irn || selectedInv.eInvoiceIrn}</span></p>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs sm:text-sm mb-3">
+                <p><span className="text-gray-500">IRN:</span> <span className="font-mono text-green-700">{selectedInv.e_invoice_irn || selectedInv.eInvoiceIrn || '–'}</span></p>
                 <p><span className="text-gray-500">Ack No:</span> {selectedInv.e_invoice_ack_no || '–'}</p>
                 <p><span className="text-gray-500">Ack Date:</span> {formatDate(selectedInv.e_invoice_ack_dt)}</p>
               </div>
-            </div>
-
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-gray-600">#</th>
-                    <th className="px-3 py-2 text-left text-gray-600">Description</th>
-                    <th className="px-3 py-2 text-left text-gray-600">HSN/SAC</th>
-                    <th className="px-3 py-2 text-left text-gray-600">Qty</th>
-                    <th className="px-3 py-2 text-left text-gray-600">Rate</th>
-                    <th className="px-3 py-2 text-right text-gray-600">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {(selectedInv.items || []).map((it, idx) => (
-                    <tr key={idx}>
-                      <td className="px-3 py-2 text-gray-600">{idx + 1}</td>
-                      <td className="px-3 py-2 font-medium text-gray-900">{it.description || it.designation}</td>
-                      <td className="px-3 py-2 text-gray-700">{it.hsnSac || selectedInv.hsnSac || '–'}</td>
-                      <td className="px-3 py-2 text-gray-700">{it.quantity ?? 0}</td>
-                      <td className="px-3 py-2 text-gray-700">₹{Number(it.rate || 0).toLocaleString('en-IN')}</td>
-                      <td className="px-3 py-2 text-right font-medium">₹{Number(it.amount || 0).toLocaleString('en-IN')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {pdfLoading ? (
+                <div className="h-[70vh] rounded-lg border border-gray-200 bg-white grid place-items-center text-sm text-gray-500">
+                  Preparing PDF preview...
+                </div>
+              ) : pdfPreviewUrl ? (
+                <iframe
+                  title={`E-Invoice PDF ${selectedInv.taxInvoiceNumber || selectedInv.bill_number || selectedInv.id}`}
+                  src={pdfPreviewUrl}
+                  className="w-full h-[70vh] rounded-lg border border-gray-200 bg-white"
+                />
+              ) : (
+                <div className="h-[70vh] rounded-lg border border-gray-200 bg-white grid place-items-center text-sm text-gray-500">
+                  PDF preview not available. Please use Download PDF.
+                </div>
+              )}
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
