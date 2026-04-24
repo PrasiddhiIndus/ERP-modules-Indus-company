@@ -300,6 +300,9 @@ export async function fetchInvoices() {
     c.termsCustomText = inv.terms_custom_text;
     c.clientShippingAddress = inv.client_shipping_address;
     c.placeOfSupply = inv.place_of_supply;
+    c.buyerPin = inv.buyer_pin ?? null;
+    c.buyerPincode = inv.buyer_pincode ?? null;
+    c.buyerStateCode = inv.buyer_state_code ?? null;
     c.invoiceKind = inv.invoice_kind || 'tax';
     c.isAddOn = !!inv.is_add_on;
     c.addOnType = inv.add_on_type || null;
@@ -367,6 +370,9 @@ export async function saveInvoice(inv) {
     terms_custom_text: inv.termsCustomText || inv.termsText || null,
     client_shipping_address: inv.clientShippingAddress || null,
     place_of_supply: inv.placeOfSupply || null,
+    buyer_pin: inv.buyerPin ?? inv.buyer_pin ?? inv.clientPincode ?? inv.client_pincode ?? null,
+    buyer_pincode: inv.buyerPincode ?? inv.buyer_pincode ?? inv.clientPincode ?? inv.client_pincode ?? null,
+    buyer_state_code: inv.buyerStateCode ?? inv.buyer_state_code ?? null,
     invoice_kind: inv.invoiceKind || 'tax',
     is_add_on: !!inv.isAddOn,
     add_on_type: inv.addOnType || null,
@@ -382,7 +388,16 @@ export async function saveInvoice(inv) {
     digital_signature_data_url: inv.digitalSignatureDataUrl || null,
   };
 
-  const { data: saved, error: invError } = await table('invoice').upsert(payload, { onConflict: 'id' }).select('id').single();
+  let saved;
+  let invError;
+  ({ data: saved, error: invError } = await table('invoice').upsert(payload, { onConflict: 'id' }).select('id').single());
+  if (invError && /buyer_pin|buyer_pincode|buyer_state_code|column/i.test(String(invError?.message || ''))) {
+    const { buyer_pin, buyer_pincode, buyer_state_code, ...fallbackPayload } = payload;
+    ({ data: saved, error: invError } = await table('invoice')
+      .upsert(fallbackPayload, { onConflict: 'id' })
+      .select('id')
+      .single());
+  }
   if (invError) throw invError;
   const invoiceId = saved?.id ?? inv.id;
 

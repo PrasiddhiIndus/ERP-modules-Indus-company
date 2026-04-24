@@ -14,6 +14,7 @@ import {
 import { INDUS_LOGO_SRC } from '../../constants/branding.js';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
+import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 
 const getFinancialYear = () => {
   const d = new Date();
@@ -299,14 +300,24 @@ const CreateInvoice = ({ onNavigateTab }) => {
       return {
         id: editingInvoice.poId,
         siteId: editingInvoice.siteId,
-        locationName: editingInvoice.clientLegalName || '',
+        locationName: linkedPo?.locationName || editingInvoice.clientLegalName || '',
         ocNumber: editingInvoice.ocNumber,
         poWoNumber: editingInvoice.poWoNumber,
-        legalName: editingInvoice.clientLegalName,
-        billingAddress: editingInvoice.clientAddress,
-        shippingAddress: editingInvoice.clientShippingAddress || editingInvoice.client_shipping_address || '',
-        placeOfSupply: editingInvoice.placeOfSupply || editingInvoice.place_of_supply || '',
-        gstin: editingInvoice.gstin,
+        legalName: linkedPo?.legalName || editingInvoice.clientLegalName,
+        billingAddress: linkedPo?.billingAddress || editingInvoice.clientAddress,
+        shippingAddress:
+          linkedPo?.shippingAddress ||
+          linkedPo?.shipping_address ||
+          editingInvoice.clientShippingAddress ||
+          editingInvoice.client_shipping_address ||
+          '',
+        placeOfSupply:
+          linkedPo?.placeOfSupply ||
+          linkedPo?.place_of_supply ||
+          editingInvoice.placeOfSupply ||
+          editingInvoice.place_of_supply ||
+          '',
+        gstin: linkedPo?.gstin || editingInvoice.gstin,
         hsnCode: editingInvoice.hsnSac,
         sacCode: editingInvoice.hsnSac,
         billingType: editingInvoice.billingType || 'Monthly',
@@ -681,6 +692,23 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const totalInWords = useMemo(() => formatInvoiceAmountInWords(totalValue), [totalValue]);
 
+  const buyerPinMeta = useMemo(() => {
+    if (!displayPO) return { pin: null, stateCode: '', stateName: '' };
+    const existingPin =
+      editingInvoice?.buyerPin ||
+      editingInvoice?.buyer_pin ||
+      editingInvoice?.buyerPincode ||
+      editingInvoice?.buyer_pincode ||
+      editingInvoice?.clientPincode ||
+      editingInvoice?.client_pincode;
+    return resolveBuyerStateAndPin({
+      gstin: displayPO.gstin,
+      placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply,
+      billingAddress: displayPO.billingAddress,
+      existingPin,
+    });
+  }, [displayPO, editingInvoice]);
+
   const canSave = !!displayPO && items.length > 0;
   const selectedViewInvoice = useMemo(
     () => invoices.find((i) => String(i.id) === String(viewInvoiceId)) || null,
@@ -728,7 +756,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
         (displayPO.remarks || displayPO.paymentTerms || displayPO.payment_terms || null),
       clientLegalName: displayPO.legalName,
       clientAddress: displayPO.billingAddress,
+      clientPincode: String(buyerPinMeta.pin || ''),
+      client_pincode: String(buyerPinMeta.pin || ''),
       gstin: displayPO.gstin,
+      buyerPin: buyerPinMeta.pin || null,
+      buyer_pin: buyerPinMeta.pin || null,
+      buyerPincode: buyerPinMeta.pin || null,
+      buyer_pincode: buyerPinMeta.pin || null,
+      buyerStateCode: buyerPinMeta.stateCode || null,
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
       hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
@@ -1168,6 +1203,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         displayPO.place_of_supply ||
                         displayPO.billingAddress?.split(',').pop()?.trim() ||
                         '–'}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Buyer PIN (auto):</span>{' '}
+                      {buyerPinMeta.pin || '–'}
+                      {buyerPinMeta.stateCode ? ` (State Code: ${buyerPinMeta.stateCode})` : ''}
                     </p>
                   </div>
                   <div className="p-3 sm:p-4 text-xs leading-relaxed space-y-1.5">

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { generateEInvoice } from '../../services/eInvoiceApi';
+import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 import { downloadTaxInvoicePdf, downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
@@ -67,6 +68,33 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [manageTab, setManageTab] = useState('billing-types');
   const PAGE_SIZE = 10;
 
+  const getPoByInvoice = React.useCallback(
+    (inv) => commercialPOs.find((p) => String(p.id) === String(inv.poId)),
+    [commercialPOs]
+  );
+
+  const withLatestBuyerDetails = React.useCallback(
+    (inv) => {
+      const po = getPoByInvoice(inv);
+      if (!po) return inv;
+      return {
+        ...inv,
+        clientLegalName: po.legalName || inv.clientLegalName || inv.client_name,
+        clientAddress: po.billingAddress || inv.clientAddress || inv.client_address,
+        clientShippingAddress:
+          po.shippingAddress ||
+          po.shipping_address ||
+          inv.clientShippingAddress ||
+          inv.client_shipping_address,
+        placeOfSupply: po.placeOfSupply || po.place_of_supply || inv.placeOfSupply || inv.place_of_supply,
+        gstin: po.gstin || inv.gstin,
+      };
+    },
+    [getPoByInvoice]
+  );
+
+  const hydratedInvoices = useMemo(() => invoices.map(withLatestBuyerDetails), [invoices, withLatestBuyerDetails]);
+
   const getInvoiceBillingType = (inv) => {
     if (inv.isAddOn) return 'Add-On';
     if (inv.billingType) return inv.billingType;
@@ -77,8 +105,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const filteredInvoices = useMemo(() => {
     let list =
       billingTypeFilter === 'All'
-        ? invoices.filter((inv) => !inv.isAddOn)
-        : invoices.filter((inv) => !inv.isAddOn && getInvoiceBillingType(inv) === billingTypeFilter);
+        ? hydratedInvoices.filter((inv) => !inv.isAddOn)
+        : hydratedInvoices.filter((inv) => !inv.isAddOn && getInvoiceBillingType(inv) === billingTypeFilter);
     if (searchTerm.trim()) {
       const s = searchTerm.toLowerCase();
       list = list.filter(
@@ -89,10 +117,10 @@ const ManageInvoices = ({ onNavigateTab }) => {
       );
     }
     return list;
-  }, [invoices, commercialPOs, billingTypeFilter, searchTerm]);
+  }, [hydratedInvoices, commercialPOs, billingTypeFilter, searchTerm]);
 
   const addOnInvoices = useMemo(() => {
-    let list = invoices.filter((inv) => !!inv.isAddOn);
+    let list = hydratedInvoices.filter((inv) => !!inv.isAddOn);
     if (searchTerm.trim()) {
       const s = searchTerm.toLowerCase();
       list = list.filter(
@@ -104,7 +132,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
       );
     }
     return list;
-  }, [invoices, searchTerm]);
+  }, [hydratedInvoices, searchTerm]);
 
   const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / PAGE_SIZE));
   const start = (page - 1) * PAGE_SIZE;
@@ -125,6 +153,13 @@ const ManageInvoices = ({ onNavigateTab }) => {
   };
 
   const handleGenerateEInvoice = async (inv) => {
+    const resolved = resolveBuyerStateAndPin({
+      gstin: inv.buyerGstin || inv.buyer_gstin || inv.clientGstin || inv.client_gstin || inv.gstin,
+      placeOfSupply: inv.placeOfSupply || inv.place_of_supply,
+      billingAddress: inv.clientAddress || inv.client_address,
+      existingPin:
+        inv.buyerPin || inv.buyer_pin || inv.buyerPincode || inv.buyer_pincode || inv.clientPincode || inv.client_pincode,
+    });
     setGeneratingEInvoiceId(inv.id);
     try {
       const po = commercialPOs.find((p) => p.id === inv.poId);
@@ -135,7 +170,32 @@ const ManageInvoices = ({ onNavigateTab }) => {
         client_name: inv.clientLegalName,
         client_address: inv.clientAddress,
         clientAddress: inv.clientAddress,
+        clientAddress2: inv.clientAddress2 || inv.client_address_2 || '',
+        clientCity: inv.clientCity || inv.client_city || '',
+        clientPincode: String(resolved.pin || inv.clientPincode || inv.client_pincode || ''),
+        buyerPin: resolved.pin || inv.buyerPin || inv.buyer_pin || inv.clientPincode || inv.client_pincode || '',
+        clientPhone: inv.clientPhone || inv.client_phone || '',
+        clientEmail: inv.clientEmail || inv.client_email || '',
         gstin: inv.gstin,
+        buyerGstin:
+          inv.buyerGstin ||
+          inv.buyer_gstin ||
+          inv.clientGstin ||
+          inv.client_gstin ||
+          inv.gstin,
+        buyer: {
+          pin: resolved.pin || inv.buyerPin || inv.buyer_pin || inv.clientPincode || inv.client_pincode || '',
+          pinCode: resolved.pin || inv.buyerPincode || inv.buyer_pincode || inv.clientPincode || inv.client_pincode || '',
+          city: inv.buyerCity || inv.buyer_city || inv.clientCity || inv.client_city || '',
+          gstin:
+            inv.buyerGstin ||
+            inv.buyer_gstin ||
+            inv.clientGstin ||
+            inv.client_gstin ||
+            inv.gstin ||
+            '',
+        },
+        placeOfSupply: inv.placeOfSupply || inv.place_of_supply || po?.placeOfSupply || po?.place_of_supply || '',
         invoice_date: inv.invoiceDate || inv.created_at,
         created_at: inv.invoiceDate || inv.created_at,
         cgstRate: inv.cgstRate,
@@ -170,12 +230,13 @@ const ManageInvoices = ({ onNavigateTab }) => {
       }
     } catch (e) {
       console.error(e);
+      throw e;
     } finally {
       setGeneratingEInvoiceId(null);
     }
   };
 
-  const selectedInv = viewId ? invoices.find((i) => i.id === viewId) : null;
+  const selectedInv = viewId ? hydratedInvoices.find((i) => i.id === viewId) : null;
 
   React.useEffect(() => {
     setPage(1);
@@ -656,14 +717,14 @@ const ManageInvoices = ({ onNavigateTab }) => {
       {managePAInvoiceId && (
         <ManagePAModal
           invoiceId={managePAInvoiceId}
-          invoice={invoices.find((i) => i.id === managePAInvoiceId)}
+          invoice={hydratedInvoices.find((i) => i.id === managePAInvoiceId)}
           onClose={() => setManagePAInvoiceId(null)}
         />
       )}
 
       {generateEInvoiceModalId && (
         <GenerateEInvoiceModal
-          invoice={invoices.find((i) => i.id === generateEInvoiceModalId)}
+          invoice={hydratedInvoices.find((i) => i.id === generateEInvoiceModalId)}
           onClose={() => setGenerateEInvoiceModalId(null)}
           onGenerate={async (inv) => {
             await handleGenerateEInvoice(inv);
