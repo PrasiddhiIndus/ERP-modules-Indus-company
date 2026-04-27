@@ -7,8 +7,10 @@ dotenv.config({ path: '.env.server' });
 dotenv.config();
 
 const app = express();
-const PORT = Number(process.env.SERVER_PORT || 8787);
+// Render/Railway/Fly set PORT; local dev uses SERVER_PORT or 8787.
+const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 8787);
 const debugInvoiceSnapshots = new Map();
+const withNetlifyPath = (path) => [path, path.replace(/^\/api/, '')];
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
@@ -316,11 +318,11 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
   return safe;
 }
 
-app.get('/api/health', (_req, res) => {
+app.get(withNetlifyPath('/api/health'), (_req, res) => {
   res.json({ ok: true, service: 'whitebooks-einvoice-proxy' });
 });
 
-app.get('/api/debug/invoice/:id', (req, res) => {
+app.get(withNetlifyPath('/api/debug/invoice/:id'), (req, res) => {
   const id = String(req.params.id || '').trim();
   const snap = id ? debugInvoiceSnapshots.get(id) : null;
   if (!snap) {
@@ -332,7 +334,7 @@ app.get('/api/debug/invoice/:id', (req, res) => {
   return res.json(snap);
 });
 
-app.post('/api/billing/e-invoice/generate', async (req, res) => {
+app.post(withNetlifyPath('/api/billing/e-invoice/generate'), async (req, res) => {
   try {
     const { payload, billId, invoice } = req.body || {};
     if (!payload || typeof payload !== 'object') {
@@ -480,7 +482,7 @@ app.post('/api/billing/e-invoice/generate', async (req, res) => {
   }
 });
 
-app.post('/api/billing/e-invoice/cancel', async (req, res) => {
+app.post(withNetlifyPath('/api/billing/e-invoice/cancel'), async (req, res) => {
   try {
     const { irn, reason = 'Wrong entry', cancelReasonCode = '1' } = req.body || {};
     if (!irn) return res.status(400).json({ message: 'irn is required.' });
@@ -513,8 +515,12 @@ app.post('/api/billing/e-invoice/cancel', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Whitebooks proxy listening on http://localhost:${PORT}`);
-});
+export { app };
+
+if (process.env.NETLIFY !== 'true') {
+  app.listen(PORT, '0.0.0.0', () => {
+    // eslint-disable-next-line no-console
+    console.log(`Whitebooks proxy listening on port ${PORT}`);
+  });
+}
 

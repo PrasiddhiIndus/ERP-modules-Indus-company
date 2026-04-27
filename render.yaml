@@ -1,0 +1,18 @@
+# Blueprint: deploy the Express e-invoice API on Render.
+# 1. Push this repo to GitHub/GitLab connected to Render.
+# 2. Create "Blueprint" from this file or add a Web Service manually:
+#    Build: npm install   Start: npm start
+# 3. In Render → Environment, add all variables from .env.server.example (WHITEBOOKS_*).
+# 4. Copy the service URL (e.g. https://xxx.onrender.com), then on Netlify set:
+#    VITE_EINVOICE_API_URL=https://xxx.onrender.com/api/billing/e-invoice
+#    Redeploy the Netlify site.
+
+services:
+  - type: web
+    name: erp-einvoice-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
