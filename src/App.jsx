@@ -25,6 +25,8 @@ import VehicleTypePage from "./pages/projects/configurationTender/VehicleTypePag
 import ManpowerManagement from "./pages/manpowerProject/ManpowerManagement";
 import InternalQuotationList from "./pages/manpowerProject/enquiryProjects/InternalQuotationList";
 import InternalQuotationForm from "./pages/manpowerProject/enquiryProjects/InternalQuotationForm";
+import ManpowerQuotationList from "./pages/manpowerProject/quotation/ManpowerQuotationList";
+import ManpowerConfiguration from "./pages/manpowerProject/configuration/ManpowerConfiguration";
 
 // New module imports
 import Billing from "./pages/billing/Billing";
@@ -264,8 +266,14 @@ function App() {
 
             <Route path="manpower" element={<ManpowerManagement />} />
             <Route path="manpower/list" element={<Navigate to="/app/manpower" replace />} />
+            {/* Flow: Enquiry -> Internal Quotation -> Quotation */}
             <Route path="manpower/internal-quotation" element={<InternalQuotationList />} />
             <Route path="manpower/internal-quotation/:id" element={<InternalQuotationForm />} />
+            <Route path="manpower/quotation" element={<ManpowerQuotationList />} />
+
+            {/* Manpower configuration */}
+            <Route path="manpower/configuration" element={<Navigate to="/app/manpower/configuration/roles" replace />} />
+            <Route path="manpower/configuration/:section" element={<ManpowerConfiguration />} />
             <Route path="manpower/:id" element={<ManpowerManagement />} />
 
             {/* Reorganized Module Routes */}

@@ -27,6 +27,10 @@ function toCamelCase(obj) {
   return out;
 }
 
+function isMockIrnValue(irn) {
+  return String(irn || '').trim().toUpperCase().startsWith('MOCK-IRN-');
+}
+
 /** Check if billing DB is available (billing schema + RLS). */
 export async function isBillingDbAvailable() {
   try {
@@ -282,10 +286,11 @@ export async function fetchInvoices() {
     c.paymentStatus = inv.payment_status;
     c.pendingAmount = inv.pending_amount;
     c.paymentTerms = inv.payment_terms;
-    c.e_invoice_irn = inv.e_invoice_irn;
-    c.e_invoice_ack_no = inv.e_invoice_ack_no;
-    c.e_invoice_ack_dt = inv.e_invoice_ack_dt;
-    c.e_invoice_signed_qr = inv.e_invoice_signed_qr;
+    const realIrn = !isMockIrnValue(inv.e_invoice_irn) ? inv.e_invoice_irn : null;
+    c.e_invoice_irn = realIrn;
+    c.e_invoice_ack_no = realIrn ? inv.e_invoice_ack_no : null;
+    c.e_invoice_ack_dt = realIrn ? inv.e_invoice_ack_dt : null;
+    c.e_invoice_signed_qr = realIrn ? inv.e_invoice_signed_qr : null;
     c.lessMoreBilling = inv.less_more_billing;
     c.billNumber = inv.bill_number;
     c.billingMonth = inv.billing_month;
@@ -328,6 +333,7 @@ export async function fetchInvoices() {
 /** Save a single invoice (upsert) with line items and attachments. */
 export async function saveInvoice(inv) {
   const invId = typeof inv.id === 'string' && inv.id.length === 36 ? inv.id : undefined;
+  const realIrn = !isMockIrnValue(inv.e_invoice_irn) ? inv.e_invoice_irn : null;
   const payload = {
     ...(invId ? { id: invId } : {}),
     po_id: inv.poId,
@@ -352,10 +358,10 @@ export async function saveInvoice(inv) {
     payment_status: !!inv.paymentStatus,
     pending_amount: inv.pendingAmount,
     payment_terms: inv.paymentTerms,
-    e_invoice_irn: inv.e_invoice_irn,
-    e_invoice_ack_no: inv.e_invoice_ack_no,
-    e_invoice_ack_dt: inv.e_invoice_ack_dt,
-    e_invoice_signed_qr: inv.e_invoice_signed_qr,
+    e_invoice_irn: realIrn,
+    e_invoice_ack_no: realIrn ? inv.e_invoice_ack_no : null,
+    e_invoice_ack_dt: realIrn ? inv.e_invoice_ack_dt : null,
+    e_invoice_signed_qr: realIrn ? inv.e_invoice_signed_qr : null,
     less_more_billing: inv.lessMoreBilling,
     bill_number: inv.billNumber || null,
     billing_month: inv.billingMonth || null,

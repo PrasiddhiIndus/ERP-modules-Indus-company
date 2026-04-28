@@ -94,6 +94,7 @@ const Layout = () => {
   const [adminStoreOpen, setAdminStoreOpen] = useState(true);
   const [adminGateOpen, setAdminGateOpen] = useState(true);
   const [adminMiscOpen, setAdminMiscOpen] = useState(true);
+  const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
   // Keep expandable section open when current path is under that section
   useEffect(() => {
@@ -103,6 +104,7 @@ const Layout = () => {
     if (pathname.startsWith("/app/manpower")) setSalesOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial")) setSalesOpen(true);
+    if (pathname.startsWith("/app/manpower/configuration")) setManpowerConfigOpen(true);
     if (pathname.startsWith("/app/billing")) setBillingOpen(true);
     if (pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations")) setOperationsOpen(true);
     if (pathname.startsWith("/app/projects")) setProjectsOpen(true);
@@ -391,14 +393,54 @@ const Layout = () => {
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-blue-600" />
                     <span className="text-xs">Commercial Dashboard</span>
                   </NavLink>
-                  <NavLink to="manpower" className={subNavClass}>
+                  <NavLink to="/app/manpower" end className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-red-600" />
-                    <span className="text-xs">Manpower Management</span>
+                    <span className="text-xs">Manpower Management Enquiry</span>
                   </NavLink>
-                  <NavLink to="manpower/internal-quotation" className={subNavClass}>
-                    <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
+                  <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
+                    <Calculator className="w-4 h-4 shrink-0 text-green-700" />
                     <span className="text-xs">Internal Quotation</span>
                   </NavLink>
+                  <NavLink to="/app/manpower/quotation" className={subNavClass}>
+                    <ReceiptIcon className="w-4 h-4 shrink-0 text-purple-600" />
+                    <span className="text-xs">Quotation</span>
+                  </NavLink>
+
+                  <button
+                    type="button"
+                    onClick={() => setManpowerConfigOpen((v) => !v)}
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                  >
+                    <span className="flex items-start space-x-2">
+                      <Cog className="w-4 h-4 shrink-0 text-blue-700" />
+                      <span className="text-xs font-medium text-left leading-tight">Manpower Configuration</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${manpowerConfigOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {manpowerConfigOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="/app/manpower/configuration/roles" className={subNavClass}>
+                        <Users className="w-4 h-4 shrink-0 text-red-600" />
+                        <span className="text-xs">Roles</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/price-master" className={subNavClass}>
+                        <RupeeIcon className="w-4 h-4 shrink-0 text-emerald-600" />
+                        <span className="text-xs">Price Master</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/mail-template" className={subNavClass}>
+                        <FileText className="w-4 h-4 shrink-0 text-indigo-600" />
+                        <span className="text-xs">Mail Template</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/employee-type" className={subNavClass}>
+                        <UserCheck className="w-4 h-4 shrink-0 text-amber-700" />
+                        <span className="text-xs">Employee Type</span>
+                      </NavLink>
+                      <NavLink to="/app/manpower/configuration/departments" className={subNavClass}>
+                        <FolderOpen className="w-4 h-4 shrink-0 text-slate-700" />
+                        <span className="text-xs">Departments</span>
+                      </NavLink>
+                    </div>
+                  )}
                   <NavLink to="/app/commercial/po-entry" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">PO Entry</span>

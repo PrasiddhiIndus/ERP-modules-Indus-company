@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Search, Plus, FileText, X, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
-import ManpowerNavbar from "./ManpowerNavbar";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
 
 const ITEMS_PER_PAGE = 10;
@@ -86,7 +85,7 @@ const ManpowerManagement = () => {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (routeId && routeId !== "list" && routeId !== "internal-quotation") {
+    if (routeId && routeId !== "list" && routeId !== "internal-quotation" && routeId !== "quotation" && routeId !== "configuration") {
       setEditingId(routeId);
       setShowForm(true);
     } else {
@@ -186,6 +185,7 @@ const ManpowerManagement = () => {
         })
         .eq("id", rowId);
       if (error) throw error;
+      navigate("/app/manpower/internal-quotation", { replace: false });
     } catch (error) {
       console.error(error);
     }
@@ -207,8 +207,6 @@ const ManpowerManagement = () => {
 
   return (
     <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
-      <ManpowerNavbar />
-
       <div className="mt-4 bg-white shadow p-3 sm:p-4 md:p-6 rounded-lg mb-4 md:mb-6 max-w-[1600px] mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
           <div>
@@ -374,16 +372,23 @@ const ManpowerManagement = () => {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">
-          <div className="max-h-[95vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b border-gray-200 bg-gradient-to-r from-purple-600 to-blue-600 px-4 py-4 sm:px-6 text-white">
-              <div>
-                <h2 className="text-lg font-semibold sm:text-xl">{editingId ? "Edit Manpower Enquiry" : "New Manpower Enquiry"}</h2>
+          <div className="max-h-[95vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
+            <div className="h-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-orange-500" />
+            <div className="flex items-start justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold sm:text-xl text-slate-900 truncate">{editingId ? "Edit Manpower Enquiry" : "New Manpower Enquiry"}</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Capture enquiry details in a single, structured form.</p>
               </div>
-              <button type="button" onClick={closeForm} className="rounded-lg p-2 hover:bg-white/10" aria-label="Close">
+              <button
+                type="button"
+                onClick={closeForm}
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-red-200"
+                aria-label="Close"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="px-4 py-4 sm:px-6 sm:py-5">
+              <div className="bg-slate-50 px-4 py-4 sm:px-6 sm:py-5">
               <ManpowerEnquiryFormPanel key={editingId || "new"} enquiryId={editingId} onSaved={afterSave} onCancel={closeForm} />
             </div>
           </div>

@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { FileDigit, X } from 'lucide-react';
 
+function getRealIrn(invoice) {
+  const irn = invoice?.e_invoice_irn || invoice?.eInvoiceIrn || '';
+  return String(irn).toUpperCase().startsWith('MOCK-IRN-') ? '' : irn;
+}
+
 /**
  * Modal opened from Manage Invoices when user clicks the Generate E-Invoice icon.
  * Placeholder for form structure (you can replace the form section later).
@@ -28,6 +33,7 @@ const GenerateEInvoiceModal = ({ invoice, onClose, onGenerate }) => {
 
   const invNum = invoice.taxInvoiceNumber || invoice.bill_number;
   const amount = invoice.calculatedInvoiceAmount ?? invoice.totalAmount ?? 0;
+  const currentIrn = getRealIrn(invoice);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
@@ -54,6 +60,13 @@ const GenerateEInvoiceModal = ({ invoice, onClose, onGenerate }) => {
             <p><span className="text-gray-500">Client:</span> {invoice.clientLegalName || invoice.client_name}</p>
             <p><span className="text-gray-500">OC / Site:</span> {invoice.ocNumber} / {invoice.siteId || '–'}</p>
             <p><span className="text-gray-500">Amount:</span> ₹{amount.toLocaleString('en-IN')}</p>
+            {currentIrn ? (
+              <>
+                <p><span className="text-gray-500">Current IRN:</span> <span className="font-mono text-green-700 break-all">{currentIrn}</span></p>
+                <p><span className="text-gray-500">Ack No:</span> {invoice.e_invoice_ack_no || '–'}</p>
+                <p><span className="text-gray-500">Ack Date:</span> {invoice.e_invoice_ack_dt || '–'}</p>
+              </>
+            ) : null}
           </div>
 
           {/* Placeholder: replace this block with your form structure when ready */}
@@ -81,7 +94,7 @@ const GenerateEInvoiceModal = ({ invoice, onClose, onGenerate }) => {
               disabled={submitting}
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? 'Generating…' : 'Generate E-Invoice'}
+              {submitting ? 'Generating…' : currentIrn ? 'Re-Generate E-Invoice' : 'Generate E-Invoice'}
             </button>
           </div>
         </form>

@@ -10,7 +10,6 @@ const app = express();
 // Render/Railway/Fly set PORT; local dev uses SERVER_PORT or 8787.
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 8787);
 const debugInvoiceSnapshots = new Map();
-const withNetlifyPath = (path) => [path, path.replace(/^\/api/, '')];
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
@@ -139,7 +138,7 @@ const STATE_DEFAULT_PIN = {
   '01': 190001, '02': 171001, '03': 141001, '04': 134109, '06': 122001, '07': 110001,
   '08': 302001, '09': 226001, '10': 800001, '11': 190001, '12': 791001, '13': 797001,
   '14': 795001, '15': 796001, '16': 799001, '17': 793001, '18': 781001, '19': 700001,
-  '20': 834001, '21': 751001, '22': 492001, '23': 462001, '24': 391740, '26': 403001,
+  '20': 834001, '21': 751001, '22': 492001, '23': 462001, '24': 391740, '26': 396230,
   '27': 400001, '29': 562001, '30': 682001, '33': 600001, '36': 500001, '37': 520001,
 };
 
@@ -149,7 +148,7 @@ const STATE_PIN_RANGES = {
   '10': [800001, 854999], '11': [737101, 737199], '12': [790001, 792999], '13': [797001, 798999],
   '14': [795001, 795999], '15': [796001, 796999], '16': [799001, 799999], '17': [793001, 794999],
   '18': [781001, 788999], '19': [700001, 743999], '20': [814101, 835999], '21': [751001, 769999],
-  '22': [490001, 497999], '23': [450001, 488999], '24': [360001, 396999], '26': [403001, 403999],
+  '22': [490001, 497999], '23': [450001, 488999], '24': [360001, 396999], '26': [396001, 396999],
   '27': [400001, 445999], '29': [560000 + 1, 591999], '30': [670001, 695999], '33': [600001, 643999],
   '36': [500001, 509999], '37': [500001, 535999],
 };
@@ -318,11 +317,11 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
   return safe;
 }
 
-app.get(withNetlifyPath('/api/health'), (_req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'whitebooks-einvoice-proxy' });
 });
 
-app.get(withNetlifyPath('/api/debug/invoice/:id'), (req, res) => {
+app.get('/api/debug/invoice/:id', (req, res) => {
   const id = String(req.params.id || '').trim();
   const snap = id ? debugInvoiceSnapshots.get(id) : null;
   if (!snap) {
@@ -334,7 +333,7 @@ app.get(withNetlifyPath('/api/debug/invoice/:id'), (req, res) => {
   return res.json(snap);
 });
 
-app.post(withNetlifyPath('/api/billing/e-invoice/generate'), async (req, res) => {
+app.post('/api/billing/e-invoice/generate', async (req, res) => {
   try {
     const { payload, billId, invoice } = req.body || {};
     if (!payload || typeof payload !== 'object') {
@@ -381,8 +380,16 @@ app.post(withNetlifyPath('/api/billing/e-invoice/generate'), async (req, res) =>
     }
     const finalBuyerState = normalizeStateCode(finalPayload?.BuyerDtls?.Stcd || String(gst || '').slice(0, 2));
     if (!pinMatchesState(finalPayload?.BuyerDtls?.Pin, finalBuyerState)) {
+      const autoPinned = resolveStatePinnedBuyerPin(finalBuyerState, finalPayload?.BuyerDtls?.Pin);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Buyer PIN ${finalPayload?.BuyerDtls?.Pin} mismatched state ${finalBuyerState}; auto-corrected to ${autoPinned}.`
+      );
+      finalPayload.BuyerDtls.Pin = autoPinned;
+    }
+    if (!pinMatchesState(finalPayload?.BuyerDtls?.Pin, finalBuyerState)) {
       return res.status(422).json({
-        message: `Buyer PIN ${finalPayload?.BuyerDtls?.Pin} does not match buyer state ${finalBuyerState}. Please update buyer details.`,
+        message: `Buyer PIN could not be resolved for buyer state ${finalBuyerState}. Please update buyer details.`,
       });
     }
     // eslint-disable-next-line no-console
@@ -482,7 +489,7 @@ app.post(withNetlifyPath('/api/billing/e-invoice/generate'), async (req, res) =>
   }
 });
 
-app.post(withNetlifyPath('/api/billing/e-invoice/cancel'), async (req, res) => {
+app.post('/api/billing/e-invoice/cancel', async (req, res) => {
   try {
     const { irn, reason = 'Wrong entry', cancelReasonCode = '1' } = req.body || {};
     if (!irn) return res.status(400).json({ message: 'irn is required.' });
@@ -515,12 +522,8 @@ app.post(withNetlifyPath('/api/billing/e-invoice/cancel'), async (req, res) => {
   }
 });
 
-export { app };
-
-if (process.env.NETLIFY !== 'true') {
-  app.listen(PORT, '0.0.0.0', () => {
-    // eslint-disable-next-line no-console
-    console.log(`Whitebooks proxy listening on port ${PORT}`);
-  });
-}
+app.listen(PORT, '0.0.0.0', () => {
+  // eslint-disable-next-line no-console
+  console.log(`Whitebooks proxy listening on port ${PORT}`);
+});
 

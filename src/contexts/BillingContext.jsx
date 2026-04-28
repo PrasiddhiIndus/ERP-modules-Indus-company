@@ -18,7 +18,6 @@ import {
   saveCommercialPOs as saveCommercialPOsDb,
   fetchInvoices,
   saveInvoice as saveInvoiceDb,
-  saveInvoices as saveInvoicesDb,
   fetchCreditDebitNotes,
   saveCreditDebitNotes as saveCreditDebitNotesDb,
   fetchPaymentAdvice,
@@ -151,7 +150,15 @@ export const BillingProvider = ({ children }) => {
     setInvoicesState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (useDb === true) {
-        saveInvoicesDb(next).catch((e) => console.warn('Billing DB save invoices failed:', e));
+        const prevById = new Map((prev || []).map((i) => [String(i.id), i]));
+        const changed = (next || []).filter((inv) => {
+          const old = prevById.get(String(inv.id));
+          if (!old) return true;
+          return JSON.stringify(old) !== JSON.stringify(inv);
+        });
+        Promise.all(changed.map((inv) => saveInvoiceDb(inv))).catch((e) =>
+          console.warn('Billing DB save invoices failed:', e)
+        );
       } else {
         saveInvoicesLocal(next);
       }

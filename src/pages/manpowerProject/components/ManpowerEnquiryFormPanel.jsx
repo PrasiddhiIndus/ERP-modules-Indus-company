@@ -396,11 +396,13 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     }
   };
 
-  const sectionClass = "rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm";
-  const sectionTitleClass = "text-base font-semibold text-gray-800";
-  const sectionHintClass = "text-xs text-gray-500 mt-1";
-  const inputClass = "w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent";
-  const inlineInputClass = "w-full border-0 border-b border-gray-300 bg-transparent px-0 py-2 text-sm focus:border-purple-500 focus:outline-none";
+  const sectionClass = "rounded-xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm";
+  const sectionTitleClass = "text-base font-semibold text-slate-900";
+  const sectionHintClass = "text-xs text-slate-500 mt-1";
+  const inputClass =
+    "w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent";
+  const inlineInputClass =
+    "w-full border-0 border-b border-slate-300 bg-transparent px-0 py-2 text-sm focus:border-purple-500 focus:outline-none";
 
   const clientSectionFilled = [
     formData.client,
@@ -424,7 +426,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const contactSectionFilled = (formData.contacts || []).filter((c) => Object.values(c || {}).some((v) => String(v || "").trim())).length;
 
   return (
-    <div className="max-h-[calc(95vh-140px)] overflow-y-auto space-y-6 pr-1 pb-2">
+    <div className="max-h-[calc(95vh-140px)] overflow-y-auto overflow-x-hidden space-y-5 pr-1 pb-4">
       <div className={`${sectionClass} grid grid-cols-1 md:grid-cols-2 gap-4`}>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Enquiry ID</label>
@@ -533,6 +535,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
       <div className={sectionClass}>
         <h4 className={sectionTitleClass}>Source Type</h4>
+        <p className={sectionHintClass}>Select how this enquiry was received. Online Tender will unlock tender-specific fields.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -550,6 +553,124 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </div>
         </div>
       </div>
+
+      {isOnlineTender && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 sm:p-6 space-y-4 shadow-sm">
+          <div>
+            <h4 className="text-base font-semibold text-blue-900">Online Tender Details</h4>
+            <p className="mt-1 text-xs text-blue-900/70">Fill these fields only for Online Tender enquiries.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Portal Name</label>
+              <select name="portalNameOption" value={formData.portalNameOption} onChange={handleChange} className={inputClass}>
+                <option value="">Select portal</option>
+                {TENDER_PORTAL_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Custom Portal Name</label>
+              <input name="portalNameCustom" value={formData.portalNameCustom} onChange={handleChange} className={inputClass} placeholder="If custom, enter portal name" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tender Number</label>
+              <input name="tenderNumber" value={formData.tenderNumber} onChange={handleChange} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Portal Submission Date</label>
+              <input type="datetime-local" name="portalSubmissionDate" value={formData.portalSubmissionDate} onChange={handleChange} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Estimated Value (Client)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                <input type="number" name="estimatedValueClient" value={formData.estimatedValueClient} onChange={handleChange} placeholder="0" className={`${inputClass} pl-12`} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Our Quoted Rate</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                <input type="number" name="ourQuotedRate" value={formData.ourQuotedRate} onChange={handleChange} placeholder="0" className={`${inputClass} pl-12`} />
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Portal Screenshot / Proof</label>
+              <input type="file" name="portalProofAttachment" accept=".png,.pdf,image/png,application/pdf" onChange={handleChange} className="w-full text-sm px-3 py-2 border border-slate-300 rounded-lg bg-white" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tender Fee Applicable?</label>
+              <div className="flex items-center gap-4 text-sm">
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="tenderFeeApplicable" value="Applicable" checked={formData.tenderFeeApplicable === "Applicable"} onChange={handleChange} />
+                  Applicable
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="tenderFeeApplicable" value="Not Applicable" checked={formData.tenderFeeApplicable === "Not Applicable"} onChange={handleChange} />
+                  Not Applicable
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">EMD Fee</label>
+              <select name="emdFeeStatus" value={formData.emdFeeStatus} onChange={handleChange} className={inputClass}>
+                <option>Not Applicable</option>
+                <option>Applicable - Pay</option>
+                <option>Exempted</option>
+              </select>
+            </div>
+          </div>
+
+          {isTenderFeeApplicable && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tender Fee Amount</label>
+              <div className="relative md:w-1/2">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                <input type="number" name="tenderFeeAmount" value={formData.tenderFeeAmount} onChange={handleChange} className={`${inputClass} pl-12`} placeholder="0" />
+              </div>
+            </div>
+          )}
+
+          {isPaymentRequired && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Mode</label>
+                <select name="paymentMode" value={formData.paymentMode} onChange={handleChange} className={inputClass}>
+                  <option value="">Select</option>
+                  <option>Demand Draft</option>
+                  <option>NEFT</option>
+                  <option>Online</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">DD / NEFT Reference No.</label>
+                <input name="paymentReferenceNo" value={formData.paymentReferenceNo} onChange={handleChange} className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Status</label>
+                <select name="paymentStatus" value={formData.paymentStatus} onChange={handleChange} className={inputClass}>
+                  <option value="">Select</option>
+                  <option>Pending</option>
+                  <option>Paid</option>
+                  <option>Refunded</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Date</label>
+                <input type="date" name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={`${sectionClass} grid grid-cols-1 md:grid-cols-2 gap-4`}>
         <div>
@@ -664,131 +785,17 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
       </div>
 
-      {isOnlineTender && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 sm:p-5 space-y-4 shadow-sm">
-          <h4 className="text-base font-semibold text-blue-900">Online Tender Details</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Portal Name</label>
-              <select name="portalNameOption" value={formData.portalNameOption} onChange={handleChange} className={inputClass}>
-                <option value="">Select portal</option>
-                {TENDER_PORTAL_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Custom Portal Name</label>
-              <input name="portalNameCustom" value={formData.portalNameCustom} onChange={handleChange} className={inputClass} placeholder="If custom, enter portal name" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tender Number</label>
-              <input name="tenderNumber" value={formData.tenderNumber} onChange={handleChange} className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Estimated Value (Client)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-                <input type="number" name="estimatedValueClient" value={formData.estimatedValueClient} onChange={handleChange} placeholder="0" className={`${inputClass} pl-12`} />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Our Quoted Rate</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-                <input type="number" name="ourQuotedRate" value={formData.ourQuotedRate} onChange={handleChange} placeholder="0" className={`${inputClass} pl-12`} />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Portal Submission Date</label>
-              <input type="datetime-local" name="portalSubmissionDate" value={formData.portalSubmissionDate} onChange={handleChange} className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Portal Screenshot / Proof</label>
-              <input type="file" name="portalProofAttachment" accept=".png,.pdf,image/png,application/pdf" onChange={handleChange} className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tender Fee Applicable?</label>
-              <div className="flex items-center gap-4 text-sm">
-                <label className="inline-flex items-center gap-2">
-                  <input type="radio" name="tenderFeeApplicable" value="Applicable" checked={formData.tenderFeeApplicable === "Applicable"} onChange={handleChange} />
-                  Applicable
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input type="radio" name="tenderFeeApplicable" value="Not Applicable" checked={formData.tenderFeeApplicable === "Not Applicable"} onChange={handleChange} />
-                  Not Applicable
-                </label>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">EMD Fee</label>
-              <select name="emdFeeStatus" value={formData.emdFeeStatus} onChange={handleChange} className={inputClass}>
-                <option>Not Applicable</option>
-                <option>Applicable - Pay</option>
-                <option>Exempted</option>
-              </select>
-            </div>
-          </div>
-
-          {isTenderFeeApplicable && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tender Fee Amount</label>
-              <div className="relative md:w-1/2">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-                <input type="number" name="tenderFeeAmount" value={formData.tenderFeeAmount} onChange={handleChange} className={`${inputClass} pl-12`} placeholder="0" />
-              </div>
-            </div>
-          )}
-
-          {isPaymentRequired && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Mode</label>
-                <select name="paymentMode" value={formData.paymentMode} onChange={handleChange} className={inputClass}>
-                  <option value="">Select</option>
-                  <option>Demand Draft</option>
-                  <option>NEFT</option>
-                  <option>Online</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">DD / NEFT Reference No.</label>
-                <input name="paymentReferenceNo" value={formData.paymentReferenceNo} onChange={handleChange} className={inputClass} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Status</label>
-                <select name="paymentStatus" value={formData.paymentStatus} onChange={handleChange} className={inputClass}>
-                  <option value="">Select</option>
-                  <option>Pending</option>
-                  <option>Paid</option>
-                  <option>Refunded</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Date</label>
-                <input type="date" name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass} />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className={sectionClass}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h4 className={sectionTitleClass}>Points of Contact</h4>
           <span className="text-xs font-medium text-blue-700 bg-blue-100 rounded-full px-2.5 py-1">{contactSectionFilled} rows filled</span>
         </div>
-        <div className="border rounded-md overflow-x-auto bg-white">
-          <table className="min-w-[820px] w-full text-xs">
-            <thead className="bg-gray-100 border-b">
+        <div className="border border-slate-200 rounded-lg overflow-x-auto bg-white">
+          <table className="min-w-[860px] w-full text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 {["Name", "Phone", "Email", "Street", "Street2", "Zip", "City", "State", "Country", ""].map((h) => (
-                  <th key={h || "x"} className="px-2 py-2 text-left font-medium">
+                  <th key={h || "x"} className="px-2.5 py-2.5 text-left font-semibold text-slate-700">
                     {h}
                   </th>
                 ))}
@@ -796,10 +803,15 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </thead>
             <tbody>
               {(formData.contacts || []).map((row, i) => (
-                <tr key={`${i}-${row?.email || "contact"}`} className="border-b">
+                <tr key={`${i}-${row?.email || "contact"}`} className="border-b border-slate-100">
                   {["name", "phone", "email", "street", "street2", "zip", "city", "state", "country"].map((field) => (
                     <td key={field} className="px-2 py-1">
-                      <input name={field} value={row?.[field] || ""} onChange={(e) => handleContactChange(i, e)} className="w-full border-b border-gray-200 focus:border-purple-500 focus:outline-none" />
+                      <input
+                        name={field}
+                        value={row?.[field] || ""}
+                        onChange={(e) => handleContactChange(i, e)}
+                        className="w-full border-b border-slate-200 focus:border-purple-500 focus:outline-none bg-transparent"
+                      />
                     </td>
                   ))}
                   <td className="px-2 py-1">
@@ -819,12 +831,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
       </div>
 
-      <div className={sectionClass}>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Authorization To</label>
-        <input name="authorizationTo" value={formData.authorizationTo} onChange={handleChange} className={inputClass} />
-      </div>
-
       <div className={`${sectionClass} grid grid-cols-1 md:grid-cols-2 gap-4`}>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Authorization To</label>
+          <input name="authorizationTo" value={formData.authorizationTo} onChange={handleChange} className={inputClass} />
+        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Received By</label>
           <select name="receivedBy" value={formData.receivedBy} onChange={handleChange} className={inputClass}>
@@ -838,15 +849,21 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
       </div>
 
-      <div className="sticky bottom-0 z-10 bg-white/90 backdrop-blur-sm flex justify-end gap-3 pt-3 border-t border-gray-200">
-        <button type="button" onClick={onCancel} className="px-5 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-6 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-6 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+        >
           Cancel
         </button>
         <button
           type="button"
           onClick={handleSubmit}
           disabled={submitting}
-          className={`px-5 py-2 rounded-lg text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 ${submitting ? "opacity-50 cursor-not-allowed" : ""}`}
+          className={`px-6 py-2.5 rounded-lg font-medium text-white bg-purple-600 hover:bg-purple-700 transition-colors ${
+            submitting ? "opacity-50 cursor-not-allowed" : ""
+          }`}
         >
           {submitting ? "Saving..." : enquiryId ? "Update Enquiry" : "Create Enquiry"}
         </button>

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useNavigate } from "react-router-dom";
-import ManpowerNavbar from "../ManpowerNavbar";
 
 const ITEMS_PER_PAGE = 5;
 
@@ -75,7 +74,6 @@ const ManpowerEnquiryList = () => {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <ManpowerNavbar />
       <h2 className="text-2xl font-bold mb-6">MANPOWER ENQUIRIES</h2>
 
       {loading ? (

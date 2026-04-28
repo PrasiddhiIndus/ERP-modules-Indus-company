@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileDigit, Search, Eye, Download } from 'lucide-react';
+import { FileDigit, Search, Eye, Download, Trash2 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { downloadTaxInvoicePdf, getTaxInvoicePdfBlobUrl } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
@@ -15,15 +15,18 @@ function formatDate(d) {
   }
 }
 
+function getRealIrn(inv) {
+  const irn = inv?.e_invoice_irn || inv?.eInvoiceIrn || '';
+  return String(irn).toUpperCase().startsWith('MOCK-IRN-') ? '' : irn;
+}
+
 const GeneratedEInvoice = () => {
-  const { invoices } = useBilling();
+  const { invoices, setInvoices } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
 
   const eInvoices = useMemo(() => {
-    const list = invoices.filter(
-      (inv) => inv.e_invoice_irn || inv.eInvoiceIrn
-    );
+    const list = invoices.filter((inv) => getRealIrn(inv));
     if (!searchTerm.trim()) return list;
     const s = searchTerm.toLowerCase();
     return list.filter(
@@ -35,7 +38,7 @@ const GeneratedEInvoice = () => {
         (inv.clientLegalName || inv.client_name || '')
           .toLowerCase()
           .includes(s) ||
-        (inv.e_invoice_irn || inv.eInvoiceIrn || '')
+        (getRealIrn(inv) || '')
           .toLowerCase()
           .includes(s)
     );
@@ -55,6 +58,27 @@ const GeneratedEInvoice = () => {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const selectedInv = viewId ? invoices.find((i) => i.id === viewId) : null;
+
+  const handleDeleteGeneratedEInvoice = (inv) => {
+    const ok = window.confirm(
+      `Delete generated e-invoice details for ${inv.taxInvoiceNumber || inv.bill_number || 'this invoice'}?`
+    );
+    if (!ok) return;
+    setInvoices((prev) =>
+      prev.map((row) =>
+        String(row.id) === String(inv.id)
+          ? {
+              ...row,
+              e_invoice_irn: null,
+              e_invoice_ack_no: null,
+              e_invoice_ack_dt: null,
+              e_invoice_signed_qr: null,
+            }
+          : row
+      )
+    );
+    if (String(viewId || '') === String(inv.id)) setViewId(null);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -147,8 +171,8 @@ const GeneratedEInvoice = () => {
                           <td className="px-3 py-2 text-xs text-gray-700 text-center tabular-nums">
                             ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
                           </td>
-                          <td className="px-3 py-2 text-xs font-mono text-green-700 truncate" title={inv.e_invoice_irn || inv.eInvoiceIrn || ''}>
-                            {inv.e_invoice_irn || inv.eInvoiceIrn}
+                          <td className="px-3 py-2 text-xs font-mono text-green-700 truncate" title={getRealIrn(inv) || ''}>
+                            {getRealIrn(inv)}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-700 text-center">
                             <span className="font-mono">{inv.e_invoice_ack_no || '–'}</span>
@@ -172,6 +196,14 @@ const GeneratedEInvoice = () => {
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                               >
                                 <Download className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteGeneratedEInvoice(inv)}
+                                title="Delete generated e-invoice data"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
@@ -233,7 +265,7 @@ const GeneratedEInvoice = () => {
             </h3>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs sm:text-sm mb-3">
-                <p><span className="text-gray-500">IRN:</span> <span className="font-mono text-green-700">{selectedInv.e_invoice_irn || selectedInv.eInvoiceIrn || '–'}</span></p>
+                <p><span className="text-gray-500">IRN:</span> <span className="font-mono text-green-700">{getRealIrn(selectedInv) || '–'}</span></p>
                 <p><span className="text-gray-500">Ack No:</span> {selectedInv.e_invoice_ack_no || '–'}</p>
                 <p><span className="text-gray-500">Ack Date:</span> {formatDate(selectedInv.e_invoice_ack_dt)}</p>
               </div>

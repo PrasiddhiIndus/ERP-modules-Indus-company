@@ -44,6 +44,11 @@ function formatINRWithSign(n) {
   return v < 0 ? `-₹${abs}` : `₹${abs}`;
 }
 
+function getRealIrn(inv) {
+  const irn = inv?.e_invoice_irn || inv?.eInvoiceIrn || '';
+  return String(irn).toUpperCase().startsWith('MOCK-IRN-') ? '' : irn;
+}
+
 const BILLING_TYPE_TABS = [
   { id: 'All', label: 'All' },
   { id: 'Monthly', label: 'Monthly' },
@@ -352,7 +357,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                             {netAfterCnDn(inv.id, creditDebitNotes, inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
                           </td>
                           <td className="px-3 py-2 text-xs text-center">
-                            {inv.e_invoice_irn ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
+                            {getRealIrn(inv) ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
                           </td>
                           <td className="px-3 py-2 text-center">
                             <div className="flex flex-nowrap items-center justify-center gap-1.5">
@@ -366,9 +371,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => (inv.e_invoice_irn ? null : setGenerateEInvoiceModalId(inv.id))}
-                                disabled={!!inv.e_invoice_irn || generatingEInvoiceId === inv.id}
-                                title={inv.e_invoice_irn ? 'E-Invoice generated' : 'Generate E-Invoice'}
+                                onClick={() => setGenerateEInvoiceModalId(inv.id)}
+                                disabled={generatingEInvoiceId === inv.id}
+                                title={getRealIrn(inv) ? 'Re-generate E-Invoice' : 'Generate E-Invoice'}
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <FileDigit className="w-4 h-4" />
@@ -530,7 +535,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                   )}
                                 </td>
                                 <td className="px-3 py-2 text-xs text-center">
-                                  {inv.e_invoice_irn ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
+                                  {getRealIrn(inv) ? <span className="text-green-600">Yes</span> : <span className="text-gray-400">No</span>}
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   <div className="flex flex-nowrap items-center justify-center gap-1.5">
@@ -545,12 +550,12 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        if (inv.e_invoice_irn) return;
+                                        if (getRealIrn(inv)) return;
                                         setInvoiceDraft({ mode: 'edit', invoiceId: inv.id, poId: inv.poId });
                                         onNavigateTab && onNavigateTab('create-invoice');
                                       }}
-                                      title={inv.e_invoice_irn ? 'Cannot edit after e-invoice (IRN) generated' : 'Edit invoice'}
-                                      disabled={!!inv.e_invoice_irn}
+                                      title={getRealIrn(inv) ? 'Cannot edit after e-invoice (IRN) generated' : 'Edit invoice'}
+                                      disabled={!!getRealIrn(inv)}
                                       className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                       <Pencil className="w-4 h-4" />
@@ -565,9 +570,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => (inv.e_invoice_irn ? null : setGenerateEInvoiceModalId(inv.id))}
-                                      disabled={!!inv.e_invoice_irn || generatingEInvoiceId === inv.id}
-                                      title={inv.e_invoice_irn ? 'E-Invoice generated' : 'Generate E-Invoice'}
+                                      onClick={() => setGenerateEInvoiceModalId(inv.id)}
+                                      disabled={generatingEInvoiceId === inv.id}
+                                      title={getRealIrn(inv) ? 'Re-generate E-Invoice' : 'Generate E-Invoice'}
                                       className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                       <FileDigit className="w-4 h-4" />
