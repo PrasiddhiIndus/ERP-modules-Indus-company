@@ -29,14 +29,34 @@ const generateTaxInvoiceNumber = (sequence) => {
   return `INV-${y}-${seq}`;
 };
 
+function getNextTaxInvoiceSequence(invoices) {
+  const fy = String(getFinancialYear());
+  let maxSeq = 0;
+  (Array.isArray(invoices) ? invoices : []).forEach((inv) => {
+    const raw = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim();
+    const m = raw.match(/^INV-(\d{4})-(\d{4,})$/i);
+    if (!m) return;
+    const [, year, seqText] = m;
+    if (year !== fy) return;
+    const seq = Number(seqText);
+    if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+  });
+  return maxSeq + 1;
+}
+
 const APPROVAL_STATUS_SENT = 'sent_for_approval';
 const APPROVAL_STATUS_APPROVED = 'approved';
 
 const PO_TABLE_PAGE_SIZE = 8;
-const BILLING_TABS = [
+const BILLING_TABS_MANPOWER = [
   { id: 'Per Day', label: 'Daily' },
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Lump Sum', label: 'Lump Sum' },
+];
+
+const BILLING_TABS_RM = [
+  { id: 'Service', label: 'Service' },
+  { id: 'Supply', label: 'Supply' },
 ];
 
 const CREATE_PAGE_TABS = [
@@ -63,6 +83,15 @@ function computeArrivedQty(poQty, actualDuty, authorizedDuty) {
   const auth = safeNumber(authorizedDuty);
   if (po <= 0 || act <= 0 || auth <= 0) return 0;
   return round3((po * act) / auth);
+}
+
+function computeArrivedQtyByMonths(poQty, actualDuty, authorizedDuty, numberOfMonths) {
+  const po = safeNumber(poQty);
+  const act = safeNumber(actualDuty);
+  const auth = safeNumber(authorizedDuty);
+  const months = safeNumber(numberOfMonths);
+  if (po <= 0 || act <= 0 || auth <= 0 || months <= 0) return 0;
+  return round3(((act / auth) * (po / months)));
 }
 
 function computeDutyRatioQty(actualDuty, authorizedDuty) {
@@ -197,7 +226,7 @@ function resolveSupplementaryOverrides(po, allPOs) {
 }
 
 const CreateInvoice = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft, refreshBilling } = useBilling();
+  const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft, refreshBilling, billingVerticalFilter } = useBilling();
   const [selectedPoId, setSelectedPoId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([]); // { description, hsnSac, quantity, rate, amount }
@@ -209,14 +238,25 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [poBillingTab, setPoBillingTab] = useState('Monthly');
   const [createMainTab, setCreateMainTab] = useState('select-po');
 
+  const verticalNotSelected = !billingVerticalFilter;
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
+  const isRmVertical = useMemo(() => {
+    const v = String(billingVerticalFilter || '').trim().toLowerCase();
+    return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev';
+  }, [billingVerticalFilter]);
+
+  const billingTabs = useMemo(() => (isRmVertical ? BILLING_TABS_RM : BILLING_TABS_MANPOWER), [isRmVertical]);
+
+  useEffect(() => {
+    // When switching vertical, reset tab to a sensible default so the PO table doesn't look empty.
+    setPoBillingTab(isRmVertical ? 'Service' : 'Monthly');
+  }, [isRmVertical]);
+
   const billablePOs = useMemo(() => {
-    return commercialPOs.filter((p) => {
-      if (p.isSupplementary) return false;
-      const st = p.approvalStatus || 'draft';
-      return st === APPROVAL_STATUS_SENT || st === APPROVAL_STATUS_APPROVED;
-    });
+    // In Create Invoice, we still *display* all PO entries (team-wise) so nothing looks "missing".
+    // Billing actions can still be disabled based on approval status elsewhere in the UI.
+    return commercialPOs.filter((p) => !p.isSupplementary);
   }, [commercialPOs]);
 
   const billablePOsByTab = useMemo(() => {
@@ -240,6 +280,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const supSt = po.supplementaryRequestStatus || po.supplementary_request_status;
       const postContractBufferOpen =
         !po.isSupplementary && supSt === 'approved' && isAfterContractEndForInvoice(po.endDate || po.end_date);
+      const st = String(po.approvalStatus || 'draft').toLowerCase();
+      const statusLabel = hasInvoice
+        ? 'Created Tax Invoice'
+        : st === APPROVAL_STATUS_APPROVED
+          ? 'Approved'
+          : st === APPROVAL_STATUS_SENT
+            ? 'Sent to approval'
+            : st === 'rejected'
+              ? 'Rejected'
+              : 'Draft';
+
       return {
         ...po,
         poWoNumber: over.poWoNumber ?? po.poWoNumber,
@@ -247,7 +298,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         startDate: over.startDate ?? po.startDate,
         endDate: over.endDate ?? po.endDate,
         postContractBufferOpen,
-        statusLabel: hasInvoice ? 'Created Tax Invoice' : 'Sent to approval',
+        statusLabel,
         hasInvoice,
         existingInvoiceId: existingInvoice?.id || null,
         _calc: { days: dCount, rateSum, contract, expected, remaining },
@@ -365,6 +416,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const monthlyDutyQtyMode = useMemo(() => {
     if (!isMonthlyBilling) return 'po_geometry';
     const m = String(poForLogic?.monthlyDutyQtyMode || poForLogic?.monthly_duty_qty_mode || '').trim();
+    if (m === 'po_geometry_by_months') return 'po_geometry_by_months';
     return m === 'duty_ratio' ? 'duty_ratio' : 'po_geometry';
   }, [isMonthlyBilling, poForLogic]);
 
@@ -373,6 +425,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const m = String(poForLogic?.lumpSumBillingMode || poForLogic?.lump_sum_billing_mode || '').trim().toLowerCase();
     if (m === 'penalty') return 'penalty';
     if (m === 'truck' || m === 'fire_tender') return 'truck';
+    if (m === 'months_geometry') return 'months_geometry';
     return 'normal';
   }, [isLumpSumBilling, poForLogic]);
 
@@ -392,6 +445,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const editPo = commercialPOs.find((p) => String(p.id) === String(editingInvoice.poId));
       const editPenaltyMode =
         editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'penalty';
+      const editMonthsGeometryMode =
+        editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'months_geometry';
       const editInvDate = editingInvoice.invoiceDate || editingInvoice.invoice_date || today;
       setItems(
         (editingInvoice.items || []).map((i) => {
@@ -418,6 +473,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
           const actD = i.actualDuty != null ? Number(i.actualDuty) : undefined;
           const authD =
             i.authorizedDuty != null ? Number(i.authorizedDuty) : daysInMonth(editInvDate);
+          const numberOfMonths =
+            i.numberOfMonths != null
+              ? Number(i.numberOfMonths)
+              : i.number_of_months != null
+                ? Number(i.number_of_months)
+                : 1;
           let quantity = qty;
           let lineRate = rate;
           let amount = isTruck ? round2(qty * rate) : round2(Number(i.amount) || 0);
@@ -426,7 +487,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
             const act = actD ?? 0;
             const auth = authD ?? daysInMonth(editInvDate);
             const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editPenaltyMode);
-            quantity = computeArrivedQty(poQ, act, auth);
+            quantity = editMonthsGeometryMode
+              ? computeArrivedQtyByMonths(poQ, act, auth, numberOfMonths)
+              : computeArrivedQty(poQ, act, auth);
             lineRate = eff;
             amount = round2(quantity * eff);
           }
@@ -440,6 +503,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             poLinePenalty: poLinePen,
             actualDuty: actD,
             authorizedDuty: i.authorizedDuty != null ? Number(i.authorizedDuty) : undefined,
+            numberOfMonths,
             quantity,
             rate: lineRate,
             amount,
@@ -478,7 +542,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
           poLinePenalty: pen,
           actualDuty: 0,
           authorizedDuty: authDutyDefault,
-          quantity: computeArrivedQty(qty, 0, authDutyDefault),
+          numberOfMonths: 1,
+          quantity: computeArrivedQtyByMonths(qty, 0, authDutyDefault, 1),
           rate: computeLumpSumEffectiveRate(poRate, 0, authDutyDefault, pen, lumpSumPenaltyActive),
           amount: 0,
         };
@@ -497,6 +562,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 poLinePenalty: 0,
                 actualDuty: 0,
                 authorizedDuty: authDutyDefault,
+                numberOfMonths: 1,
                 quantity: 0,
                 rate: 0,
                 amount: 0,
@@ -516,6 +582,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         poQty: safeNumber(selectedPO?.ratePerCategory?.find((x) => (x?.description || x?.designation || '').trim() === r.description)?.qty),
         actualDuty: 0,
         authorizedDuty: authDutyDefault,
+        numberOfMonths: 1,
         quantity: 0,
         rate: r.rate,
         amount: 0,
@@ -545,6 +612,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         const poQty = next.poQty != null ? safeNumber(next.poQty) : 0;
         const actualDuty = next.actualDuty != null ? safeNumber(next.actualDuty) : 0;
         const authorizedDuty = next.authorizedDuty != null ? safeNumber(next.authorizedDuty) : 0;
+        const numberOfMonths = next.numberOfMonths != null ? safeNumber(next.numberOfMonths) : 1;
         const qtyRaw = safeNumber(next.quantity);
 
         if (next.isTruckLine) {
@@ -559,7 +627,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
           const qty =
             monthlyDutyQtyMode === 'duty_ratio'
               ? computeDutyRatioQty(actualDuty, authorizedDuty)
-              : computeArrivedQty(poQty, actualDuty, authorizedDuty);
+              : monthlyDutyQtyMode === 'po_geometry_by_months'
+                ? computeArrivedQtyByMonths(poQty, actualDuty, authorizedDuty, numberOfMonths)
+                : computeArrivedQty(poQty, actualDuty, authorizedDuty);
           const rate = Number(next.rate) || 0;
           next.quantity = qty;
           next.amount = round2(qty * rate);
@@ -570,7 +640,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
           const poRef = safeNumber(next.poReferenceRate);
           const pen = safeNumber(next.poLinePenalty);
           const effRate = computeLumpSumEffectiveRate(poRef, actualDuty, authorizedDuty, pen, lumpSumPenaltyActive);
-          const qty = computeArrivedQty(poQty, actualDuty, authorizedDuty);
+          const qty =
+            lumpSumBillingMode === 'months_geometry'
+              ? computeArrivedQtyByMonths(poQty, actualDuty, authorizedDuty, numberOfMonths)
+              : computeArrivedQty(poQty, actualDuty, authorizedDuty);
           next.rate = effRate;
           next.quantity = qty;
           next.amount = round2(qty * effRate);
@@ -612,6 +685,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         poQty: undefined,
         actualDuty: undefined,
         authorizedDuty: undefined,
+        numberOfMonths: undefined,
       },
     ]);
   };
@@ -659,7 +733,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!displayPO) return null;
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
     const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
-    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(invoices.length + 1);
+    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
     const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
     const billingDurationStr =
       displayPO.startDate || displayPO.start_date
@@ -719,9 +793,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!displayPO || !canSave) return;
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
     const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
-    const nextNumericId = Math.max(0, ...invoices.map((i) => Number(i.id) || 0), 0) + 1;
-    const id = existing?.id ?? nextNumericId;
-    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(invoices.length + 1);
+    // DB + saveInvoice expect a UUID primary key; numeric local-only ids caused duplicate inserts (same tax_invoice_number).
+    const id = existing ? existing.id : crypto.randomUUID();
+    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
 
     const poRow = commercialPOs.find((p) => String(p.id) === String(displayPO.id));
     let canonicalPoId = displayPO.id;
@@ -796,6 +870,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
           i.authorizedDuty != null
             ? safeNumber(i.authorizedDuty)
             : null,
+        numberOfMonths:
+          i.geometryEnabled &&
+          !i.isTruckLine &&
+          (isMonthlyBilling || isLumpSumBilling) &&
+          i.numberOfMonths != null
+            ? safeNumber(i.numberOfMonths)
+            : null,
       })),
       // Snapshots from PO (or existing invoice) — used by PDF + shared HTML preview
       clientShippingAddress: displayPO.shippingAddress || displayPO.shipping_address || null,
@@ -838,6 +919,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to start</p>
+          <p className="text-sm mt-1">Choose Manpower / Training / R&amp;M / M&amp;M / AMC / IEV above to load POs and create invoices.</p>
+        </div>
+      ) : null}
       <div className="flex items-center space-x-3">
         <div className="bg-emerald-100 p-3 rounded-lg shrink-0">
           <FileText className="w-6 h-6 text-emerald-600" />
@@ -851,6 +938,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {verticalNotSelected ? (
+          <div className="p-6 text-sm text-gray-600">
+            Select a vertical above to load billable PO/WOs.
+          </div>
+        ) : (
         <div className="flex gap-1 px-3 sm:px-4 border-b border-gray-100 overflow-x-auto">
           {CREATE_PAGE_TABS.map((t) => (
             <button
@@ -870,6 +962,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             </button>
           ))}
         </div>
+        )}
       </div>
 
       {createMainTab === 'select-po' && (
@@ -896,7 +989,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         ) : (
           <div className="px-3 pb-3">
             <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
-              {BILLING_TABS.map((t) => {
+              {billingTabs.map((t) => {
                 const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
                 const bufferOpen = billablePOs.filter(
                   (p) =>
@@ -1428,7 +1521,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
                           <span className="font-semibold text-gray-700">Geometry (Monthly) calculator</span>
-                          {monthlyDutyQtyMode === 'po_geometry' ? (
+                          {monthlyDutyQtyMode === 'po_geometry' || monthlyDutyQtyMode === 'po_geometry_by_months' ? (
                             <label className="inline-flex items-center gap-2">
                               <span className="text-gray-600">PO Qty</span>
                               <input
@@ -1463,10 +1556,25 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               step="1"
                             />
                           </label>
+                          {monthlyDutyQtyMode === 'po_geometry_by_months' ? (
+                            <label className="inline-flex items-center gap-2">
+                              <span className="text-gray-600">Number of months</span>
+                              <input
+                                type="number"
+                                min={1}
+                                value={it.numberOfMonths ?? 1}
+                                onChange={(e) => updateItem(idx, { numberOfMonths: e.target.value })}
+                                className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
+                                step="1"
+                              />
+                            </label>
+                          ) : null}
                           <span className="text-gray-500">
                             {monthlyDutyQtyMode === 'duty_ratio'
                               ? 'Qty = (Actual ÷ Authorised) (3 decimals) — per PO Entry rule'
-                              : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals) — per PO Entry rule'}
+                              : monthlyDutyQtyMode === 'po_geometry_by_months'
+                                ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals) — per PO Entry rule'
+                                : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals) — per PO Entry rule'}
                           </span>
                         </div>
                       </td>
@@ -1521,8 +1629,23 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               step="1"
                             />
                           </label>
+                          {lumpSumBillingMode === 'months_geometry' ? (
+                            <label className="inline-flex items-center gap-2">
+                              <span className="text-gray-600">Number of months</span>
+                              <input
+                                type="number"
+                                min={1}
+                                value={it.numberOfMonths ?? 1}
+                                onChange={(e) => updateItem(idx, { numberOfMonths: e.target.value })}
+                                className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
+                                step="1"
+                              />
+                            </label>
+                          ) : null}
                           <span className="text-gray-600 max-w-md">
-                            Qty = (Actual ÷ Authorised) × PO Qty (3 decimals).{' '}
+                            {lumpSumBillingMode === 'months_geometry'
+                              ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals). '
+                              : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals). '}
                             {lumpSumPenaltyActive
                               ? 'Rate = (Actual ÷ Authorised) × PO rate − Penalty (from PO). Amount = Qty × Rate.'
                               : 'Rate = (Actual ÷ Authorised) × PO rate. Amount = Qty × Rate.'}

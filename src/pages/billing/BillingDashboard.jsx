@@ -32,9 +32,11 @@ function cnDnStatus(inv) {
 }
 
 const BillingDashboard = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, creditDebitNotes, paymentAdvice, billingError, clearBillingError, refreshBilling } =
+  const { commercialPOs, invoices, creditDebitNotes, paymentAdvice, billingError, clearBillingError, refreshBilling, billingVerticalFilter } =
     useBilling();
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const verticalNotSelected = !billingVerticalFilter;
 
   const today = useMemo(() => {
     const d = new Date();
@@ -233,6 +235,12 @@ const BillingDashboard = ({ onNavigateTab }) => {
 
   return (
     <div className="w-full overflow-y-auto min-h-[80vh] px-4 sm:px-6 py-6 bg-gradient-to-b from-slate-50/70 to-white">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600 mb-6">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to open Billing</p>
+          <p className="text-sm mt-1">Choose a vertical above to load dashboard stats, invoices, reports and notifications.</p>
+        </div>
+      ) : null}
       <div className="mb-6 rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">

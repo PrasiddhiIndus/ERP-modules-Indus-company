@@ -260,7 +260,7 @@ export function resolveTermsLines(inv) {
       .map((s) => s.trim())
       .filter(Boolean);
   }
-  const vert = inv.termsTemplateKey || inv.poVertical || 'BILL';
+  const vert = inv.termsTemplateKey || inv.poVertical || 'MANP';
   return getTermsForVertical(vert);
 }
 

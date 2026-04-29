@@ -3,9 +3,11 @@ import { BarChart3, Filter, Users, AlertCircle, FileText, TrendingDown } from 'l
 import { useBilling } from '../../contexts/BillingContext';
 
 const BillingReports = () => {
-  const { commercialPOs, invoices, paymentAdvice } = useBilling();
+  const { commercialPOs, invoices, paymentAdvice, billingVerticalFilter } = useBilling();
   const [filterClient, setFilterClient] = useState('');
   const [filterOC, setFilterOC] = useState('');
+
+  const verticalNotSelected = !billingVerticalFilter;
 
   const clients = useMemo(() => {
     const s = new Set(invoices.map((i) => i.clientLegalName || i.client_name).filter(Boolean));
@@ -61,6 +63,12 @@ const BillingReports = () => {
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to view reports</p>
+          <p className="text-sm mt-1">Pick a vertical above to load debtor, PA and variance reports.</p>
+        </div>
+      ) : null}
       <div className="flex items-center space-x-3">
         <div className="bg-purple-100 p-3 rounded-lg shrink-0">
           <BarChart3 className="w-6 h-6 text-purple-600" />

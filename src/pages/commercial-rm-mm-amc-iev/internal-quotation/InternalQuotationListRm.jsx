@@ -1,11 +1,12 @@
-// src/pages/manpowerProject/enquiryProjects/InternalQuotationList.jsx
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import ManpowerNavbar from "../ManpowerNavbar";
+import ManpowerNavbarRm from "../manpower-management/ManpowerNavbarRm";
 
 import { supabase } from "../../../lib/supabase";
 
-const InternalQuotationList = () => {
+const IQ_BASE = "/app/commercial/rm-mm-amc-iev/internal-quotation";
+
+const InternalQuotationListRm = () => {
   const [enquiries, setEnquiries] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +33,7 @@ const InternalQuotationList = () => {
   if (loading) {
     return (
       <div className="p-6">
-        <ManpowerNavbar />
+        <ManpowerNavbarRm />
         <p className="text-center text-gray-500">Loading enquiries...</p>
       </div>
     );
@@ -40,7 +41,7 @@ const InternalQuotationList = () => {
 
   return (
     <div className="p-6">
-      <ManpowerNavbar />
+      <ManpowerNavbarRm />
       
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Internal Quotations</h2>
@@ -93,7 +94,7 @@ const InternalQuotationList = () => {
                 
                 <div className="flex justify-end">
                   <Link
-                    to={`/app/commercial/manpower-training/internal-quotation/${enquiry.id}`}
+                    to={`${IQ_BASE}/${enquiry.id}`}
                     className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
                   >
                     <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -111,4 +112,4 @@ const InternalQuotationList = () => {
   );
 };
 
-export default InternalQuotationList;
+export default InternalQuotationListRm;

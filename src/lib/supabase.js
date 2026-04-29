@@ -1,37 +1,120 @@
 import { createClient } from '@supabase/supabase-js'
+import {
+  assertBrowserSafeSupabaseKey,
+  getSupabaseAnonKey,
+  getSupabaseUrl,
+  isSupabaseEnvConfigured,
+  supabaseUrlLooksValid,
+} from './supabaseConfig'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key'
+assertBrowserSafeSupabaseKey()
 
-// Check if environment variables are properly set
-const isConfigured = supabaseUrl !== 'https://placeholder.supabase.co' && supabaseAnonKey !== 'placeholder-key'
+const supabaseUrl = getSupabaseUrl() || 'https://placeholder.supabase.co'
+const supabaseAnonKey = getSupabaseAnonKey() || 'placeholder-key'
+
+const isConfigured = isSupabaseEnvConfigured()
 
 if (!isConfigured) {
-  console.warn('⚠️ Supabase environment variables are not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file')
+  console.warn(
+    '⚠️ Supabase env missing: copy .env.example to .env, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (anon key only), restart dev server.'
+  )
+} else if (import.meta.env.PROD && !supabaseUrlLooksValid(supabaseUrl)) {
+  console.warn('⚠️ VITE_SUPABASE_URL should be a valid https URL')
 }
 
-// Custom fetch: timeout + clearer errors so "Failed to fetch" becomes actionable
+// Custom fetch: optional timeout when Supabase does not pass its own signal, plus clearer network errors.
+// Avoid AbortSignal.any — combining signals broke some saves/updates with supabase-js.
 const FETCH_TIMEOUT_MS = 20000
+
+function shortUrlForLog(url) {
+  try {
+    const u = new URL(url)
+    return `${u.pathname}${u.search}`
+  } catch {
+    return String(url).slice(0, 160)
+  }
+}
+
+/**
+ * When `options.signal` is absent, apply a timeout. When present, use Supabase’s signal as-is
+ * (do not merge — merging caused flaky PATCH/POST to rest/v1).
+ */
+function resolveFetchSignal(options) {
+  if (options.signal) {
+    return { signal: options.signal, clearTimer: () => {} }
+  }
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), clearTimer: () => {} }
+  }
+  const c = new AbortController()
+  const tid = setTimeout(() => c.abort(), FETCH_TIMEOUT_MS)
+  return {
+    signal: c.signal,
+    clearTimer: () => clearTimeout(tid),
+  }
+}
+
 const customFetch = async (url, options = {}) => {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
-  const signal = options.signal ?? controller.signal
+  const pathLog = shortUrlForLog(url)
+  const { signal, clearTimer } = resolveFetchSignal(options)
+
   try {
     const res = await fetch(url, { ...options, signal })
-    clearTimeout(timeoutId)
+    clearTimer()
+
+    if (!res.ok && import.meta.env.DEV) {
+      try {
+        const ct = res.headers.get('content-type') || ''
+        const clone = res.clone()
+        const raw = await clone.text()
+        let detail = ''
+        if (ct.includes('application/json')) {
+          try {
+            const j = JSON.parse(raw)
+            detail = j.message || j.error_description || j.hint || raw.slice(0, 400)
+          } catch {
+            detail = raw.slice(0, 400)
+          }
+        } else {
+          detail = raw.slice(0, 400)
+        }
+        const method = (options.method || 'GET').toUpperCase()
+        console.warn(`[Supabase fetch] ${method} ${pathLog} → HTTP ${res.status}`, detail || '(no body)')
+      } catch {
+        /* ignore logging failures */
+      }
+    }
+
     return res
   } catch (err) {
-    clearTimeout(timeoutId)
+    clearTimer()
+    // Keep AbortError as-is so supabase-js cancellation/retries behave correctly.
     if (err?.name === 'AbortError') {
-      throw new Error('Connection timed out. Check your internet and try again.')
+      throw err
     }
     if (err?.message === 'Failed to fetch' || err?.message?.includes('NetworkError')) {
       throw new Error(
-        'Cannot reach Supabase. Check: (1) .env has VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, (2) Restart dev server after editing .env, (3) Firewall/antivirus, (4) Try another network.'
+        `Cannot reach Supabase (${pathLog}). Check .env URL/key, restart dev server, firewall/VPN.`
       )
     }
     throw err
   }
+}
+
+async function pingSupabaseRest() {
+  const base = String(supabaseUrl).replace(/\/+$/, '')
+  // Use Auth health endpoint to verify reachability without intentional 401 noise.
+  const url = `${base}/auth/v1/health`
+  const res = await customFetch(url, {
+    method: 'GET',
+    headers: {
+      apikey: supabaseAnonKey,
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`Supabase health check failed (HTTP ${res.status}). Verify URL/key and project status.`)
+  }
+  return { ok: true, status: res.status }
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -58,13 +141,14 @@ export async function checkSupabaseConnection() {
     };
   }
   try {
+    // 1) Session fetch (may be local-only if cached)
     const { error } = await supabase.auth.getSession();
     if (error && (error.message?.includes('fetch') || error.message?.toLowerCase().includes('network'))) {
-      return {
-        ok: false,
-        message: `Cannot reach Supabase: ${error.message}. Check internet, firewall, or VPN.`,
-      };
+      return { ok: false, message: `Cannot reach Supabase: ${error.message}. Check internet, firewall, or VPN.` }
     }
+
+    // 2) Real network ping to Supabase REST
+    await pingSupabaseRest()
     return { ok: true };
   } catch (err) {
     const msg = err?.message || String(err);

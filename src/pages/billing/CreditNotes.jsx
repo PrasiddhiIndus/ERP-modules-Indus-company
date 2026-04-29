@@ -221,10 +221,12 @@ function IssueCnDnModal({ parent, noteType, requestReason, onClose, onIssue, def
 }
 
 const CreditNotes = () => {
-  const { invoices, setInvoices, creditDebitNotes, setCreditDebitNotes } = useBilling();
+  const { invoices, setInvoices, creditDebitNotes, setCreditDebitNotes, billingVerticalFilter } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
   const [generatingEInvoiceId, setGeneratingEInvoiceId] = useState(null);
   const [issueContext, setIssueContext] = useState(null);
+
+  const verticalNotSelected = !billingVerticalFilter;
 
   const pendingRequests = useMemo(
     () =>
@@ -334,6 +336,12 @@ const CreditNotes = () => {
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to manage CN/DN</p>
+          <p className="text-sm mt-1">Choose a vertical above to load invoices and credit/debit note workflow.</p>
+        </div>
+      ) : null}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center space-x-3">
           <div className="bg-amber-100 p-3 rounded-lg shrink-0">

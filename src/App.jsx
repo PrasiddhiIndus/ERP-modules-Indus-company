@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { checkSupabaseConnection } from "./lib/supabase";
+import { runBackendDiagnostics } from "./lib/backendDiagnostics";
 import Layout from "./contexts/Layout";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
@@ -29,6 +30,9 @@ import InternalQuotationForm from "./pages/manpowerProject/enquiryProjects/Inter
 // New module imports
 import Billing from "./pages/billing/Billing";
 import Commercial from "./pages/sales/Commercial";
+import CommercialRmMmAmcIev from "./pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev";
+import CommercialRmManpowerManagement from "./pages/commercial-rm-mm-amc-iev/ManpowerManagement";
+import CommercialRmInternalQuotation from "./pages/commercial-rm-mm-amc-iev/InternalQuotation";
 import FireTenderVehicleManagement from "./pages/fireTenderVehicle/FireTenderVehicleManagement";
 import Payroll from "./pages/payroll/Payroll";
 import Attendance from "./pages/attendance/Attendance";
@@ -220,6 +224,28 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    // Dev-only: allow quickly testing network/schema/RLS from console.
+    // Usage:
+    // - In console: await window.runBackendDiagnostics()
+    // - Or add `?diag=1` to the URL to auto-run once.
+    window.runBackendDiagnostics = runBackendDiagnostics;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("diag") === "1") {
+      runBackendDiagnostics()
+        .then((rows) => {
+          // eslint-disable-next-line no-console
+          console.table(rows);
+          return rows;
+        })
+        .catch((e) => {
+          // eslint-disable-next-line no-console
+          console.error("Backend diagnostics failed:", e);
+        });
+    }
+  }, []);
+
   return (
     <ConnectionGuard>
     <AuthProvider>
@@ -262,11 +288,10 @@ function App() {
             <Route path="fire-tender/configuration/final-components" element={<FinalComponentsPage />} />
             <Route path="fire-tender/configuration/vehicle-type" element={<VehicleTypePage />} />
 
-            <Route path="manpower" element={<ManpowerManagement />} />
-            <Route path="manpower/list" element={<Navigate to="/app/manpower" replace />} />
-            <Route path="manpower/internal-quotation" element={<InternalQuotationList />} />
-            <Route path="manpower/internal-quotation/:id" element={<InternalQuotationForm />} />
-            <Route path="manpower/:id" element={<ManpowerManagement />} />
+            <Route path="commercial/manpower-training/manpower-management" element={<ManpowerManagement />} />
+            <Route path="commercial/manpower-training/manpower-management/:id" element={<ManpowerManagement />} />
+            <Route path="commercial/manpower-training/internal-quotation" element={<InternalQuotationList />} />
+            <Route path="commercial/manpower-training/internal-quotation/:id" element={<InternalQuotationForm />} />
 
             {/* Reorganized Module Routes */}
             
@@ -325,11 +350,31 @@ function App() {
             {/* Sales */}
             {/* Manpower Enquiry already exists above */}
             
-            {/* Commercial (PO/WO – master source for Billing) */}
-            <Route path="commercial" element={<Commercial />} />
-            <Route path="commercial/dashboard" element={<Commercial />} />
-            <Route path="commercial/po-entry" element={<Commercial />} />
-            <Route path="commercial/contact-log" element={<Commercial />} />
+            {/* Commercial — Manpower / Training */}
+            <Route path="commercial/manpower-training" element={<Commercial />} />
+            <Route path="commercial/manpower-training/dashboard" element={<Commercial />} />
+            <Route path="commercial/manpower-training/po-entry" element={<Commercial />} />
+            <Route path="commercial/manpower-training/contact-log" element={<Commercial />} />
+
+            {/* Commercial — R&M / M&M / AMC / IEV */}
+            <Route path="commercial/rm-mm-amc-iev" element={<CommercialRmMmAmcIev />} />
+            <Route path="commercial/rm-mm-amc-iev/dashboard" element={<CommercialRmMmAmcIev />} />
+            <Route path="commercial/rm-mm-amc-iev/po-entry" element={<CommercialRmMmAmcIev />} />
+            <Route path="commercial/rm-mm-amc-iev/contact-log" element={<CommercialRmMmAmcIev />} />
+            <Route path="commercial/rm-mm-amc-iev/manpower-management" element={<CommercialRmManpowerManagement />} />
+            <Route path="commercial/rm-mm-amc-iev/manpower-management/:id" element={<CommercialRmManpowerManagement />} />
+            <Route path="commercial/rm-mm-amc-iev/internal-quotation" element={<CommercialRmInternalQuotation />} />
+            <Route path="commercial/rm-mm-amc-iev/internal-quotation/:id" element={<CommercialRmInternalQuotation />} />
+
+            <Route path="commercial" element={<Navigate to="/app/commercial/manpower-training/po-entry" replace />} />
+            <Route path="commercial/dashboard" element={<Navigate to="/app/commercial/manpower-training/dashboard" replace />} />
+            <Route path="commercial/po-entry" element={<Navigate to="/app/commercial/manpower-training/po-entry" replace />} />
+            <Route path="commercial/contact-log" element={<Navigate to="/app/commercial/manpower-training/contact-log" replace />} />
+            <Route path="manpower" element={<Navigate to="/app/commercial/manpower-training/manpower-management" replace />} />
+            <Route path="manpower/list" element={<Navigate to="/app/commercial/manpower-training/manpower-management" replace />} />
+            <Route path="manpower/internal-quotation" element={<Navigate to="/app/commercial/manpower-training/internal-quotation" replace />} />
+            <Route path="manpower/internal-quotation/:id" element={<Navigate to="/app/commercial/manpower-training/internal-quotation" replace />} />
+            <Route path="manpower/:id" element={<ManpowerManagement />} />
 
             {/* Billing (includes Reports and Tracking as sub-tabs) */}
             <Route path="billing" element={<Billing />} />

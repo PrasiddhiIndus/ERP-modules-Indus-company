@@ -21,6 +21,7 @@ import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import ManagePAModal from './ManagePAModal';
 import GenerateEInvoiceModal from './GenerateEInvoiceModal';
 import { netAfterCnDn } from '../../utils/cnDn';
+import { deleteInvoicesById } from '../../services/billingApi';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -44,11 +45,16 @@ function formatINRWithSign(n) {
   return v < 0 ? `-₹${abs}` : `₹${abs}`;
 }
 
-const BILLING_TYPE_TABS = [
+const BILLING_TYPE_TABS_MANPOWER = [
   { id: 'All', label: 'All' },
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Per Day', label: 'Per Day' },
   { id: 'Lump Sum', label: 'Lump Sum' },
+];
+const BILLING_TYPE_TABS_RM = [
+  { id: 'All', label: 'All' },
+  { id: 'Service', label: 'Service' },
+  { id: 'Supply', label: 'Supply' },
 ];
 const MANAGE_INVOICE_TABS = [
   { id: 'billing-types', label: 'Billing types' },
@@ -57,7 +63,15 @@ const MANAGE_INVOICE_TABS = [
 ];
 
 const ManageInvoices = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices, setInvoiceDraft, creditDebitNotes } = useBilling();
+  const {
+    commercialPOs,
+    invoices,
+    setInvoices,
+    setInvoiceDraft,
+    creditDebitNotes,
+    billingVerticalFilter,
+    useBillingDb,
+  } = useBilling();
   const [billingTypeFilter, setBillingTypeFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewId, setViewId] = useState(null);
@@ -67,6 +81,16 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [page, setPage] = useState(1);
   const [manageTab, setManageTab] = useState('billing-types');
   const PAGE_SIZE = 10;
+
+  const verticalNotSelected = !billingVerticalFilter;
+  const isRmVertical = useMemo(() => {
+    const v = String(billingVerticalFilter || '').trim().toLowerCase();
+    return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev';
+  }, [billingVerticalFilter]);
+  const billingTypeTabs = useMemo(
+    () => (isRmVertical ? BILLING_TYPE_TABS_RM : BILLING_TYPE_TABS_MANPOWER),
+    [isRmVertical]
+  );
 
   const getPoByInvoice = React.useCallback(
     (inv) => commercialPOs.find((p) => String(p.id) === String(inv.poId)),
@@ -143,13 +167,21 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
   const goToPage = (p) => setPage((prev) => Math.min(totalPages, Math.max(1, p)));
 
-  const handleDeleteInvoice = (id) => {
-    if (window.confirm('Delete this invoice?')) {
-      setInvoices((prev) => prev.filter((i) => String(i.id) !== String(id)));
-      if (viewId && String(viewId) === String(id)) setViewId(null);
-      if (managePAInvoiceId && String(managePAInvoiceId) === String(id)) setManagePAInvoiceId(null);
-      if (generateEInvoiceModalId && String(generateEInvoiceModalId) === String(id)) setGenerateEInvoiceModalId(null);
+  const handleDeleteInvoice = async (id) => {
+    if (!window.confirm('Delete this invoice?')) return;
+    if (useBillingDb) {
+      try {
+        await deleteInvoicesById(id);
+      } catch (e) {
+        console.error(e);
+        window.alert(e?.message || 'Could not delete invoice from the database.');
+        return;
+      }
     }
+    setInvoices((prev) => prev.filter((i) => String(i.id) !== String(id)));
+    if (viewId && String(viewId) === String(id)) setViewId(null);
+    if (managePAInvoiceId && String(managePAInvoiceId) === String(id)) setManagePAInvoiceId(null);
+    if (generateEInvoiceModalId && String(generateEInvoiceModalId) === String(id)) setGenerateEInvoiceModalId(null);
   };
 
   const handleGenerateEInvoice = async (inv) => {
@@ -242,8 +274,21 @@ const ManageInvoices = ({ onNavigateTab }) => {
     setPage(1);
   }, [billingTypeFilter, searchTerm]);
 
+  React.useEffect(() => {
+    const allowed = new Set(billingTypeTabs.map((t) => t.id));
+    if (!allowed.has(billingTypeFilter)) {
+      setBillingTypeFilter('All');
+    }
+  }, [billingTypeTabs, billingTypeFilter]);
+
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to view invoices</p>
+          <p className="text-sm mt-1">Choose a vertical above to load Manage Invoices, e-invoice status, reports and notifications.</p>
+        </div>
+      ) : null}
       <div className="flex items-center space-x-3">
         <div className="bg-red-50 p-3 rounded-xl ring-1 ring-red-100 shrink-0">
           <FileText className="w-6 h-6 text-red-600" />
@@ -255,6 +300,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 overflow-hidden">
+        {verticalNotSelected ? (
+          <div className="p-6 text-sm text-gray-600">Select a vertical above to load invoices.</div>
+        ) : null}
         <div className="flex gap-1 px-4 sm:px-6 border-b border-slate-100 bg-slate-50/40 overflow-x-auto">
           {MANAGE_INVOICE_TABS.map((tab) => (
             <button
@@ -424,7 +472,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           </span>
         </div>
         <div className="flex gap-1 px-4 sm:px-6 border-t border-gray-100 overflow-x-auto">
-          {BILLING_TYPE_TABS.map((tab) => (
+          {billingTypeTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"

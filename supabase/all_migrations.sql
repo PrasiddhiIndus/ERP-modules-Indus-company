@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS billing.po_wo (
   contact_number text,
   oc_number text,
   oc_series text,
-  vertical text DEFAULT 'BILL',
+  vertical text DEFAULT 'MANP',
   po_wo_number text,
   po_quantity numeric(18,2) DEFAULT 0,
   total_contract_value numeric(18,2) DEFAULT 0,
@@ -1643,6 +1643,80 @@ CREATE POLICY "Users can insert their own employees" ON ifsp_employees FOR INSER
 CREATE POLICY "Users can view their own employees" ON ifsp_employees FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can update their own employees" ON ifsp_employees FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete their own employees" ON ifsp_employees FOR DELETE USING (auth.uid() = user_id);
+
+-- =============================================================================
+-- BEGIN: 20260427120500_add_po_received_and_custom_advance_to_po_wo.sql
+-- =============================================================================
+ALTER TABLE billing.po_wo
+  ADD COLUMN IF NOT EXISTS po_received_date date,
+  ADD COLUMN IF NOT EXISTS custom_advance_percent text;
+
+-- Shared billing.po_wo: one row shape for all verticals; unused columns stay NULL.
+ALTER TABLE billing.po_wo
+  ADD COLUMN IF NOT EXISTS po_type text,
+  ADD COLUMN IF NOT EXISTS pan_number text,
+  ADD COLUMN IF NOT EXISTS contact_email text,
+  ADD COLUMN IF NOT EXISTS payment_term_mode text,
+  ADD COLUMN IF NOT EXISTS payment_term_days integer,
+  ADD COLUMN IF NOT EXISTS advance_percent numeric(18,2);
+
+COMMENT ON COLUMN billing.po_wo.po_type IS 'Same meaning as billing_type: Manpower (Per Day|Monthly|Lump Sum) or RM (Supply|Service); both columns kept in sync on save.';
+COMMENT ON COLUMN billing.po_wo.pan_number IS 'Buyer PAN; optional for all verticals.';
+COMMENT ON COLUMN billing.po_wo.contact_email IS 'Primary contact email; optional for all verticals.';
+COMMENT ON COLUMN billing.po_wo.payment_term_mode IS 'RM-style terms: immediate | days | advance; NULL for Manpower/Training-only rows.';
+COMMENT ON COLUMN billing.po_wo.payment_term_days IS 'When payment_term_mode = days.';
+COMMENT ON COLUMN billing.po_wo.advance_percent IS 'When payment_term_mode = advance.';
+
+ALTER TABLE billing.po_contact_log
+  ADD COLUMN IF NOT EXISTS contact_email text;
+
+COMMENT ON COLUMN billing.po_contact_log.contact_email IS 'Optional email per contact-log row (same as billingApi insert).';
+
+-- Allow both module PO type domains in shared billing.po_wo.
+ALTER TABLE billing.po_wo
+  DROP CONSTRAINT IF EXISTS billing_po_wo_po_type_check;
+
+ALTER TABLE billing.po_wo
+  ADD CONSTRAINT billing_po_wo_po_type_check
+  CHECK (
+    po_type IS NULL OR
+    po_type IN (
+      'Per Day', 'Monthly', 'Lump Sum',
+      'Supply', 'Service'
+    )
+  );
+
+-- =============================================================================
+-- BEGIN: billing_invoice_buyer_gst_columns.sql
+-- CreateInvoice / billingApi persist buyer PIN fields for e-invoice alignment.
+-- =============================================================================
+ALTER TABLE billing.invoice
+  ADD COLUMN IF NOT EXISTS buyer_pin text,
+  ADD COLUMN IF NOT EXISTS buyer_pincode text,
+  ADD COLUMN IF NOT EXISTS buyer_state_code text;
+
+COMMENT ON COLUMN billing.invoice.buyer_pin IS 'Buyer PIN / location pin text for GST display.';
+COMMENT ON COLUMN billing.invoice.buyer_pincode IS 'Buyer PIN code (text).';
+COMMENT ON COLUMN billing.invoice.buyer_state_code IS 'Buyer state numeric code.';
+
+-- =============================================================================
+-- BEGIN: standardize_po_vertical_bill_to_manp.sql
+-- Legacy code BILL → MANP (Manpower); OC numbers aligned with IFSPL-{VERTICAL}-OC-…
+-- =============================================================================
+UPDATE billing.po_wo
+SET vertical = 'MANP'
+WHERE upper(trim(coalesce(vertical, ''))) = 'BILL';
+
+UPDATE billing.po_wo
+SET oc_number = replace(oc_number, '-BILL-', '-MANP-')
+WHERE oc_number IS NOT NULL AND oc_number LIKE '%-BILL-%';
+
+UPDATE billing.invoice
+SET oc_number = replace(oc_number, '-BILL-', '-MANP-')
+WHERE oc_number IS NOT NULL AND oc_number LIKE '%-BILL-%';
+
+ALTER TABLE billing.po_wo
+  ALTER COLUMN vertical SET DEFAULT 'MANP';
 
 -- =============================================================================
 -- END: Consolidated migrations

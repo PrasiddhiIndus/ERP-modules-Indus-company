@@ -1,11 +1,13 @@
 // src/pages/Manpower/InternalQuotationForm.jsx
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import ManpowerNavbar from "../ManpowerNavbar";
+import ManpowerNavbarRm from "../manpower-management/ManpowerNavbarRm";
 
 import { supabase } from "../../../lib/supabase";
 
-const InternalQuotationForm = () => {
+const IQ_LIST = "/app/commercial/rm-mm-amc-iev/internal-quotation";
+
+const InternalQuotationFormRm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -62,12 +64,12 @@ const InternalQuotationForm = () => {
     };
 
     // Save in localStorage for now
-    const saved = JSON.parse(localStorage.getItem("manpower_internal_quotations")) || [];
+    const saved = JSON.parse(localStorage.getItem("manpower_internal_quotations_rm_mm_amc_iev")) || [];
     saved.push(newQuotation);
-    localStorage.setItem("manpower_internal_quotations", JSON.stringify(saved));
+    localStorage.setItem("manpower_internal_quotations_rm_mm_amc_iev", JSON.stringify(saved));
 
     alert("Quotation saved successfully!");
-    navigate("/app/commercial/manpower-training/internal-quotation"); // go back to list
+    navigate(IQ_LIST);
   };
 
   if (loading) {
@@ -84,7 +86,7 @@ const InternalQuotationForm = () => {
 
   return (
     <div className="p-6">
-      <ManpowerNavbar />
+      <ManpowerNavbarRm />
 
       <h2 className="text-2xl font-bold mb-4">
         Internal Quotation - {enquiry.enquiry_number}
@@ -196,4 +198,4 @@ const InternalQuotationForm = () => {
   );
 };
 
-export default InternalQuotationForm;
+export default InternalQuotationFormRm;

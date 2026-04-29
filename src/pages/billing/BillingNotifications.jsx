@@ -6,7 +6,9 @@ const PO_EXPIRY_ALERT_DAYS = 10;
 const PA_MISSING_ALERT_DAYS = 5;
 
 const BillingNotifications = () => {
-  const { commercialPOs, invoices } = useBilling();
+  const { commercialPOs, invoices, billingVerticalFilter } = useBilling();
+
+  const verticalNotSelected = !billingVerticalFilter;
 
   const today = useMemo(() => {
     const d = new Date();
@@ -57,6 +59,12 @@ const BillingNotifications = () => {
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to view notifications</p>
+          <p className="text-sm mt-1">Choose a vertical above to load PO expiry and compliance alerts.</p>
+        </div>
+      ) : null}
       <div className="flex items-center space-x-3">
         <div className="bg-indigo-100 p-3 rounded-lg shrink-0">
           <Bell className="w-6 h-6 text-indigo-600" />

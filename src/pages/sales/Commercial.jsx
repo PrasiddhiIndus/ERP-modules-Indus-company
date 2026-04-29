@@ -2,10 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BillingProvider, useBilling } from '../../contexts/BillingContext';
 import { supabase } from '../../lib/supabase';
+import { COMMERCIAL_MODULE_MANPOWER_TRAINING } from '../../constants/commercialModuleType';
 import POEntry from './POEntry';
 import ContactLog from './ContactLog';
 
 const TAB_IDS = ['po-entry', 'contact-log'];
+
+/** Commercial PO + Contact sub-routes for Manpower / Training commercial line. */
+const COMMERCIAL_MT_BASE = '/app/commercial/manpower-training';
 
 const normalizeStatus = (value) => String(value || '').trim().toLowerCase();
 
@@ -24,20 +28,18 @@ const CommercialDashboard = () => {
 
     const loadManpowerStats = async () => {
       try {
-        const [totalRes, approvedRes, rejectedRes] = await Promise.all([
-          supabase.from('manpower_enquiries').select('*', { count: 'exact', head: true }),
-          supabase.from('manpower_enquiries').select('*', { count: 'exact', head: true }).eq('status', 'Approved'),
-          supabase.from('manpower_enquiries').select('*', { count: 'exact', head: true }).eq('status', 'Rejected'),
-        ]);
+        const { data: rows, error: queryError } = await supabase
+          .from('manpower_enquiries')
+          .select('id, duration, status');
 
-        const queryError = totalRes.error || approvedRes.error || rejectedRes.error;
         if (queryError) {
           throw queryError;
         }
 
-        const total = totalRes.count || 0;
-        const approved = approvedRes.count || 0;
-        const rejected = rejectedRes.count || 0;
+        const allRows = rows || [];
+        const total = allRows.length;
+        const approved = allRows.filter((r) => r.status === 'Approved').length;
+        const rejected = allRows.filter((r) => r.status === 'Rejected').length;
         const pending = Math.max(0, total - approved - rejected);
 
         if (!cancelled) {
@@ -87,7 +89,7 @@ const CommercialDashboard = () => {
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 sm:p-6">
         <h2 className="text-xl font-bold text-gray-900">Commercial Dashboard</h2>
         <p className="text-sm text-gray-600 mt-1">
-          Summary of PO/WO entry and Manpower approval status.
+          Summary of PO/WO entry and Manpower approval status (Manpower / Training).
         </p>
         {manpowerError && (
           <p className="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
@@ -112,13 +114,17 @@ const CommercialInner = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { billingError, clearBillingError } = useBilling();
-  const pathTab = location.pathname.replace(/^\/app\/commercial\/?/, '');
-  const isDashboardRoute = pathTab === 'dashboard';
-  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(pathTab) ? pathTab : 'po-entry');
+  const pathRest = location.pathname.startsWith(COMMERCIAL_MT_BASE)
+    ? location.pathname.slice(COMMERCIAL_MT_BASE.length).replace(/^\//, '') || 'po-entry'
+    : 'po-entry';
+  const isDashboardRoute = pathRest === 'dashboard';
+  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(pathRest) ? pathRest : 'po-entry');
 
   useEffect(() => {
-    const pathTab = location.pathname.replace(/^\/app\/commercial\/?/, '');
-    if (TAB_IDS.includes(pathTab)) setActiveTab(pathTab);
+    const rest = location.pathname.startsWith(COMMERCIAL_MT_BASE)
+      ? location.pathname.slice(COMMERCIAL_MT_BASE.length).replace(/^\//, '') || 'po-entry'
+      : 'po-entry';
+    if (TAB_IDS.includes(rest)) setActiveTab(rest);
   }, [location.pathname]);
 
   const tabs = [
@@ -132,7 +138,7 @@ const CommercialInner = () => {
 
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
-    navigate(`/app/commercial/${tabId}`);
+    navigate(`${COMMERCIAL_MT_BASE}/${tabId}`);
   };
 
   return (
@@ -145,7 +151,7 @@ const CommercialInner = () => {
       )}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="px-6 py-4">
-          <h1 className="text-2xl font-bold text-gray-900">Commercial</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Commercial — Manpower / Training</h1>
           <p className="text-gray-600 mt-1">PO/WO Management – Contract details (master source for Billing)</p>
         </div>
         {!isDashboardRoute && (
@@ -175,7 +181,7 @@ const CommercialInner = () => {
 };
 
 const Commercial = () => (
-  <BillingProvider>
+  <BillingProvider commercialModuleScope={COMMERCIAL_MODULE_MANPOWER_TRAINING}>
     <CommercialInner />
   </BillingProvider>
 );

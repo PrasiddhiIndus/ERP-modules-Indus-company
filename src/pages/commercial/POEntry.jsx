@@ -3,9 +3,10 @@ import { FileCheck, Plus, Search, Pencil, Trash2, History, Send } from 'lucide-r
 import { useBilling } from '../../contexts/BillingContext';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
-const VERTICALS = ['BILL', 'MANP', 'AMC', 'FIRE', 'SERV'];
+const VERTICALS = ['MANP', 'AMC', 'FIRE', 'SERV'];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
 const BILLING_CYCLES = ['30', '45', '60'];
+const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const DEFAULT_SAC = '9985';
 const APPROVAL_STATUS = {
   DRAFT: 'draft',
@@ -54,7 +55,7 @@ const initialForm = {
   currentCoordinator: '',
   contactNumber: '',
   ocNumber: '',
-  vertical: 'BILL',
+  vertical: 'MANP',
   ocSeries: '1',
   poWoNumber: '',
   ratePerCategory: [{ description: '', rate: '' }],
@@ -114,7 +115,7 @@ const POEntry = () => {
     setEditId(null);
     setFormData({
       ...initialForm,
-      ocNumber: generateOCNumber('BILL', nextSeries),
+      ocNumber: generateOCNumber('MANP', nextSeries),
       ocSeries: nextSeries,
     });
     setGstinError('');
@@ -133,7 +134,7 @@ const POEntry = () => {
       currentCoordinator: po.currentCoordinator || '',
       contactNumber: po.contactNumber || '',
       ocNumber: po.ocNumber || '',
-      vertical: (po.ocNumber && po.ocNumber.split('-')[1]) || 'BILL',
+      vertical: (po.ocNumber && po.ocNumber.split('-')[1]) || 'MANP',
       ocSeries: (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       poWoNumber: po.poWoNumber || '',
       ratePerCategory: Array.isArray(po.ratePerCategory) && po.ratePerCategory.length
@@ -224,7 +225,8 @@ const POEntry = () => {
       setSaveError('Duplicate OC Number or PO/WO Number found. Please use unique values.');
       return;
     }
-    const ocNum = formData.ocNumber || generateOCNumber(formData.vertical || 'BILL', formData.ocSeries || '1');
+    const ocNum = formData.ocNumber || generateOCNumber(formData.vertical || 'MANP', formData.ocSeries || '1');
+    const poType = ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly';
     const ratesMap = new Map();
     formData.ratePerCategory.forEach((r) => {
       const description = (r.description || '').trim() || 'Other';
@@ -250,7 +252,7 @@ const POEntry = () => {
         : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
       ocNumber: ocNum,
       ocSeries: formData.ocSeries || '1',
-      vertical: (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'BILL',
+      vertical: (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'MANP',
       poWoNumber: formData.poWoNumber.trim(),
       ratePerCategory: rates.length ? rates : [{ description: 'Other', rate: 0 }],
       totalContractValue: totalVal,
@@ -259,9 +261,13 @@ const POEntry = () => {
       serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '',
       endDate: formData.endDate || '',
-      billingType: formData.billingType,
+      billingType: poType,
       billingCycle: Number(formData.billingCycle) || 30,
       paymentTerms: formData.paymentTerms.trim(),
+      poReceivedDate: null,
+      paymentTermMode: null,
+      paymentTermDays: null,
+      advancePercent: null,
       revisedPO: formData.revisedPO,
       renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
@@ -564,7 +570,7 @@ const POEntry = () => {
                         value={formData.ocNumber}
                         onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))}
                         className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm"
-                        placeholder="IFSPL-BILL-OC-25/26-00001"
+                        placeholder="IFSPL-MANP-OC-25/26-00001"
                       />
                       <select
                         value={formData.vertical}

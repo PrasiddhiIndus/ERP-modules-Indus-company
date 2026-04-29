@@ -10,6 +10,7 @@ import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
  *
  * IMPORTANT:
  * For production, keep credentials server-side where possible.
+ * Do not use VITE_* for Whitebooks passwords/client_secret — those bundle into the browser.
  */
 
 const EINVOICE_API_BASE = import.meta.env?.VITE_EINVOICE_API_URL || '/api/billing/e-invoice';

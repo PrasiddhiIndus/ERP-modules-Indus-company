@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Search, Plus, FileText, X, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
-import { supabase } from "../../lib/supabase";
-import ManpowerNavbar from "./ManpowerNavbar";
-import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
+import { supabase } from "../../../lib/supabase";
+import ManpowerNavbarRm from "./ManpowerNavbarRm";
+import ManpowerEnquiryFormPanelRm from "./components/ManpowerEnquiryFormPanelRm";
+
+const RM_MANPOWER_BASE = "/app/commercial/rm-mm-amc-iev/manpower-management";
 
 const ITEMS_PER_PAGE = 10;
 const META_PREFIX = "__META__:";
@@ -40,7 +42,7 @@ function formatIfslDisplay(row) {
   return "—";
 }
 
-const ManpowerManagement = () => {
+const ManpowerManagementRm = () => {
   const { id: routeId } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -122,19 +124,19 @@ const ManpowerManagement = () => {
   const closeForm = () => {
     setShowForm(false);
     setEditingId(null);
-    navigate("/app/commercial/manpower-training/manpower-management", { replace: true });
+    navigate(RM_MANPOWER_BASE, { replace: true });
   };
 
   const openNew = () => {
     setEditingId(null);
     setShowForm(true);
-    navigate("/app/commercial/manpower-training/manpower-management", { replace: true });
+    navigate(RM_MANPOWER_BASE, { replace: true });
   };
 
   const openEdit = (enquiryId) => {
     setEditingId(enquiryId);
     setShowForm(true);
-    navigate(`/app/commercial/manpower-training/manpower-management/${enquiryId}`, { replace: false });
+    navigate(`${RM_MANPOWER_BASE}/${enquiryId}`, { replace: false });
   };
 
   const afterSave = () => {
@@ -155,7 +157,9 @@ const ManpowerManagement = () => {
       let ifslNumber = currentParsed.meta.ifslNumber || "";
 
       if (!ifslNumber) {
-        const { data: allRows, error: allError } = await supabase.from("manpower_enquiries").select("authorization_to");
+        const { data: allRows, error: allError } = await supabase
+          .from("manpower_enquiries")
+          .select("authorization_to, duration");
         if (allError) throw allError;
 
         const year = new Date().getFullYear();
@@ -207,7 +211,7 @@ const ManpowerManagement = () => {
 
   return (
     <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
-      <ManpowerNavbar />
+      <ManpowerNavbarRm />
 
       <div className="mt-4 bg-white shadow p-3 sm:p-4 md:p-6 rounded-lg mb-4 md:mb-6 max-w-[1600px] mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
@@ -384,7 +388,7 @@ const ManpowerManagement = () => {
               </button>
             </div>
             <div className="px-4 py-4 sm:px-6 sm:py-5">
-              <ManpowerEnquiryFormPanel key={editingId || "new"} enquiryId={editingId} onSaved={afterSave} onCancel={closeForm} />
+              <ManpowerEnquiryFormPanelRm key={editingId || "new"} enquiryId={editingId} onSaved={afterSave} onCancel={closeForm} />
             </div>
           </div>
         </div>
@@ -393,4 +397,4 @@ const ManpowerManagement = () => {
   );
 };
 
-export default ManpowerManagement;
+export default ManpowerManagementRm;
