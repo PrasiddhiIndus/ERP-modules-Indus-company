@@ -568,7 +568,10 @@ const POEntry = () => {
     }
     setGstTypeError('');
     const trimmedOcNumber = (formData.ocNumber || '').trim();
-    const trimmedPoWoNumber = (formData.poWoNumber || '').trim();
+    const trimmedPoWoNumber =
+      (formData.poWoNumber || '').trim() || String(formData.newCyclePoWoNumber || '').trim();
+    const primaryTotalEmpty =
+      formData.totalContractValue === '' || formData.totalContractValue == null;
     const locNorm = (formData.locationName || '').trim().toLowerCase();
     const siteNorm = (formData.siteId || '').trim().toLowerCase();
     const hasDuplicatePO = commercialPOs.some((p) => {
@@ -579,6 +582,10 @@ const POEntry = () => {
     });
     if (hasDuplicatePO) {
       setSaveError('Duplicate PO/WO Number is not allowed.');
+      return;
+    }
+    if (!trimmedPoWoNumber) {
+      setSaveError('Enter PO/WO number in New PO Number (renewal).');
       return;
     }
     const ocNum = trimmedOcNumber;
@@ -592,7 +599,11 @@ const POEntry = () => {
           ? Math.max(0, Number(r.penalty) || 0)
           : 0,
     }));
-    const totalVal = Number(formData.totalContractValue) || 0;
+    const totalVal = primaryTotalEmpty
+      ? (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null
+          ? Number(formData.newCycleTotalContractValue) || 0
+          : 0)
+      : Number(formData.totalContractValue) || 0;
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
     const nowIso = new Date().toISOString();
@@ -620,7 +631,7 @@ const POEntry = () => {
       ocSeries: formData.ocSeries || '1',
       vertical:
         (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'Manpower',
-      poWoNumber: formData.poWoNumber.trim(),
+      poWoNumber: trimmedPoWoNumber,
       renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
       ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
       sacCode: formData.sacCode.trim() || DEFAULT_SAC, hsnCode: formData.hsnCode.trim(), serviceDescription: formData.serviceDescription.trim(),
@@ -653,10 +664,19 @@ const POEntry = () => {
       supplementaryApprovedAt: prevPo?.supplementaryApprovedAt || null,
     };
 
-    // If user entered a new cycle (only allowed after contract end), append it (pending approval gate is via PO approval flow).
+    // Renewal cycle row: only when editing an existing PO and contract has ended (same as R&M / AM&C PO Entry).
     const canAddNewCycle = isAfterContractEnd(formData.endDate);
-    const hasNewCycle = String(formData.newCyclePoWoNumber || '').trim() && (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null);
-    if (canAddNewCycle && hasNewCycle) {
+    const hasNewCycle =
+      String(formData.newCyclePoWoNumber || '').trim() &&
+      formData.newCycleTotalContractValue !== '' &&
+      formData.newCycleTotalContractValue != null;
+    if (editId && hasNewCycle && !canAddNewCycle) {
+      setSaveError(
+        'Renewal PO/WO can only be saved after the contract end date. Clear the renewal fields or update the contract dates.'
+      );
+      return;
+    }
+    if (canAddNewCycle && hasNewCycle && editId) {
       po.renewalCycles = [
         ...(po.renewalCycles || []),
         makeCycle({
@@ -1036,70 +1056,105 @@ const POEntry = () => {
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-900 mb-4">3. PO / Financials</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label><div className="flex gap-2"><input type="text" value={formData.ocNumber} onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))} className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" /><select value={formData.vertical} onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-2">{VERTICALS.map((v) => <option key={v} value={v}>{v}</option>)}</select></div></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label><input type="text" value={formData.vendorCode} onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      PO Number (OLD) <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">OC Number</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={formData.ocNumber}
+                        onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))}
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm"
+                      />
+                      <select
+                        value={formData.vertical}
+                        onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))}
+                        className="border border-gray-300 rounded-lg px-3 py-2"
+                      >
+                        {VERTICALS.map((v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label>
                     <input
                       type="text"
-                      value={formData.poWoNumber}
-                      onChange={(e) => setFormData((p) => ({ ...p, poWoNumber: e.target.value }))}
+                      value={formData.vendorCode}
+                      onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      disabled={Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0 && formData.approvalStatus === APPROVAL_STATUS.APPROVED}
+                      placeholder="Optional"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Total contract value (OLD) <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">
+                      PO Number (OLD){' '}
+                      <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      tabIndex={-1}
+                      value={formData.poWoNumber}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current PO on file.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">
+                      Total contract value (OLD) (₹){' '}
+                      <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
                     </label>
                     <input
                       type="number"
+                      readOnly
+                      tabIndex={-1}
                       value={formData.totalContractValue}
-                      onChange={(e) => setFormData((p) => ({ ...p, totalContractValue: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
                       min="0"
-                      disabled={(Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0) && formData.approvalStatus === APPROVAL_STATUS.APPROVED}
                     />
+                    <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current value on file.</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      New PO Number <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                      New PO Number{' '}
+                      <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
                     </label>
+                    <p className="text-xs text-gray-500 mb-1.5">New PO/WO number (renewal)</p>
                     <div className="grid grid-cols-1 gap-2">
                       <input
                         type="text"
                         value={formData.newCyclePoWoNumber}
                         onChange={(e) => setFormData((p) => ({ ...p, newCyclePoWoNumber: e.target.value }))}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                        placeholder="New PO/WO number (renewal)"
-                        disabled={!isAfterContractEnd(formData.endDate)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                        placeholder="Enter PO/WO number"
                       />
                     </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      New Total contract value (₹) <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                      New Total contract value (₹){' '}
+                      <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
                     </label>
                     <input
                       type="number"
                       value={formData.newCycleTotalContractValue}
                       onChange={(e) => setFormData((p) => ({ ...p, newCycleTotalContractValue: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
                       min="0"
-                      placeholder="New contract value"
-                      disabled={!isAfterContractEnd(formData.endDate)}
+                      placeholder="Enter total contract value"
                     />
                     <p className="text-[11px] text-gray-500 mt-1">
                       After Commercial approves renewal, buffer-period tax invoices (and any legacy supplementary PO rows) are aligned to this new PO/WO number and contract dates.
                     </p>
-                    {!isAfterContractEnd(formData.endDate) ? (
+                    {editId && !isAfterContractEnd(formData.endDate) ? (
                       <p className="text-[11px] text-amber-700 mt-1">
-                        New PO/WO details can be added only after the contract end date.
+                        Adding a renewal cycle is allowed only after the contract end date; use these fields for the initial PO when creating a new record.
                       </p>
                     ) : null}
                   </div>

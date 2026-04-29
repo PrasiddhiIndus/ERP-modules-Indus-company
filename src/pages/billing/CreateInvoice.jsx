@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
@@ -142,6 +142,24 @@ function getUniqueRateRows(po) {
   return unique;
 }
 
+/** Alphabetically sorted unique descriptions from PO rate categories (R&M invoice picker). */
+function sortedRmDescriptionOptions(po) {
+  const rows = Array.isArray(po?.ratePerCategory) ? po.ratePerCategory : [];
+  const set = new Set();
+  rows.forEach((r) => {
+    const d = (r?.description || r?.designation || '').trim();
+    if (d) set.add(d);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
+function findRateCategoryRow(po, description) {
+  const d = String(description || '').trim().toLowerCase();
+  if (!d || !po) return null;
+  const rows = Array.isArray(po.ratePerCategory) ? po.ratePerCategory : [];
+  return rows.find((r) => (r.description || r.designation || '').trim().toLowerCase() === d) || null;
+}
+
 function formatINRWithSign(n) {
   const v = round2(n);
   const abs = Math.abs(v).toLocaleString('en-IN');
@@ -230,6 +248,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [selectedPoId, setSelectedPoId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([]); // { description, hsnSac, quantity, rate, amount }
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
   const [attendanceFiles, setAttendanceFiles] = useState([]); // [{ name, url }]
   const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
@@ -244,6 +266,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const isRmVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
     return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev';
+  }, [billingVerticalFilter]);
+
+  /** M&M vertical only — description dropdown on invoice lines. */
+  const isMmOnlyVertical = useMemo(() => {
+    const v = String(billingVerticalFilter || '').trim().toLowerCase();
+    return v === 'mm';
   }, [billingVerticalFilter]);
 
   const billingTabs = useMemo(() => (isRmVertical ? BILLING_TABS_RM : BILLING_TABS_MANPOWER), [isRmVertical]);
@@ -380,10 +408,24 @@ const CreateInvoice = ({ onNavigateTab }) => {
         msmeClause: editingInvoice.msmeClause || editingInvoice.msme_clause || '',
         billingCycle: 30,
         gstSupplyType: gstRaw,
+        ratePerCategory: linkedPo?.ratePerCategory || [],
+        renewalCycles: linkedPo?.renewalCycles || [],
       };
     }
     return null;
   }, [selectedPO, invoiceDraft, editingInvoice, commercialPOs]);
+
+  /** M&M + Service only — enable description dropdown rows. */
+  const isMmServiceDescriptionMode = useMemo(() => {
+    if (!isMmOnlyVertical) return false;
+    const bt = String(displayPO?.billingType || '').trim().toLowerCase();
+    return bt === 'service';
+  }, [isMmOnlyVertical, displayPO]);
+
+  const mmDescriptionOptions = useMemo(
+    () => (isMmServiceDescriptionMode && displayPO ? sortedRmDescriptionOptions(displayPO) : []),
+    [isMmServiceDescriptionMode, displayPO]
+  );
 
   const isManpowerMonthly = useMemo(() => {
     if (!displayPO) return false;
@@ -573,6 +615,26 @@ const CreateInvoice = ({ onNavigateTab }) => {
     }
 
     const uniqueRates = getUniqueRateRows(selectedPO);
+    if (isMmServiceDescriptionMode) {
+      setItems([
+        {
+          description: '',
+          hsnSac,
+          isTruckLine: false,
+          geometryEnabled: false,
+          poQty: 0,
+          actualDuty: 0,
+          authorizedDuty: authDutyDefault,
+          numberOfMonths: 1,
+          quantity: 0,
+          rate: 0,
+          amount: 0,
+          poReferenceRate: 0,
+          poLinePenalty: 0,
+        },
+      ]);
+      return;
+    }
     setItems(
       uniqueRates.map((r) => ({
         description: r.description,
@@ -590,7 +652,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         poLinePenalty: 0,
       }))
     );
-  }, [selectedPO, invoiceDraft, invoiceDate, lumpSumPenaltyActive]);
+  }, [selectedPO, invoiceDraft, invoiceDate, lumpSumPenaltyActive, isMmServiceDescriptionMode]);
 
   // Single sync on mount only — avoid repeat refresh (focus / delayed) wiping in-memory fields
   // such as CN/DN request status before async invoice saves finish or if DB columns lag migrations.
@@ -665,6 +727,85 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return next;
       })
     );
+  };
+
+  const createMmEmptyLine = (hsnSac = '') => ({
+    description: '',
+    hsnSac,
+    isTruckLine: false,
+    geometryEnabled: false,
+    poQty: 0,
+    actualDuty: 0,
+    authorizedDuty: daysInMonth(invoiceDate),
+    numberOfMonths: 1,
+    quantity: 0,
+    rate: 0,
+    amount: 0,
+    poReferenceRate: 0,
+    poLinePenalty: 0,
+  });
+
+  /** M&M only: pick PO category → fill description row + rate/qty from PO; focus next line's dropdown. */
+  const handleMmDescriptionSelect = (idx, rawValue) => {
+    const value = String(rawValue || '').trim();
+    const po = displayPO;
+    if (!po || !isMmServiceDescriptionMode) return;
+    const cat = value ? findRateCategoryRow(po, value) : null;
+    const hsn = po.hsnCode || po.sacCode || '';
+    const patch = { description: value, hsnSac: hsn };
+    if (cat) {
+      const poQty = Number(cat.qty) || 0;
+      const poRate = Number(cat.rate) || 0;
+      const pen = Math.max(0, Number(cat.penalty) || 0);
+      patch.poQty = poQty;
+      patch.poReferenceRate = poRate;
+      patch.poLinePenalty = pen;
+      if (!isLumpSumBilling) {
+        patch.rate = poRate;
+      }
+    } else if (!value) {
+      patch.poQty = 0;
+      patch.poReferenceRate = 0;
+      patch.poLinePenalty = 0;
+      patch.rate = 0;
+      patch.quantity = 0;
+      patch.amount = 0;
+    }
+    updateItem(idx, patch);
+    if (value) {
+      setItems((prev) => {
+        const hasBlankAfter = prev.some(
+          (row, rowIdx) => rowIdx > idx && !row.isTruckLine && !String(row.description || '').trim()
+        );
+        if (hasBlankAfter) return prev;
+        const next = [...prev];
+        next.splice(idx + 1, 0, createMmEmptyLine(hsn));
+        return next;
+      });
+    }
+    setTimeout(() => {
+      const list = itemsRef.current || [];
+      for (let j = idx + 1; j < list.length; j += 1) {
+        if (!list[j]?.isTruckLine) {
+          document.getElementById(`mm-invoice-desc-select-${j}`)?.focus();
+          break;
+        }
+      }
+    }, 0);
+  };
+
+  /** M&M only: remove selected description row; rows below shift up. */
+  const clearMmDescriptionRow = (idx) => {
+    if (!isMmServiceDescriptionMode) return;
+    const hsn = displayPO?.hsnCode || displayPO?.sacCode || '';
+    setItems((prev) => {
+      const next = prev.filter((_, i) => i !== idx);
+      const hasBlankSelectableRow = next.some(
+        (row) => !row.isTruckLine && !String(row.description || '').trim()
+      );
+      if (!hasBlankSelectableRow) next.push(createMmEmptyLine(hsn));
+      return next;
+    });
   };
 
   const addTruckLine = () => {
@@ -1373,6 +1514,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   const rateDerived =
                     (isMonthlyBilling && it.geometryEnabled) ||
                     (isLumpSumBilling && !it.isTruckLine && it.geometryEnabled);
+                  const mergedMmDescOpts =
+                    isMmOnlyVertical && !it.isTruckLine
+                      ? (() => {
+                          const m = [...mmDescriptionOptions];
+                          if (it.description && !m.includes(it.description)) m.push(it.description);
+                          m.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+                          return m;
+                        })()
+                      : [];
                   return (
                   <React.Fragment key={idx}>
                   <tr className={activeGeometryRowIdx === idx ? 'bg-indigo-50/60' : undefined}>
@@ -1400,6 +1550,35 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
                             placeholder="Truck / transport line"
                           />
+                        ) : isMmServiceDescriptionMode ? (
+                          it.description ? (
+                            <div className="flex items-center justify-between gap-2 min-w-0 w-full">
+                              <span className="truncate">{it.description}</span>
+                              <button
+                                type="button"
+                                onClick={() => clearMmDescriptionRow(idx)}
+                                className="shrink-0 text-[11px] text-red-600 hover:underline"
+                                title="Clear selected description"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          ) : (
+                            <select
+                              id={`mm-invoice-desc-select-${idx}`}
+                              className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal bg-white"
+                              aria-label={`Line ${idx + 1} description`}
+                              value=""
+                              onChange={(e) => handleMmDescriptionSelect(idx, e.target.value)}
+                            >
+                              <option value="">Select description…</option>
+                              {mergedMmDescOpts.map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                            </select>
+                          )
                         ) : (
                           <span className="truncate">{it.description}</span>
                         )}
