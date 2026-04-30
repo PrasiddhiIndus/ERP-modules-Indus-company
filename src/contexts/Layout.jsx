@@ -400,11 +400,11 @@ const Layout = () => {
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-blue-600" />
                     <span className="text-xs">Dashboard</span>
                   </NavLink>
-                  <NavLink to="/app/commercial/manpower-training/manpower-management" className={subNavClass}>
+                  <NavLink to="/app/manpower" end className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Manpower Management Enquiry</span>
                   </NavLink>
-                  <NavLink to="/app/commercial/manpower-training/internal-quotation" className={subNavClass}>
+                  <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-green-700" />
                     <span className="text-xs">Internal Quotation</span>
                   </NavLink>
@@ -448,7 +448,7 @@ const Layout = () => {
                       </NavLink>
                     </div>
                   )}
-                  <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
+                  <NavLink to="/app/commercial/po-entry" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">PO Entry</span>
                   </NavLink>
