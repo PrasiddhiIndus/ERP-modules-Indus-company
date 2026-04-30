@@ -82,7 +82,8 @@ const Layout = () => {
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [salesOpen, setSalesOpen] = useState(false);
+  const [commercialMtOpen, setCommercialMtOpen] = useState(false);
+  const [commercialRmOpen, setCommercialRmOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [operationsOpen, setOperationsOpen] = useState(false);
   const [procurementOpen, setProcurementOpen] = useState(false);
@@ -101,9 +102,9 @@ const Layout = () => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
-    if (pathname.startsWith("/app/manpower")) setSalesOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
-    if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial")) setSalesOpen(true);
+    if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial/manpower-training")) setCommercialMtOpen(true);
+    if (pathname.startsWith("/app/commercial/rm-mm-amc-iev")) setCommercialRmOpen(true);
     if (pathname.startsWith("/app/manpower/configuration")) setManpowerConfigOpen(true);
     if (pathname.startsWith("/app/billing")) setBillingOpen(true);
     if (pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations")) setOperationsOpen(true);
@@ -369,35 +370,41 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Commercial (renamed from Sales: Manpower + PO Entry + Contact Log) */}
+            {/* Commercial — Manpower / Training */}
             {(can("sales") || can("commercial")) && (
             <div>
               <button
-                onClick={() => setSalesOpen(!salesOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
+                type="button"
+                onClick={() => setCommercialMtOpen(!commercialMtOpen)}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${
+                  pathname.startsWith("/app/commercial/manpower-training")
+                    ? "bg-red-50 text-red-800 shadow-sm"
+                    : "text-gray-700"
+                }`}
               >
-                <span className="flex items-center space-x-2.5">
+                <span className="flex items-center space-x-2.5 min-w-0">
                   <Briefcase className="w-4 h-4 shrink-0" />
-                  <span className="text-sm font-medium">Commercial</span>
+                  <span className="min-w-0 text-left leading-tight">
+                    <span className="block text-sm font-medium">Commercial</span>
+                    <span className="block text-xs">Manpower / Training</span>
+                  </span>
                 </span>
                 <ChevronDown
-                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
-                    salesOpen ? "rotate-180" : ""
-                  }`}
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${commercialMtOpen ? "rotate-180" : ""}`}
                 />
               </button>
 
-              {salesOpen && (
+              {commercialMtOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
-                  <NavLink to="/app/commercial/dashboard" className={subNavClass}>
+                  <NavLink to="/app/commercial/manpower-training/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-blue-600" />
-                    <span className="text-xs">Commercial Dashboard</span>
+                    <span className="text-xs">Dashboard</span>
                   </NavLink>
-                  <NavLink to="/app/manpower" end className={subNavClass}>
+                  <NavLink to="/app/commercial/manpower-training/manpower-management" className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Manpower Management Enquiry</span>
                   </NavLink>
-                  <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
+                  <NavLink to="/app/commercial/manpower-training/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-green-700" />
                     <span className="text-xs">Internal Quotation</span>
                   </NavLink>
@@ -441,11 +448,60 @@ const Layout = () => {
                       </NavLink>
                     </div>
                   )}
-                  <NavLink to="/app/commercial/po-entry" className={subNavClass}>
+                  <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">PO Entry</span>
                   </NavLink>
-                  <NavLink to="/app/commercial/contact-log" className={subNavClass}>
+                  <NavLink to="/app/commercial/manpower-training/contact-log" className={subNavClass}>
+                    <ClipboardCheck className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <span className="text-xs">Contact Log</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Commercial — R&M / M&M / AMC / IEV */}
+            {(can("sales") || can("commercial")) && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setCommercialRmOpen(!commercialRmOpen)}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${
+                  pathname.startsWith("/app/commercial/rm-mm-amc-iev") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"
+                }`}
+              >
+                <span className="flex items-center space-x-2.5 min-w-0">
+                  <Briefcase className="w-4 h-4 shrink-0" />
+                  <span className="min-w-0 text-left leading-tight">
+                    <span className="block text-sm font-medium">Commercial</span>
+                    <span className="block text-xs">R&amp;M / M&amp;M / AMC / IEV</span>
+                  </span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${commercialRmOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {commercialRmOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-blue-600" />
+                    <span className="text-xs">Dashboard</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/manpower-management" className={subNavClass}>
+                    <Users className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Manpower Management</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/internal-quotation" className={subNavClass}>
+                    <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
+                    <span className="text-xs">Internal Quotation</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/po-entry" className={subNavClass}>
+                    <FileCheck className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">PO Entry</span>
+                  </NavLink>
+                  <NavLink to="/app/commercial/rm-mm-amc-iev/contact-log" className={subNavClass}>
                     <ClipboardCheck className="w-4 h-4 shrink-0 text-indigo-600" />
                     <span className="text-xs">Contact Log</span>
                   </NavLink>

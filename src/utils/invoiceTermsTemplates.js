@@ -25,7 +25,14 @@ export const TERMS_BY_VERTICAL = {
     'M&M billing as per agreed schedule and rates in PO.',
     'GST as applicable.',
   ],
+  /** Legacy key — prefer MANP / Manpower in UI; kept for old rows. */
   BILL: [
+    'Goods once sold will not be taken back.',
+    'We cannot accept any responsibility for breakage, damage or loss in transit when the goods are dispatched.',
+    'Full payment must be made by A/c Payee cheque, NEFT / RTGS.',
+    'Interest at 24% per annum will be charged on bills not paid within the due date.',
+  ],
+  MANP: [
     'Goods once sold will not be taken back.',
     'We cannot accept any responsibility for breakage, damage or loss in transit when the goods are dispatched.',
     'Full payment must be made by A/c Payee cheque, NEFT / RTGS.',
@@ -33,9 +40,11 @@ export const TERMS_BY_VERTICAL = {
   ],
 };
 
-export const DEFAULT_TERMS_VERTICAL_KEY = 'BILL';
+export const DEFAULT_TERMS_VERTICAL_KEY = 'MANP';
 
 export function getTermsForVertical(vertical) {
-  const v = vertical && TERMS_BY_VERTICAL[vertical] ? vertical : DEFAULT_TERMS_VERTICAL_KEY;
+  let key = vertical && typeof vertical === 'string' ? vertical.trim() : '';
+  if (key.toUpperCase() === 'BILL') key = 'MANP';
+  const v = key && TERMS_BY_VERTICAL[key] ? key : DEFAULT_TERMS_VERTICAL_KEY;
   return TERMS_BY_VERTICAL[v] || TERMS_BY_VERTICAL[DEFAULT_TERMS_VERTICAL_KEY];
 }

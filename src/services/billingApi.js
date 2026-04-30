@@ -8,11 +8,164 @@
  */
 
 import { supabase } from '../lib/supabase';
+import {
+  getCommercialModuleTypeFromUpdateHistory,
+  getCommercialPoModuleType,
+  withCommercialModuleMarker,
+} from '../constants/commercialModuleType';
+import { normalizeGstSupplyType } from '../utils/invoiceRound';
 
 const BILLING_SCHEMA = 'billing';
+const MODULE_CONTEXT = {
+  MANPOWER_TRAINING: 'manpower_training',
+  RM_MM_AMC_IEV: 'rm_mm_amc_iev',
+};
+const MANPOWER_PO_TYPES = new Set(['Per Day', 'Monthly', 'Lump Sum']);
+const RM_PO_TYPES = new Set(['Supply', 'Service']);
+/** Default OC vertical segment for Manpower/Training PO rows in billing.po_wo (replaces legacy BILL). */
+const DEFAULT_PO_VERTICAL_DB = 'MANP';
+
+/** Persist: never send legacy BILL; map Manpower label to MANP; empty → MANP. */
+function normalizePoVerticalForPersist(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return DEFAULT_PO_VERTICAL_DB;
+  const u = s.toUpperCase();
+  if (u === 'BILL') return DEFAULT_PO_VERTICAL_DB;
+  if (s.toLowerCase() === 'manpower') return DEFAULT_PO_VERTICAL_DB;
+  return s;
+}
+
+/** Read: normalize legacy BILL and expose canonical MANP for OC segment / filters. */
+function normalizePoVerticalFromDb(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return DEFAULT_PO_VERTICAL_DB;
+  if (s.toUpperCase() === 'BILL') return DEFAULT_PO_VERTICAL_DB;
+  return s;
+}
 
 function table(name) {
   return supabase.schema(BILLING_SCHEMA).from(name);
+}
+
+function toModuleContext(moduleType) {
+  return moduleType === 'rm-mm-amc-iev'
+    ? MODULE_CONTEXT.RM_MM_AMC_IEV
+    : MODULE_CONTEXT.MANPOWER_TRAINING;
+}
+
+function normalizePoTypeForModule(rawPoType, moduleContext) {
+  const value = String(rawPoType || '').trim();
+  if (moduleContext === MODULE_CONTEXT.RM_MM_AMC_IEV) {
+    if (RM_PO_TYPES.has(value)) return value;
+    return 'Service';
+  }
+  if (MANPOWER_PO_TYPES.has(value)) return value;
+  return 'Monthly';
+}
+
+/** Rebuild payment_terms-style label from structured RM columns when present (vertical-agnostic read path). */
+function inferRmPaymentTermsLabelFromRow(raw) {
+  if (!raw || (raw.payment_term_mode == null && raw.advance_percent == null && raw.payment_term_days == null)) {
+    return null;
+  }
+  const mode = raw.payment_term_mode;
+  const days = raw.payment_term_days;
+  const adv = raw.advance_percent;
+  if (mode === 'immediate') return 'Immediate';
+  if (mode === 'days' && days != null) return `${days} Days`;
+  if (mode === 'advance' && adv === 50) return 'Advance (50% with PO)';
+  if (mode === 'advance' && adv === 100) return 'Advance (100% with PO)';
+  if (mode === 'advance') return 'Advance (Custom % with PO)';
+  return null;
+}
+
+/** Every camelCase key we expose to PO Entry / Billing so all verticals share one client shape; missing DB columns read as null. */
+const UNIFIED_PO_CLIENT_DEFAULTS = {
+  poReceivedDate: null,
+  paymentTermMode: null,
+  paymentTermDays: null,
+  advancePercent: null,
+  contactEmail: null,
+  panNumber: null,
+  monthlyDutyQtyMode: null,
+  lumpSumBillingMode: null,
+  customPaymentTermsPercent: null,
+  poType: null,
+};
+
+function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
+  const raw = po;
+  const c = toCamelCase(po);
+  const inferredTerms = inferRmPaymentTermsLabelFromRow(raw);
+  return {
+    ...UNIFIED_PO_CLIENT_DEFAULTS,
+    ...c,
+    remarks: raw.remarks ?? raw.payment_terms ?? null,
+    paymentTerms: inferredTerms ?? raw.payment_terms ?? raw.remarks ?? null,
+    customPaymentTermsPercent: raw.custom_advance_percent ?? null,
+    poReceivedDate: raw.po_received_date ?? null,
+    paymentTermMode: raw.payment_term_mode ?? null,
+    paymentTermDays: raw.payment_term_days != null ? Number(raw.payment_term_days) : null,
+    advancePercent: raw.advance_percent != null ? Number(raw.advance_percent) : null,
+    monthlyDutyQtyMode: raw.monthly_duty_qty_mode ?? null,
+    lumpSumBillingMode: raw.lump_sum_billing_mode ?? null,
+    panNumber: raw.pan_number ?? null,
+    contactEmail: raw.contact_email ?? null,
+    poType: raw.po_type ?? raw.billing_type ?? null,
+    ratePerCategory: ratesByPo[po.id] || [],
+    contactHistoryLog: contactsByPo[po.id] || [],
+    updateHistory: Array.isArray(raw.update_history) ? raw.update_history : [],
+    isSupplementary: !!raw.is_supplementary,
+    supplementaryParentPoId: raw.supplementary_parent_po_id,
+    supplementaryRequestStatus: raw.supplementary_request_status,
+    supplementaryReason: raw.supplementary_reason,
+    supplementaryRequestedAt: raw.supplementary_requested_at,
+    supplementaryApprovedAt: raw.supplementary_approved_at,
+    renewedPoWoNumber: raw.renewed_po_wo_number,
+    renewedTotalContractValue:
+      raw.renewed_total_contract_value != null ? Number(raw.renewed_total_contract_value) : null,
+    renewedStartDate: raw.renewed_start_date,
+    renewedEndDate: raw.renewed_end_date,
+    renewalCycles: Array.isArray(raw.renewal_cycles) ? raw.renewal_cycles : [],
+    vertical: normalizePoVerticalFromDb(raw.vertical),
+    id: raw.id,
+    moduleType: getCommercialModuleTypeFromUpdateHistory(
+      Array.isArray(raw.update_history) ? raw.update_history : []
+    ),
+  };
+}
+
+function deriveRmPaymentTermFields(po = {}) {
+  const term = String(po.paymentTerms || '').trim();
+  if (!term) {
+    return { payment_term_mode: null, payment_term_days: null, advance_percent: null };
+  }
+  if (term === 'Immediate') {
+    return { payment_term_mode: 'immediate', payment_term_days: null, advance_percent: null };
+  }
+  const daysMatch = term.match(/^(\d+)\s*Days$/i);
+  if (daysMatch) {
+    return {
+      payment_term_mode: 'days',
+      payment_term_days: Number(daysMatch[1]) || null,
+      advance_percent: null,
+    };
+  }
+  if (term === 'Advance (50% with PO)') {
+    return { payment_term_mode: 'advance', payment_term_days: null, advance_percent: 50 };
+  }
+  if (term === 'Advance (100% with PO)') {
+    return { payment_term_mode: 'advance', payment_term_days: null, advance_percent: 100 };
+  }
+  if (term === 'Advance (Custom % with PO)') {
+    const parsed = Number(po.customPaymentTermsPercent);
+    return {
+      payment_term_mode: 'advance',
+      payment_term_days: null,
+      advance_percent: Number.isFinite(parsed) ? parsed : null,
+    };
+  }
+  return { payment_term_mode: null, payment_term_days: null, advance_percent: null };
 }
 
 function toCamelCase(obj) {
@@ -45,8 +198,23 @@ export async function isBillingDbAvailable() {
 // PO/WO + rate category + contact log
 // -----------------------------------------------------------------------------
 
-/** Fetch all POs with rate categories and contact log. */
-export async function fetchCommercialPOs() {
+/**
+ * Fetch POs with rate categories and contact log.
+ * @param {{ moduleType?: string } | string} [options] - When set, same rows as DB but filtered (equivalent to GET ?module_type=).
+ */
+export async function fetchCommercialPOs(options) {
+  const moduleType =
+    typeof options === 'string'
+      ? options
+      : options && typeof options === 'object'
+        ? options.moduleType
+        : undefined;
+  const moduleContext =
+    options && typeof options === 'object'
+      ? options.moduleContext
+      : undefined;
+  void moduleContext;
+
   const { data: rows, error } = await table('po_wo')
     .select('*')
     .order('created_at', { ascending: false });
@@ -85,34 +253,18 @@ export async function fetchCommercialPOs() {
     contactsByPo[c.po_id].push({
       name: c.contact_name,
       number: c.contact_number,
+      email: c.contact_email,
       from: c.from_date,
       to: c.to_date,
     });
   });
 
-  return (rows || []).map((po) => {
-    const c = toCamelCase(po);
-    c.remarks = po.remarks ?? po.payment_terms ?? null;
-    c.paymentTerms = po.payment_terms ?? po.remarks ?? null;
-    c.ratePerCategory = ratesByPo[po.id] || [];
-    c.contactHistoryLog = contactsByPo[po.id] || [];
-    if (!c.updateHistory && Array.isArray(po.update_history)) c.updateHistory = po.update_history;
-    c.isSupplementary = !!po.is_supplementary;
-    c.supplementaryParentPoId = po.supplementary_parent_po_id;
-    c.supplementaryRequestStatus = po.supplementary_request_status;
-    c.supplementaryReason = po.supplementary_reason;
-    c.supplementaryRequestedAt = po.supplementary_requested_at;
-    c.supplementaryApprovedAt = po.supplementary_approved_at;
-    c.renewedPoWoNumber = po.renewed_po_wo_number;
-    c.renewedTotalContractValue = po.renewed_total_contract_value != null ? Number(po.renewed_total_contract_value) : null;
-    c.renewedStartDate = po.renewed_start_date;
-    c.renewedEndDate = po.renewed_end_date;
-    c.renewalCycles = Array.isArray(po.renewal_cycles) ? po.renewal_cycles : [];
-    c.monthlyDutyQtyMode = po.monthly_duty_qty_mode || null;
-    c.lumpSumBillingMode = po.lump_sum_billing_mode || null;
-    c.id = po.id;
-    return c;
-  });
+  const mapped = (rows || []).map((po) => mapPoWoRowToClient(po, ratesByPo, contactsByPo));
+
+  if (moduleType) {
+    return mapped.filter((po) => getCommercialPoModuleType(po) === moduleType);
+  }
+  return mapped;
 }
 
 /** Build a clear error message for billing DB failures (schema, RLS, etc.). */
@@ -128,67 +280,126 @@ function billingErrorMsg(error, context = 'Save') {
   return msg || `${context} failed.`;
 }
 
+/**
+ * Single billing.po_wo row shape for all verticals: columns not used by the active module are explicitly null.
+ */
+function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped) {
+  const poType = normalizePoTypeForModule(po.billingType ?? po.poType, moduleContext);
+  const rmTerms = deriveRmPaymentTermFields(po);
+  const isMp = moduleContext === MODULE_CONTEXT.MANPOWER_TRAINING;
+  const isRm = moduleContext === MODULE_CONTEXT.RM_MM_AMC_IEV;
+
+  const billingCycleVal = isMp ? Number(po.billingCycle) || 30 : null;
+  const paymentTermsVal = isMp ? po.paymentTerms || null : null;
+  const monthlyDutyVal =
+    isMp && po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim()
+      ? String(po.monthlyDutyQtyMode).trim()
+      : null;
+  const lumpSumModeVal =
+    isMp && po.lumpSumBillingMode && String(po.lumpSumBillingMode).trim()
+      ? String(po.lumpSumBillingMode).trim()
+      : null;
+
+  const poReceivedVal =
+    isRm && po.poReceivedDate && String(po.poReceivedDate).trim() ? po.poReceivedDate : null;
+  const customAdvVal =
+    isRm && po.customPaymentTermsPercent != null && String(po.customPaymentTermsPercent).trim()
+      ? String(po.customPaymentTermsPercent).trim()
+      : null;
+
+  return stripUndefined({
+    ...(poIdInput ? { id: poIdInput } : {}),
+    site_id: po.siteId != null && String(po.siteId).trim() ? String(po.siteId).trim() : '',
+    location_name: po.locationName || null,
+    legal_name: po.legalName != null && String(po.legalName).trim() ? String(po.legalName).trim() : '',
+    billing_address: po.billingAddress || null,
+    gstin: po.gstin || null,
+    pan_number: po.panNumber || null,
+    current_coordinator: po.currentCoordinator || null,
+    contact_number: po.contactNumber || null,
+    contact_email: po.contactEmail || null,
+    oc_number: po.ocNumber || null,
+    oc_series: po.ocSeries || null,
+    vertical: normalizePoVerticalForPersist(po.vertical),
+    po_wo_number: po.poWoNumber || null,
+    po_quantity: Number(po.poQuantity) || 0,
+    total_contract_value: Number(po.totalContractValue) || 0,
+    sac_code: po.sacCode || null,
+    hsn_code: po.hsnCode || null,
+    service_description: po.serviceDescription || null,
+    start_date: po.startDate && String(po.startDate).trim() ? po.startDate : null,
+    end_date: po.endDate && String(po.endDate).trim() ? po.endDate : null,
+    po_type: poType,
+    billing_type: poType,
+    billing_cycle: billingCycleVal,
+    payment_terms: paymentTermsVal,
+    po_received_date: poReceivedVal,
+    payment_term_mode: isRm ? rmTerms.payment_term_mode : null,
+    payment_term_days: isRm ? rmTerms.payment_term_days : null,
+    advance_percent: isRm ? rmTerms.advance_percent : null,
+    custom_advance_percent: customAdvVal,
+    remarks: po.remarks || null,
+    revised_po: !!po.revisedPO,
+    renewal_pending: !!po.renewalPending,
+    status: po.status || 'active',
+    approval_status: po.approvalStatus || 'draft',
+    approval_sent_at: po.approvalSentAt || null,
+    vendor_code: po.vendorCode || null,
+    gst_supply_type: po.gstSupplyType || 'intra',
+    update_history: updateHistoryStamped,
+    shipping_address: po.shippingAddress || null,
+    invoice_terms_text: po.invoiceTermsText || null,
+    seller_cin: po.sellerCin || null,
+    seller_pan: po.sellerPan || null,
+    msme_registration_no: po.msmeRegistrationNo || null,
+    msme_clause: po.msmeClause || null,
+    place_of_supply: po.placeOfSupply || null,
+    is_supplementary: !!po.isSupplementary,
+    supplementary_parent_po_id: po.supplementaryParentPoId || null,
+    supplementary_request_status: po.supplementaryRequestStatus || null,
+    supplementary_reason: po.supplementaryReason || null,
+    supplementary_requested_at: po.supplementaryRequestedAt || null,
+    supplementary_approved_at: po.supplementaryApprovedAt || null,
+    renewed_po_wo_number: po.renewedPoWoNumber || null,
+    renewed_total_contract_value:
+      po.renewedTotalContractValue != null ? Number(po.renewedTotalContractValue) : null,
+    renewed_start_date: po.renewedStartDate && String(po.renewedStartDate).trim() ? po.renewedStartDate : null,
+    renewed_end_date: po.renewedEndDate && String(po.renewedEndDate).trim() ? po.renewedEndDate : null,
+    renewal_cycles: Array.isArray(po.renewalCycles) ? po.renewalCycles : [],
+    monthly_duty_qty_mode: monthlyDutyVal,
+    lump_sum_billing_mode: lumpSumModeVal,
+  });
+}
+
 /** Save full list of POs (upsert), rate categories and contact log. */
-export async function saveCommercialPOs(list) {
+export async function saveCommercialPOs(list, options = {}) {
   if (!Array.isArray(list) || list.length === 0) return;
+  const forcedModuleContext = options?.moduleContext;
 
   for (const po of list) {
-    const poIdInput = typeof po.id === 'string' && po.id.length === 36 ? po.id : undefined;
-    const payload = {
-      ...(poIdInput ? { id: poIdInput } : {}),
-      site_id: (po.siteId != null && String(po.siteId).trim()) ? String(po.siteId).trim() : '',
-      location_name: po.locationName || null,
-      legal_name: (po.legalName != null && String(po.legalName).trim()) ? String(po.legalName).trim() : '',
-      billing_address: po.billingAddress || null,
-      gstin: po.gstin || null,
-      current_coordinator: po.currentCoordinator || null,
-      contact_number: po.contactNumber || null,
-      oc_number: po.ocNumber || null,
-      oc_series: po.ocSeries || null,
-      vertical: po.vertical || 'BILL',
-      po_wo_number: po.poWoNumber || null,
-      po_quantity: Number(po.poQuantity) || 0,
-      total_contract_value: Number(po.totalContractValue) || 0,
-      sac_code: po.sacCode || null,
-      hsn_code: po.hsnCode || null,
-      service_description: po.serviceDescription || null,
-      start_date: po.startDate && String(po.startDate).trim() ? po.startDate : null,
-      end_date: po.endDate && String(po.endDate).trim() ? po.endDate : null,
-      billing_type: po.billingType || 'Monthly',
-      billing_cycle: Number(po.billingCycle) || 30,
-      remarks: po.remarks || po.paymentTerms || null,
-      payment_terms: po.paymentTerms || po.remarks || null,
-      revised_po: !!po.revisedPO,
-      renewal_pending: !!po.renewalPending,
-      status: po.status || 'active',
-      approval_status: po.approvalStatus || 'draft',
-      approval_sent_at: po.approvalSentAt || null,
-      vendor_code: po.vendorCode || null,
-      gst_supply_type: po.gstSupplyType || 'intra',
-      update_history: Array.isArray(po.updateHistory) ? po.updateHistory : [],
-      shipping_address: po.shippingAddress || null,
-      invoice_terms_text: po.invoiceTermsText || null,
-      seller_cin: po.sellerCin || null,
-      seller_pan: po.sellerPan || null,
-      msme_registration_no: po.msmeRegistrationNo || null,
-      msme_clause: po.msmeClause || null,
-      place_of_supply: po.placeOfSupply || null,
-      is_supplementary: !!po.isSupplementary,
-      supplementary_parent_po_id: po.supplementaryParentPoId || null,
-      supplementary_request_status: po.supplementaryRequestStatus || null,
-      supplementary_reason: po.supplementaryReason || null,
-      supplementary_requested_at: po.supplementaryRequestedAt || null,
-      supplementary_approved_at: po.supplementaryApprovedAt || null,
-      renewed_po_wo_number: po.renewedPoWoNumber || null,
-      renewed_total_contract_value: po.renewedTotalContractValue != null ? Number(po.renewedTotalContractValue) : null,
-      renewed_start_date: po.renewedStartDate && String(po.renewedStartDate).trim() ? po.renewedStartDate : null,
-      renewed_end_date: po.renewedEndDate && String(po.renewedEndDate).trim() ? po.renewedEndDate : null,
-      renewal_cycles: Array.isArray(po.renewalCycles) ? po.renewalCycles : [],
-      monthly_duty_qty_mode: po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim() ? String(po.monthlyDutyQtyMode).trim() : null,
-      lump_sum_billing_mode: po.lumpSumBillingMode && String(po.lumpSumBillingMode).trim() ? String(po.lumpSumBillingMode).trim() : null,
-    };
+    const moduleType = getCommercialPoModuleType(po);
+    const moduleContext = forcedModuleContext || toModuleContext(moduleType);
+    const updateHistoryStamped = withCommercialModuleMarker(po.updateHistory, moduleType);
+    const poIdInput = isUuidString(po.id) ? String(po.id).trim() : undefined;
+    const payload = buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped);
 
-    const { data: saved, error: poError } = await table('po_wo').upsert(payload, { onConflict: 'id' }).select('id').single();
+    const persistPoWo = (p) =>
+      poIdInput
+        ? table('po_wo').upsert(p, { onConflict: 'id' }).select('id').single()
+        : table('po_wo').insert(p).select('id').single();
+
+    let { data: saved, error: poError } = await persistPoWo(payload);
+    // DB compatibility fallback for environments where some optional columns are absent.
+    if (poError && /column .*po_type|po_type|payment_term_mode|payment_term_days|advance_percent/i.test(String(poError?.message || ''))) {
+      const {
+        po_type,
+        payment_term_mode,
+        payment_term_days,
+        advance_percent,
+        ...fallbackPayload
+      } = payload;
+      ({ data: saved, error: poError } = await persistPoWo(fallbackPayload));
+    }
     if (poError) throw new Error(billingErrorMsg(poError, 'PO/WO save'));
     const savedPoId = saved?.id ?? po.id;
 
@@ -211,6 +422,7 @@ export async function saveCommercialPOs(list) {
       po_id: savedPoId,
       contact_name: c.name,
       contact_number: c.number,
+      contact_email: c.email || null,
       from_date: c.from,
       to_date: c.to,
     }));
@@ -219,6 +431,81 @@ export async function saveCommercialPOs(list) {
       if (contactErr) throw new Error(billingErrorMsg(contactErr, 'Contact log save'));
     }
   }
+}
+
+/**
+ * Delete one or more POs and their dependent billing rows.
+ * Accepts a single PO id or an array of PO ids.
+ */
+export async function deleteCommercialPOs(ids) {
+  const poIds = Array.isArray(ids) ? ids : [ids];
+  const cleanPoIds = poIds
+    .map((id) => (id == null ? '' : String(id).trim()))
+    .filter(Boolean);
+  if (cleanPoIds.length === 0) return;
+
+  const { data: invoices, error: invoiceFetchErr } = await table('invoice')
+    .select('id')
+    .in('po_id', cleanPoIds);
+  if (invoiceFetchErr) throw invoiceFetchErr;
+
+  const invoiceIds = (invoices || []).map((row) => row.id).filter(Boolean);
+  if (invoiceIds.length) {
+    const { error: lineErr } = await table('invoice_line_item').delete().in('invoice_id', invoiceIds);
+    if (lineErr) throw lineErr;
+
+    const { error: attErr } = await table('invoice_attachment').delete().in('invoice_id', invoiceIds);
+    if (attErr) throw attErr;
+
+    const { error: paErr } = await table('payment_advice').delete().in('invoice_id', invoiceIds);
+    if (paErr) throw paErr;
+
+    const { error: addOnErr } = await table('add_on_invoice').delete().in('invoice_id', invoiceIds);
+    if (addOnErr) throw addOnErr;
+
+    const { error: invErr } = await table('invoice').delete().in('id', invoiceIds);
+    if (invErr) throw invErr;
+  }
+
+  const { error: noteErr } = await table('credit_debit_note').delete().in('parent_invoice_id', invoiceIds);
+  if (noteErr) throw noteErr;
+
+  const { error: rateErr } = await table('po_rate_category').delete().in('po_id', cleanPoIds);
+  if (rateErr) throw rateErr;
+
+  const { error: contactErr } = await table('po_contact_log').delete().in('po_id', cleanPoIds);
+  if (contactErr) throw contactErr;
+
+  const { error: poErr } = await table('po_wo').delete().in('id', cleanPoIds);
+  if (poErr) throw poErr;
+}
+
+/**
+ * Delete invoice(s) from the billing schema (dependents first).
+ * Skips the API call for non-UUID ids (legacy local-only rows that were never persisted).
+ */
+export async function deleteInvoicesById(ids) {
+  const raw = Array.isArray(ids) ? ids : [ids];
+  const invoiceIds = [...new Set(raw.map((id) => String(id ?? '').trim()).filter(isUuidString))];
+  if (invoiceIds.length === 0) return;
+
+  const { error: noteErr } = await table('credit_debit_note').delete().in('parent_invoice_id', invoiceIds);
+  if (noteErr) throw noteErr;
+
+  const { error: lineErr } = await table('invoice_line_item').delete().in('invoice_id', invoiceIds);
+  if (lineErr) throw lineErr;
+
+  const { error: attErr } = await table('invoice_attachment').delete().in('invoice_id', invoiceIds);
+  if (attErr) throw attErr;
+
+  const { error: paErr } = await table('payment_advice').delete().in('invoice_id', invoiceIds);
+  if (paErr) throw paErr;
+
+  const { error: addOnErr } = await table('add_on_invoice').delete().in('invoice_id', invoiceIds);
+  if (addOnErr) throw addOnErr;
+
+  const { error: invErr } = await table('invoice').delete().in('id', invoiceIds);
+  if (invErr) throw invErr;
 }
 
 // -----------------------------------------------------------------------------
@@ -336,17 +623,17 @@ export async function saveInvoice(inv) {
   const realIrn = !isMockIrnValue(inv.e_invoice_irn) ? inv.e_invoice_irn : null;
   const payload = {
     ...(invId ? { id: invId } : {}),
-    po_id: inv.poId,
-    site_id: inv.siteId,
-    tax_invoice_number: inv.taxInvoiceNumber,
-    invoice_date: inv.invoiceDate,
-    client_legal_name: inv.clientLegalName,
-    client_address: inv.clientAddress,
-    gstin: inv.gstin,
-    oc_number: inv.ocNumber,
-    po_wo_number: inv.poWoNumber,
-    billing_type: inv.billingType,
-    hsn_sac: inv.hsnSac,
+    po_id: poIdFk,
+    site_id: siteIdForPayload(inv.siteId),
+    tax_invoice_number: taxInvoiceNumber,
+    invoice_date: requireInvoiceDate(inv.invoiceDate ?? inv.invoice_date),
+    client_legal_name: inv.clientLegalName ?? null,
+    client_address: inv.clientAddress ?? null,
+    gstin: inv.gstin ?? null,
+    oc_number: inv.ocNumber ?? null,
+    po_wo_number: inv.poWoNumber ?? null,
+    billing_type: inv.billingType ?? null,
+    hsn_sac: inv.hsnSac ?? null,
     taxable_value: inv.taxableValue ?? 0,
     cgst_rate: inv.cgstRate ?? 9,
     sgst_rate: inv.sgstRate ?? 9,
@@ -354,7 +641,7 @@ export async function saveInvoice(inv) {
     sgst_amt: inv.sgstAmt ?? 0,
     calculated_invoice_amount: inv.calculatedInvoiceAmount ?? 0,
     total_amount: inv.totalAmount ?? 0,
-    pa_status: inv.paStatus,
+    pa_status: inv.paStatus ?? 'Pending',
     payment_status: !!inv.paymentStatus,
     pending_amount: inv.pendingAmount,
     payment_terms: inv.paymentTerms,
@@ -369,49 +656,59 @@ export async function saveInvoice(inv) {
     seller_pan: inv.sellerPan || null,
     msme_registration_no: inv.msmeRegistrationNo || null,
     msme_clause: inv.msmeClause || null,
-    billing_duration_from: inv.billingDurationFrom || null,
-    billing_duration_to: inv.billingDurationTo || null,
+    billing_duration_from: normalizePgDateOnly(inv.billingDurationFrom ?? inv.billing_duration_from),
+    billing_duration_to: normalizePgDateOnly(inv.billingDurationTo ?? inv.billing_duration_to),
     invoice_header_remarks: inv.invoiceHeaderRemarks || null,
     terms_template_key: inv.termsTemplateKey || null,
     terms_custom_text: inv.termsCustomText || inv.termsText || null,
     client_shipping_address: inv.clientShippingAddress || null,
     place_of_supply: inv.placeOfSupply || null,
-    buyer_pin: inv.buyerPin ?? inv.buyer_pin ?? inv.clientPincode ?? inv.client_pincode ?? null,
-    buyer_pincode: inv.buyerPincode ?? inv.buyer_pincode ?? inv.clientPincode ?? inv.client_pincode ?? null,
-    buyer_state_code: inv.buyerStateCode ?? inv.buyer_state_code ?? null,
-    invoice_kind: inv.invoiceKind || 'tax',
+    buyer_pin: textColumnOrNull(inv.buyerPin ?? inv.buyer_pin ?? inv.clientPincode ?? inv.client_pincode),
+    buyer_pincode: textColumnOrNull(inv.buyerPincode ?? inv.buyer_pincode ?? inv.clientPincode ?? inv.client_pincode),
+    buyer_state_code: textColumnOrNull(inv.buyerStateCode ?? inv.buyer_state_code),
+    invoice_kind: normalizeInvoiceKindDb(inv.invoiceKind ?? inv.invoice_kind),
     is_add_on: !!inv.isAddOn,
-    add_on_type: inv.addOnType || null,
+    add_on_type: inv.addOnType || (inv.isAddOn ? 'Other' : null),
     is_post_contract_buffer: !!inv.isPostContractBuffer,
-    cn_dn_request_status: inv.cnDnRequestStatus || null,
-    cn_dn_request_note_type: inv.cnDnRequestNoteType || null,
-    cn_dn_request_reason: inv.cnDnRequestReason || null,
-    cn_dn_requested_at: inv.cnDnRequestedAt || null,
-    cn_dn_approved_at: inv.cnDnApprovedAt || null,
-    gst_supply_type: inv.gstSupplyType || 'intra',
+    cn_dn_request_status: normalizeCnDnStatusDb(inv.cnDnRequestStatus ?? inv.cn_dn_request_status),
+    cn_dn_request_note_type: normalizeCnDnNoteTypeDb(inv.cnDnRequestNoteType ?? inv.cn_dn_request_note_type),
+    cn_dn_request_reason: inv.cnDnRequestReason ?? inv.cn_dn_request_reason ?? null,
+    cn_dn_requested_at: normalizeTimestamptzOrNull(inv.cnDnRequestedAt ?? inv.cn_dn_requested_at),
+    cn_dn_approved_at: normalizeTimestamptzOrNull(inv.cnDnApprovedAt ?? inv.cn_dn_approved_at),
+    gst_supply_type: gstSupply,
     igst_rate: Number(inv.igstRate) || 0,
     igst_amt: Number(inv.igstAmt) || 0,
     digital_signature_data_url: inv.digitalSignatureDataUrl || null,
   };
 
+  /** New row: insert without id. Existing row: upsert with id in body (onConflict=id). Avoid PATCH/update — RLS/PostgREST often returns errors on PATCH for billing.invoice. */
+  const persistInvoiceRow = async (p) => {
+    if (!invId) {
+      return table('invoice').insert(p).select('id').single();
+    }
+    if (!p.id || String(p.id) !== String(invId)) {
+      return {
+        data: null,
+        error: Object.assign(new Error('Invoice save: id mismatch'), { code: 'INVOICE_ID_MISMATCH' }),
+      };
+    }
+    return table('invoice').upsert(p, { onConflict: 'id' }).select('id').single();
+  };
+
   let saved;
   let invError;
-  ({ data: saved, error: invError } = await table('invoice').upsert(payload, { onConflict: 'id' }).select('id').single());
-  if (invError && /buyer_pin|buyer_pincode|buyer_state_code|column/i.test(String(invError?.message || ''))) {
-    const { buyer_pin, buyer_pincode, buyer_state_code, ...fallbackPayload } = payload;
-    ({ data: saved, error: invError } = await table('invoice')
-      .upsert(fallbackPayload, { onConflict: 'id' })
-      .select('id')
-      .single());
+  ({ data: saved, error: invError } = await persistInvoiceRow(payload));
+  if (invError && isBuyerInvoiceColumnsMissingError(invError)) {
+    ({ data: saved, error: invError } = await persistInvoiceRow(stripOptionalBuyerInvoiceColumns(payload)));
   }
   if (invError) throw invError;
-  const invoiceId = saved?.id ?? inv.id;
+  const invoiceId = saved?.id ?? invId ?? inv.id;
 
   await table('invoice_line_item').delete().eq('invoice_id', invoiceId);
   const lineRows = (inv.items || []).map((it, i) => ({
     invoice_id: invoiceId,
     line_order: i,
-    description: it.description,
+    description: String(it.description ?? it.designation ?? '').trim() || '—',
     hsn_sac: it.hsnSac,
     quantity: Number(it.quantity) || 0,
     rate: Number(it.rate) || 0,
@@ -444,7 +741,7 @@ export async function saveInvoice(inv) {
   if (inv.isAddOn) {
     const addOnPayload = {
       invoice_id: invoiceId,
-      po_id: inv.poId || null,
+      po_id: poIdFk,
       oc_number: inv.ocNumber || null,
       client_name: inv.clientLegalName || null,
       location_name: inv.locationName || null,
@@ -499,7 +796,7 @@ export async function saveCreditDebitNotes(list) {
   }
   if (list.length === 0) return;
   const rows = list.map((n) => {
-    const idOk = typeof n.id === 'string' && n.id.length === 36;
+    const idOk = isUuidString(n.id);
     return {
       ...(idOk ? { id: n.id } : {}),
       parent_invoice_id: n.parentInvoiceId,

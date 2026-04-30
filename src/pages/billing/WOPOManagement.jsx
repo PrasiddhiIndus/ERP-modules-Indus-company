@@ -31,7 +31,7 @@ const getFinancialYear = () => {
 const generateOCNumber = (sequence) => {
   const fy = getFinancialYear();
   const seq = String(sequence).padStart(5, '0');
-  return `IFSPL-BILL-OC-${fy}-${seq}`;
+  return `IFSPL-MANP-OC-${fy}-${seq}`;
 };
 
 const initialForm = {

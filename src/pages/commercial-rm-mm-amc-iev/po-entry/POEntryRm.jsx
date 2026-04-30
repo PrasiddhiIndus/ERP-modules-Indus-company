@@ -1,15 +1,25 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useBilling } from '../../contexts/BillingContext';
-import { useAuth } from '../../contexts/AuthContext';
-import { ROLES } from '../../config/roles';
-import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { isCommercialModuleMarker } from '../../constants/commercialModuleType';
+import { useAuth } from '../../../contexts/AuthContext';
+import { ROLES } from '../../../config/roles';
+import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
+import { isCommercialModuleMarker } from '../../../constants/commercialModuleType';
 
-const VERTICALS = ['Manpower', 'Training'];
-const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
-const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
+const VERTICALS = ['R&M', 'M&M','AMC','IEV'];
+const BILLING_TYPES = ['Supply', 'Service'];
+const ALLOWED_RM_PO_TYPES = new Set(BILLING_TYPES);
 const BILLING_CYCLES = ['30', '45', '60'];
+const PAYMENT_TERMS_OPTIONS = [
+  'Immediate',
+  '15 Days',
+  '30 Days',
+  '45 Days',
+  '60 Days',
+  'Advance (50% with PO)',
+  'Advance (100% with PO)',
+  'Advance (Custom % with PO)',
+];
+const CUSTOM_PAYMENT_TERM = 'Advance (Custom % with PO)';
 const PAGE_SIZE = 10;
 const DEFAULT_SAC = '';
 const APPROVAL_STATUS = {
@@ -51,20 +61,19 @@ function generateOCNumber(vertical, series) {
   return `IFSPL-${vertical}-OC-${fy}-${seq}`;
 }
 
-/** Department filter label — matches VERTICALS; OC may use Manpower/Training or legacy MANP/BILL */
-function poDepartmentLabel(p) {
-  const vRaw = String(p?.vertical || '').trim();
-  if (vRaw === 'MANP' || vRaw === 'BILL') return 'Manpower';
-  if (vRaw === 'Manpower' || vRaw === 'Training') return vRaw;
-  const oc = String(p?.ocNumber || '').trim();
-  if (oc.startsWith('IFSPL-')) {
-    const seg = oc.split('-')[1];
-    if (seg) {
-      if (seg === 'MANP' || seg === 'BILL') return 'Manpower';
-      if (seg === 'Manpower' || seg === 'Training') return seg;
-    }
-  }
-  return vRaw;
+function syncOcVerticalIfStandard(ocNumber, nextVertical) {
+  const oc = String(ocNumber || '').trim();
+  const v = String(nextVertical || '').trim();
+  if (!oc || !v) return oc;
+  // Only rewrite standard OC numbers: IFSPL-{VERTICAL}-OC-{FY}-{SEQ}
+  if (!oc.startsWith('IFSPL-')) return oc;
+  const parts = oc.split('-');
+  if (parts.length < 5) return oc;
+  if (parts[2] !== 'OC') return oc;
+  if (parts[1] === v) return oc;
+  const nextParts = [...parts];
+  nextParts[1] = v;
+  return nextParts.join('-');
 }
 
 function isAfterContractEnd(endDate) {
@@ -92,6 +101,25 @@ function isValidDateInput(value) {
 
 function normalizeContactNumber(value) {
   return String(value || '').replace(/\D/g, '').slice(0, 10);
+}
+
+/** OC middle segment (IFSPL-{dept}-OC-…) or stored vertical — matches VERTICALS labels. */
+function poDepartmentLabel(p) {
+  const oc = String(p?.ocNumber || '').trim();
+  if (oc.startsWith('IFSPL-')) {
+    const seg = oc.split('-')[1];
+    if (seg) return seg;
+  }
+  return String(p?.vertical || '').trim();
+}
+
+function sortNewestPoFirst(list) {
+  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+    const aTs = new Date(a?.updated_at || a?.updatedAt || a?.created_at || a?.createdAt || a?.startDate || 0).getTime() || 0;
+    const bTs = new Date(b?.updated_at || b?.updatedAt || b?.created_at || b?.createdAt || b?.startDate || 0).getTime() || 0;
+    if (bTs !== aTs) return bTs - aTs;
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
+  });
 }
 
 function makeCycle({ poWoNumber, totalContractValue, startDate, endDate, approvedAt } = {}) {
@@ -148,6 +176,21 @@ function validateGstSupplyTypeForState(placeOfSupply, billingAddress, gstSupplyT
   return '';
 }
 
+function deriveRmPaymentTermPayload(paymentTerms, customPercent) {
+  const term = String(paymentTerms || '').trim();
+  if (!term) return { paymentTermMode: null, paymentTermDays: null, advancePercent: null };
+  if (term === 'Immediate') return { paymentTermMode: 'immediate', paymentTermDays: null, advancePercent: null };
+  const daysMatch = term.match(/^(\d+)\s*Days$/i);
+  if (daysMatch) return { paymentTermMode: 'days', paymentTermDays: Number(daysMatch[1]) || null, advancePercent: null };
+  if (term === 'Advance (50% with PO)') return { paymentTermMode: 'advance', paymentTermDays: null, advancePercent: 50 };
+  if (term === 'Advance (100% with PO)') return { paymentTermMode: 'advance', paymentTermDays: null, advancePercent: 100 };
+  if (term === CUSTOM_PAYMENT_TERM) {
+    const parsed = Number(customPercent);
+    return { paymentTermMode: 'advance', paymentTermDays: null, advancePercent: Number.isFinite(parsed) ? parsed : null };
+  }
+  return { paymentTermMode: null, paymentTermDays: null, advancePercent: null };
+}
+
 const INDIA_STATES_UT = [
   'Andaman and Nicobar Islands',
   'Andhra Pradesh',
@@ -195,13 +238,15 @@ const GST_SUPPLY_TYPES = [
 
 const initialForm = {
   siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '', panNumber: '',
-  currentCoordinator: '', contactNumber: '', ocNumber: '', vertical: 'Manpower', ocSeries: '1',
+  currentCoordinator: '', contactNumber: '', contactEmail: '', ocNumber: '', vertical: 'R&M', ocSeries: '1',
   vendorCode: '',
   poWoNumber: '', ratePerCategory: [{ description: '', qty: '', rate: '', penalty: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
-  startDate: '', endDate: '', billingType: '', billingCycle: '30', remarks: '',
+  startDate: '', endDate: '', billingType: 'Service', billingCycle: '30', remarks: '',
+  poReceivedDate: '',
+  paymentTerms: 'Immediate', customPaymentTermsPercent: '',
   monthlyDutyQtyMode: '',
   lumpSumBillingMode: '',
   invoiceTermsText: '',
@@ -210,10 +255,10 @@ const initialForm = {
   revisedPO: false, renewalPending: false,
 };
 
-const POEntry = () => {
-  const { commercialPOs, setCommercialPOs, setInvoices } = useBilling();
+const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
   const { userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
+  /** OC segment / vertical — R&M, M&M, AMC, IEV */
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -322,7 +367,7 @@ const POEntry = () => {
 
   const filteredList = useMemo(() => {
     // Hide supplementary/mock POs from PO Entry UI — only manage the parent PO here.
-    const base = commercialPOs.filter((p) => !p.isSupplementary);
+    const base = sortNewestPoFirst(commercialPOs.filter((p) => !p.isSupplementary));
     let list = base;
     if (departmentFilter) {
       list = list.filter((p) => poDepartmentLabel(p) === departmentFilter);
@@ -371,11 +416,9 @@ const POEntry = () => {
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
       billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '', placeOfSupply: po.placeOfSupply || '',
       gstin: po.gstin || '', panNumber: po.panNumber || '', currentCoordinator: po.currentCoordinator || '',
-      contactNumber: po.contactNumber || '', ocNumber: po.ocNumber || '',
-      vertical:
-        po.vertical === 'MANP' || po.vertical === 'BILL'
-          ? 'Manpower'
-          : po.vertical || (po.ocNumber && po.ocNumber.split('-')[1]) || 'Manpower',
+      contactNumber: po.contactNumber || '', contactEmail: po.contactEmail || '', ocNumber: po.ocNumber || '',
+      // Prefer OC-derived vertical so RM POs show up in Billing vertical filter.
+      vertical: (po.ocNumber && po.ocNumber.split('-')[1]) || po.vertical || 'R&M',
       ocSeries: (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       poWoNumber: po.poWoNumber || '',
       renewalCycles: cycles,
@@ -392,7 +435,10 @@ const POEntry = () => {
         : [{ description: '', qty: '', rate: '', penalty: '' }],
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
-      billingType: po.billingType || 'Monthly', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
+      poReceivedDate: po.poReceivedDate || '',
+      billingType: po.billingType || 'Service', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
+      paymentTerms: po.paymentTerms || 'Immediate',
+      customPaymentTermsPercent: po.customPaymentTermsPercent || '',
       monthlyDutyQtyMode:
         po.billingType === 'Monthly'
           ? (po.monthlyDutyQtyMode || po.monthly_duty_qty_mode || 'po_geometry')
@@ -572,6 +618,11 @@ const POEntry = () => {
       (formData.poWoNumber || '').trim() || String(formData.newCyclePoWoNumber || '').trim();
     const primaryTotalEmpty =
       formData.totalContractValue === '' || formData.totalContractValue == null;
+    const totalVal = primaryTotalEmpty
+      ? (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null
+          ? Number(formData.newCycleTotalContractValue) || 0
+          : 0)
+      : Number(formData.totalContractValue) || 0;
     const locNorm = (formData.locationName || '').trim().toLowerCase();
     const siteNorm = (formData.siteId || '').trim().toLowerCase();
     const hasDuplicatePO = commercialPOs.some((p) => {
@@ -588,8 +639,12 @@ const POEntry = () => {
       setSaveError('Enter PO/WO number in New PO Number (renewal).');
       return;
     }
-    const ocNum = trimmedOcNumber;
-    const poType = ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly';
+    // Ensure OC number exists so vertical can be derived consistently across Billing screens and Supabase.
+    // Expected OC format: IFSPL-{VERTICAL}-OC-{FY}-{SEQ}
+    const ocBase = trimmedOcNumber || generateOCNumber(formData.vertical || 'R&M', formData.ocSeries || '1');
+    const ocNum = syncOcVerticalIfStandard(ocBase, formData.vertical || 'R&M');
+    const poType = ALLOWED_RM_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Service';
+    const rmPayment = deriveRmPaymentTermPayload(formData.paymentTerms, formData.customPaymentTermsPercent);
     const rates = formData.ratePerCategory.map((r) => ({
       description: (r.description || '').trim() || 'Other',
       qty: Number(r.qty) || 0,
@@ -599,11 +654,6 @@ const POEntry = () => {
           ? Math.max(0, Number(r.penalty) || 0)
           : 0,
     }));
-    const totalVal = primaryTotalEmpty
-      ? (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null
-          ? Number(formData.newCycleTotalContractValue) || 0
-          : 0)
-      : Number(formData.totalContractValue) || 0;
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
     const nowIso = new Date().toISOString();
@@ -623,25 +673,33 @@ const POEntry = () => {
       gstin: formData.gstin.trim().toUpperCase(),
       panNumber: (formData.panNumber || '').trim().toUpperCase(),
       currentCoordinator: formData.currentCoordinator.trim(), contactNumber: formData.contactNumber.trim(),
+      contactEmail: formData.contactEmail.trim(),
       vendorCode: (formData.vendorCode || '').trim(),
       gstSupplyType: formData.gstSupplyType || 'intra',
       contactHistoryLog: editId ? (commercialPOs.find((p) => p.id === editId)?.contactHistoryLog || [])
-        : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
+        : [{
+            name: formData.currentCoordinator.trim(),
+            number: formData.contactNumber.trim(),
+            email: formData.contactEmail.trim(),
+            from: formData.startDate || new Date().toISOString().slice(0, 10),
+            to: null,
+          }],
       ocNumber: ocNum,
       ocSeries: formData.ocSeries || '1',
-      vertical:
-        (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'Manpower',
+      // Persist vertical derived from OC number whenever possible.
+      vertical: (ocNum && String(ocNum).includes('-') ? String(ocNum).split('-')[1] : '') || formData.vertical || 'R&M',
       poWoNumber: trimmedPoWoNumber,
       renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
       ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
       sacCode: formData.sacCode.trim() || DEFAULT_SAC, hsnCode: formData.hsnCode.trim(), serviceDescription: formData.serviceDescription.trim(),
-      startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: poType,
-      billingCycle: Number(formData.billingCycle) || 30, remarks: formData.remarks.trim(),
-      paymentTerms: formData.remarks.trim(),
-      poReceivedDate: null,
-      paymentTermMode: null,
-      paymentTermDays: null,
-      advancePercent: null,
+      startDate: formData.startDate || '', endDate: formData.endDate || '', poReceivedDate: formData.poReceivedDate || '', billingType: poType,
+      billingCycle: null, remarks: formData.remarks.trim(),
+      paymentTerms: formData.paymentTerms || 'Immediate',
+      customPaymentTermsPercent:
+        formData.paymentTerms === CUSTOM_PAYMENT_TERM ? String(formData.customPaymentTermsPercent || '').trim() : '',
+      paymentTermMode: rmPayment.paymentTermMode,
+      paymentTermDays: rmPayment.paymentTermDays,
+      advancePercent: rmPayment.advancePercent,
       monthlyDutyQtyMode: poType === 'Monthly' ? (formData.monthlyDutyQtyMode || null) : null,
       lumpSumBillingMode: poType === 'Lump Sum' ? (formData.lumpSumBillingMode || null) : null,
       invoiceTermsText: formData.invoiceTermsText.trim(),
@@ -664,16 +722,11 @@ const POEntry = () => {
       supplementaryApprovedAt: prevPo?.supplementaryApprovedAt || null,
     };
 
-    // Renewal cycle row: only when editing an existing PO and contract has ended (same as R&M / AM&C PO Entry).
+    // Renewal cycle: only when editing an existing PO and contract has ended (new POs use NEW fields for primary PO via merge above).
     const canAddNewCycle = isAfterContractEnd(formData.endDate);
-    const hasNewCycle =
-      String(formData.newCyclePoWoNumber || '').trim() &&
-      formData.newCycleTotalContractValue !== '' &&
-      formData.newCycleTotalContractValue != null;
+    const hasNewCycle = String(formData.newCyclePoWoNumber || '').trim() && (formData.newCycleTotalContractValue !== '' && formData.newCycleTotalContractValue != null);
     if (editId && hasNewCycle && !canAddNewCycle) {
-      setSaveError(
-        'Renewal PO/WO can only be saved after the contract end date. Clear the renewal fields or update the contract dates.'
-      );
+      setSaveError('Renewal PO/WO can only be saved after the contract end date. Clear the renewal fields or update the contract dates.');
       return;
     }
     if (canAddNewCycle && hasNewCycle && editId) {
@@ -724,11 +777,11 @@ const POEntry = () => {
           />
         </div>
         <div className="shrink-0 w-full sm:w-52">
-          <label htmlFor="sales-po-entry-department-filter" className="sr-only">
+          <label htmlFor="po-entry-department-filter" className="sr-only">
             Department
           </label>
           <select
-            id="sales-po-entry-department-filter"
+            id="po-entry-department-filter"
             value={departmentFilter}
             onChange={(e) => setDepartmentFilter(e.target.value)}
             className="w-full h-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1051,6 +1104,7 @@ const POEntry = () => {
                     />
                     {contactError ? <p className="text-red-600 text-xs mt-1">{contactError}</p> : null}
                   </div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Email ID</label><input type="email" value={formData.contactEmail} onChange={(e) => setFormData((p) => ({ ...p, contactEmail: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. poc@company.com" /></div>
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
@@ -1067,7 +1121,14 @@ const POEntry = () => {
                       />
                       <select
                         value={formData.vertical}
-                        onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))}
+                        onChange={(e) => {
+                          const nextVertical = e.target.value;
+                          setFormData((p) => ({
+                            ...p,
+                            vertical: nextVertical,
+                            ocNumber: syncOcVerticalIfStandard(p.ocNumber, nextVertical),
+                          }));
+                        }}
                         className="border border-gray-300 rounded-lg px-3 py-2"
                       >
                         {VERTICALS.map((v) => (
@@ -1078,16 +1139,7 @@ const POEntry = () => {
                       </select>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label>
-                    <input
-                      type="text"
-                      value={formData.vendorCode}
-                      onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      placeholder="Optional"
-                    />
-                  </div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label><input type="text" value={formData.vendorCode} onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
                   <div>
                     <label className="block text-sm font-medium text-gray-500 mb-1">
                       PO Number (OLD){' '}
@@ -1273,7 +1325,7 @@ const POEntry = () => {
                 <h4 className="text-sm font-semibold text-gray-900 mb-2">4b. Tax invoice print (from this PO only)</h4>
                 <p className="text-xs text-gray-500 mb-3">Terms and ship-to are edited here. Seller CIN, PAN, and MSME details are taken from the standard invoice template (not per PO).</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Terms &amp; conditions (printed on invoice)</label><textarea value={formData.invoiceTermsText} onChange={(e) => setFormData((p) => ({ ...p, invoiceTermsText: e.target.value }))} rows={5} className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" placeholder="One line per numbered point, or leave blank to use the default template for the PO vertical (MANP / Manpower / …)." /></div>
+                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Terms &amp; conditions (printed on invoice)</label><textarea value={formData.invoiceTermsText} onChange={(e) => setFormData((p) => ({ ...p, invoiceTermsText: e.target.value }))} rows={5} className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm" placeholder="One line per numbered point, or leave blank to use the default template for the PO vertical (MANP / R&amp;M / …)." /></div>
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
@@ -1282,18 +1334,18 @@ const POEntry = () => {
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleDateInputChange('startDate', e.target.value)} min="1900-01-01" max="9999-12-31" className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleDateInputChange('endDate', e.target.value)} min="1900-01-01" max="9999-12-31" className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">PO Type</label>
                     <select
                       value={formData.billingType}
                       onChange={(e) => {
-                        const bt = e.target.value;
+                        const poType = e.target.value;
                         setFormData((p) => ({
                           ...p,
-                          billingType: bt,
+                          billingType: poType,
                           monthlyDutyQtyMode:
-                            bt === 'Monthly' ? (p.monthlyDutyQtyMode || 'po_geometry') : '',
+                            poType === 'Monthly' ? (p.monthlyDutyQtyMode || 'po_geometry') : '',
                           lumpSumBillingMode:
-                            bt === 'Lump Sum' ? (p.lumpSumBillingMode || 'normal') : '',
+                            poType === 'Lump Sum' ? (p.lumpSumBillingMode || 'normal') : '',
                         }));
                       }}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -1303,7 +1355,49 @@ const POEntry = () => {
                       ))}
                     </select>
                   </div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">PO Received Date</label>
+                    <input
+                      type="date"
+                      value={formData.poReceivedDate}
+                      onChange={(e) => handleDateInputChange('poReceivedDate', e.target.value)}
+                      min="1900-01-01"
+                      max="9999-12-31"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label>
+                    <select
+                      value={formData.paymentTerms}
+                      onChange={(e) => {
+                        const selectedTerm = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          paymentTerms: selectedTerm,
+                          customPaymentTermsPercent:
+                            selectedTerm === CUSTOM_PAYMENT_TERM ? p.customPaymentTermsPercent : '',
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      {PAYMENT_TERMS_OPTIONS.map((term) => (
+                        <option key={term} value={term}>{term}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {formData.paymentTerms === CUSTOM_PAYMENT_TERM ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Custom Advance %</label>
+                      <input
+                        type="text"
+                        value={formData.customPaymentTermsPercent}
+                        onChange={(e) => setFormData((p) => ({ ...p, customPaymentTermsPercent: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        placeholder="Enter custom percentage"
+                      />
+                    </div>
+                  ) : null}
                   {formData.billingType === 'Monthly' ? (
                     <div className="md:col-span-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
                       <p className="text-xs font-semibold text-gray-800">Monthly billing — quantity rule (pick one)</p>
@@ -1419,7 +1513,7 @@ const POEntry = () => {
               ))}
             </ul>
             <p className="text-sm font-medium text-gray-700 mb-2">Contact history</p>
-            <div className="overflow-x-auto"><table className="min-w-full border border-gray-200"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th></tr></thead><tbody className="divide-y divide-gray-200">{(poForHistory.contactHistoryLog || []).map((h, i) => (<tr key={i}><td className="px-3 py-2 text-sm">{h.name}</td><td className="px-3 py-2 text-sm">{h.number}</td><td className="px-3 py-2 text-sm">{h.from || '–'}</td><td className="px-3 py-2 text-sm">{h.to || 'Current'}</td></tr>))}</tbody></table></div>
+            <div className="overflow-x-auto"><table className="min-w-full border border-gray-200"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email ID</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th></tr></thead><tbody className="divide-y divide-gray-200">{(poForHistory.contactHistoryLog || []).map((h, i) => (<tr key={i}><td className="px-3 py-2 text-sm">{h.name}</td><td className="px-3 py-2 text-sm">{h.number}</td><td className="px-3 py-2 text-sm">{h.email || '–'}</td><td className="px-3 py-2 text-sm">{h.from || '–'}</td><td className="px-3 py-2 text-sm">{h.to || 'Current'}</td></tr>))}</tbody></table></div>
             <div className="mt-4 flex justify-end"><button type="button" onClick={() => setViewHistoryPoId(null)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button></div>
           </div>
         </div>

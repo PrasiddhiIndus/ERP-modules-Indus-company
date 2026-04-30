@@ -22,8 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets & local env (never commit)
 .env
+.env.*
+!.env.example
+!.env.server.example
 .env.server
+.env.local
+*.pem
 
 # Local Netlify folder
 .netlify

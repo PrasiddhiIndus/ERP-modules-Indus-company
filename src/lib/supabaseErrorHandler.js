@@ -80,15 +80,5 @@ export const handleSupabaseError = async (operation) => {
  * Check if Supabase is properly configured
  * @returns {boolean}
  */
-export const isSupabaseConfigured = () => {
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  
-  return (
-    url &&
-    url !== 'https://placeholder.supabase.co' &&
-    key &&
-    key !== 'placeholder-key'
-  );
-};
+export { isSupabaseEnvConfigured as isSupabaseConfigured } from './supabaseConfig';
 

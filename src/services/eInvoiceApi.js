@@ -4,9 +4,9 @@ import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
 /**
  * E-Invoice API integration.
  *
- * Backend-only mode:
- * Frontend always calls our backend endpoint; backend talks to Whitebooks.
- * This keeps credentials server-side and avoids provider calls from browser.
+ * Backend-only mode (default): the frontend calls our backend endpoint; the backend talks to
+ * Whitebooks so credentials stay server-side. Supported provider values include `backend` and
+ * direct `whitebooks`; for production, avoid exposing secrets via VITE_* (they bundle into the browser).
  */
 
 const EINVOICE_API_BASE = import.meta.env?.VITE_EINVOICE_API_URL || '/api/billing/e-invoice';

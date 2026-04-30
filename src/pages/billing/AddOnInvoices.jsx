@@ -29,12 +29,14 @@ function makeInvoiceNumber(seq) {
 }
 
 const AddOnInvoices = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices } = useBilling();
+  const { commercialPOs, invoices, setInvoices, billingVerticalFilter } = useBilling();
   const [addOnType, setAddOnType] = useState('');
   const [selectedPoId, setSelectedPoId] = useState('');
   const [invoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([{ description: '', hsnSac: '', quantity: 1, rate: 0, amount: 0 }]);
   const [previewDraft, setPreviewDraft] = useState(null);
+
+  const verticalNotSelected = !billingVerticalFilter;
 
   const approvedPOs = useMemo(
     () => commercialPOs.filter((p) => (p.approvalStatus || '').toLowerCase() === APPROVAL_STATUS_APPROVED),
@@ -132,6 +134,12 @@ const AddOnInvoices = ({ onNavigateTab }) => {
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to create add-on invoices</p>
+          <p className="text-sm mt-1">Pick a vertical above to load its POs and add-on invoice history.</p>
+        </div>
+      ) : null}
       <div className="flex items-center space-x-3">
         <div className="bg-violet-100 p-3 rounded-lg shrink-0">
           <FilePlus2 className="w-6 h-6 text-violet-600" />

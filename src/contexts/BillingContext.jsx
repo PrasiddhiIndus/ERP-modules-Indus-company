@@ -1,5 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import {
+  getCommercialPoModuleType,
+  withCommercialModuleMarker,
+  COMMERCIAL_MODULE_RM_MM_AMC_IEV,
+} from '../constants/commercialModuleType';
 import {
   getCommercialPOs,
   setCommercialPOs as saveCommercialPOsLocal,
@@ -16,6 +21,7 @@ import {
   isBillingDbAvailable,
   fetchCommercialPOs,
   saveCommercialPOs as saveCommercialPOsDb,
+  deleteCommercialPOs as deleteCommercialPOsDb,
   fetchInvoices,
   saveInvoice as saveInvoiceDb,
   fetchCreditDebitNotes,
@@ -25,16 +31,124 @@ import {
 } from '../services/billingApi';
 
 const BillingContext = createContext(null);
+const toModuleContext = (moduleScope) =>
+  moduleScope
+    ? (moduleScope === COMMERCIAL_MODULE_RM_MM_AMC_IEV ? 'rm_mm_amc_iev' : 'manpower_training')
+    : null;
 
-export const BillingProvider = ({ children }) => {
-  const [commercialPOs, setCommercialPOsState] = useState([]);
+const BILLING_VERTICAL_STORAGE_KEY = 'billing_vertical_filter';
+
+// Must match the vertical dropdown lists used in PO Entry screens.
+const BILLING_VERTICAL_LABELS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV'];
+
+function normalizeVerticalKey(v) {
+  const raw = String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+  const aliases = {
+    // OC-number abbreviations / legacy keys
+    bill: 'manpower',
+    manp: 'manpower',
+    manpower: 'manpower',
+    mp: 'manpower',
+    train: 'training',
+    trng: 'training',
+    training: 'training',
+    rm: 'rm',
+    mm: 'mm',
+    amc: 'amc',
+    iev: 'iev',
+  };
+  return aliases[raw] || raw;
+}
+
+function resolvePoVerticalKey(po) {
+  const oc = po?.ocNumber || po?.oc_number;
+  if (oc && String(oc).includes('-')) {
+    const parts = String(oc).split('-');
+    if (parts[1]) return normalizeVerticalKey(parts[1]);
+  }
+  const direct = po?.vertical || po?.poVertical;
+  if (direct) return normalizeVerticalKey(direct);
+  return '';
+}
+
+function labelVertical(key) {
+  const k = normalizeVerticalKey(key);
+  if (!k) return '';
+  const known = {
+    manpower: 'Manpower',
+    training: 'Training',
+    rm: 'R&M',
+    mm: 'M&M',
+    amc: 'AMC',
+    iev: 'IEV',
+  };
+  if (known[k]) return known[k];
+  // fallback label
+  return String(key)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+export const BillingProvider = ({ children, commercialModuleScope = null, enableVerticalFilter = false }) => {
+  /** Full PO list from DB/localStorage (all modules). */
+  const [commercialPOsFull, setCommercialPOsFull] = useState([]);
   const [contactHistory, setContactHistoryState] = useState({});
-  const [invoices, setInvoicesState] = useState([]);
+  const [invoicesFull, setInvoicesState] = useState([]);
   const [creditDebitNotes, setCreditDebitNotesState] = useState([]);
   const [paymentAdvice, setPaymentAdviceState] = useState({});
   const [invoiceDraft, setInvoiceDraft] = useState(null);
   const [useDb, setUseDb] = useState(null);
   const [billingError, setBillingError] = useState(null);
+  const [billingVerticalFilter, setBillingVerticalFilterState] = useState('');
+
+  const commercialPOs = useMemo(() => {
+    if (!commercialModuleScope) return commercialPOsFull;
+    return commercialPOsFull.filter((p) => getCommercialPoModuleType(p) === commercialModuleScope);
+  }, [commercialPOsFull, commercialModuleScope]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(BILLING_VERTICAL_STORAGE_KEY);
+      if (saved) setBillingVerticalFilterState(saved);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const setBillingVerticalFilter = useCallback((next) => {
+    const v = normalizeVerticalKey(next);
+    setBillingVerticalFilterState(v);
+    try {
+      if (!v) window.localStorage.removeItem(BILLING_VERTICAL_STORAGE_KEY);
+      else window.localStorage.setItem(BILLING_VERTICAL_STORAGE_KEY, v);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const billingVerticalOptions = useMemo(() => {
+    return BILLING_VERTICAL_LABELS.map((label) => ({
+      id: normalizeVerticalKey(label),
+      label,
+    }));
+  }, []);
+
+  const commercialPOsVisible = useMemo(() => {
+    if (!enableVerticalFilter) return commercialPOs;
+    if (!billingVerticalFilter) return [];
+    return commercialPOs.filter((p) => resolvePoVerticalKey(p) === billingVerticalFilter);
+  }, [commercialPOs, billingVerticalFilter, enableVerticalFilter]);
+
+  const invoicesVisible = useMemo(() => {
+    if (!enableVerticalFilter) return invoicesFull;
+    if (!billingVerticalFilter) return [];
+    const allowedPoIds = new Set(commercialPOsVisible.map((p) => String(p.id)));
+    return invoicesFull.filter((inv) => allowedPoIds.has(String(inv.poId)));
+  }, [invoicesFull, commercialPOsVisible, billingVerticalFilter, enableVerticalFilter]);
 
   const loadFromDb = useCallback(async () => {
     try {
@@ -42,12 +156,15 @@ export const BillingProvider = ({ children }) => {
       setUseDb(!!available);
       if (!available) return false;
       const [pos, invs, notes, pa] = await Promise.all([
-        fetchCommercialPOs(),
+        fetchCommercialPOs({
+          moduleType: commercialModuleScope || undefined,
+          moduleContext: toModuleContext(commercialModuleScope),
+        }),
         fetchInvoices(),
         fetchCreditDebitNotes(),
         fetchPaymentAdvice(),
       ]);
-      setCommercialPOsState(pos);
+      setCommercialPOsFull(pos);
       setInvoicesState(invs);
       setCreditDebitNotesState(notes);
       setPaymentAdviceState(pa);
@@ -58,7 +175,7 @@ export const BillingProvider = ({ children }) => {
       setUseDb(false);
       return false;
     }
-  }, []);
+  }, [commercialModuleScope]);
 
   function contactHistoryFromPOs(pos) {
     const byPoId = {};
@@ -76,7 +193,7 @@ export const BillingProvider = ({ children }) => {
       const ok = await loadFromDb();
       if (!mounted) return;
       if (!ok) {
-        setCommercialPOsState(getCommercialPOs());
+        setCommercialPOsFull(getCommercialPOs());
         setContactHistoryState(getContactHistory());
         setInvoicesState(getInvoices());
         setCreditDebitNotesState(getCreditDebitNotes());
@@ -114,29 +231,59 @@ export const BillingProvider = ({ children }) => {
     };
   }, [useDb, loadFromDb]);
 
-  const setCommercialPOs = useCallback((updater) => {
-    setCommercialPOsState((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      setBillingError(null);
-      saveCommercialPOsDb(next)
-        .then(() => setUseDb(true))
-        .catch((e) => {
-          console.warn('Billing DB save POs failed:', e);
-          setBillingError(e?.message || 'Could not save to database. Data saved locally.');
-          setUseDb(false);
-          saveCommercialPOsLocal(next);
+  const setCommercialPOs = useCallback(
+    (updater) => {
+      setCommercialPOsFull((prevAll) => {
+        const scoped = commercialModuleScope;
+        const sliceForUpdater = scoped
+          ? prevAll.filter((p) => getCommercialPoModuleType(p) === scoped)
+          : prevAll;
+        const nextSlice = typeof updater === 'function' ? updater(sliceForUpdater) : updater;
+        const prevIds = new Set((sliceForUpdater || []).map((p) => String(p?.id)));
+        const nextIds = new Set((nextSlice || []).map((p) => String(p?.id)));
+        const removedIds = [];
+        prevIds.forEach((id) => {
+          if (id && !nextIds.has(id)) removedIds.push(id);
         });
-      setContactHistoryState((byPo) => {
-        const nextByPo = {};
-        (next || []).forEach((po) => {
-          if (po.id && Array.isArray(po.contactHistoryLog) && po.contactHistoryLog.length)
-            nextByPo[po.id] = po.contactHistoryLog;
+        let next;
+        if (!scoped) {
+          next = nextSlice;
+        } else {
+          const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== scoped);
+          const stamped = (nextSlice || []).map((po) => ({
+            ...po,
+            moduleType: scoped,
+            updateHistory: withCommercialModuleMarker(po.updateHistory, scoped),
+          }));
+          next = [...others, ...stamped];
+        }
+        setBillingError(null);
+        Promise.resolve()
+          .then(async () => {
+            // Persist deletes first so removed rows don't reappear after realtime refresh.
+            if (removedIds.length) await deleteCommercialPOsDb(removedIds);
+            await saveCommercialPOsDb(next, { moduleContext: toModuleContext(scoped) });
+          })
+          .then(() => setUseDb(true))
+          .catch((e) => {
+            console.warn('Billing DB save POs failed:', e);
+            setBillingError(e?.message || 'Could not save to database. Data saved locally.');
+            setUseDb(false);
+            saveCommercialPOsLocal(next);
+          });
+        setContactHistoryState((byPo) => {
+          const nextByPo = {};
+          (next || []).forEach((po) => {
+            if (po.id && Array.isArray(po.contactHistoryLog) && po.contactHistoryLog.length)
+              nextByPo[po.id] = po.contactHistoryLog;
+          });
+          return nextByPo;
         });
-        return nextByPo;
+        return next;
       });
-      return next;
-    });
-  }, [useDb]);
+    },
+    [commercialModuleScope]
+  );
 
   const setContactHistory = useCallback((updater) => {
     setContactHistoryState((prev) => {
@@ -156,9 +303,12 @@ export const BillingProvider = ({ children }) => {
           if (!old) return true;
           return JSON.stringify(old) !== JSON.stringify(inv);
         });
-        Promise.all(changed.map((inv) => saveInvoiceDb(inv))).catch((e) =>
-          console.warn('Billing DB save invoices failed:', e)
-        );
+        Promise.all(changed.map((inv) => saveInvoiceDb(inv))).catch((e) => {
+          console.warn('Billing DB save invoices failed:', e);
+          setBillingError(e?.message || 'Could not save invoices to database. Data saved locally.');
+          setUseDb(false);
+          saveInvoicesLocal(next);
+        });
       } else {
         saveInvoicesLocal(next);
       }
@@ -191,11 +341,13 @@ export const BillingProvider = ({ children }) => {
   }, [useDb]);
 
   const value = {
-    commercialPOs,
+    commercialPOs: commercialPOsVisible,
+    commercialPOsAllModules: commercialPOsFull,
     setCommercialPOs,
     contactHistory,
     setContactHistory,
-    invoices,
+    invoices: invoicesVisible,
+    invoicesAll: invoicesFull,
     setInvoices,
     creditDebitNotes,
     setCreditDebitNotes,
@@ -203,13 +355,17 @@ export const BillingProvider = ({ children }) => {
     setPaymentAdvice,
     invoiceDraft,
     setInvoiceDraft,
+    billingVerticalFilter,
+    setBillingVerticalFilter,
+    billingVerticalOptions,
+    enableVerticalFilter,
     useBillingDb: !!useDb,
     billingError,
     clearBillingError: () => setBillingError(null),
     refreshBilling: loadFromDb,
-    wopoList: commercialPOs,
+    wopoList: commercialPOsVisible,
     setWopoList: setCommercialPOs,
-    bills: invoices,
+    bills: invoicesVisible,
     setBills: setInvoices,
     billingHistory: [],
     setBillingHistory: () => {},

@@ -98,7 +98,7 @@ const InternalQuotationList = () => {
                   return (
                     <tr key={enquiry.id} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <Link to={`/app/manpower/internal-quotation/${enquiry.id}`} className="font-semibold text-purple-700 hover:text-purple-800 hover:underline">
+                        <Link to={`/app/commercial/manpower-training/internal-quotation/${enquiry.id}`} className="font-semibold text-purple-700 hover:text-purple-800 hover:underline">
                           {enquiry.enquiry_number || "—"}
                         </Link>
                       </td>
@@ -106,7 +106,7 @@ const InternalQuotationList = () => {
                       <td className="px-4 py-3 text-slate-800">{enquiry.client || "—"}</td>
                       <td className="px-4 py-3 text-right">
                         <Link
-                          to={`/app/manpower/internal-quotation/${enquiry.id}`}
+                          to={`/app/commercial/manpower-training/internal-quotation/${enquiry.id}`}
                           className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-purple-600 text-white font-medium hover:bg-purple-700 transition-colors"
                         >
                           Open

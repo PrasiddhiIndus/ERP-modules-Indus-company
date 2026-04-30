@@ -21,9 +21,11 @@ function getRealIrn(inv) {
 }
 
 const GeneratedEInvoice = () => {
-  const { invoices, setInvoices } = useBilling();
+  const { invoices, setInvoices, billingVerticalFilter } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
+
+  const verticalNotSelected = !billingVerticalFilter;
 
   const eInvoices = useMemo(() => {
     const list = invoices.filter((inv) => getRealIrn(inv));
@@ -115,6 +117,12 @@ const GeneratedEInvoice = () => {
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+      {verticalNotSelected ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
+          <p className="text-lg font-semibold text-gray-900">Select a vertical to view generated e-invoices</p>
+          <p className="text-sm mt-1">Pick a vertical above to load IRN generated invoices.</p>
+        </div>
+      ) : null}
       <div className="flex items-center space-x-3">
         <div className="bg-green-100 p-3 rounded-lg shrink-0">
           <FileDigit className="w-6 h-6 text-green-600" />
