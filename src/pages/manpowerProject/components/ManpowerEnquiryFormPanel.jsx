@@ -7,6 +7,13 @@ const WORKING_HOURS_OPTIONS = ["8 hrs", "12 hrs", "As per client"];
 const ENQUIRY_SUBTYPE_OPTIONS = ["Regular", "Shutdown"];
 const TENDER_PORTAL_OPTIONS = ["Ariba", "GeM", "eProcurement", "Custom"];
 const APPLICABLE_MW_OPTIONS = ["State", "Central Zone"];
+const SERVICE_CATEGORY_OPTIONS = [
+  { id: 1, label: "Firefighting Manpower Only" },
+  { id: 2, label: "Safety Manpower Only" },
+  { id: 3, label: "Manpower + Fire Tender (with Crew)" },
+  { id: 4, label: "Firefighting Manpower + Safety Manpower" },
+  { id: 5, label: "Fire Tender (without Crew)" },
+];
 
 const initialForm = {
   enquiryDate: new Date().toISOString().split("T")[0],
@@ -38,7 +45,7 @@ const initialForm = {
   siteCountry: "",
   siteZip: "",
   industrySector: "",
-  serviceCategory: "",
+  serviceCategory: [],
   enquirySubType: "Regular",
   scopeInputType: "Text",
   scopeOfWork: "",
@@ -95,9 +102,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [formData, setFormData] = useState(initialForm);
   const [submitting, setSubmitting] = useState(false);
   const [receivedByOptions, setReceivedByOptions] = useState([]);
+  const [serviceCategoryDropdownOpen, setServiceCategoryDropdownOpen] = useState(false);
   const handledByEmailRef = useRef("");
   const existingDocumentsPathRef = useRef("");
   const existingEnquiryNumberRef = useRef("");
+  const serviceCategoryRef = useRef(null);
 
   const resetForm = useCallback(() => {
     existingDocumentsPathRef.current = "";
@@ -181,7 +190,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         siteCountry: meta.siteCountry || "",
         siteZip: meta.siteZip || "",
         industrySector: meta.industrySector || "",
-        serviceCategory: meta.serviceCategory || "",
+        serviceCategory: Array.isArray(meta.serviceCategory)
+          ? meta.serviceCategory
+          : meta.serviceCategory
+            ? [meta.serviceCategory]
+            : [],
         enquirySubType: meta.enquirySubType || "Regular",
         scopeInputType: meta.scopeInputType || "Text",
         scopeOfWork: data.manpower_required || "",
@@ -214,6 +227,17 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     fetchEnquiry();
   }, [enquiryId, resetForm]);
 
+  useEffect(() => {
+    const handleOutside = (event) => {
+      if (!serviceCategoryRef.current) return;
+      if (!serviceCategoryRef.current.contains(event.target)) {
+        setServiceCategoryDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
   const handleChange = (e) => {
     const { name, value, files, type, checked } = e.target;
     if (files) {
@@ -225,6 +249,20 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       return;
     }
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleServiceCategoryToggle = (optionLabel) => {
+    setFormData((prev) => {
+      const selected = Array.isArray(prev.serviceCategory) ? prev.serviceCategory : [];
+      const exists = selected.includes(optionLabel);
+      const next = exists ? selected.filter((x) => x !== optionLabel) : [...selected, optionLabel];
+      const hasFireTender = next.some((x) => x.includes("Fire Tender"));
+      return {
+        ...prev,
+        serviceCategory: next,
+        fireTenderRequired: hasFireTender,
+      };
+    });
   };
 
   const handleContactChange = (index, e) => {
@@ -686,7 +724,39 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Service Category</label>
-          <input name="serviceCategory" value={formData.serviceCategory} onChange={handleChange} placeholder="Enter category for this enquiry" className={inputClass} />
+          <div className="relative" ref={serviceCategoryRef}>
+            <button
+              type="button"
+              onClick={() => setServiceCategoryDropdownOpen((prev) => !prev)}
+              className={`${inputClass} text-left flex items-center justify-between`}
+            >
+              <span className={(formData.serviceCategory || []).length > 0 ? "text-gray-900" : "text-gray-400"}>
+                {(formData.serviceCategory || []).length > 0
+                  ? `${(formData.serviceCategory || []).length} category selected`
+                  : "Select one or more categories"}
+              </span>
+              <span className="text-xs text-gray-500">{serviceCategoryDropdownOpen ? "▲" : "▼"}</span>
+            </button>
+            {serviceCategoryDropdownOpen && (
+              <div className="absolute left-0 right-0 z-20 mt-1 rounded-lg border border-slate-200 bg-white shadow-md p-2 space-y-1 max-h-64 overflow-y-auto">
+                {SERVICE_CATEGORY_OPTIONS.map((option) => (
+                  <label key={option.id} className="flex items-center gap-2 text-sm text-gray-700 px-2 py-1 rounded hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={(formData.serviceCategory || []).includes(option.label)}
+                      onChange={() => handleServiceCategoryToggle(option.label)}
+                    />
+                    <span>{option.id}. {option.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          {(formData.serviceCategory || []).length > 0 && (
+            <p className="mt-2 text-xs text-slate-500">
+              Selected: {(formData.serviceCategory || []).join(", ")}
+            </p>
+          )}
         </div>
       </div>
 
