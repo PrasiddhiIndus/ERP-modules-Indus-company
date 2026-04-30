@@ -1,0 +1,191 @@
+{
+  "version": "1.0.0",
+  "module": "manpower-price-master",
+  "description": "Frontend-only configuration for jurisdiction -> state -> zone minimum wage flow.",
+  "tabs": [
+    "Minimum Wage",
+    "Cost Breakup",
+    "Manpower"
+  ],
+  "minWageEntryRules": {
+    "activeMonths": [
+      4,
+      10
+    ],
+    "monthLabels": {
+      "4": "April",
+      "10": "October"
+    },
+    "effectiveCycle": "half-yearly"
+  },
+  "indiaStateUtMaster": [
+    { "code": "AN", "name": "Andaman and Nicobar Islands", "type": "UT" },
+    { "code": "AP", "name": "Andhra Pradesh", "type": "State" },
+    { "code": "AR", "name": "Arunachal Pradesh", "type": "State" },
+    { "code": "AS", "name": "Assam", "type": "State" },
+    { "code": "BR", "name": "Bihar", "type": "State" },
+    { "code": "CH", "name": "Chandigarh", "type": "UT" },
+    { "code": "CG", "name": "Chhattisgarh", "type": "State" },
+    { "code": "DN", "name": "Dadra and Nagar Haveli and Daman and Diu", "type": "UT" },
+    { "code": "DL", "name": "Delhi", "type": "UT" },
+    { "code": "GA", "name": "Goa", "type": "State" },
+    { "code": "GJ", "name": "Gujarat", "type": "State" },
+    { "code": "HR", "name": "Haryana", "type": "State" },
+    { "code": "HP", "name": "Himachal Pradesh", "type": "State" },
+    { "code": "JK", "name": "Jammu and Kashmir", "type": "UT" },
+    { "code": "JH", "name": "Jharkhand", "type": "State" },
+    { "code": "KA", "name": "Karnataka", "type": "State" },
+    { "code": "KL", "name": "Kerala", "type": "State" },
+    { "code": "LA", "name": "Ladakh", "type": "UT" },
+    { "code": "LD", "name": "Lakshadweep", "type": "UT" },
+    { "code": "MP", "name": "Madhya Pradesh", "type": "State" },
+    { "code": "MH", "name": "Maharashtra", "type": "State" },
+    { "code": "MN", "name": "Manipur", "type": "State" },
+    { "code": "ML", "name": "Meghalaya", "type": "State" },
+    { "code": "MZ", "name": "Mizoram", "type": "State" },
+    { "code": "NL", "name": "Nagaland", "type": "State" },
+    { "code": "OD", "name": "Odisha", "type": "State" },
+    { "code": "PY", "name": "Puducherry", "type": "UT" },
+    { "code": "PB", "name": "Punjab", "type": "State" },
+    { "code": "RJ", "name": "Rajasthan", "type": "State" },
+    { "code": "SK", "name": "Sikkim", "type": "State" },
+    { "code": "TN", "name": "Tamil Nadu", "type": "State" },
+    { "code": "TS", "name": "Telangana", "type": "State" },
+    { "code": "TR", "name": "Tripura", "type": "State" },
+    { "code": "UP", "name": "Uttar Pradesh", "type": "State" },
+    { "code": "UK", "name": "Uttarakhand", "type": "State" },
+    { "code": "WB", "name": "West Bengal", "type": "State" }
+  ],
+  "jurisdictions": [
+    {
+      "id": "state_government",
+      "label": "State Government",
+      "states": [
+        {
+          "code": "AN",
+          "name": "Andaman and Nicobar Islands",
+          "zones": [
+            {
+              "code": "ZONE_1",
+              "name": "Zone 1 - Municipal Corp / Metro",
+              "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)"
+            },
+            {
+              "code": "ZONE_2",
+              "name": "Zone 2 - Urban / Semi-Urban",
+              "typicalDefinition": "Other urban / semi-urban areas"
+            },
+            {
+              "code": "ZONE_3",
+              "name": "Zone 3 - Rural / Remaining",
+              "typicalDefinition": "Rural / remaining areas (lowest rate)"
+            }
+          ]
+        },
+        {
+          "code": "AP",
+          "name": "Andhra Pradesh",
+          "zones": [
+            {
+              "code": "ZONE_1",
+              "name": "Zone 1 - Municipal Corp / Metro",
+              "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)"
+            },
+            {
+              "code": "ZONE_2",
+              "name": "Zone 2 - Urban / Semi-Urban",
+              "typicalDefinition": "Other urban / semi-urban areas"
+            },
+            {
+              "code": "ZONE_3",
+              "name": "Zone 3 - Rural / Remaining",
+              "typicalDefinition": "Rural / remaining areas (lowest rate)"
+            }
+          ]
+        },
+        { "code": "AR", "name": "Arunachal Pradesh", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "AS", "name": "Assam", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "BR", "name": "Bihar", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "CH", "name": "Chandigarh", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "CG", "name": "Chhattisgarh", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "DN", "name": "Dadra and Nagar Haveli and Daman and Diu", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "DL", "name": "Delhi", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "GA", "name": "Goa", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "GJ", "name": "Gujarat", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "HR", "name": "Haryana", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "HP", "name": "Himachal Pradesh", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "JK", "name": "Jammu and Kashmir", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "JH", "name": "Jharkhand", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "KA", "name": "Karnataka", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "KL", "name": "Kerala", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "LA", "name": "Ladakh", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "LD", "name": "Lakshadweep", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "MP", "name": "Madhya Pradesh", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "MH", "name": "Maharashtra", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "MN", "name": "Manipur", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "ML", "name": "Meghalaya", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "MZ", "name": "Mizoram", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "NL", "name": "Nagaland", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "OD", "name": "Odisha", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "PY", "name": "Puducherry", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "PB", "name": "Punjab", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "RJ", "name": "Rajasthan", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "SK", "name": "Sikkim", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "TN", "name": "Tamil Nadu", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "TS", "name": "Telangana", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "TR", "name": "Tripura", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "UP", "name": "Uttar Pradesh", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "UK", "name": "Uttarakhand", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] },
+        { "code": "WB", "name": "West Bengal", "zones": [ { "code": "ZONE_1", "name": "Zone 1 - Municipal Corp / Metro", "typicalDefinition": "Metropolitan / Municipal Corporation areas (highest rate)" }, { "code": "ZONE_2", "name": "Zone 2 - Urban / Semi-Urban", "typicalDefinition": "Other urban / semi-urban areas" }, { "code": "ZONE_3", "name": "Zone 3 - Rural / Remaining", "typicalDefinition": "Rural / remaining areas (lowest rate)" } ] }
+      ]
+    },
+    {
+      "id": "central_government",
+      "label": "Central Government",
+      "states": [
+        { "code": "AN", "name": "Andaman and Nicobar Islands", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "AP", "name": "Andhra Pradesh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "AR", "name": "Arunachal Pradesh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "AS", "name": "Assam", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "BR", "name": "Bihar", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "CH", "name": "Chandigarh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "CG", "name": "Chhattisgarh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "DN", "name": "Dadra and Nagar Haveli and Daman and Diu", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "DL", "name": "Delhi", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "GA", "name": "Goa", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "GJ", "name": "Gujarat", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "HR", "name": "Haryana", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "HP", "name": "Himachal Pradesh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "JK", "name": "Jammu and Kashmir", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "JH", "name": "Jharkhand", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "KA", "name": "Karnataka", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "KL", "name": "Kerala", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "LA", "name": "Ladakh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "LD", "name": "Lakshadweep", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "MP", "name": "Madhya Pradesh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "MH", "name": "Maharashtra", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "MN", "name": "Manipur", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "ML", "name": "Meghalaya", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "MZ", "name": "Mizoram", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "NL", "name": "Nagaland", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "OD", "name": "Odisha", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "PY", "name": "Puducherry", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "PB", "name": "Punjab", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "RJ", "name": "Rajasthan", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "SK", "name": "Sikkim", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "TN", "name": "Tamil Nadu", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "TS", "name": "Telangana", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "TR", "name": "Tripura", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "UP", "name": "Uttar Pradesh", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "UK", "name": "Uttarakhand", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] },
+        { "code": "WB", "name": "West Bengal", "zones": [ { "code": "ZONE_A", "name": "Zone A", "typicalDefinition": "Major metros and top notified central locations" }, { "code": "ZONE_B", "name": "Zone B", "typicalDefinition": "Other large notified urban locations" }, { "code": "ZONE_C", "name": "Zone C", "typicalDefinition": "All other notified areas" } ] }
+      ],
+      "zoneReferenceSummary": {
+        "zoneAExamples": ["Delhi", "Mumbai", "Kolkata", "Chennai", "Hyderabad", "Bengaluru", "Ahmedabad"],
+        "zoneBRule": "Other notified major urban locations",
+        "zoneCRule": "Remaining locations"
+      }
+    }
+  ]
+  
+}

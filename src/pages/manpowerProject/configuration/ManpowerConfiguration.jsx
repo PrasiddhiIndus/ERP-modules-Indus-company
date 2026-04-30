@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Navigate } from "react-router-dom";
 import { supabase } from "../../../lib/supabase";
+import minWageFlowConfig from "../../../config/manpowerMinWageFlow.json";
 
 const SECTION_LABELS = {
   roles: "Roles",
@@ -25,6 +26,11 @@ export default function ManpowerConfiguration() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [priceMasterSelection, setPriceMasterSelection] = useState({
+    jurisdictionId: "state_government",
+    stateCode: "MH",
+    zoneCode: "ZONE_1",
+  });
 
   if (!label) {
     return <Navigate to="/app/manpower/configuration/roles" replace />;
@@ -61,6 +67,40 @@ export default function ManpowerConfiguration() {
     return Object.keys(sample).slice(0, 8);
   }, [rows]);
 
+  const jurisdictionOptions = minWageFlowConfig?.jurisdictions || [];
+  const selectedJurisdiction = useMemo(
+    () => jurisdictionOptions.find((j) => j.id === priceMasterSelection.jurisdictionId) || jurisdictionOptions[0],
+    [jurisdictionOptions, priceMasterSelection.jurisdictionId]
+  );
+  const stateOptions = selectedJurisdiction?.states || [];
+  const selectedState = useMemo(
+    () => stateOptions.find((s) => s.code === priceMasterSelection.stateCode) || stateOptions[0],
+    [stateOptions, priceMasterSelection.stateCode]
+  );
+  const zoneOptions = selectedState?.zones || [];
+
+  useEffect(() => {
+    if (section !== "price-master") return;
+    if (!selectedJurisdiction?.id) return;
+    setPriceMasterSelection((prev) => {
+      const firstState = (selectedJurisdiction.states || [])[0];
+      const nextStateCode = firstState?.code || "";
+      const nextZoneCode = (firstState?.zones || [])[0]?.code || "";
+      return { ...prev, stateCode: nextStateCode, zoneCode: nextZoneCode };
+    });
+  }, [section, selectedJurisdiction?.id]);
+
+  useEffect(() => {
+    if (section !== "price-master") return;
+    if (!selectedState?.code) return;
+    setPriceMasterSelection((prev) => {
+      const exists = (selectedState.zones || []).some((z) => z.code === prev.zoneCode);
+      if (exists) return prev;
+      return { ...prev, zoneCode: (selectedState.zones || [])[0]?.code || "" };
+    });
+  }, [section, selectedState?.code]);
+
+
   return (
     <div className="max-w-5xl mx-auto p-2 sm:p-4">
       <div className="bg-white rounded-xl shadow border border-slate-200">
@@ -69,6 +109,62 @@ export default function ManpowerConfiguration() {
           <p className="text-sm text-gray-600 mt-1">{label}</p>
         </div>
         <div className="p-5">
+          {section === "price-master" && (
+            <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
+              <h3 className="text-sm font-semibold text-slate-800 mb-3">Minimum Wage Zone Mapping</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <label className="text-sm">
+                  <div className="text-slate-600 mb-1">Jurisdiction</div>
+                  <select
+                    value={priceMasterSelection.jurisdictionId}
+                    onChange={(e) =>
+                      setPriceMasterSelection((prev) => ({ ...prev, jurisdictionId: e.target.value }))
+                    }
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white"
+                  >
+                    {jurisdictionOptions.map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <div className="text-slate-600 mb-1">State / UT / ST</div>
+                  <select
+                    value={priceMasterSelection.stateCode}
+                    onChange={(e) =>
+                      setPriceMasterSelection((prev) => ({ ...prev, stateCode: e.target.value }))
+                    }
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white"
+                  >
+                    {stateOptions.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <div className="text-slate-600 mb-1">Zone</div>
+                  <select
+                    value={priceMasterSelection.zoneCode}
+                    onChange={(e) =>
+                      setPriceMasterSelection((prev) => ({ ...prev, zoneCode: e.target.value }))
+                    }
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white"
+                  >
+                    {zoneOptions.map((z) => (
+                      <option key={z.code} value={z.code}>
+                        {z.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="text-sm text-gray-600">Loading…</div>
           ) : error ? (

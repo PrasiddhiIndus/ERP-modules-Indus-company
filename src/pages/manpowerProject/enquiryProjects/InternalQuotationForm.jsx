@@ -4,6 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 
 import { supabase } from "../../../lib/supabase";
+import minWageFlowConfig from "../../../config/manpowerMinWageFlow.json";
 
 const ROLE_COLUMNS = [
   { key: "sr_fire_supervisor", label: "Sr. Fire Supervisor (Highly skilled)" },
@@ -49,6 +50,85 @@ const MANPOWER_CATEGORIES = [
 ];
 
 const SKILL_LEVELS = ["Highly Skilled", "Skilled", "Semi Skilled", "Unskilled"];
+const PRICE_MASTER_STORAGE_KEY = "manpower_min_wage_price_master_v1";
+const META_PREFIX = "__META__:";
+const SERVICE_CATEGORY_LABEL_TO_ID = {
+  "Firefighting Manpower Only": 1,
+  "Safety Manpower Only": 2,
+  "Manpower + Fire Tender (with Crew)": 3,
+  "Firefighting Manpower + Safety Manpower": 4,
+  "Fire Tender (without Crew)": 5,
+};
+const SERVICE_CATEGORY_ID_TO_LABEL = {
+  1: "Firefighting Manpower Only",
+  2: "Safety Manpower Only",
+  3: "Manpower + Fire Tender (with Crew)",
+  4: "Firefighting Manpower + Safety Manpower",
+  5: "Fire Tender (without Crew)",
+};
+const BCS_COMPONENTS = [
+  { block: "A", ref: "A1", name: "Min Wages Per Day (WEF)", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "A", ref: "A2", name: "Average Basic Salary (monthly)", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "A", ref: "A3", name: "Special / Retention Allowance", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "A", ref: "A4", name: "Food Allowance", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "A", ref: "A5", name: "Washing Allowance", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "A", ref: "A6", name: "Medical Allowance", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "A", ref: "A7", name: "Travel / Transportation Allowance", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "A", ref: "A8", name: "HRA (House Rent Allowance)", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "A", ref: "GMS", name: "Gross Monthly Salary", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B1", name: "Paid Leave / Leave Wages", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B2", name: "Weekly Off Relievers", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B3", name: "Retention Allowance for Extra 4 Hours", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "B", ref: "B4", name: "PF Employer Contribution", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B5", name: "ESIC / WC Policy", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B6", name: "National Holidays", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B7", name: "Public / Festival Holidays", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B8", name: "Bonus (Statutory)", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B9", name: "Gratuity", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "B", ref: "B10", name: "OT Expenses / Penalty / Bonus Interest", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "C", ref: "C1", name: "Labour License & Compliance Expense", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "C", ref: "C2", name: "Labour Welfare Fund", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "C", ref: "C3", name: "Inter-State Migration License", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "D", ref: "D1", name: "Uniform (Khaki + IFR Suits) / Liveries", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "D", ref: "D2", name: "PPEs (Fire Suits, Safety Shoes, Helmets, Gum Boots)", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "D", ref: "D3", name: "Group Mediclaim / Health Insurance", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "D", ref: "D4", name: "Refresher Training", cats: ["conditional", "hidden", "conditional", "conditional", "hidden"] },
+  { block: "D", ref: "D5", name: "Accommodation", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "D", ref: "D6", name: "Transportation / Logistics", cats: ["conditional", "conditional", "conditional", "conditional", "hidden"] },
+  { block: "D", ref: "D7", name: "Fire Tender Rental (with Crew)", cats: ["hidden", "hidden", "always", "hidden", "hidden"] },
+  { block: "D", ref: "D8", name: "Fire Tender / Fire Jeep Rental (without Crew)", cats: ["hidden", "hidden", "hidden", "hidden", "always"] },
+  { block: "D", ref: "D9", name: "Fuel for Fire Tender", cats: ["hidden", "hidden", "conditional", "hidden", "conditional"] },
+  { block: "D", ref: "D10", name: "Administration & Operations Cost (sub-sheet)", cats: ["always", "always", "always", "always", "conditional"] },
+  { block: "E", ref: "E1", name: "Sub-Total (Gross Salary + Other Liability)", cats: ["always", "always", "always", "always", "always"] },
+  { block: "E", ref: "E2", name: "Service Charge of Agency", cats: ["always", "always", "always", "always", "always"] },
+  { block: "E", ref: "E3", name: "Billing Rate (per person / per day based on divisor)", cats: ["always", "always", "always", "always", "always"] },
+  { block: "E", ref: "E4", name: "Deployment of Manpower (headcount)", cats: ["always", "always", "always", "always", "hidden"] },
+  { block: "E", ref: "E5", name: "Total Billing for selected days (E3 × headcount × days)", cats: ["always", "always", "always", "always", "conditional"] },
+  { block: "E", ref: "E6", name: "Total Service Charge", cats: ["always", "always", "always", "always", "always"] },
+];
+const BLOCK_TITLES = {
+  A: "Block A - Salary components",
+  B: "Block B - Statutory compliances",
+  C: "Block C - Compliance costs",
+  D: "Block D - Operational & equipment costs",
+  E: "Block E - Service charge & outputs",
+};
+
+function parseMetaAuthorization(raw) {
+  if (!raw || typeof raw !== "string") return {};
+  if (raw.startsWith(META_PREFIX)) {
+    try {
+      return JSON.parse(raw.slice(META_PREFIX.length)) || {};
+    } catch {
+      return {};
+    }
+  }
+  try {
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
 
 const DEFAULT_WAGE_ROWS = [
   {
@@ -149,6 +229,10 @@ const InternalQuotationForm = () => {
       qty: "",
     }))
   );
+  const [particularRateMatrix, setParticularRateMatrix] = useState({});
+  const [serviceCategoryId, setServiceCategoryId] = useState(1);
+  const [manualParticularRefs, setManualParticularRefs] = useState([]);
+  const [blockPickerValue, setBlockPickerValue] = useState({ A: "", B: "", C: "", D: "", E: "" });
 
   const addManpowerRow = () => {
     setManpowerRows((prev) => {
@@ -174,6 +258,42 @@ const InternalQuotationForm = () => {
         .map((r, idx) => ({ ...r, srNo: idx + 1 }))
     );
   };
+
+  const selectedManpowerColumns = useMemo(() => {
+    return (manpowerRows || []).filter(
+      (row) => String(row.category || "").trim() !== "" && String(row.skill || "").trim() !== ""
+    );
+  }, [manpowerRows]);
+  const visibleBcsRows = useMemo(() => {
+    const idx = Math.max(0, Math.min(4, Number(serviceCategoryId || 1) - 1));
+    return BCS_COMPONENTS.filter((item) => {
+      const flag = item.cats?.[idx] || "hidden";
+      return flag !== "hidden";
+    });
+  }, [serviceCategoryId]);
+  const bcsByBlock = useMemo(() => {
+    const idx = Math.max(0, Math.min(4, Number(serviceCategoryId || 1) - 1));
+    return ["A", "B", "C", "D", "E"].map((block) => {
+      const allRows = BCS_COMPONENTS.filter((row) => row.block === block);
+      const autoRows = allRows.filter((row) => {
+        const flag = row.cats?.[idx] || "hidden";
+        return flag !== "hidden";
+      });
+      const hiddenRows = allRows.filter((row) => {
+        const flag = row.cats?.[idx] || "hidden";
+        return flag === "hidden";
+      });
+      const manualRows = hiddenRows.filter((row) => manualParticularRefs.includes(row.ref));
+      const autoRefs = new Set(autoRows.map((r) => r.ref));
+      const rows = [...autoRows, ...manualRows.filter((r) => !autoRefs.has(r.ref))];
+      return {
+        block,
+        title: BLOCK_TITLES[block],
+        rows,
+        hiddenRows,
+      };
+    });
+  }, [serviceCategoryId, manualParticularRefs]);
 
   // ---------------------------
   // Cost Breakup (UI only)
@@ -467,6 +587,18 @@ const InternalQuotationForm = () => {
         setEnquiry(null);
       } else {
         setEnquiry(data);
+        const meta = parseMetaAuthorization(data?.authorization_to);
+        const selectedLabels = Array.isArray(meta?.serviceCategory)
+          ? meta.serviceCategory
+          : meta?.serviceCategory
+            ? [meta.serviceCategory]
+            : [];
+        const mappedIds = selectedLabels
+          .map((label) => SERVICE_CATEGORY_LABEL_TO_ID[label])
+          .filter((v) => Number.isFinite(v));
+        setServiceCategoryId(mappedIds.length ? mappedIds[0] : 1);
+        setManualParticularRefs([]);
+        setBlockPickerValue({ A: "", B: "", C: "", D: "", E: "" });
       }
       setLoading(false);
     };
@@ -578,6 +710,100 @@ const InternalQuotationForm = () => {
     setWageRows((prev) => (prev || []).filter((r) => r.id !== rowId));
   };
 
+  const [wageSelection, setWageSelection] = useState({
+    jurisdictionId: "state_government",
+    stateCode: "MH",
+    zoneCode: "ZONE_1",
+  });
+
+  const minWageEntryEnabled = true;
+
+  const jurisdictionOptions = minWageFlowConfig?.jurisdictions || [];
+  const selectedJurisdiction = useMemo(
+    () => jurisdictionOptions.find((item) => item.id === wageSelection.jurisdictionId) || jurisdictionOptions[0],
+    [jurisdictionOptions, wageSelection.jurisdictionId]
+  );
+  const stateOptions = selectedJurisdiction?.states || [];
+  const selectedState = useMemo(
+    () => stateOptions.find((item) => item.code === wageSelection.stateCode) || stateOptions[0],
+    [stateOptions, wageSelection.stateCode]
+  );
+  const zoneOptions = selectedState?.zones || [];
+
+  const flowPreviewPayload = useMemo(
+    () => ({
+      module: "manpower-price-master",
+      tab: "minimum-wage",
+      flow: "jurisdiction-state-zone",
+      selection: {
+        jurisdictionId: selectedJurisdiction?.id || "",
+        jurisdictionLabel: selectedJurisdiction?.label || "",
+        stateCode: selectedState?.code || "",
+        stateName: selectedState?.name || "",
+        zoneCode: wageSelection.zoneCode,
+        zoneName: zoneOptions.find((z) => z.code === wageSelection.zoneCode)?.name || "",
+      },
+      minWageWindow: {
+        activeMonths: [],
+        currentMonth: null,
+        entryEnabled: minWageEntryEnabled,
+      },
+      note: "Frontend JSON mapped in internal quotation. No backend API hit in this step."
+    }),
+    [selectedJurisdiction, selectedState, wageSelection.zoneCode, zoneOptions, minWageEntryEnabled]
+  );
+
+  useEffect(() => {
+    if (!selectedJurisdiction?.id) return;
+    setWageSelection((prev) => {
+      const nextStateCode = (selectedJurisdiction.states || [])[0]?.code || "";
+      const nextZoneCode = (selectedJurisdiction.states || [])[0]?.zones?.[0]?.code || "";
+      return { ...prev, stateCode: nextStateCode, zoneCode: nextZoneCode };
+    });
+  }, [selectedJurisdiction?.id]);
+
+  useEffect(() => {
+    if (!selectedState?.code) return;
+    setWageSelection((prev) => {
+      const hasSelectedZone = (selectedState.zones || []).some((z) => z.code === prev.zoneCode);
+      if (hasSelectedZone) return prev;
+      const nextZoneCode = (selectedState.zones || [])[0]?.code || "";
+      return { ...prev, zoneCode: nextZoneCode };
+    });
+  }, [selectedState?.code]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(PRICE_MASTER_STORAGE_KEY) || "[]");
+      const found = (stored || []).find(
+        (entry) =>
+          entry?.jurisdictionId === wageSelection.jurisdictionId &&
+          entry?.stateCode === wageSelection.stateCode &&
+          entry?.zoneCode === wageSelection.zoneCode
+      );
+      if (!found?.minWages) {
+        return;
+      }
+
+      setWageRows((prev) =>
+        (prev || []).map((row) => {
+          if (row.id !== "basic") return row;
+          return {
+            ...row,
+            values: {
+              ...(row.values || {}),
+              sr_fire_supervisor: found.minWages.sr_fire_supervisor ?? "",
+              fire_supervisor: found.minWages.fire_supervisor ?? "",
+              dcpo: found.minWages.dcpo ?? "",
+              fireman_l1: found.minWages.fireman_l1 ?? "",
+              fireman_l2: found.minWages.fireman_l2 ?? "",
+            },
+          };
+        })
+      );
+    } catch {}
+  }, [wageSelection.jurisdictionId, wageSelection.stateCode, wageSelection.zoneCode]);
+
   if (loading) {
     return <p className="text-center text-gray-500">Loading enquiry...</p>;
   }
@@ -607,13 +833,66 @@ const InternalQuotationForm = () => {
           {enquiry.state}, {enquiry.country}
         </p>
       </div>
+
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 sm:p-5 shadow-sm">
+        <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-3">Minimum Wage Selection</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <label className="text-sm">
+            <div className="text-slate-600 mb-1">Jurisdiction</div>
+            <select
+              value={wageSelection.jurisdictionId}
+              onChange={(e) =>
+                setWageSelection((prev) => ({ ...prev, jurisdictionId: e.target.value }))
+              }
+              className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              {jurisdictionOptions.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            <div className="text-slate-600 mb-1">State</div>
+            <select
+              value={wageSelection.stateCode}
+              onChange={(e) =>
+                setWageSelection((prev) => ({ ...prev, stateCode: e.target.value }))
+              }
+              className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              {stateOptions.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            <div className="text-slate-600 mb-1">Zone</div>
+            <select
+              value={wageSelection.zoneCode}
+              onChange={(e) =>
+                setWageSelection((prev) => ({ ...prev, zoneCode: e.target.value }))
+              }
+              className="w-full px-2.5 py-2 border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              {zoneOptions.map((z) => (
+                <option key={z.code} value={z.code}>
+                  {z.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
       {/* Bottom Demo Data Tabs */}
       <div className="mt-6 bg-white shadow rounded-lg">
         <div className="border-b px-4 py-3 flex flex-wrap gap-2">
           {[
-            { key: 'operational', label: 'Minimum Wage' },
-            { key: 'cost', label: 'Cost Breakup' },
             { key: 'manpower', label: 'Manpower' },
+            { key: 'cost', label: 'Breakup Cost' },
           ].map(tab => (
             <button
               key={tab.key}
@@ -730,430 +1009,112 @@ const InternalQuotationForm = () => {
             <div>
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                 <div>
-                  <h4 className="text-lg font-semibold">Cost Breakup</h4>
+                  <h4 className="text-lg font-semibold">Breakup Cost</h4>
                   <p className="text-xs text-gray-500 mt-1">UI only: enter values and see the calculated totals. Backend rules can be wired later.</p>
                 </div>
               </div>
 
-              {/* Main Cost Breakup Table */}
-              <div className="border border-slate-200 rounded-xl bg-white overflow-hidden">
-                <table className="w-full table-fixed text-xs sm:text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[54px]">Sr</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[64px]">Ref</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Component</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[240px]">Logic</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-slate-700 w-[210px]">Value / Amount</th>
-                      <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[160px]">Remarks</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {/* Block A */}
-                    <tr className="bg-white">
-                      <td colSpan={6} className="px-3 py-2 text-[11px] font-bold text-slate-700 uppercase tracking-wide">
-                        Block A — Salary Components
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">1</td>
-                      <td className="px-3 py-2.5">A1</td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-medium text-slate-900 truncate" title="Min Wages Per Day WEF ______">
-                          Min Wages Per Day (WEF)
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 truncate" title="Root input — entered manually; linked to state min-wage master + WEF date">
-                          Root input (manual)
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate" title="Entered manually; used as base for A2 and holiday calculations">
-                        Manual entry
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex flex-col gap-2 items-end">
-                          <div className="flex gap-2 w-full justify-end">
-                            <input
-                              value={costSheet.a1_minWagePerDay}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, a1_minWagePerDay: e.target.value }))}
-                              inputMode="decimal"
-                              placeholder="Min wage / day"
-                              className="w-[120px] text-right px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            />
-                            <input
-                              value={costSheet.a1_wef}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, a1_wef: e.target.value }))}
-                              placeholder="WEF"
-                              className="w-[84px] text-right px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                              title="WEF date (text)"
-                            />
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            A2 uses divisor: <span className="font-semibold">{effectiveDivisor ? effectiveDivisor : "—"}</span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-500">Mandatory</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">2</td>
-                      <td className="px-3 py-2.5">A2</td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-medium text-slate-900 truncate" title="Average Basic Salary (26–27 days)">
-                          Average Basic Salary (monthly)
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 truncate" title="Auto-calculated from A1 and divisor">
-                          Auto: A1 × divisor
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate" title="A1 × divisor (26 / 26.5 / 27 / 30 / 31)">
-                        A1 × {effectiveDivisor || "—"}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(calcA2_basicMonthly)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Mandatory</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">3</td>
-                      <td className="px-3 py-2.5">A3</td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-medium text-slate-900 truncate" title="Other / Special Allowances">
-                          Other / Special Allowances
-                        </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 truncate" title="Fixed amount per person per month">
-                          Manual fixed amount
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate" title="Fixed amount per person per month">
-                        Fixed (₹/pm)
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        <input
-                          value={costSheet.a3_specialAllowance}
-                          onChange={(e) => setCostSheet((p) => ({ ...p, a3_specialAllowance: e.target.value }))}
-                          placeholder=""
-                          className="w-full text-right px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-500">Conditional</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">4</td>
-                      <td className="px-3 py-2.5">A4</td>
-                      <td className="px-3 py-2.5 truncate" title="Medical Allowances">
-                        Medical Allowances
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate">Fixed (₹/pm)</td>
-                      <td className="px-3 py-2.5 text-right">
-                        <input
-                          value={costSheet.a4_medicalAllowance}
-                          onChange={(e) => setCostSheet((p) => ({ ...p, a4_medicalAllowance: e.target.value }))}
-                          className="w-full text-right px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        />
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-500">Conditional</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">5</td>
-                      <td className="px-3 py-2.5">A5</td>
-                      <td className="px-3 py-2.5 truncate" title="Washing Allowance">
-                        Washing Allowance
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={costSheet.a5_washing_mode}
-                            onChange={(e) => setCostSheet((p) => ({ ...p, a5_washing_mode: e.target.value }))}
-                            className="px-2 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                          >
-                            <option value="percent">% of Basic</option>
-                            <option value="fixed">Fixed</option>
-                          </select>
-                          {costSheet.a5_washing_mode === "percent" ? (
-                            <input
-                              value={costSheet.a5_washing_percent}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, a5_washing_percent: e.target.value }))}
-                              placeholder="%"
-                              className="w-20 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                            />
-                          ) : (
-                            <input
-                              value={costSheet.a5_washing_fixed}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, a5_washing_fixed: e.target.value }))}
-                              placeholder="₹"
-                              className="w-24 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                            />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(calcA5_washing)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Usually 20%</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">6</td>
-                      <td className="px-3 py-2.5">A6</td>
-                      <td className="px-3 py-2.5 truncate" title="Food Allowances">Food Allowances</td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate">Fixed (₹/pm)</td>
-                      <td className="px-3 py-2.5 text-right">
-                        <input
-                          value={costSheet.a6_foodAllowance}
-                          onChange={(e) => setCostSheet((p) => ({ ...p, a6_foodAllowance: e.target.value }))}
-                          className="w-full text-right px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                        />
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-500">Conditional</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">7</td>
-                      <td className="px-3 py-2.5">A7</td>
-                      <td className="px-3 py-2.5 truncate" title="Travel / Transportation Allowances">Travel / Transportation Allowances</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={costSheet.a7_travel_mode}
-                            onChange={(e) => setCostSheet((p) => ({ ...p, a7_travel_mode: e.target.value }))}
-                            className="px-2 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                          >
-                            <option value="percent">% of Basic</option>
-                            <option value="fixed">Fixed</option>
-                          </select>
-                          {costSheet.a7_travel_mode === "percent" ? (
-                            <input
-                              value={costSheet.a7_travel_percent}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, a7_travel_percent: e.target.value }))}
-                              placeholder="%"
-                              className="w-20 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                            />
-                          ) : (
-                            <input
-                              value={costSheet.a7_travel_fixed}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, a7_travel_fixed: e.target.value }))}
-                              placeholder="₹"
-                              className="w-24 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                            />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(calcA7_travel)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Usually 20%</td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">8</td>
-                      <td className="px-3 py-2.5">A8</td>
-                      <td className="px-3 py-2.5 truncate" title="HRA @ __% of Basic">HRA @ % of Basic</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <input
-                            value={costSheet.a8_hra_percent}
-                            onChange={(e) => setCostSheet((p) => ({ ...p, a8_hra_percent: e.target.value }))}
-                            placeholder="%"
-                            className="w-20 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                          />
-                          <span className="text-xs text-slate-500 truncate" title="Typically 60% of Basic">Typically 60%</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(calcA8_hra)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Mandatory</td>
-                    </tr>
-                    <tr className="bg-slate-50">
-                      <td colSpan={4} className="px-3 py-2.5 text-right font-semibold text-slate-900">
-                        GROSS MONTHLY SALARY (A2–A8)
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(grossMonthlySalary)}</td>
-                      <td className="px-3 py-2.5" />
-                    </tr>
-
-                    {/* Block B */}
-                    <tr className="bg-white">
-                      <td colSpan={6} className="px-3 py-2 text-[11px] font-bold text-slate-700 uppercase tracking-wide">
-                        Block B — Fixed Statutory Compliances
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">9</td>
-                      <td className="px-3 py-2.5">B1</td>
-                      <td className="px-3 py-2.5 truncate" title="Paid Leave / Leave With Wages">Paid Leave / Leave With Wages</td>
-                      <td className="px-3 py-2.5">
-                        <input
-                          value={costSheet.b1_leave_percent}
-                          onChange={(e) => setCostSheet((p) => ({ ...p, b1_leave_percent: e.target.value }))}
-                          placeholder="% on Gross"
-                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                        />
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(blockB.b1)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Editable %</td>
-                    </tr>
-
-                    {/* Block C */}
-                    <tr className="bg-white">
-                      <td colSpan={6} className="px-3 py-2 text-[11px] font-bold text-slate-700 uppercase tracking-wide">
-                        Block C — Insurance Components
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">20</td>
-                      <td className="px-3 py-2.5">C1</td>
-                      <td className="px-3 py-2.5 truncate" title="WC (Workmen's Compensation) Policy">WC (Workmen's Compensation) Policy</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-600 truncate" title="A2 × rate/1000">A2 ×</span>
-                          <input
-                            value={costSheet.c1_wc_rate_per_1000}
-                            onChange={(e) => setCostSheet((p) => ({ ...p, c1_wc_rate_per_1000: e.target.value }))}
-                            placeholder="rate/1000"
-                            className="w-24 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                          />
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(blockC.c1)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Admin rate</td>
-                    </tr>
-
-                    {/* Block D */}
-                    <tr className="bg-white">
-                      <td colSpan={6} className="px-3 py-2 text-[11px] font-bold text-slate-700 uppercase tracking-wide">
-                        Block D — Operational & Compliance Costs
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">31</td>
-                      <td className="px-3 py-2.5">D8</td>
-                      <td className="px-3 py-2.5 truncate" title="Other Operational Cost & Staff Welfare">Other Operational Cost & Staff Welfare</td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate" title="Sum of sub-sheet items ÷ headcount ÷ months">
-                        From sub-sheet
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(blockD.d8)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Auto</td>
-                    </tr>
-
-                    {/* Block E */}
-                    <tr className="bg-white">
-                      <td colSpan={6} className="px-3 py-2 text-[11px] font-bold text-slate-700 uppercase tracking-wide">
-                        Block E — Service Charge & Outputs
-                      </td>
-                    </tr>
-                    <tr className="bg-slate-50">
-                      <td className="px-3 py-2.5">32</td>
-                      <td className="px-3 py-2.5">E1</td>
-                      <td className="px-3 py-2.5 font-semibold text-slate-900">Gross Salary + Other Liability (Sub-total)</td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate">Sum of A2 to D8</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(e1_subtotal)}</td>
-                      <td className="px-3 py-2.5" />
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">33</td>
-                      <td className="px-3 py-2.5">E2</td>
-                      <td className="px-3 py-2.5 font-medium text-slate-900">Service Charge</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={costSheet.e2_service_mode}
-                            onChange={(e) => setCostSheet((p) => ({ ...p, e2_service_mode: e.target.value }))}
-                            className="px-2 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                          >
-                            <option value="fixed">Fixed</option>
-                            <option value="percent">% of E1</option>
-                          </select>
-                          {costSheet.e2_service_mode === "fixed" ? (
-                            <input
-                              value={costSheet.e2_service_fixed}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, e2_service_fixed: e.target.value }))}
-                              placeholder="₹"
-                              className="w-28 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                            />
-                          ) : (
-                            <input
-                              value={costSheet.e2_service_percent}
-                              onChange={(e) => setCostSheet((p) => ({ ...p, e2_service_percent: e.target.value }))}
-                              placeholder="%"
-                              className="w-20 px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm"
-                            />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(e2_serviceCharge)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Configurable</td>
-                    </tr>
-                    <tr className="bg-slate-50">
-                      <td className="px-3 py-2.5">34</td>
-                      <td className="px-3 py-2.5">E3</td>
-                      <td className="px-3 py-2.5 font-semibold text-slate-900">Billing Rate for selected divisor / duty</td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate">E1 + E2</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(e3_billingRate)}</td>
-                      <td className="px-3 py-2.5" />
-                    </tr>
-                    <tr className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">35</td>
-                      <td className="px-3 py-2.5">E5</td>
-                      <td className="px-3 py-2.5 font-medium text-slate-900">Total Monthly Billing Value</td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate">E3 × Headcount</td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-slate-900">{moneyOrBlank(e5_totalMonthlyBilling)}</td>
-                      <td className="px-3 py-2.5 text-slate-500">Auto</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {/* D8 Sub-sheet */}
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white overflow-hidden">
-                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-                  <div className="font-semibold text-slate-900">Bifurcation of Operational Cost (D8)</div>
-                  <div className="text-xs text-slate-600">Include items, enter monthly amount, auto-feeds D8.</div>
+              <div className="mb-4 border border-slate-200 rounded-xl bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                  <div className="text-sm font-semibold text-slate-900">Particulars (from selected Service Category)</div>
+                  <div className="text-[11px] text-slate-600 mt-1">
+                    {`Selected: ${SERVICE_CATEGORY_ID_TO_LABEL[serviceCategoryId] || SERVICE_CATEGORY_ID_TO_LABEL[1]}`}
+                  </div>
                 </div>
-                <div className="p-3">
-                  <table className="w-full table-fixed text-xs sm:text-sm">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs sm:text-sm">
                     <thead className="bg-white border-b border-slate-200">
                       <tr>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[54px]">#</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Operational Cost Item</th>
-                        <th className="px-3 py-2.5 text-center font-semibold text-slate-700 w-[90px]">Include</th>
-                        <th className="px-3 py-2.5 text-right font-semibold text-slate-700 w-[160px]">Amount / month</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[70px]">Sr No.</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[90px]">Ref</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Particulars</th>
+                        {selectedManpowerColumns.map((col) => (
+                          <th key={col.id} className="px-3 py-2.5 text-left font-semibold text-slate-700 min-w-[170px]">
+                            {col.category} ({col.skill})
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {d8Items.map((it, idx) => (
-                        <tr key={it.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2.5 text-slate-700">{idx + 1}</td>
-                          <td className="px-3 py-2.5">
-                            <span className="block truncate" title={D8_ITEM_LABELS[idx] || `Item ${idx + 1}`}>
-                              {D8_ITEM_LABELS[idx] || `Item ${idx + 1}`}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(it.include)}
-                              onChange={(e) =>
-                                setD8Items((prev) =>
-                                  prev.map((x) => (x.id === it.id ? { ...x, include: e.target.checked } : x))
-                                )
-                              }
-                            />
-                          </td>
-                          <td className="px-3 py-2.5 text-right">
-                            <input
-                              value={it.amount}
-                              onChange={(e) =>
-                                setD8Items((prev) => prev.map((x) => (x.id === it.id ? { ...x, amount: e.target.value } : x)))
-                              }
-                              placeholder="₹"
-                              className="w-full text-right px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                              disabled={!it.include}
-                            />
+                      {bcsByBlock.map((blockGroup) => (
+                        <React.Fragment key={blockGroup.block}>
+                          <tr className="bg-slate-100">
+                            <td colSpan={3 + selectedManpowerColumns.length} className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                <span>{blockGroup.title}</span>
+                                {blockGroup.hiddenRows.length > 0 && (
+                                  <div className="flex items-center gap-2 normal-case">
+                                    <select
+                                      value={blockPickerValue[blockGroup.block] || ""}
+                                      onChange={(e) =>
+                                        setBlockPickerValue((prev) => ({ ...prev, [blockGroup.block]: e.target.value }))
+                                      }
+                                      className="px-2 py-1 border border-slate-300 rounded bg-white text-[11px] text-slate-700"
+                                    >
+                                      <option value="">Add particular...</option>
+                                      {blockGroup.hiddenRows.map((row) => (
+                                        <option key={row.ref} value={row.ref}>
+                                          {row.ref} - {row.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const selectedRef = blockPickerValue[blockGroup.block];
+                                        if (!selectedRef) return;
+                                        setManualParticularRefs((prev) =>
+                                          prev.includes(selectedRef) ? prev : [...prev, selectedRef]
+                                        );
+                                        setBlockPickerValue((prev) => ({ ...prev, [blockGroup.block]: "" }));
+                                      }}
+                                      className="px-2 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px]"
+                                    >
+                                      Add
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {blockGroup.rows.map((row, idx) => (
+                            <tr key={row.ref} className="hover:bg-slate-50">
+                              <td className="px-3 py-2.5 text-slate-700">{idx + 1}</td>
+                              <td className="px-3 py-2.5 text-slate-700 font-medium">{row.ref}</td>
+                              <td className="px-3 py-2.5 text-slate-900">{row.name}</td>
+                              {selectedManpowerColumns.map((col) => {
+                                const key = `${row.ref}__${col.id}`;
+                                return (
+                                  <td key={key} className="px-3 py-2.5">
+                                    <input
+                                      type="number"
+                                      value={particularRateMatrix[key] ?? ""}
+                                      onChange={(e) =>
+                                        setParticularRateMatrix((prev) => ({ ...prev, [key]: e.target.value }))
+                                      }
+                                      className="w-full px-2 py-1.5 border border-slate-300 rounded-lg"
+                                      placeholder="Rate"
+                                      min="0"
+                                    />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                      {selectedManpowerColumns.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="px-3 py-3 text-slate-500">
+                            Select manpower category and sub category in Manpower tab to show columns here.
                           </td>
                         </tr>
-                      ))}
-                      <tr className="bg-slate-50">
-                        <td colSpan={3} className="px-3 py-2.5 text-right font-semibold text-slate-900">
-                          Included Total (₹/month)
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-semibold text-slate-900">
-                          {moneyOrBlank(d8Items.reduce((s, it) => s + (it.include ? safeNum(it.amount) : 0), 0))}
-                        </td>
-                      </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
+
             </div>
           )}
 
@@ -1165,6 +1126,8 @@ const InternalQuotationForm = () => {
                   <p className="text-xs text-gray-500 mt-1">UI only: edit values, add/remove components, and see totals update below.</p>
                 </div>
               </div>
+
+              <input type="hidden" value={JSON.stringify(flowPreviewPayload)} readOnly />
 
               <div className="border border-slate-200 rounded-xl bg-white">
                 <table className="w-full table-fixed text-xs sm:text-sm">
@@ -1196,6 +1159,7 @@ const InternalQuotationForm = () => {
                               value={row.component}
                               onChange={(e) => updateWageComponentName(row.id, e.target.value)}
                               className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                              disabled={!minWageEntryEnabled}
                             />
                           ) : (
                             <div className="min-w-0">
@@ -1217,6 +1181,7 @@ const InternalQuotationForm = () => {
                               className={`w-full px-2.5 py-2 border rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent ${
                                 row.locked ? "bg-amber-50 border-amber-200 text-slate-800" : "bg-white border-slate-300"
                               }`}
+                              disabled={!minWageEntryEnabled}
                             />
                           </td>
                         ))}
@@ -1239,8 +1204,10 @@ const InternalQuotationForm = () => {
                     <tr>
                       <td
                         colSpan={ROLE_COLUMNS.length + 3}
-                        onClick={addWageRow}
-                        className="px-2 sm:px-3 py-3 text-purple-700 cursor-pointer hover:bg-purple-50/50 font-medium"
+                        onClick={() => {
+                          if (minWageEntryEnabled) addWageRow();
+                        }}
+                        className={`px-2 sm:px-3 py-3 font-medium ${minWageEntryEnabled ? "text-purple-700 cursor-pointer hover:bg-purple-50/50" : "text-slate-400 cursor-not-allowed bg-slate-50"}`}
                       >
                         + Add a line
                       </td>
