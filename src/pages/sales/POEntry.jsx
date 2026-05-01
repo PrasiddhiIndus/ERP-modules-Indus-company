@@ -67,6 +67,15 @@ function poDepartmentLabel(p) {
   return vRaw;
 }
 
+function sortNewestPoFirst(list) {
+  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+    const aTs = new Date(a?.updated_at || a?.updatedAt || a?.created_at || a?.createdAt || a?.startDate || 0).getTime() || 0;
+    const bTs = new Date(b?.updated_at || b?.updatedAt || b?.created_at || b?.createdAt || b?.startDate || 0).getTime() || 0;
+    if (bTs !== aTs) return bTs - aTs;
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
+  });
+}
+
 function isAfterContractEnd(endDate) {
   if (!endDate) return false;
   const end = new Date(String(endDate));
@@ -76,6 +85,10 @@ function isAfterContractEnd(endDate) {
   const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
   const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   return todayDay.getTime() > endDay.getTime();
+}
+
+function isTrainingVertical(value) {
+  return String(value || '').trim().toLowerCase() === 'training';
 }
 
 function ymd(d) {
@@ -223,6 +236,7 @@ const POEntry = () => {
   const [contactError, setContactError] = useState('');
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: 'created', direction: 'desc' });
   const canApproveCommercialPOs =
     userProfile?.role === ROLES.ADMIN ||
     (userProfile?.role === ROLES.MANAGER && !!accessibleModules?.has('commercial'));
@@ -319,10 +333,28 @@ const POEntry = () => {
   };
 
   const cleanCellText = (value) => String(value ?? '').replaceAll('|', '').trim();
+  const renderSortIndicator = (key) => {
+    const active = sortConfig.key === key;
+    const ascActive = active && sortConfig.direction === 'asc';
+    const descActive = active && sortConfig.direction === 'desc';
+    return (
+      <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
+        <span className={ascActive ? 'text-emerald-400' : 'text-slate-300'}>▲</span>
+        <span className={descActive ? 'text-rose-400' : 'text-slate-300'}>▼</span>
+      </span>
+    );
+  };
+  const toggleSort = (key) => {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'desc' }
+    );
+  };
 
   const filteredList = useMemo(() => {
     // Hide supplementary/mock POs from PO Entry UI — only manage the parent PO here.
-    const base = commercialPOs.filter((p) => !p.isSupplementary);
+    const base = sortNewestPoFirst(commercialPOs.filter((p) => !p.isSupplementary));
     let list = base;
     if (departmentFilter) {
       list = list.filter((p) => poDepartmentLabel(p) === departmentFilter);
@@ -338,12 +370,33 @@ const POEntry = () => {
     );
   }, [commercialPOs, searchTerm, departmentFilter]);
 
+  const sortedFilteredList = useMemo(() => {
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    return [...filteredList].sort((a, b) => {
+      const getValue = (po) => {
+        switch (sortConfig.key) {
+          case 'ocNumber': return String(po.ocNumber || '').toLowerCase();
+          case 'siteLocation': return String([po.siteId, po.locationName].filter(Boolean).join(' ') || '').toLowerCase();
+          case 'client': return String(po.legalName || '').toLowerCase();
+          case 'poWo': return String(po.poWoNumber || '').toLowerCase();
+          case 'startEnd': return new Date(po.startDate || po.endDate || 0).getTime() || 0;
+          case 'status': return String(po.approvalStatus || '').toLowerCase();
+          default: return new Date(po.updated_at || po.updatedAt || po.created_at || po.createdAt || 0).getTime() || 0;
+        }
+      };
+      const av = getValue(a);
+      const bv = getValue(b);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }, [filteredList, sortConfig]);
+
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter]);
-  const totalPages = Math.max(1, Math.ceil(filteredList.length / PAGE_SIZE));
+  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, sortConfig]);
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredList.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const start = (safePage - 1) * PAGE_SIZE;
-  const paginatedList = filteredList.slice(start, start + PAGE_SIZE);
+  const paginatedList = sortedFilteredList.slice(start, start + PAGE_SIZE);
   const goToPage = (p) => setPage(Math.min(Math.max(1, p), totalPages));
 
   const nextId = useMemo(() => Math.max(0, ...commercialPOs.map((p) => p.id), 0) + 1, [commercialPOs]);
@@ -355,8 +408,14 @@ const POEntry = () => {
   }, [commercialPOs]);
 
   const handleOpenAdd = () => {
+    const nextVertical = departmentFilter || 'Manpower';
     setEditId(null);
-    setFormData({ ...initialForm, ocSeries: nextSeries });
+    setFormData({
+      ...initialForm,
+      vertical: nextVertical,
+      ocSeries: nextSeries,
+      ocNumber: generateOCNumber(nextVertical, nextSeries),
+    });
     setGstinError('');
     setContactError('');
     setGstTypeError('');
@@ -589,7 +648,11 @@ const POEntry = () => {
       return;
     }
     const ocNum = trimmedOcNumber;
-    const poType = ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly';
+    const trainingSelected = isTrainingVertical(formData.vertical);
+    // Training invoices use straight Quantity × Rate math; avoid monthly duty-geometry modes.
+    const poType = trainingSelected
+      ? 'Per Day'
+      : (ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly');
     const rates = formData.ratePerCategory.map((r) => ({
       description: (r.description || '').trim() || 'Other',
       qty: Number(r.qty) || 0,
@@ -629,8 +692,11 @@ const POEntry = () => {
         : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
       ocNumber: ocNum,
       ocSeries: formData.ocSeries || '1',
+      // Prefer explicitly selected vertical; OC segment can be stale if user edits OC manually.
       vertical:
-        (formData.ocNumber && formData.ocNumber.split('-')[1]) || formData.vertical || 'Manpower',
+        formData.vertical ||
+        (formData.ocNumber && formData.ocNumber.split('-')[1]) ||
+        'Manpower',
       poWoNumber: trimmedPoWoNumber,
       renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
       ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
@@ -642,7 +708,7 @@ const POEntry = () => {
       paymentTermMode: null,
       paymentTermDays: null,
       advancePercent: null,
-      monthlyDutyQtyMode: poType === 'Monthly' ? (formData.monthlyDutyQtyMode || null) : null,
+      monthlyDutyQtyMode: trainingSelected ? null : (poType === 'Monthly' ? (formData.monthlyDutyQtyMode || null) : null),
       lumpSumBillingMode: poType === 'Lump Sum' ? (formData.lumpSumBillingMode || null) : null,
       invoiceTermsText: formData.invoiceTermsText.trim(),
       sellerCin: (formData.sellerCin || '').trim(),
@@ -750,22 +816,34 @@ const POEntry = () => {
                 <thead>
                   <tr>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[26%] md:w-[18%] lg:w-[17%]">
-                      OC Number
+                      <button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        OC Number {renderSortIndicator('ocNumber')}
+                      </button>
                     </th>
                     <th className="hidden md:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[16%] lg:w-[15%]">
-                      Site / Location
+                      <button type="button" onClick={() => toggleSort('siteLocation')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Site / Location {renderSortIndicator('siteLocation')}
+                      </button>
                     </th>
                     <th className="hidden lg:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%]">
-                      Client (Legal Name)
+                      <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Client (Legal Name) {renderSortIndicator('client')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[14%] md:w-[12%] lg:w-[10%]">
-                      PO/WO
+                      <button type="button" onClick={() => toggleSort('poWo')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        PO/WO {renderSortIndicator('poWo')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[13%] md:w-[11%] lg:w-[11%]">
-                      Start-End
+                      <button type="button" onClick={() => toggleSort('startEnd')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Start-End {renderSortIndicator('startEnd')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[28%] md:w-[24%] lg:w-[15%]">
-                      Status
+                      <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Status {renderSortIndicator('status')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%] md:w-[19%] lg:w-[13%]">
                       Actions
@@ -1281,30 +1359,32 @@ const POEntry = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleDateInputChange('startDate', e.target.value)} min="1900-01-01" max="9999-12-31" className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleDateInputChange('endDate', e.target.value)} min="1900-01-01" max="9999-12-31" className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
-                    <select
-                      value={formData.billingType}
-                      onChange={(e) => {
-                        const bt = e.target.value;
-                        setFormData((p) => ({
-                          ...p,
-                          billingType: bt,
-                          monthlyDutyQtyMode:
-                            bt === 'Monthly' ? (p.monthlyDutyQtyMode || 'po_geometry') : '',
-                          lumpSumBillingMode:
-                            bt === 'Lump Sum' ? (p.lumpSumBillingMode || 'normal') : '',
-                        }));
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    >
-                      {BILLING_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {String(formData.vertical || '').trim().toLowerCase() !== 'training' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
+                      <select
+                        value={formData.billingType}
+                        onChange={(e) => {
+                          const bt = e.target.value;
+                          setFormData((p) => ({
+                            ...p,
+                            billingType: bt,
+                            monthlyDutyQtyMode:
+                              bt === 'Monthly' ? (p.monthlyDutyQtyMode || 'po_geometry') : '',
+                            lumpSumBillingMode:
+                              bt === 'Lump Sum' ? (p.lumpSumBillingMode || 'normal') : '',
+                          }));
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      >
+                        {BILLING_TYPES.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
-                  {formData.billingType === 'Monthly' ? (
+                  {formData.billingType === 'Monthly' && !isTrainingVertical(formData.vertical) ? (
                     <div className="md:col-span-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
                       <p className="text-xs font-semibold text-gray-800">Monthly billing — quantity rule (pick one)</p>
                       <div className="flex flex-col sm:flex-row flex-wrap gap-4">

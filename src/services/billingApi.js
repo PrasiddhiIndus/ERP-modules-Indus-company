@@ -180,8 +180,104 @@ function toCamelCase(obj) {
   return out;
 }
 
-function isMockIrnValue(irn) {
-  return String(irn || '').trim().toUpperCase().startsWith('MOCK-IRN-');
+/** Lenient: Postgres/uuid types accept standard 8-4-4-4-12 hex (any version nibble). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuidString(v) {
+  return typeof v === 'string' && UUID_RE.test(v.trim());
+}
+
+/** PO/invoice FK columns are uuid; local numeric ids must not be sent to PostgREST. */
+function uuidOrNullForFk(v) {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  return isUuidString(s) ? s : null;
+}
+
+function normalizePgDateOnly(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return raw.trim();
+  const d = raw instanceof Date ? raw : new Date(raw);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function requireInvoiceDate(raw) {
+  return normalizePgDateOnly(raw) || new Date().toISOString().slice(0, 10);
+}
+
+function normalizeTimestamptzOrNull(raw) {
+  if (raw == null || raw === '') return null;
+  const d = raw instanceof Date ? raw : new Date(raw);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function normalizeInvoiceKindDb(raw) {
+  const v = String(raw ?? 'tax').trim().toLowerCase();
+  if (v === 'proforma' || v === 'draft' || v === 'tax') return v;
+  return 'tax';
+}
+
+function normalizeCnDnStatusDb(raw) {
+  if (raw == null || raw === '') return null;
+  const v = String(raw).trim().toLowerCase();
+  if (v === 'pending' || v === 'approved' || v === 'rejected') return v;
+  return null;
+}
+
+function normalizeCnDnNoteTypeDb(raw) {
+  if (raw == null || raw === '') return null;
+  const v = String(raw).trim().toLowerCase();
+  if (v === 'credit' || v === 'debit') return v;
+  return null;
+}
+
+/** DB NOT NULL + unique index on tax_invoice_number — never omit or null. */
+function taxInvoiceNumberForPayload(inv, resolvedInvoiceId) {
+  const s = String(inv.taxInvoiceNumber ?? inv.tax_invoice_number ?? '').trim();
+  if (s) return s;
+  if (resolvedInvoiceId && isUuidString(String(resolvedInvoiceId))) {
+    const compact = String(resolvedInvoiceId).replace(/-/g, '');
+    return `TIN-${compact.slice(0, 12)}`;
+  }
+  return `TIN-PENDING-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function siteIdForPayload(v) {
+  if (v == null || v === '') return null;
+  return String(v);
+}
+
+function stripUndefined(obj) {
+  return Object.fromEntries(Object.entries(obj).filter(([, val]) => val !== undefined));
+}
+
+/** billing.invoice buyer_* columns are text; numbers from UI must be coerced. */
+function textColumnOrNull(v) {
+  if (v == null || v === '') return null;
+  return String(v);
+}
+
+/** Invoice rows may predate migration adding buyer_* — PostgREST returns schema-cache errors. */
+const OPTIONAL_INVOICE_BUYER_KEYS = ['buyer_pin', 'buyer_pincode', 'buyer_state_code'];
+
+function stripOptionalBuyerInvoiceColumns(payload) {
+  const next = { ...payload };
+  for (const k of OPTIONAL_INVOICE_BUYER_KEYS) delete next[k];
+  return next;
+}
+
+function supabaseErrBlob(err) {
+  if (!err) return '';
+  return [err.message, err.details, err.hint, String(err.code ?? '')].filter(Boolean).join(' ');
+}
+
+function isBuyerInvoiceColumnsMissingError(err) {
+  const s = supabaseErrBlob(err);
+  if (!s) return false;
+  if (!/buyer_pin|buyer_pincode|buyer_state_code/i.test(s)) return false;
+  return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
 }
 
 /** Check if billing DB is available (billing schema + RLS). */
@@ -573,11 +669,10 @@ export async function fetchInvoices() {
     c.paymentStatus = inv.payment_status;
     c.pendingAmount = inv.pending_amount;
     c.paymentTerms = inv.payment_terms;
-    const realIrn = !isMockIrnValue(inv.e_invoice_irn) ? inv.e_invoice_irn : null;
-    c.e_invoice_irn = realIrn;
-    c.e_invoice_ack_no = realIrn ? inv.e_invoice_ack_no : null;
-    c.e_invoice_ack_dt = realIrn ? inv.e_invoice_ack_dt : null;
-    c.e_invoice_signed_qr = realIrn ? inv.e_invoice_signed_qr : null;
+    c.e_invoice_irn = inv.e_invoice_irn;
+    c.e_invoice_ack_no = inv.e_invoice_ack_no;
+    c.e_invoice_ack_dt = inv.e_invoice_ack_dt;
+    c.e_invoice_signed_qr = inv.e_invoice_signed_qr;
     c.lessMoreBilling = inv.less_more_billing;
     c.billNumber = inv.bill_number;
     c.billingMonth = inv.billing_month;
@@ -619,9 +714,61 @@ export async function fetchInvoices() {
 
 /** Save a single invoice (upsert) with line items and attachments. */
 export async function saveInvoice(inv) {
-  const invId = typeof inv.id === 'string' && inv.id.length === 36 ? inv.id : undefined;
-  const realIrn = !isMockIrnValue(inv.e_invoice_irn) ? inv.e_invoice_irn : null;
-  const payload = {
+  let invId = isUuidString(inv.id) ? String(inv.id).trim() : undefined;
+  const taxTrimmed = String(inv.taxInvoiceNumber ?? inv.tax_invoice_number ?? '').trim();
+
+  /** Unique index on tax_invoice_number — resolve canonical row before upsert to avoid 409 duplicate key. */
+  let existingIdForTax = null;
+  if (taxTrimmed) {
+    const { data: byTax, error: lookupTaxErr } = await table('invoice')
+      .select('id')
+      .eq('tax_invoice_number', taxTrimmed)
+      .maybeSingle();
+    if (lookupTaxErr) throw lookupTaxErr;
+    if (byTax?.id) existingIdForTax = String(byTax.id);
+  }
+
+  if (existingIdForTax) {
+    if (!invId) {
+      invId = existingIdForTax;
+    } else if (invId !== existingIdForTax) {
+      const { data: rowForClientId, error: rowLookupErr } = await table('invoice')
+        .select('id')
+        .eq('id', invId)
+        .maybeSingle();
+      if (rowLookupErr) throw rowLookupErr;
+      if (!rowForClientId) {
+        invId = existingIdForTax;
+      } else {
+        const err = new Error(
+          `Tax invoice number "${taxTrimmed}" is already used by another invoice. Change the number or edit that invoice.`
+        );
+        err.code = 'DUPLICATE_TAX_INVOICE_NUMBER';
+        throw err;
+      }
+    }
+  }
+
+  let poIdFk = uuidOrNullForFk(inv.poId);
+  // Backward-compat fallback: some legacy client rows may carry non-UUID poId.
+  // Resolve FK by PO/WO number so invoices remain linked and survive refresh filters.
+  if (!poIdFk) {
+    const poWo = String(inv.poWoNumber ?? inv.po_wo_number ?? '').trim();
+    if (poWo) {
+      const { data: poRows, error: poLookupErr } = await table('po_wo')
+        .select('id')
+        .eq('po_wo_number', poWo)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (poLookupErr) throw poLookupErr;
+      if (Array.isArray(poRows) && poRows[0]?.id) {
+        poIdFk = String(poRows[0].id);
+      }
+    }
+  }
+  const taxInvoiceNumber = taxInvoiceNumberForPayload(inv, invId);
+  const gstSupply = normalizeGstSupplyType(inv.gstSupplyType ?? inv.gst_supply_type);
+  const payload = stripUndefined({
     ...(invId ? { id: invId } : {}),
     po_id: poIdFk,
     site_id: siteIdForPayload(inv.siteId),
@@ -643,13 +790,13 @@ export async function saveInvoice(inv) {
     total_amount: inv.totalAmount ?? 0,
     pa_status: inv.paStatus ?? 'Pending',
     payment_status: !!inv.paymentStatus,
-    pending_amount: inv.pendingAmount,
-    payment_terms: inv.paymentTerms,
-    e_invoice_irn: realIrn,
-    e_invoice_ack_no: realIrn ? inv.e_invoice_ack_no : null,
-    e_invoice_ack_dt: realIrn ? inv.e_invoice_ack_dt : null,
-    e_invoice_signed_qr: realIrn ? inv.e_invoice_signed_qr : null,
-    less_more_billing: inv.lessMoreBilling,
+    pending_amount: inv.pendingAmount != null ? Number(inv.pendingAmount) : null,
+    payment_terms: inv.paymentTerms ?? null,
+    e_invoice_irn: inv.e_invoice_irn ?? null,
+    e_invoice_ack_no: inv.e_invoice_ack_no ?? null,
+    e_invoice_ack_dt: inv.e_invoice_ack_dt ?? null,
+    e_invoice_signed_qr: inv.e_invoice_signed_qr ?? null,
+    less_more_billing: inv.lessMoreBilling != null ? Number(inv.lessMoreBilling) : null,
     bill_number: inv.billNumber || null,
     billing_month: inv.billingMonth || null,
     seller_cin: inv.sellerCin || null,
@@ -679,7 +826,7 @@ export async function saveInvoice(inv) {
     igst_rate: Number(inv.igstRate) || 0,
     igst_amt: Number(inv.igstAmt) || 0,
     digital_signature_data_url: inv.digitalSignatureDataUrl || null,
-  };
+  });
 
   /** New row: insert without id. Existing row: upsert with id in body (onConflict=id). Avoid PATCH/update — RLS/PostgREST often returns errors on PATCH for billing.invoice. */
   const persistInvoiceRow = async (p) => {

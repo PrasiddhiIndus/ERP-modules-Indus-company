@@ -50,6 +50,15 @@ function getRealIrn(inv) {
   return String(irn).toUpperCase().startsWith('MOCK-IRN-') ? '' : irn;
 }
 
+function sortInvoicesNewestFirst(list) {
+  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+    const aTs = new Date(a?.updated_at || a?.updatedAt || a?.invoiceDate || a?.invoice_date || a?.created_at || a?.createdAt || 0).getTime() || 0;
+    const bTs = new Date(b?.updated_at || b?.updatedAt || b?.invoiceDate || b?.invoice_date || b?.created_at || b?.createdAt || 0).getTime() || 0;
+    if (bTs !== aTs) return bTs - aTs;
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
+  });
+}
+
 const BILLING_TYPE_TABS_MANPOWER = [
   { id: 'All', label: 'All' },
   { id: 'Monthly', label: 'Monthly' },
@@ -85,16 +94,33 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [generateEInvoiceModalId, setGenerateEInvoiceModalId] = useState(null);
   const [page, setPage] = useState(1);
   const [manageTab, setManageTab] = useState('billing-types');
+  const [mainSortConfig, setMainSortConfig] = useState({ key: 'created', direction: 'desc' });
+  const [addOnSortConfig, setAddOnSortConfig] = useState({ key: 'created', direction: 'desc' });
   const PAGE_SIZE = 10;
+  const renderSortIndicator = (active, direction) => {
+    const ascActive = active && direction === 'asc';
+    const descActive = active && direction === 'desc';
+    return (
+      <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
+        <span className={ascActive ? 'text-emerald-400' : 'text-slate-300'}>▲</span>
+        <span className={descActive ? 'text-rose-400' : 'text-slate-300'}>▼</span>
+      </span>
+    );
+  };
 
   const verticalNotSelected = !billingVerticalFilter;
   const isRmVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
     return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev';
   }, [billingVerticalFilter]);
+  const isTrainingVertical = useMemo(() => {
+    const v = String(billingVerticalFilter || '').trim().toLowerCase();
+    return v === 'training';
+  }, [billingVerticalFilter]);
+  const showBillingTypeColumn = !isTrainingVertical;
   const billingTypeTabs = useMemo(
-    () => (isRmVertical ? BILLING_TYPE_TABS_RM : BILLING_TYPE_TABS_MANPOWER),
-    [isRmVertical]
+    () => (isTrainingVertical ? [{ id: 'All', label: 'All' }] : isRmVertical ? BILLING_TYPE_TABS_RM : BILLING_TYPE_TABS_MANPOWER),
+    [isRmVertical, isTrainingVertical]
   );
 
   const getPoByInvoice = React.useCallback(
@@ -133,7 +159,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
   const filteredInvoices = useMemo(() => {
     let list =
-      billingTypeFilter === 'All'
+      isTrainingVertical || billingTypeFilter === 'All'
         ? hydratedInvoices.filter((inv) => !inv.isAddOn)
         : hydratedInvoices.filter((inv) => !inv.isAddOn && getInvoiceBillingType(inv) === billingTypeFilter);
     if (searchTerm.trim()) {
@@ -145,8 +171,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
           inv.clientLegalName?.toLowerCase().includes(s)
       );
     }
-    return list;
-  }, [hydratedInvoices, commercialPOs, billingTypeFilter, searchTerm]);
+    return sortInvoicesNewestFirst(list);
+  }, [hydratedInvoices, commercialPOs, billingTypeFilter, searchTerm, isTrainingVertical]);
 
   const addOnInvoices = useMemo(() => {
     let list = hydratedInvoices.filter((inv) => !!inv.isAddOn);
@@ -160,14 +186,64 @@ const ManageInvoices = ({ onNavigateTab }) => {
           inv.addOnType?.toLowerCase().includes(s)
       );
     }
-    return list;
+    return sortInvoicesNewestFirst(list);
   }, [hydratedInvoices, searchTerm]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / PAGE_SIZE));
+  const sortedFilteredInvoices = useMemo(() => {
+    const dir = mainSortConfig.direction === 'asc' ? 1 : -1;
+    return [...filteredInvoices].sort((a, b) => {
+      const valueFor = (inv) => {
+        switch (mainSortConfig.key) {
+          case 'taxInvoice': return String(inv.taxInvoiceNumber || inv.bill_number || '').toLowerCase();
+          case 'billingType': return String(getInvoiceBillingType(inv) || '').toLowerCase();
+          case 'ocNumber': return String(inv.ocNumber || '').toLowerCase();
+          case 'client': return String(inv.clientLegalName || inv.client_name || '').toLowerCase();
+          case 'amount': return Number(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0);
+          case 'net': return Number(netAfterCnDn(inv.id, creditDebitNotes, inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0) || 0);
+          case 'poRemaining': {
+            const po = commercialPOs.find((p) => String(p.id) === String(inv.poId));
+            const contract = Number(po?.totalContractValue) || 0;
+            const expected = round2(sumRatePerCategory(po) * daysInMonth(inv.invoiceDate || inv.created_at));
+            return round2(contract - expected);
+          }
+          case 'eInvoice': return inv.e_invoice_irn ? 1 : 0;
+          default: return new Date(inv.updated_at || inv.updatedAt || inv.invoiceDate || inv.invoice_date || inv.created_at || 0).getTime() || 0;
+        }
+      };
+      const av = valueFor(a);
+      const bv = valueFor(b);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }, [filteredInvoices, mainSortConfig, creditDebitNotes, commercialPOs]);
+
+  const sortedAddOnInvoices = useMemo(() => {
+    const dir = addOnSortConfig.direction === 'asc' ? 1 : -1;
+    return [...addOnInvoices].sort((a, b) => {
+      const valueFor = (inv) => {
+        switch (addOnSortConfig.key) {
+          case 'taxInvoice': return String(inv.taxInvoiceNumber || inv.bill_number || '').toLowerCase();
+          case 'billingType': return String(inv.addOnType || 'Add-On').toLowerCase();
+          case 'ocNumber': return String(inv.ocNumber || '').toLowerCase();
+          case 'client': return String(inv.clientLegalName || inv.client_name || '').toLowerCase();
+          case 'amount': return Number(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0);
+          case 'net': return Number(netAfterCnDn(inv.id, creditDebitNotes, inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0) || 0);
+          case 'eInvoice': return inv.e_invoice_irn ? 1 : 0;
+          default: return new Date(inv.updated_at || inv.updatedAt || inv.invoiceDate || inv.invoice_date || inv.created_at || 0).getTime() || 0;
+        }
+      };
+      const av = valueFor(a);
+      const bv = valueFor(b);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }, [addOnInvoices, addOnSortConfig, creditDebitNotes]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredInvoices.length / PAGE_SIZE));
   const start = (page - 1) * PAGE_SIZE;
   const paginatedInvoices = useMemo(
-    () => filteredInvoices.slice(start, start + PAGE_SIZE),
-    [filteredInvoices, start]
+    () => sortedFilteredInvoices.slice(start, start + PAGE_SIZE),
+    [sortedFilteredInvoices, start]
   );
 
   const goToPage = (p) => setPage((prev) => Math.min(totalPages, Math.max(1, p)));
@@ -277,7 +353,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
   React.useEffect(() => {
     setPage(1);
-  }, [billingTypeFilter, searchTerm]);
+  }, [billingTypeFilter, searchTerm, mainSortConfig]);
 
   React.useEffect(() => {
     const allowed = new Set(billingTypeTabs.map((t) => t.id));
@@ -285,6 +361,12 @@ const ManageInvoices = ({ onNavigateTab }) => {
       setBillingTypeFilter('All');
     }
   }, [billingTypeTabs, billingTypeFilter]);
+
+  React.useEffect(() => {
+    if (showBillingTypeColumn) return;
+    setMainSortConfig((prev) => (prev.key === 'billingType' ? { key: 'created', direction: 'desc' } : prev));
+    setAddOnSortConfig((prev) => (prev.key === 'billingType' ? { key: 'created', direction: 'desc' } : prev));
+  }, [showBillingTypeColumn]);
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
@@ -353,7 +435,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                   <table className="w-full min-w-[1160px] table-fixed border-collapse">
                     <colgroup>
                       <col className="w-[14%]" />
-                      <col className="w-[12%]" />
+                      {showBillingTypeColumn ? <col className="w-[12%]" /> : null}
                       <col className="w-[12%]" />
                       <col className="w-[20%]" />
                       <col className="w-[10%]" />
@@ -363,18 +445,20 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     </colgroup>
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Tax Invoice</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Billing type</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">OC Number</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Amount</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Net after CN/DN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'taxInvoice' ? { key: 'taxInvoice', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'taxInvoice', direction: 'desc' })} className="inline-flex items-center">Tax Invoice {renderSortIndicator(addOnSortConfig.key === 'taxInvoice', addOnSortConfig.direction)}</button></th>
+                        {showBillingTypeColumn ? (
+                          <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'billingType' ? { key: 'billingType', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'billingType', direction: 'desc' })} className="inline-flex items-center">Billing type {renderSortIndicator(addOnSortConfig.key === 'billingType', addOnSortConfig.direction)}</button></th>
+                        ) : null}
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'ocNumber' ? { key: 'ocNumber', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'ocNumber', direction: 'desc' })} className="inline-flex items-center">OC Number {renderSortIndicator(addOnSortConfig.key === 'ocNumber', addOnSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'client' ? { key: 'client', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'client', direction: 'desc' })} className="inline-flex items-center">Client {renderSortIndicator(addOnSortConfig.key === 'client', addOnSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'amount' ? { key: 'amount', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'amount', direction: 'desc' })} className="inline-flex items-center">Amount {renderSortIndicator(addOnSortConfig.key === 'amount', addOnSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'net' ? { key: 'net', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'net', direction: 'desc' })} className="inline-flex items-center">Net after CN/DN {renderSortIndicator(addOnSortConfig.key === 'net', addOnSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'eInvoice' ? { key: 'eInvoice', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'eInvoice', direction: 'desc' })} className="inline-flex items-center">E-Inv {renderSortIndicator(addOnSortConfig.key === 'eInvoice', addOnSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                      {addOnInvoices.map((inv) => (
+                      {sortedAddOnInvoices.map((inv) => (
                         <tr key={`addon-${inv.id}`} className="hover:bg-gray-50 align-top">
                           <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono overflow-hidden min-w-0" title={inv.taxInvoiceNumber || inv.bill_number || '–'}>
                             <div className="flex flex-col items-center gap-0.5 min-w-0">
@@ -387,7 +471,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
                               ) : null}
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={inv.addOnType || 'Add-On'}>{inv.addOnType || 'Add-On'}</td>
+                          {showBillingTypeColumn ? (
+                            <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={inv.addOnType || 'Add-On'}>{inv.addOnType || 'Add-On'}</td>
+                          ) : null}
                           <td className="px-3 py-2 text-xs text-gray-700 text-center whitespace-nowrap overflow-hidden min-w-0" title={inv.ocNumber || '–'}>
                             <span className="block max-w-full truncate whitespace-nowrap">{inv.ocNumber || '–'}</span>
                           </td>
@@ -456,7 +542,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                       ))}
                       {addOnInvoices.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={8}>
+                          <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={showBillingTypeColumn ? 8 : 7}>
                             No add-on invoices found.
                           </td>
                         </tr>
@@ -469,37 +555,39 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
       {manageTab === 'billing-types' ? (
       <>
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="px-4 sm:px-6 py-2 border-b border-gray-100 flex items-center justify-between">
-          <p className="text-sm font-medium text-gray-600">Billing type</p>
-          <span className="text-sm text-gray-500">
-            {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''}
-          </span>
+      {!isTrainingVertical ? (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="px-4 sm:px-6 py-2 border-b border-gray-100 flex items-center justify-between">
+            <p className="text-sm font-medium text-gray-600">Billing type</p>
+            <span className="text-sm text-gray-500">
+              {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="flex gap-1 px-4 sm:px-6 border-t border-gray-100 overflow-x-auto">
+            {billingTypeTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setBillingTypeFilter(tab.id)}
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  billingTypeFilter === tab.id
+                    ? 'border-red-600 text-red-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-1 px-4 sm:px-6 border-t border-gray-100 overflow-x-auto">
-          {billingTypeTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setBillingTypeFilter(tab.id)}
-              className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                billingTypeFilter === tab.id
-                  ? 'border-red-600 text-red-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      ) : null}
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="w-full overflow-x-auto">
                   <table className="w-full min-w-[1160px] table-fixed border-collapse">
                     <colgroup>
                       <col className="w-[14%]" />
-                      <col className="w-[12%]" />
+                      {showBillingTypeColumn ? <col className="w-[12%]" /> : null}
                       <col className="w-[12%]" />
                       <col className="w-[20%]" />
                       <col className="w-[10%]" />
@@ -510,14 +598,16 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     </colgroup>
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Tax Invoice</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">Billing type</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60">OC Number</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Amount</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Net after CN/DN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">PO rem. (₹)</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">E-Inv</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'taxInvoice' ? { key: 'taxInvoice', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'taxInvoice', direction: 'desc' })} className="inline-flex items-center">Tax Invoice {renderSortIndicator(mainSortConfig.key === 'taxInvoice', mainSortConfig.direction)}</button></th>
+                        {showBillingTypeColumn ? (
+                          <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'billingType' ? { key: 'billingType', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'billingType', direction: 'desc' })} className="inline-flex items-center">Billing type {renderSortIndicator(mainSortConfig.key === 'billingType', mainSortConfig.direction)}</button></th>
+                        ) : null}
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'ocNumber' ? { key: 'ocNumber', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'ocNumber', direction: 'desc' })} className="inline-flex items-center">OC Number {renderSortIndicator(mainSortConfig.key === 'ocNumber', mainSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'client' ? { key: 'client', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'client', direction: 'desc' })} className="inline-flex items-center">Client {renderSortIndicator(mainSortConfig.key === 'client', mainSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'amount' ? { key: 'amount', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'amount', direction: 'desc' })} className="inline-flex items-center">Amount {renderSortIndicator(mainSortConfig.key === 'amount', mainSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'net' ? { key: 'net', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'net', direction: 'desc' })} className="inline-flex items-center">Net after CN/DN {renderSortIndicator(mainSortConfig.key === 'net', mainSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'poRemaining' ? { key: 'poRemaining', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'poRemaining', direction: 'desc' })} className="inline-flex items-center">PO rem. (₹) {renderSortIndicator(mainSortConfig.key === 'poRemaining', mainSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'eInvoice' ? { key: 'eInvoice', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'eInvoice', direction: 'desc' })} className="inline-flex items-center">E-Inv {renderSortIndicator(mainSortConfig.key === 'eInvoice', mainSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">Actions</th>
                       </tr>
                     </thead>
@@ -545,9 +635,11 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                     ) : null}
                                   </div>
                                 </td>
-                                <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={getInvoiceBillingType(inv) || ''}>
-                                  {getInvoiceBillingType(inv)}
-                                </td>
+                                {showBillingTypeColumn ? (
+                                  <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={getInvoiceBillingType(inv) || ''}>
+                                    {getInvoiceBillingType(inv)}
+                                  </td>
+                                ) : null}
                                 <td
                                   className="px-3 py-2 text-xs text-gray-700 text-center whitespace-nowrap overflow-hidden min-w-0"
                                   title={inv.ocNumber || '–'}
