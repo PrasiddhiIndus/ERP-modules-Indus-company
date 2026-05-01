@@ -749,7 +749,23 @@ export async function saveInvoice(inv) {
     }
   }
 
-  const poIdFk = uuidOrNullForFk(inv.poId);
+  let poIdFk = uuidOrNullForFk(inv.poId);
+  // Backward-compat fallback: some legacy client rows may carry non-UUID poId.
+  // Resolve FK by PO/WO number so invoices remain linked and survive refresh filters.
+  if (!poIdFk) {
+    const poWo = String(inv.poWoNumber ?? inv.po_wo_number ?? '').trim();
+    if (poWo) {
+      const { data: poRows, error: poLookupErr } = await table('po_wo')
+        .select('id')
+        .eq('po_wo_number', poWo)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (poLookupErr) throw poLookupErr;
+      if (Array.isArray(poRows) && poRows[0]?.id) {
+        poIdFk = String(poRows[0].id);
+      }
+    }
+  }
   const taxInvoiceNumber = taxInvoiceNumberForPayload(inv, invId);
   const gstSupply = normalizeGstSupplyType(inv.gstSupplyType ?? inv.gst_supply_type);
   const payload = stripUndefined({

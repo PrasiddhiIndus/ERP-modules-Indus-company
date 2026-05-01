@@ -258,6 +258,7 @@ const initialForm = {
 const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
   const { userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: 'created', direction: 'desc' });
   /** OC segment / vertical — R&M, M&M, AMC, IEV */
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -364,6 +365,24 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
   };
 
   const cleanCellText = (value) => String(value ?? '').replaceAll('|', '').trim();
+  const renderSortIndicator = (key) => {
+    const active = sortConfig.key === key;
+    const ascActive = active && sortConfig.direction === 'asc';
+    const descActive = active && sortConfig.direction === 'desc';
+    return (
+      <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
+        <span className={ascActive ? 'text-emerald-400' : 'text-slate-300'}>▲</span>
+        <span className={descActive ? 'text-rose-400' : 'text-slate-300'}>▼</span>
+      </span>
+    );
+  };
+  const toggleSort = (key) => {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'desc' }
+    );
+  };
 
   const filteredList = useMemo(() => {
     // Hide supplementary/mock POs from PO Entry UI — only manage the parent PO here.
@@ -383,12 +402,33 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
     );
   }, [commercialPOs, searchTerm, departmentFilter]);
 
+  const sortedFilteredList = useMemo(() => {
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    return [...filteredList].sort((a, b) => {
+      const getValue = (po) => {
+        switch (sortConfig.key) {
+          case 'ocNumber': return String(po.ocNumber || '').toLowerCase();
+          case 'siteLocation': return String([po.siteId, po.locationName].filter(Boolean).join(' ') || '').toLowerCase();
+          case 'client': return String(po.legalName || '').toLowerCase();
+          case 'poWo': return String(po.poWoNumber || '').toLowerCase();
+          case 'startEnd': return new Date(po.startDate || po.endDate || 0).getTime() || 0;
+          case 'status': return String(po.approvalStatus || '').toLowerCase();
+          default: return new Date(po.updated_at || po.updatedAt || po.created_at || po.createdAt || 0).getTime() || 0;
+        }
+      };
+      const av = getValue(a);
+      const bv = getValue(b);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }, [filteredList, sortConfig]);
+
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter]);
-  const totalPages = Math.max(1, Math.ceil(filteredList.length / PAGE_SIZE));
+  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, sortConfig]);
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredList.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const start = (safePage - 1) * PAGE_SIZE;
-  const paginatedList = filteredList.slice(start, start + PAGE_SIZE);
+  const paginatedList = sortedFilteredList.slice(start, start + PAGE_SIZE);
   const goToPage = (p) => setPage(Math.min(Math.max(1, p), totalPages));
 
   const nextId = useMemo(() => Math.max(0, ...commercialPOs.map((p) => p.id), 0) + 1, [commercialPOs]);
@@ -803,22 +843,34 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
                 <thead>
                   <tr>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[26%] md:w-[18%] lg:w-[17%]">
-                      OC Number
+                      <button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        OC Number {renderSortIndicator('ocNumber')}
+                      </button>
                     </th>
                     <th className="hidden md:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[16%] lg:w-[15%]">
-                      Site / Location
+                      <button type="button" onClick={() => toggleSort('siteLocation')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Site / Location {renderSortIndicator('siteLocation')}
+                      </button>
                     </th>
                     <th className="hidden lg:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%]">
-                      Client (Legal Name)
+                      <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Client (Legal Name) {renderSortIndicator('client')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[14%] md:w-[12%] lg:w-[10%]">
-                      PO/WO
+                      <button type="button" onClick={() => toggleSort('poWo')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        PO/WO {renderSortIndicator('poWo')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[13%] md:w-[11%] lg:w-[11%]">
-                      Start-End
+                      <button type="button" onClick={() => toggleSort('startEnd')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Start-End {renderSortIndicator('startEnd')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[28%] md:w-[24%] lg:w-[15%]">
-                      Status
+                      <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Status {renderSortIndicator('status')}
+                      </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%] md:w-[19%] lg:w-[13%]">
                       Actions
@@ -985,17 +1037,17 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
                 </tbody>
               </table>
             </div>
-            {filteredList.length === 0 && <div className="p-8 text-center text-gray-500">No PO/WO found. Add one to start.</div>}
+            {sortedFilteredList.length === 0 && <div className="p-8 text-center text-gray-500">No PO/WO found. Add one to start.</div>}
           </div>
         </div>
       </div>
 
-      {filteredList.length > 0 && (
+      {sortedFilteredList.length > 0 && (
         <div className="px-4 py-3 border border-gray-300 border-t-0 rounded-b-xl bg-gray-50 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-gray-600">
             Showing <span className="font-medium">{start + 1}</span>–
-            <span className="font-medium">{Math.min(start + PAGE_SIZE, filteredList.length)}</span> of{' '}
-            <span className="font-medium">{filteredList.length}</span> PO{filteredList.length !== 1 ? 's' : ''}
+            <span className="font-medium">{Math.min(start + PAGE_SIZE, sortedFilteredList.length)}</span> of{' '}
+            <span className="font-medium">{sortedFilteredList.length}</span> PO{sortedFilteredList.length !== 1 ? 's' : ''}
           </p>
           <div className="flex items-center gap-1">
             <button

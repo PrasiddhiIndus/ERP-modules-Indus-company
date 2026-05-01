@@ -243,6 +243,15 @@ function resolveSupplementaryOverrides(po, allPOs) {
   return { poWoNumber: po?.poWoNumber, totalContractValue: po?.totalContractValue, startDate: po?.startDate, endDate: po?.endDate };
 }
 
+function sortNewestPoFirst(list) {
+  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+    const aTs = new Date(a?.updated_at || a?.updatedAt || a?.created_at || a?.createdAt || a?.startDate || 0).getTime() || 0;
+    const bTs = new Date(b?.updated_at || b?.updatedAt || b?.created_at || b?.createdAt || b?.startDate || 0).getTime() || 0;
+    if (bTs !== aTs) return bTs - aTs;
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
+  });
+}
+
 const CreateInvoice = ({ onNavigateTab }) => {
   const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft, refreshBilling, billingVerticalFilter } = useBilling();
   const [selectedPoId, setSelectedPoId] = useState('');
@@ -256,6 +265,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
   const [poPage, setPoPage] = useState(1);
+  const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
   const [poBillingTab, setPoBillingTab] = useState('Monthly');
   const [createMainTab, setCreateMainTab] = useState('select-po');
@@ -266,6 +276,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const isRmVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
     return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev';
+  }, [billingVerticalFilter]);
+  const isTrainingVertical = useMemo(() => {
+    const v = String(billingVerticalFilter || '').trim().toLowerCase();
+    return v === 'training';
   }, [billingVerticalFilter]);
 
   /** M&M vertical only — description dropdown on invoice lines. */
@@ -284,16 +298,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const billablePOs = useMemo(() => {
     // In Create Invoice, we still *display* all PO entries (team-wise) so nothing looks "missing".
     // Billing actions can still be disabled based on approval status elsewhere in the UI.
-    return commercialPOs.filter((p) => !p.isSupplementary);
+    return sortNewestPoFirst(commercialPOs.filter((p) => !p.isSupplementary));
   }, [commercialPOs]);
 
   const billablePOsByTab = useMemo(() => {
+    if (isTrainingVertical) return billablePOs;
     const tab = String(poBillingTab || '').trim();
     return billablePOs.filter((p) => {
       const bt = String(p.billingType || '').trim();
       return bt === tab;
     });
-  }, [billablePOs, poBillingTab]);
+  }, [billablePOs, poBillingTab, isTrainingVertical]);
 
   const poTableRows = useMemo(() => {
     return billablePOsByTab.map((po) => {
@@ -334,14 +349,53 @@ const CreateInvoice = ({ onNavigateTab }) => {
     });
   }, [billablePOsByTab, billablePOs, commercialPOs, invoices, invoiceDate]);
 
+  const sortedPoTableRows = useMemo(() => {
+    const dir = poSortConfig.direction === 'asc' ? 1 : -1;
+    return [...poTableRows].sort((a, b) => {
+      const valueFor = (row) => {
+        switch (poSortConfig.key) {
+          case 'ocNumber': return String(row.ocNumber || '').toLowerCase();
+          case 'siteLocation': return String([row.siteId, row.locationName].filter(Boolean).join(' ') || '').toLowerCase();
+          case 'poWo': return String(row.poWoNumber || '').toLowerCase();
+          case 'remaining': return Number(row?._calc?.remaining || 0);
+          case 'status': return String(row.statusLabel || '').toLowerCase();
+          default: return new Date(row.updated_at || row.updatedAt || row.created_at || row.createdAt || row.startDate || 0).getTime() || 0;
+        }
+      };
+      const av = valueFor(a);
+      const bv = valueFor(b);
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }, [poTableRows, poSortConfig]);
+
+  const renderSortIndicator = (key) => {
+    const active = poSortConfig.key === key;
+    const ascActive = active && poSortConfig.direction === 'asc';
+    const descActive = active && poSortConfig.direction === 'desc';
+    return (
+      <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
+        <span className={ascActive ? 'text-emerald-400' : 'text-slate-300'}>▲</span>
+        <span className={descActive ? 'text-rose-400' : 'text-slate-300'}>▼</span>
+      </span>
+    );
+  };
+  const togglePoSort = (key) => {
+    setPoSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'desc' }
+    );
+  };
+
   useEffect(() => {
     setPoPage(1);
-  }, [poTableRows.length]);
+  }, [sortedPoTableRows.length, poSortConfig]);
 
-  const poTotalPages = Math.max(1, Math.ceil(poTableRows.length / PO_TABLE_PAGE_SIZE));
+  const poTotalPages = Math.max(1, Math.ceil(sortedPoTableRows.length / PO_TABLE_PAGE_SIZE));
   const poSafePage = Math.min(Math.max(1, poPage), poTotalPages);
   const poStart = (poSafePage - 1) * PO_TABLE_PAGE_SIZE;
-  const poPaginatedRows = poTableRows.slice(poStart, poStart + PO_TABLE_PAGE_SIZE);
+  const poPaginatedRows = sortedPoTableRows.slice(poStart, poStart + PO_TABLE_PAGE_SIZE);
 
   const goToPoPage = (p) => setPoPage(Math.min(Math.max(1, p), poTotalPages));
 
@@ -1129,33 +1183,35 @@ const CreateInvoice = ({ onNavigateTab }) => {
           </p>
         ) : (
           <div className="px-3 pb-3">
-            <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
-              {billingTabs.map((t) => {
-                const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
-                const bufferOpen = billablePOs.filter(
-                  (p) =>
-                    String(p.billingType || '').trim() === t.id &&
-                    (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
-                    isAfterContractEndForInvoice(p.endDate || p.end_date)
-                ).length;
-                const active = poBillingTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setPoBillingTab(t.id)}
-                    className={[
-                      'px-3 py-1.5 rounded-lg text-sm border',
-                      active ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
-                    ].join(' ')}
-                    title={bufferOpen ? `${bufferOpen} OC(s) with post-contract billing open in ${t.label}` : undefined}
-                  >
-                    {t.label} <span className={active ? 'text-white/90' : 'text-gray-500'}>({count})</span>
-                    {bufferOpen ? <span className={active ? 'ml-2 text-amber-100' : 'ml-2 text-amber-700'}>buffer {bufferOpen}</span> : null}
-                  </button>
-                );
-              })}
-            </div>
+            {!isTrainingVertical ? (
+              <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
+                {billingTabs.map((t) => {
+                  const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
+                  const bufferOpen = billablePOs.filter(
+                    (p) =>
+                      String(p.billingType || '').trim() === t.id &&
+                      (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
+                      isAfterContractEndForInvoice(p.endDate || p.end_date)
+                  ).length;
+                  const active = poBillingTab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setPoBillingTab(t.id)}
+                      className={[
+                        'px-3 py-1.5 rounded-lg text-sm border',
+                        active ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                      ].join(' ')}
+                      title={bufferOpen ? `${bufferOpen} OC(s) with post-contract billing open in ${t.label}` : undefined}
+                    >
+                      {t.label} <span className={active ? 'text-white/90' : 'text-gray-500'}>({count})</span>
+                      {bufferOpen ? <span className={active ? 'ml-2 text-amber-100' : 'ml-2 text-amber-700'}>buffer {bufferOpen}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             <div className="rounded-xl border border-slate-200/90 overflow-hidden bg-gradient-to-br from-red-50/40 via-white to-amber-50/30 ring-1 ring-slate-900/5">
               <div className="p-2">
                 <div className="bg-white rounded-lg overflow-hidden">
@@ -1163,11 +1219,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                       <thead>
                 <tr>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[18%]">OC Number</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[22%]">Site / Location</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">PO/WO</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]">Remaining (₹)</th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">Status</th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[18%]"><button type="button" onClick={() => togglePoSort('ocNumber')} className="inline-flex items-center">OC Number {renderSortIndicator('ocNumber')}</button></th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[22%]"><button type="button" onClick={() => togglePoSort('siteLocation')} className="inline-flex items-center">Site / Location {renderSortIndicator('siteLocation')}</button></th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]"><button type="button" onClick={() => togglePoSort('poWo')} className="inline-flex items-center">PO/WO {renderSortIndicator('poWo')}</button></th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]"><button type="button" onClick={() => togglePoSort('remaining')} className="inline-flex items-center">Remaining (₹) {renderSortIndicator('remaining')}</button></th>
+                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]"><button type="button" onClick={() => togglePoSort('status')} className="inline-flex items-center">Status {renderSortIndicator('status')}</button></th>
                   <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]">Action</th>
                 </tr>
                       </thead>
@@ -1260,12 +1316,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 </div>
                 </div>
 
-                {poTableRows.length === 0 ? null : (
+                {sortedPoTableRows.length === 0 ? null : (
                   <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm text-gray-600">
                       Showing <span className="font-medium">{poStart + 1}</span>–
-                      <span className="font-medium">{Math.min(poStart + PO_TABLE_PAGE_SIZE, poTableRows.length)}</span> of{' '}
-                      <span className="font-medium">{poTableRows.length}</span> PO{poTableRows.length !== 1 ? 's' : ''}
+                      <span className="font-medium">{Math.min(poStart + PO_TABLE_PAGE_SIZE, sortedPoTableRows.length)}</span> of{' '}
+                      <span className="font-medium">{sortedPoTableRows.length}</span> PO{sortedPoTableRows.length !== 1 ? 's' : ''}
                     </p>
                     <div className="flex items-center gap-1">
                       <button

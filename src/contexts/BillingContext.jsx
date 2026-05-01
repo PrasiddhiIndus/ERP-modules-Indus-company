@@ -298,7 +298,21 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     setInvoicesState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (useDb === true) {
-        saveInvoicesDb(next).catch((e) => {
+        const prevById = new Map((prev || []).map((inv) => [String(inv?.id || ''), inv]));
+        const changed = (next || []).filter((inv) => {
+          const id = String(inv?.id || '');
+          const old = prevById.get(id);
+          if (!old) return true;
+          return (
+            String(old.updated_at || old.updatedAt || '') !== String(inv.updated_at || inv.updatedAt || '') ||
+            String(old.taxInvoiceNumber || old.tax_invoice_number || '') !== String(inv.taxInvoiceNumber || inv.tax_invoice_number || '') ||
+            Number(old.totalAmount || 0) !== Number(inv.totalAmount || 0)
+          );
+        });
+        const persist = changed.length
+          ? Promise.all(changed.map((inv) => saveInvoiceDb(inv)))
+          : saveInvoicesDb(next);
+        persist.catch((e) => {
           console.warn('Billing DB save invoices failed:', e);
           setBillingError(e?.message || 'Could not save invoices to database. Data saved locally.');
           setUseDb(false);

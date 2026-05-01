@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BillingProvider, useBilling } from '../../contexts/BillingContext';
-import POEntry from './POEntry';
+import POEntry from '../sales/POEntry';
 import ContactLog from './ContactLog';
 
 const TAB_IDS = ['po-entry', 'contact-log'];
