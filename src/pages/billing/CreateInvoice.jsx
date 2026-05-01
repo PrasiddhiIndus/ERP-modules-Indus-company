@@ -203,20 +203,21 @@ function isAfterContractEndForInvoice(endDate) {
   return todayDay.getTime() > endDay.getTime();
 }
 
-/** Invoice linked to this PO or to a legacy supplementary child row (same billing slot). */
-function findInvoiceForBillablePo(po, allPOs, invoices) {
-  if (!po) return null;
-  const direct = invoices.find((i) => String(i.poId) === String(po.id));
-  if (direct) return direct;
-  if (!po.isSupplementary) {
-    const leg = (allPOs || []).find(
-      (p) =>
-        p.isSupplementary &&
-        String(p.supplementaryParentPoId || p.supplementary_parent_po_id || '') === String(po.id)
-    );
-    if (leg) return invoices.find((i) => String(i.poId) === String(leg.id)) || null;
-  }
-  return null;
+function normalizeVerticalValue(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  const aliases = {
+    manp: 'manpower',
+    manpower: 'manpower',
+    mp: 'manpower',
+    train: 'training',
+    trng: 'training',
+    training: 'training',
+    rm: 'rm',
+    mm: 'mm',
+    amc: 'amc',
+    iev: 'iev',
+  };
+  return aliases[raw] || raw;
 }
 
 function resolveSupplementaryOverrides(po, allPOs) {
@@ -295,29 +296,60 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const billingTabs = useMemo(() => (isRmVertical ? BILLING_TABS_RM : BILLING_TABS_MANPOWER), [isRmVertical]);
 
   useEffect(() => {
-    // When switching vertical, reset tab to a sensible default so the PO table doesn't look empty.
-    setPoBillingTab(isRmVertical ? 'Service' : 'Monthly');
-  }, [isRmVertical]);
+    // Keep tab defaults sensible per vertical.
+    if (isRmVertical) {
+      setPoBillingTab('Service');
+      return;
+    }
+    if (isTrainingVertical) {
+      setPoBillingTab('Per Day');
+      return;
+    }
+    setPoBillingTab('Monthly');
+  }, [isRmVertical, isTrainingVertical]);
 
   const billablePOs = useMemo(() => {
-    // In Create Invoice, we still *display* all PO entries (team-wise) so nothing looks "missing".
-    // Billing actions can still be disabled based on approval status elsewhere in the UI.
+    // Show all vertical-matched parent POs so Team-wise dropdown always displays
+    // the full table for selected Manpower / Training.
     return sortNewestPoFirst(commercialPOs.filter((p) => !p.isSupplementary));
   }, [commercialPOs]);
 
+  const invoiceByPoId = useMemo(() => {
+    const map = new Map();
+    (invoices || []).forEach((inv) => {
+      const key = String(inv?.poId || '');
+      if (!key || map.has(key)) return;
+      map.set(key, inv);
+    });
+    return map;
+  }, [invoices]);
+
+  const supplementaryChildByParentId = useMemo(() => {
+    const map = new Map();
+    (commercialPOs || []).forEach((po) => {
+      if (!po?.isSupplementary) return;
+      const parentId = String(po?.supplementaryParentPoId || po?.supplementary_parent_po_id || '');
+      if (!parentId || map.has(parentId)) return;
+      map.set(parentId, po);
+    });
+    return map;
+  }, [commercialPOs]);
+
   const billablePOsByTab = useMemo(() => {
-    if (isTrainingVertical) return billablePOs;
     const tab = String(poBillingTab || '').trim();
     return billablePOs.filter((p) => {
       const bt = String(p.billingType || '').trim();
       return bt === tab;
     });
-  }, [billablePOs, poBillingTab, isTrainingVertical]);
+  }, [billablePOs, poBillingTab]);
 
   const poTableRows = useMemo(() => {
     return billablePOsByTab.map((po) => {
       const over = resolveSupplementaryOverrides(po, billablePOs);
-      const existingInvoice = findInvoiceForBillablePo(po, commercialPOs, invoices);
+      const directInvoice = invoiceByPoId.get(String(po.id));
+      const legacyChild = supplementaryChildByParentId.get(String(po.id));
+      const existingInvoice =
+        directInvoice || (legacyChild ? invoiceByPoId.get(String(legacyChild.id)) : null) || null;
       const hasInvoice = !!existingInvoice;
       const dCount = daysInMonth(invoiceDate);
       const rateSum = sumRatePerCategory(po);
@@ -351,7 +383,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         _calc: { days: dCount, rateSum, contract, expected, remaining },
       };
     });
-  }, [billablePOsByTab, billablePOs, commercialPOs, invoices, invoiceDate]);
+  }, [billablePOsByTab, billablePOs, invoiceByPoId, supplementaryChildByParentId, invoiceDate]);
 
   const sortedPoTableRows = useMemo(() => {
     const dir = poSortConfig.direction === 'asc' ? 1 : -1;
@@ -487,11 +519,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const isManpowerMonthly = useMemo(() => {
     if (!displayPO) return false;
-    const vertical =
-      displayPO.vertical ||
-      displayPO.poVertical ||
-      (displayPO.ocNumber ? String(displayPO.ocNumber).split('-')[1] : '');
-    const isManpower = String(vertical || '').toLowerCase() === 'manpower';
+    const ocVerticalPart = displayPO.ocNumber ? String(displayPO.ocNumber).split('-')[1] : '';
+    const vertical = normalizeVerticalValue(displayPO.vertical || displayPO.poVertical || ocVerticalPart);
+    const isManpower = vertical === 'manpower';
     const isMonthly = String(displayPO.billingType || '').toLowerCase() === 'monthly';
     return isManpower && isMonthly;
   }, [displayPO]);
@@ -1193,7 +1223,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           </p>
         ) : (
           <div className="px-3 pb-3">
-            {!isTrainingVertical ? (
+            {!isRmVertical ? (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
                 {billingTabs.map((t) => {
                   const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
@@ -2137,7 +2167,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-gray-100">
-              <InvoiceHtmlPreview inv={selectedViewInvoice} />
+              <InvoiceHtmlPreview inv={selectedViewInvoice} showEInvoiceMeta={false} />
             </div>
           </div>
         </div>

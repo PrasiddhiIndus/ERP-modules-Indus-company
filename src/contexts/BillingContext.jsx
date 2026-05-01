@@ -66,13 +66,16 @@ function normalizeVerticalKey(v) {
 }
 
 function resolvePoVerticalKey(po) {
+  // Respect the explicit PO-entry dropdown selection first.
+  // OC text can be stale/legacy if users edited vertical later.
+  const direct = po?.vertical || po?.poVertical;
+  if (direct) return normalizeVerticalKey(direct);
+
   const oc = po?.ocNumber || po?.oc_number;
   if (oc && String(oc).includes('-')) {
     const parts = String(oc).split('-');
     if (parts[1]) return normalizeVerticalKey(parts[1]);
   }
-  const direct = po?.vertical || po?.poVertical;
-  if (direct) return normalizeVerticalKey(direct);
   return '';
 }
 

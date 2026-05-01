@@ -15,6 +15,10 @@ import { formatAmountUpTo3Decimals, formatInvoiceTotalDisplay } from '../../../u
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
 
 const PDF_RS = 'Rs.';
+const COMPANY_DISPLAY_NAME = 'INDUS FIRE SAFETY PRIVATE LIMITED';
+const GST_RULE_LINE = 'Rule 46, Section 31 of GST Act - 2017';
+const DEFAULT_UDHYAM_REG_NO = 'UDYAM-GJ-24-0001805';
+const DEFAULT_SELLER_CIN = 'U29193GJ2012PTC070236';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -22,6 +26,16 @@ function round2(n) {
 
 function formatMoney2(n) {
   return round2(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function preferredTextValue(...values) {
+  for (const v of values) {
+    const s = String(v ?? '').trim();
+    if (!s) continue;
+    if (s === '–' || s === '-' || s === '—') continue;
+    return s;
+  }
+  return '';
 }
 
 function docTitleForKind(kind) {
@@ -36,7 +50,7 @@ function docTitleForKind(kind) {
  * Static HTML invoice preview — shared by Create Invoice and Manage Invoices.
  * Field order and layout mirror buildTaxInvoiceDoc in taxInvoicePdf.js.
  */
-export default function InvoiceHtmlPreview({ inv }) {
+export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
   if (!inv) return null;
 
   const previewItems = Array.isArray(inv.items) ? inv.items : [];
@@ -56,6 +70,7 @@ export default function InvoiceHtmlPreview({ inv }) {
   const docTitle = docTitleForKind(invoiceKind);
 
   const previewPaymentTerms = inv.paymentTerms || '30 Days';
+  const previewPaymentMode = inv.paymentTermMode || inv.payment_term_mode || '–';
   const previewInvoiceDateStr = formatPdfDate(inv.invoiceDate || inv.created_at);
   const previewBuyerOrderNo = inv.poWoNumber || inv.ocNumber || '–';
 
@@ -69,16 +84,17 @@ export default function InvoiceHtmlPreview({ inv }) {
 
   const placeOfSupply = inv.placeOfSupply || inv.place_of_supply || 'Gujarat';
 
-  const cin = inv.sellerCin || inv.seller_cin || PDF_SELLER.cin;
+  const cin = preferredTextValue(inv.sellerCin, inv.seller_cin, PDF_SELLER.cin, DEFAULT_SELLER_CIN);
   const pan = inv.sellerPan || inv.seller_pan || PDF_SELLER.pan;
   const cinDisp = cin && cin !== '—' ? cin : '–';
   const panDisp = pan && pan !== '—' ? pan : '–';
   const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no || PDF_SELLER.msmeUdyamNo;
   const msmeClause = inv.msmeClause || inv.msme_clause || DEFAULT_MSME_CLAUSE;
-  const msmeText = `MSME Udyam: ${msmeNo ? `${msmeNo} ` : ' '}${msmeClause ? msmeClause : ''}`;
+  const udhyamNo = msmeNo || DEFAULT_UDHYAM_REG_NO;
+  const msmeText = `MSME Udyam : ${msmeClause ? msmeClause : ''}`;
+  const udhyamLine = `Udhyam Registration No. : ${udhyamNo}`;
 
   const billMonth = inv.billingMonth || inv.billing_month || '–';
-  const billNo = inv.billNumber || inv.bill_number || '–';
   const durFrom = inv.billingDurationFrom || inv.billing_duration_from;
   const durTo = inv.billingDurationTo || inv.billing_duration_to;
   const billingDur =
@@ -111,21 +127,22 @@ export default function InvoiceHtmlPreview({ inv }) {
     inv.parent_tax_invoice_number;
   const metaRowsLeft = [
     ['Invoice No.', invoiceNo],
-    ['Bill No.', billNo],
     ['Billing Month', billMonth],
     ['Billing Duration', billingDur],
+    ['CIN No.', cinDisp],
   ];
   const metaRowsRight = [
-    ['Dated', previewInvoiceDateStr],
-    ['Mode/Terms of Payment', previewPaymentTerms],
-    ["Buyer's Order No.", previewBuyerOrderNo],
-    ['Order Dated', orderDated],
+    ['Invoice Date', previewInvoiceDateStr],
+    ['Mode of Payment', previewPaymentMode],
+    ['Term of Payment', previewPaymentTerms],
+    ['PAN No.', panDisp],
     ...(origTaxNo && (invoiceKind === 'credit_note' || invoiceKind === 'debit_note')
       ? [['Original Tax Invoice No.', String(origTaxNo)]]
       : []),
   ];
   const invoiceSubtotal = round2(previewTotal - previewCgst - previewSgst - previewIgst);
-  const uiTitle = `${docTitle}   (ORIGINAL FOR RECIPIENT)${isEInvoicePreview ? '   e-Invoice' : ''}`;
+  const showEinvBlock = showEInvoiceMeta && isEInvoicePreview;
+  const uiTitle = docTitle;
 
   return (
     <div className="w-full bg-[#e8e8e8] p-4 sm:p-6">
@@ -135,70 +152,80 @@ export default function InvoiceHtmlPreview({ inv }) {
       >
         <div className="px-[28px] pt-4 pb-3">
           <div className="flex items-start gap-3">
-            <div className="h-12 w-12 rounded-full border border-[#bbb] flex items-center justify-center text-[10px] font-bold text-[#1a3a6c] leading-tight text-center shrink-0">
-              IFS
-              <br />
-              PVT
+            <div className="h-12 w-12 rounded-full border border-[#8ea2c0] bg-white overflow-hidden shrink-0 grid place-items-center p-1">
+              <img src={INDUS_LOGO_SRC} alt="IFS logo" className="h-full w-full object-contain" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[15px] font-bold uppercase tracking-[0.3px] text-[#1a3a6c]">M/S INDUS FIRE SAFETY PRIVATE LIMITED</p>
-              <p className="text-[8.5px] text-[#1a3a6c] mt-0.5">SECTION 31 OF GST ACT - 2017</p>
+              <p className="text-[15px] font-bold uppercase tracking-[0.3px] text-[#1a3a6c]">{COMPANY_DISPLAY_NAME}</p>
+              <p className="text-[8.5px] text-[#1a3a6c] mt-0.5">{GST_RULE_LINE}</p>
               <p className="text-[8px] mt-0.5">{PDF_SELLER.address}</p>
               <p className="text-[8px] mt-0.5">
-                GSTIN/UIN: {PDF_SELLER.gstin} | State: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode} | PAN: {PDF_SELLER.pan || '–'}
+                GSTIN: {PDF_SELLER.gstin} | State: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode} | PAN: {PDF_SELLER.pan || '–'}
               </p>
             </div>
-            <div className="w-14 shrink-0">
-              <div className="h-14 w-14 border border-[#bbb] bg-white grid place-items-center">
-                {isEInvoicePreview && qrData ? (
-                  <img src={qrData} alt="QR Code" className="h-full w-full object-contain" />
-                ) : (
-                  <span className="text-[7px] text-gray-500">QR</span>
-                )}
+            {showEinvBlock ? (
+              <div className="w-14 shrink-0">
+                <div className="h-14 w-14 border border-[#bbb] bg-white grid place-items-center">
+                  {qrData ? (
+                    <img src={qrData} alt="QR Code" className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="text-[7px] text-gray-500">QR</span>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         </div>
 
         <div className="px-[28px]">
           <div className="border-y-2 border-[#1a3a6c] py-1 text-center">
-            <p className="text-[9px] font-bold uppercase tracking-[0.8px] text-[#1a3a6c]">{uiTitle}</p>
+            <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+              <p className="text-[9px] font-bold uppercase tracking-[0.8px] text-[#1a3a6c] text-center">{uiTitle}</p>
+              <p className="text-[7px] font-semibold uppercase tracking-[0.4px] text-[#1a3a6c] whitespace-nowrap text-right">
+                (Original for recipient)
+              </p>
+            </div>
+            {showEinvBlock ? (
+              <p className="text-[6.5px] font-medium uppercase tracking-[0.35px] text-[#1a3a6c] text-right -mt-0.5">e-Invoice</p>
+            ) : null}
           </div>
         </div>
 
-        <div className="px-[28px] bg-[#f0f4fa] border-y border-[#bbb] py-1.5">
-          <div className="space-y-0.5 text-[8px]">
-            <p className="flex gap-2">
-              <span className="min-w-[48px] font-bold text-[#1a3a6c]">IRN No:</span>
-              <span className="font-mono text-[#4b5563] break-all">{irn || '–'}</span>
-            </p>
-            <p className="flex gap-2">
-              <span className="min-w-[48px] font-bold text-[#1a3a6c]">Ack No:</span>
-              <span className="font-mono text-[#4b5563]">{ackNo || '–'}</span>
-            </p>
-            <p className="flex gap-2">
-              <span className="min-w-[48px] font-bold text-[#1a3a6c]">Ack Date:</span>
-              <span className="font-mono text-[#4b5563]">{ackDt ? formatPdfDate(ackDt) : '–'}</span>
-            </p>
+        {showEinvBlock ? (
+          <div className="px-[28px] bg-[#f0f4fa] border-y border-[#bbb] py-1.5">
+            <div className="space-y-0.5 text-[8px]">
+              <p className="flex gap-2">
+                <span className="min-w-[48px] font-bold text-[#1a3a6c]">IRN No:</span>
+                <span className="font-mono text-[#4b5563] break-all">{irn || '–'}</span>
+              </p>
+              <p className="flex gap-2">
+                <span className="min-w-[48px] font-bold text-[#1a3a6c]">Ack No:</span>
+                <span className="font-mono text-[#4b5563]">{ackNo || '–'}</span>
+              </p>
+              <p className="flex gap-2">
+                <span className="min-w-[48px] font-bold text-[#1a3a6c]">Ack Date:</span>
+                <span className="font-mono text-[#4b5563]">{ackDt ? formatPdfDate(ackDt) : '–'}</span>
+              </p>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <div className="px-[28px]">
-          <div className="border border-[#bbb] border-t-0 text-[8.5px]">
+          <div className="border border-[#bbb] text-[8.5px]">
             <div className="grid grid-cols-2">
               <div className="px-2 py-2 space-y-1.5">
                 {metaRowsLeft.map(([label, val]) => (
                   <p key={label} className="grid grid-cols-[110px_1fr] gap-2">
-                    <span className="text-gray-600">{label}:</span>
-                    <span className="font-bold text-black">{val}</span>
+                    <span className="font-semibold text-gray-700">{label}:</span>
+                    <span className="text-black">{val}</span>
                   </p>
                 ))}
               </div>
               <div className="px-2 py-2 space-y-1.5 border-l border-[#bbb]">
                 {metaRowsRight.map(([label, val]) => (
                   <p key={label} className="grid grid-cols-[110px_1fr] gap-2">
-                    <span className="text-gray-600">{label}:</span>
-                    <span className="font-bold text-black">{val}</span>
+                    <span className="font-semibold text-gray-700">{label}:</span>
+                    <span className="text-black">{val}</span>
                   </p>
                 ))}
               </div>
@@ -206,9 +233,10 @@ export default function InvoiceHtmlPreview({ inv }) {
           </div>
         </div>
 
-        <div className="px-[28px]">
-          <div className="border-x border-b border-[#e6c800] bg-[#fffbe6] px-2 py-1">
-            <p className="text-[8px] font-bold text-[#b7791f]">{msmeText}</p>
+        <div className="px-[28px] mt-3">
+          <div className="border border-[#e6c800] bg-[#fffbe6] px-2 py-1.5 text-left">
+            <p className="text-[8.8px] font-bold text-[#b7791f] leading-[1.35]">{msmeText}</p>
+            <p className="text-[8.8px] font-bold text-[#b7791f] leading-[1.35]">{udhyamLine}</p>
           </div>
         </div>
 
@@ -216,18 +244,18 @@ export default function InvoiceHtmlPreview({ inv }) {
           <div className="border border-[#bbb]">
             <div className="grid grid-cols-2">
               <div className="px-2 py-2 border-r border-[#bbb] text-[8.5px]">
-                <p className="font-bold uppercase text-[#1a3a6c] border-b border-[#bbb] pb-1 mb-1">Buyer (Bill to)</p>
+                <p className="font-bold uppercase text-[#1a3a6c] border-b border-[#bbb] pb-1 mb-1">BUYER (BILL TO)</p>
                 <p className="font-bold">{buyerNameLine}</p>
                 <p className="mt-0.5 whitespace-pre-wrap">{buyerAddress}</p>
-                <p className="mt-0.5">GSTIN/UIN: {buyerGstin}</p>
+                <p className="mt-0.5">GSTIN: {buyerGstin}</p>
                 <p>State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}</p>
                 <p>Place of Supply: {placeOfSupply}</p>
               </div>
               <div className="px-2 py-2 text-[8.5px]">
-                <p className="font-bold uppercase text-[#1a3a6c] border-b border-[#bbb] pb-1 mb-1">Consignee (Ship to)</p>
+                <p className="font-bold uppercase text-[#1a3a6c] border-b border-[#bbb] pb-1 mb-1">CONSIGNEE (SHIP TO)</p>
                 <p className="font-bold">{buyerNameLine}</p>
                 <p className="mt-0.5 whitespace-pre-wrap">{shipAddress}</p>
-                <p className="mt-0.5">GSTIN/UIN: {buyerGstin}</p>
+                <p className="mt-0.5">GSTIN: {buyerGstin}</p>
                 <p>State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}</p>
               </div>
             </div>
@@ -242,17 +270,17 @@ export default function InvoiceHtmlPreview({ inv }) {
         </div>
 
         <div className="px-[28px] pt-2">
-          <table className="w-full border-collapse border border-[#bbb] text-[8px]">
+          <table className="w-full border-collapse border border-[#bbb] text-[8.5px]">
             <thead>
               <tr className="bg-[#1a3a6c] text-white">
-                <th className="border border-[#bbb] px-1 py-1 text-center font-bold w-[5%]">Sl.No</th>
-                <th className="border border-[#bbb] px-1 py-1 text-left font-bold w-[40%]">Description of Goods</th>
-                <th className="border border-[#bbb] px-1 py-1 text-center font-bold w-[10%]">HSN/SAC</th>
-                <th className="border border-[#bbb] px-1 py-1 text-center font-bold w-[6%]">Qty</th>
-                <th className="border border-[#bbb] px-1 py-1 text-center font-bold w-[11%]">Rate ({PDF_RS})</th>
-                <th className="border border-[#bbb] px-1 py-1 text-center font-bold w-[6%]">UOM</th>
-                <th className="border border-[#bbb] px-1 py-1 text-center font-bold w-[6%]">Disc.%</th>
-                <th className="border border-[#bbb] px-1 py-1 text-center font-bold w-[16%]">Amount ({PDF_RS})</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">Sl.No</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-left font-bold text-white leading-tight w-[39%]">Description of Goods</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]">HSN/SAC</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">Qty</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]">Rate ({PDF_RS})</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">UOM</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">Disc.%</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[15%]">Amount ({PDF_RS})</th>
               </tr>
             </thead>
             <tbody>
@@ -344,8 +372,8 @@ export default function InvoiceHtmlPreview({ inv }) {
               </ol>
             </div>
             <div className="px-2 py-2 text-right">
-              <p className="text-gray-500">for M/s Indus Fire Safety Private Limited</p>
-              <p className="font-bold text-[#1a3a6c] mt-0.5 text-[11px]">M/S INDUS FIRE SAFETY PRIVATE LIMITED</p>
+              <p className="text-gray-500">for {COMPANY_DISPLAY_NAME}</p>
+              <p className="font-bold text-[#1a3a6c] mt-0.5 text-[11px]">{COMPANY_DISPLAY_NAME}</p>
               <div className="h-7" />
               <div className="w-[120px] border-b border-[#333] ml-auto" />
               <p className="text-center w-[120px] ml-auto mt-0.5">Authorised Signatory</p>

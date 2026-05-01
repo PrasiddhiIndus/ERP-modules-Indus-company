@@ -44,16 +44,20 @@ function panEmbeddedInGstin(gstin) {
 }
 
 const SELLER_GSTIN = '24AADCJ2182H1ZS';
+const COMPANY_DISPLAY_NAME = 'INDUS FIRE SAFETY PRIVATE LIMITED';
+const GST_RULE_LINE = 'Rule 46, Section 31 of GST Act - 2017';
+const DEFAULT_UDHYAM_REG_NO = 'UDYAM-GJ-24-0001805';
+const DEFAULT_SELLER_CIN = 'U29193GJ2012PTC070236';
 
 // Seller (company issuing invoice) — single source for CIN / PAN / MSME on all invoice PDFs & HTML preview
 const SELLER = {
-  name: 'M/s Indus Fire Safety Private Limited',
+  name: COMPANY_DISPLAY_NAME,
   address: 'Block No 501, Old NH-8, Opposite GSFC Main Gate, Vadodara, Dashrath, Vadodara',
   state: 'Gujarat',
   stateCode: '24',
   gstin: SELLER_GSTIN,
   /** Companies Act CIN — set here once; optional per-invoice DB fields still override if present. */
-  cin: '',
+  cin: DEFAULT_SELLER_CIN,
   pan: panEmbeddedInGstin(SELLER_GSTIN),
   /** MSME Udyam no. — set here once; optional per-invoice DB fields still override if present. */
   msmeUdyamNo: '',
@@ -88,6 +92,8 @@ const PDF_RS = 'Rs.';
 /** Layout (mm, A4 portrait) */
 const MARGIN = 14;
 const GAP_COL = 6;
+const BOX_GAP = 3;
+const DETAILS_TO_MSME_GAP = 4;
 const FONT = {
   title: 13,
   section: 9,
@@ -122,6 +128,16 @@ function formatInrPdf(n) {
 
 function formatMoney2(n) {
   return round2(Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function preferredTextValue(...values) {
+  for (const v of values) {
+    const s = String(v ?? '').trim();
+    if (!s) continue;
+    if (s === '–' || s === '-' || s === '—') continue;
+    return s;
+  }
+  return '';
 }
 
 // Simple number to words for INR (up to 99,99,999)
@@ -289,6 +305,8 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const contentW = pageW - 2 * MARGIN;
   const midX = MARGIN + contentW / 2 + GAP_COL / 2;
   const colW = (contentW - GAP_COL) / 2;
+  const footerStripH = 8;
+  const bottomSafeY = pageH - footerStripH - 2;
   let y = MARGIN;
 
   const invoiceKind = inv.invoiceKind || options.invoiceKind || 'tax';
@@ -305,6 +323,15 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     items,
   } = getInvoiceTotals(inv);
 
+  const ensureSpace = (requiredHeight = 0) => {
+    if (y + requiredHeight <= bottomSafeY) return;
+    doc.addPage();
+    y = MARGIN;
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(FONT.body);
+    doc.setFont(undefined, 'normal');
+  };
+
   const buyerName = inv.clientLegalName || inv.client_name || '–';
   const buyerAddress = inv.clientAddress || inv.billingAddress || '–';
   const shipToRaw = inv.clientShippingAddress || inv.client_shipping_address;
@@ -314,6 +341,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const invoiceNo = inv.taxInvoiceNumber || inv.bill_number || '–';
   const invoiceDate = formatPdfDate(inv.invoiceDate || inv.created_at);
   const paymentTerms = inv.paymentTerms || '30 Days';
+  const paymentMode = inv.paymentTermMode || inv.payment_term_mode || '–';
   const buyerOrderNo = inv.poWoNumber || inv.ocNumber || '–';
   const placeOfSupply = inv.placeOfSupply || inv.place_of_supply || 'Gujarat';
   const irn = inv.e_invoice_irn || inv.eInvoiceIrn;
@@ -326,18 +354,21 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   // ----- Top company header (logo + company details + QR)
   const isEInvoicePdf = includeEinvoiceHeader && irn;
   const headerTopY = 4;
-  const logoBox = { x: MARGIN, y: headerTopY + 2, w: 15, h: 15 };
-  const qrBoxW = 18;
-  const qrBoxH = 18;
+  const logoBox = { x: MARGIN, y: headerTopY + 0.8, w: 17, h: 17 };
+  const qrBoxW = isEInvoicePdf ? 22 : 18;
+  const qrBoxH = isEInvoicePdf ? 22 : 18;
   const qrBoxX = pageW - MARGIN - qrBoxW;
   const qrBoxY = headerTopY + 1.5;
   const companyTextX = logoBox.x + logoBox.w + 3;
   const companyTextW = qrBoxX - companyTextX - 3;
   let logoPlaced = false;
+  // Clean circular logo mark: no heavy border so the logo edge doesn't look cut.
+  doc.setFillColor(255, 255, 255);
+  doc.circle(logoBox.x + logoBox.w / 2, logoBox.y + logoBox.h / 2, logoBox.w / 2, 'F');
   if (logoDataUrl && typeof logoDataUrl === 'string' && logoDataUrl.startsWith('data:image/')) {
     try {
       const fmt = logoDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-      doc.addImage(logoDataUrl, fmt, logoBox.x, logoBox.y, logoBox.w, logoBox.h, undefined, 'FAST');
+      doc.addImage(logoDataUrl, fmt, logoBox.x + 0.9, logoBox.y + 0.9, logoBox.w - 1.8, logoBox.h - 1.8, undefined, 'FAST');
       logoPlaced = true;
     } catch {
       /* fallback below */
@@ -345,49 +376,61 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   }
   if (!logoPlaced) {
     doc.setFillColor(255, 255, 255);
-    doc.rect(logoBox.x, logoBox.y, logoBox.w, logoBox.h, 'F');
+    doc.circle(logoBox.x + logoBox.w / 2, logoBox.y + logoBox.h / 2, logoBox.w / 2, 'F');
     doc.setTextColor(20, 56, 110);
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setFont(undefined, 'bold');
-    doc.text('INDUS', logoBox.x + logoBox.w / 2, logoBox.y + logoBox.h / 2 + 1.5, { align: 'center' });
+    doc.text('IFS', logoBox.x + logoBox.w / 2, logoBox.y + logoBox.h / 2 + 1.2, { align: 'center' });
   }
 
   doc.setTextColor(20, 56, 110);
-  doc.setFontSize(12);
+  const headerTitleY = headerTopY + 5.6;
+  const ruleLineY = headerTitleY + 4.2;
+  // Visual tuning: keep a clearer gap after Rule line, tighter gap before GSTIN line.
+  const gapRuleToAddress = 4.2;
+  const gapAddressToGstin = 0.8;
+  const addressStartY = ruleLineY + gapRuleToAddress;
+
+  doc.setFontSize(11.5);
   doc.setFont(undefined, 'bold');
-  doc.text(SELLER.name.toUpperCase(), companyTextX, headerTopY + 6);
+  doc.text(COMPANY_DISPLAY_NAME, companyTextX, headerTitleY);
+
   doc.setFontSize(FONT.small);
   doc.setFont(undefined, 'normal');
-  doc.text('SECTION 31 OF GST ACT - 2017', companyTextX, headerTopY + 10);
+  doc.text(GST_RULE_LINE, companyTextX, ruleLineY);
+
   const sellerAddrHeaderLines = doc.splitTextToSize(SELLER.address, companyTextW);
-  doc.text(sellerAddrHeaderLines, companyTextX, headerTopY + 13);
-  const gstLineY = headerTopY + 13 + sellerAddrHeaderLines.length * LH(FONT.small) + 0.8;
+  doc.text(sellerAddrHeaderLines, companyTextX, addressStartY);
+  const addressBlockH = sellerAddrHeaderLines.length * LH(FONT.small);
+  const gstLineY = addressStartY + addressBlockH + gapAddressToGstin;
   doc.text(
-    `GSTIN/UIN: ${SELLER.gstin}  |  State: ${SELLER.state}, Code: ${SELLER.stateCode}  |  PAN: ${SELLER.pan || '–'}`,
+    `GSTIN: ${SELLER.gstin}  |  State: ${SELLER.state}, Code: ${SELLER.stateCode}  |  PAN: ${SELLER.pan || '–'}`,
     companyTextX,
     gstLineY
   );
 
-  doc.setDrawColor(150, 150, 150);
-  doc.rect(qrBoxX, qrBoxY, qrBoxW, qrBoxH, 'S');
-  doc.setFontSize(6);
-  doc.setTextColor(90, 90, 90);
-  doc.text('Scan QR', qrBoxX + qrBoxW / 2, qrBoxY - 0.6, { align: 'center' });
-  if (isEInvoicePdf && typeof qrData === 'string' && qrData.length > 0 && (qrData.startsWith('data:image/') || qrData.startsWith('data:application/'))) {
-    try {
-      const type = qrData.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
-      doc.addImage(qrData, type, qrBoxX + 0.8, qrBoxY + 0.8, qrBoxW - 1.6, qrBoxH - 1.6);
-    } catch {
+  if (isEInvoicePdf) {
+    doc.setDrawColor(150, 150, 150);
+    doc.rect(qrBoxX, qrBoxY, qrBoxW, qrBoxH, 'S');
+    doc.setFontSize(6);
+    doc.setTextColor(90, 90, 90);
+    doc.text('E-INVOICE', qrBoxX + qrBoxW / 2, qrBoxY - 0.6, { align: 'center' });
+    if (typeof qrData === 'string' && qrData.length > 0 && (qrData.startsWith('data:image/') || qrData.startsWith('data:application/'))) {
+      try {
+        const type = qrData.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+        doc.addImage(qrData, type, qrBoxX + 0.8, qrBoxY + 0.8, qrBoxW - 1.6, qrBoxH - 1.6);
+      } catch {
+        doc.setFontSize(6);
+        doc.text('QR Code', qrBoxX + qrBoxW / 2, qrBoxY + qrBoxH / 2 + 1, { align: 'center' });
+      }
+    } else {
       doc.setFontSize(6);
       doc.text('QR Code', qrBoxX + qrBoxW / 2, qrBoxY + qrBoxH / 2 + 1, { align: 'center' });
     }
-  } else {
-    doc.setFontSize(6);
-    doc.text('QR Code', qrBoxX + qrBoxW / 2, qrBoxY + qrBoxH / 2 + 1, { align: 'center' });
   }
 
   doc.setTextColor(0, 0, 0);
-  y = Math.max(gstLineY + 3, qrBoxY + qrBoxH + 3);
+  y = Math.max(gstLineY + 4, qrBoxY + qrBoxH + 3);
 
   doc.setDrawColor(20, 56, 110);
   doc.setLineWidth(0.6);
@@ -396,8 +439,11 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.setFontSize(11);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(20, 56, 110);
-  doc.text('GST INVOICE    (ORIGINAL FOR RECIPIENT)', pageW / 2, y, { align: 'center' });
-  doc.text(isEInvoicePdf ? 'e-Invoice' : '', pageW - MARGIN - 36, y);
+  doc.text(isEInvoicePdf ? 'GST E-INVOICE' : 'GST INVOICE', pageW / 2, y, { align: 'center' });
+  doc.setFontSize(7.5);
+  doc.setFont(undefined, 'normal');
+  doc.text('(ORIGINAL FOR RECIPIENT)', pageW - MARGIN - 1.5, y, { align: 'right' });
+  // Keep only the recipient marker on the right; e-invoice flag is shown in title and QR label.
   y += 2.5;
   doc.line(MARGIN, y, pageW - MARGIN, y);
   y += 4;
@@ -406,36 +452,35 @@ function buildTaxInvoiceDoc(inv, options = {}) {
 
   if (isEInvoicePdf) {
     doc.setFillColor(240, 244, 250);
-    const irnLabel = 'IRN No:';
-    const irnLabelW = 16;
-    const irnTextW = contentW - 5 - irnLabelW;
+    const infoLabelW = 17;
+    const infoTextW = contentW - 5 - infoLabelW;
     doc.setFontSize(FONT.small);
-    const irnLines = doc.splitTextToSize(String(irn || '–'), irnTextW);
-    const infoRowH = Math.max(11, 4 + irnLines.length * LH(FONT.small) + 4.5);
+    const irnLines = doc.splitTextToSize(String(irn || '–'), infoTextW);
+    const ackNoLines = doc.splitTextToSize(String(ackNo || '–'), infoTextW);
+    const ackDtLines = doc.splitTextToSize(String(ackDt ? formatPdfDate(ackDt) : '–'), infoTextW);
+    const rowGap = 0.45;
+    const infoRowH = Math.max(
+      12,
+      3.2 +
+        irnLines.length * LH(FONT.small) +
+        rowGap +
+        ackNoLines.length * LH(FONT.small) +
+        rowGap +
+        ackDtLines.length * LH(FONT.small) +
+        1.6
+    );
     doc.rect(MARGIN, y - 2.8, contentW, infoRowH, 'F');
-    let infoY = y + 0.1;
-    const eInvLabelW = 15;
-    const leftBlockW = contentW - 2;
-    const eInvValueW = Math.max(30, leftBlockW / 2 - eInvLabelW - 2);
-    doc.setFontSize(FONT.small);
-    doc.setFont(undefined, 'bold');
-    doc.text(irnLabel, MARGIN + 1.5, infoY);
-    doc.setFont(undefined, 'normal');
-    doc.text(irnLines, MARGIN + 1.5 + irnLabelW, infoY);
-    infoY += irnLines.length * LH(FONT.small) + 0.8;
-
-    const drawEInvField = (label, value, x, width) => {
+    let infoY = y + 1.2;
+    const drawEInvField = (label, lines) => {
       doc.setFont(undefined, 'bold');
-      doc.text(`${label}:`, x, infoY);
+      doc.text(`${label}:`, MARGIN + 1.5, infoY);
       doc.setFont(undefined, 'normal');
-      const lines = doc.splitTextToSize(String(value || '–'), width - eInvLabelW);
-      doc.text(lines, x + eInvLabelW, infoY);
+      doc.text(lines, MARGIN + 1.5 + infoLabelW, infoY);
+      infoY += lines.length * LH(FONT.small) + rowGap;
     };
-    const colW = leftBlockW / 2;
-    const x1 = MARGIN + 1.5;
-    const x2 = MARGIN + 1.5 + colW;
-    drawEInvField('Ack No', ackNo || '–', x1, colW);
-    drawEInvField('Ack Date', ackDt ? formatPdfDate(ackDt) : '–', x2, colW);
+    drawEInvField('IRN No', irnLines);
+    drawEInvField('Ack No', ackNoLines);
+    drawEInvField('Ack Date', ackDtLines);
     y += infoRowH - 1.8;
   } else {
     y += 1;
@@ -443,20 +488,19 @@ function buildTaxInvoiceDoc(inv, options = {}) {
 
   // ----- Invoice details block (two columns centered)
   const blockTop = y;
-  doc.setDrawColor(145, 145, 145);
-  doc.setFillColor(248, 250, 252);
-  doc.rect(MARGIN, blockTop, contentW, 24, 'FD');
-
-  let yL = blockTop + 4;
-  let yR = blockTop + 4;
+  const detailsRowGap = 0.9;
+  const detailsPadTop = 4.6;
+  const detailsPadBottom = 3.2;
   doc.setFontSize(FONT.body);
   doc.setFont(undefined, 'normal');
 
-  const cin = inv.sellerCin || inv.seller_cin || SELLER.cin;
+  const cin = preferredTextValue(inv.sellerCin, inv.seller_cin, SELLER.cin, DEFAULT_SELLER_CIN);
   const pan = inv.sellerPan || inv.seller_pan || SELLER.pan;
   const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no || SELLER.msmeUdyamNo;
   const msmeClause = inv.msmeClause || inv.msme_clause || DEFAULT_MSME_CLAUSE;
-  const msmeText = `MSME Udyam: ${msmeNo ? `${msmeNo} ` : ' '}${msmeClause ? msmeClause : ''}`;
+  const udhyamNo = msmeNo || DEFAULT_UDHYAM_REG_NO;
+  const msmeText = `MSME Udyam : ${msmeClause ? msmeClause : ''}`;
+  const udhyamLine = `Udhyam Registration No. : ${udhyamNo}`;
 
   const billMonth = inv.billingMonth || inv.billing_month || '–';
   const durFrom = inv.billingDurationFrom || inv.billing_duration_from;
@@ -469,56 +513,96 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     inv.original_tax_invoice_number ||
     inv.parentTaxInvoiceNumber ||
     inv.parent_tax_invoice_number;
-  const meta = [
+  const leftMeta = [
     ['Invoice No.', invoiceNo],
     ['Billing Month', billMonth],
     ['Billing Duration', billingDur],
+    ['CIN No.', cin && cin !== '—' ? cin : '–'],
+  ];
+  const rightMeta = [
     ['Invoice Date', invoiceDate],
-    ['Mode/Terms of Payment', paymentTerms],
-    ["Buyer's Order No.", buyerOrderNo],
+    ['Mode of Payment', paymentMode],
+    ['Term of Payment', paymentTerms],
+    ['PAN No.', pan && pan !== '—' ? pan : '–'],
     ...(origTaxNo && (invoiceKind === 'credit_note' || invoiceKind === 'debit_note')
       ? [['Original Tax Invoice No.', String(origTaxNo)]]
       : []),
   ];
-  const leftMeta = meta.slice(0, 3);
-  const rightMeta = meta.slice(3);
-  const labelW = 33;
+  if (isEInvoicePdf) {
+    const deliveryNote = inv.deliveryNote || inv.delivery_note || '–';
+    const otherReference = inv.otherReference || inv.other_reference || '–';
+    const dispatchDocNo = inv.dispatchDocNo || inv.dispatch_doc_no || '–';
+    const deliveryNoteDateRaw = inv.deliveryNoteDate || inv.delivery_note_date || '';
+    const deliveryNoteDate = deliveryNoteDateRaw ? formatPdfDate(deliveryNoteDateRaw) : '–';
+    const dispatchedThrough = inv.dispatchedThrough || inv.dispatched_through || '–';
+    const destination = inv.destination || '–';
+    const termsOfDelivery = inv.termsOfDelivery || inv.terms_of_delivery || '–';
+
+    leftMeta.push(
+      ['Delivery Note', deliveryNote],
+      ['Dispatch Doc. No.', dispatchDocNo],
+      ['Dispatched Through', dispatchedThrough],
+      ['Terms of Delivery', termsOfDelivery]
+    );
+    rightMeta.push(
+      ['Other Reference', otherReference],
+      ['Delivery Note Date', deliveryNoteDate],
+      ['Destination', destination]
+    );
+  }
+  const labelW = 35;
   const colPad = 2;
   const leftX = MARGIN + colPad;
   const rightX = midX + colPad;
+  const detailsValueWidth = colW - labelW - 6;
+  const measureMetaHeight = (rows) =>
+    rows.reduce((acc, [, val], idx) => {
+      const lineCount = doc.splitTextToSize(String(val), detailsValueWidth).length || 1;
+      const rowH = Math.max(LH(FONT.body), lineCount * LH(FONT.body));
+      const gap = idx < rows.length - 1 ? detailsRowGap : 0;
+      return acc + rowH + gap;
+    }, 0);
+  const detailsContentH = Math.max(measureMetaHeight(leftMeta), measureMetaHeight(rightMeta));
+  const detailsBoxH = Math.max(24, detailsPadTop + detailsContentH + detailsPadBottom);
+
+  doc.setDrawColor(187, 187, 187);
+  doc.rect(MARGIN, blockTop, contentW, detailsBoxH, 'S');
+
+  let yL = blockTop + detailsPadTop;
+  let yR = blockTop + detailsPadTop;
   const drawMeta = (x, rows, yStart) => {
     let curY = yStart;
-    rows.forEach(([label, val]) => {
+    rows.forEach(([label, val], idx) => {
       doc.setFont(undefined, 'bold');
       doc.text(label + ':', x, curY);
       doc.setFont(undefined, 'normal');
-      const vLines = doc.splitTextToSize(String(val), colW - labelW - 6);
+      const vLines = doc.splitTextToSize(String(val), detailsValueWidth);
       doc.text(vLines, x + labelW, curY);
-      curY += Math.max(LH(FONT.body), vLines.length * LH(FONT.body)) + 0.6;
+      const gap = idx < rows.length - 1 ? detailsRowGap : 0;
+      curY += Math.max(LH(FONT.body), vLines.length * LH(FONT.body)) + gap;
     });
     return curY;
   };
   yL = drawMeta(leftX, leftMeta, yL);
   yR = drawMeta(rightX, rightMeta, yR);
-  const cinPanY = Math.max(yL, yR) + 0.6;
-  doc.setFont(undefined, 'normal');
-  doc.text(
-    `CIN: ${cin && cin !== '—' ? cin : '–'}   |   PAN: ${pan && pan !== '—' ? pan : '–'}`,
-    MARGIN + 2,
-    cinPanY
-  );
-
-  y = Math.max(cinPanY, blockTop + 21.5) + 3;
+  y = Math.max(yL, yR, blockTop + detailsBoxH - detailsPadBottom) + DETAILS_TO_MSME_GAP;
 
   if (msmeText) {
-    doc.setDrawColor(140, 140, 140);
-    const msmeLines = doc.splitTextToSize(msmeText, contentW - 6);
-    const msmeBoxH = Math.max(msmeLines.length * LH(FONT.body) + 6, 10);
-    doc.rect(MARGIN, y, contentW, msmeBoxH, 'S');
-    doc.setFontSize(FONT.body);
+    doc.setDrawColor(230, 200, 0);
+    doc.setFillColor(255, 251, 230);
+    const msmeLines = [
+      ...doc.splitTextToSize(msmeText, contentW - 6),
+      ...doc.splitTextToSize(udhyamLine, contentW - 6),
+    ];
+    const msmeLineGap = LH(FONT.body) + 0.4;
+    const msmeBoxH = Math.max(msmeLines.length * msmeLineGap + 6.5, 13);
+    doc.rect(MARGIN, y, contentW, msmeBoxH, 'FD');
+    doc.setFontSize(FONT.body + 0.6);
     doc.setFont(undefined, 'bold');
-    doc.text(msmeLines, pageW / 2, y + 4.5, { align: 'center' });
-    y += msmeBoxH + 4;
+    doc.setTextColor(183, 121, 31);
+    doc.text(msmeLines, MARGIN + 2, y + 4.8, { align: 'left', baseline: 'top' });
+    doc.setTextColor(0, 0, 0);
+    y += msmeBoxH + BOX_GAP;
   }
 
   // ----- Buyer (Bill to) left | Consignee (Ship to) right
@@ -550,8 +634,8 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.setFontSize(FONT.section);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(26, 58, 108);
-  doc.text('Buyer (Bill to)', partyColXLeft, partyTop + 4.5);
-  doc.text('Consignee (Ship to)', partyColXRight, partyTop + 4.5);
+  doc.text('BUYER (BILL TO)', partyColXLeft, partyTop + 4.5);
+  doc.text('CONSIGNEE (SHIP TO)', partyColXRight, partyTop + 4.5);
   doc.setDrawColor(210, 210, 210);
   doc.line(MARGIN + 2, partyTop + 6, midX - GAP_COL / 2 - 2, partyTop + 6);
   doc.line(midX + 2, partyTop + 6, MARGIN + contentW - 2, partyTop + 6);
@@ -563,54 +647,61 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   let yBill = y;
   let yShip = y;
 
+  doc.setFont(undefined, 'bold');
   doc.text(buyerNameLine, partyColXLeft, yBill);
+  doc.setFont(undefined, 'normal');
   yBill += LH(FONT.body);
   doc.text(buyerAddressLines, partyColXLeft, yBill);
   yBill += buyerAddressLines.length * LH(FONT.body);
-  doc.text('GSTIN/UIN: ' + buyerGstin, partyColXLeft, yBill);
+  doc.text('GSTIN: ' + buyerGstin, partyColXLeft, yBill);
   yBill += LH(FONT.body);
   doc.text(`State Name: ${SELLER.state}, Code: ${SELLER.stateCode}`, partyColXLeft, yBill);
   yBill += LH(FONT.body);
   doc.text('Place of Supply: ' + placeOfSupply, partyColXLeft, yBill);
   yBill += LH(FONT.body);
 
+  doc.setFont(undefined, 'bold');
   doc.text(buyerNameLine, partyColXRight, yShip);
+  doc.setFont(undefined, 'normal');
   yShip += LH(FONT.body);
   doc.text(shipAddressLines, partyColXRight, yShip);
   yShip += shipAddressLines.length * LH(FONT.body);
-  doc.text('GSTIN/UIN: ' + buyerGstin, partyColXRight, yShip);
+  doc.text('GSTIN: ' + buyerGstin, partyColXRight, yShip);
   yShip += LH(FONT.body);
   doc.text(`State Name: ${SELLER.state}, Code: ${SELLER.stateCode}`, partyColXRight, yShip);
   yShip += LH(FONT.body);
 
-  y = partyTop + partyBoxH + 3;
+  y = partyTop + partyBoxH + BOX_GAP;
+  ensureSpace(18);
 
   const hdrRemarks = inv.invoiceHeaderRemarks || inv.invoice_header_remarks;
   const remarksText = hdrRemarks && String(hdrRemarks).trim() ? String(hdrRemarks).trim() : '–';
-  doc.setDrawColor(160, 160, 160);
-  doc.setFillColor(252, 252, 253);
+  doc.setDrawColor(187, 187, 187);
+  doc.setFillColor(255, 255, 255);
   const hdrLines = doc.splitTextToSize(remarksText, contentW - 4);
   const boxH = Math.max(hdrLines.length * LH(FONT.body) + 8, 14);
   doc.rect(MARGIN, y, contentW, boxH, 'FD');
   doc.setFont(undefined, 'bold');
   doc.setFontSize(FONT.small);
-  doc.setTextColor(60, 60, 60);
+  doc.setTextColor(26, 58, 108);
   doc.text('Description / Remarks', MARGIN + 2, y + 4);
   doc.setFont(undefined, 'normal');
+  doc.setTextColor(110, 110, 110);
   doc.text(hdrLines, MARGIN + 2, y + 8);
   doc.setTextColor(0, 0, 0);
-  y += boxH + 4;
+  y += boxH + BOX_GAP;
+  ensureSpace(28);
 
   // ----- Item table (widths sum to contentW)
   const tableHeaders = [
     'Sl.\nNo.',
-    'Description of Goods',
+    'DESCRIPTION OF GOODS',
     'HSN/\nSAC',
     'Qty',
-    `Rate\n(${PDF_RS})`,
+    `RATE\n(${PDF_RS})`,
     'UOM',
-    'Disc.\n%',
-    `Amount\n(${PDF_RS})`,
+    'DISC.\n%',
+    `AMOUNT\n(${PDF_RS})`,
   ];
   const rowItems =
     items.length > 0
@@ -688,7 +779,8 @@ function buildTaxInvoiceDoc(inv, options = {}) {
       7: { cellWidth: 25, halign: 'right' },
     },
   });
-  y = doc.lastAutoTable.finalY + 5;
+  y = doc.lastAutoTable.finalY + 3;
+  ensureSpace(40);
 
   // Totals under table
   const totalQty = rowItems.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
@@ -698,17 +790,10 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const totalLine = `Invoice Total: ${PDF_RS} ` + formatInvoiceTotalDisplay(totalAmount);
   doc.text(totalLine, MARGIN + contentW, y, { align: 'right' });
   doc.setFont(undefined, 'normal');
-  y += LH(FONT.body) + 2.5;
-
-  doc.setFont(undefined, 'bold');
-  doc.text('Amount Chargeable (in words)', MARGIN, y);
-  doc.setFont(undefined, 'normal');
-  y += LH(FONT.body);
-  const amtWordsLines = doc.splitTextToSize(amountInWords(totalAmount), contentW);
-  doc.text(amtWordsLines, MARGIN, y);
-  y += amtWordsLines.length * LH(FONT.body) + 3;
+  y += LH(FONT.body) + 2;
 
   // ----- Bank details + invoice summary block
+  ensureSpace(38);
   const summaryTop = y;
   const summaryH = 24;
   const summarySplitX = MARGIN + contentW * 0.7;
@@ -727,40 +812,40 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.setFont(undefined, 'normal');
   doc.setTextColor(0, 0, 0);
 
-  let yBank = summaryTop + 8.5;
+  let yBank = summaryTop + 8.6;
   doc.text("A/c Holder's Name", MARGIN + 2, yBank);
   doc.text(BANK.accountHolder, summarySplitX - 2, yBank, { align: 'right' });
-  yBank += 4.5;
+  yBank += 4.8;
   doc.text('Bank Name', MARGIN + 2, yBank);
   doc.text(BANK.bankName, summarySplitX - 2, yBank, { align: 'right' });
-  yBank += 4.5;
+  yBank += 4.8;
   doc.text('A/c No.', MARGIN + 2, yBank);
   doc.text(BANK.accountNo, summarySplitX - 2, yBank, { align: 'right' });
-  yBank += 4.5;
+  yBank += 4.8;
   doc.text('Branch & IFS Code', MARGIN + 2, yBank);
   doc.text(BANK.branchAndIfsc, summarySplitX - 2, yBank, { align: 'right' });
 
   const subtotal = round2(taxableValue);
-  let ySum = summaryTop + 9;
+  let ySum = summaryTop + 8.9;
   doc.text('Subtotal', summarySplitX + 2, ySum);
   doc.text(formatMoney2(subtotal), MARGIN + contentW - 2, ySum, { align: 'right' });
-  ySum += 4.5;
+  ySum += 4.8;
   if (cgstAmt > 0) {
     doc.text(`CGST @ ${cgstRate}%`, summarySplitX + 2, ySum);
     doc.text(formatMoney2(cgstAmt), MARGIN + contentW - 2, ySum, { align: 'right' });
-    ySum += 4.5;
+    ySum += 4.8;
   }
   if (sgstAmt > 0) {
     doc.text(`SGST @ ${sgstRate}%`, summarySplitX + 2, ySum);
     doc.text(formatMoney2(sgstAmt), MARGIN + contentW - 2, ySum, { align: 'right' });
-    ySum += 4.5;
+    ySum += 4.8;
   }
   if (igstAmt > 0) {
     doc.text(`IGST @ ${igstRate}%`, summarySplitX + 2, ySum);
     doc.text(formatMoney2(igstAmt), MARGIN + contentW - 2, ySum, { align: 'right' });
   }
 
-  const totalBarY = summaryTop + summaryH - 8.5;
+  const totalBarY = summaryTop + summaryH - 7.9;
   doc.setFillColor(18, 61, 124);
   doc.rect(summarySplitX + 2, totalBarY, MARGIN + contentW - (summarySplitX + 4), 7, 'F');
   doc.setTextColor(255, 255, 255);
@@ -769,11 +854,12 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.text(`${PDF_RS} ${formatInvoiceTotalDisplay(totalAmount)}`, MARGIN + contentW - 3.5, totalBarY + 4.7, { align: 'right' });
   doc.setTextColor(0, 0, 0);
 
-  y = summaryTop + summaryH + 2.5;
+  y = summaryTop + summaryH + BOX_GAP;
 
   // Amount in words row
+  ensureSpace(20);
   const amtLines = doc.splitTextToSize(amountInWords(totalAmount), contentW - 4);
-  const amtRowH = Math.max(amtLines.length * LH(FONT.body) + 5.5, 8.5);
+  const amtRowH = Math.max(amtLines.length * LH(FONT.body) + 6.5, 10);
   doc.setFillColor(248, 249, 251);
   doc.rect(MARGIN, y, contentW, amtRowH, 'F');
   doc.setDrawColor(187, 187, 187);
@@ -783,12 +869,13 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.text('AMOUNT CHARGEABLE (IN WORDS)', MARGIN + 2, y + 4);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(0, 0, 0);
-  doc.text(amtLines, MARGIN + 2, y + 7.2);
-  y += amtRowH + 2.5;
+  doc.text(amtLines, MARGIN + 2, y + 7.6);
+  y += amtRowH + BOX_GAP;
 
   // Terms and signature row
+  ensureSpace(28);
   const termsTop = y;
-  let termsH = 22;
+  let termsH = 19;
   doc.setFillColor(250, 250, 251);
   doc.rect(MARGIN, termsTop, contentW, termsH, 'F');
   doc.setDrawColor(187, 187, 187);
@@ -802,27 +889,32 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.setFont(undefined, 'normal');
   doc.setTextColor(0, 0, 0);
   const termsLines = resolveTermsLines(inv);
-  let tY = termsTop + 8.5;
-  termsLines.slice(0, 4).forEach((t, i) => {
+  let tY = termsTop + 7.8;
+  const maxTermsLines = isEInvoicePdf ? 2 : 4;
+  termsLines.slice(0, maxTermsLines).forEach((t, i) => {
     const wrapped = doc.splitTextToSize(`${i + 1}. ${t}`, colW - 4);
     doc.text(wrapped, MARGIN + 2, tY);
     tY += wrapped.length * LH(FONT.body);
   });
 
+  const signBottomY = termsTop + 23;
+  const signLineY = signBottomY - 5.6;
+  const signCompanyY = signLineY - 2.4;
+  const signForY = signCompanyY - 4.6;
   doc.setFontSize(FONT.small);
-  doc.text('for M/s Indus Fire Safety Private Limited', pageW - MARGIN - 2, termsTop + 4.5, { align: 'right' });
+  doc.text(`for ${COMPANY_DISPLAY_NAME}`, pageW - MARGIN - 2, signForY, { align: 'right' });
   doc.setFontSize(FONT.section);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(15, 47, 102);
-  doc.text('M/S INDUS FIRE SAFETY PRIVATE LIMITED', pageW - MARGIN - 2, termsTop + 9.5, { align: 'right' });
+  doc.text(COMPANY_DISPLAY_NAME, pageW - MARGIN - 2, signCompanyY, { align: 'right' });
   doc.setDrawColor(130, 130, 130);
-  doc.line(pageW - MARGIN - 46, termsTop + 16, pageW - MARGIN - 2, termsTop + 16);
+  doc.line(pageW - MARGIN - 46, signLineY, pageW - MARGIN - 2, signLineY);
   doc.setFontSize(FONT.body);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(0, 0, 0);
-  doc.text('Authorised Signatory', pageW - MARGIN - 2, termsTop + 19.2, { align: 'right' });
-  doc.text("Customer's Seal and Signature", pageW - MARGIN - 2, termsTop + 24, { align: 'right' });
-  const termsContentBottom = Math.max(tY + 1, termsTop + 25.5);
+  doc.text('Authorised Signatory', pageW - MARGIN - 2, signBottomY - 2.1, { align: 'right' });
+  doc.text("Customer's Seal and Signature", pageW - MARGIN - 2, signBottomY + 2.7, { align: 'right' });
+  const termsContentBottom = Math.max(tY + 0.8, signBottomY + 3.2);
   if (termsContentBottom > termsTop + termsH) {
     termsH = termsContentBottom - termsTop;
     doc.setFillColor(250, 250, 251);
@@ -837,25 +929,29 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     doc.setFontSize(FONT.body);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(0, 0, 0);
-    let redrawTY = termsTop + 8.5;
-    termsLines.slice(0, 4).forEach((t, i) => {
+    let redrawTY = termsTop + 7.8;
+    termsLines.slice(0, maxTermsLines).forEach((t, i) => {
       const wrapped = doc.splitTextToSize(`${i + 1}. ${t}`, colW - 4);
       doc.text(wrapped, MARGIN + 2, redrawTY);
       redrawTY += wrapped.length * LH(FONT.body);
     });
+    const signBottomY2 = termsTop + termsH - 3.6;
+    const signLineY2 = signBottomY2 - 5.6;
+    const signCompanyY2 = signLineY2 - 2.4;
+    const signForY2 = signCompanyY2 - 4.6;
     doc.setFontSize(FONT.small);
-    doc.text('for M/s Indus Fire Safety Private Limited', pageW - MARGIN - 2, termsTop + 4.5, { align: 'right' });
+    doc.text(`for ${COMPANY_DISPLAY_NAME}`, pageW - MARGIN - 2, signForY2, { align: 'right' });
     doc.setFontSize(FONT.section);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(15, 47, 102);
-    doc.text('M/S INDUS FIRE SAFETY PRIVATE LIMITED', pageW - MARGIN - 2, termsTop + 9.5, { align: 'right' });
+    doc.text(COMPANY_DISPLAY_NAME, pageW - MARGIN - 2, signCompanyY2, { align: 'right' });
     doc.setDrawColor(130, 130, 130);
-    doc.line(pageW - MARGIN - 46, termsTop + 16, pageW - MARGIN - 2, termsTop + 16);
+    doc.line(pageW - MARGIN - 46, signLineY2, pageW - MARGIN - 2, signLineY2);
     doc.setFontSize(FONT.body);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(0, 0, 0);
-    doc.text('Authorised Signatory', pageW - MARGIN - 2, termsTop + 19.2, { align: 'right' });
-    doc.text("Customer's Seal and Signature", pageW - MARGIN - 2, termsTop + 24, { align: 'right' });
+    doc.text('Authorised Signatory', pageW - MARGIN - 2, signBottomY2 - 2.1, { align: 'right' });
+    doc.text("Customer's Seal and Signature", pageW - MARGIN - 2, signBottomY2 + 2.7, { align: 'right' });
   }
 
   y = termsTop + termsH + 1;
@@ -878,7 +974,6 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   }
 
   // Footer bar fixed at bottom: contacts left, jurisdiction right.
-  const footerStripH = 8;
   const footerY = pageH - footerStripH;
   doc.setFillColor(18, 61, 124);
   doc.rect(0, footerY, pageW, footerStripH, 'F');
@@ -900,8 +995,12 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.text(leftFooterText, MARGIN, footerY + 4.8);
   doc.text(rightFooterText, pageW - MARGIN, footerY + 4.8, { align: 'right' });
 
-  const filePrefix = invoiceKind === 'proforma' ? 'Proforma' : invoiceKind === 'draft' ? 'Draft' : 'Tax';
-  const fileName = `${filePrefix}_Invoice_${(inv.taxInvoiceNumber || inv.bill_number || 'Invoice').replace(/\s/g, '_')}.pdf`;
+  const invoiceNumberForFile = String(inv.taxInvoiceNumber || inv.bill_number || 'Invoice')
+    .trim()
+    .replace(/\s+/g, '-');
+  const fileName = isEInvoicePdf
+    ? `E-INVOICE-${invoiceNumberForFile}.pdf`
+    : `${invoiceKind === 'proforma' ? 'Proforma' : invoiceKind === 'draft' ? 'Draft' : 'Tax'}_Invoice_${invoiceNumberForFile}.pdf`;
   return { doc, fileName };
 }
 

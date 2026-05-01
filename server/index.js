@@ -14,10 +14,19 @@ const debugInvoiceSnapshots = new Map();
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
+class HttpError extends Error {
+  constructor(status, message, details = {}) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = Number(status) || 500;
+    this.details = details;
+  }
+}
+
 function getRequiredEnv(name) {
   const v = process.env[name];
   if (!v || !String(v).trim()) {
-    throw new Error(`Missing required server env: ${name}`);
+    throw new HttpError(500, `Missing required server env: ${name}`);
   }
   return String(v).trim();
 }
@@ -81,10 +90,18 @@ async function authenticate() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !isAuthSuccess(data)) {
-    throw new Error(data?.status_desc || data?.message || `Whitebooks authentication failed (${res.status}).`);
+    throw new HttpError(
+      502,
+      data?.status_desc || data?.message || `Whitebooks authentication failed (${res.status}).`,
+      { providerResponse: data }
+    );
   }
   const token = data?.data?.AuthToken || data?.AuthToken || data?.token;
-  if (!token) throw new Error('Whitebooks authentication succeeded, but AuthToken missing.');
+  if (!token) {
+    throw new HttpError(502, 'Whitebooks authentication succeeded, but AuthToken missing.', {
+      providerResponse: data,
+    });
+  }
   return token;
 }
 
@@ -456,7 +473,11 @@ app.post('/api/billing/e-invoice/generate', async (req, res) => {
       const sameGstinHint = errorCodes.includes('2211')
         ? 'Buyer GSTIN equals Seller GSTIN. Please fix Buyer GSTIN in invoice data.'
         : null;
-      return res.status(wbRes.status).json({
+      const hasValidationError = providerErrors.length > 0 || errorCodes.length > 0;
+      const statusForClient = wbRes.ok
+        ? (hasValidationError ? 422 : 502)
+        : (wbRes.status >= 400 ? wbRes.status : 502);
+      return res.status(statusForClient).json({
         message:
           sameGstinHint ||
           providerErrors[0] ||
@@ -485,7 +506,15 @@ app.post('/api/billing/e-invoice/generate', async (req, res) => {
       providerResponse: wbData,
     });
   } catch (err) {
-    res.status(500).json({ message: err?.message || 'Failed to generate IRN.' });
+    const status = Number(err?.status) || 500;
+    const message = err?.message || 'Failed to generate IRN.';
+    const providerResponse = err?.details?.providerResponse;
+    const errors = Array.isArray(err?.details?.errors) ? err.details.errors : undefined;
+    res.status(status).json({
+      message,
+      ...(errors ? { errors } : {}),
+      ...(providerResponse ? { providerResponse } : {}),
+    });
   }
 });
 
@@ -518,7 +547,13 @@ app.post('/api/billing/e-invoice/cancel', async (req, res) => {
     }
     res.json(wbData);
   } catch (err) {
-    res.status(500).json({ message: err?.message || 'Failed to cancel IRN.' });
+    const status = Number(err?.status) || 500;
+    const message = err?.message || 'Failed to cancel IRN.';
+    const providerResponse = err?.details?.providerResponse;
+    res.status(status).json({
+      message,
+      ...(providerResponse ? { providerResponse } : {}),
+    });
   }
 });
 
