@@ -2061,12 +2061,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-neutral-800 border-b border-neutral-800">
                   <div className="p-3 sm:p-4 text-xs leading-relaxed text-neutral-800">
                     <p className="text-[11px] font-bold text-neutral-900">Bank details</p>
-                    <p className="mt-2">{INVOICE_BANK_DETAILS.accountHolder}</p>
+                    <p className="mt-2">A/c Holder&apos;s Name: {INVOICE_BANK_DETAILS.accountHolder}</p>
                     <p>Bank name: {INVOICE_BANK_DETAILS.bankName}</p>
                     <p>A/c No.: {INVOICE_BANK_DETAILS.accountNo}</p>
-                    <p>{INVOICE_BANK_DETAILS.branchAndIfsc}</p>
+                    <p>Branch &amp; IFSC Code: {INVOICE_BANK_DETAILS.ifsc}</p>
+                    <p className="mt-1.5 leading-relaxed">Bank branch: {INVOICE_BANK_DETAILS.branchAddress}</p>
                     <div className="mt-6 pt-2">
-                      <p className="text-neutral-700">for {INVOICE_SELLER_TEMPLATE.name}</p>
+                      <p className="text-sm font-bold text-[#1a3a6c] leading-snug">
+                        For {INVOICE_SELLER_TEMPLATE.name}
+                      </p>
                       <p className="mt-4 font-bold text-neutral-900">Authorised Signatory</p>
                     </div>
                   </div>
@@ -2077,7 +2080,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <li key={i}>{line}</li>
                       ))}
                     </ol>
-                    <p className="mt-6 text-center italic text-neutral-600">Customer&apos;s seal and signature</p>
                   </div>
                 </div>
 

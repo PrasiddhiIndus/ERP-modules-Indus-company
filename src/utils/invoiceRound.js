@@ -25,9 +25,9 @@ export function formatAmountUpTo3Decimals(value) {
   return s;
 }
 
-/** Invoice total after 0.50 round rule, shown with up to 3 dp (e.g. 13796 or 13796.5). */
+/** Invoice total after 0.50 round rule, always 2 dp (e.g. 1,23,456.00). */
 export function formatInvoiceTotalDisplay(value) {
   const r = roundInvoiceAmount(value);
-  return r.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
+  return r.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
