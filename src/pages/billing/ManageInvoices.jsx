@@ -266,6 +266,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
   };
 
   const handleGenerateEInvoice = async (inv) => {
+    if (getRealIrn(inv)) {
+      throw new Error('E-Invoice already generated for this invoice.');
+    }
     const resolved = resolveBuyerStateAndPin({
       gstin: inv.buyerGstin || inv.buyer_gstin || inv.clientGstin || inv.client_gstin || inv.gstin,
       placeOfSupply: inv.placeOfSupply || inv.place_of_supply,
@@ -495,6 +498,24 @@ const ManageInvoices = ({ onNavigateTab }) => {
                           </td>
                           <td className="px-3 py-2 text-center">
                             <div className="flex flex-nowrap items-center justify-center gap-1.5">
+                              {(() => {
+                                const irnExists = !!getRealIrn(inv);
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setGenerateEInvoiceModalId(inv.id)}
+                                    disabled={generatingEInvoiceId === inv.id || irnExists}
+                                    title={irnExists ? 'E-Invoice already generated' : 'Generate E-Invoice'}
+                                    className={`inline-flex items-center justify-center w-8 h-8 rounded-full border disabled:opacity-50 disabled:cursor-not-allowed ${
+                                      irnExists
+                                        ? 'border-gray-200 bg-gray-100 text-gray-400'
+                                        : 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
+                                    }`}
+                                  >
+                                    <FileDigit className="w-4 h-4" />
+                                  </button>
+                                );
+                              })()}
                               <button
                                 type="button"
                                 onClick={() => setViewId(inv.id)}
@@ -502,15 +523,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                               >
                                 <Eye className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setGenerateEInvoiceModalId(inv.id)}
-                                disabled={generatingEInvoiceId === inv.id}
-                                title={getRealIrn(inv) ? 'Re-generate E-Invoice' : 'Generate E-Invoice'}
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                <FileDigit className="w-4 h-4" />
                               </button>
                               <button
                                 type="button"
@@ -679,6 +691,24 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   <div className="flex flex-nowrap items-center justify-center gap-1.5">
+                                    {(() => {
+                                      const irnExists = !!getRealIrn(inv);
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => setGenerateEInvoiceModalId(inv.id)}
+                                          disabled={generatingEInvoiceId === inv.id || irnExists}
+                                          title={irnExists ? 'E-Invoice already generated' : 'Generate E-Invoice'}
+                                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full border disabled:opacity-50 disabled:cursor-not-allowed ${
+                                            irnExists
+                                              ? 'border-gray-200 bg-gray-100 text-gray-400'
+                                              : 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
+                                          }`}
+                                        >
+                                          <FileDigit className="w-4 h-4" />
+                                        </button>
+                                      );
+                                    })()}
                                     <button
                                       type="button"
                                       onClick={() => setViewId(inv.id)}
@@ -707,15 +737,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                       className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                                     >
                                       <Download className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setGenerateEInvoiceModalId(inv.id)}
-                                      disabled={generatingEInvoiceId === inv.id}
-                                      title={getRealIrn(inv) ? 'Re-generate E-Invoice' : 'Generate E-Invoice'}
-                                      className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                      <FileDigit className="w-4 h-4" />
                                     </button>
                                     <button
                                       type="button"
@@ -852,7 +873,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 </div>
 
                 <div className="p-4 sm:p-6 bg-gray-100">
-                  <InvoiceHtmlPreview inv={inv} />
+                  <InvoiceHtmlPreview inv={inv} showEInvoiceMeta={false} />
                 </div>
               </div>
             </div>
