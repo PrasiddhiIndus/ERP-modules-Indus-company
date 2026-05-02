@@ -32,7 +32,7 @@ const DriverManagement = () => {
     contact_number: '',
     email: '',
     license_number: '',
-    license_type: '',
+    license_type: [],
     license_expiry_date: '',
     department: '',
     designation: '',
@@ -82,7 +82,7 @@ const DriverManagement = () => {
         contact_number: formData.contact_number || null,
         email: formData.email || null,
         license_number: formData.license_number || null,
-        license_type: formData.license_type || null,
+        license_type: formData.license_type.length ? formData.license_type.join(', ') : null,
         license_expiry_date: formData.license_expiry_date && formData.license_expiry_date.trim() !== '' ? formData.license_expiry_date : null,
         department: formData.department || null,
         designation: formData.designation || null,
@@ -123,7 +123,7 @@ const DriverManagement = () => {
       contact_number: driver.contact_number || '',
       email: driver.email || '',
       license_number: driver.license_number || '',
-      license_type: driver.license_type || '',
+      license_type: driver.license_type ? driver.license_type.split(',').map((type) => type.trim()).filter(Boolean) : [],
       license_expiry_date: driver.license_expiry_date || '',
       department: driver.department || '',
       designation: driver.designation || '',
@@ -173,7 +173,7 @@ const DriverManagement = () => {
       contact_number: '',
       email: '',
       license_number: '',
-      license_type: '',
+      license_type: [],
       license_expiry_date: '',
       department: '',
       designation: '',
@@ -215,7 +215,7 @@ const DriverManagement = () => {
       (statusFilter === 'Active' && driver.is_active) ||
       (statusFilter === 'Inactive' && !driver.is_active);
     
-    const matchesLicenseType = licenseTypeFilter === 'All' || driver.license_type === licenseTypeFilter;
+    const matchesLicenseType = licenseTypeFilter === 'All' || (driver.license_type || '').includes(licenseTypeFilter);
     
     return matchesSearch && matchesStatus && matchesLicenseType;
   });
@@ -379,15 +379,16 @@ const DriverManagement = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">License Type</label>
                     <select
+                      multiple
                       value={formData.license_type}
-                      onChange={(e) => setFormData({...formData, license_type: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, license_type: Array.from(e.target.selectedOptions, (option) => option.value) })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      <option value="">Select License Type</option>
                       {licenseTypes.map(type => (
                         <option key={type} value={type}>{type}</option>
                       ))}
                     </select>
+                    <p className="text-xs text-gray-500 mt-1">Hold Ctrl (Windows) or Cmd (Mac) to select multiple license types.</p>
                   </div>
 
                   <div>

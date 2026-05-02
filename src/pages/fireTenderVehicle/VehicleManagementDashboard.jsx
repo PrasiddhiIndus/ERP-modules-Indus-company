@@ -15,7 +15,7 @@ import {
   Activity
 } from 'lucide-react';
 
-const VehicleManagementDashboard = () => {
+const VehicleManagementDashboard = ({ onNavigate }) => {
   const [dashboardData, setDashboardData] = useState({
     totalVehicles: 0,
     availableVehicles: 0,
@@ -147,20 +147,10 @@ const VehicleManagementDashboard = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div>
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Vehicle Management Dashboard</h1>
           <p className="text-gray-600 mt-2">Monitor and manage your fleet operations</p>
-        </div>
-        <div className="flex space-x-3">
-          <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2">
-            <Car className="h-5 w-5" />
-            <span>Add Vehicle</span>
-          </button>
-          <button className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center space-x-2">
-            <FileText className="h-5 w-5" />
-            <span>Issue Vehicle</span>
-          </button>
         </div>
       </div>
 
@@ -337,19 +327,31 @@ const VehicleManagementDashboard = () => {
       <div className="bg-white rounded-lg shadow-md p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <button className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors">
+          <button
+            onClick={() => onNavigate?.('vehicles')}
+            className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+          >
             <Car className="h-6 w-6 text-gray-400 mr-2" />
             <span className="text-gray-600">Add New Vehicle</span>
           </button>
-          <button className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors">
+          <button
+            onClick={() => onNavigate?.('trips')}
+            className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors"
+          >
             <FileText className="h-6 w-6 text-gray-400 mr-2" />
-            <span className="text-gray-600">Issue Vehicle</span>
+            <span className="text-gray-600">Assign Vehicle</span>
           </button>
-          <button className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-yellow-500 hover:bg-yellow-50 transition-colors">
+          <button
+            onClick={() => onNavigate?.('maintenance')}
+            className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-yellow-500 hover:bg-yellow-50 transition-colors"
+          >
             <Wrench className="h-6 w-6 text-gray-400 mr-2" />
             <span className="text-gray-600">Schedule Service</span>
           </button>
-          <button className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors">
+          <button
+            onClick={() => onNavigate?.('documents')}
+            className="flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors"
+          >
             <Calendar className="h-6 w-6 text-gray-400 mr-2" />
             <span className="text-gray-600">View Reports</span>
           </button>

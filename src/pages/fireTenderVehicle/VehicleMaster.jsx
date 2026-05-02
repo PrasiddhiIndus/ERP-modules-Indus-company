@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 const VehicleMaster = () => {
+  const currentYear = new Date().getFullYear();
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +30,9 @@ const VehicleMaster = () => {
   const [typeFilter, setTypeFilter] = useState('All');
 
   const [formData, setFormData] = useState({
+    vehicle_category: 'fire-tender',
+    vehicle_name: '',
+    chassis_model: '',
     vehicle_type: '',
     registration_number: '',
     chassis_number: '',
@@ -37,7 +41,18 @@ const VehicleMaster = () => {
     model: '',
     year_of_manufacture: '',
     date_of_purchase: '',
+    date_of_registration: '',
     date_of_commissioning: '',
+    owner_name: '',
+    emission_norms: '',
+    fuel_type: '',
+    financier: '',
+    pump_make_brand: '',
+    pump_model_number: '',
+    pump_serial_number: '',
+    pto_type: '',
+    water_tank_capacity: '',
+    foam_tank_capacity: '',
     assigned_location: '',
     assigned_site: '',
     assigned_department: '',
@@ -49,15 +64,30 @@ const VehicleMaster = () => {
     remarks: ''
   });
 
-  const vehicleTypes = [
-    'Fire Tender', 'SUV', 'Car', 'Bike', 'Command Post', 'Ambulance', 
-    'Water Tanker', 'Rescue Vehicle', 'Utility Vehicle', 'Other'
-  ];
+  const vehicleTypeByCategory = {
+    'in-house': ['SUV', 'Car', 'Bike', 'Utility Vehicle', 'Other'],
+    'fire-tender': [
+      'Multipurpose',
+      'Foam Tender',
+      'DCP Tender',
+      'Water Bowser',
+      'Quick Response Vehicle',
+      'Water Mist'
+    ]
+  };
+  const vehicleTypes = vehicleTypeByCategory[formData.vehicle_category] || [];
 
   const vehicleStatuses = [
-    'Available', 'On Duty', 'Under Maintenance', 'Out for Repair', 
-    'Rented', 'Decommissioned'
+    'Available',
+    'On Duty',
+    'Under Maintenance',
+    'Out for Repair',
+    'Rented',
+    'Decommissioned'
   ];
+  const emissionNormOptions = ['BS-IV', 'BS-VI', 'Other'];
+  const fuelTypeOptions = ['Diesel', 'Petrol', 'CNG', 'EV'];
+  const fireTenderTypes = vehicleTypeByCategory['fire-tender'];
 
   useEffect(() => {
     fetchVehicles();
@@ -113,15 +143,28 @@ const VehicleMaster = () => {
       if (!user) return;
 
       const vehicleData = {
+        vehicle_category: formData.vehicle_category || null,
+        vehicle_name: formData.vehicle_name || null,
         vehicle_type: formData.vehicle_type || null,
         registration_number: formData.registration_number || null,
         chassis_number: formData.chassis_number || null,
+        chassis_model: formData.chassis_model || null,
         engine_number: formData.engine_number || null,
         make: formData.make || null,
         model: formData.model || null,
         year_of_manufacture: formData.year_of_manufacture ? parseInt(formData.year_of_manufacture, 10) : null,
         date_of_purchase: formData.date_of_purchase && formData.date_of_purchase.trim() !== '' ? formData.date_of_purchase : null,
         date_of_commissioning: formData.date_of_commissioning && formData.date_of_commissioning.trim() !== '' ? formData.date_of_commissioning : null,
+        owner_name: formData.owner_name || null,
+        emission_norms: formData.emission_norms || null,
+        fuel_type: formData.fuel_type || null,
+        financier: formData.financier || null,
+        pump_make_brand: formData.pump_make_brand || null,
+        pump_model_number: formData.pump_model_number || null,
+        pump_serial_number: formData.pump_serial_number || null,
+        pto_type: formData.pto_type || null,
+        water_tank_capacity: formData.water_tank_capacity !== '' && formData.water_tank_capacity != null ? parseFloat(formData.water_tank_capacity) : null,
+        foam_tank_capacity: formData.foam_tank_capacity !== '' && formData.foam_tank_capacity != null ? parseFloat(formData.foam_tank_capacity) : null,
         assigned_location: formData.assigned_location || null,
         assigned_site: formData.assigned_site || null,
         assigned_department: formData.assigned_department || null,
@@ -162,6 +205,9 @@ const VehicleMaster = () => {
   const handleEdit = (vehicle) => {
     setEditingVehicle(vehicle);
     setFormData({
+      vehicle_category: vehicle.vehicle_category || (fireTenderTypes.includes(vehicle.vehicle_type) ? 'fire-tender' : 'in-house'),
+      vehicle_name: vehicle.vehicle_name || '',
+      chassis_model: vehicle.chassis_model || '',
       vehicle_type: vehicle.vehicle_type || '',
       registration_number: vehicle.registration_number || '',
       chassis_number: vehicle.chassis_number || '',
@@ -170,7 +216,18 @@ const VehicleMaster = () => {
       model: vehicle.model || '',
       year_of_manufacture: vehicle.year_of_manufacture || '',
       date_of_purchase: vehicle.date_of_purchase || '',
+      date_of_registration: vehicle.date_of_commissioning || '',
       date_of_commissioning: vehicle.date_of_commissioning || '',
+      owner_name: vehicle.owner_name || '',
+      emission_norms: vehicle.emission_norms || '',
+      fuel_type: vehicle.fuel_type || '',
+      financier: vehicle.financier || '',
+      pump_make_brand: vehicle.pump_make_brand || '',
+      pump_model_number: vehicle.pump_model_number || '',
+      pump_serial_number: vehicle.pump_serial_number || '',
+      pto_type: vehicle.pto_type || '',
+      water_tank_capacity: vehicle.water_tank_capacity || '',
+      foam_tank_capacity: vehicle.foam_tank_capacity || '',
       assigned_location: vehicle.assigned_location || '',
       assigned_site: vehicle.assigned_site || '',
       assigned_department: vehicle.assigned_department || '',
@@ -204,6 +261,9 @@ const VehicleMaster = () => {
 
   const resetForm = () => {
     setFormData({
+      vehicle_category: 'fire-tender',
+      vehicle_name: '',
+      chassis_model: '',
       vehicle_type: '',
       registration_number: '',
       chassis_number: '',
@@ -212,7 +272,18 @@ const VehicleMaster = () => {
       model: '',
       year_of_manufacture: '',
       date_of_purchase: '',
+      date_of_registration: '',
       date_of_commissioning: '',
+      owner_name: '',
+      emission_norms: '',
+      fuel_type: '',
+      financier: '',
+      pump_make_brand: '',
+      pump_model_number: '',
+      pump_serial_number: '',
+      pto_type: '',
+      water_tank_capacity: '',
+      foam_tank_capacity: '',
       assigned_location: '',
       assigned_site: '',
       assigned_department: '',
@@ -240,11 +311,12 @@ const VehicleMaster = () => {
   };
 
   const filteredVehicles = vehicles.filter(vehicle => {
+    const searchValue = searchTerm.toLowerCase();
     const matchesSearch = 
-      vehicle.registration_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vehicle.make.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vehicle.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      vehicle.vehicle_type.toLowerCase().includes(searchTerm.toLowerCase());
+      (vehicle.registration_number || '').toLowerCase().includes(searchValue) ||
+      (vehicle.make || '').toLowerCase().includes(searchValue) ||
+      (vehicle.model || '').toLowerCase().includes(searchValue) ||
+      (vehicle.vehicle_type || '').toLowerCase().includes(searchValue);
     
     const matchesStatus = statusFilter === 'All' || vehicle.vehicle_status === statusFilter;
     const matchesType = typeFilter === 'All' || vehicle.vehicle_type === typeFilter;
@@ -327,13 +399,26 @@ const VehicleMaster = () => {
               </h2>
             </div>
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Basic Information */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">Basic Information</h3>
-                  
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium text-gray-900">Common Fields (Both Categories)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle Type *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle Category *</label>
+                    <select
+                      value={formData.vehicle_category}
+                      onChange={(e) => setFormData({ ...formData, vehicle_category: e.target.value, vehicle_type: '' })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="in-house">In-House Vehicles</option>
+                      <option value="fire-tender">Fire Tender Vehicles</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {formData.vehicle_category === 'fire-tender' ? 'Fire Tender Type *' : 'Vehicle Type *'}
+                    </label>
                     <select
                       value={formData.vehicle_type}
                       onChange={(e) => setFormData({...formData, vehicle_type: e.target.value})}
@@ -348,35 +433,57 @@ const VehicleMaster = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Registration Number *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle Name *</label>
                     <input
                       type="text"
-                      value={formData.registration_number}
-                      onChange={(e) => setFormData({...formData, registration_number: e.target.value})}
+                      value={formData.vehicle_name}
+                      onChange={(e) => setFormData({ ...formData, vehicle_name: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter unique vehicle name"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Chassis Number</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Registration Number *</label>
                     <input
                       type="text"
-                      value={formData.chassis_number}
-                      onChange={(e) => setFormData({...formData, chassis_number: e.target.value})}
+                      value={formData.registration_number}
+                      onChange={(e) => setFormData({...formData, registration_number: e.target.value.toUpperCase()})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="e.g., MH12AB1234"
+                      pattern="^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$"
+                      title="Enter valid RTO format, e.g. MH12AB1234"
+                      required
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Engine Number</label>
-                    <input
-                      type="text"
-                      value={formData.engine_number}
-                      onChange={(e) => setFormData({...formData, engine_number: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
+                  {formData.vehicle_category !== 'fire-tender' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Chassis Number</label>
+                      <input
+                        type="text"
+                        value={formData.chassis_number}
+                        onChange={(e) => setFormData({...formData, chassis_number: e.target.value.toUpperCase()})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        minLength={17}
+                        maxLength={17}
+                        placeholder="17-character VIN"
+                      />
+                    </div>
+                  )}
+
+                  {formData.vehicle_category !== 'fire-tender' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Engine Number</label>
+                      <input
+                        type="text"
+                        value={formData.engine_number}
+                        onChange={(e) => setFormData({...formData, engine_number: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Make *</label>
@@ -400,23 +507,20 @@ const VehicleMaster = () => {
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Year of Manufacture</label>
-                    <input
-                      type="number"
-                      value={formData.year_of_manufacture}
-                      onChange={(e) => setFormData({...formData, year_of_manufacture: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      min="1900"
-                      max="2030"
-                    />
-                  </div>
-                </div>
+                  {formData.vehicle_category !== 'fire-tender' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Year of Manufacture</label>
+                      <input
+                        type="number"
+                        value={formData.year_of_manufacture}
+                        onChange={(e) => setFormData({...formData, year_of_manufacture: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        min="1900"
+                        max={currentYear}
+                      />
+                    </div>
+                  )}
 
-                {/* Assignment and Status */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">Assignment & Status</h3>
-                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Date of Purchase</label>
                     <input
@@ -428,12 +532,76 @@ const VehicleMaster = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date of Commissioning</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date of Registration</label>
                     <input
                       type="date"
-                      value={formData.date_of_commissioning}
-                      onChange={(e) => setFormData({...formData, date_of_commissioning: e.target.value})}
+                      value={formData.date_of_registration}
+                      onChange={(e) => setFormData({...formData, date_of_registration: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle Status *</label>
+                    <select
+                      value={formData.vehicle_status}
+                      onChange={(e) => setFormData({...formData, vehicle_status: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      {vehicleStatuses.map(status => (
+                        <option key={status} value={status}>{status}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Owner Name</label>
+                    <input
+                      type="text"
+                      value={formData.owner_name}
+                      onChange={(e) => setFormData({...formData, owner_name: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="For rented/leased vehicles"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Emission Norms</label>
+                    <select
+                      value={formData.emission_norms}
+                      onChange={(e) => setFormData({...formData, emission_norms: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select Emission Norms</option>
+                      {emissionNormOptions.map((norm) => (
+                        <option key={norm} value={norm}>{norm}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Fuel Type</label>
+                    <select
+                      value={formData.fuel_type}
+                      onChange={(e) => setFormData({...formData, fuel_type: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select Fuel Type</option>
+                      {fuelTypeOptions.map((fuel) => (
+                        <option key={fuel} value={fuel}>{fuel}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Financier</label>
+                    <input
+                      type="text"
+                      value={formData.financier}
+                      onChange={(e) => setFormData({...formData, financier: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Bank / NBFC (optional)"
                     />
                   </div>
 
@@ -484,20 +652,6 @@ const VehicleMaster = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle Status *</label>
-                    <select
-                      value={formData.vehicle_status}
-                      onChange={(e) => setFormData({...formData, vehicle_status: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    >
-                      {vehicleStatuses.map(status => (
-                        <option key={status} value={status}>{status}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Current Odometer Reading</label>
                     <input
                       type="number"
@@ -529,7 +683,7 @@ const VehicleMaster = () => {
                     />
                   </div>
 
-                  <div>
+                  <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Remarks</label>
                     <textarea
                       value={formData.remarks}
@@ -540,6 +694,122 @@ const VehicleMaster = () => {
                   </div>
                 </div>
               </div>
+
+              {formData.vehicle_category === 'fire-tender' && (
+                <div className="space-y-4 pt-2">
+                  <h3 className="text-lg font-medium text-gray-900">Fire Tender Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Chassis Model</label>
+                      <input
+                        type="text"
+                        value={formData.chassis_model}
+                        onChange={(e) => setFormData({ ...formData, chassis_model: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Engine Number</label>
+                      <input
+                        type="text"
+                        value={formData.engine_number}
+                        onChange={(e) => setFormData({...formData, engine_number: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Chassis Number</label>
+                      <input
+                        type="text"
+                        value={formData.chassis_number}
+                        onChange={(e) => setFormData({...formData, chassis_number: e.target.value.toUpperCase()})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        minLength={17}
+                        maxLength={17}
+                        placeholder="17-character VIN"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Pump Make / Brand</label>
+                      <input
+                        type="text"
+                        value={formData.pump_make_brand}
+                        onChange={(e) => setFormData({ ...formData, pump_make_brand: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Pump Model Number</label>
+                      <input
+                        type="text"
+                        value={formData.pump_model_number}
+                        onChange={(e) => setFormData({ ...formData, pump_model_number: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Pump Serial Number</label>
+                      <input
+                        type="text"
+                        value={formData.pump_serial_number}
+                        onChange={(e) => setFormData({ ...formData, pump_serial_number: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">P.T.O. Type</label>
+                      <input
+                        type="text"
+                        value={formData.pto_type}
+                        onChange={(e) => setFormData({ ...formData, pto_type: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Water Tank Capacity (litres)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={formData.water_tank_capacity}
+                        onChange={(e) => setFormData({ ...formData, water_tank_capacity: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Foam Tank Capacity (litres)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={formData.foam_tank_capacity}
+                        onChange={(e) => setFormData({ ...formData, foam_tank_capacity: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Year of Manufacture</label>
+                      <input
+                        type="number"
+                        value={formData.year_of_manufacture}
+                        onChange={(e) => setFormData({...formData, year_of_manufacture: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        min="1900"
+                        max={currentYear}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
                 <button

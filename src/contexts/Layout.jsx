@@ -659,7 +659,7 @@ const Layout = () => {
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink to="fire-tender-vehicle-management" className={subNavClass}>
                     <Car className="w-4 h-4 shrink-0 text-orange-600" />
-                    <span className="text-xs">Fire Tender/Vehicle Management</span>
+                    <span className="text-xs">Fleet Management</span>
                   </NavLink>
                   <NavLink to="operations" className={subNavClass}>
                     <Cog className="w-4 h-4 shrink-0 text-gray-600" />

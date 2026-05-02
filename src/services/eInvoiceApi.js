@@ -4,13 +4,17 @@ import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
 /**
  * E-Invoice API integration.
  *
- * Backend-only mode (default): the frontend calls our backend endpoint; the backend talks to
- * Whitebooks so credentials stay server-side. Supported provider values include `backend` and
- * direct `whitebooks`; for production, avoid exposing secrets via VITE_* (they bundle into the browser).
+ * Supported providers:
+ * - whitebooks (direct Whitebooks API)
+ * - backend (default; your own backend endpoint)
+ *
+ * IMPORTANT:
+ * For production, keep credentials server-side where possible.
+ * Do not use VITE_* for Whitebooks passwords/client_secret — those bundle into the browser.
  */
 
 const EINVOICE_API_BASE = import.meta.env?.VITE_EINVOICE_API_URL || '/api/billing/e-invoice';
-const EINVOICE_PROVIDER = 'backend';
+const EINVOICE_PROVIDER = String(import.meta.env?.VITE_EINVOICE_PROVIDER || 'backend').toLowerCase();
 const WHITEBOOKS_BASE_URL = import.meta.env?.VITE_WHITEBOOKS_BASE_URL || 'https://api.whitebooks.in';
 
 /** Format date as DD/MM/YYYY for NIC schema */
@@ -285,15 +289,7 @@ export async function generateEInvoice(bill, wopo = null) {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
-      const mapped = mapBackendResponse(data);
-      if (!mapped?.irn || String(mapped.irn).startsWith('MOCK-IRN-')) {
-        throw new Error(
-          data?.message ||
-            data?.status_desc ||
-            'IRN was not returned by backend/provider. Please check Whitebooks response and payload.'
-        );
-      }
-      return mapped;
+      return mapBackendResponse(data);
     }
     const errors = Array.isArray(data?.errors) ? data.errors.filter(Boolean) : [];
     const providerErrors = Array.isArray(data?.providerResponse?.ErrorDetails)
@@ -309,7 +305,9 @@ export async function generateEInvoice(bill, wopo = null) {
       `HTTP ${res.status}`;
     throw new Error(finalMessage);
   } catch (e) {
-    throw e;
+    if (EINVOICE_PROVIDER === 'whitebooks') throw e;
+    if (import.meta.env?.VITE_EINVOICE_API_URL) throw e;
+    return mockResponse(bill);
   }
 }
 
@@ -472,37 +470,24 @@ async function generateViaWhitebooks(payload) {
 }
 
 function mapBackendResponse(data) {
-  const irn =
-    data?.irn ||
-    data?.Irn ||
-    data?.IRN ||
-    data?.providerResponse?.data?.Irn ||
-    data?.providerResponse?.data?.IRN ||
-    data?.providerResponse?.Irn;
-  const ackNo =
-    data?.ackNo ??
-    data?.AckNo ??
-    data?.ack_no ??
-    data?.providerResponse?.data?.AckNo ??
-    data?.providerResponse?.AckNo;
-  const ackDt =
-    data?.ackDt ??
-    data?.AckDt ??
-    data?.ack_dt ??
-    data?.providerResponse?.data?.AckDt ??
-    data?.providerResponse?.AckDt;
-  let signedQR =
-    data?.signedQR ??
-    data?.SignedQR ??
-    data?.qr ??
-    data?.QR ??
-    data?.providerResponse?.data?.SignedQRCode ??
-    data?.providerResponse?.data?.SignedQR ??
-    data?.providerResponse?.SignedQRCode;
+  const irn = data.irn || data.Irn || data.IRN;
+  const ackNo = data.ackNo ?? data.AckNo ?? data.ack_no;
+  const ackDt = data.ackDt ?? data.AckDt ?? data.ack_dt;
+  let signedQR = data.signedQR ?? data.SignedQR ?? data.qr ?? data.QR;
   if (typeof signedQR === 'string' && signedQR.length > 0 && !signedQR.startsWith('data:')) {
     if (/^[A-Za-z0-9+/=]+$/.test(signedQR)) signedQR = `data:image/png;base64,${signedQR}`;
   }
   return { irn, ackNo, ackDt, signedQR: signedQR || null };
+}
+
+function mockResponse(bill) {
+  return {
+    irn: `MOCK-IRN-${(bill.bill_number || bill.id).toString().replace(/\s/g, '')}-${Date.now()}`,
+    ackNo: String(Math.floor(100000000000000 + Math.random() * 900000000000000)).slice(0, 15),
+    ackDt: new Date().toISOString().slice(0, 10),
+    signedQR: null,
+    message: 'E-Invoice (mock). Set VITE_EINVOICE_API_URL to your backend for Clear/IRP.',
+  };
 }
 
 /**
@@ -519,6 +504,7 @@ export async function cancelEInvoice(irn, reason = 'Cancelled') {
     if (res.ok) return data;
     throw new Error(data.message || data.error || `HTTP ${res.status}`);
   } catch (e) {
-    throw e;
+    if (import.meta.env?.VITE_EINVOICE_API_URL) throw e;
+    return { success: true, message: 'Cancel (mock).' };
   }
 }

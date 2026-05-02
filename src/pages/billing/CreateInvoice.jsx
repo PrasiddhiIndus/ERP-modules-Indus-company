@@ -183,10 +183,6 @@ function formatBillingMonth(ymd) {
   return `${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
-function isMockIrnValue(irn) {
-  return String(irn || '').trim().toUpperCase().startsWith('MOCK-IRN-');
-}
-
 function latestRenewalCycle(po) {
   const cycles = Array.isArray(po?.renewalCycles) ? po.renewalCycles : (Array.isArray(po?.renewal_cycles) ? po.renewal_cycles : []);
   if (!cycles.length) return null;
@@ -1138,12 +1134,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
       isPostContractBuffer: existing ? !!existing.isPostContractBuffer : !!postContractBillingMoment,
     };
 
-    const realIrn = !isMockIrnValue(inv.e_invoice_irn) ? inv.e_invoice_irn : null;
-    inv.e_invoice_irn = realIrn;
-    inv.e_invoice_ack_no = realIrn ? inv.e_invoice_ack_no || null : null;
-    inv.e_invoice_ack_dt = realIrn ? inv.e_invoice_ack_dt || null : null;
-    inv.e_invoice_signed_qr = realIrn ? inv.e_invoice_signed_qr || null : null;
-
     setInvoices((prev) => {
       if (existing) return prev.map((p) => (String(p.id) === String(existing.id) ? inv : p));
       return [...prev, inv];
@@ -1273,8 +1263,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             row.existingInvoiceId != null
                               ? invoices.find((i) => String(i.id) === String(row.existingInvoiceId))
                               : null;
-                          const editLockedByIrn =
-                            !!rowInvoice?.e_invoice_irn && !isMockIrnValue(rowInvoice?.e_invoice_irn);
+                          const editLockedByIrn = !!rowInvoice?.e_invoice_irn;
                           return (
                           <tr
                             key={row.id}

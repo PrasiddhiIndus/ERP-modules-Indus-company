@@ -414,7 +414,7 @@ const POEntry = () => {
       ...initialForm,
       vertical: nextVertical,
       ocSeries: nextSeries,
-      ocNumber: generateOCNumber(nextVertical, nextSeries),
+      ocNumber: '',
     });
     setGstinError('');
     setContactError('');
@@ -647,7 +647,7 @@ const POEntry = () => {
       setSaveError('Enter PO/WO number in New PO Number (renewal).');
       return;
     }
-    const ocNum = trimmedOcNumber;
+    const ocNum = trimmedOcNumber || generateOCNumber(formData.vertical || 'Manpower', formData.ocSeries || nextSeries);
     const trainingSelected = isTrainingVertical(formData.vertical);
     // Training invoices use straight Quantity × Rate math; avoid monthly duty-geometry modes.
     const poType = trainingSelected

@@ -18,6 +18,7 @@ import DriverManagement from './DriverManagement';
 
 const FireTenderVehicleManagement = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [vehicleType, setVehicleType] = useState('in-house');
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, component: VehicleManagementDashboard },
@@ -37,10 +38,24 @@ const FireTenderVehicleManagement = () => {
         <div className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Fire Tender/Vehicle Management</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Fleet Management</h1>
               <p className="text-gray-600 mt-1">Comprehensive fleet management system</p>
             </div>
             <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <label htmlFor="vehicle-type" className="text-sm font-medium text-gray-700">
+                  Vehicle Type:
+                </label>
+                <select
+                  id="vehicle-type"
+                  value={vehicleType}
+                  onChange={(event) => setVehicleType(event.target.value)}
+                  className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="in-house">In-House Vehicles</option>
+                  <option value="fire-tender">Fire Tender Vehicles</option>
+                </select>
+              </div>
               <div className="text-sm text-gray-500">
                 Last updated: {new Date().toLocaleDateString()}
               </div>
@@ -76,7 +91,11 @@ const FireTenderVehicleManagement = () => {
 
       {/* Main Content */}
       <div className="flex-1">
-        <ActiveComponent />
+        {activeTab === 'dashboard' ? (
+          <VehicleManagementDashboard onNavigate={setActiveTab} />
+        ) : (
+          <ActiveComponent />
+        )}
       </div>
     </div>
   );
