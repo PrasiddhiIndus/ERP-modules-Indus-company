@@ -7,6 +7,18 @@ import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
  * Backend-only mode (default): the frontend calls our backend endpoint; the backend talks to
  * Whitebooks so credentials stay server-side. Supported provider values include `backend` and
  * direct `whitebooks`; for production, avoid exposing secrets via VITE_* (they bundle into the browser).
+ *
+ * Product flow (example — Commercial / Manpower & Training):
+ *   PO Entry → approved → Create Invoice → approved → Manage Invoices → open Tax Invoice view →
+ *   "Generate E-Invoice" → browser calls our Node proxy → Whitebooks (https://api.whitebooks.in) →
+ *   GST IRP (government). IRN, Ack No, and Ack Date come back in the API response and are stored on the invoice.
+ *
+ * If the console still shows: "IRN was not returned by backend/provider" from a file like
+ * `index-CCdFfSbw.js`, that text is from an OLD production bundle — the current source no longer
+ * contains it. Fix: `npm run build`, deploy the new `dist` assets, hard-refresh or clear site cache.
+ * Then use DevTools → Network on `.../e-invoice/generate` — the JSON must be from your Node server
+ * (not HTML). If the body shows `providerResponse` / `status_desc`, that is the NIC/Whitebooks
+ * validation message to fix (GSTIN, HSN, buyer PIN vs state, etc.).
  */
 
 const EINVOICE_API_BASE = import.meta.env?.VITE_EINVOICE_API_URL || '/api/billing/e-invoice';
@@ -283,14 +295,42 @@ export async function generateEInvoice(bill, wopo = null) {
         },
       }),
     });
-    const data = await res.json().catch(() => ({}));
+    const rawText = await res.text();
+    let data = {};
+    try {
+      data = rawText && rawText.trim() ? JSON.parse(rawText) : {};
+    } catch {
+      if (res.ok && /^\s*</.test(rawText)) {
+        throw new Error(
+          `E-invoice API returned a web page (HTML) instead of JSON. The browser called ${EINVOICE_API_BASE}/generate — on production, reverse-proxy /api to the Node e-invoice server, or set VITE_EINVOICE_API_URL to the full API base URL.`
+        );
+      }
+      throw new Error(
+        `E-invoice API returned invalid JSON (HTTP ${res.status}). ${rawText?.slice(0, 200) || 'Empty body.'}`
+      );
+    }
     if (res.ok) {
       const mapped = mapBackendResponse(data);
       if (!mapped?.irn || String(mapped.irn).startsWith('MOCK-IRN-')) {
+        const detail = extractEInvoiceFailureDetail(data);
+        const fromProvider =
+          deepFindValueByKeys(data?.providerResponse || {}, ['status_desc', 'StatusDesc']) ||
+          data?.providerResponse?.status_desc;
+        const nicMsg =
+          deepFindValueByKeys(data?.providerResponse || {}, ['ErrorMessage', 'errorMessage']) || '';
+        const keysHint =
+          data && typeof data === 'object'
+            ? ` (response fields: ${Object.keys(data).join(', ') || 'none'})`
+            : '';
         throw new Error(
-          data?.message ||
+          detail ||
+            data?.message ||
+            fromProvider ||
             data?.status_desc ||
-            'IRN was not returned by backend/provider. Please check Whitebooks response and payload.'
+            nicMsg ||
+            (Object.keys(data).length === 0
+              ? `Empty response from ${EINVOICE_API_BASE}/generate. Check that the API server is running and CORS/proxy is correct.`
+              : `E-invoice: no IRN in the response.${keysHint}. In DevTools → Network, open the generate call and read JSON: fix any NIC/Whitebooks error in providerResponse, or ensure /api is proxied to the Node server (or set VITE_EINVOICE_API_URL to https://api.whitebooks.in flow via your backend).`)
         );
       }
       return mapped;
@@ -359,6 +399,71 @@ async function buildQrImageDataUrl(value) {
   }
 }
 
+/** NIC IRN is typically 64 chars; reject mocks and accidental DFS hits (same rules as server). */
+function normalizeNicIrn(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || /\s/.test(s)) return null;
+  if (s.toUpperCase().startsWith('MOCK-IRN-')) return null;
+  if (s.length < 8 || s.length > 128) return null;
+  if (!/^[\w\-+/=]+$/.test(s)) return null;
+  return s;
+}
+
+/** Same path priority as server `pickRawIrnFromWhitebooks` (Whitebooks root/data/Data + DFS fallback). */
+function pickRawIrnFromWhitebooks(data) {
+  if (!data || typeof data !== 'object') return null;
+  const tryVals = [
+    data.irn,
+    data.Irn,
+    data.IRN,
+    data.data?.Irn,
+    data.data?.IRN,
+    data.data?.irn,
+    data.Data?.Irn,
+    data.Data?.IRN,
+    Array.isArray(data.data) ? data.data[0]?.Irn : undefined,
+    Array.isArray(data.data) ? data.data[0]?.IRN : undefined,
+  ];
+  for (const v of tryVals) {
+    if (v != null && String(v).trim() !== '') return v;
+  }
+  return deepFindValueByKeys(data, ['Irn', 'IRN', 'irn']) ?? null;
+}
+
+/** Builds one readable reason from backend JSON when IRN is missing (NIC/WB errors). */
+function extractEInvoiceFailureDetail(data) {
+  if (!data || typeof data !== 'object') return '';
+  const chunks = [];
+  const push = (s) => {
+    const t = s != null ? String(s).trim() : '';
+    if (t) chunks.push(t);
+  };
+  push(data.message);
+  push(data.status_desc);
+  const pr = data.providerResponse;
+  if (pr && typeof pr === 'object') {
+    push(pr.message);
+    push(pr.status_desc);
+    const ed = pr.ErrorDetails || pr.errorDetails;
+    if (Array.isArray(ed)) {
+      ed.forEach((e) => push(e?.ErrorMessage || e?.message));
+    }
+    const sd = pr.status_desc;
+    if (typeof sd === 'string' && sd.trim().startsWith('[')) {
+      try {
+        const arr = JSON.parse(sd.trim());
+        if (Array.isArray(arr)) {
+          arr.forEach((e) => push(e?.ErrorMessage || e?.message));
+        }
+      } catch {
+        push(sd);
+      }
+    }
+  }
+  return [...new Set(chunks)].join(' — ');
+}
+
 function deepFindValueByKeys(obj, candidateKeys) {
   if (!obj || typeof obj !== 'object') return undefined;
   const norm = candidateKeys.map((k) => k.toLowerCase());
@@ -382,17 +487,47 @@ function deepFindValueByKeys(obj, candidateKeys) {
   return undefined;
 }
 
+function pickAckNoFromWhitebooks(data) {
+  if (!data || typeof data !== 'object') return null;
+  const tryVals = [
+    data.AckNo,
+    data.ackNo,
+    data.ack_no,
+    data.data?.AckNo,
+    data.data?.ackNo,
+    data.data?.ack_no,
+    data.Data?.AckNo,
+    Array.isArray(data.data) ? data.data[0]?.AckNo : undefined,
+  ];
+  for (const v of tryVals) {
+    if (v != null && String(v).trim() !== '') return v;
+  }
+  return deepFindValueByKeys(data, ['AckNo', 'ackNo', 'ack_no']) ?? null;
+}
+
+function pickAckDtFromWhitebooks(data) {
+  if (!data || typeof data !== 'object') return null;
+  const tryVals = [
+    data.AckDt,
+    data.ackDt,
+    data.ack_dt,
+    data.data?.AckDt,
+    data.data?.ackDt,
+    data.data?.ack_dt,
+    data.Data?.AckDt,
+    Array.isArray(data.data) ? data.data[0]?.AckDt : undefined,
+  ];
+  for (const v of tryVals) {
+    if (v != null && String(v).trim() !== '') return v;
+  }
+  return deepFindValueByKeys(data, ['AckDt', 'ackDt', 'ack_dt']) ?? null;
+}
+
 function mapWhitebooksResponse(data) {
-  const irn =
-    deepFindValueByKeys(data, ['Irn', 'IRN', 'irn']) ||
-    data?.irn ||
-    data?.Irn;
-  const ackNo =
-    deepFindValueByKeys(data, ['AckNo', 'ackNo', 'ack_no']) ||
-    data?.ackNo;
-  const ackDt =
-    deepFindValueByKeys(data, ['AckDt', 'ackDt', 'ack_dt']) ||
-    data?.ackDt;
+  const rawIrn = pickRawIrnFromWhitebooks(data);
+  const irn = normalizeNicIrn(rawIrn);
+  const ackNo = pickAckNoFromWhitebooks(data);
+  const ackDt = pickAckDtFromWhitebooks(data);
   const rawQr =
     deepFindValueByKeys(data, [
       'SignedQRCode',
@@ -472,37 +607,48 @@ async function generateViaWhitebooks(payload) {
 }
 
 function mapBackendResponse(data) {
-  const irn =
-    data?.irn ||
-    data?.Irn ||
-    data?.IRN ||
-    data?.providerResponse?.data?.Irn ||
-    data?.providerResponse?.data?.IRN ||
-    data?.providerResponse?.Irn;
+  if (!data || typeof data !== 'object') {
+    return { irn: null, ackNo: null, ackDt: null, signedQR: null };
+  }
+  const pr = data?.providerResponse;
+  const nested = data?.data && typeof data.data === 'object' && !Array.isArray(data.data) ? data.data : null;
+  const rawIrn =
+    pickRawIrnFromWhitebooks(data) ||
+    (pr && pickRawIrnFromWhitebooks(pr)) ||
+    nested?.Irn ||
+    nested?.irn ||
+    nested?.IRN ||
+    deepFindValueByKeys(data, ['Irn', 'IRN', 'irn']) ||
+    (pr && deepFindValueByKeys(pr, ['Irn', 'IRN', 'irn']));
+  const irn = normalizeNicIrn(rawIrn);
   const ackNo =
-    data?.ackNo ??
-    data?.AckNo ??
-    data?.ack_no ??
-    data?.providerResponse?.data?.AckNo ??
-    data?.providerResponse?.AckNo;
+    pickAckNoFromWhitebooks(data) ||
+    (pr && pickAckNoFromWhitebooks(pr)) ||
+    nested?.AckNo ||
+    nested?.ackNo;
   const ackDt =
-    data?.ackDt ??
-    data?.AckDt ??
-    data?.ack_dt ??
-    data?.providerResponse?.data?.AckDt ??
-    data?.providerResponse?.AckDt;
+    pickAckDtFromWhitebooks(data) ||
+    (pr && pickAckDtFromWhitebooks(pr)) ||
+    nested?.AckDt ||
+    nested?.ackDt;
   let signedQR =
     data?.signedQR ??
     data?.SignedQR ??
     data?.qr ??
     data?.QR ??
-    data?.providerResponse?.data?.SignedQRCode ??
-    data?.providerResponse?.data?.SignedQR ??
-    data?.providerResponse?.SignedQRCode;
+    deepFindValueByKeys(data, [
+      'SignedQRCode',
+      'SignedQR',
+      'signedQR',
+      'QRCode',
+      'qr',
+    ]) ??
+    (pr &&
+      deepFindValueByKeys(pr, ['SignedQRCode', 'SignedQR', 'signedQR', 'QRCode', 'qr']));
   if (typeof signedQR === 'string' && signedQR.length > 0 && !signedQR.startsWith('data:')) {
     if (/^[A-Za-z0-9+/=]+$/.test(signedQR)) signedQR = `data:image/png;base64,${signedQR}`;
   }
-  return { irn, ackNo, ackDt, signedQR: signedQR || null };
+  return { irn: irn || null, ackNo: ackNo || null, ackDt: ackDt || null, signedQR: signedQR || null };
 }
 
 /**

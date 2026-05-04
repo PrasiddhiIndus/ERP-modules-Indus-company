@@ -1,0 +1,14 @@
+# Single Page App (React + Vite) — Apache must serve index.html for client routes
+# (e.g. /app/dashboard) or refresh on deep links will return 404.
+# Upload the contents of `dist/` including this file to the site root.
+#
+# Nginx equivalent: try_files $uri $uri/ /index.html;
+#
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
