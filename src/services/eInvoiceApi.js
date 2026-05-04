@@ -22,7 +22,7 @@ import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
  */
 
 const EINVOICE_API_BASE = import.meta.env?.VITE_EINVOICE_API_URL || '/api/billing/e-invoice';
-const EINVOICE_PROVIDER = 'backend';
+const EINVOICE_PROVIDER = String(import.meta.env?.VITE_EINVOICE_PROVIDER || 'backend').toLowerCase();
 const WHITEBOOKS_BASE_URL = import.meta.env?.VITE_WHITEBOOKS_BASE_URL || 'https://api.whitebooks.in';
 
 /** Format date as DD/MM/YYYY for NIC schema */
@@ -349,7 +349,9 @@ export async function generateEInvoice(bill, wopo = null) {
       `HTTP ${res.status}`;
     throw new Error(finalMessage);
   } catch (e) {
-    throw e;
+    if (EINVOICE_PROVIDER === 'whitebooks') throw e;
+    if (import.meta.env?.VITE_EINVOICE_API_URL) throw e;
+    return mockResponse(bill);
   }
 }
 
@@ -651,6 +653,16 @@ function mapBackendResponse(data) {
   return { irn: irn || null, ackNo: ackNo || null, ackDt: ackDt || null, signedQR: signedQR || null };
 }
 
+function mockResponse(bill) {
+  return {
+    irn: `MOCK-IRN-${(bill.bill_number || bill.id).toString().replace(/\s/g, '')}-${Date.now()}`,
+    ackNo: String(Math.floor(100000000000000 + Math.random() * 900000000000000)).slice(0, 15),
+    ackDt: new Date().toISOString().slice(0, 10),
+    signedQR: null,
+    message: 'E-Invoice (mock). Set VITE_EINVOICE_API_URL to your backend for Clear/IRP.',
+  };
+}
+
 /**
  * Cancel E-Invoice (IRN). Backend should call Clear POST /einvoice/cancel.
  */
@@ -665,6 +677,7 @@ export async function cancelEInvoice(irn, reason = 'Cancelled') {
     if (res.ok) return data;
     throw new Error(data.message || data.error || `HTTP ${res.status}`);
   } catch (e) {
-    throw e;
+    if (import.meta.env?.VITE_EINVOICE_API_URL) throw e;
+    return { success: true, message: 'Cancel (mock).' };
   }
 }

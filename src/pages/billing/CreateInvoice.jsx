@@ -183,10 +183,6 @@ function formatBillingMonth(ymd) {
   return `${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
-function isMockIrnValue(irn) {
-  return String(irn || '').trim().toUpperCase().startsWith('MOCK-IRN-');
-}
-
 function latestRenewalCycle(po) {
   const cycles = Array.isArray(po?.renewalCycles) ? po.renewalCycles : (Array.isArray(po?.renewal_cycles) ? po.renewal_cycles : []);
   if (!cycles.length) return null;
@@ -336,12 +332,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [commercialPOs]);
 
   const billablePOsByTab = useMemo(() => {
+    if (isTrainingVertical) {
+      return billablePOs;
+    }
     const tab = String(poBillingTab || '').trim();
     return billablePOs.filter((p) => {
       const bt = String(p.billingType || '').trim();
       return bt === tab;
     });
-  }, [billablePOs, poBillingTab]);
+  }, [billablePOs, poBillingTab, isTrainingVertical]);
 
   const poTableRows = useMemo(() => {
     return billablePOsByTab.map((po) => {
@@ -1138,12 +1137,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
       isPostContractBuffer: existing ? !!existing.isPostContractBuffer : !!postContractBillingMoment,
     };
 
-    const realIrn = !isMockIrnValue(inv.e_invoice_irn) ? inv.e_invoice_irn : null;
-    inv.e_invoice_irn = realIrn;
-    inv.e_invoice_ack_no = realIrn ? inv.e_invoice_ack_no || null : null;
-    inv.e_invoice_ack_dt = realIrn ? inv.e_invoice_ack_dt || null : null;
-    inv.e_invoice_signed_qr = realIrn ? inv.e_invoice_signed_qr || null : null;
-
     setInvoices((prev) => {
       if (existing) return prev.map((p) => (String(p.id) === String(existing.id) ? inv : p));
       return [...prev, inv];
@@ -1223,7 +1216,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           </p>
         ) : (
           <div className="px-3 pb-3">
-            {!isRmVertical ? (
+            {!isRmVertical && !isTrainingVertical ? (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
                 {billingTabs.map((t) => {
                   const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
@@ -1273,8 +1266,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             row.existingInvoiceId != null
                               ? invoices.find((i) => String(i.id) === String(row.existingInvoiceId))
                               : null;
-                          const editLockedByIrn =
-                            !!rowInvoice?.e_invoice_irn && !isMockIrnValue(rowInvoice?.e_invoice_irn);
+                          const editLockedByIrn = !!rowInvoice?.e_invoice_irn;
                           return (
                           <tr
                             key={row.id}

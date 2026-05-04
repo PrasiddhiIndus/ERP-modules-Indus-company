@@ -31,6 +31,3 @@ dist-ssr
 .env.server
 .env.local
 *.pem
-
-# Local Netlify folder
-.netlify
