@@ -332,12 +332,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [commercialPOs]);
 
   const billablePOsByTab = useMemo(() => {
+    if (isTrainingVertical) {
+      return billablePOs;
+    }
     const tab = String(poBillingTab || '').trim();
     return billablePOs.filter((p) => {
       const bt = String(p.billingType || '').trim();
       return bt === tab;
     });
-  }, [billablePOs, poBillingTab]);
+  }, [billablePOs, poBillingTab, isTrainingVertical]);
 
   const poTableRows = useMemo(() => {
     return billablePOsByTab.map((po) => {
@@ -1213,7 +1216,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           </p>
         ) : (
           <div className="px-3 pb-3">
-            {!isRmVertical ? (
+            {!isRmVertical && !isTrainingVertical ? (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
                 {billingTabs.map((t) => {
                   const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;

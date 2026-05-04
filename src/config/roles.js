@@ -52,9 +52,10 @@ export const MODULE_PATH_PREFIXES = {
   hr: ["/app/hr", "/app/attendance", "/app/payroll", "/app/people-management"],
   compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance"],
   admin: ["/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass", "/app/admin"],
-  sales: ["/app/manpower", "/app/commercial/manpower-training", "/app/commercial/rm-mm-amc-iev"],
+  /** /app/commercial covers legacy redirects (/app/commercial/po-entry) and all commercial sub-apps */
+  sales: ["/app/manpower", "/app/commercial"],
   marketing: ["/app/marketing"],
-  commercial: ["/app/commercial/manpower-training", "/app/commercial/rm-mm-amc-iev"],
+  commercial: ["/app/commercial"],
   billing: ["/app/billing"],
   tracking: ["/app/billing/tracking"],
   operations: ["/app/fire-tender-vehicle", "/app/operations"],

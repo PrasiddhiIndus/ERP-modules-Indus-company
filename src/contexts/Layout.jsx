@@ -448,7 +448,7 @@ const Layout = () => {
                       </NavLink>
                     </div>
                   )}
-                  <NavLink to="/app/commercial/po-entry" className={subNavClass}>
+                  <NavLink to="/app/commercial/manpower-training/po-entry" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">PO Entry</span>
                   </NavLink>
@@ -491,7 +491,7 @@ const Layout = () => {
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/manpower-management" className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-red-600" />
-                    <span className="text-xs">Manpower Management</span>
+                    <span className="text-xs">Enquiry (R&amp;M / AMC / IEV)</span>
                   </NavLink>
                   <NavLink to="/app/commercial/rm-mm-amc-iev/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-purple-600" />

@@ -63,10 +63,46 @@ function isAuthSuccess(data) {
   return code === '1' || code === 'success' || code === 'sucess' || desc.includes('succeeds') || desc.includes('success');
 }
 
+function hasNonEmptyErrorDetails(data) {
+  const ed = data?.ErrorDetails || data?.errorDetails;
+  if (!Array.isArray(ed) || !ed.length) return false;
+  return ed.some((e) => e && (e.ErrorMessage || e.message || e.ErrorCode));
+}
+
+function looksLikeStatusDescErrorJson(data) {
+  const s = String(data?.status_desc ?? '').trim();
+  return s.startsWith('[') && s.includes('ErrorCode');
+}
+
+function normalizeNicIrn(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || /\s/.test(s)) return null;
+  if (s.toUpperCase().startsWith('MOCK-IRN-')) return null;
+  // NIC IRN is typically 64 chars; allow URL/base64-safe characters (providers vary slightly).
+  if (s.length < 8 || s.length > 128) return null;
+  if (!/^[\w\-+/=]+$/.test(s)) return null;
+  return s;
+}
+
 function isProviderSuccess(data) {
-  const code = String(data?.status_cd ?? '').toLowerCase();
+  if (hasNonEmptyErrorDetails(data)) return false;
+  if (looksLikeStatusDescErrorJson(data)) return false;
+  if (normalizeNicIrn(pickRawIrnFromWhitebooks(data))) return true;
+  const gstnData = data?.data;
+  if (
+    gstnData &&
+    typeof gstnData === 'object' &&
+    (gstnData.LegalName != null || gstnData.TradeName != null || gstnData.StateCode != null)
+  ) {
+    return true;
+  }
+  const code = String(data?.status_cd ?? '').trim().toLowerCase();
+  if (code === '0' || code === '2' || code === 'error' || code === 'e') return false;
+  if (code === '1') return true;
   const desc = String(data?.status_desc ?? '').toLowerCase();
-  return code === '1' || code === 'success' || code === 'sucess' || desc.includes('succeeds') || desc.includes('success');
+  if (desc && (desc.includes('token generated') || desc.includes('authentication successful'))) return true;
+  return code === 'success' || code === 'sucess' || desc.includes('succeeds');
 }
 
 function extractProviderErrors(data) {
@@ -120,6 +156,63 @@ function deepFind(obj, keys) {
   return undefined;
 }
 
+/** Prefer documented paths (root / data / Data) before DFS — avoids wrong `Irn` inside nested error payloads. */
+function pickRawIrnFromWhitebooks(data) {
+  if (!data || typeof data !== 'object') return null;
+  const tryVals = [
+    data.irn,
+    data.Irn,
+    data.IRN,
+    data.data?.Irn,
+    data.data?.IRN,
+    data.data?.irn,
+    data.Data?.Irn,
+    data.Data?.IRN,
+    Array.isArray(data.data) ? data.data[0]?.Irn : undefined,
+    Array.isArray(data.data) ? data.data[0]?.IRN : undefined,
+  ];
+  for (const v of tryVals) {
+    if (v != null && String(v).trim() !== '') return v;
+  }
+  return deepFind(data, ['Irn', 'IRN', 'irn']) || null;
+}
+
+function pickAckNoFromWhitebooks(data) {
+  if (!data || typeof data !== 'object') return null;
+  const tryVals = [
+    data.AckNo,
+    data.ackNo,
+    data.ack_no,
+    data.data?.AckNo,
+    data.data?.ackNo,
+    data.data?.ack_no,
+    data.Data?.AckNo,
+    Array.isArray(data.data) ? data.data[0]?.AckNo : undefined,
+  ];
+  for (const v of tryVals) {
+    if (v != null && String(v).trim() !== '') return v;
+  }
+  return deepFind(data, ['AckNo', 'ackNo', 'ack_no']) || null;
+}
+
+function pickAckDtFromWhitebooks(data) {
+  if (!data || typeof data !== 'object') return null;
+  const tryVals = [
+    data.AckDt,
+    data.ackDt,
+    data.ack_dt,
+    data.data?.AckDt,
+    data.data?.ackDt,
+    data.data?.ack_dt,
+    data.Data?.AckDt,
+    Array.isArray(data.data) ? data.data[0]?.AckDt : undefined,
+  ];
+  for (const v of tryVals) {
+    if (v != null && String(v).trim() !== '') return v;
+  }
+  return deepFind(data, ['AckDt', 'ackDt', 'ack_dt']) || null;
+}
+
 async function asQrDataUrl(value) {
   if (!value || typeof value !== 'string') return null;
   if (value.startsWith('data:image/')) return value;
@@ -128,9 +221,10 @@ async function asQrDataUrl(value) {
 }
 
 function mapGenerateResponse(data) {
-  const irn = deepFind(data, ['Irn', 'IRN', 'irn']) || null;
-  const ackNo = deepFind(data, ['AckNo', 'ackNo', 'ack_no']) || null;
-  const ackDt = deepFind(data, ['AckDt', 'ackDt', 'ack_dt']) || null;
+  const rawIrn = pickRawIrnFromWhitebooks(data);
+  const irn = normalizeNicIrn(rawIrn);
+  const ackNo = pickAckNoFromWhitebooks(data);
+  const ackDt = pickAckDtFromWhitebooks(data);
   const signedInvoice = deepFind(data, ['SignedInvoice', 'signedInvoice']) || null;
   const rawSignedQr = deepFind(data, ['SignedQRCode', 'SignedQR', 'signedQR', 'QRCode', 'qr']) || null;
   return { irn, ackNo, ackDt, signedInvoice, rawSignedQr };
