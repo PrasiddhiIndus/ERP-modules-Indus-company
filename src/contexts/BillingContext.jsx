@@ -20,6 +20,7 @@ import {
 import {
   isBillingDbAvailable,
   fetchCommercialPOs,
+  billingErrorMsg,
   saveCommercialPOs as saveCommercialPOsDb,
   deleteCommercialPOs as deleteCommercialPOsDb,
   fetchInvoices,
@@ -31,7 +32,39 @@ import {
   savePaymentAdvice as savePaymentAdviceDb,
 } from '../services/billingApi';
 
-const BillingContext = createContext(null);
+const BillingContext = createContext({
+  __missingProvider: true,
+  commercialPOs: [],
+  commercialPOsAllModules: [],
+  setCommercialPOs: () => {},
+  contactHistory: {},
+  setContactHistory: () => {},
+  invoices: [],
+  invoicesAll: [],
+  setInvoices: () => {},
+  creditDebitNotes: [],
+  setCreditDebitNotes: () => {},
+  paymentAdvice: {},
+  setPaymentAdvice: () => {},
+  invoiceDraft: null,
+  setInvoiceDraft: () => {},
+  billingVerticalFilter: '',
+  setBillingVerticalFilter: () => {},
+  billingVerticalOptions: [],
+  enableVerticalFilter: false,
+  useBillingDb: false,
+  billingError: 'Billing context not ready.',
+  clearBillingError: () => {},
+  refreshBilling: async () => false,
+  wopoList: [],
+  setWopoList: () => {},
+  bills: [],
+  setBills: () => {},
+  billingHistory: [],
+  setBillingHistory: () => {},
+  billingAlerts: [],
+  setBillingAlerts: () => {},
+});
 const toModuleContext = (moduleScope) =>
   moduleScope
     ? (moduleScope === COMMERCIAL_MODULE_RM_MM_AMC_IEV ? 'rm_mm_amc_iev' : 'manpower_training')
@@ -159,7 +192,10 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     try {
       const available = await isBillingDbAvailable();
       setUseDb(!!available);
-      if (!available) return false;
+      if (!available) {
+        setBillingError('Billing DB is not available (schema/RLS). Using localStorage.');
+        return false;
+      }
       const [pos, invs, notes, pa] = await Promise.all([
         fetchCommercialPOs({
           moduleType: commercialModuleScope || undefined,
@@ -174,9 +210,11 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
       setCreditDebitNotesState(notes);
       setPaymentAdviceState(pa);
       contactHistoryFromPOs(pos);
+      setBillingError(null);
       return true;
     } catch (e) {
       console.warn('Billing DB load failed, using localStorage:', e);
+      setBillingError(billingErrorMsg(e, 'Billing DB load'));
       setUseDb(false);
       return false;
     }
@@ -391,7 +429,10 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
 
 export const useBilling = () => {
   const ctx = useContext(BillingContext);
-  if (!ctx) throw new Error('useBilling must be used within BillingProvider');
+  if (ctx?.__missingProvider) {
+    // eslint-disable-next-line no-console
+    console.warn('useBilling used outside BillingProvider');
+  }
   return ctx;
 };
 

@@ -39,7 +39,21 @@ export function isCommercialModuleMarker(entry) {
 }
 
 export function getCommercialPoModuleType(po) {
-  return po?.moduleType || getCommercialModuleTypeFromUpdateHistory(po?.updateHistory) || COMMERCIAL_MODULE_MANPOWER_TRAINING;
+  const explicit = po?.moduleType;
+  if (explicit) return explicit;
+  const fromMarker = getCommercialModuleTypeFromUpdateHistory(po?.updateHistory);
+  if (fromMarker) return fromMarker;
+  // Fallback: infer from PO vertical when markers are missing (legacy rows / older DB data).
+  const v = String(po?.vertical || po?.poVertical || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  const rmSet = new Set(['rm', 'mm', 'amc', 'iev', 'rm&m', 'm&m']);
+  if (rmSet.has(v)) return COMMERCIAL_MODULE_RM_MM_AMC_IEV;
+  // DB stores MANP/TRAIN as vertical segments too
+  const mtSet = new Set(['manp', 'manpower', 'train', 'training', 'bill']);
+  if (mtSet.has(v)) return COMMERCIAL_MODULE_MANPOWER_TRAINING;
+  return COMMERCIAL_MODULE_MANPOWER_TRAINING;
 }
 
 export function getEnquiryCommercialModuleType(row) {
