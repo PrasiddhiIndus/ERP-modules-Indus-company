@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { ROLES, TEAMS, MODULES } from '../config/roles'
+import { ROLES, MODULES as FALLBACK_MODULES } from '../config/roles'
+import { useAppAccessConfig } from '../contexts/AppAccessConfigContext'
 import { Mail, Lock, Eye, EyeOff, UserPlus, User, ChevronDown, Shield } from 'lucide-react'
 
 const Register = () => {
@@ -19,7 +20,10 @@ const Register = () => {
   const [success, setSuccess] = useState('')
 
   const { signUpWithProfile } = useAuth()
+  const accessCfg = useAppAccessConfig()
   const navigate = useNavigate()
+
+  const modules = (accessCfg?.modules?.length ? accessCfg.modules : FALLBACK_MODULES).filter((m) => m.value !== 'userManagement')
 
   const toggleModule = (value) => {
     setAllowedModules((prev) =>
@@ -57,11 +61,15 @@ const Register = () => {
       return
     }
 
+    const normEmail = String(email || '').trim().toLowerCase()
+    const forcedRahul = normEmail === 'rahul.ifspl@gmail.com'
+    const effectiveRole = forcedRahul ? ROLES.SUPER_ADMIN_PRO : ROLES.EXECUTIVE
+
     const { error: signUpError } = await signUpWithProfile(email, password, {
       username,
       team,
-      role,
-      allowed_modules: role === ROLES.MANAGER ? allowedModules : [],
+      role: effectiveRole,
+      allowed_modules: effectiveRole === ROLES.MANAGER ? allowedModules : [],
     })
 
     if (signUpError) {
@@ -175,7 +183,7 @@ const Register = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Team</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Team / Module</label>
               <div className="relative">
                 <select
                   value={team}
@@ -183,15 +191,18 @@ const Register = () => {
                   className="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white"
                   required
                 >
-                  <option value="">Select team</option>
-                  {TEAMS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
+                  <option value="">Select team/module</option>
+                  {modules.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
                     </option>
                   ))}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
               </div>
+              <p className="text-[11px] text-gray-500 mt-1">
+                This list is synced to backend config ({accessCfg?.source || 'fallback'}).
+              </p>
             </div>
 
             <div>
@@ -207,9 +218,15 @@ const Register = () => {
                   <option value={ROLES.EXECUTIVE}>Executive (only your team module)</option>
                   <option value={ROLES.MANAGER}>Manager (team + selected modules)</option>
                   <option value={ROLES.ADMIN}>Admin (full access)</option>
+                  <option value={ROLES.SUPER_ADMIN}>Super Admin (Management)</option>
+                  <option value={ROLES.SUPER_ADMIN_PRO}>Super Admin Pro</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
               </div>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Note: Self-registration creates <span className="font-semibold">Executive</span> accounts by default.
+                Only <span className="font-semibold">rahul.ifspl@gmail.com</span> is hardcoded as <span className="font-semibold">Super Admin Pro</span>.
+              </p>
             </div>
 
             {role === ROLES.MANAGER && (
@@ -218,7 +235,7 @@ const Register = () => {
                   Additional modules (check all that apply)
                 </label>
                 <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
-                  {MODULES.filter((m) => m.value !== team).map((m) => (
+                  {modules.filter((m) => m.value !== team).map((m) => (
                     <label key={m.value} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"

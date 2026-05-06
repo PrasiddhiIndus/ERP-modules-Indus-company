@@ -97,6 +97,130 @@ export function TrendWidget({ title, values }) {
   );
 }
 
+export function MiniLineChart({ title, values, color = "#2563eb" }) {
+  const pts = Array.isArray(values) ? values : [];
+  const max = Math.max(...pts, 1);
+  const w = 240;
+  const h = 64;
+  const pad = 6;
+  const xStep = pts.length > 1 ? (w - pad * 2) / (pts.length - 1) : 0;
+  const toY = (v) => {
+    const y = h - pad - ((Math.max(0, v) / max) * (h - pad * 2));
+    return Number.isFinite(y) ? y : h - pad;
+  };
+  const d = pts
+    .map((v, i) => {
+      const x = pad + i * xStep;
+      const y = toY(v);
+      return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+
+  const area = pts.length
+    ? `${d} L ${(pad + (pts.length - 1) * xStep).toFixed(2)} ${(h - pad).toFixed(2)} L ${pad.toFixed(2)} ${(h - pad).toFixed(2)} Z`
+    : "";
+
+  const last = pts.length ? pts[pts.length - 1] : 0;
+  const total = pts.reduce((a, b) => a + (Number(b) || 0), 0);
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-800">{title}</p>
+        <div className="text-[10px] text-gray-500">
+          <span className="font-semibold text-gray-800">{last}</span> now · total {total}
+        </div>
+      </div>
+      <div className="mt-2">
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-16">
+          <defs>
+            <linearGradient id="miniLineFill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          <path d={area} fill="url(#miniLineFill)" />
+          <path d={d || `M ${pad} ${h - pad}`} fill="none" stroke={color} strokeWidth="2" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+export function DonutChart({ title, items }) {
+  const rows = Array.isArray(items) ? items : [];
+  const total = rows.reduce((a, r) => a + (Number(r.value) || 0), 0) || 0;
+  const cx = 54;
+  const cy = 54;
+  const r = 38;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+
+  const palette = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#64748b"];
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-800">{title}</p>
+        <span className="text-[10px] text-gray-500">total {total}</span>
+      </div>
+      <div className="mt-2 flex gap-3">
+        <svg width="108" height="108" viewBox="0 0 108 108" className="shrink-0">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e5e7eb" strokeWidth="12" />
+          {rows
+            .filter((x) => (Number(x.value) || 0) > 0)
+            .map((x, i) => {
+              const val = Number(x.value) || 0;
+              const frac = total > 0 ? val / total : 0;
+              const len = c * frac;
+              const dash = `${len} ${c - len}`;
+              const dashOffset = -offset;
+              offset += len;
+              const color = x.color || palette[i % palette.length];
+              return (
+                <circle
+                  key={x.label}
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="12"
+                  strokeDasharray={dash}
+                  strokeDashoffset={dashOffset}
+                  transform={`rotate(-90 ${cx} ${cy})`}
+                  strokeLinecap="butt"
+                />
+              );
+            })}
+          <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" className="fill-gray-900" style={{ fontSize: 12, fontWeight: 700 }}>
+            {total}
+          </text>
+        </svg>
+        <div className="min-w-0 flex-1 space-y-1 text-xs">
+          {rows.map((x, i) => {
+            const color = x.color || palette[i % palette.length];
+            const v = Number(x.value) || 0;
+            const pct = total > 0 ? Math.round((v / total) * 100) : 0;
+            return (
+              <div key={x.label} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: color }} />
+                  <span className="truncate text-gray-700">{x.label}</span>
+                </div>
+                <span className="shrink-0 text-gray-600">
+                  {v} ({pct}%)
+                </span>
+              </div>
+            );
+          })}
+          {!rows.length ? <p className="text-xs text-gray-500">No data</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SnapshotCard({ module, rows }) {
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">

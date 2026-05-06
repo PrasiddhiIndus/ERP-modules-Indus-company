@@ -125,7 +125,8 @@ const InternalQuotationFormModal = ({
       const { data: templatesData, error: templatesError } = await supabase
         .from('marketing_mail_templates')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (templatesError) {
         console.error('Error fetching templates:', templatesError);

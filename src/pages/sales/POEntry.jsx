@@ -1,10 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { ROLES } from '../../config/roles';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { isCommercialModuleMarker } from '../../constants/commercialModuleType';
+import {
+  COMMERCIAL_MODULE_MANPOWER_TRAINING,
+  isCommercialModuleMarker,
+} from '../../constants/commercialModuleType';
+import { buildCommercialClientProfiles } from '../../utils/commercialClientProfiles';
+import ClientLegalNameAutocomplete from '../../components/commercial/ClientLegalNameAutocomplete';
 
 const VERTICALS = ['Manpower', 'Training'];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
@@ -240,6 +246,32 @@ const POEntry = () => {
   const canApproveCommercialPOs =
     userProfile?.role === ROLES.ADMIN ||
     (userProfile?.role === ROLES.MANAGER && !!accessibleModules?.has('commercial'));
+
+  const clientProfilesFromPOs = useMemo(
+    () =>
+      buildCommercialClientProfiles(commercialPOs, COMMERCIAL_MODULE_MANPOWER_TRAINING, 'manpower', {
+        excludePoId: editId,
+      }),
+    [commercialPOs, editId]
+  );
+
+  const handleApplyClientSnapshot = (snapshot) => {
+    setFormData((prev) => ({ ...prev, ...snapshot }));
+    setGstinError('');
+    setContactError('');
+    if (snapshot.gstin && !validateGSTIN(snapshot.gstin)) {
+      setGstinError('GSTIN must be 15-digit alphanumeric (e.g. 27AABCU9603R1ZM)');
+    }
+    if (snapshot.contactNumber && normalizeContactNumber(snapshot.contactNumber).length !== 10) {
+      setContactError('Contact Number must be exactly 10 digits.');
+    }
+    const msg = validateGstSupplyTypeForState(
+      snapshot.placeOfSupply,
+      snapshot.billingAddress,
+      snapshot.gstSupplyType
+    );
+    setGstTypeError(msg);
+  };
 
   const requestSupplementaryBill = (po) => {
     if (!po) return;
@@ -777,6 +809,19 @@ const POEntry = () => {
           <Plus className="h-5 w-5" /> Add PO/WO
         </button>
       </div>
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-emerald-950">
+        <p className="min-w-0 leading-snug">
+          <span className="font-semibold">Next — Billing:</span> After you <strong>send for approval</strong> and the PO is{' '}
+          <strong>approved</strong>, open <strong>Billing</strong>, choose the <strong>same vertical</strong> (team-wise dropdown), then{' '}
+          <strong>Create Invoice</strong>.
+        </p>
+        <Link
+          to="/app/billing/create-invoice"
+          className="shrink-0 inline-flex items-center justify-center rounded-lg bg-emerald-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-emerald-700 shadow-sm"
+        >
+          Go to Billing → Create Invoice
+        </Link>
+      </div>
       <div className="flex flex-col sm:flex-row gap-3 sm:items-stretch sm:gap-3">
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
@@ -1071,7 +1116,19 @@ const POEntry = () => {
                   <h4 className="text-sm font-semibold text-gray-900">1. Client Identity</h4>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Legal Name (for GST)</label><input type="text" value={formData.legalName} onChange={(e) => setFormData((p) => ({ ...p, legalName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full legal name" /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-legal-name">
+                      Legal Name (for GST)
+                    </label>
+                    <ClientLegalNameAutocomplete
+                      id="sales-po-legal-name"
+                      value={formData.legalName}
+                      onChange={(v) => setFormData((p) => ({ ...p, legalName: v }))}
+                      profiles={clientProfilesFromPOs}
+                      onApplySnapshot={handleApplyClientSnapshot}
+                      placeholder="Type name or pick a saved client"
+                    />
+                  </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, formData.gstSupplyType); setGstTypeError(msg); }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label><textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
@@ -1111,9 +1168,25 @@ const POEntry = () => {
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
-                <h4 className="text-sm font-semibold text-gray-900 mb-4">2. Contact (POC)</h4>
+                <div className="mb-4">
+                  <h4 className="text-sm font-semibold text-gray-900">2. Contact (POC)</h4>
+                  <p className="text-xs text-gray-500 mt-1">
+                    When you pick a saved client under <strong>Legal Name</strong>, coordinator and contact number here are filled from that PO (edit if needed).
+                  </p>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Current Coordinator</label><input type="text" value={formData.currentCoordinator} onChange={(e) => setFormData((p) => ({ ...p, currentCoordinator: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-poc-coordinator">
+                      Current Coordinator
+                    </label>
+                    <input
+                      id="sales-po-poc-coordinator"
+                      type="text"
+                      value={formData.currentCoordinator}
+                      onChange={(e) => setFormData((p) => ({ ...p, currentCoordinator: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    />
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
                     <input

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
+import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import { checkSupabaseConnection } from "./lib/supabase";
 import { runBackendDiagnostics } from "./lib/backendDiagnostics";
 import Layout from "./contexts/Layout";
@@ -251,14 +252,15 @@ function App() {
   return (
     <ConnectionGuard>
     <AuthProvider>
-      <AuditConsoleProvider>
-        <Router
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
-          <Routes>
+      <AppAccessConfigProvider>
+        <AuditConsoleProvider>
+          <Router
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true,
+            }}
+          >
+            <Routes>
           {/* Public */}
           <Route path="/" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -458,9 +460,10 @@ function App() {
 
           {/* Default redirect */}
           <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Router>
-      </AuditConsoleProvider>
+            </Routes>
+          </Router>
+        </AuditConsoleProvider>
+      </AppAccessConfigProvider>
     </AuthProvider>
     </ConnectionGuard>
   );

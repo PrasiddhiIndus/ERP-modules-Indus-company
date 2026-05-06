@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   FileText,
   Eye,
@@ -48,6 +49,10 @@ function formatINRWithSign(n) {
 function getRealIrn(inv) {
   const irn = inv?.e_invoice_irn || inv?.eInvoiceIrn || '';
   return String(irn).toUpperCase().startsWith('MOCK-IRN-') ? '' : irn;
+}
+
+function isProformaInvoiceKind(inv) {
+  return String(inv?.invoiceKind || inv?.invoice_kind || 'tax').toLowerCase() === 'proforma';
 }
 
 function sortInvoicesNewestFirst(list) {
@@ -376,7 +381,24 @@ const ManageInvoices = ({ onNavigateTab }) => {
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
           <p className="text-lg font-semibold text-gray-900">Select a vertical to view invoices</p>
-          <p className="text-sm mt-1">Choose a vertical above to load Manage Invoices, e-invoice status, reports and notifications.</p>
+          <p className="text-sm mt-1 max-w-lg mx-auto">
+            Same vertical as Commercial PO Entry and Create Invoice. Then you can filter invoices, download PDFs, and generate IRN.
+          </p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Create Invoice
+            </button>
+            <Link
+              to="/app/commercial/manpower-training/po-entry"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Commercial PO Entry
+            </Link>
+          </div>
         </div>
       ) : null}
       <div className="flex items-center space-x-3">
@@ -388,6 +410,36 @@ const ManageInvoices = ({ onNavigateTab }) => {
           <p className="text-sm text-gray-600">View | Edit | Download | Generate E-Invoice | Manage PA</p>
         </div>
       </div>
+
+      {!verticalNotSelected ? (
+        <div className="rounded-xl border border-red-100 bg-red-50/40 px-4 py-3 text-sm text-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <p className="min-w-0 leading-snug">
+            <strong>New invoices</strong> are raised from <strong>Create Invoice</strong> or <strong>Add-On Invoices</strong> after the PO is approved in Commercial. This screen is for operations on saved invoices.
+          </p>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
+              className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50"
+            >
+              Create Invoice
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab && onNavigateTab('add-on-invoices')}
+              className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-violet-700 shadow-sm ring-1 ring-violet-200 hover:bg-violet-50"
+            >
+              Add-On Invoices
+            </button>
+            <Link
+              to="/app/commercial/rm-mm-amc-iev/po-entry"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              PO Entry (R&amp;M line)
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 overflow-hidden">
         {verticalNotSelected ? (
@@ -466,6 +518,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
                           <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono overflow-hidden min-w-0" title={inv.taxInvoiceNumber || inv.bill_number || '–'}>
                             <div className="flex flex-col items-center gap-0.5 min-w-0">
                               <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
+                              {isProformaInvoiceKind(inv) ? (
+                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 whitespace-nowrap">Proforma</span>
+                              ) : null}
                               {(inv.cnDnRequestStatus || inv.cn_dn_request_status) === 'pending' ? (
                                 <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 whitespace-nowrap">CN/DN pending</span>
                               ) : null}
@@ -500,14 +555,22 @@ const ManageInvoices = ({ onNavigateTab }) => {
                             <div className="flex flex-nowrap items-center justify-center gap-1.5">
                               {(() => {
                                 const irnExists = !!getRealIrn(inv);
+                                const proforma = isProformaInvoiceKind(inv);
+                                const eInvDisabled = irnExists || proforma;
                                 return (
                                   <button
                                     type="button"
                                     onClick={() => setGenerateEInvoiceModalId(inv.id)}
-                                    disabled={generatingEInvoiceId === inv.id || irnExists}
-                                    title={irnExists ? 'E-Invoice already generated' : 'Generate E-Invoice'}
+                                    disabled={generatingEInvoiceId === inv.id || eInvDisabled}
+                                    title={
+                                      proforma
+                                        ? 'E-Invoice (IRN) is not generated for proforma invoices'
+                                        : irnExists
+                                          ? 'E-Invoice already generated'
+                                          : 'Generate E-Invoice'
+                                    }
                                     className={`inline-flex items-center justify-center w-8 h-8 rounded-full border disabled:opacity-50 disabled:cursor-not-allowed ${
-                                      irnExists
+                                      eInvDisabled
                                         ? 'border-gray-200 bg-gray-100 text-gray-400'
                                         : 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
                                     }`}
@@ -639,6 +702,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
                                   <div className="flex flex-col items-center gap-0.5 min-w-0">
                                     <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
+                                    {isProformaInvoiceKind(inv) ? (
+                                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 whitespace-nowrap">Proforma</span>
+                                    ) : null}
                                     {cnSt === 'pending' ? (
                                       <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 whitespace-nowrap">CN/DN pending</span>
                                     ) : null}
@@ -693,14 +759,22 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                   <div className="flex flex-nowrap items-center justify-center gap-1.5">
                                     {(() => {
                                       const irnExists = !!getRealIrn(inv);
+                                      const proforma = isProformaInvoiceKind(inv);
+                                      const eInvDisabled = irnExists || proforma;
                                       return (
                                         <button
                                           type="button"
                                           onClick={() => setGenerateEInvoiceModalId(inv.id)}
-                                          disabled={generatingEInvoiceId === inv.id || irnExists}
-                                          title={irnExists ? 'E-Invoice already generated' : 'Generate E-Invoice'}
+                                          disabled={generatingEInvoiceId === inv.id || eInvDisabled}
+                                          title={
+                                            proforma
+                                              ? 'E-Invoice (IRN) is not generated for proforma invoices'
+                                              : irnExists
+                                                ? 'E-Invoice already generated'
+                                                : 'Generate E-Invoice'
+                                          }
                                           className={`inline-flex items-center justify-center w-8 h-8 rounded-full border disabled:opacity-50 disabled:cursor-not-allowed ${
-                                            irnExists
+                                            eInvDisabled
                                               ? 'border-gray-200 bg-gray-100 text-gray-400'
                                               : 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100'
                                           }`}

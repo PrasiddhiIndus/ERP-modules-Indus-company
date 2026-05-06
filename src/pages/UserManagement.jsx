@@ -10,11 +10,14 @@ import {
   X,
   Shield,
   Lock,
+  Plus,
 } from "lucide-react";
 
 const PAGE_SIZE = 10;
 
 const roleLabel = (role) => {
+  if (role === ROLES.SUPER_ADMIN_PRO) return "Super Admin Pro";
+  if (role === ROLES.SUPER_ADMIN) return "Super Admin";
   if (role === ROLES.ADMIN) return "Admin";
   if (role === ROLES.MANAGER) return "Manager";
   if (role === ROLES.EXECUTIVE) return "Executive";
@@ -33,35 +36,41 @@ const UserManagement = () => {
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({ team: "", role: ROLES.EXECUTIVE, allowed_modules: [] });
   const [saving, setSaving] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    email: "",
+    password: "",
+    username: "",
+    team: "",
+    role: ROLES.EXECUTIVE,
+    allowed_modules: [],
+  });
 
-  const isAdmin = userProfile?.role === ROLES.ADMIN;
+  const isSuperAdmin = userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isSuperAdmin) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError("");
       try {
-        const from = page * PAGE_SIZE;
-        const to = from + PAGE_SIZE - 1;
-        const { data, error: fetchError, count } = await supabase
-          .from("profiles")
-          .select("id, email, username, team, role, allowed_modules, created_at", { count: "exact" })
-          .order("created_at", { ascending: false })
-          .range(from, to);
+        const { data: resp, error: fetchError } = await supabase.functions.invoke("admin-list-profiles", {
+          body: { page, page_size: PAGE_SIZE },
+        });
         if (cancelled) return;
         if (fetchError) {
-          setError("Profiles table is not available or access denied. Run the Supabase migration (supabase/migrations/20250220000000_profiles_for_roles.sql) in your project SQL Editor to enable User Management.");
+          setError(fetchError.message || "Unable to load users.");
           setList([]);
           setTotal(0);
         } else {
-          setList(data ?? []);
-          setTotal(count ?? 0);
+          setList(resp?.data ?? []);
+          setTotal(resp?.count ?? 0);
         }
       } catch (_) {
         if (!cancelled) {
-          setError("Profiles table is not available. Run the Supabase migration to enable User Management.");
+          setError("Unable to load users.");
           setList([]);
           setTotal(0);
         }
@@ -69,7 +78,7 @@ const UserManagement = () => {
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [isAdmin, page]);
+  }, [isSuperAdmin, page]);
 
   const openEdit = (row) => {
     setEditId(row.id);
@@ -99,16 +108,16 @@ const UserManagement = () => {
     setSaving(true);
     setError("");
     try {
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
+      const { error: updateError } = await supabase.functions.invoke("admin-update-profile", {
+        body: {
+          id: editId,
           team: editForm.team || null,
           role: editForm.role,
-          allowed_modules: editForm.role === ROLES.MANAGER ? editForm.allowed_modules : [],
-        })
-        .eq("id", editId);
+          allowed_modules: editForm.allowed_modules,
+        },
+      });
       if (updateError) {
-        setError(updateError.message || "Profiles table may not be set up. Run the Supabase migration to edit users.");
+        setError(updateError.message || "Unable to save.");
         return;
       }
       setList((prev) =>
@@ -125,7 +134,7 @@ const UserManagement = () => {
       );
       closeEdit();
     } catch (_) {
-      setError("Unable to save. Profiles table may not be available.");
+      setError("Unable to save.");
     } finally {
       setSaving(false);
     }
@@ -135,11 +144,11 @@ const UserManagement = () => {
   const canPrev = page > 0;
   const canNext = page < totalPages - 1;
 
-  if (!isAdmin) {
+  if (!isSuperAdmin) {
     return (
       <div className="p-6">
         <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-amber-800">
-          Only administrators can access User Management.
+          Only Super Admin can access User Management.
         </div>
       </div>
     );
@@ -151,12 +160,31 @@ const UserManagement = () => {
         <div className="p-2 rounded-lg bg-indigo-100">
           <Users className="w-6 h-6 text-indigo-600" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
           <p className="text-sm text-gray-500">
             View all users and edit role or team access. Passwords cannot be changed here.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            setCreateOpen(true);
+            setError("");
+            setCreateForm({
+              email: "",
+              password: "",
+              username: "",
+              team: "",
+              role: ROLES.EXECUTIVE,
+              allowed_modules: [],
+            });
+          }}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm font-semibold"
+        >
+          <Plus className="w-4 h-4" />
+          Create user
+        </button>
       </div>
 
       {error && (
@@ -301,16 +329,17 @@ const UserManagement = () => {
                   <option value={ROLES.EXECUTIVE}>Executive</option>
                   <option value={ROLES.MANAGER}>Manager</option>
                   <option value={ROLES.ADMIN}>Admin</option>
+                  <option value={ROLES.SUPER_ADMIN}>Super Admin</option>
                 </select>
               </div>
 
-              {editForm.role === ROLES.MANAGER && (
+              {editForm.role !== ROLES.SUPER_ADMIN && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Additional modules
+                    Allowed modules (extra)
                   </label>
                   <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
-                    {MODULES.filter((m) => m.value !== editForm.team).map((m) => (
+                    {MODULES.filter((m) => m.value !== "userManagement" && m.value !== editForm.team).map((m) => (
                       <label key={m.value} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -345,6 +374,167 @@ const UserManagement = () => {
           </div>
         </div>
       )}
+
+      {/* Create user modal (Super Admin only) */}
+      {createOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Create user</h2>
+                <p className="text-xs text-gray-500">Creates an Auth user + profile (Edge Function).</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    value={createForm.email}
+                    onChange={(e) => setCreateForm((p) => ({ ...p, email: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    placeholder="user@company.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Temporary password</label>
+                  <input
+                    type="password"
+                    value={createForm.password}
+                    onChange={(e) => setCreateForm((p) => ({ ...p, password: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    placeholder="Set a temporary password"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                  <input
+                    value={createForm.username}
+                    onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                    placeholder="Display name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                  <select
+                    value={createForm.team}
+                    onChange={(e) => setCreateForm((p) => ({ ...p, team: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value="">None</option>
+                    {TEAMS.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <select
+                    value={createForm.role}
+                    onChange={(e) => setCreateForm((p) => ({ ...p, role: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
+                  >
+                    <option value={ROLES.EXECUTIVE}>Executive</option>
+                    <option value={ROLES.MANAGER}>Manager</option>
+                    <option value={ROLES.ADMIN}>Admin</option>
+                    <option value={ROLES.SUPER_ADMIN}>Super Admin</option>
+                  </select>
+                </div>
+              </div>
+
+              {createForm.role !== ROLES.SUPER_ADMIN ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Allowed modules (extra)</label>
+                  <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                    {MODULES.filter((m) => m.value !== "userManagement" && m.value !== createForm.team).map((m) => (
+                      <label key={m.value} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={createForm.allowed_modules.includes(m.value)}
+                          onChange={() =>
+                            setCreateForm((prev) => ({
+                              ...prev,
+                              allowed_modules: prev.allowed_modules.includes(m.value)
+                                ? prev.allowed_modules.filter((x) => x !== m.value)
+                                : [...prev.allowed_modules, m.value],
+                            }))
+                          }
+                          className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="text-sm text-gray-700">{m.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex justify-end gap-2 p-4 border-t">
+              <button
+                type="button"
+                onClick={() => setCreateOpen(false)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                disabled={createBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setCreateBusy(true);
+                  setError("");
+                  try {
+                    const email = String(createForm.email || "").trim();
+                    if (!email) {
+                      setError("Email is required.");
+                      return;
+                    }
+                    const { data, error: fnErr } = await supabase.functions.invoke("admin-create-user", {
+                      body: {
+                        email,
+                        password: createForm.password || undefined,
+                        username: createForm.username || undefined,
+                        team: createForm.team || null,
+                        role: createForm.role || ROLES.EXECUTIVE,
+                        allowed_modules: createForm.allowed_modules || [],
+                      },
+                    });
+                    if (fnErr) {
+                      setError(fnErr.message || "Could not create user.");
+                      return;
+                    }
+                    if (!data?.ok) {
+                      setError(data?.error || "Could not create user.");
+                      return;
+                    }
+                    setCreateOpen(false);
+                    setPage(0);
+                  } catch (e) {
+                    setError(e?.message || "Could not create user.");
+                  } finally {
+                    setCreateBusy(false);
+                  }
+                }}
+                disabled={createBusy}
+                className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {createBusy ? "Creating…" : "Create user"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
