@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { isPathAllowed } from "../config/roles";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
+import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import {
   LogOut,
   User,
@@ -116,6 +117,8 @@ const Layout = () => {
     await signOut();
     navigate("/");
   };
+
+  const [activityLogOpen, setActivityLogOpen] = useState(false);
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -371,7 +374,7 @@ const Layout = () => {
             )}
 
             {/* Commercial — Manpower / Training */}
-            {(can("sales") || can("commercial")) && (
+            {(can("commercialMt") || can("sales")) && (
             <div>
               <button
                 type="button"
@@ -462,7 +465,7 @@ const Layout = () => {
             )}
 
             {/* Commercial — R&M / M&M / AMC / IEV */}
-            {(can("sales") || can("commercial")) && (
+            {(can("commercialRm") || can("sales")) && (
             <div>
               <button
                 type="button"
@@ -828,6 +831,17 @@ const Layout = () => {
             <img src={INDUS_LOGO_SRC} alt="" className="hidden sm:block h-9 w-9 object-contain shrink-0" width={36} height={36} />
             <h2 className="text-xl font-semibold text-gray-900 truncate">Welcome back!</h2>
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActivityLogOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              aria-label="Open activity log"
+            >
+              <Clock className="w-4 h-4 text-slate-600" />
+              <span className="hidden sm:inline">Activity</span>
+            </button>
+          </div>
         </header>
 
         {/* Page Content */}
@@ -835,6 +849,8 @@ const Layout = () => {
           <Outlet />
         </main>
       </div>
+
+      <ActivityLogDrawer open={activityLogOpen} onClose={() => setActivityLogOpen(false)} />
     </div>
   );
 };

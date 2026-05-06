@@ -25,6 +25,140 @@ if (!isConfigured) {
 // Custom fetch: optional timeout when Supabase does not pass its own signal, plus clearer network errors.
 // Avoid AbortSignal.any — combining signals broke some saves/updates with supabase-js.
 const FETCH_TIMEOUT_MS = 20000
+const baseFetch = fetch
+
+// Activity logging: minimal overhead, batched, fire-and-forget.
+const ACTIVITY_TABLE = 'erp_activity_log'
+const ACTIVITY_FLUSH_MS = 2000
+const ACTIVITY_MAX_BATCH = 20
+let activityQueue = []
+let activityFlushTimer = null
+let lastEnqueuedSig = null
+let lastEnqueuedAt = 0
+
+function friendlyUserNameFromEmail(email) {
+  const e = String(email || '').trim()
+  if (!e.includes('@')) return 'Someone'
+  const local = e.split('@')[0] || ''
+  const raw = (local.split('.')[0] || local).trim()
+  if (!raw) return 'Someone'
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
+}
+
+function toFriendlyActionText(method, entity, route) {
+  const m = String(method || '').toUpperCase()
+  const e = String(entity || '').toLowerCase()
+  const r = String(route || '')
+
+  // Ignore noisy child tables; we only want human-readable high-level activities.
+  const ignoreEntities = new Set([
+    'invoice_line_item',
+    'invoice_attachment',
+    'attachments',
+    'marketing_enquiry_documents',
+  ])
+  if (ignoreEntities.has(e)) return null
+
+  // Billing
+  if (e === 'invoice') return m === 'POST' ? 'created an invoice' : m === 'PATCH' ? 'updated an invoice' : m === 'DELETE' ? 'deleted an invoice' : null
+  if (e === 'add_on_invoice') return m === 'POST' ? 'created an add-on invoice' : m === 'PATCH' ? 'updated an add-on invoice' : m === 'DELETE' ? 'deleted an add-on invoice' : null
+
+  // Marketing
+  if (e === 'marketing_enquiries') return m === 'POST' ? 'raised a marketing enquiry' : m === 'PATCH' ? 'updated a marketing enquiry' : m === 'DELETE' ? 'deleted a marketing enquiry' : null
+  if (e === 'marketing_quotations') return m === 'POST' ? 'created a quotation' : m === 'PATCH' ? 'updated a quotation' : m === 'DELETE' ? 'deleted a quotation' : null
+  if (e === 'marketing_clients') return m === 'POST' ? 'created a marketing client' : m === 'PATCH' ? 'updated a marketing client' : m === 'DELETE' ? 'deleted a marketing client' : null
+  if (e === 'marketing_products') return m === 'POST' ? 'created a product' : m === 'PATCH' ? 'updated a product' : m === 'DELETE' ? 'deleted a product' : null
+
+  // Fallback: if we can infer from route (keep it generic; no table spam)
+  if (r.startsWith('/app/marketing') && m === 'POST') return 'created a marketing record'
+  if (r.startsWith('/app/billing') && m === 'POST') return 'created a billing record'
+  return null
+}
+
+function parseRestEntity(url) {
+  try {
+    const u = new URL(url)
+    const parts = u.pathname.split('/').filter(Boolean)
+    const restIdx = parts.indexOf('rest')
+    if (restIdx >= 0 && parts[restIdx + 1] === 'v1' && parts[restIdx + 2]) {
+      return parts[restIdx + 2]
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function shouldLogRequest(url, options) {
+  const method = String(options?.method || 'GET').toUpperCase()
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
+  const entity = parseRestEntity(url)
+  if (!entity) return false
+  if (entity === ACTIVITY_TABLE) return false
+  // Skip auth/health/storage noise
+  if (String(url).includes('/auth/v1/')) return false
+  if (String(url).includes('/storage/v1/')) return false
+  return true
+}
+
+async function flushActivityQueue() {
+  if (!activityQueue.length) return
+  const batch = activityQueue
+  activityQueue = []
+  if (activityFlushTimer) {
+    clearTimeout(activityFlushTimer)
+    activityFlushTimer = null
+  }
+
+  try {
+    if (!supabaseUrlLooksValid(supabaseUrl)) return
+    const { data } = await supabase.auth.getSession()
+    const token = data?.session?.access_token
+    const user = data?.session?.user
+    if (!token) return
+
+    const url = `${String(supabaseUrl).replace(/\/+$/, '')}/rest/v1/${ACTIVITY_TABLE}`
+    await baseFetch(url, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(
+        batch.map((r) => ({
+          ...r,
+          user_id: r.user_id ?? user?.id ?? null,
+          user_email: r.user_email ?? user?.email ?? null,
+        }))
+      ),
+    })
+  } catch {
+    // Never block the app for logging failures.
+  }
+}
+
+function enqueueActivityLog(row) {
+  // Dedupe burst clicks: same summary within 3s → keep one.
+  const summary = row?.details?.summary
+  const sig = summary ? `${summary}__${row?.route || ''}` : null
+  const now = Date.now()
+  if (sig && lastEnqueuedSig === sig && now - lastEnqueuedAt < 3000) return
+  if (sig) {
+    lastEnqueuedSig = sig
+    lastEnqueuedAt = now
+  }
+
+  activityQueue.push(row)
+  if (activityQueue.length >= ACTIVITY_MAX_BATCH) {
+    void flushActivityQueue()
+    return
+  }
+  if (!activityFlushTimer) {
+    activityFlushTimer = setTimeout(() => void flushActivityQueue(), ACTIVITY_FLUSH_MS)
+  }
+}
 
 function shortUrlForLog(url) {
   try {
@@ -59,8 +193,30 @@ const customFetch = async (url, options = {}) => {
   const { signal, clearTimer } = resolveFetchSignal(options)
 
   try {
-    const res = await fetch(url, { ...options, signal })
+    const res = await baseFetch(url, { ...options, signal })
     clearTimer()
+
+    // Activity log for mutations (batched). Keep payload minimal to avoid load/PII.
+    if (shouldLogRequest(url, options)) {
+      const method = String(options?.method || 'GET').toUpperCase()
+      const entity = parseRestEntity(url)
+      const route = typeof window !== 'undefined' ? window.location.pathname : null
+      const summaryVerb = toFriendlyActionText(method, entity, route)
+      if (!summaryVerb) {
+        return res
+      }
+      enqueueActivityLog({
+        action: method === 'POST' ? 'INSERT' : method === 'PATCH' ? 'UPDATE' : method === 'DELETE' ? 'DELETE' : method,
+        entity,
+        route,
+        success: res.ok,
+        status_code: res.status,
+        details: {
+          path: pathLog,
+          summary: summaryVerb,
+        },
+      })
+    }
 
     if (!res.ok && import.meta.env.DEV) {
       try {

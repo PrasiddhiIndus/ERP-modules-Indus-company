@@ -16,6 +16,7 @@ const ProductCatalog = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [searchQuery, setSearchQuery] = useState('');
+  const [totalCount, setTotalCount] = useState(0);
   const [formData, setFormData] = useState({
     product_name: '',
     product_code: '',
@@ -35,42 +36,35 @@ const ProductCatalog = () => {
   });
 
   useEffect(() => {
-    fetchProducts();
+    fetchProducts(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reset to page 1 when products or search query change
+  // Reset to page 1 when search query changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [products.length, searchQuery]);
+    fetchProducts(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
-  // Filter products based on search query
-  const filteredProducts = products.filter(product => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    const productName = product.product_name?.toLowerCase() || '';
-    const productCode = product.product_code?.toLowerCase() || '';
-    const category = product.category?.toLowerCase() || '';
-    return productName.includes(query) || 
-           productCode.includes(query) || 
-           category.includes(query);
-  });
-
-  // Calculate pagination
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentProducts = filteredProducts.slice(startIndex, endIndex);
+  // Calculate pagination (server-side)
+  const totalPages = Math.max(1, Math.ceil((totalCount || 0) / itemsPerPage));
+  const currentProducts = products;
 
   const handlePreviousPage = () => {
     if (currentPage > 1) {
-      setCurrentPage(currentPage - 1);
+      const next = currentPage - 1;
+      setCurrentPage(next);
+      fetchProducts(next);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   const handleNextPage = () => {
     if (currentPage < totalPages) {
-      setCurrentPage(currentPage + 1);
+      const next = currentPage + 1;
+      setCurrentPage(next);
+      fetchProducts(next);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -116,19 +110,32 @@ const ProductCatalog = () => {
     return parts[0].trim();
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (page = currentPage) => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const from = (page - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      let query = supabase
         .from('marketing_products')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('product_code', { ascending: true });
 
+      const q = String(searchQuery || '').trim();
+      if (q) {
+        query = query.or(
+          `product_name.ilike.%${q}%,product_code.ilike.%${q}%,category.ilike.%${q}%`
+        );
+      }
+
+      const { data, error, count } = await query.range(from, to);
+      
       if (error) {
         console.error('Supabase error:', error);
         throw error;
       }
-      
+      setTotalCount(count || 0);
+
       // Sort by numeric part of product_code for proper serial order
       // This ensures PROD-00010 comes after PROD-00009, not after PROD-00001
       const sortedProducts = (data || []).sort((a, b) => {
@@ -149,6 +156,7 @@ const ProductCatalog = () => {
       console.error('Error fetching products:', error);
       alert('Error loading products: ' + (error.message || 'Unknown error'));
       setProducts([]);
+      setTotalCount(0);
       setLoading(false);
     }
   };

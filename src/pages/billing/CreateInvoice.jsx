@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useBilling } from '../../contexts/BillingContext';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
 import {
@@ -35,6 +36,28 @@ function getNextTaxInvoiceSequence(invoices) {
   (Array.isArray(invoices) ? invoices : []).forEach((inv) => {
     const raw = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim();
     const m = raw.match(/^INV-(\d{4})-(\d{4,})$/i);
+    if (!m) return;
+    const [, year, seqText] = m;
+    if (year !== fy) return;
+    const seq = Number(seqText);
+    if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+  });
+  return maxSeq + 1;
+}
+
+/** Proforma series — separate from INV-* tax invoice numbers (same financial year index). */
+function generateProformaInvoiceNumber(sequence) {
+  const y = getFinancialYear();
+  const seq = String(sequence).padStart(4, '0');
+  return `PFI-${y}-${seq}`;
+}
+
+function getNextProformaSequence(invoices) {
+  const fy = String(getFinancialYear());
+  let maxSeq = 0;
+  (Array.isArray(invoices) ? invoices : []).forEach((inv) => {
+    const raw = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim();
+    const m = raw.match(/^PFI-(\d{4})-(\d{4,})$/i);
     if (!m) return;
     const [, year, seqText] = m;
     if (year !== fy) return;
@@ -266,10 +289,16 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
   const [poPage, setPoPage] = useState(1);
+  const [servicePeriodFrom, setServicePeriodFrom] = useState('');
+  const [servicePeriodTo, setServicePeriodTo] = useState('');
   const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
+  /** Lump sum: opt-in on this invoice to show PO Penalty column and Rate = (Actual÷Auth)×PO rate − Penalty (PO-level penalty mode forces this on). */
+  const [lumpSumInvoicePenaltyGeometry, setLumpSumInvoicePenaltyGeometry] = useState(false);
   const [poBillingTab, setPoBillingTab] = useState('Monthly');
   const [createMainTab, setCreateMainTab] = useState('select-po');
+  /** tax | proforma — stored as billing.invoice.invoice_kind; all verticals (Manpower, Training, R&M, M&M, AMC, IEV, trucks / lump-sum, etc.) */
+  const [invoiceDocumentKind, setInvoiceDocumentKind] = useState('tax');
 
   const verticalNotSelected = !billingVerticalFilter;
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -560,11 +589,32 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const lumpSumPenaltyActive = lumpSumBillingMode === 'penalty';
   const lumpSumTruckActive = lumpSumBillingMode === 'truck';
-  const lineTableColSpan = 6 + (lumpSumPenaltyActive ? 1 : 0);
+  const lumpSumSubtractPenaltyInRate = lumpSumPenaltyActive || lumpSumInvoicePenaltyGeometry;
+  /**
+   * Lump sum invoice table behavior:
+   * - Default: show one cumulative (geometry consolidated) line + supplementary/truck lines.
+   * - Truck-mode POs keep the legacy multi-row layout unless duty-geometry (penalty column) is enabled on this invoice.
+   */
+  const lumpSumSingleInvoiceTableMode =
+    isLumpSumBilling && (!lumpSumTruckActive || lumpSumSubtractPenaltyInRate);
+  /** Tighter line-item table when Lump Sum + Penalty column (duty geometry) is on — avoids squashed inputs. */
+  const lumpSumDutyGeometryLineTable = isLumpSumBilling && lumpSumSubtractPenaltyInRate;
+  const lineTableColSpan = 6 + (lumpSumSubtractPenaltyInRate ? 1 : 0);
+  const lumpSumGeometryRowsForExport = useMemo(
+    () => (isLumpSumBilling ? items.filter((row) => !row.isTruckLine && row.geometryEnabled) : []),
+    [isLumpSumBilling, items]
+  );
+
+  useEffect(() => {
+    if (invoiceDraft?.mode === 'edit') return;
+    setLumpSumInvoicePenaltyGeometry(false);
+  }, [selectedPO?.id, invoiceDraft?.mode]);
 
   useEffect(() => {
     if (!invoiceDraft) return;
     if (invoiceDraft.mode === 'edit' && editingInvoice) {
+      const ik = String(editingInvoice.invoiceKind || editingInvoice.invoice_kind || 'tax').toLowerCase();
+      setInvoiceDocumentKind(ik === 'proforma' ? 'proforma' : 'tax');
       setSelectedPoId(String(editingInvoice.poId || ''));
       setInvoiceDate(editingInvoice.invoiceDate || editingInvoice.created_at || today);
       const atts = Array.isArray(editingInvoice.attachments) ? editingInvoice.attachments : [];
@@ -577,6 +627,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const editMonthsGeometryMode =
         editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'months_geometry';
       const editInvDate = editingInvoice.invoiceDate || editingInvoice.invoice_date || today;
+      const editAnyPenaltySaved = (editingInvoice.items || []).some((it) => safeNumber(it.penalty) > 0);
+      setLumpSumInvoicePenaltyGeometry(editIsLump && !editPenaltyMode && editAnyPenaltySaved);
       setItems(
         (editingInvoice.items || []).map((i) => {
           const isTruck = !!i.isTruckLine;
@@ -587,8 +639,25 @@ const CreateInvoice = ({ onNavigateTab }) => {
           const matchCat = (editPo?.ratePerCategory || []).find(
             (r) => (r.description || r.designation || '').trim() === desc
           );
-          const geometryEnabled =
-            isTruck ? false : editIsLump ? true : !!(i.actualDuty != null || i.authorizedDuty != null || i.poQty != null);
+          const isSavedSupplementary = !!(
+            i.isLumpSumSupplementaryLine ??
+            i.is_lump_sum_supplementary_line ??
+            i.is_lump_sum_supplementary
+          );
+          const looksConsolidatedLump =
+            editIsLump &&
+            /^lump sum billing \(geometry consolidated\)$/i.test(desc) &&
+            i.actualDuty == null &&
+            i.actual_duty == null;
+          const geometryEnabled = isTruck
+            ? false
+            : isSavedSupplementary
+              ? false
+              : looksConsolidatedLump
+                ? false
+                : editIsLump
+                  ? true
+                  : !!(i.actualDuty != null || i.authorizedDuty != null || i.poQty != null);
           const poRef =
             i.poReferenceRate != null
               ? Number(i.poReferenceRate)
@@ -598,7 +667,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   ? Number(matchCat.rate) || 0
                   : undefined;
           const poLinePen =
-            editPenaltyMode && !isTruck ? Math.max(0, poPenSnap || Number(matchCat?.penalty) || 0) : 0;
+            !isTruck && editIsLump ? Math.max(0, poPenSnap || Number(matchCat?.penalty) || 0) : 0;
+          const editSubtractPenalty =
+            editIsLump && !isTruck && (editPenaltyMode || editAnyPenaltySaved);
           const actD = i.actualDuty != null ? Number(i.actualDuty) : undefined;
           const authD =
             i.authorizedDuty != null ? Number(i.authorizedDuty) : daysInMonth(editInvDate);
@@ -615,17 +686,21 @@ const CreateInvoice = ({ onNavigateTab }) => {
             const poQ = i.poQty != null ? Number(i.poQty) : 0;
             const act = actD ?? 0;
             const auth = authD ?? daysInMonth(editInvDate);
-            const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editPenaltyMode);
+            const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editSubtractPenalty);
             quantity = editMonthsGeometryMode
               ? computeArrivedQtyByMonths(poQ, act, auth, numberOfMonths)
               : computeArrivedQty(poQ, act, auth);
             lineRate = eff;
             amount = round2(quantity * eff);
           }
+          if (editIsLump && !isTruck && isSavedSupplementary) {
+            amount = round2(qty * rate);
+          }
           return {
             description: i.description || i.designation || '',
             hsnSac: i.hsnSac || editingInvoice.hsnSac || '',
             isTruckLine: isTruck,
+            isLumpSumSupplementaryLine: isSavedSupplementary || false,
             geometryEnabled,
             poQty: i.poQty != null ? Number(i.poQty) : undefined,
             poReferenceRate: poRef,
@@ -673,7 +748,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           authorizedDuty: authDutyDefault,
           numberOfMonths: 1,
           quantity: computeArrivedQtyByMonths(qty, 0, authDutyDefault, 1),
-          rate: computeLumpSumEffectiveRate(poRate, 0, authDutyDefault, pen, lumpSumPenaltyActive),
+          rate: computeLumpSumEffectiveRate(poRate, 0, authDutyDefault, pen, lumpSumSubtractPenaltyInRate),
           amount: 0,
         };
       });
@@ -739,7 +814,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         poLinePenalty: 0,
       }))
     );
-  }, [selectedPO, invoiceDraft, invoiceDate, lumpSumPenaltyActive, isMmServiceDescriptionMode]);
+  }, [selectedPO, invoiceDraft, invoiceDate, lumpSumSubtractPenaltyInRate, isMmServiceDescriptionMode]);
 
   // Single sync on mount only — avoid repeat refresh (focus / delayed) wiping in-memory fields
   // such as CN/DN request status before async invoice saves finish or if DB columns lag migrations.
@@ -788,7 +863,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         if (isLumpSumBilling && next.geometryEnabled) {
           const poRef = safeNumber(next.poReferenceRate);
           const pen = safeNumber(next.poLinePenalty);
-          const effRate = computeLumpSumEffectiveRate(poRef, actualDuty, authorizedDuty, pen, lumpSumPenaltyActive);
+          const effRate = computeLumpSumEffectiveRate(poRef, actualDuty, authorizedDuty, pen, lumpSumSubtractPenaltyInRate);
           const qty =
             lumpSumBillingMode === 'months_geometry'
               ? computeArrivedQtyByMonths(poQty, actualDuty, authorizedDuty, numberOfMonths)
@@ -815,6 +890,26 @@ const CreateInvoice = ({ onNavigateTab }) => {
       })
     );
   };
+
+  useEffect(() => {
+    if (!isLumpSumBilling) return;
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.isTruckLine || !it.geometryEnabled) return it;
+        const poRef = safeNumber(it.poReferenceRate);
+        const pen = safeNumber(it.poLinePenalty);
+        const actualDuty = safeNumber(it.actualDuty);
+        const authorizedDuty = safeNumber(it.authorizedDuty);
+        const numberOfMonths = safeNumber(it.numberOfMonths) || 1;
+        const effRate = computeLumpSumEffectiveRate(poRef, actualDuty, authorizedDuty, pen, lumpSumSubtractPenaltyInRate);
+        const qty =
+          lumpSumBillingMode === 'months_geometry'
+            ? computeArrivedQtyByMonths(it.poQty, actualDuty, authorizedDuty, numberOfMonths)
+            : computeArrivedQty(it.poQty, actualDuty, authorizedDuty);
+        return { ...it, rate: effRate, quantity: qty, amount: round2(qty * effRate) };
+      })
+    );
+  }, [lumpSumSubtractPenaltyInRate, isLumpSumBilling, lumpSumBillingMode]);
 
   const createMmEmptyLine = (hsnSac = '') => ({
     description: '',
@@ -925,7 +1020,82 @@ const CreateInvoice = ({ onNavigateTab }) => {
     });
   };
 
+  /** User-added lump sum rows: editable Qty × Rate; excluded from duty-geometry totals. */
+  const addLumpSumSupplementaryLine = () => {
+    if (!displayPO || !isLumpSumBilling) return;
+    const hsn = displayPO.hsnCode || displayPO.sacCode || '';
+    setItems((prev) => [
+      ...prev,
+      {
+        description: '',
+        hsnSac: hsn,
+        isTruckLine: false,
+        isLumpSumSupplementaryLine: true,
+        geometryEnabled: false,
+        poQty: 0,
+        actualDuty: 0,
+        authorizedDuty: daysInMonth(invoiceDate),
+        numberOfMonths: 1,
+        quantity: 0,
+        rate: 0,
+        amount: 0,
+        poReferenceRate: undefined,
+        poLinePenalty: 0,
+      },
+    ]);
+  };
+
+  const removeLumpSumSupplementaryLine = (itemIndex) => {
+    setItems((prev) => {
+      if (!prev[itemIndex]?.isLumpSumSupplementaryLine) return prev;
+      return prev.filter((_, i) => i !== itemIndex);
+    });
+  };
+
   const taxableValue = useMemo(() => round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0)), [items]);
+  const consolidatedLumpSumLine = useMemo(() => {
+    if (!lumpSumSingleInvoiceTableMode) return null;
+    const geometryRows = items.filter((it) => !it.isTruckLine && it.geometryEnabled);
+    if (!geometryRows.length) return null;
+    const qty = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0));
+    const amount = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
+    const penalty = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0));
+    const rate = qty > 0 ? round2(amount / qty) : 0;
+    return {
+      description: 'Lump Sum Billing (Geometry Consolidated)',
+      hsnSac: geometryRows[0]?.hsnSac || displayPO?.hsnCode || displayPO?.sacCode || '',
+      quantity: qty,
+      rate,
+      amount,
+      isTruckLine: false,
+      geometryEnabled: false,
+      poReferenceRate: 0,
+      poLinePenalty: penalty,
+      poQty: null,
+      actualDuty: null,
+      authorizedDuty: null,
+      numberOfMonths: null,
+    };
+  }, [lumpSumSingleInvoiceTableMode, items, displayPO]);
+  /** Invoice table rows: non-truck lump sum shows aggregated geometry line + supplementary Qty×Rate lines only. */
+  const invoiceTableRows = useMemo(() => {
+    if (!lumpSumSingleInvoiceTableMode) {
+      return items.map((_, itemIndex) => ({ kind: 'item', itemIndex }));
+    }
+    const rows = [];
+    if (consolidatedLumpSumLine) {
+      rows.push({ kind: 'lumpConsolidated' });
+    }
+    items.forEach((it, itemIndex) => {
+      if (it.isTruckLine || (!it.isTruckLine && !it.geometryEnabled)) {
+        rows.push({ kind: 'item', itemIndex });
+      }
+    });
+    if (!rows.length && items.length) {
+      return items.map((_, itemIndex) => ({ kind: 'item', itemIndex }));
+    }
+    return rows;
+  }, [lumpSumSingleInvoiceTableMode, consolidatedLumpSumLine, items]);
 
   const gstSupplyType = useMemo(
     () => normalizeGstSupplyType(displayPO?.gstSupplyType || displayPO?.gst_supply_type),
@@ -961,7 +1131,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!displayPO) return null;
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
     const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
-    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+    const docNo =
+      existing?.taxInvoiceNumber ||
+      (invoiceDocumentKind === 'proforma'
+        ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
+        : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices)));
     const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
     const billingDurationStr =
       displayPO.startDate || displayPO.start_date
@@ -974,12 +1148,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
       displayPO.invoiceTermsText ||
       null;
     return {
-      taxInvoiceNumber,
+      taxInvoiceNumber: docNo,
       billingMonthStr,
       billingDurationStr,
       remarksLine,
     };
-  }, [displayPO, invoiceDraft, invoices, invoiceDate]);
+  }, [displayPO, invoiceDraft, invoices, invoiceDate, invoiceDocumentKind]);
 
   const invoiceTermsLinesPreview = useMemo(() => {
     if (!displayPO) return [];
@@ -1012,18 +1186,211 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [displayPO, editingInvoice]);
 
   const canSave = !!displayPO && items.length > 0;
+  const documentKindLockedByIrn = useMemo(() => {
+    if (invoiceDraft?.mode !== 'edit' || !editingInvoice) return false;
+    const irn = editingInvoice.e_invoice_irn || editingInvoice.eInvoiceIrn;
+    return !!irn && !String(irn).toUpperCase().startsWith('MOCK-IRN-');
+  }, [invoiceDraft?.mode, editingInvoice]);
+
   const selectedViewInvoice = useMemo(
     () => invoices.find((i) => String(i.id) === String(viewInvoiceId)) || null,
     [invoices, viewInvoiceId]
   );
 
+  const toDateInputValue = (v) => {
+    if (!v) return '';
+    const s = String(v);
+    // Handles "YYYY-MM-DD" and ISO like "YYYY-MM-DDTHH:mm:ssZ"
+    return s.length >= 10 ? s.slice(0, 10) : s;
+  };
+
+  // Service period is manually editable in Create/Edit.
+  useEffect(() => {
+    if (!displayPO) return;
+    const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
+    const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
+    const from =
+      existing?.billingDurationFrom ||
+      existing?.billing_duration_from ||
+      displayPO.startDate ||
+      displayPO.start_date ||
+      '';
+    const to =
+      existing?.billingDurationTo ||
+      existing?.billing_duration_to ||
+      displayPO.endDate ||
+      displayPO.end_date ||
+      '';
+    setServicePeriodFrom(toDateInputValue(from));
+    setServicePeriodTo(toDateInputValue(to));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayPO?.id, invoiceDraft?.mode, invoiceDraft?.invoiceId]);
+
+  const buildInvoiceForPreview = () => {
+    if (!displayPO || !canSave) return null;
+    const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
+    const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
+    const rawIrn = existing?.e_invoice_irn || existing?.eInvoiceIrn;
+    const hasRealIrn = !!rawIrn && !String(rawIrn).toUpperCase().startsWith('MOCK-IRN-');
+    const effectiveKind = hasRealIrn ? 'tax' : invoiceDocumentKind === 'proforma' ? 'proforma' : 'tax';
+    const id = existing ? existing.id : crypto.randomUUID();
+    const taxInvoiceNumber = existing
+      ? existing.taxInvoiceNumber
+      : effectiveKind === 'proforma'
+        ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
+        : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+
+    const poRow = commercialPOs.find((p) => String(p.id) === String(displayPO.id));
+    let canonicalPoId = displayPO.id;
+    let billingParent = poRow;
+    if (poRow?.isSupplementary) {
+      const pid = poRow.supplementaryParentPoId || poRow.supplementary_parent_po_id;
+      billingParent = commercialPOs.find((p) => String(p.id) === String(pid));
+      canonicalPoId = pid || displayPO.id;
+    }
+    const supSt = billingParent?.supplementaryRequestStatus || billingParent?.supplementary_request_status;
+    const postContractBillingMoment =
+      billingParent &&
+      !billingParent.isSupplementary &&
+      supSt === 'approved' &&
+      isAfterContractEndForInvoice(billingParent.endDate || billingParent.end_date);
+
+    return {
+      ...(existing || {}),
+      id,
+      poId: canonicalPoId,
+      siteId: displayPO.siteId,
+      billingType: displayPO.billingType || 'Monthly',
+      taxInvoiceNumber,
+      invoiceDate,
+      billNumber: existing?.billNumber || existing?.bill_number || taxInvoiceNumber,
+      billingMonth: existing?.billingMonth || existing?.billing_month || formatBillingMonth(invoiceDate),
+      billingDurationFrom:
+        servicePeriodFrom || null,
+      billingDurationTo: servicePeriodTo || null,
+      invoiceHeaderRemarks:
+        existing?.invoiceHeaderRemarks ||
+        existing?.invoice_header_remarks ||
+        (displayPO.remarks || displayPO.paymentTerms || displayPO.payment_terms || null),
+      clientLegalName: displayPO.legalName,
+      clientAddress: displayPO.billingAddress,
+      clientPincode: String(buyerPinMeta.pin || ''),
+      client_pincode: String(buyerPinMeta.pin || ''),
+      gstin: displayPO.gstin,
+      buyerPin: buyerPinMeta.pin || null,
+      buyer_pin: buyerPinMeta.pin || null,
+      buyerPincode: buyerPinMeta.pin || null,
+      buyer_pincode: buyerPinMeta.pin || null,
+      buyerStateCode: buyerPinMeta.stateCode || null,
+      ocNumber: displayPO.ocNumber,
+      poWoNumber: displayPO.poWoNumber,
+      hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
+      items: (() => {
+        let lines =
+          lumpSumSingleInvoiceTableMode && consolidatedLumpSumLine
+            ? [
+                consolidatedLumpSumLine,
+                ...items.filter((row) => row.isTruckLine || (!row.isTruckLine && !row.geometryEnabled)),
+              ]
+            : items;
+        lines = lines.map((i) => ({
+          description: i.description,
+          hsnSac: i.hsnSac,
+          quantity: isManpowerMonthly ? round3(i.quantity) : Number(i.quantity) || 0,
+          rate: Number(i.rate) || 0,
+          amount: round2(i.amount),
+          isTruckLine: !!i.isTruckLine,
+          isLumpSumSupplementaryLine: !!i.isLumpSumSupplementaryLine,
+          poReferenceRate:
+            isLumpSumBilling && !i.isTruckLine && i.poReferenceRate != null ? safeNumber(i.poReferenceRate) : null,
+          penalty:
+            isLumpSumBilling && !i.isTruckLine && lumpSumSubtractPenaltyInRate ? Math.max(0, safeNumber(i.poLinePenalty)) : 0,
+          poQty:
+            (isMonthlyBilling || isLumpSumBilling) && i.geometryEnabled && !i.isTruckLine && i.poQty != null
+              ? safeNumber(i.poQty)
+              : null,
+          actualDuty:
+            i.geometryEnabled && !i.isTruckLine && (isMonthlyBilling || isLumpSumBilling) && i.actualDuty != null
+              ? safeNumber(i.actualDuty)
+              : null,
+          authorizedDuty:
+            i.geometryEnabled && !i.isTruckLine && (isMonthlyBilling || isLumpSumBilling) && i.authorizedDuty != null
+              ? safeNumber(i.authorizedDuty)
+              : null,
+          numberOfMonths:
+            i.geometryEnabled && !i.isTruckLine && (isMonthlyBilling || isLumpSumBilling) && i.numberOfMonths != null
+              ? safeNumber(i.numberOfMonths)
+              : null,
+        }));
+        return lines;
+      })(),
+      clientShippingAddress: displayPO.shippingAddress || displayPO.shipping_address || null,
+      placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply || null,
+      termsCustomText: displayPO.invoiceTermsText || null,
+      sellerCin: displayPO.sellerCin || null,
+      sellerPan: displayPO.sellerPan || null,
+      msmeRegistrationNo: displayPO.msmeRegistrationNo || null,
+      msmeClause: displayPO.msmeClause || null,
+      attachments: [
+        ...attendanceFiles.map((f) => ({ name: f.name || 'attendance', type: 'attendance', url: f.url || '#' })),
+        ...document2Files.map((f) => ({ name: f.name || 'document_2', type: 'document_2', url: f.url || '#' })),
+      ],
+      taxableValue,
+      cgstRate,
+      sgstRate,
+      cgstAmt,
+      sgstAmt,
+      gstSupplyType,
+      igstRate: gstSupplyType === 'inter' ? igstRate : 0,
+      igstAmt: gstSupplyType === 'inter' ? igstAmt : 0,
+      calculatedInvoiceAmount: totalValue,
+      totalAmount: totalValue,
+      paStatus: existing?.paStatus || 'Pending',
+      paymentStatus: existing?.paymentStatus || false,
+      pendingAmount: existing?.pendingAmount ?? totalValue,
+      created_at: existing?.created_at || today,
+      createdAt: existing?.createdAt || today,
+      updated_at: today,
+      isPostContractBuffer: existing ? !!existing.isPostContractBuffer : !!postContractBillingMoment,
+      invoiceKind: effectiveKind,
+      invoice_kind: effectiveKind,
+    };
+  };
+
+  const livePreviewInv = useMemo(() => buildInvoiceForPreview(), [
+    // recompute when edit inputs change
+    displayPO?.id,
+    invoiceDraft?.mode,
+    invoiceDraft?.invoiceId,
+    invoiceDate,
+    servicePeriodFrom,
+    servicePeriodTo,
+    invoiceDocumentKind,
+    items,
+    attendanceFiles,
+    document2Files,
+    taxableValue,
+    cgstAmt,
+    sgstAmt,
+    igstAmt,
+    totalValue,
+    lumpSumInvoicePenaltyGeometry,
+  ]);
+
   const handleSaveInvoice = () => {
     if (!displayPO || !canSave) return;
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
     const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
+    const rawIrn = existing?.e_invoice_irn || existing?.eInvoiceIrn;
+    const hasRealIrn = !!rawIrn && !String(rawIrn).toUpperCase().startsWith('MOCK-IRN-');
+    const effectiveKind = hasRealIrn ? 'tax' : invoiceDocumentKind === 'proforma' ? 'proforma' : 'tax';
     // DB + saveInvoice expect a UUID primary key; numeric local-only ids caused duplicate inserts (same tax_invoice_number).
     const id = existing ? existing.id : crypto.randomUUID();
-    const taxInvoiceNumber = existing?.taxInvoiceNumber || generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+    const taxInvoiceNumber = existing
+      ? existing.taxInvoiceNumber
+      : effectiveKind === 'proforma'
+        ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
+        : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
 
     const poRow = commercialPOs.find((p) => String(p.id) === String(displayPO.id));
     let canonicalPoId = displayPO.id;
@@ -1050,8 +1417,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       invoiceDate,
       billNumber: existing?.billNumber || existing?.bill_number || taxInvoiceNumber,
       billingMonth: existing?.billingMonth || existing?.billing_month || formatBillingMonth(invoiceDate),
-      billingDurationFrom: existing?.billingDurationFrom || existing?.billing_duration_from || displayPO.startDate || displayPO.start_date || null,
-      billingDurationTo: existing?.billingDurationTo || existing?.billing_duration_to || displayPO.endDate || displayPO.end_date || null,
+      billingDurationFrom: servicePeriodFrom || null,
+      billingDurationTo: servicePeriodTo || null,
       invoiceHeaderRemarks:
         existing?.invoiceHeaderRemarks ||
         existing?.invoice_header_remarks ||
@@ -1069,17 +1436,26 @@ const CreateInvoice = ({ onNavigateTab }) => {
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
       hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
-      items: items.map((i) => ({
+      items: (() => {
+        let lines =
+          lumpSumSingleInvoiceTableMode && consolidatedLumpSumLine
+            ? [
+                consolidatedLumpSumLine,
+                ...items.filter((row) => row.isTruckLine || (!row.isTruckLine && !row.geometryEnabled)),
+              ]
+            : items;
+        lines = lines.map((i) => ({
         description: i.description,
         hsnSac: i.hsnSac,
         quantity: isManpowerMonthly ? round3(i.quantity) : (Number(i.quantity) || 0),
         rate: Number(i.rate) || 0,
         amount: round2(i.amount),
         isTruckLine: !!i.isTruckLine,
+        isLumpSumSupplementaryLine: !!i.isLumpSumSupplementaryLine,
         poReferenceRate:
           isLumpSumBilling && !i.isTruckLine && i.poReferenceRate != null ? safeNumber(i.poReferenceRate) : null,
         penalty:
-          isLumpSumBilling && !i.isTruckLine && lumpSumPenaltyActive ? Math.max(0, safeNumber(i.poLinePenalty)) : 0,
+          isLumpSumBilling && !i.isTruckLine && lumpSumSubtractPenaltyInRate ? Math.max(0, safeNumber(i.poLinePenalty)) : 0,
         poQty:
           ((isMonthlyBilling || isLumpSumBilling) && i.geometryEnabled && !i.isTruckLine && i.poQty != null
             ? safeNumber(i.poQty)
@@ -1105,7 +1481,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
           i.numberOfMonths != null
             ? safeNumber(i.numberOfMonths)
             : null,
-      })),
+        }));
+        return lines;
+      })(),
       // Snapshots from PO (or existing invoice) — used by PDF + shared HTML preview
       clientShippingAddress: displayPO.shippingAddress || displayPO.shipping_address || null,
       placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply || null,
@@ -1135,6 +1513,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       createdAt: existing?.createdAt || today,
       updated_at: today,
       isPostContractBuffer: existing ? !!existing.isPostContractBuffer : !!postContractBillingMoment,
+      invoiceKind: effectiveKind,
+      invoice_kind: effectiveKind,
     };
 
     setInvoices((prev) => {
@@ -1145,12 +1525,59 @@ const CreateInvoice = ({ onNavigateTab }) => {
     onNavigateTab && onNavigateTab('manage-invoices');
   };
 
+  const handleExportGeometrySectionToExcel = () => {
+    if (!isLumpSumBilling) return;
+    const sourceRows = items.filter((row) => !row.isTruckLine && row.geometryEnabled);
+    if (!sourceRows.length) return;
+    const exportRows = sourceRows.map((row, idx) => {
+      const actual = safeNumber(row.actualDuty);
+      const auth = safeNumber(row.authorizedDuty);
+      const ratio = auth > 0 ? round3(actual / auth) : 0;
+      return {
+        'S.No': idx + 1,
+        Description: row.description || `Line ${idx + 1}`,
+        'PO Qty': safeNumber(row.poQty),
+        'PO Rate': round2(safeNumber(row.poReferenceRate)),
+        'Penalty (PO)': round2(safeNumber(row.poLinePenalty)),
+        'Actual Duty': actual,
+        'Authorised Duty': auth,
+        'Duty Ratio': ratio,
+        Qty: round3(safeNumber(row.quantity)),
+        Rate: round2(safeNumber(row.rate)),
+        Amount: round2(safeNumber(row.amount)),
+      };
+    });
+    const totalQty = round3(sourceRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0));
+    const totalAmount = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
+    exportRows.push({
+      'S.No': '',
+      Description: 'TOTAL',
+      'PO Qty': '',
+      'PO Rate': '',
+      'Penalty (PO)': round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0)),
+      'Actual Duty': '',
+      'Authorised Duty': '',
+      'Duty Ratio': '',
+      Qty: totalQty,
+      Rate: totalQty > 0 ? round2(totalAmount / totalQty) : 0,
+      Amount: totalAmount,
+    });
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Geometry');
+    const oc = String(displayPO?.ocNumber || 'OC').replace(/[\\/:*?"<>|]/g, '-');
+    const dt = String(invoiceDate || today);
+    XLSX.writeFile(wb, `Geometry-${oc}-${dt}.xlsx`);
+  };
+
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
           <p className="text-lg font-semibold text-gray-900">Select a vertical to start</p>
-          <p className="text-sm mt-1">Choose Manpower / Training / R&amp;M / M&amp;M / AMC / IEV above to load POs and create invoices.</p>
+          <p className="text-sm mt-1 max-w-lg mx-auto">
+            Choose the same vertical as your OC line above. No PO rows yet? Start in Commercial → PO Entry, then return here.
+          </p>
         </div>
       ) : null}
       <div className="flex items-center space-x-3">
@@ -1160,10 +1587,36 @@ const CreateInvoice = ({ onNavigateTab }) => {
         <div>
           <h2 className="text-xl font-bold text-gray-900">Create Invoice</h2>
           <p className="text-sm text-gray-600">
-            Raise tax invoices from approved PO/WOs, or use the second tab to request Commercial approval for a credit / debit note.
+            Raise <strong>tax</strong> or <strong>proforma</strong> invoices from approved PO/WOs (Manpower, Training, R&amp;M, M&amp;M, AMC, IEV, trucks / lump-sum projects, etc.), or use the second tab to request Commercial approval for a credit / debit note.
           </p>
         </div>
       </div>
+
+      {!verticalNotSelected ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/95 px-4 py-3 text-sm text-slate-700 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <p className="min-w-0 leading-snug">
+            <span className="font-semibold text-slate-800">Seamless flow:</span> POs come from{' '}
+            <strong>Commercial → PO Entry</strong> (approved / sent). Save your invoice here, then continue to{' '}
+            <strong>Manage Invoices</strong> for PDF download, e-invoice IRN, payment advice, and edits.
+          </p>
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => onNavigateTab && onNavigateTab('manage-invoices')}
+              className="inline-flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+            >
+              Open Manage Invoices
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateTab && onNavigateTab('dashboard')}
+              className="text-sm font-medium text-slate-600 underline-offset-2 hover:underline"
+            >
+              Billing dashboard
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {verticalNotSelected ? (
@@ -1332,7 +1785,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         )}
                         <button
                           type="button"
-                          onClick={() => setSelectedPoId(String(row.id))}
+                          onClick={() => {
+                            setInvoiceDocumentKind('tax');
+                            setSelectedPoId(String(row.id));
+                          }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
                         >
                           <PlusCircle className="w-4 h-4" />
@@ -1407,15 +1863,52 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 </h3>
                 <p className="text-xs text-gray-500 truncate">{displayPO.locationName || displayPO.legalName || '–'}</p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <label className="text-xs text-gray-500 whitespace-nowrap">Invoice date</label>
-                <input
-                  type="date"
-                  value={invoiceDate}
-                  readOnly
-                  disabled
-                  className="px-2 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-gray-700 text-xs"
-                />
+              <div className="flex flex-wrap items-end gap-3 shrink-0">
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-xs text-gray-500 whitespace-nowrap">Invoice date</label>
+                  <input
+                    type="date"
+                    value={invoiceDate}
+                    readOnly
+                    disabled
+                    className="px-2 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-gray-700 text-xs"
+                  />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-xs text-gray-500 whitespace-nowrap">Service period (from)</label>
+                  <input
+                    type="date"
+                    value={servicePeriodFrom}
+                    onChange={(e) => setServicePeriodFrom(e.target.value)}
+                    className="px-2 py-1.5 border border-gray-200 rounded-md bg-white text-gray-800 text-xs"
+                  />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-xs text-gray-500 whitespace-nowrap">Service period (to)</label>
+                  <input
+                    type="date"
+                    value={servicePeriodTo}
+                    onChange={(e) => setServicePeriodTo(e.target.value)}
+                    className="px-2 py-1.5 border border-gray-200 rounded-md bg-white text-gray-800 text-xs"
+                  />
+                </div>
+                <div className="flex flex-col gap-0.5 min-w-[160px]">
+                  <label className="text-xs text-gray-500">Document type</label>
+                  <select
+                    value={invoiceDocumentKind}
+                    onChange={(e) => setInvoiceDocumentKind(e.target.value)}
+                    disabled={documentKindLockedByIrn}
+                    title={
+                      documentKindLockedByIrn
+                        ? 'Document type is fixed after e-invoice (IRN) is generated'
+                        : 'Tax invoice uses INV-… numbers; proforma uses PFI-… numbers'
+                    }
+                    className="px-2 py-1.5 border border-gray-200 rounded-md bg-white text-gray-800 text-xs disabled:bg-gray-100 disabled:text-gray-500"
+                  >
+                    <option value="tax">Tax invoice</option>
+                    <option value="proforma">Proforma invoice</option>
+                  </select>
+                </div>
               </div>
               <button
                 type="button"
@@ -1424,6 +1917,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   setItems([]);
                   setAttendanceFiles([]);
                   setDocument2Files([]);
+                  setInvoiceDocumentKind('tax');
                   setInvoiceDraft(null);
                 }}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
@@ -1433,155 +1927,149 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </button>
             </div>
             <div className="p-4 sm:p-6 bg-slate-100/90 space-y-5">
+              {/* EXACT same invoice UI as Manage Invoices preview (live while editing) */}
+              <div className="mx-auto max-w-5xl">
+                <InvoiceHtmlPreview inv={livePreviewInv} showEInvoiceMeta={false} />
+              </div>
+
+              {/* Editing controls (kept as form UI below the preview) */}
               <div className="mx-auto max-w-[920px] border-2 border-neutral-800 bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-                <div className="flex flex-wrap items-center gap-3 sm:gap-4 bg-[#1a365d] px-3 sm:px-5 py-3 sm:py-4 text-white">
-                  <img
-                    src={INDUS_LOGO_SRC}
-                    alt=""
-                    className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 rounded-full bg-white object-contain p-1 ring-2 ring-white/50"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm sm:text-base font-bold uppercase leading-tight tracking-wide">
-                      {INVOICE_SELLER_TEMPLATE.name}
-                    </p>
-                    <p className="mt-1 text-[10px] sm:text-[11px] font-medium uppercase tracking-widest text-white/90">
-                      Section 31 of GST Act – 2017
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col border-b border-neutral-800 sm:flex-row sm:items-center sm:justify-between gap-1 px-3 py-2.5">
-                  <p className="text-center text-sm font-bold uppercase tracking-wide text-neutral-900 sm:flex-1 sm:text-center">
-                    Tax Invoice
-                  </p>
-                  <p className="text-center text-[10px] font-semibold uppercase tracking-wide text-neutral-500 sm:text-right">
-                    (Original for recipient)
-                  </p>
-                </div>
-
-                {previewBillMeta ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-neutral-800 border-b border-neutral-800">
-                    <div className="p-3 sm:p-4 text-xs leading-relaxed space-y-1.5">
-                      <p className="text-[11px] font-bold uppercase text-neutral-600">Seller</p>
-                      <p className="text-sm font-bold text-neutral-900">{INVOICE_SELLER_TEMPLATE.name}</p>
-                      <p className="text-neutral-800">{INVOICE_SELLER_TEMPLATE.address}</p>
-                      <p>
-                        <span className="font-semibold">GSTIN :</span>{' '}
-                        <span className="font-mono">{INVOICE_SELLER_TEMPLATE.gstin}</span>
-                      </p>
-                      <p>
-                        <span className="font-semibold">State Name:</span> {INVOICE_SELLER_TEMPLATE.state}{' '}
-                        <span className="font-semibold">(Code:</span> {INVOICE_SELLER_TEMPLATE.stateCode})
-                      </p>
-                      <p>
-                        <span className="font-semibold">CIN:</span>{' '}
-                        {displayPO.sellerCin || displayPO.seller_cin || INVOICE_SELLER_TEMPLATE.cin || '–'}
-                      </p>
-                      <p>
-                        <span className="font-semibold">PAN:</span>{' '}
-                        {displayPO.sellerPan || displayPO.seller_pan || INVOICE_SELLER_TEMPLATE.pan || '–'}
-                      </p>
-                      <p>
-                        <span className="font-semibold">MSME Udyam:</span>{' '}
-                        {displayPO.msmeRegistrationNo || displayPO.msme_registration_no || INVOICE_SELLER_TEMPLATE.msmeUdyamNo || '–'}
-                      </p>
-                    </div>
-                    <div className="p-3 sm:p-4 text-xs">
-                      <div className="divide-y divide-neutral-300 border border-neutral-300 rounded-md overflow-hidden bg-white">
-                        {[
-                          ['Invoice No.', previewBillMeta.taxInvoiceNumber],
-                          ['Billing Month', previewBillMeta.billingMonthStr],
-                          ['Billing Duration', previewBillMeta.billingDurationStr],
-                          ['Invoice Date:', formatDate(invoiceDate)],
-                          ['Mode / Terms of Payment', displayPO.paymentTerms || `${displayPO.billingCycle || 30} days`],
-                          ["Buyer's Order No.", displayPO.poWoNumber || '–'],
-                        ].map(([label, val]) => (
-                          <div key={label} className="flex justify-between gap-3 px-2.5 py-1.5">
-                            <span className="shrink-0 font-semibold text-neutral-600">{label}</span>
-                            <span className="text-right font-medium text-neutral-900 break-all">{val || '–'}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-neutral-800 border-b border-neutral-800">
-                  <div className="p-3 sm:p-4 text-xs leading-relaxed space-y-1.5">
-                    <p className="text-[11px] font-bold text-neutral-900">Buyer (Bill to)</p>
-                    <p className="text-sm font-bold text-neutral-900">{displayPO.legalName || '–'}</p>
-                    <p className="text-neutral-800 whitespace-pre-wrap">{displayPO.billingAddress || '–'}</p>
-                    <p>
-                      <span className="font-semibold">GSTIN :</span>{' '}
-                      <span className="font-mono">{displayPO.gstin || '–'}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">State Name (Code):</span>{' '}
-                      {displayPO.billingAddress?.split(',').slice(-2).join(',').trim() || '–'}
-                      {displayPO.gstin?.trim() ? ` (Code: ${String(displayPO.gstin).trim().slice(0, 2)})` : ''}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Place of Supply:</span>{' '}
-                      {displayPO.placeOfSupply ||
-                        displayPO.place_of_supply ||
-                        displayPO.billingAddress?.split(',').pop()?.trim() ||
-                        '–'}
-                    </p>
-                    <p>
-                      <span className="font-semibold">Buyer PIN (auto):</span>{' '}
-                      {buyerPinMeta.pin || '–'}
-                      {buyerPinMeta.stateCode ? ` (State Code: ${buyerPinMeta.stateCode})` : ''}
-                    </p>
-                  </div>
-                  <div className="p-3 sm:p-4 text-xs leading-relaxed space-y-1.5">
-                    <p className="text-[11px] font-bold text-neutral-900">Consignee (Ship to)</p>
-                    {displayPO.shippingAddress || displayPO.shipping_address ? (
-                      <>
-                        <p className="text-sm font-bold text-neutral-900">{displayPO.legalName || '–'}</p>
-                        <p className="text-neutral-800 whitespace-pre-wrap">
-                          {displayPO.shippingAddress || displayPO.shipping_address}
-                        </p>
-                        <p>
-                          <span className="font-semibold">GSTIN :</span>{' '}
-                          <span className="font-mono">{displayPO.gstin || '–'}</span>
-                        </p>
-                        <p>
-                          <span className="font-semibold">State Name (Code):</span>{' '}
-                          {(displayPO.shippingAddress || displayPO.shipping_address)?.split(',').slice(-2).join(',').trim() || '–'}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="italic text-neutral-500">Same as Bill to</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="border-b border-neutral-800 px-3 sm:px-4 py-2.5">
-                  <p className="text-[11px] font-bold text-neutral-900">Description / Remarks</p>
-                  <p className="mt-1 min-h-[1.25rem] text-xs text-neutral-800 whitespace-pre-wrap">
-                    {previewBillMeta?.remarksLine || '–'}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 border-b border-neutral-800 bg-neutral-100/90 px-3 py-1.5 text-[11px] text-neutral-800">
-                  <span>
-                    <span className="font-semibold text-neutral-600">OC:</span> {displayPO.ocNumber || '–'}
-                  </span>
-                  <span className="text-right">
-                    <span className="font-semibold text-neutral-600">Site:</span> {displayPO.siteId || '–'}
-                  </span>
-                </div>
-
           <div className="border-x-0 border-b border-neutral-800 overflow-hidden bg-[#eef2f7]">
             <div className="p-2">
               <div className="bg-white rounded-lg overflow-hidden">
+                {isLumpSumBilling ? (
+                  <div className="px-3 py-2.5 border-b border-amber-200/90 bg-amber-50/60">
+                    <label className="flex flex-wrap items-start gap-2.5 text-sm text-neutral-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 rounded border-gray-300 text-amber-700 focus:ring-amber-500"
+                        checked={lumpSumSubtractPenaltyInRate}
+                        onChange={(e) => {
+                          if (lumpSumPenaltyActive) return;
+                          setLumpSumInvoicePenaltyGeometry(!!e.target.checked);
+                        }}
+                        disabled={lumpSumPenaltyActive}
+                        aria-label="Duty geometry with PO penalty"
+                      />
+                      <span>
+                        <span className="font-semibold">Duty geometry — PO penalty on rate</span>
+                        <span className="text-neutral-600">
+                          {' '}
+                          Adds the Penalty (₹) column (from PO Rate per Category, next to Qty/Rate) and uses{' '}
+                        </span>
+                        <span className="font-mono text-[11px] text-neutral-800 whitespace-nowrap">
+                          Rate = (Actual ÷ Authorised) × PO rate − Penalty
+                        </span>
+                        <span className="text-neutral-600"> on each duty-geometry line.</span>
+                      </span>
+                    </label>
+                    {lumpSumPenaltyActive ? (
+                      <p className="text-[11px] text-amber-900/85 mt-2 pl-7">
+                        This PO is configured for penalty mode; the formula always applies for lump sum.
+                      </p>
+                    ) : null}
+                    {lumpSumSubtractPenaltyInRate ? (
+                      <div className="mt-2 ml-7 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleExportGeometrySectionToExcel}
+                          disabled={!lumpSumGeometryRowsForExport.length}
+                          className="rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-emerald-50"
+                        >
+                          Export Geometry to Excel
+                        </button>
+                        <span className="text-[11px] text-amber-900/80 max-w-xl">
+                          Works for all lump sum layouts (including truck): exports every duty-geometry category row.
+                        </span>
+                      </div>
+                    ) : null}
+                    {lumpSumSingleInvoiceTableMode ? (
+                      <div className="mt-3 ml-7 mr-1 rounded-md border border-amber-200 bg-white/80 p-2.5">
+                        <p className="text-xs font-semibold text-amber-900">Geometry inputs (calculation source)</p>
+                        <p className="text-[11px] text-amber-900/85 mt-1">
+                          Edit each geometry category below; the invoice table shows their cumulative totals on the first line. Add supplementary rows (Qty × Rate) under the table for extras.
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {items.map((row, rowIdx) => (
+                            row.isTruckLine || !row.geometryEnabled ? null : (
+                            <div key={`geo-row-${rowIdx}`} className="grid grid-cols-1 gap-2 rounded border border-amber-100 bg-amber-50/30 p-2 md:grid-cols-6">
+                              <div className="text-xs text-gray-700 md:col-span-2">
+                                <div className="font-medium text-gray-900 truncate" title={row.description || ''}>{row.description || `Line ${rowIdx + 1}`}</div>
+                                <div className="text-[11px] text-gray-500">PO rate: ₹{safeNumber(row.poReferenceRate).toLocaleString('en-IN')}</div>
+                              </div>
+                              <label className="text-[11px] text-gray-700">
+                                Actual
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={row.actualDuty ?? 0}
+                                  onChange={(e) => updateItem(rowIdx, { actualDuty: e.target.value, geometryEnabled: true })}
+                                  className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-center"
+                                />
+                              </label>
+                              <label className="text-[11px] text-gray-700">
+                                Authorised
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={row.authorizedDuty ?? daysInMonth(invoiceDate)}
+                                  onChange={(e) => updateItem(rowIdx, { authorizedDuty: e.target.value, geometryEnabled: true })}
+                                  className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-center"
+                                />
+                              </label>
+                              <div className="text-[11px] text-gray-700">
+                                Qty
+                                <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                  {round3(row.quantity).toLocaleString('en-IN')}
+                                </div>
+                              </div>
+                              <div className="text-[11px] text-gray-700">
+                                Amount
+                                <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                  ₹{round2(row.amount).toLocaleString('en-IN')}
+                                </div>
+                              </div>
+                            </div>
+                            )
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="w-full max-w-full min-w-0 overflow-x-auto">
-                  <table className="w-full min-w-0 max-w-full table-fixed border-collapse border border-neutral-400 text-sm">
+                  <table
+                    className={[
+                      'w-full min-w-0 max-w-full border-collapse border border-neutral-400 text-sm table-fixed',
+                      lumpSumDutyGeometryLineTable ? 'min-w-[820px]' : '',
+                    ].join(' ')}
+                  >
                     <thead>
                 <tr>
-                  <th className="w-[6%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">#</th>
-                  <th className="w-[40%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-left text-[11px] font-bold text-neutral-900">Description</th>
-                  <th className="w-[14%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">HSN/SAC</th>
+                  <th
+                    className={[
+                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      lumpSumDutyGeometryLineTable ? 'w-[3rem] min-w-[2.5rem] px-1 py-1.5' : 'w-[6%] px-2 py-2',
+                    ].join(' ')}
+                  >
+                    #
+                  </th>
+                  <th
+                    className={[
+                      'border border-neutral-400 bg-[#e8edf5] text-left text-[11px] font-bold text-neutral-900',
+                      lumpSumDutyGeometryLineTable ? 'w-[30%] min-w-[8rem] px-1.5 py-1.5' : 'w-[40%] px-2 py-2',
+                    ].join(' ')}
+                  >
+                    Description
+                  </th>
+                  <th
+                    className={[
+                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
+                    ].join(' ')}
+                  >
+                    HSN/SAC
+                  </th>
                   {null ? (
                     <>
                       <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">PO Qty</th>
@@ -1589,22 +2077,69 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Auth</th>
                     </>
                   ) : null}
-                  <th className="w-[12%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Qty</th>
-                  <th className="w-[14%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Rate</th>
-                  {lumpSumPenaltyActive ? (
-                    <th className="w-[12%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Penalty (₹)</th>
+                  <th
+                    className={[
+                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      lumpSumDutyGeometryLineTable ? 'w-[10%] min-w-[4rem] px-1 py-1.5' : 'w-[12%] px-2 py-2',
+                    ].join(' ')}
+                  >
+                    Qty
+                  </th>
+                  <th
+                    className={[
+                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
+                    ].join(' ')}
+                  >
+                    Rate
+                  </th>
+                  {lumpSumSubtractPenaltyInRate ? (
+                    <th
+                      className={[
+                        'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                        lumpSumDutyGeometryLineTable ? 'w-[10%] min-w-[3.75rem] px-1 py-1.5 leading-tight' : 'w-[12%] px-2 py-2',
+                      ].join(' ')}
+                    >
+                      Penalty (₹)
+                    </th>
                   ) : null}
-                  <th className="w-[14%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-right text-[11px] font-bold text-neutral-900">Amount</th>
+                  <th
+                    className={[
+                      'border border-neutral-400 bg-[#e8edf5] text-right text-[11px] font-bold text-neutral-900',
+                      lumpSumDutyGeometryLineTable ? 'w-[13%] min-w-[4.5rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
+                    ].join(' ')}
+                  >
+                    Amount
+                  </th>
                 </tr>
                     </thead>
                     <tbody className="bg-white">
-                {items.map((it, idx) => {
-                  const canDutyRuler = !it.isTruckLine && (isMonthlyBilling || isLumpSumBilling);
+                {invoiceTableRows.map((tableRow, tableIdx) => {
+                  const isLumpConsolidatedRow = tableRow.kind === 'lumpConsolidated';
+                  const ii = tableRow.kind === 'item' ? tableRow.itemIndex : null;
+                  const it = isLumpConsolidatedRow ? consolidatedLumpSumLine : items[ii];
+                  if (!it && !isLumpConsolidatedRow) return null;
+                  const rowKey =
+                    tableRow.kind === 'lumpConsolidated'
+                      ? 'lump-sum-consolidated'
+                      : `item-${ii}`;
+                  const isLumpSumSupplementaryRow =
+                    ii != null && !!it && !it.isTruckLine && isLumpSumBilling && !it.geometryEnabled;
+                  const hsnEditable =
+                    !!it &&
+                    (it.isTruckLine || (ii != null && isLumpSumBilling && !it.geometryEnabled && !isLumpConsolidatedRow));
+                  const canDutyRuler =
+                    ii != null &&
+                    !isLumpConsolidatedRow &&
+                    !lumpSumSingleInvoiceTableMode &&
+                    !it.isTruckLine &&
+                    (isMonthlyBilling || isLumpSumBilling);
                   const rateDerived =
+                    isLumpConsolidatedRow ||
                     (isMonthlyBilling && it.geometryEnabled) ||
                     (isLumpSumBilling && !it.isTruckLine && it.geometryEnabled);
                   const mergedMmDescOpts =
-                    isMmOnlyVertical && !it.isTruckLine
+                    isMmOnlyVertical && !it.isTruckLine && ii != null
                       ? (() => {
                           const m = [...mmDescriptionOptions];
                           if (it.description && !m.includes(it.description)) m.push(it.description);
@@ -1613,15 +2148,29 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         })()
                       : [];
                   return (
-                  <React.Fragment key={idx}>
-                  <tr className={activeGeometryRowIdx === idx ? 'bg-indigo-50/60' : undefined}>
-                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle text-xs text-neutral-800">
+                  <React.Fragment key={rowKey}>
+                  <tr className={activeGeometryRowIdx === tableIdx ? 'bg-indigo-50/60' : undefined}>
+                    <td
+                      className={[
+                        'border border-neutral-400 text-center align-middle text-xs text-neutral-800',
+                        lumpSumDutyGeometryLineTable ? 'min-w-0 px-1 py-1' : 'px-2 py-2',
+                      ].join(' ')}
+                    >
                       <div className="flex flex-col items-center gap-1">
-                        <span>{idx + 1}</span>
-                        {it.isTruckLine ? (
+                        <span>{tableIdx + 1}</span>
+                        {it?.isTruckLine && ii != null ? (
                           <button
                             type="button"
-                            onClick={() => removeTruckLine(idx)}
+                            onClick={() => removeTruckLine(ii)}
+                            className="text-[10px] text-red-600 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                        {it?.isLumpSumSupplementaryLine && ii != null ? (
+                          <button
+                            type="button"
+                            onClick={() => removeLumpSumSupplementaryLine(ii)}
                             className="text-[10px] text-red-600 hover:underline"
                           >
                             Remove
@@ -1629,23 +2178,47 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         ) : null}
                       </div>
                     </td>
-                    <td className="border border-neutral-400 px-2 py-2 align-middle text-xs font-medium text-neutral-900" title={it.description || ''}>
-                      <div className="flex items-center justify-between gap-2 min-w-0">
-                        {it.isTruckLine ? (
+                    <td
+                      className={[
+                        'border border-neutral-400 align-middle text-xs font-medium text-neutral-900 min-w-0',
+                        lumpSumDutyGeometryLineTable ? 'px-1.5 py-1' : 'px-2 py-2',
+                      ].join(' ')}
+                      title={it.description || ''}
+                    >
+                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                        {it.isTruckLine && ii != null ? (
                           <input
                             type="text"
                             value={it.description}
-                            onChange={(e) => updateItem(idx, { description: e.target.value })}
+                            onChange={(e) => updateItem(ii, { description: e.target.value })}
                             className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
                             placeholder="Truck / transport line"
                           />
-                        ) : isMmServiceDescriptionMode ? (
+                        ) : isLumpConsolidatedRow ? (
+                          <span
+                            className={
+                              lumpSumDutyGeometryLineTable
+                                ? 'min-w-0 text-[11px] leading-snug break-words'
+                                : 'truncate'
+                            }
+                          >
+                            {it.description}
+                          </span>
+                        ) : isLumpSumSupplementaryRow && ii != null ? (
+                          <input
+                            type="text"
+                            value={it.description}
+                            onChange={(e) => updateItem(ii, { description: e.target.value })}
+                            className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
+                            placeholder="Supplementary line description"
+                          />
+                        ) : isMmServiceDescriptionMode && ii != null ? (
                           it.description ? (
                             <div className="flex items-center justify-between gap-2 min-w-0 w-full">
                               <span className="truncate">{it.description}</span>
                               <button
                                 type="button"
-                                onClick={() => clearMmDescriptionRow(idx)}
+                                onClick={() => clearMmDescriptionRow(ii)}
                                 className="shrink-0 text-[11px] text-red-600 hover:underline"
                                 title="Clear selected description"
                               >
@@ -1654,11 +2227,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             </div>
                           ) : (
                             <select
-                              id={`mm-invoice-desc-select-${idx}`}
+                              id={`mm-invoice-desc-select-${ii}`}
                               className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal bg-white"
-                              aria-label={`Line ${idx + 1} description`}
+                              aria-label={`Line ${ii + 1} description`}
                               value=""
-                              onChange={(e) => handleMmDescriptionSelect(idx, e.target.value)}
+                              onChange={(e) => handleMmDescriptionSelect(ii, e.target.value)}
                             >
                               <option value="">Select description…</option>
                               {mergedMmDescOpts.map((opt) => (
@@ -1669,14 +2242,20 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             </select>
                           )
                         ) : (
-                          <span className="truncate">{it.description}</span>
+                          <span
+                            className={
+                              lumpSumDutyGeometryLineTable ? 'min-w-0 text-[11px] leading-snug break-words' : 'truncate'
+                            }
+                          >
+                            {it.description}
+                          </span>
                         )}
-                        {canDutyRuler ? (
+                        {canDutyRuler && ii != null ? (
                           <button
                             type="button"
                             onClick={() => {
-                              setActiveGeometryRowIdx(idx);
-                              updateItem(idx, { geometryEnabled: !it.geometryEnabled });
+                              setActiveGeometryRowIdx(tableIdx);
+                              updateItem(ii, { geometryEnabled: !it.geometryEnabled });
                             }}
                             className={[
                               'shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md border',
@@ -1698,17 +2277,29 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       {it.isTruckLine ? (
                         <span className="mt-1 inline-block text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Truck line</span>
                       ) : null}
+                      {isLumpSumSupplementaryRow ? (
+                        <span className="mt-1 inline-block text-[10px] font-semibold text-sky-800 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5">Qty × Rate</span>
+                      ) : null}
                     </td>
-                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle font-mono text-xs text-neutral-800">
-                      {it.isTruckLine ? (
+                    <td
+                      className={[
+                        'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0',
+                        lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
+                      ].join(' ')}
+                    >
+                      {hsnEditable && ii != null ? (
                         <input
                           type="text"
                           value={it.hsnSac || ''}
-                          onChange={(e) => updateItem(idx, { hsnSac: e.target.value })}
-                          className="w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono"
+                          onChange={(e) => updateItem(ii, { hsnSac: e.target.value })}
+                          className={
+                            lumpSumDutyGeometryLineTable
+                              ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
+                              : 'w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono'
+                          }
                         />
                       ) : (
-                        it.hsnSac || '–'
+                        <span className="block break-all font-mono">{it.hsnSac || '–'}</span>
                       )}
                     </td>
                     {null ? (
@@ -1718,7 +2309,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             type="number"
                             min={0}
                             value={it.poQty ?? 0}
-                            onChange={(e) => updateItem(idx, { poQty: e.target.value })}
+                            onChange={(e) => updateItem(ii, { poQty: e.target.value })}
                             className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-center"
                             step="1"
                           />
@@ -1728,7 +2319,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             type="number"
                             min={0}
                             value={it.actualDuty ?? 0}
-                            onChange={(e) => updateItem(idx, { actualDuty: e.target.value })}
+                            onChange={(e) => updateItem(ii, { actualDuty: e.target.value })}
                             className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-center"
                             step="1"
                           />
@@ -1738,14 +2329,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             type="number"
                             min={0}
                             value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
-                            onChange={(e) => updateItem(idx, { authorizedDuty: e.target.value })}
+                            onChange={(e) => updateItem(ii, { authorizedDuty: e.target.value })}
                             className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-center"
                             step="1"
                           />
                         </td>
                       </>
                     ) : null}
-                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle">
+                    <td
+                      className={[
+                        'border border-neutral-400 text-center align-middle min-w-0',
+                        lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
+                      ].join(' ')}
+                    >
                       <input
                         type="number"
                         min={0}
@@ -1755,36 +2351,71 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             : undefined
                         }
                         value={it.quantity}
-                        onChange={(e) => updateItem(idx, { quantity: e.target.value })}
-                        className="w-24 px-2 py-1 border border-gray-300 rounded-lg text-center"
+                        onChange={(e) => {
+                          if (ii == null) return;
+                          updateItem(ii, { quantity: e.target.value });
+                        }}
+                        className={
+                          lumpSumDutyGeometryLineTable
+                            ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
+                            : 'w-24 px-2 py-1 border border-gray-300 rounded-lg text-center'
+                        }
                         readOnly={
+                          isLumpConsolidatedRow ||
                           (isMonthlyBilling && it.geometryEnabled) ||
                           (isLumpSumBilling && it.geometryEnabled && !it.isTruckLine)
                         }
                       />
                     </td>
-                    <td className="border border-neutral-400 px-2 py-2 text-center align-middle">
+                    <td
+                      className={[
+                        'border border-neutral-400 text-center align-middle min-w-0',
+                        lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
+                      ].join(' ')}
+                    >
                       <input
                         type="number"
                         min={0}
                         value={it.rate}
-                        onChange={(e) => updateItem(idx, { rate: e.target.value })}
-                        className="w-28 px-2 py-1 border border-gray-300 rounded-lg text-center"
+                        onChange={(e) => {
+                          if (ii == null) return;
+                          updateItem(ii, { rate: e.target.value });
+                        }}
+                        className={
+                          lumpSumDutyGeometryLineTable
+                            ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
+                            : 'w-28 px-2 py-1 border border-gray-300 rounded-lg text-center'
+                        }
                         readOnly={rateDerived}
                       />
                     </td>
-                    {lumpSumPenaltyActive ? (
-                      <td className="border border-neutral-400 px-2 py-2 text-center align-middle text-xs text-neutral-800">
-                        {it.isTruckLine ? (
+                    {lumpSumSubtractPenaltyInRate ? (
+                      <td
+                        className={[
+                          'border border-neutral-400 text-center align-middle text-neutral-800 min-w-0',
+                          lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px] tabular-nums leading-tight' : 'px-2 py-2 text-xs',
+                        ].join(' ')}
+                      >
+                        {it.isTruckLine || isLumpSumSupplementaryRow ? (
                           '–'
                         ) : (
                           <span title="From PO Rate per Category">₹{safeNumber(it.poLinePenalty).toLocaleString('en-IN')}</span>
                         )}
                       </td>
                     ) : null}
-                    <td className="border border-neutral-400 px-2 py-2 text-right align-middle text-xs font-semibold text-neutral-900">₹{round2(it.amount).toLocaleString('en-IN')}</td>
+                    <td
+                      className={[
+                        'border border-neutral-400 text-right align-middle font-semibold text-neutral-900 min-w-0 tabular-nums',
+                        lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
+                      ].join(' ')}
+                    >
+                      ₹{round2(it.amount).toLocaleString('en-IN')}
+                    </td>
                   </tr>
-                  {isMonthlyBilling && it.geometryEnabled ? (
+                  {isMonthlyBilling &&
+                  !lumpSumSingleInvoiceTableMode &&
+                  it.geometryEnabled &&
+                  ii != null ? (
                     <tr className="bg-gray-50">
                       <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -1808,7 +2439,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               type="number"
                               min={0}
                               value={it.actualDuty ?? 0}
-                              onChange={(e) => updateItem(idx, { actualDuty: e.target.value })}
+                              onChange={(e) => updateItem(ii, { actualDuty: e.target.value })}
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                               step="1"
                             />
@@ -1819,7 +2450,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               type="number"
                               min={0}
                               value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
-                              onChange={(e) => updateItem(idx, { authorizedDuty: e.target.value })}
+                              onChange={(e) => updateItem(ii, { authorizedDuty: e.target.value })}
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                               step="1"
                             />
@@ -1831,7 +2462,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                 type="number"
                                 min={1}
                                 value={it.numberOfMonths ?? 1}
-                                onChange={(e) => updateItem(idx, { numberOfMonths: e.target.value })}
+                                onChange={(e) => updateItem(ii, { numberOfMonths: e.target.value })}
                                 className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                                 step="1"
                               />
@@ -1848,7 +2479,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       </td>
                     </tr>
                   ) : null}
-                  {isLumpSumBilling && !it.isTruckLine && it.geometryEnabled ? (
+                  {isLumpSumBilling &&
+                  !lumpSumSingleInvoiceTableMode &&
+                  !it.isTruckLine &&
+                  it.geometryEnabled &&
+                  ii != null ? (
                     <tr className="bg-amber-50/40">
                       <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -1859,7 +2494,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               type="number"
                               min={0}
                               value={it.poQty ?? 0}
-                              onChange={(e) => updateItem(idx, { poQty: e.target.value })}
+                              onChange={(e) => updateItem(ii, { poQty: e.target.value })}
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                               step="1"
                             />
@@ -1881,7 +2516,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               type="number"
                               min={0}
                               value={it.actualDuty ?? 0}
-                              onChange={(e) => updateItem(idx, { actualDuty: e.target.value })}
+                              onChange={(e) => updateItem(ii, { actualDuty: e.target.value })}
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                               step="1"
                             />
@@ -1892,7 +2527,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               type="number"
                               min={0}
                               value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
-                              onChange={(e) => updateItem(idx, { authorizedDuty: e.target.value })}
+                              onChange={(e) => updateItem(ii, { authorizedDuty: e.target.value })}
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                               step="1"
                             />
@@ -1904,7 +2539,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                 type="number"
                                 min={1}
                                 value={it.numberOfMonths ?? 1}
-                                onChange={(e) => updateItem(idx, { numberOfMonths: e.target.value })}
+                                onChange={(e) => updateItem(ii, { numberOfMonths: e.target.value })}
                                 className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                                 step="1"
                               />
@@ -1914,7 +2549,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             {lumpSumBillingMode === 'months_geometry'
                               ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals). '
                               : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals). '}
-                            {lumpSumPenaltyActive
+                            {lumpSumSubtractPenaltyInRate
                               ? 'Rate = (Actual ÷ Authorised) × PO rate − Penalty (from PO). Amount = Qty × Rate.'
                               : 'Rate = (Actual ÷ Authorised) × PO rate. Amount = Qty × Rate.'}
                           </span>
@@ -1928,16 +2563,34 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </tbody>
             </table>
                 </div>
-                {lumpSumTruckActive ? (
-                  <div className="px-2 pt-2 pb-1 border-t border-gray-100 bg-white">
-                    <button
-                      type="button"
-                      onClick={addTruckLine}
-                      className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline"
-                    >
-                      + Add truck line (Qty × Rate only)
-                    </button>
-                    <p className="text-[11px] text-gray-500 mt-1">PO-based lines above keep the duty-based rate formula; truck lines are added separately.</p>
+                {isLumpSumBilling ? (
+                  <div className="px-2 pt-2 pb-1 border-t border-gray-100 bg-white space-y-1.5">
+                    <div>
+                      <button
+                        type="button"
+                        onClick={addLumpSumSupplementaryLine}
+                        className="text-sm font-medium text-sky-700 hover:text-sky-800 hover:underline"
+                      >
+                        + Add supplementary line (Qty × Rate)
+                      </button>
+                      <p className="text-[11px] text-gray-500 mt-0.5 max-w-2xl">
+                        Use for ad-hoc extras: amount = Qty × Rate. Supplements are added to the taxable total along with the lump sum geometry cumulative line.
+                      </p>
+                    </div>
+                    {lumpSumTruckActive ? (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={addTruckLine}
+                          className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline"
+                        >
+                          + Add truck line (Qty × Rate only)
+                        </button>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          PO-based lines keep the duty-based lump sum formula where applicable; truck lines are separate.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -2130,6 +2783,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 setItems([]);
                 setAttendanceFiles([]);
                 setDocument2Files([]);
+                setInvoiceDocumentKind('tax');
                 setInvoiceDraft(null);
               }}
               className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"

@@ -275,11 +275,11 @@ const EnquiryMaster = () => {
         enquiry_date: formData.enquiry_date || null,
         source: formData.source || 'Email',
         client_id: formData.client_id || null,
-        contact_person: formData.contact_person || null,
-        contact_number: formData.contact_number || null,
-        contact_email: formData.contact_email || null,
-        site_location: formData.site_location || null,
-        description: formData.description || null,
+        contact_person: (formData.contact_person || '').trim() || null,
+        contact_number: (formData.contact_number || '').trim() || null,
+        contact_email: (formData.contact_email || '').trim() || null,
+        site_location: (formData.site_location || '').trim() || null,
+        description: (formData.description || '').trim() || null,
         estimated_value: formData.estimated_value ? parseIndianNumber(String(formData.estimated_value)) : null,
         expected_closing_date: formData.expected_closing_date || null,
         status: formData.status || 'New',
@@ -305,6 +305,42 @@ const EnquiryMaster = () => {
         if (error) throw error;
         enquiryId = data.id;
       } else {
+        // Duplicate prevention: same core details should not create a new enquiry id.
+        // We check only "identity" fields (not status/assignee/estimated value) so repeated clicks or
+        // repeated submissions of the same enquiry are blocked.
+        let dupQuery = supabase
+          .from('marketing_enquiries')
+          .select('id, enquiry_number')
+          .limit(1);
+
+        const dupFields = {
+          enquiry_date: enquiryPayload.enquiry_date,
+          source: enquiryPayload.source,
+          client_id: enquiryPayload.client_id,
+          contact_person: enquiryPayload.contact_person,
+          contact_number: enquiryPayload.contact_number,
+          contact_email: enquiryPayload.contact_email,
+          site_location: enquiryPayload.site_location,
+          description: enquiryPayload.description,
+        };
+
+        Object.entries(dupFields).forEach(([key, value]) => {
+          if (value == null || value === '') {
+            dupQuery = dupQuery.is(key, null);
+          } else {
+            dupQuery = dupQuery.eq(key, value);
+          }
+        });
+
+        const { data: existingDup, error: dupError } = await dupQuery;
+        if (dupError) {
+          console.error('Duplicate enquiry check failed:', dupError);
+        }
+        if (existingDup && existingDup.length > 0) {
+          alert('An enquiry already exists with the same details');
+          return;
+        }
+
         const { data, error } = await supabase
           .from('marketing_enquiries')
           .insert([{

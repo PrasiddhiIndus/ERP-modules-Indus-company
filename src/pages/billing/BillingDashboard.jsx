@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   FileText,
   FileCheck,
@@ -238,9 +239,103 @@ const BillingDashboard = ({ onNavigateTab }) => {
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600 mb-6">
           <p className="text-lg font-semibold text-gray-900">Select a vertical to open Billing</p>
-          <p className="text-sm mt-1">Choose a vertical above to load dashboard stats, invoices, reports and notifications.</p>
+          <p className="text-sm mt-1 max-w-lg mx-auto">
+            Choose a vertical above to load POs and invoices. Flow:{' '}
+            <strong>Commercial → PO Entry</strong> → select the same vertical here →{' '}
+            <strong>Create Invoice</strong> → <strong>Manage Invoices</strong> (PDF / IRN).
+          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm">
+            <Link
+              to="/app/commercial/manpower-training/po-entry"
+              className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-red-700 hover:bg-slate-50"
+            >
+              Manpower / Training PO Entry
+            </Link>
+            <Link
+              to="/app/commercial/rm-mm-amc-iev/po-entry"
+              className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-red-700 hover:bg-slate-50"
+            >
+              R&amp;M · M&amp;M · AMC · IEV PO Entry
+            </Link>
+          </div>
         </div>
       ) : null}
+
+      {!verticalNotSelected ? (
+        <div className="mb-6 rounded-2xl border border-red-100 bg-gradient-to-br from-red-50/90 to-white shadow-sm p-4 sm:p-5">
+          <p className="text-xs font-semibold text-red-800 uppercase tracking-wide mb-3">Billing workflow</p>
+          <ol className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
+                1
+              </span>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 text-sm">Commercial PO / WO</p>
+                <p className="text-xs text-gray-600 mt-0.5">Send for approval → approved</p>
+                <div className="mt-2 flex flex-col gap-1">
+                  <Link to="/app/commercial/manpower-training/po-entry" className="text-xs font-medium text-red-700 hover:underline truncate">
+                    PO Entry (Manpower / Training) →
+                  </Link>
+                  <Link to="/app/commercial/rm-mm-amc-iev/po-entry" className="text-xs font-medium text-red-700 hover:underline truncate">
+                    PO Entry (R&amp;M · M&amp;M · AMC · IEV) →
+                  </Link>
+                </div>
+              </div>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
+                2
+              </span>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 text-sm">Same vertical</p>
+                <p className="text-xs text-gray-600 mt-0.5">Use the team-wise dropdown above so POs match this OC line.</p>
+              </div>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
+                3
+              </span>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 text-sm">Create invoice</p>
+                <p className="text-xs text-gray-600 mt-0.5">Tax or proforma from approved PO rows.</p>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
+                  className="mt-2 text-xs font-semibold text-red-700 hover:underline"
+                >
+                  Open Create Invoice →
+                </button>
+              </div>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
+                4
+              </span>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 text-sm">Manage &amp; comply</p>
+                <p className="text-xs text-gray-600 mt-0.5">PDF, PA, e-invoice IRN, CN/DN.</p>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab && onNavigateTab('manage-invoices')}
+                    className="text-xs font-semibold text-red-700 hover:underline"
+                  >
+                    Manage Invoices →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateTab && onNavigateTab('generated-e-invoice')}
+                    className="text-xs font-semibold text-emerald-700 hover:underline"
+                  >
+                    E-Invoice list →
+                  </button>
+                </div>
+              </div>
+            </li>
+          </ol>
+        </div>
+      ) : null}
+
       <div className="mb-6 rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">

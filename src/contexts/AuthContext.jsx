@@ -85,21 +85,13 @@ export const AuthProvider = ({ children }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch profile from DB when user exists. If table missing or 500, use user_metadata only.
-  // Set VITE_USE_PROFILES_TABLE=true only after running supabase/migrations/20250220000000_profiles_for_roles.sql
-  // to avoid 500 errors until the profiles table exists.
-  const useProfilesTable = import.meta.env.VITE_USE_PROFILES_TABLE === "true" || import.meta.env.VITE_USE_PROFILES_TABLE === true;
-  const PROFILES_SKIP_KEY = "profiles_skip";
+  // Fetch profile from DB when user exists. If table missing or access denied, fall back to user_metadata.
+  // NOTE: We do NOT permanently "skip" profiles anymore — role gating (Super Admin) depends on this row.
+  const useProfilesTable =
+    import.meta.env.VITE_USE_PROFILES_TABLE === "true" ||
+    import.meta.env.VITE_USE_PROFILES_TABLE === true;
   useEffect(() => {
     if (!user?.id) {
-      setProfileRow(null);
-      return;
-    }
-    if (!useProfilesTable) {
-      setProfileRow(null);
-      return;
-    }
-    if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(PROFILES_SKIP_KEY) === "1") {
       setProfileRow(null);
       return;
     }
@@ -116,14 +108,8 @@ export const AuthProvider = ({ children }) => {
           setProfileRow(data);
           return;
         }
-        try {
-          sessionStorage.setItem(PROFILES_SKIP_KEY, "1");
-        } catch (_) {}
         setProfileRow(null);
       } catch (_) {
-        try {
-          sessionStorage.setItem(PROFILES_SKIP_KEY, "1");
-        } catch (_) {}
         if (!cancelled) setProfileRow(null);
       }
     })();
@@ -132,6 +118,9 @@ export const AuthProvider = ({ children }) => {
 
   // Register user + save role-based profile (username, team, role, allowed_modules for manager)
   const signUpWithProfile = async (email, password, profileData) => {
+    const normEmail = String(email || '').trim().toLowerCase();
+    const forcedRole = normEmail === 'rahul.ifspl@gmail.com' ? 'super_admin_pro' : null;
+    const safeRole = forcedRole || profileData?.role || "executive";
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -142,7 +131,7 @@ export const AuthProvider = ({ children }) => {
           phone: profileData?.phone ?? "",
           company: profileData?.company ?? "",
           team: profileData?.team ?? null,
-          role: profileData?.role ?? "executive",
+          role: safeRole,
           allowed_modules: profileData?.allowed_modules ?? [],
         },
       },
@@ -158,7 +147,7 @@ export const AuthProvider = ({ children }) => {
             email: data.user.email,
             username: profileData?.username ?? "",
             team: profileData?.team ?? null,
-            role: profileData?.role ?? "executive",
+            role: safeRole,
             allowed_modules: profileData?.allowed_modules ?? [],
           },
           { onConflict: "id" }
@@ -202,9 +191,7 @@ export const AuthProvider = ({ children }) => {
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
-      try {
-        sessionStorage.removeItem("profiles_skip");
-      } catch (_) {}
+      // legacy cleanup (profiles_skip no longer used)
       // Clear all Supabase-related localStorage items
       Object.keys(localStorage).forEach(key => {
         if (key.includes('supabase') || key.includes('sb-')) {
@@ -215,9 +202,7 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       return { error: null };
     } catch (err) {
-      try {
-        sessionStorage.removeItem("profiles_skip");
-      } catch (_) {}
+      // legacy cleanup (profiles_skip no longer used)
       // Even if signOut fails, clear local state and storage
       Object.keys(localStorage).forEach(key => {
         if (key.includes('supabase') || key.includes('sb-')) {
@@ -233,9 +218,7 @@ export const AuthProvider = ({ children }) => {
   const clearInvalidSession = async () => {
     try {
       await supabase.auth.signOut();
-      try {
-        sessionStorage.removeItem("profiles_skip");
-      } catch (_) {}
+      // legacy cleanup (profiles_skip no longer used)
       // Clear all Supabase-related localStorage items
       Object.keys(localStorage).forEach(key => {
         if (key.includes('supabase') || key.includes('sb-')) {
@@ -260,11 +243,17 @@ export const AuthProvider = ({ children }) => {
 
   const userProfile = useMemo(() => {
     if (!user) return null;
+    const email = String(user?.email || '').trim().toLowerCase();
+    const isSuperAdminPro = email === 'rahul.ifspl@gmail.com';
+    const superAdminEmailsRaw = String(import.meta.env.VITE_SUPER_ADMIN_EMAILS || '').trim();
+    const superAdminEmails = superAdminEmailsRaw
+      ? superAdminEmailsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : [];
     if (profileRow) {
       return {
         username: profileRow.username ?? user?.email?.split("@")[0],
         team: profileRow.team ?? null,
-        role: profileRow.role ?? null,
+        role: profileRow.role ?? (isSuperAdminPro ? 'super_admin_pro' : (superAdminEmails.includes(email) ? 'super_admin' : null)),
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
       };
     }
@@ -273,7 +262,7 @@ export const AuthProvider = ({ children }) => {
     return {
       username: meta.full_name ?? user?.email?.split("@")[0],
       team: meta.team ?? null,
-      role: meta.role ?? null,
+      role: meta.role ?? (isSuperAdminPro ? 'super_admin_pro' : (superAdminEmails.includes(email) ? 'super_admin' : null)),
       allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
     };
   }, [user, profileRow]);
