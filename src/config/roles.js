@@ -104,7 +104,10 @@ export function getAccessibleModules(profile) {
     return always;
   }
   if (profile.role === ROLES.EXECUTIVE) {
-    if (profile.team) always.add(profile.team);
+    // If team metadata is missing, don't accidentally lock the user to dashboard-only access.
+    // Treat it like legacy access (except User Management).
+    if (!profile.team) return allWithoutUserMgmt;
+    always.add(profile.team);
     (profile.allowed_modules || []).forEach((m) => always.add(m));
     // Never allow user management for non-super-admin.
     always.delete("userManagement");

@@ -64,21 +64,29 @@ const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass :
 const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : "text-gray-700"}`;
 
 const Layout = () => {
-  const { user, signOut, accessibleModules, userProfile } = useAuth();
+  const { user, signOut, accessibleModules, userProfile, profileLoading } = useAuth();
   const can = (moduleKey) => !accessibleModules?.size || accessibleModules.has(moduleKey);
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isAccessDenied, setIsAccessDenied] = useState(false);
 
-  // Route guard: redirect to dashboard if current path is not allowed for this role
+  // Route guard: do not force-redirect on refresh.
+  // If access is denied, keep the same URL and show an "Access denied" screen.
   useEffect(() => {
     if (!pathname.startsWith("/app")) return;
-    if (accessibleModules?.size && !isPathAllowed(pathname, accessibleModules)) {
-      navigate("/app/dashboard", { replace: true });
+    if (profileLoading) {
+      setIsAccessDenied(false);
+      return;
     }
-  }, [pathname, accessibleModules, navigate]);
+    if (!accessibleModules?.size) {
+      setIsAccessDenied(false);
+      return;
+    }
+    setIsAccessDenied(!isPathAllowed(pathname, accessibleModules));
+  }, [pathname, accessibleModules, profileLoading]);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
@@ -119,6 +127,48 @@ const Layout = () => {
   };
 
   const [activityLogOpen, setActivityLogOpen] = useState(false);
+
+  if (profileLoading && pathname.startsWith("/app")) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-sm p-6 text-center">
+          <p className="text-sm text-slate-700">Loading your access…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAccessDenied) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="w-full max-w-lg bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+          <h1 className="text-lg font-semibold text-slate-900">Access denied</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            You don&apos;t have permission to open this page.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/app/dashboard")}
+              className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
+            >
+              Go to Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="px-4 py-2 rounded border border-slate-300 text-slate-800 hover:bg-slate-50"
+            >
+              Sign out
+            </button>
+          </div>
+          <p className="mt-4 text-xs text-slate-500 break-words">
+            Current URL: <span className="font-mono">{pathname}</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-50">

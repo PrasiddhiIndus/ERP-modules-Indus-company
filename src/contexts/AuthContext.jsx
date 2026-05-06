@@ -9,6 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profileRow, setProfileRow] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
   const userRef = useRef(null);
 
   useEffect(() => {
@@ -93,10 +94,17 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
+      setProfileLoading(false);
+      return;
+    }
+    if (!useProfilesTable) {
+      setProfileRow(null);
+      setProfileLoading(false);
       return;
     }
     let cancelled = false;
     (async () => {
+      setProfileLoading(true);
       try {
         const { data, error } = await supabase
           .from("profiles")
@@ -111,6 +119,8 @@ export const AuthProvider = ({ children }) => {
         setProfileRow(null);
       } catch (_) {
         if (!cancelled) setProfileRow(null);
+      } finally {
+        if (!cancelled) setProfileLoading(false);
       }
     })();
     return () => { cancelled = true; };
@@ -273,7 +283,7 @@ export const AuthProvider = ({ children }) => {
   );
 
   return (
-    <AuthContext.Provider value={{ user, loading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
+    <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
       {loading ? (
         <div className="flex items-center justify-center h-screen">
           <p>Loading...</p>
