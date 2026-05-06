@@ -58,10 +58,12 @@ export const MODULE_PATH_PREFIXES = {
   hr: ["/app/hr", "/app/attendance", "/app/payroll", "/app/people-management"],
   compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance"],
   admin: ["/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass", "/app/admin"],
-  sales: ["/app/sales"],
+  // Legacy bucket: Sales historically owned /manpower + /commercial routes.
+  // Keep this broad so refresh/deep-links don't get redirected to /app/dashboard.
+  sales: ["/app/manpower", "/app/commercial"],
   marketing: ["/app/marketing"],
   /** Commercial — Manpower / Training (includes legacy manpower module routes) */
-  commercialMt: ["/app/commercial/manpower-training", "/app/manpower"],
+  commercialMt: ["/app/commercial/manpower-training", "/app/commercial/manpower", "/app/manpower"],
   /** Commercial — R&M / M&M / AMC / IEV */
   commercialRm: ["/app/commercial/rm-mm-amc-iev"],
   billing: ["/app/billing"],

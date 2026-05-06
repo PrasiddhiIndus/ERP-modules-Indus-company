@@ -364,14 +364,14 @@ export async function fetchCommercialPOs(options) {
 }
 
 /** Build a clear error message for billing DB failures (schema, RLS, etc.). */
-function billingErrorMsg(error, context = 'Save') {
+export function billingErrorMsg(error, context = 'Save') {
   const msg = error?.message || String(error);
   const code = error?.code;
   if (code === 'PGRST301' || /schema|relation.*does not exist|exposed/i.test(msg)) {
     return `${context} failed: Billing schema not exposed. In Supabase Dashboard → Settings → API → Exposed schemas, add "billing".`;
   }
   if (/row-level security|RLS|policy/i.test(msg)) {
-    return `${context} failed: Permission denied (RLS). Ensure you are logged in and your profile has role 'admin' or 'billing', or expose schema "billing".`;
+    return `${context} failed: Permission denied (RLS). Run the billing access migration (supabase/migrations/20260506173000_billing_access_roles.sql) or update billing.current_user_has_billing_access() to include your role.`;
   }
   return msg || `${context} failed.`;
 }
