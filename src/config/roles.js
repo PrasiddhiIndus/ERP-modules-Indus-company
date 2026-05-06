@@ -9,6 +9,10 @@ export const ROLES = {
   EXECUTIVE: "executive",
   MANAGER: "manager",
   ADMIN: "admin",
+  /** Super Admin (Management) */
+  SUPER_ADMIN: "super_admin",
+  /** Super Admin Pro (full access + bootstrap owner) */
+  SUPER_ADMIN_PRO: "super_admin_pro",
 };
 
 export const TEAMS = [
@@ -35,7 +39,9 @@ export const MODULES = [
   { value: "admin", label: "Admin" },
   { value: "sales", label: "Sales" },
   { value: "marketing", label: "Marketing" },
-  { value: "commercial", label: "Commercial" },
+  // Commercial is split into two nav sub-modules
+  { value: "commercialMt", label: "Commercial — Manpower / Training" },
+  { value: "commercialRm", label: "Commercial — R&M / M&M / AMC / IEV" },
   { value: "billing", label: "Billing" },
   { value: "tracking", label: "Tracking" },
   { value: "operations", label: "Operations" },
@@ -52,10 +58,12 @@ export const MODULE_PATH_PREFIXES = {
   hr: ["/app/hr", "/app/attendance", "/app/payroll", "/app/people-management"],
   compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance"],
   admin: ["/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass", "/app/admin"],
-  /** /app/commercial covers legacy redirects (/app/commercial/po-entry) and all commercial sub-apps */
-  sales: ["/app/manpower", "/app/commercial"],
+  sales: ["/app/sales"],
   marketing: ["/app/marketing"],
-  commercial: ["/app/commercial"],
+  /** Commercial — Manpower / Training (includes legacy manpower module routes) */
+  commercialMt: ["/app/commercial/manpower-training", "/app/manpower"],
+  /** Commercial — R&M / M&M / AMC / IEV */
+  commercialRm: ["/app/commercial/rm-mm-amc-iev"],
   billing: ["/app/billing"],
   tracking: ["/app/billing/tracking"],
   operations: ["/app/fire-tender-vehicle", "/app/operations"],
@@ -80,15 +88,30 @@ export function getAccessibleModules(profile) {
     ...Object.keys(MODULE_PATH_PREFIXES).filter((k) => k !== "overview" && k !== "settings"),
   ]);
   const always = new Set(["overview", "settings"]);
-  if (!profile?.role) return allModules; // no role = legacy: allow all
-  if (profile.role === ROLES.ADMIN) return allModules;
-  if (profile.role === ROLES.EXECUTIVE && profile.team) {
-    always.add(profile.team);
+  // Lock down: User Management is only for Super Admin. Even legacy "no role" should not see it.
+  const allWithoutUserMgmt = new Set([...allModules].filter((m) => m !== "userManagement"));
+
+  if (!profile?.role) return allWithoutUserMgmt; // no role = legacy: allow all (except User Management)
+  if (profile.role === ROLES.SUPER_ADMIN_PRO) return allModules;
+  if (profile.role === ROLES.SUPER_ADMIN) return allModules;
+  if (profile.role === ROLES.ADMIN) {
+    // Admin (HOD/Senior Management): team + explicitly allowed modules.
+    if (profile.team) always.add(profile.team);
+    (profile.allowed_modules || []).forEach((m) => always.add(m));
+    always.delete("userManagement");
+    return always;
+  }
+  if (profile.role === ROLES.EXECUTIVE) {
+    if (profile.team) always.add(profile.team);
+    (profile.allowed_modules || []).forEach((m) => always.add(m));
+    // Never allow user management for non-super-admin.
+    always.delete("userManagement");
     return always;
   }
   if (profile.role === ROLES.MANAGER) {
     if (profile.team) always.add(profile.team);
     (profile.allowed_modules || []).forEach((m) => always.add(m));
+    always.delete("userManagement");
     return always;
   }
   return always;

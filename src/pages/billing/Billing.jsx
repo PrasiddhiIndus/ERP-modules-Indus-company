@@ -10,6 +10,7 @@ import CreditNotes from './CreditNotes';
 import BillingReports from './BillingReports';
 import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
+import BillingFlowNav from './components/BillingFlowNav';
 
 // Order matches left sidebar: Generated E-Invoice last (after Manage Invoices workflow)
 const TAB_IDS = ['dashboard', 'create-invoice', 'add-on-invoices', 'manage-invoices', 'credit-notes', 'reports', 'tracking', 'notifications', 'generated-e-invoice'];
@@ -26,7 +27,10 @@ const BillingVerticalSelector = ({ billingVerticalFilter, setBillingVerticalFilt
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-gray-900">Team-wise billing</p>
-        <p className="text-xs text-gray-500">Select a vertical to load POs, invoices, reports and notifications.</p>
+        <p className="text-xs text-gray-500">
+          Select a vertical to load POs, invoices, reports and notifications. After selecting, use Create Invoice or Add-On Invoices to raise a{' '}
+          <span className="font-medium text-gray-700">tax</span> or <span className="font-medium text-gray-700">proforma</span> document (Manpower, Training, R&amp;M, M&amp;M, AMC, IEV, projects/lump-sum/trucks, etc.).
+        </p>
       </div>
       <div className="flex-1" />
       <div className="flex items-center gap-2">
@@ -133,6 +137,7 @@ const BillingInner = () => {
           setBillingVerticalFilter={setBillingVerticalFilter}
           billingVerticalOptions={billingVerticalOptions}
         />
+        <BillingFlowNav />
         <BillingErrorBoundary>
           <ActiveComponent onNavigateTab={handleTabChange} />
         </BillingErrorBoundary>

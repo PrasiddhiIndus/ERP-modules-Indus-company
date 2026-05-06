@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { FilePlus2, Eye, X } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
@@ -23,14 +24,24 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-function makeInvoiceNumber(seq) {
+/** Tax add-ons use AON-*; proforma add-ons use PAO-* so numbering stays unique vs tax series. */
+function makeAddOnInvoiceNumber(invoices, documentKind) {
   const y = new Date().getFullYear();
+  const wantProforma = documentKind === 'proforma';
+  const seq =
+    (Array.isArray(invoices) ? invoices : []).filter((i) => {
+      if (!i.isAddOn) return false;
+      const k = String(i.invoiceKind || i.invoice_kind || 'tax').toLowerCase();
+      return wantProforma ? k === 'proforma' : k !== 'proforma';
+    }).length + 1;
+  if (wantProforma) return `PAO-${y}-${String(seq).padStart(4, '0')}`;
   return `AON-${y}-${String(seq).padStart(4, '0')}`;
 }
 
 const AddOnInvoices = ({ onNavigateTab }) => {
   const { commercialPOs, invoices, setInvoices, billingVerticalFilter } = useBilling();
   const [addOnType, setAddOnType] = useState('');
+  const [addOnDocumentKind, setAddOnDocumentKind] = useState('tax');
   const [selectedPoId, setSelectedPoId] = useState('');
   const [invoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([{ description: '', hsnSac: '', quantity: 1, rate: 0, amount: 0 }]);
@@ -78,8 +89,8 @@ const AddOnInvoices = ({ onNavigateTab }) => {
 
   const handleSave = () => {
     if (!canOpen) return;
-    const seq = invoices.filter((i) => i.isAddOn).length + 1;
-    const no = makeInvoiceNumber(seq);
+    const no = makeAddOnInvoiceNumber(invoices, addOnDocumentKind);
+    const resolvedKind = addOnDocumentKind === 'proforma' ? 'proforma' : 'tax';
     const newId = Math.max(0, ...invoices.map((i) => Number(i.id) || 0), 0) + 1;
     const inv = {
       id: newId,
@@ -127,6 +138,8 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       pendingAmount: totalValue,
       created_at: new Date().toISOString().slice(0, 10),
       updated_at: new Date().toISOString().slice(0, 10),
+      invoiceKind: resolvedKind,
+      invoice_kind: resolvedKind,
     };
     setInvoices((prev) => [...prev, inv]);
     onNavigateTab && onNavigateTab('manage-invoices');
@@ -137,7 +150,9 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
           <p className="text-lg font-semibold text-gray-900">Select a vertical to create add-on invoices</p>
-          <p className="text-sm mt-1">Pick a vertical above to load its POs and add-on invoice history.</p>
+          <p className="text-sm mt-1 max-w-lg mx-auto">
+            Pick the vertical that matches your OC. Approved POs come from Commercial → PO Entry.
+          </p>
         </div>
       ) : null}
       <div className="flex items-center space-x-3">
@@ -146,12 +161,34 @@ const AddOnInvoices = ({ onNavigateTab }) => {
         </div>
         <div>
           <h2 className="text-xl font-bold text-gray-900">Add-On Invoices</h2>
-          <p className="text-sm text-gray-600">Appraisal, gratuity, reimbursement and other add-on billing</p>
+          <p className="text-sm text-gray-600">
+            Appraisal, gratuity, reimbursement and other add-on billing — choose <strong>tax</strong> or <strong>proforma</strong> below (all verticals).
+          </p>
         </div>
       </div>
 
+      {!verticalNotSelected ? (
+        <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-sm text-violet-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="min-w-0">
+            Requires an <strong>approved OC</strong> from PO Entry. After save you land on <strong>Manage Invoices</strong> for PDF / IRN.
+          </p>
+          <div className="flex flex-wrap gap-3 shrink-0">
+            <Link to="/app/commercial/manpower-training/po-entry" className="text-sm font-semibold text-violet-800 hover:underline">
+              Commercial PO (M&amp;T) →
+            </Link>
+            <button
+              type="button"
+              onClick={() => onNavigateTab && onNavigateTab('manage-invoices')}
+              className="text-sm font-semibold text-red-700 hover:underline"
+            >
+              Manage Invoices →
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Add-on bill type</label>
             <select
@@ -166,6 +203,18 @@ const AddOnInvoices = ({ onNavigateTab }) => {
             </select>
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Document type</label>
+            <select
+              value={addOnDocumentKind}
+              onChange={(e) => setAddOnDocumentKind(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+              title="Tax add-ons use AON-… numbers; proforma add-ons use PAO-… numbers"
+            >
+              <option value="tax">Tax invoice</option>
+              <option value="proforma">Proforma invoice</option>
+            </select>
+          </div>
+          <div className="md:col-span-2 lg:col-span-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">Approved OC / Client / Location</label>
             <select
               value={selectedPoId}
@@ -196,6 +245,8 @@ const AddOnInvoices = ({ onNavigateTab }) => {
                 const draft = {
                   isAddOn: true,
                   addOnType,
+                  invoiceKind: addOnDocumentKind === 'proforma' ? 'proforma' : 'tax',
+                  invoice_kind: addOnDocumentKind === 'proforma' ? 'proforma' : 'tax',
                   taxInvoiceNumber: 'Preview',
                   clientLegalName: selectedPO.legalName,
                   clientAddress: selectedPO.billingAddress,

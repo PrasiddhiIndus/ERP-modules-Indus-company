@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { X, Plus, Edit2, Trash2, MoreVertical, Download } from 'lucide-react';
+import { X, Plus, Edit2, Trash2, MoreVertical, Download, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 
 const ClientMaster = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+  const [totalCount, setTotalCount] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [menuOpen, setMenuOpen] = useState(null);
@@ -23,19 +27,42 @@ const ClientMaster = () => {
   });
 
   useEffect(() => {
-    fetchClients();
+    fetchClients(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchClients = async () => {
+  useEffect(() => {
+    // Reset + refetch when searching
+    setCurrentPage(1);
+    fetchClients(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
+  const fetchClients = async (page = currentPage) => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const from = (page - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      let query = supabase
         .from('marketing_clients')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false });
+
+      const q = String(searchQuery || '').trim();
+      if (q) {
+        // Search across a few common fields.
+        query = query.or(
+          `client_name.ilike.%${q}%,industry.ilike.%${q}%,city.ilike.%${q}%,state.ilike.%${q}%,primary_contact_person.ilike.%${q}%`
+        );
+      }
+
+      const { data, error, count } = await query.range(from, to);
 
       if (error) throw error;
       setClients(data || []);
+      setTotalCount(count || 0);
+      setCurrentPage(page);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching clients:', error);
@@ -107,7 +134,7 @@ const ClientMaster = () => {
         contact_numbers: [''],
         contact_emails: [''],
       });
-      fetchClients();
+      fetchClients(1);
     } catch (error) {
       console.error('Error saving client:', error);
       alert('Error saving client: ' + error.message);
@@ -259,6 +286,16 @@ const ClientMaster = () => {
             <p className="text-sm sm:text-base text-gray-600 mt-1">Manage all your clients</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+            <div className="relative w-full sm:w-[260px]">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search clients…"
+                className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+            </div>
             <button
               onClick={handleExport}
               className="flex items-center justify-center space-x-2 px-3 sm:px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm sm:text-base"
@@ -397,6 +434,34 @@ const ClientMaster = () => {
               </table>
             </div>
           )}
+
+          {/* Pagination */}
+          {!loading && totalCount > itemsPerPage ? (
+            <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 border-t bg-white">
+              <p className="text-xs text-gray-600">
+                Showing {(currentPage - 1) * itemsPerPage + 1}-
+                {Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fetchClients(Math.max(1, currentPage - 1))}
+                  disabled={currentPage <= 1}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm disabled:opacity-40"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Prev
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fetchClients(currentPage + 1)}
+                  disabled={currentPage * itemsPerPage >= totalCount}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm disabled:opacity-40"
+                >
+                  Next <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 

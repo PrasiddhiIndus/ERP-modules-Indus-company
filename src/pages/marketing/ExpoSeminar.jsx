@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Calendar, Users, Eye, Upload, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 import * as XLSX from 'xlsx';
+import { fetchActiveEmployeesForDropdown } from '../../utils/employeeDirectory';
 
 const ExpoSeminar = () => {
   const [expos, setExpos] = useState([]);
@@ -88,7 +89,8 @@ const ExpoSeminar = () => {
       const { data, error } = await supabase
         .from('marketing_expo_seminars')
         .select('*')
-        .order('start_date', { ascending: false });
+        .order('start_date', { ascending: false })
+        .limit(200);
 
       if (error) throw error;
       setExpos(data || []);
@@ -130,7 +132,8 @@ const ExpoSeminar = () => {
       const { data, error } = await supabase
         .from('marketing_site_visits')
         .select('*')
-        .order('visit_date', { ascending: false });
+        .order('visit_date', { ascending: false })
+        .limit(200);
 
       if (error) throw error;
       setSiteVisits(data || []);
@@ -143,25 +146,8 @@ const ExpoSeminar = () => {
 
   const fetchExecutives = async () => {
     try {
-      // Try to fetch from ifsp_employees table
-      const { data, error } = await supabase
-        .from('ifsp_employees')
-        .select('id, first_name, last_name, employee_id')
-        .eq('status', 'Active')
-        .order('first_name');
-
-      if (error) {
-        // Fallback: use auth users or empty array
-        console.log('Could not fetch employees, using empty list');
-        setExecutives([]);
-        return;
-      }
-      
-      setExecutives(data?.map(emp => ({
-        id: emp.id,
-        name: `${emp.first_name} ${emp.last_name}`,
-        employee_id: emp.employee_id
-      })) || []);
+      const list = await fetchActiveEmployeesForDropdown();
+      setExecutives(list);
     } catch (error) {
       console.error('Error fetching executives:', error);
       setExecutives([]);
