@@ -259,20 +259,33 @@ export const AuthProvider = ({ children }) => {
     const superAdminEmails = superAdminEmailsRaw
       ? superAdminEmailsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [];
+    const forcedSuperRole = isSuperAdminPro
+      ? 'super_admin_pro'
+      : (superAdminEmails.includes(email) ? 'super_admin' : null);
     if (profileRow) {
+      const dbRole = profileRow.role ?? null;
+      const effectiveRole =
+        forcedSuperRole && dbRole !== 'super_admin' && dbRole !== 'super_admin_pro'
+          ? forcedSuperRole
+          : (dbRole ?? forcedSuperRole);
       return {
         username: profileRow.username ?? user?.email?.split("@")[0],
         team: profileRow.team ?? null,
-        role: profileRow.role ?? (isSuperAdminPro ? 'super_admin_pro' : (superAdminEmails.includes(email) ? 'super_admin' : null)),
+        role: effectiveRole,
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
       };
     }
     const meta = user?.user_metadata;
     if (!meta) return null;
+    const metaRole = meta.role ?? null;
+    const effectiveRole =
+      forcedSuperRole && metaRole !== 'super_admin' && metaRole !== 'super_admin_pro'
+        ? forcedSuperRole
+        : (metaRole ?? forcedSuperRole);
     return {
       username: meta.full_name ?? user?.email?.split("@")[0],
       team: meta.team ?? null,
-      role: meta.role ?? (isSuperAdminPro ? 'super_admin_pro' : (superAdminEmails.includes(email) ? 'super_admin' : null)),
+      role: effectiveRole,
       allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
     };
   }, [user, profileRow]);
@@ -281,6 +294,28 @@ export const AuthProvider = ({ children }) => {
     () => (userProfile ? getAccessibleModules(userProfile) : new Set()),
     [userProfile]
   );
+
+  // Best-effort: if this user is force-super-admin (by email), keep `profiles.role`
+  // in sync so server-side RBAC (Edge Functions / SQL helpers) sees the same role.
+  useEffect(() => {
+    if (!useProfilesTable) return;
+    if (!user?.id) return;
+    if (!userProfile?.role) return;
+    if (userProfile.role !== 'super_admin' && userProfile.role !== 'super_admin_pro') return;
+    if (!profileRow) return;
+    if (profileRow.role === userProfile.role) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await supabase.from('profiles').update({ role: userProfile.role }).eq('id', user.id);
+      } catch (_) {
+        // If RLS blocks this, ignore; UI will still work.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [useProfilesTable, user?.id, userProfile?.role, profileRow?.role]);
 
   return (
     <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
