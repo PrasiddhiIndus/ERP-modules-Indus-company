@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { isPathAllowed } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed } from "../config/roles";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import {
@@ -72,9 +72,12 @@ const Layout = () => {
   const pathname = location.pathname;
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isAccessDenied, setIsAccessDenied] = useState(false);
+  const canSeeActivityLog =
+    userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
 
-  // Route guard: do not force-redirect on refresh.
-  // If access is denied, keep the same URL and show an "Access denied" screen.
+  // Route guard:
+  // - For /app/dashboard, if user doesn't have overview, auto-redirect to their module home.
+  // - For other deep links, show Access denied (helps debugging and avoids surprise redirects).
   useEffect(() => {
     if (!pathname.startsWith("/app")) return;
     if (profileLoading) {
@@ -85,8 +88,15 @@ const Layout = () => {
       setIsAccessDenied(false);
       return;
     }
-    setIsAccessDenied(!isPathAllowed(pathname, accessibleModules));
-  }, [pathname, accessibleModules, profileLoading]);
+    const allowed = isPathAllowed(pathname, accessibleModules);
+    if (!allowed && pathname === "/app/dashboard") {
+      const landing = getLandingPathForUser(userProfile, accessibleModules);
+      navigate(landing, { replace: true });
+      setIsAccessDenied(false);
+      return;
+    }
+    setIsAccessDenied(!allowed);
+  }, [pathname, accessibleModules, profileLoading, navigate, userProfile]);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
@@ -139,6 +149,7 @@ const Layout = () => {
   }
 
   if (isAccessDenied) {
+    const landing = getLandingPathForUser(userProfile, accessibleModules);
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
         <div className="w-full max-w-lg bg-white border border-slate-200 rounded-xl shadow-sm p-6">
@@ -149,10 +160,10 @@ const Layout = () => {
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => navigate("/app/dashboard")}
+              onClick={() => navigate(landing)}
               className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
             >
-              Go to Dashboard
+              Go to Home
             </button>
             <button
               type="button"
@@ -882,15 +893,17 @@ const Layout = () => {
             <h2 className="text-xl font-semibold text-gray-900 truncate">Welcome back!</h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setActivityLogOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              aria-label="Open activity log"
-            >
-              <Clock className="w-4 h-4 text-slate-600" />
-              <span className="hidden sm:inline">Activity</span>
-            </button>
+            {canSeeActivityLog ? (
+              <button
+                type="button"
+                onClick={() => setActivityLogOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                aria-label="Open activity log"
+              >
+                <Clock className="w-4 h-4 text-slate-600" />
+                <span className="hidden sm:inline">Activity</span>
+              </button>
+            ) : null}
           </div>
         </header>
 
@@ -900,7 +913,9 @@ const Layout = () => {
         </main>
       </div>
 
-      <ActivityLogDrawer open={activityLogOpen} onClose={() => setActivityLogOpen(false)} />
+      {canSeeActivityLog ? (
+        <ActivityLogDrawer open={activityLogOpen} onClose={() => setActivityLogOpen(false)} />
+      ) : null}
     </div>
   );
 };

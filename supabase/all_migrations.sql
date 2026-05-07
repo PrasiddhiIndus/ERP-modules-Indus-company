@@ -730,7 +730,7 @@ AS $$
     SELECT 1
     FROM public.profiles
     WHERE id = auth.uid()
-      AND role = 'admin'
+      AND role in ('super_admin', 'super_admin_pro')
   );
 $$;
 

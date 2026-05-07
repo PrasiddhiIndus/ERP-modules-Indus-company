@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { ROLES } from '../../config/roles';
+import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../config/roles';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import {
   COMMERCIAL_MODULE_MANPOWER_TRAINING,
@@ -220,7 +220,7 @@ const initialForm = {
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
-  startDate: '', endDate: '', billingType: '', billingCycle: '30', remarks: '',
+  startDate: '', endDate: '', billingType: 'Per Day', billingCycle: '30', remarks: '',
   monthlyDutyQtyMode: '',
   lumpSumBillingMode: '',
   invoiceTermsText: '',
@@ -243,9 +243,11 @@ const POEntry = () => {
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'created', direction: 'desc' });
-  const canApproveCommercialPOs =
-    userProfile?.role === ROLES.ADMIN ||
-    (userProfile?.role === ROLES.MANAGER && !!accessibleModules?.has('commercial'));
+  const canApproveCommercialPOs = userCanApproveInModules(
+    userProfile,
+    accessibleModules,
+    COMMERCIAL_MT_APPROVER_MODULE_KEYS
+  );
 
   const clientProfilesFromPOs = useMemo(
     () =>
@@ -483,13 +485,14 @@ const POEntry = () => {
         : [{ description: '', qty: '', rate: '', penalty: '' }],
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
-      billingType: po.billingType || 'Monthly', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
+      billingType: po.billingType || po.poType || 'Monthly',
+      billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
       monthlyDutyQtyMode:
-        po.billingType === 'Monthly'
+        (po.billingType || po.poType) === 'Monthly'
           ? (po.monthlyDutyQtyMode || po.monthly_duty_qty_mode || 'po_geometry')
           : '',
       lumpSumBillingMode:
-        po.billingType === 'Lump Sum'
+        (po.billingType || po.poType) === 'Lump Sum'
           ? (() => {
               const m = String(po.lumpSumBillingMode || po.lump_sum_billing_mode || 'normal').toLowerCase();
               if (m === 'fire_tender') return 'truck';

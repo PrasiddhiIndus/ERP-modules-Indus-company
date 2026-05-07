@@ -53,13 +53,27 @@ function toModuleContext(moduleType) {
     : MODULE_CONTEXT.MANPOWER_TRAINING;
 }
 
+/** Map legacy / alternate labels to canonical manpower PO types before persisting. */
+function canonicalManpowerPoTypeForPersist(raw) {
+  const value = String(raw || '').trim();
+  if (MANPOWER_PO_TYPES.has(value)) return value;
+  const lower = value.toLowerCase();
+  if (lower === 'daily' || lower === 'per day' || lower === 'day' || lower === 'day rate') {
+    return 'Per Day';
+  }
+  if (lower === 'monthly') return 'Monthly';
+  if (lower === 'lump sum') return 'Lump Sum';
+  return null;
+}
+
 function normalizePoTypeForModule(rawPoType, moduleContext) {
   const value = String(rawPoType || '').trim();
   if (moduleContext === MODULE_CONTEXT.RM_MM_AMC_IEV) {
     if (RM_PO_TYPES.has(value)) return value;
     return 'Service';
   }
-  if (MANPOWER_PO_TYPES.has(value)) return value;
+  const mp = canonicalManpowerPoTypeForPersist(value);
+  if (mp) return mp;
   return 'Monthly';
 }
 
@@ -97,9 +111,19 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
   const raw = po;
   const c = toCamelCase(po);
   const inferredTerms = inferRmPaymentTermsLabelFromRow(raw);
+  const billingTypeMerged =
+    raw.billing_type != null && String(raw.billing_type).trim() !== ''
+      ? String(raw.billing_type).trim()
+      : raw.po_type != null && String(raw.po_type).trim() !== ''
+        ? String(raw.po_type).trim()
+        : '';
+  const billingTypeCanonical = billingTypeMerged
+    ? canonicalManpowerPoTypeForPersist(billingTypeMerged) || billingTypeMerged
+    : null;
   return {
     ...UNIFIED_PO_CLIENT_DEFAULTS,
     ...c,
+    billingType: billingTypeCanonical ?? c.billingType ?? null,
     remarks: raw.remarks ?? raw.payment_terms ?? null,
     paymentTerms: inferredTerms ?? raw.payment_terms ?? raw.remarks ?? null,
     customPaymentTermsPercent: raw.custom_advance_percent ?? null,
