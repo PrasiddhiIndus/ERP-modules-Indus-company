@@ -2,6 +2,8 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Search, Plus, FileText, X, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
+import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
 
 const ITEMS_PER_PAGE = 10;
@@ -43,6 +45,12 @@ const ManpowerManagement = () => {
   const { id: routeId } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { userProfile, accessibleModules } = useAuth();
+  const canApproveEnquiries = userCanApproveInModules(
+    userProfile,
+    accessibleModules,
+    COMMERCIAL_MT_APPROVER_MODULE_KEYS
+  );
 
   const [enquiries, setEnquiries] = useState([]);
   const [listError, setListError] = useState(null);
@@ -142,6 +150,7 @@ const ManpowerManagement = () => {
   };
 
   const handleApprove = async (rowId) => {
+    if (!canApproveEnquiries) return;
     try {
       const { data: currentRow, error: rowError } = await supabase
         .from("manpower_enquiries")
@@ -193,6 +202,7 @@ const ManpowerManagement = () => {
   };
 
   const handleReject = async (rowId) => {
+    if (!canApproveEnquiries) return;
     const { error } = await supabase.from("manpower_enquiries").update({ status: "Rejected" }).eq("id", rowId);
     if (error) console.error(error);
     fetchEnquiries();
@@ -298,22 +308,26 @@ const ManpowerManagement = () => {
                         </td>
                         <td className="px-3 py-2.5 align-middle">
                           <div className="flex justify-center items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleApprove(e.id)}
-                              title="Approve"
-                              className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleReject(e.id)}
-                              title="Reject"
-                              className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
+                            {canApproveEnquiries ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleApprove(e.id)}
+                                  title="Approve"
+                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleReject(e.id)}
+                                  title="Reject"
+                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors"
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => openEdit(e.id)}

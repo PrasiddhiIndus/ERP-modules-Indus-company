@@ -91,6 +91,32 @@ export const AuthProvider = ({ children }) => {
   const useProfilesTable =
     import.meta.env.VITE_USE_PROFILES_TABLE === "true" ||
     import.meta.env.VITE_USE_PROFILES_TABLE === true;
+
+  /**
+   * Access revocation rule:
+   * When profiles table is enabled, the profiles row is the source of truth.
+   * If the row is missing, the user is considered removed and must be signed out.
+   */
+  const ensureProfileExists = async (uid) => {
+    if (!useProfilesTable) return { ok: true };
+    const userId = String(uid || '').trim();
+    if (!userId) return { ok: false, message: 'Access revoked.' };
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) {
+        // If profiles table/RLS is misconfigured, don't lock out valid users silently.
+        return { ok: true };
+      }
+      if (!data?.id) return { ok: false, message: 'Your access has been revoked. Contact admin.' };
+      return { ok: true };
+    } catch (_) {
+      return { ok: true };
+    }
+  };
   useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
@@ -125,6 +151,17 @@ export const AuthProvider = ({ children }) => {
     })();
     return () => { cancelled = true; };
   }, [user?.id, useProfilesTable]);
+
+  // If a previously valid user gets removed from `profiles`, revoke access immediately.
+  useEffect(() => {
+    if (!useProfilesTable) return;
+    if (!user?.id) return;
+    if (profileLoading) return;
+    if (profileRow) return;
+    // profileRow is null after a completed fetch: treat as revoked.
+    void clearInvalidSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useProfilesTable, user?.id, profileLoading, profileRow]);
 
   // Register user + save role-based profile (username, team, role, allowed_modules for manager)
   const signUpWithProfile = async (email, password, profileData) => {
@@ -182,7 +219,34 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async (email, password) => {
     try {
-      return await supabase.auth.signInWithPassword({ email, password });
+      const result = await supabase.auth.signInWithPassword({ email, password });
+      if (result?.data?.user?.id) {
+        // Strong check via Edge Function (service role) so deleted profiles cannot log in
+        // even if RLS blocks profiles reads on the client.
+        try {
+          const { data: resp, error: fnErr } = await supabase.functions.invoke("access-check", { body: {} });
+          // Important: if the function is missing/not deployed, browsers can fail the CORS preflight.
+          // In that case do NOT block logins — fall back to a best-effort direct check.
+          if (fnErr) throw fnErr;
+
+          // Only hard-block when the function explicitly says access is revoked.
+          if (resp?.ok === false) {
+            await clearInvalidSession();
+            return {
+              data: { session: null, user: null },
+              error: { message: resp?.error || "Access revoked." },
+            };
+          }
+        } catch (_) {
+          // If function isn't deployed yet, fall back to best-effort direct check.
+          const chk = await ensureProfileExists(result.data.user.id);
+          if (!chk.ok) {
+            await clearInvalidSession();
+            return { data: { session: null, user: null }, error: { message: chk.message } };
+          }
+        }
+      }
+      return result;
     } catch (err) {
       const msg = err?.message || String(err);
       const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError');

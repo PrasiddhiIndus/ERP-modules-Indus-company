@@ -1,8 +1,9 @@
 /**
  * Role-based access: teams, roles, and module keys used for sidebar and route guards.
- * - Executive: access only to their team's module.
- * - Manager: team module + additional modules selected via checklist.
- * - Admin: access to everything.
+ * - Executive: team module + optional extra modules from profile; creates/edits/deletes within that scope (no approvals).
+ * - Manager: team + checklist modules; can approve workflows only inside those modules.
+ * - Admin / Super Admin: full module access (Admin same app surface as Super Admin; User Management also).
+ * Legacy users with no `role` in profile still receive broad access except User Management.
  */
 
 export const ROLES = {
@@ -79,6 +80,81 @@ export const MODULE_PATH_PREFIXES = {
 };
 
 /**
+ * Pick a safe landing path for users who don't have `overview` access.
+ * Preference: user's team module → first non-settings module → settings → /app/dashboard.
+ */
+export function getLandingPathForUser(userProfile, accessibleModules) {
+  const mods = accessibleModules && accessibleModules.size ? accessibleModules : new Set();
+
+  const pickFirstPrefix = (modKey) => {
+    const arr = MODULE_PATH_PREFIXES[modKey];
+    return Array.isArray(arr) && arr.length ? arr[0] : null;
+  };
+
+  // 1) Team module
+  const team = String(userProfile?.team || "").trim();
+  if (team && mods.has(team)) {
+    const p = pickFirstPrefix(team);
+    if (p) return p;
+  }
+
+  // 2) First allowed module except overview/settings/userManagement
+  for (const k of mods) {
+    if (k === "overview" || k === "settings" || k === "userManagement") continue;
+    const p = pickFirstPrefix(k);
+    if (p) return p;
+  }
+
+  // 3) Settings
+  if (mods.has("settings")) {
+    const p = pickFirstPrefix("settings");
+    if (p) return p;
+  }
+
+  // 4) Fallback
+  return "/app/dashboard";
+}
+
+/** Manager needs one of these in `accessibleModules` to approve Commercial — Manpower/Training PO workflows. */
+export const COMMERCIAL_MT_APPROVER_MODULE_KEYS = ["commercialMt", "sales"];
+
+/** Manager needs one of these to approve Commercial — R&M / M&M / AMC / IEV PO workflows. */
+export const COMMERCIAL_RM_APPROVER_MODULE_KEYS = ["commercialRm", "sales"];
+
+/**
+ * Universal approval gate: Super Admin tiers and Admin approve anywhere; Managers only within listed module keys.
+ * @param {{ role?: string }} userProfile - from AuthContext
+ * @param {Set<string>|undefined|null} accessibleModules
+ * @param {string[]} moduleKeysAnyOf - e.g. COMMERCIAL_MT_APPROVER_MODULE_KEYS or ["billing"]
+ */
+export function userCanApproveInModules(userProfile, accessibleModules, moduleKeysAnyOf) {
+  const role = userProfile?.role;
+  const keys = Array.isArray(moduleKeysAnyOf) ? moduleKeysAnyOf : [];
+
+  if (
+    role === ROLES.SUPER_ADMIN_PRO ||
+    role === ROLES.SUPER_ADMIN ||
+    role === ROLES.ADMIN
+  ) {
+    return true;
+  }
+
+  // Executives submit work for approval; they do not approve in-app workflows.
+  if (role === ROLES.EXECUTIVE) return false;
+
+  if (role === ROLES.MANAGER && accessibleModules?.size) {
+    return keys.some((k) => accessibleModules.has(k));
+  }
+
+  // Legacy profiles with no `role` in metadata/DB: anyone who can open the module may approve (previous behaviour for broad legacy access).
+  if (!role && accessibleModules?.size) {
+    return keys.some((k) => accessibleModules.has(k));
+  }
+
+  return false;
+}
+
+/**
  * Returns the set of module keys the user is allowed to access.
  * @param {{ role: string, team?: string, allowed_modules?: string[] }} profile - from user_metadata
  * @returns {Set<string>} - module keys (includes 'overview' and 'settings' for all)
@@ -89,20 +165,17 @@ export function getAccessibleModules(profile) {
     "settings",
     ...Object.keys(MODULE_PATH_PREFIXES).filter((k) => k !== "overview" && k !== "settings"),
   ]);
-  const always = new Set(["overview", "settings"]);
+  // “overview” (main dashboard) is restricted to Admin + Super Admin only.
+  // Everyone can still access Settings.
+  const always = new Set(["settings"]);
   // Lock down: User Management is only for Super Admin. Even legacy "no role" should not see it.
   const allWithoutUserMgmt = new Set([...allModules].filter((m) => m !== "userManagement"));
 
   if (!profile?.role) return allWithoutUserMgmt; // no role = legacy: allow all (except User Management)
   if (profile.role === ROLES.SUPER_ADMIN_PRO) return allModules;
   if (profile.role === ROLES.SUPER_ADMIN) return allModules;
-  if (profile.role === ROLES.ADMIN) {
-    // Admin (HOD/Senior Management): team + explicitly allowed modules.
-    if (profile.team) always.add(profile.team);
-    (profile.allowed_modules || []).forEach((m) => always.add(m));
-    always.delete("userManagement");
-    return always;
-  }
+  // Admin (HOD / senior): same surface as Super Admin — all modules including User Management.
+  if (profile.role === ROLES.ADMIN) return allModules;
   if (profile.role === ROLES.EXECUTIVE) {
     // If team metadata is missing, don't accidentally lock the user to dashboard-only access.
     // Treat it like legacy access (except User Management).

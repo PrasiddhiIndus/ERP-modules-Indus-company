@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../../contexts/AuthContext";
+import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../../config/roles";
 
 const ITEMS_PER_PAGE = 5;
 
@@ -10,6 +12,12 @@ const ManpowerEnquiryList = () => {
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const navigate = useNavigate();
+  const { userProfile, accessibleModules } = useAuth();
+  const canApproveEnquiries = userCanApproveInModules(
+    userProfile,
+    accessibleModules,
+    COMMERCIAL_MT_APPROVER_MODULE_KEYS
+  );
 
   const fetchEnquiries = async () => {
     setLoading(true);
@@ -50,11 +58,13 @@ const ManpowerEnquiryList = () => {
   }, []);
 
   const handleApprove = async (rowId) => {
+    if (!canApproveEnquiries) return;
     await supabase.from("manpower_enquiries").update({ status: "Approved" }).eq("id", rowId);
     fetchEnquiries();
   };
 
   const handleReject = async (rowId) => {
+    if (!canApproveEnquiries) return;
     await supabase.from("manpower_enquiries").update({ status: "Rejected" }).eq("id", rowId);
     fetchEnquiries();
   };
@@ -125,18 +135,22 @@ const ManpowerEnquiryList = () => {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-3 md:mt-0">
-                  <button
-                    onClick={() => handleApprove(e.id)}
-                    className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => handleReject(e.id)}
-                    className="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition"
-                  >
-                    Reject
-                  </button>
+                  {canApproveEnquiries ? (
+                    <>
+                      <button
+                        onClick={() => handleApprove(e.id)}
+                        className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleReject(e.id)}
+                        className="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 transition"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     onClick={() => handleEdit(e.id)}
                     className="px-3 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600 transition"
