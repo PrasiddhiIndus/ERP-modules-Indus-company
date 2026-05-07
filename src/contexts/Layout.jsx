@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { isPathAllowed } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed } from "../config/roles";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import {
@@ -64,21 +64,39 @@ const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass :
 const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : "text-gray-700"}`;
 
 const Layout = () => {
-  const { user, signOut, accessibleModules, userProfile } = useAuth();
+  const { user, signOut, accessibleModules, userProfile, profileLoading } = useAuth();
   const can = (moduleKey) => !accessibleModules?.size || accessibleModules.has(moduleKey);
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isAccessDenied, setIsAccessDenied] = useState(false);
+  const canSeeActivityLog =
+    userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
 
-  // Route guard: redirect to dashboard if current path is not allowed for this role
+  // Route guard:
+  // - For /app/dashboard, if user doesn't have overview, auto-redirect to their module home.
+  // - For other deep links, show Access denied (helps debugging and avoids surprise redirects).
   useEffect(() => {
     if (!pathname.startsWith("/app")) return;
-    if (accessibleModules?.size && !isPathAllowed(pathname, accessibleModules)) {
-      navigate("/app/dashboard", { replace: true });
+    if (profileLoading) {
+      setIsAccessDenied(false);
+      return;
     }
-  }, [pathname, accessibleModules, navigate]);
+    if (!accessibleModules?.size) {
+      setIsAccessDenied(false);
+      return;
+    }
+    const allowed = isPathAllowed(pathname, accessibleModules);
+    if (!allowed && pathname === "/app/dashboard") {
+      const landing = getLandingPathForUser(userProfile, accessibleModules);
+      navigate(landing, { replace: true });
+      setIsAccessDenied(false);
+      return;
+    }
+    setIsAccessDenied(!allowed);
+  }, [pathname, accessibleModules, profileLoading, navigate, userProfile]);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
@@ -119,6 +137,49 @@ const Layout = () => {
   };
 
   const [activityLogOpen, setActivityLogOpen] = useState(false);
+
+  if (profileLoading && pathname.startsWith("/app")) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-sm p-6 text-center">
+          <p className="text-sm text-slate-700">Loading your access…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAccessDenied) {
+    const landing = getLandingPathForUser(userProfile, accessibleModules);
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="w-full max-w-lg bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+          <h1 className="text-lg font-semibold text-slate-900">Access denied</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            You don&apos;t have permission to open this page.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => navigate(landing)}
+              className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700"
+            >
+              Go to Home
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="px-4 py-2 rounded border border-slate-300 text-slate-800 hover:bg-slate-50"
+            >
+              Sign out
+            </button>
+          </div>
+          <p className="mt-4 text-xs text-slate-500 break-words">
+            Current URL: <span className="font-mono">{pathname}</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -832,15 +893,17 @@ const Layout = () => {
             <h2 className="text-xl font-semibold text-gray-900 truncate">Welcome back!</h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setActivityLogOpen(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              aria-label="Open activity log"
-            >
-              <Clock className="w-4 h-4 text-slate-600" />
-              <span className="hidden sm:inline">Activity</span>
-            </button>
+            {canSeeActivityLog ? (
+              <button
+                type="button"
+                onClick={() => setActivityLogOpen(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                aria-label="Open activity log"
+              >
+                <Clock className="w-4 h-4 text-slate-600" />
+                <span className="hidden sm:inline">Activity</span>
+              </button>
+            ) : null}
           </div>
         </header>
 
@@ -850,7 +913,9 @@ const Layout = () => {
         </main>
       </div>
 
-      <ActivityLogDrawer open={activityLogOpen} onClose={() => setActivityLogOpen(false)} />
+      {canSeeActivityLog ? (
+        <ActivityLogDrawer open={activityLogOpen} onClose={() => setActivityLogOpen(false)} />
+      ) : null}
     </div>
   );
 };

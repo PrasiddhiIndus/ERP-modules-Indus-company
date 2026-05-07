@@ -47,3 +47,6 @@ begin
   end if;
 end$$;
 
+-- Optional: live Activity drawer updates (Realtime). In Supabase SQL editor:
+-- ALTER PUBLICATION supabase_realtime ADD TABLE public.erp_activity_log;
+

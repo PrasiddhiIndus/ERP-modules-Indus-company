@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { ROLES } from '../../../config/roles';
+import { COMMERCIAL_RM_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../../config/roles';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import {
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
@@ -275,9 +275,11 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
   const [contactError, setContactError] = useState('');
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
-  const canApproveCommercialPOs =
-    userProfile?.role === ROLES.ADMIN ||
-    (userProfile?.role === ROLES.MANAGER && !!accessibleModules?.has('commercial'));
+  const canApproveCommercialPOs = userCanApproveInModules(
+    userProfile,
+    accessibleModules,
+    COMMERCIAL_RM_APPROVER_MODULE_KEYS
+  );
 
   const clientProfilesFromPOs = useMemo(
     () =>

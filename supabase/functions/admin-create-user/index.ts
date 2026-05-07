@@ -62,8 +62,13 @@ Deno.serve(async (req) => {
     .eq('id', callerId)
     .maybeSingle()
 
-  if (callerProfile?.role !== 'super_admin' && callerProfile?.role !== 'super_admin_pro') {
-    return json(403, { error: 'Only Super Admin can create users' })
+  const creatorRole = callerProfile?.role
+  if (
+    creatorRole !== 'super_admin' &&
+    creatorRole !== 'super_admin_pro' &&
+    creatorRole !== 'admin'
+  ) {
+    return json(403, { error: 'Only Admin or Super Admin can create users' })
   }
 
   let body: CreateUserBody
@@ -79,8 +84,15 @@ Deno.serve(async (req) => {
   const password = body.password ? String(body.password) : undefined
   const username = body.username ? String(body.username).trim() : email.split('@')[0]
   const team = body.team ?? null
-  const role = body.role ?? 'executive'
+  let role = body.role ?? 'executive'
   const allowed = Array.isArray(body.allowed_modules) ? body.allowed_modules : []
+
+  if (
+    creatorRole === 'admin' &&
+    (role === 'super_admin' || role === 'super_admin_pro')
+  ) {
+    return json(403, { error: 'Only Super Admin can assign Super Admin roles' })
+  }
 
   // Create auth user
   const { data: created, error: createErr } = await admin.auth.admin.createUser({

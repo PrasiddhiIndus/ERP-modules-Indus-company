@@ -36,43 +36,283 @@ let activityFlushTimer = null
 let lastEnqueuedSig = null
 let lastEnqueuedAt = 0
 
-function friendlyUserNameFromEmail(email) {
-  const e = String(email || '').trim()
-  if (!e.includes('@')) return 'Someone'
-  const local = e.split('@')[0] || ''
-  const raw = (local.split('.')[0] || local).trim()
-  if (!raw) return 'Someone'
-  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
+/** Display names — avoid vague “something” wording in the UI. */
+const ENTITY_LABELS = {
+  po_wo: 'PO/WO',
+  invoice: 'Tax invoice',
+  add_on_invoice: 'Add-on invoice',
+  manpower_enquiries: 'Manpower enquiry',
+  profiles: 'User profile',
+  marketing_enquiries: 'Marketing enquiry',
+  marketing_quotations: 'Marketing quotation',
+  marketing_clients: 'Marketing client',
+  marketing_products: 'Marketing product line',
+  credit_debit_note: 'Credit/debit note',
+  payment_advice: 'Payment advice',
+  tenders: 'Fire tender',
+  costing_rows: 'Costing sheet row',
 }
 
-function toFriendlyActionText(method, entity, route) {
+const ACTIVITY_IGNORE_TABLES = new Set([
+  'invoice_line_item',
+  'invoice_attachment',
+  'attachments',
+  'marketing_enquiry_documents',
+  'po_rate_category',
+  'po_contact_log',
+])
+
+function humanEntityName(entity) {
+  const raw = String(entity || '').trim()
+  if (!raw) return 'Record'
+  if (raw.startsWith('rpc:')) {
+    const fn = raw.slice(4).replace(/_/g, ' ')
+    return fn ? `server fn «${fn}»` : 'RPC'
+  }
+  const key = raw.toLowerCase()
+  return ENTITY_LABELS[key] || raw.replace(/_/g, ' ')
+}
+
+/** Where in the ERP the user likely was when the mutation ran. */
+function screenHint(route) {
+  const r = String(route || '')
+  if (!r.startsWith('/app')) return r.slice(0, 72) || null
+  if (r.includes('/billing/create-invoice')) return 'Billing · Create invoice'
+  if (r.includes('/billing/manage-invoices')) return 'Billing · Manage invoices'
+  if (r.includes('/billing/add-on-invoices')) return 'Billing · Add-on invoices'
+  if (r.includes('/billing/credit-notes')) return 'Billing · Credit / debit notes'
+  if (r.includes('/billing/generated-e-invoice')) return 'Billing · E-invoice'
+  if (r.includes('/commercial/manpower-training/po-entry') || r.match(/commercial\/.*?po-entry/i)) {
+    return r.includes('rm-mm-amc') ? 'Commercial RM · PO entry' : 'Commercial MT · PO entry'
+  }
+  if (r.includes('/commercial/') && r.includes('manpower-management')) return 'Commercial · Manpower enquiries'
+  if (r.includes('/marketing/')) return 'Marketing'
+  if (r.includes('/manpower')) return 'Manpower (Commercial MT)'
+  if (r.includes('/fire-tender')) return 'Fire tender'
+  if (r.includes('/user-management')) return 'User management'
+  return `App · ${r.replace(/^\/app\/?/, '').slice(0, 52)}`.trim()
+}
+
+/** Parse `id=eq.<uuid>` from PostgREST query (PATCH/DELETE on one row). */
+function parseRestRowId(fullUrl) {
+  try {
+    const u = new URL(fullUrl)
+    const qs = Object.fromEntries(u.searchParams.entries())
+    const candidates = []
+    Object.entries(qs).forEach(([k, val]) => {
+      if (/^id$/i.test(k)) {
+        const raw = String(val).trim()
+        const m = /^eq\.(.+)/i.exec(raw) || /^in\.\(([^)]+)\)/i.exec(raw)
+        if (m && m[1]) candidates.push(m[1].split(',')[0].trim().replace(/^["']|["']$/g, ''))
+        else if (raw) candidates.push(raw)
+      }
+    })
+    const id = candidates[0]
+    if (id && id.length >= 8) return { short: `${id.slice(0, 8)}…`, full: id }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function tryParseJsonBody(rawBody) {
+  if (rawBody == null) return null
+  const s = typeof rawBody === 'string' ? rawBody : String(rawBody)
+  const t = s.trim()
+  if (!t || t.length > 96000) return null
+  try {
+    const j = JSON.parse(t)
+    return Array.isArray(j) ? j[0] : j
+  } catch {
+    return null
+  }
+}
+
+/** Long text / credential-like keys → never ship values into the activity log */
+const PATCH_KEY_HIDE_VALUE = new Set([
+  'remarks',
+  'billing_address',
+  'shipping_address',
+  'gstin',
+  'password',
+  'token',
+  'authorization_to',
+  'service_description',
+  'invoice_terms_text',
+  'payload',
+])
+
+function shortenVal(v, max = 72) {
+  if (v == null || v === '') return ''
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (typeof v === 'number') return String(v)
+  if (typeof v === 'object') return '…'
+  const str = String(v).trim().replace(/\s+/g, ' ')
+  return str.length > max ? `${str.slice(0, max - 2)}…` : str
+}
+
+/**
+ * Describes approval / rejection / submission style changes from PATCH body (snake or camel keys).
+ */
+function describeWorkflowSignals(obj, entityLower) {
+  if (!obj || typeof obj !== 'object') return null
+
+  const pick = (...keys) => {
+    for (const k of keys) {
+      if (obj[k] != null && obj[k] !== '') return obj[k]
+    }
+    return null
+  }
+
+  const aprRaw = pick('approval_status', 'approvalStatus')
+  const apr = String(aprRaw || '').trim().toLowerCase()
+  if (aprRaw != null && aprRaw !== '')
+    switch (apr) {
+      case 'approved':
+      case 'approve':
+        return { headline: 'approved', badge: 'APPROVED', kind: 'approval' }
+      case 'sent_for_approval':
+      case 'sent':
+        return { headline: 'submitted for approval', badge: 'SUBMITTED', kind: 'submit' }
+      case 'rejected':
+      case 'reject':
+        return { headline: 'rejected', badge: 'REJECTED', kind: 'reject' }
+      case 'draft':
+        return { headline: 'saved as draft', badge: 'DRAFT', kind: 'draft' }
+      default:
+        if (apr)
+          return { headline: `set approval to “${apr}”`, badge: 'CHANGED', kind: 'update' }
+    }
+
+  const cnRaw = pick('cn_dn_request_status', 'cnDnRequestStatus')
+  const cn = String(cnRaw || '').trim().toLowerCase()
+  if (cnRaw != null && cnRaw !== '')
+    switch (cn) {
+      case 'pending':
+        return { headline: 'requested CN/DN approval', badge: 'SUBMITTED', kind: 'submit' }
+      case 'approved':
+        return { headline: 'approved CN/DN request', badge: 'APPROVED', kind: 'approval' }
+      case 'rejected':
+        return { headline: 'rejected CN/DN request', badge: 'REJECTED', kind: 'reject' }
+      default:
+        if (cn)
+          return { headline: `set CN/DN status to “${cn}”`, badge: 'CHANGED', kind: 'update' }
+    }
+
+  const supRaw = pick('supplementary_request_status')
+  const sup = String(supRaw || '').trim().toLowerCase()
+  if (supRaw != null && supRaw !== '')
+    switch (sup) {
+      case 'pending':
+        return { headline: 'requested post‑contract billing', badge: 'SUBMITTED', kind: 'submit' }
+      case 'approved':
+        return { headline: 'approved post‑contract billing', badge: 'APPROVED', kind: 'approval' }
+      case 'rejected':
+        return { headline: 'rejected post‑contract billing request', badge: 'REJECTED', kind: 'reject' }
+      default:
+        if (sup)
+          return { headline: `set supplementary status to “${sup}”`, badge: 'CHANGED', kind: 'update' }
+    }
+
+  if (
+    entityLower === 'manpower_enquiries' ||
+    entityLower === 'manpower_enquiry' ||
+    entityLower.includes('manpower')
+  ) {
+    const st = String(pick('status') ?? '').trim()
+    const sl = st.toLowerCase()
+    if (sl === 'approved') return { headline: 'approved enquiry', badge: 'APPROVED', kind: 'approval' }
+    if (sl === 'rejected') return { headline: 'rejected enquiry', badge: 'REJECTED', kind: 'reject' }
+    if (st) return { headline: `set status to “${sl}”`, badge: 'UPDATED', kind: 'update' }
+  }
+
+  return null
+}
+
+/** Short “what fields changed?” line — values only when short / non-sensitive */
+function summarizePatchChanges(obj, maxParts = 4) {
+  if (!obj || typeof obj !== 'object') return ''
+  const parts = []
+  for (const key of Object.keys(obj)) {
+    if (PATCH_KEY_HIDE_VALUE.has(key)) {
+      parts.push(`${key}`)
+      continue
+    }
+    const val = obj[key]
+    const sv = shortenVal(val, 64)
+    if (!sv || sv === '…') parts.push(`${key}`)
+    else parts.push(`${key} → ${sv}`)
+    if (parts.length >= maxParts) break
+  }
+  if (!parts.length) return ''
+  return parts.join('; ')
+}
+
+/** Build `{ action, badge, summary, … }` stored in erp_activity_log.details */
+function buildActivityDetails(method, entity, route, fullUrl, rawBody) {
   const m = String(method || '').toUpperCase()
   const e = String(entity || '').toLowerCase()
-  const r = String(route || '')
+  const entityLabel = humanEntityName(entity)
+  const screen = screenHint(route)
+  const rowRef = parseRestRowId(fullUrl)
+  const payload = m === 'PATCH' || m === 'PUT' ? tryParseJsonBody(rawBody) : null
 
-  // Ignore noisy child tables; we only want human-readable high-level activities.
-  const ignoreEntities = new Set([
-    'invoice_line_item',
-    'invoice_attachment',
-    'attachments',
-    'marketing_enquiry_documents',
-  ])
-  if (ignoreEntities.has(e)) return null
+  let badge = 'CHANGED'
+  let summaryCore = ''
+  let detailLine = ''
 
-  // Billing
-  if (e === 'invoice') return m === 'POST' ? 'created an invoice' : m === 'PATCH' ? 'updated an invoice' : m === 'DELETE' ? 'deleted an invoice' : null
-  if (e === 'add_on_invoice') return m === 'POST' ? 'created an add-on invoice' : m === 'PATCH' ? 'updated an add-on invoice' : m === 'DELETE' ? 'deleted an add-on invoice' : null
+  if (m === 'POST') {
+    badge = 'CREATED'
+    summaryCore = `Created ${entityLabel}`
+  } else if (m === 'DELETE') {
+    badge = 'DELETED'
+    summaryCore = `Deleted ${entityLabel}`
+  } else if (m === 'PATCH' || m === 'PUT') {
+    badge = 'UPDATED'
+    const wf = describeWorkflowSignals(payload, e)
+    if (wf) {
+      badge = wf.badge
+      summaryCore = `${wf.headline.charAt(0).toUpperCase() + wf.headline.slice(1)} — ${entityLabel}`
+    } else {
+      summaryCore = `Updated ${entityLabel}`
+    }
+    detailLine = summarizePatchChanges(payload, 5)
+  } else {
+    badge = m
+    summaryCore = `Changed ${entityLabel}`
+  }
 
-  // Marketing
-  if (e === 'marketing_enquiries') return m === 'POST' ? 'raised a marketing enquiry' : m === 'PATCH' ? 'updated a marketing enquiry' : m === 'DELETE' ? 'deleted a marketing enquiry' : null
-  if (e === 'marketing_quotations') return m === 'POST' ? 'created a quotation' : m === 'PATCH' ? 'updated a quotation' : m === 'DELETE' ? 'deleted a quotation' : null
-  if (e === 'marketing_clients') return m === 'POST' ? 'created a marketing client' : m === 'PATCH' ? 'updated a marketing client' : m === 'DELETE' ? 'deleted a marketing client' : null
-  if (e === 'marketing_products') return m === 'POST' ? 'created a product' : m === 'PATCH' ? 'updated a product' : m === 'DELETE' ? 'deleted a product' : null
+  const bits = [summaryCore]
+  if (screen) bits.push(`(${screen})`)
+  const summary = bits.join(' ')
 
-  // Fallback: if we can infer from route (keep it generic; no table spam)
-  if (r.startsWith('/app/marketing') && m === 'POST') return 'created a marketing record'
-  if (r.startsWith('/app/billing') && m === 'POST') return 'created a billing record'
-  return null
+  if (rowRef && (m === 'PATCH' || m === 'DELETE')) {
+    detailLine = detailLine ? `${detailLine} · row ${rowRef.short}` : `Row ${rowRef.short}`
+  }
+
+  if (e.startsWith('rpc:')) {
+    const fn = e.replace(/^rpc:/, '').replace(/_/g, ' ')
+    badge = m === 'POST' ? 'RPC' : 'RPC'
+    return {
+      action: m === 'POST' ? 'INSERT' : 'CALL',
+      badge,
+      summary: m === 'POST' ? `Ran server function “${fn}”` : `Called “${fn}”`,
+      detail: screen ? `Screen: ${screen}` : '',
+      entity_label: entityLabel,
+      screen,
+    }
+  }
+
+  return {
+    action: m === 'POST' ? 'INSERT' : m === 'PATCH' ? 'UPDATE' : m === 'DELETE' ? 'DELETE' : m,
+    badge,
+    summary,
+    detail: detailLine,
+    entity_label: entityLabel,
+    screen,
+    record_ref: rowRef?.short || null,
+    http_method: m,
+  }
 }
 
 function parseRestEntity(url) {
@@ -80,10 +320,11 @@ function parseRestEntity(url) {
     const u = new URL(url)
     const parts = u.pathname.split('/').filter(Boolean)
     const restIdx = parts.indexOf('rest')
-    if (restIdx >= 0 && parts[restIdx + 1] === 'v1' && parts[restIdx + 2]) {
-      return parts[restIdx + 2]
-    }
-    return null
+    if (restIdx < 0 || parts[restIdx + 1] !== 'v1') return null
+    const next = parts[restIdx + 2]
+    if (!next) return null
+    if (next === 'rpc' && parts[restIdx + 3]) return `rpc:${parts[restIdx + 3]}`
+    return next
   } catch {
     return null
   }
@@ -98,6 +339,9 @@ function shouldLogRequest(url, options) {
   // Skip auth/health/storage noise
   if (String(url).includes('/auth/v1/')) return false
   if (String(url).includes('/storage/v1/')) return false
+  if (String(url).includes('/functions/v1/')) return false
+  const e = String(entity).toLowerCase()
+  if (ACTIVITY_IGNORE_TABLES.has(e)) return false
   return true
 }
 
@@ -118,7 +362,7 @@ async function flushActivityQueue() {
     if (!token) return
 
     const url = `${String(supabaseUrl).replace(/\/+$/, '')}/rest/v1/${ACTIVITY_TABLE}`
-    await baseFetch(url, {
+    const res = await baseFetch(url, {
       method: 'POST',
       headers: {
         apikey: supabaseAnonKey,
@@ -134,15 +378,31 @@ async function flushActivityQueue() {
         }))
       ),
     })
-  } catch {
+    if (!res.ok) {
+      let detail = ''
+      try {
+        detail = (await res.text()).slice(0, 400)
+      } catch {
+        /* ignore */
+      }
+      if (import.meta.env.DEV) {
+        console.warn(`[Activity log] Could not write to ${ACTIVITY_TABLE} (HTTP ${res.status}).`, detail || '')
+      }
+    }
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      console.warn('[Activity log] Flush failed:', err?.message || err)
+    }
     // Never block the app for logging failures.
   }
 }
 
 function enqueueActivityLog(row) {
-  // Dedupe burst clicks: same summary within 3s → keep one.
-  const summary = row?.details?.summary
-  const sig = summary ? `${summary}__${row?.route || ''}` : null
+  // Dedupe burst clicks: identical verb + target + body hint within 3s → keep one.
+  const d = row?.details || {}
+  const sig = d.summary
+    ? `${d.badge || ''}__${d.summary}__${row?.details?.path || ''}__${String(d.detail || '').slice(0, 120)}`
+    : null
   const now = Date.now()
   if (sig && lastEnqueuedSig === sig && now - lastEnqueuedAt < 3000) return
   if (sig) {
@@ -201,21 +461,27 @@ const customFetch = async (url, options = {}) => {
       const method = String(options?.method || 'GET').toUpperCase()
       const entity = parseRestEntity(url)
       const route = typeof window !== 'undefined' ? window.location.pathname : null
-      const summaryVerb = toFriendlyActionText(method, entity, route)
-      if (!summaryVerb) {
-        return res
+      const bodyCandidate = options.body
+      const details = buildActivityDetails(method, entity, route, url, bodyCandidate)
+      if (details.summary) {
+        enqueueActivityLog({
+          action: details.action,
+          entity,
+          route,
+          success: res.ok,
+          status_code: res.status,
+          details: {
+            path: pathLog,
+            summary: details.summary,
+            badge: details.badge,
+            detail: details.detail || null,
+            entity_label: details.entity_label || null,
+            screen: details.screen || null,
+            record_ref: details.record_ref || null,
+            http_method: details.http_method || method,
+          },
+        })
       }
-      enqueueActivityLog({
-        action: method === 'POST' ? 'INSERT' : method === 'PATCH' ? 'UPDATE' : method === 'DELETE' ? 'DELETE' : method,
-        entity,
-        route,
-        success: res.ok,
-        status_code: res.status,
-        details: {
-          path: pathLog,
-          summary: summaryVerb,
-        },
-      })
     }
 
     if (!res.ok && import.meta.env.DEV) {

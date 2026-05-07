@@ -9,6 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profileRow, setProfileRow] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
   const userRef = useRef(null);
 
   useEffect(() => {
@@ -90,13 +91,46 @@ export const AuthProvider = ({ children }) => {
   const useProfilesTable =
     import.meta.env.VITE_USE_PROFILES_TABLE === "true" ||
     import.meta.env.VITE_USE_PROFILES_TABLE === true;
+
+  /**
+   * Access revocation rule:
+   * When profiles table is enabled, the profiles row is the source of truth.
+   * If the row is missing, the user is considered removed and must be signed out.
+   */
+  const ensureProfileExists = async (uid) => {
+    if (!useProfilesTable) return { ok: true };
+    const userId = String(uid || '').trim();
+    if (!userId) return { ok: false, message: 'Access revoked.' };
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) {
+        // If profiles table/RLS is misconfigured, don't lock out valid users silently.
+        return { ok: true };
+      }
+      if (!data?.id) return { ok: false, message: 'Your access has been revoked. Contact admin.' };
+      return { ok: true };
+    } catch (_) {
+      return { ok: true };
+    }
+  };
   useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
+      setProfileLoading(false);
+      return;
+    }
+    if (!useProfilesTable) {
+      setProfileRow(null);
+      setProfileLoading(false);
       return;
     }
     let cancelled = false;
     (async () => {
+      setProfileLoading(true);
       try {
         const { data, error } = await supabase
           .from("profiles")
@@ -111,10 +145,23 @@ export const AuthProvider = ({ children }) => {
         setProfileRow(null);
       } catch (_) {
         if (!cancelled) setProfileRow(null);
+      } finally {
+        if (!cancelled) setProfileLoading(false);
       }
     })();
     return () => { cancelled = true; };
   }, [user?.id, useProfilesTable]);
+
+  // If a previously valid user gets removed from `profiles`, revoke access immediately.
+  useEffect(() => {
+    if (!useProfilesTable) return;
+    if (!user?.id) return;
+    if (profileLoading) return;
+    if (profileRow) return;
+    // profileRow is null after a completed fetch: treat as revoked.
+    void clearInvalidSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useProfilesTable, user?.id, profileLoading, profileRow]);
 
   // Register user + save role-based profile (username, team, role, allowed_modules for manager)
   const signUpWithProfile = async (email, password, profileData) => {
@@ -172,7 +219,34 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async (email, password) => {
     try {
-      return await supabase.auth.signInWithPassword({ email, password });
+      const result = await supabase.auth.signInWithPassword({ email, password });
+      if (result?.data?.user?.id) {
+        // Strong check via Edge Function (service role) so deleted profiles cannot log in
+        // even if RLS blocks profiles reads on the client.
+        try {
+          const { data: resp, error: fnErr } = await supabase.functions.invoke("access-check", { body: {} });
+          // Important: if the function is missing/not deployed, browsers can fail the CORS preflight.
+          // In that case do NOT block logins — fall back to a best-effort direct check.
+          if (fnErr) throw fnErr;
+
+          // Only hard-block when the function explicitly says access is revoked.
+          if (resp?.ok === false) {
+            await clearInvalidSession();
+            return {
+              data: { session: null, user: null },
+              error: { message: resp?.error || "Access revoked." },
+            };
+          }
+        } catch (_) {
+          // If function isn't deployed yet, fall back to best-effort direct check.
+          const chk = await ensureProfileExists(result.data.user.id);
+          if (!chk.ok) {
+            await clearInvalidSession();
+            return { data: { session: null, user: null }, error: { message: chk.message } };
+          }
+        }
+      }
+      return result;
     } catch (err) {
       const msg = err?.message || String(err);
       const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError');
@@ -249,20 +323,33 @@ export const AuthProvider = ({ children }) => {
     const superAdminEmails = superAdminEmailsRaw
       ? superAdminEmailsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [];
+    const forcedSuperRole = isSuperAdminPro
+      ? 'super_admin_pro'
+      : (superAdminEmails.includes(email) ? 'super_admin' : null);
     if (profileRow) {
+      const dbRole = profileRow.role ?? null;
+      const effectiveRole =
+        forcedSuperRole && dbRole !== 'super_admin' && dbRole !== 'super_admin_pro'
+          ? forcedSuperRole
+          : (dbRole ?? forcedSuperRole);
       return {
         username: profileRow.username ?? user?.email?.split("@")[0],
         team: profileRow.team ?? null,
-        role: profileRow.role ?? (isSuperAdminPro ? 'super_admin_pro' : (superAdminEmails.includes(email) ? 'super_admin' : null)),
+        role: effectiveRole,
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
       };
     }
     const meta = user?.user_metadata;
     if (!meta) return null;
+    const metaRole = meta.role ?? null;
+    const effectiveRole =
+      forcedSuperRole && metaRole !== 'super_admin' && metaRole !== 'super_admin_pro'
+        ? forcedSuperRole
+        : (metaRole ?? forcedSuperRole);
     return {
       username: meta.full_name ?? user?.email?.split("@")[0],
       team: meta.team ?? null,
-      role: meta.role ?? (isSuperAdminPro ? 'super_admin_pro' : (superAdminEmails.includes(email) ? 'super_admin' : null)),
+      role: effectiveRole,
       allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
     };
   }, [user, profileRow]);
@@ -272,8 +359,30 @@ export const AuthProvider = ({ children }) => {
     [userProfile]
   );
 
+  // Best-effort: if this user is force-super-admin (by email), keep `profiles.role`
+  // in sync so server-side RBAC (Edge Functions / SQL helpers) sees the same role.
+  useEffect(() => {
+    if (!useProfilesTable) return;
+    if (!user?.id) return;
+    if (!userProfile?.role) return;
+    if (userProfile.role !== 'super_admin' && userProfile.role !== 'super_admin_pro') return;
+    if (!profileRow) return;
+    if (profileRow.role === userProfile.role) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await supabase.from('profiles').update({ role: userProfile.role }).eq('id', user.id);
+      } catch (_) {
+        // If RLS blocks this, ignore; UI will still work.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [useProfilesTable, user?.id, userProfile?.role, profileRow?.role]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
+    <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
       {loading ? (
         <div className="flex items-center justify-center h-screen">
           <p>Loading...</p>

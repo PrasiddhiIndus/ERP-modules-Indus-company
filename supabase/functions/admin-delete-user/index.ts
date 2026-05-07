@@ -1,21 +1,15 @@
-// Supabase Edge Function: admin-update-profile
-// Updates a user's profile (team/role/allowed_modules) (service role), for Super Admin/Super Admin Pro.
+// Supabase Edge Function: admin-delete-user
+// Deletes a Supabase Auth user + removes `profiles` row.
 //
 // Deploy:
-// supabase functions deploy admin-update-profile
+// supabase functions deploy admin-delete-user
 // Secrets:
 // supabase secrets set SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
 //
 // @ts-nocheck
-
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 
-type Body = {
-  id: string
-  team?: string | null
-  role?: string | null
-  allowed_modules?: string[]
-}
+type Body = { id: string }
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -52,7 +46,7 @@ Deno.serve(async (req) => {
   const { data: callerProfile } = await admin.from('profiles').select('role').eq('id', callerId).maybeSingle()
   const callerRole = callerProfile?.role
   if (callerRole !== 'super_admin' && callerRole !== 'super_admin_pro') {
-    return json(403, { error: 'Only Super Admin can update users' })
+    return json(403, { error: 'Only Super Admin can delete users' })
   }
 
   let body: Body
@@ -64,34 +58,22 @@ Deno.serve(async (req) => {
 
   const id = String(body.id || '').trim()
   if (!id) return json(400, { error: 'id is required' })
+  if (id === callerId) return json(400, { error: 'You cannot delete your own account.' })
 
   const { data: targetProfile } = await admin.from('profiles').select('role').eq('id', id).maybeSingle()
+  const targetRole = targetProfile?.role
 
-  const team = body.team === '' ? null : (body.team ?? null)
-  const role = body.role ?? null
-  const allowed = Array.isArray(body.allowed_modules) ? body.allowed_modules : []
+  // Super Admin can delete any user (except self).
 
-  // Super Admin can update any user, including other super admins.
+  // Delete Auth user (this also invalidates credentials).
+  const { error: delAuthErr } = await admin.auth.admin.deleteUser(id)
+  if (delAuthErr) return json(400, { error: delAuthErr.message || 'Could not delete auth user' })
 
-  const { error: updErr } = await admin
-    .from('profiles')
-    .update({ team, role, allowed_modules: allowed })
-    .eq('id', id)
-
-  if (updErr) return json(500, { error: updErr.message || 'Failed to update profile' })
-
-  // Keep auth.users.user_metadata in sync with profiles so UI gating works even when the app
-  // is running in metadata mode (VITE_USE_PROFILES_TABLE disabled).
+  // Best-effort cleanup profile row (should cascade, but keep safe).
   try {
-    await admin.auth.admin.updateUserById(id, {
-      user_metadata: {
-        team,
-        role,
-        allowed_modules: allowed,
-      },
-    })
+    await admin.from('profiles').delete().eq('id', id)
   } catch {
-    // Non-fatal: profile is updated; metadata sync is best-effort.
+    /* ignore */
   }
 
   return json(200, { ok: true })

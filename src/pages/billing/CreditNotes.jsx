@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Receipt, Search, Plus, Download, CheckCircle, XCircle, Eye, X } from 'lucide-react';
 import { downloadCreditDebitNotePdf, getInvoiceTotals } from '../../utils/taxInvoicePdf';
 import { useBilling } from '../../contexts/BillingContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { userCanApproveInModules } from '../../config/roles';
 import { generateEInvoice } from '../../services/eInvoiceApi';
 import { cnDnDocumentNumber, buildCnDnInvoiceSnapshot } from '../../utils/cnDn';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
@@ -220,8 +222,12 @@ function IssueCnDnModal({ parent, noteType, requestReason, onClose, onIssue, def
   );
 }
 
+const CREDIT_NOTE_APPROVER_MODULES = ['billing'];
+
 const CreditNotes = () => {
+  const { userProfile, accessibleModules } = useAuth();
   const { invoices, setInvoices, creditDebitNotes, setCreditDebitNotes, billingVerticalFilter } = useBilling();
+  const canApproveCnDn = userCanApproveInModules(userProfile, accessibleModules, CREDIT_NOTE_APPROVER_MODULES);
   const [searchTerm, setSearchTerm] = useState('');
   const [generatingEInvoiceId, setGeneratingEInvoiceId] = useState(null);
   const [issueContext, setIssueContext] = useState(null);
@@ -252,6 +258,7 @@ const CreditNotes = () => {
   }, [creditDebitNotes, searchTerm]);
 
   const approveRequest = (inv) => {
+    if (!canApproveCnDn) return;
     const nowIso = new Date().toISOString();
     setInvoices((prev) =>
       prev.map((i) =>
@@ -261,6 +268,7 @@ const CreditNotes = () => {
   };
 
   const rejectRequest = (inv) => {
+    if (!canApproveCnDn) return;
     setInvoices((prev) =>
       prev.map((i) =>
         String(i.id) === String(inv.id)
@@ -359,6 +367,11 @@ const CreditNotes = () => {
           <h3 className="font-semibold text-amber-900">Pending approval</h3>
           <p className="text-sm text-amber-800/90">Requested from Create Invoice or Add-On Invoices (bottom of those pages).</p>
         </div>
+        {!canApproveCnDn && pendingRequests.length > 0 ? (
+          <div className="px-4 py-4 text-sm text-amber-900 bg-amber-50 border-b border-amber-100">
+            Pending requests below need approval from Admin or a manager with Billing access.
+          </div>
+        ) : null}
         {pendingRequests.length === 0 ? (
           <div className="px-4 py-6 text-sm text-gray-600 space-y-2">
             <p>No pending CN/DN requests in the system right now.</p>
@@ -392,20 +405,26 @@ const CreditNotes = () => {
                       {inv.cnDnRequestReason || '–'}
                     </td>
                     <td className="px-4 py-2 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => approveRequest(inv)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg mr-1 hover:bg-emerald-100"
-                      >
-                        <CheckCircle className="w-4 h-4" /> Approve
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => rejectRequest(inv)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100"
-                      >
-                        <XCircle className="w-4 h-4" /> Reject
-                      </button>
+                      {canApproveCnDn ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => approveRequest(inv)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg mr-1 hover:bg-emerald-100"
+                          >
+                            <CheckCircle className="w-4 h-4" /> Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => rejectRequest(inv)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100"
+                          >
+                            <XCircle className="w-4 h-4" /> Reject
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-gray-500">Awaiting Billing approval</span>
+                      )}
                     </td>
                   </tr>
                 ))}

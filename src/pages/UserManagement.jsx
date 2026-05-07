@@ -11,6 +11,7 @@ import {
   Shield,
   Lock,
   Plus,
+  Trash2,
 } from "lucide-react";
 
 const PAGE_SIZE = 10;
@@ -47,26 +48,35 @@ const UserManagement = () => {
     allowed_modules: [],
   });
 
-  const isSuperAdmin = userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO;
+  const canUseUserManagement =
+    userProfile?.role === ROLES.SUPER_ADMIN ||
+    userProfile?.role === ROLES.SUPER_ADMIN_PRO;
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!canUseUserManagement) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError("");
       try {
-        const { data: resp, error: fetchError } = await supabase.functions.invoke("admin-list-profiles", {
-          body: { page, page_size: PAGE_SIZE },
-        });
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+        const { data, error: qErr, count } = await supabase
+          .from("profiles")
+          .select("id, email, username, team, role, allowed_modules, created_at", { count: "exact" })
+          .order("created_at", { ascending: false })
+          .range(from, to);
         if (cancelled) return;
-        if (fetchError) {
-          setError(fetchError.message || "Unable to load users.");
+        if (qErr) {
+          setError(
+            `${qErr.message || qErr || "Unable to load users."}\n\n` +
+              `This screen reads from the table public.profiles. Ensure the profiles migration is applied and RLS allows Admin/Super Admin to SELECT all profiles.`
+          );
           setList([]);
           setTotal(0);
         } else {
-          setList(resp?.data ?? []);
-          setTotal(resp?.count ?? 0);
+          setList(data ?? []);
+          setTotal(count ?? 0);
         }
       } catch (_) {
         if (!cancelled) {
@@ -78,7 +88,7 @@ const UserManagement = () => {
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [isSuperAdmin, page]);
+  }, [canUseUserManagement, page]);
 
   const openEdit = (row) => {
     setEditId(row.id);
@@ -140,15 +150,37 @@ const UserManagement = () => {
     }
   };
 
+  const deleteUser = async (row) => {
+    if (!row?.id) return;
+    if (!window.confirm(`Delete user ${row.email || row.username || row.id}? This cannot be undone.`)) return;
+    setSaving(true);
+    setError("");
+    try {
+      const { error: delErr } = await supabase.functions.invoke("admin-delete-user", {
+        body: { id: row.id },
+      });
+      if (delErr) {
+        setError(delErr.message || "Unable to delete user.");
+        return;
+      }
+      setList((prev) => prev.filter((r) => r.id !== row.id));
+      setTotal((t) => Math.max(0, (Number(t) || 0) - 1));
+    } catch (_) {
+      setError("Unable to delete user.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const canPrev = page > 0;
   const canNext = page < totalPages - 1;
 
-  if (!isSuperAdmin) {
+  if (!canUseUserManagement) {
     return (
       <div className="p-6">
         <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-amber-800">
-          Only Super Admin can access User Management.
+          Only Admin or Super Admin can access User Management.
         </div>
       </div>
     );
@@ -237,14 +269,25 @@ const UserManagement = () => {
                         : "—"}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(row)}
-                        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md bg-indigo-100 text-indigo-700 hover:bg-indigo-200 text-xs font-medium"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        Edit access
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(row)}
+                          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md bg-indigo-100 text-indigo-700 hover:bg-indigo-200 text-xs font-medium"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          Edit access
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteUser(row)}
+                          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 text-xs font-medium"
+                          title="Delete user"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
