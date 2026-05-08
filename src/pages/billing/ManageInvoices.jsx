@@ -54,12 +54,20 @@ function isProformaInvoiceKind(inv) {
   return String(inv?.invoiceKind || inv?.invoice_kind || 'tax').toLowerCase() === 'proforma';
 }
 
-function sortInvoicesNewestFirst(list) {
+function firstWordsWithEllipsis(text, wordCount = 4) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return '–';
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.length <= wordCount) return raw;
+  return `${words.slice(0, wordCount).join(' ')}…`;
+}
+
+function sortInvoicesOldestFirst(list) {
   return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
     const aTs = new Date(a?.updated_at || a?.updatedAt || a?.invoiceDate || a?.invoice_date || a?.created_at || a?.createdAt || 0).getTime() || 0;
     const bTs = new Date(b?.updated_at || b?.updatedAt || b?.invoiceDate || b?.invoice_date || b?.created_at || b?.createdAt || 0).getTime() || 0;
-    if (bTs !== aTs) return bTs - aTs;
-    return String(b?.id || '').localeCompare(String(a?.id || ''));
+    if (aTs !== bTs) return aTs - bTs;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
   });
 }
 
@@ -99,8 +107,12 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [generateEInvoiceModalId, setGenerateEInvoiceModalId] = useState(null);
   const [page, setPage] = useState(1);
   const [manageTab, setManageTab] = useState('billing-types');
-  const [mainSortConfig, setMainSortConfig] = useState({ key: 'created', direction: 'desc' });
-  const [addOnSortConfig, setAddOnSortConfig] = useState({ key: 'created', direction: 'desc' });
+  const [mainSortConfig, setMainSortConfig] = useState({ key: 'created', direction: 'asc' });
+  const [addOnSortConfig, setAddOnSortConfig] = useState({ key: 'created', direction: 'asc' });
+  const [cancelModalInv, setCancelModalInv] = useState(null);
+  const [cancelModalMode, setCancelModalMode] = useState('cancel'); // 'cancel' | 'edit-remark'
+  const [cancelRemark, setCancelRemark] = useState('');
+  const [cancelRemarkError, setCancelRemarkError] = useState('');
   const PAGE_SIZE = 10;
   const renderSortIndicator = (active, direction) => {
     const ascActive = active && direction === 'asc';
@@ -176,7 +188,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           inv.clientLegalName?.toLowerCase().includes(s)
       );
     }
-    return sortInvoicesNewestFirst(list);
+    return sortInvoicesOldestFirst(list);
   }, [hydratedInvoices, commercialPOs, billingTypeFilter, searchTerm, isTrainingVertical]);
 
   const addOnInvoices = useMemo(() => {
@@ -191,7 +203,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           inv.addOnType?.toLowerCase().includes(s)
       );
     }
-    return sortInvoicesNewestFirst(list);
+    return sortInvoicesOldestFirst(list);
   }, [hydratedInvoices, searchTerm]);
 
   const cancelledInvoices = useMemo(() => {
@@ -206,7 +218,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           (inv.cancelReason || '').toLowerCase().includes(s)
       );
     }
-    return sortInvoicesNewestFirst(list);
+    return sortInvoicesOldestFirst(list);
   }, [hydratedInvoices, searchTerm]);
 
   const sortedFilteredInvoices = useMemo(() => {
@@ -268,36 +280,57 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
   const goToPage = (p) => setPage((prev) => Math.min(totalPages, Math.max(1, p)));
 
-  const handleCancelInvoice = async (inv) => {
+  const openCancelModal = (inv) => {
     if (!inv) return;
     if (getRealIrn(inv)) {
       window.alert('This invoice has an IRN. Cancel the e-invoice first (IRN cancellation) before cancelling here.');
       return;
     }
-    const remark = window.prompt('Cancel invoice. Enter remark/reason for cancellation.');
-    if (remark == null) return;
-    const clean = String(remark).trim();
-    if (!clean) {
-      window.alert('Cancellation remark is required.');
+    setCancelModalMode('cancel');
+    setCancelModalInv(inv);
+    setCancelRemark('');
+    setCancelRemarkError('');
+  };
+
+  const openEditCancelRemarkModal = (inv) => {
+    if (!inv) return;
+    if (!inv.isCancelled) {
+      window.alert('This invoice is not cancelled yet.');
       return;
     }
-    if (!window.confirm(`Cancel ${inv.taxInvoiceNumber || inv.bill_number || 'this invoice'}?`)) return;
-    const cancelledAt = new Date().toISOString();
+    setCancelModalMode('edit-remark');
+    setCancelModalInv(inv);
+    setCancelRemark(String(inv.cancelReason || ''));
+    setCancelRemarkError('');
+  };
+
+  const confirmCancelInvoice = () => {
+    const inv = cancelModalInv;
+    if (!inv) return;
+    const clean = String(cancelRemark || '').trim();
+    if (!clean) {
+      setCancelRemarkError('Remark is required.');
+      return;
+    }
     setInvoices((prev) =>
-      prev.map((row) =>
-        String(row.id) === String(inv.id)
-          ? {
-              ...row,
-              isCancelled: true,
-              cancelledAt,
-              cancelReason: clean,
-            }
-          : row
-      )
+      prev.map((row) => {
+        if (String(row.id) !== String(inv.id)) return row;
+        if (cancelModalMode === 'edit-remark') {
+          return { ...row, cancelReason: clean };
+        }
+        const cancelledAt = new Date().toISOString();
+        return {
+          ...row,
+          isCancelled: true,
+          cancelledAt,
+          cancelReason: clean,
+        };
+      })
     );
     if (viewId && String(viewId) === String(inv.id)) setViewId(null);
     if (managePAInvoiceId && String(managePAInvoiceId) === String(inv.id)) setManagePAInvoiceId(null);
     if (generateEInvoiceModalId && String(generateEInvoiceModalId) === String(inv.id)) setGenerateEInvoiceModalId(null);
+    setCancelModalInv(null);
   };
 
   const handleGenerateEInvoice = async (inv) => {
@@ -635,7 +668,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleCancelInvoice(inv)}
+                                onClick={() => openCancelModal(inv)}
                                 title="Cancel invoice"
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
                               >
@@ -861,7 +894,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleCancelInvoice(inv)}
+                                      onClick={() => openCancelModal(inv)}
                                       disabled={isCancelled}
                                       title={isCancelled ? 'Already cancelled' : 'Cancel invoice'}
                                       className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
@@ -1012,8 +1045,13 @@ const ManageInvoices = ({ onNavigateTab }) => {
                     <td className="px-3 py-2 text-gray-700">
                       {inv.cancelledAt ? new Date(inv.cancelledAt).toLocaleString('en-IN') : '–'}
                     </td>
-                    <td className="px-3 py-2 text-gray-800 max-w-[420px] truncate" title={inv.cancelReason || '–'}>
-                      {inv.cancelReason || '–'}
+                    <td className="px-3 py-2 text-gray-800">
+                      <span
+                        className="block max-w-[420px] truncate"
+                        title={inv.cancelReason || '–'}
+                      >
+                        {firstWordsWithEllipsis(inv.cancelReason, 4)}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-center">
                       <div className="flex flex-nowrap items-center justify-center gap-1.5">
@@ -1024,6 +1062,14 @@ const ManageInvoices = ({ onNavigateTab }) => {
                           className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                         >
                           <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditCancelRemarkModal(inv)}
+                          title="Edit cancellation remark"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                        >
+                          <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           type="button"
@@ -1085,6 +1131,75 @@ const ManageInvoices = ({ onNavigateTab }) => {
           }}
         />
       )}
+
+      {cancelModalInv ? (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-gray-900 truncate">
+                  {cancelModalMode === 'edit-remark' ? 'Edit cancellation remark' : 'Cancel invoice'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Invoice:{' '}
+                  <span className="font-mono font-semibold text-gray-700">
+                    {cancelModalInv.taxInvoiceNumber || cancelModalInv.bill_number || '–'}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCancelModalInv(null)}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-2">
+              <label className="text-sm font-medium text-gray-700">Cancellation remark</label>
+              <textarea
+                value={cancelRemark}
+                onChange={(e) => {
+                  setCancelRemark(e.target.value);
+                  if (cancelRemarkError) setCancelRemarkError('');
+                }}
+                rows={4}
+                placeholder="Type reason for cancellation…"
+                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
+                  cancelRemarkError
+                    ? 'border-rose-300 focus:ring-rose-200'
+                    : 'border-gray-200 focus:ring-red-200'
+                }`}
+              />
+              {cancelRemarkError ? <p className="text-xs text-rose-700">{cancelRemarkError}</p> : null}
+              {cancelModalMode !== 'edit-remark' ? (
+                <p className="text-xs text-gray-500">
+                  This will mark the invoice as cancelled (it will stay saved for proof). The invoice number will not be reused.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="px-5 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCancelModalInv(null)}
+                className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={confirmCancelInvoice}
+                className="px-3 py-2 rounded-lg bg-rose-600 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                {cancelModalMode === 'edit-remark' ? 'Save remark' : 'Confirm cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
