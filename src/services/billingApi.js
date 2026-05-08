@@ -285,10 +285,18 @@ function textColumnOrNull(v) {
 
 /** Invoice rows may predate migration adding buyer_* — PostgREST returns schema-cache errors. */
 const OPTIONAL_INVOICE_BUYER_KEYS = ['buyer_pin', 'buyer_pincode', 'buyer_state_code'];
+// Optional cancellation columns (may not exist in older DBs).
+const OPTIONAL_INVOICE_CANCEL_KEYS = ['is_cancelled', 'cancelled_at', 'cancel_reason'];
 
 function stripOptionalBuyerInvoiceColumns(payload) {
   const next = { ...payload };
   for (const k of OPTIONAL_INVOICE_BUYER_KEYS) delete next[k];
+  return next;
+}
+
+function stripOptionalCancelInvoiceColumns(payload) {
+  const next = { ...payload };
+  for (const k of OPTIONAL_INVOICE_CANCEL_KEYS) delete next[k];
   return next;
 }
 
@@ -301,6 +309,13 @@ function isBuyerInvoiceColumnsMissingError(err) {
   const s = supabaseErrBlob(err);
   if (!s) return false;
   if (!/buyer_pin|buyer_pincode|buyer_state_code/i.test(s)) return false;
+  return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
+}
+
+function isCancelInvoiceColumnsMissingError(err) {
+  const s = supabaseErrBlob(err);
+  if (!s) return false;
+  if (!/is_cancelled|cancelled_at|cancel_reason/i.test(s)) return false;
   return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
 }
 
@@ -727,6 +742,9 @@ export async function fetchInvoices() {
     c.igstRate = inv.igst_rate != null ? Number(inv.igst_rate) : 0;
     c.igstAmt = inv.igst_amt != null ? Number(inv.igst_amt) : 0;
     c.digitalSignatureDataUrl = inv.digital_signature_data_url;
+    c.isCancelled = !!inv.is_cancelled;
+    c.cancelledAt = inv.cancelled_at || null;
+    c.cancelReason = inv.cancel_reason || null;
     c.created_at = inv.created_at;
     c.updated_at = inv.updated_at;
     c.items = linesByInv[inv.id] || [];
@@ -850,6 +868,9 @@ export async function saveInvoice(inv) {
     igst_rate: Number(inv.igstRate) || 0,
     igst_amt: Number(inv.igstAmt) || 0,
     digital_signature_data_url: inv.digitalSignatureDataUrl || null,
+    is_cancelled: !!(inv.isCancelled ?? inv.is_cancelled),
+    cancelled_at: normalizeTimestamptzOrNull(inv.cancelledAt ?? inv.cancelled_at),
+    cancel_reason: inv.cancelReason ?? inv.cancel_reason ?? null,
   });
 
   /** New row: insert without id. Existing row: upsert with id in body (onConflict=id). Avoid PATCH/update — RLS/PostgREST often returns errors on PATCH for billing.invoice. */
@@ -871,6 +892,9 @@ export async function saveInvoice(inv) {
   ({ data: saved, error: invError } = await persistInvoiceRow(payload));
   if (invError && isBuyerInvoiceColumnsMissingError(invError)) {
     ({ data: saved, error: invError } = await persistInvoiceRow(stripOptionalBuyerInvoiceColumns(payload)));
+  }
+  if (invError && isCancelInvoiceColumnsMissingError(invError)) {
+    ({ data: saved, error: invError } = await persistInvoiceRow(stripOptionalCancelInvoiceColumns(payload)));
   }
   if (invError) throw invError;
   const invoiceId = saved?.id ?? invId ?? inv.id;

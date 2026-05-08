@@ -45,6 +45,21 @@ function getNextTaxInvoiceSequence(invoices) {
   return maxSeq + 1;
 }
 
+function getLastTaxInvoiceNumberInFy(invoices) {
+  const fy = String(getFinancialYear());
+  let maxSeq = 0;
+  (Array.isArray(invoices) ? invoices : []).forEach((inv) => {
+    const raw = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim();
+    const m = raw.match(/^INV-(\d{4})-(\d{4,})$/i);
+    if (!m) return;
+    const [, year, seqText] = m;
+    if (year !== fy) return;
+    const seq = Number(seqText);
+    if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+  });
+  return maxSeq > 0 ? generateTaxInvoiceNumber(maxSeq) : null;
+}
+
 /** Proforma series — separate from INV-* tax invoice numbers (same financial year index). */
 function generateProformaInvoiceNumber(sequence) {
   const y = getFinancialYear();
@@ -206,6 +221,29 @@ function formatBillingMonth(ymd) {
   return `${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
+/** YYYY-MM-DD in local timezone for `<input type="date">` (avoids UTC off-by-one). */
+function formatLocalDateInput(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** New invoice default: today → today (local); user can adjust either date. */
+function getDefaultServicePeriodRange() {
+  const now = new Date();
+  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const ymd = formatLocalDateInput(todayLocal);
+  return { from: ymd, to: ymd };
+}
+
+/** Normalize stored/API dates to `YYYY-MM-DD` for `<input type="date">`. */
+function toDateInputValue(v) {
+  if (!v) return '';
+  const s = String(v);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
 function latestRenewalCycle(po) {
   const cycles = Array.isArray(po?.renewalCycles) ? po.renewalCycles : (Array.isArray(po?.renewal_cycles) ? po.renewal_cycles : []);
   if (!cycles.length) return null;
@@ -289,8 +327,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
   const [poPage, setPoPage] = useState(1);
-  const [servicePeriodFrom, setServicePeriodFrom] = useState('');
-  const [servicePeriodTo, setServicePeriodTo] = useState('');
+  const [servicePeriodFrom, setServicePeriodFrom] = useState(() => getDefaultServicePeriodRange().from);
+  const [servicePeriodTo, setServicePeriodTo] = useState(() => getDefaultServicePeriodRange().to);
   const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
   /** Lump sum: opt-in on this invoice to show PO Penalty column and Rate = (Actual÷Auth)×PO rate − Penalty (PO-level penalty mode forces this on). */
@@ -1136,6 +1174,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       (invoiceDocumentKind === 'proforma'
         ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
         : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices)));
+    const lastInvSeries = getLastTaxInvoiceNumberInFy(invoices);
     const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
     const billingDurationStr =
       displayPO.startDate || displayPO.start_date
@@ -1149,6 +1188,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       null;
     return {
       taxInvoiceNumber: docNo,
+      lastInvoiceSeries: lastInvSeries,
       billingMonthStr,
       billingDurationStr,
       remarksLine,
@@ -1197,34 +1237,32 @@ const CreateInvoice = ({ onNavigateTab }) => {
     [invoices, viewInvoiceId]
   );
 
-  const toDateInputValue = (v) => {
-    if (!v) return '';
-    const s = String(v);
-    // Handles "YYYY-MM-DD" and ISO like "YYYY-MM-DDTHH:mm:ssZ"
-    return s.length >= 10 ? s.slice(0, 10) : s;
-  };
-
-  // Service period is manually editable in Create/Edit.
+  // Service period is manually editable in Create/Edit. New invoices default both dates to today (local).
   useEffect(() => {
     if (!displayPO) return;
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
-    const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
-    const from =
-      existing?.billingDurationFrom ||
-      existing?.billing_duration_from ||
-      displayPO.startDate ||
-      displayPO.start_date ||
-      '';
-    const to =
-      existing?.billingDurationTo ||
-      existing?.billing_duration_to ||
-      displayPO.endDate ||
-      displayPO.end_date ||
-      '';
-    setServicePeriodFrom(toDateInputValue(from));
-    setServicePeriodTo(toDateInputValue(to));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayPO?.id, invoiceDraft?.mode, invoiceDraft?.invoiceId]);
+    if (isEdit) {
+      if (!editingInvoice) return;
+      const from =
+        editingInvoice.billingDurationFrom ||
+        editingInvoice.billing_duration_from ||
+        displayPO.startDate ||
+        displayPO.start_date ||
+        '';
+      const to =
+        editingInvoice.billingDurationTo ||
+        editingInvoice.billing_duration_to ||
+        displayPO.endDate ||
+        displayPO.end_date ||
+        '';
+      setServicePeriodFrom(toDateInputValue(from));
+      setServicePeriodTo(toDateInputValue(to));
+      return;
+    }
+    const { from, to } = getDefaultServicePeriodRange();
+    setServicePeriodFrom(from);
+    setServicePeriodTo(to);
+  }, [displayPO, invoiceDraft?.mode, invoiceDraft?.invoiceId, editingInvoice]);
 
   const buildInvoiceForPreview = () => {
     if (!displayPO || !canSave) return null;
@@ -1862,6 +1900,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   {invoiceDraft?.mode === 'edit' ? 'Edit' : 'Create'} invoice — {displayPO.siteId || '–'}
                 </h3>
                 <p className="text-xs text-gray-500 truncate">{displayPO.locationName || displayPO.legalName || '–'}</p>
+                {invoiceDraft?.mode !== 'edit' && previewBillMeta?.lastInvoiceSeries ? (
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    Last tax invoice series: <span className="font-mono font-semibold text-gray-700">{previewBillMeta.lastInvoiceSeries}</span>
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-end gap-3 shrink-0">
                 <div className="flex flex-col gap-0.5">

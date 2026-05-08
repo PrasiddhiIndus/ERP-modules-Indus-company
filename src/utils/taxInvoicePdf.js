@@ -411,8 +411,18 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   if (logoDataUrl && typeof logoDataUrl === 'string' && logoDataUrl.startsWith('data:image/')) {
     try {
       const fmt = logoDataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      // Keep a light padding so the full mark fits cleanly.
       const lp = Math.min(1.1, logoBox.w * 0.05);
-      doc.addImage(logoDataUrl, fmt, logoBox.x + lp, logoBox.y + lp, logoBox.w - 2 * lp, logoBox.h - 2 * lp, undefined, 'FAST');
+      doc.addImage(
+        logoDataUrl,
+        fmt,
+        logoBox.x + lp,
+        logoBox.y + lp,
+        logoBox.w - 2 * lp,
+        logoBox.h - 2 * lp,
+        undefined,
+        'FAST'
+      );
       logoPlaced = true;
     } catch {
       /* fallback below */

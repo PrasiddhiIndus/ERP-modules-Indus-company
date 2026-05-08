@@ -5,15 +5,12 @@ import {
   FileCheck,
   Receipt,
   FileDigit,
-  BarChart3,
   Bell,
   LayoutDashboard,
   Wallet,
-  Send,
   FilePlus2,
   AlertTriangle,
   RefreshCw,
-  Route,
   Sparkles,
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
@@ -211,17 +208,6 @@ const BillingDashboard = ({ onNavigateTab }) => {
     slate: { cardBg: 'from-slate-100/80 to-white', iconBg: 'bg-slate-200', iconColor: 'text-slate-700', keyColor: 'text-slate-700' },
   };
 
-  const quickActions = [
-    { id: 'create-invoice', label: 'Create Invoice', icon: FileText, border: 'border-red-200', bg: 'bg-red-50/50 hover:bg-red-50', iconWrap: 'bg-red-100 text-red-600' },
-    { id: 'add-on-invoices', label: 'Add-On Invoices', icon: FilePlus2, border: 'border-violet-200', bg: 'bg-violet-50/50 hover:bg-violet-50', iconWrap: 'bg-violet-100 text-violet-600' },
-    { id: 'manage-invoices', label: 'Manage Invoices', icon: Send, border: 'border-slate-200', bg: 'bg-slate-50/50 hover:bg-slate-100', iconWrap: 'bg-slate-200 text-slate-600' },
-    { id: 'credit-notes', label: 'Credit / Debit Notes', icon: Receipt, border: 'border-amber-200', bg: 'bg-amber-50/50 hover:bg-amber-50', iconWrap: 'bg-amber-100 text-amber-600' },
-    { id: 'generated-e-invoice', label: 'Generated E-Invoice', icon: FileDigit, border: 'border-emerald-200', bg: 'bg-emerald-50/50 hover:bg-emerald-50', iconWrap: 'bg-emerald-100 text-emerald-600' },
-    { id: 'reports', label: 'Reports', icon: BarChart3, border: 'border-indigo-200', bg: 'bg-indigo-50/50 hover:bg-indigo-50', iconWrap: 'bg-indigo-100 text-indigo-600' },
-    { id: 'tracking', label: 'Tracking', icon: Route, border: 'border-cyan-200', bg: 'bg-cyan-50/50 hover:bg-cyan-50', iconWrap: 'bg-cyan-100 text-cyan-600' },
-    { id: 'notifications', label: 'Notifications', icon: Bell, border: 'border-orange-200', bg: 'bg-orange-50/50 hover:bg-orange-50', iconWrap: 'bg-orange-100 text-orange-600', badge: notificationCount },
-  ];
-
   const handleRefreshDashboard = async () => {
     if (isRefreshing) return;
     try {
@@ -408,34 +394,6 @@ const BillingDashboard = ({ onNavigateTab }) => {
             </div>
           );
         })}
-      </div>
-
-      <div className="max-w-6xl mx-auto rounded-2xl border border-slate-200 bg-white/90 shadow-sm p-4 sm:p-5">
-        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Quick actions</h2>
-        <p className="text-xs text-gray-500 mb-4">Click any action to open the relevant billing page.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-          {quickActions.map((qa) => {
-            const Icon = qa.icon;
-            return (
-              <button
-                key={qa.id}
-                type="button"
-                onClick={() => onNavigateTab && onNavigateTab(qa.id)}
-                className={`relative h-full min-h-[68px] flex items-center gap-3 p-3.5 rounded-xl border ${qa.border} ${qa.bg} transition-colors text-left`}
-              >
-                <div className={`p-2 rounded-lg ${qa.iconWrap}`}>
-                  <Icon className="w-5 h-5" />
-                </div>
-                <span className="font-semibold text-gray-900 text-sm leading-5 pr-6">{qa.label}</span>
-                {qa.badge > 0 ? (
-                  <span className="absolute top-3 right-3 flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-xs font-medium bg-orange-600 text-white">
-                    {qa.badge}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {billingError ? (

@@ -192,8 +192,12 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
       >
         <div className="px-[28px] pt-4 pb-3">
           <div className="flex items-start gap-3">
-            <div className="h-16 w-16 rounded-full border border-[#8ea2c0] bg-white overflow-hidden shrink-0 grid place-items-center p-1">
-              <img src={INDUS_LOGO_SRC} alt="IFS logo" className="h-full w-full object-contain" />
+            <div className="h-16 w-16 rounded-full bg-white overflow-hidden shrink-0">
+              <img
+                src={INDUS_LOGO_SRC}
+                alt="IFS logo"
+                className="h-full w-full object-contain"
+              />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-[15px] font-bold uppercase tracking-[0.3px] text-[#1a3a6c]">{COMPANY_DISPLAY_NAME}</p>
