@@ -255,6 +255,8 @@ export const INVOICE_LETTERHEAD_STRIP_COLOR = '#800000';
  */
 export function getInvoiceTotals(inv) {
   const items = Array.isArray(inv.items) ? inv.items : [];
+  const invoiceKind = String(inv.invoiceKind || inv.invoice_kind || '').toLowerCase();
+  const forceItemTotals = (invoiceKind === 'credit_note' || invoiceKind === 'debit_note') && items.length > 0;
   const gstMode = normalizeGstSupplyType(inv.gstSupplyType ?? inv.gst_supply_type);
   let taxableValue = Number(inv.taxableValue);
   let cgstRate = Number(inv.cgstRate) || 9;
@@ -265,7 +267,7 @@ export function getInvoiceTotals(inv) {
   let igstAmt = Number(inv.igstAmt);
   const sumItems = round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0));
 
-  if (!Number.isFinite(taxableValue) || taxableValue === 0) {
+  if (forceItemTotals || !Number.isFinite(taxableValue) || taxableValue === 0) {
     taxableValue = sumItems;
   }
 
@@ -278,13 +280,13 @@ export function getInvoiceTotals(inv) {
     cgstAmt = 0;
     sgstAmt = 0;
     if (!igstRate || igstRate === 0) igstRate = 18;
-    if (!Number.isFinite(igstAmt) || igstAmt === 0) {
+    if (forceItemTotals || !Number.isFinite(igstAmt) || igstAmt === 0) {
       igstAmt = round2((taxableValue * igstRate) / 100);
     }
   } else {
     const hasPositiveStored =
       (Number.isFinite(cgstAmt) && cgstAmt > 0) || (Number.isFinite(sgstAmt) && sgstAmt > 0);
-    if (taxableValue > 0 && !hasPositiveStored) {
+    if (forceItemTotals || (taxableValue > 0 && !hasPositiveStored)) {
       cgstAmt = round2((taxableValue * cgstRate) / 100);
       sgstAmt = round2((taxableValue * sgstRate) / 100);
     } else {
