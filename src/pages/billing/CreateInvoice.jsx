@@ -86,7 +86,6 @@ const APPROVAL_STATUS_SENT = 'sent_for_approval';
 const APPROVAL_STATUS_APPROVED = 'approved';
 
 const PO_TABLE_PAGE_SIZE = 8;
-const FT_ON_RENT_DESCRIPTION = 'FT ON RENT';
 const BILLING_TABS_MANPOWER = [
   { id: 'Per Day', label: 'Daily' },
   { id: 'Monthly', label: 'Monthly' },
@@ -138,25 +137,6 @@ function computeDutyRatioQty(actualDuty, authorizedDuty) {
   const auth = safeNumber(authorizedDuty);
   if (act <= 0 || auth <= 0) return 0;
   return round3(act / auth);
-}
-
-function createFtOnRentGeometryRow(hsnSac, authorizedDuty) {
-  return {
-    description: FT_ON_RENT_DESCRIPTION,
-    hsnSac,
-    isTruckLine: false,
-    isFtOnRentLine: true,
-    geometryEnabled: true,
-    poQty: 1,
-    poReferenceRate: 0,
-    poLinePenalty: 0,
-    actualDuty: 0,
-    authorizedDuty,
-    numberOfMonths: 1,
-    quantity: 0,
-    rate: 0,
-    amount: 0,
-  };
 }
 
 /** Lump sum PO lines: Rate = (actual/auth)×PO rate [− category penalty if penalty mode]. */
@@ -702,7 +682,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
             i.is_lump_sum_supplementary_line ??
             i.is_lump_sum_supplementary
           );
-          const isFtOnRentLine = editIsLump && !isTruck && desc.toUpperCase() === FT_ON_RENT_DESCRIPTION;
           const looksConsolidatedLump =
             editIsLump &&
             /^lump sum billing \(geometry consolidated\)$/i.test(desc) &&
@@ -745,18 +724,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
             const poQ = i.poQty != null ? Number(i.poQty) : 0;
             const act = actD ?? 0;
             const auth = authD ?? daysInMonth(editInvDate);
-            if (isFtOnRentLine) {
-              quantity = computeDutyRatioQty(act, auth);
-              lineRate = 0;
-              amount = round2(Number(i.amount) || 0);
-            } else {
-              const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editSubtractPenalty);
-              quantity = editMonthsGeometryMode
-                ? computeArrivedQtyByMonths(poQ, act, auth, numberOfMonths)
-                : computeArrivedQty(poQ, act, auth);
-              lineRate = eff;
-              amount = round2(quantity * eff);
-            }
+            const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editSubtractPenalty);
+            quantity = editMonthsGeometryMode
+              ? computeArrivedQtyByMonths(poQ, act, auth, numberOfMonths)
+              : computeArrivedQty(poQ, act, auth);
+            lineRate = eff;
+            amount = round2(quantity * eff);
           }
           if (editIsLump && !isTruck && isSavedSupplementary) {
             amount = round2(qty * rate);
@@ -765,7 +738,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
             description: i.description || i.designation || '',
             hsnSac: i.hsnSac || editingInvoice.hsnSac || '',
             isTruckLine: isTruck,
-            isFtOnRentLine,
             isLumpSumSupplementaryLine: isSavedSupplementary || false,
             geometryEnabled,
             poQty: i.poQty != null ? Number(i.poQty) : undefined,
@@ -818,11 +790,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
           amount: 0,
         };
       });
-      const ftOnRentRow = createFtOnRentGeometryRow(hsnSac, authDutyDefault);
-      const hasFtOnRentRow = nextRows.some((row) => String(row.description || '').trim().toUpperCase() === FT_ON_RENT_DESCRIPTION);
       setItems(
         nextRows.length
-          ? hasFtOnRentRow ? nextRows : [...nextRows, ftOnRentRow]
+          ? nextRows
           : [
               {
                 description: 'Other',
@@ -839,7 +809,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 rate: 0,
                 amount: 0,
               },
-              ftOnRentRow,
             ]
       );
       return;
@@ -929,13 +898,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
           return next;
         }
 
-        if (isLumpSumBilling && next.geometryEnabled && next.isFtOnRentLine) {
-          next.quantity = computeDutyRatioQty(actualDuty, authorizedDuty);
-          next.rate = 0;
-          next.amount = round2(safeNumber(next.amount));
-          return next;
-        }
-
         if (isLumpSumBilling && next.geometryEnabled) {
           const poRef = safeNumber(next.poReferenceRate);
           const pen = safeNumber(next.poLinePenalty);
@@ -972,14 +934,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
     setItems((prev) =>
       prev.map((it) => {
         if (it.isTruckLine || !it.geometryEnabled) return it;
-        if (it.isFtOnRentLine) {
-          return {
-            ...it,
-            quantity: computeDutyRatioQty(it.actualDuty, it.authorizedDuty),
-            rate: 0,
-            amount: round2(safeNumber(it.amount)),
-          };
-        }
         const poRef = safeNumber(it.poReferenceRate);
         const pen = safeNumber(it.poLinePenalty);
         const actualDuty = safeNumber(it.actualDuty);
@@ -2084,9 +2038,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <div key={`geo-row-${rowIdx}`} className="grid grid-cols-1 gap-2 rounded border border-amber-100 bg-amber-50/30 p-2 md:grid-cols-6">
                               <div className="text-xs text-gray-700 md:col-span-2">
                                 <div className="font-medium text-gray-900 truncate" title={row.description || ''}>{row.description || `Line ${rowIdx + 1}`}</div>
-                                {!row.isFtOnRentLine ? (
-                                  <div className="text-[11px] text-gray-500">PO rate: ₹{safeNumber(row.poReferenceRate).toLocaleString('en-IN')}</div>
-                                ) : null}
+                                <div className="text-[11px] text-gray-500">PO rate: ₹{safeNumber(row.poReferenceRate).toLocaleString('en-IN')}</div>
                               </div>
                               <label className="text-[11px] text-gray-700">
                                 Actual
@@ -2116,20 +2068,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               </div>
                               <div className="text-[11px] text-gray-700">
                                 Amount
-                                {row.isFtOnRentLine ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    value={row.amount ?? 0}
-                                    onChange={(e) => updateItem(rowIdx, { amount: e.target.value, geometryEnabled: true })}
-                                    className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-center bg-white"
-                                    step="0.01"
-                                  />
-                                ) : (
-                                  <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
-                                    ₹{round2(row.amount).toLocaleString('en-IN')}
-                                  </div>
-                                )}
+                                <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                  ₹{round2(row.amount).toLocaleString('en-IN')}
+                                </div>
                               </div>
                             </div>
                             )
