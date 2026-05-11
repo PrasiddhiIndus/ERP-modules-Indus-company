@@ -20,6 +20,11 @@ const COMPANY_DISPLAY_NAME = 'INDUS FIRE SAFETY PRIVATE LIMITED';
 const GST_RULE_LINE = 'Rule 46, Section 31 of GST Act - 2017';
 const DEFAULT_UDHYAM_REG_NO = 'UDYAM-GJ-24-0001805';
 const DEFAULT_SELLER_CIN = 'U29193GJ2012PTC070236';
+const invoiceBlueHeaderTextStyle = {
+  color: '#ffffff',
+  WebkitTextFillColor: '#ffffff',
+  opacity: 1,
+};
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -331,15 +336,15 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
         <div className="px-[28px] pt-2 space-y-0">
           <table className="w-full border-collapse border border-[#bbb] text-[8.5px]">
             <thead>
-              <tr className="bg-[#1a3a6c] text-white">
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">SR No.</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-left font-bold text-white leading-tight w-[39%]">Description of Goods</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]">HSN/SAC</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">Qty</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]">Rate ({PDF_RS})</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">UOM</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]">Disc.%</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[15%]">Amount ({PDF_RS})</th>
+              <tr className="bg-[#1a3a6c] text-white" style={invoiceBlueHeaderTextStyle}>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>SR No.</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-left font-bold text-white leading-tight w-[39%]" style={invoiceBlueHeaderTextStyle}>Description of Goods</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>HSN/SAC</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Qty</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]" style={invoiceBlueHeaderTextStyle}>Rate ({PDF_RS})</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>UOM</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Disc.%</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[15%]" style={invoiceBlueHeaderTextStyle}>Amount ({PDF_RS})</th>
               </tr>
             </thead>
             <tbody>
