@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  CalendarDays,
   FileText,
   FileCheck,
   Receipt,
@@ -29,10 +30,92 @@ function cnDnStatus(inv) {
   return inv.cnDnRequestStatus || inv.cn_dn_request_status || null;
 }
 
+function formatDateInputValue(date) {
+  const d = date instanceof Date ? new Date(date) : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getAllDashboardDateRange() {
+  return { from: '', to: '' };
+}
+
+function getThisMonthDateRange() {
+  const today = new Date();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  return {
+    from: formatDateInputValue(monthStart),
+    to: formatDateInputValue(today),
+  };
+}
+
+function isDashboardRangeActive(range) {
+  return !!(range?.from || range?.to);
+}
+
+function startOfDay(raw) {
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getInvoiceDate(inv) {
+  return inv?.invoiceDate || inv?.invoice_date || inv?.created_at || inv?.createdAt || '';
+}
+
+function getNoteDate(note) {
+  return note?.created_at || note?.createdAt || note?.noteDate || '';
+}
+
+function isDateInRange(rawDate, range) {
+  if (!isDashboardRangeActive(range)) return true;
+  const d = startOfDay(rawDate);
+  const from = startOfDay(range?.from);
+  const to = startOfDay(range?.to);
+  if (!d) return false;
+  if (from && !to) return d >= from;
+  if (!from && to) return d <= to;
+  const start = from <= to ? from : to;
+  const end = from <= to ? to : from;
+  return d >= start && d <= end;
+}
+
+function poOverlapsRange(po, range) {
+  if (!isDashboardRangeActive(range)) return true;
+  const rangeFrom = startOfDay(range?.from);
+  const rangeTo = startOfDay(range?.to);
+  const poStart = startOfDay(po.startDate || po.start_date || po.created_at || po.createdAt);
+  const poEnd = startOfDay(po.endDate || po.end_date || poStart);
+  if (!poStart && !poEnd) return false;
+  const start = poStart || poEnd;
+  const end = poEnd || poStart;
+  if (rangeFrom && !rangeTo) return end >= rangeFrom;
+  if (!rangeFrom && rangeTo) return start <= rangeTo;
+  const rangeStart = rangeFrom <= rangeTo ? rangeFrom : rangeTo;
+  const rangeEnd = rangeFrom <= rangeTo ? rangeTo : rangeFrom;
+  return start <= rangeEnd && end >= rangeStart;
+}
+
+function formatRangeLabel(range) {
+  const from = startOfDay(range?.from);
+  const to = startOfDay(range?.to);
+  if (!from && !to) return 'All dates';
+  if (from && !to) return `From ${from.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  if (!from && to) return `Until ${to.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  return `${from.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - ${to.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+}
+
 const BillingDashboard = ({ onNavigateTab }) => {
   const { commercialPOs, invoices, creditDebitNotes, paymentAdvice, billingError, clearBillingError, refreshBilling, billingVerticalFilter } =
     useBilling();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRangeOpen, setIsRangeOpen] = useState(false);
+  const [dateRange, setDateRange] = useState(getAllDashboardDateRange);
 
   const verticalNotSelected = !billingVerticalFilter;
 
@@ -42,8 +125,33 @@ const BillingDashboard = ({ onNavigateTab }) => {
     return d;
   }, []);
 
-  const taxInvoices = useMemo(() => (invoices || []).filter((inv) => !inv.isAddOn), [invoices]);
-  const addOnInvoicesList = useMemo(() => (invoices || []).filter((inv) => !!inv.isAddOn), [invoices]);
+  const invoicesInRange = useMemo(
+    () => (invoices || []).filter((inv) => isDateInRange(getInvoiceDate(inv), dateRange)),
+    [invoices, dateRange]
+  );
+
+  const creditDebitNotesInRange = useMemo(
+    () => (creditDebitNotes || []).filter((note) => isDateInRange(getNoteDate(note), dateRange)),
+    [creditDebitNotes, dateRange]
+  );
+
+  const commercialPOsInRange = useMemo(
+    () => (commercialPOs || []).filter((po) => poOverlapsRange(po, dateRange)),
+    [commercialPOs, dateRange]
+  );
+
+  const paymentAdviceInRange = useMemo(() => {
+    const invoiceById = new Map((invoices || []).map((inv) => [String(inv.id), inv]));
+    return Object.fromEntries(
+      Object.entries(paymentAdvice || {}).filter(([invoiceId, pa]) => {
+        const inv = invoiceById.get(String(invoiceId));
+        return isDateInRange(pa?.paReceivedDate, dateRange) || isDateInRange(getInvoiceDate(inv), dateRange);
+      })
+    );
+  }, [invoices, paymentAdvice, dateRange]);
+
+  const taxInvoices = useMemo(() => invoicesInRange.filter((inv) => !inv.isAddOn), [invoicesInRange]);
+  const addOnInvoicesList = useMemo(() => invoicesInRange.filter((inv) => !!inv.isAddOn), [invoicesInRange]);
 
   const invoicingTaxStats = useMemo(() => {
     const total = taxInvoices.length;
@@ -68,15 +176,15 @@ const BillingDashboard = ({ onNavigateTab }) => {
   }, [addOnInvoicesList]);
 
   const poMonitorStats = useMemo(() => {
-    const active = commercialPOs.filter((p) => p.status === 'active' && p.endDate && new Date(p.endDate) >= today);
+    const active = commercialPOsInRange.filter((p) => p.status === 'active' && p.endDate && new Date(p.endDate) >= today);
     const nearingExpiry = active.filter((p) => {
       const end = new Date(p.endDate);
       end.setHours(0, 0, 0, 0);
       const daysLeft = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
       return daysLeft <= 30 && daysLeft >= 0;
     });
-    const pendingRenewal = commercialPOs.filter((p) => p.renewalPending);
-    const postContractWindow = commercialPOs.filter(
+    const pendingRenewal = commercialPOsInRange.filter((p) => p.renewalPending);
+    const postContractWindow = commercialPOsInRange.filter(
       (p) =>
         !p.isSupplementary &&
         (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
@@ -88,31 +196,31 @@ const BillingDashboard = ({ onNavigateTab }) => {
       pendingRenewal: pendingRenewal.length,
       postContractBillingOCs: postContractWindow.length,
     };
-  }, [commercialPOs, today]);
+  }, [commercialPOsInRange, today]);
 
   const cnDnStats = useMemo(() => {
-    const credit = (creditDebitNotes || []).filter((n) => n.type === 'credit').length;
-    const debit = (creditDebitNotes || []).filter((n) => n.type === 'debit').length;
-    const pendingApproval = (invoices || []).filter((inv) => cnDnStatus(inv) === 'pending').length;
-    const approvedToIssue = (invoices || []).filter((inv) => cnDnStatus(inv) === 'approved').length;
+    const credit = creditDebitNotesInRange.filter((n) => n.type === 'credit').length;
+    const debit = creditDebitNotesInRange.filter((n) => n.type === 'debit').length;
+    const pendingApproval = invoicesInRange.filter((inv) => cnDnStatus(inv) === 'pending').length;
+    const approvedToIssue = invoicesInRange.filter((inv) => cnDnStatus(inv) === 'approved').length;
     return { credit, debit, pendingApproval, approvedToIssue };
-  }, [creditDebitNotes, invoices]);
+  }, [creditDebitNotesInRange, invoicesInRange]);
 
   const complianceStats = useMemo(() => {
-    const generated = (invoices || []).filter((inv) => inv.e_invoice_irn || inv.eInvoiceIrn).length;
-    const pending = (invoices || []).length - generated;
+    const generated = invoicesInRange.filter((inv) => inv.e_invoice_irn || inv.eInvoiceIrn).length;
+    const pending = invoicesInRange.length - generated;
     return { eInvoicesGenerated: generated, eInvoicesPending: Math.max(0, pending) };
-  }, [invoices]);
+  }, [invoicesInRange]);
 
   const leakageStats = useMemo(() => {
-    const totalPenalties = Object.values(paymentAdvice || {}).reduce(
+    const totalPenalties = Object.values(paymentAdviceInRange || {}).reduce(
       (s, pa) => s + (Number(pa.penaltyDeductionAmount) || 0),
       0
     );
-    const lessBilling = (invoices || []).filter((inv) => (inv.lessMoreBilling || 0) < 0).length;
-    const moreBilling = (invoices || []).filter((inv) => (inv.lessMoreBilling || 0) > 0).length;
+    const lessBilling = invoicesInRange.filter((inv) => (inv.lessMoreBilling || 0) < 0).length;
+    const moreBilling = invoicesInRange.filter((inv) => (inv.lessMoreBilling || 0) > 0).length;
     return { totalPenalties, lessBilling, moreBilling };
-  }, [invoices, paymentAdvice]);
+  }, [invoicesInRange, paymentAdviceInRange]);
 
   const notificationCount = useMemo(() => {
     return poMonitorStats.nearingExpiry + complianceStats.eInvoicesPending;
@@ -218,6 +326,10 @@ const BillingDashboard = ({ onNavigateTab }) => {
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  const handleDateRangeChange = (field, value) => {
+    setDateRange((prev) => ({ ...prev, [field]: value }));
   };
 
   return (
@@ -336,16 +448,81 @@ const BillingDashboard = ({ onNavigateTab }) => {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleRefreshDashboard}
-            disabled={isRefreshing}
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-            title="Refresh billing dashboard"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsRangeOpen((open) => !open)}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                title="Select dashboard date range"
+              >
+                <CalendarDays className="w-4 h-4 text-red-600" />
+                <span className="hidden sm:inline">{formatRangeLabel(dateRange)}</span>
+              </button>
+              {isRangeOpen ? (
+                <div className="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+                  <div className="mb-3 flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4 text-red-600" />
+                    <p className="text-sm font-semibold text-gray-900">Dashboard Date Range</p>
+                  </div>
+                  <div className="space-y-3">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-gray-600">From</span>
+                      <input
+                        type="date"
+                        value={dateRange.from}
+                        onChange={(e) => handleDateRangeChange('from', e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-gray-600">To</span>
+                      <input
+                        type="date"
+                        value={dateRange.to}
+                        onChange={(e) => handleDateRangeChange('to', e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-4 flex flex-wrap justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDateRange(getAllDashboardDateRange())}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      All dates
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDateRange(getThisMonthDateRange())}
+                      className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      This month
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsRangeOpen(false)}
+                      className="rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRefreshDashboard}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              title="Refresh billing dashboard"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
       </div>
 

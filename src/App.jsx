@@ -396,6 +396,11 @@ function App() {
             <Route path="billing/generated-e-invoice" element={<Billing />} />
             <Route path="billing/credit-notes" element={<Billing />} />
             <Route path="billing/reports" element={<Billing />} />
+            <Route path="billing/reports/outstanding-debtors" element={<Billing />} />
+            <Route path="billing/reports/gap-report" element={<Billing />} />
+            <Route path="billing/reports/deduction-analysis" element={<Billing />} />
+            <Route path="billing/reports/less-billed-sites" element={<Billing />} />
+            <Route path="billing/reports/billing-delay" element={<Billing />} />
             <Route path="billing/tracking" element={<Billing />} />
             <Route path="billing/tracking/pa-worklist" element={<Billing />} />
             <Route path="billing/tracking/penalty-logs" element={<Billing />} />
