@@ -27,10 +27,7 @@ const BillingVerticalSelector = ({ billingVerticalFilter, setBillingVerticalFilt
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-3">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-gray-900">Team-wise billing</p>
-        <p className="text-xs text-gray-500">
-          Select a vertical to load POs, invoices, reports and notifications. After selecting, use Create Invoice or Add-On Invoices to raise a{' '}
-          <span className="font-medium text-gray-700">tax</span> or <span className="font-medium text-gray-700">proforma</span> document (Manpower, Training, R&amp;M, M&amp;M, AMC, IEV, projects/lump-sum/trucks, etc.).
-        </p>
+        <p className="text-xs text-gray-500">Select a billing category to manage invoices, reports, and alerts.</p>
       </div>
       <div className="flex-1" />
       <div className="flex items-center gap-2">

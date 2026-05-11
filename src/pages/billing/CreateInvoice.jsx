@@ -45,6 +45,21 @@ function getNextTaxInvoiceSequence(invoices) {
   return maxSeq + 1;
 }
 
+function getLastTaxInvoiceNumberInFy(invoices) {
+  const fy = String(getFinancialYear());
+  let maxSeq = 0;
+  (Array.isArray(invoices) ? invoices : []).forEach((inv) => {
+    const raw = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim();
+    const m = raw.match(/^INV-(\d{4})-(\d{4,})$/i);
+    if (!m) return;
+    const [, year, seqText] = m;
+    if (year !== fy) return;
+    const seq = Number(seqText);
+    if (Number.isFinite(seq) && seq > maxSeq) maxSeq = seq;
+  });
+  return maxSeq > 0 ? generateTaxInvoiceNumber(maxSeq) : null;
+}
+
 /** Proforma series — separate from INV-* tax invoice numbers (same financial year index). */
 function generateProformaInvoiceNumber(sequence) {
   const y = getFinancialYear();
@@ -124,14 +139,11 @@ function computeDutyRatioQty(actualDuty, authorizedDuty) {
   return round3(act / auth);
 }
 
-/** Lump sum PO lines: Rate = (actual/auth)×PO rate [− category penalty if penalty mode]. */
+/** Lump sum PO lines: Qty carries duty ratio; Rate stays PO rate [− category penalty if enabled]. */
 function computeLumpSumEffectiveRate(poRate, actualDuty, authorizedDuty, categoryPenalty, subtractPenalty) {
   const pr = safeNumber(poRate);
-  const act = safeNumber(actualDuty);
-  const auth = safeNumber(authorizedDuty);
-  if (pr <= 0 || act <= 0 || auth <= 0) return 0;
-  const ratio = act / auth;
-  let r = round2(pr * ratio);
+  if (pr <= 0) return 0;
+  let r = round2(pr);
   if (subtractPenalty) {
     r = round2(Math.max(0, r - safeNumber(categoryPenalty)));
   }
@@ -204,6 +216,29 @@ function formatBillingMonth(ymd) {
   if (Number.isNaN(d.getTime())) return null;
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${months[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+/** YYYY-MM-DD in local timezone for `<input type="date">` (avoids UTC off-by-one). */
+function formatLocalDateInput(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** New invoice default: today → today (local); user can adjust either date. */
+function getDefaultServicePeriodRange() {
+  const now = new Date();
+  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const ymd = formatLocalDateInput(todayLocal);
+  return { from: ymd, to: ymd };
+}
+
+/** Normalize stored/API dates to `YYYY-MM-DD` for `<input type="date">`. */
+function toDateInputValue(v) {
+  if (!v) return '';
+  const s = String(v);
+  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
 function latestRenewalCycle(po) {
@@ -289,12 +324,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
   const [poPage, setPoPage] = useState(1);
-  const [servicePeriodFrom, setServicePeriodFrom] = useState('');
-  const [servicePeriodTo, setServicePeriodTo] = useState('');
+  const [servicePeriodFrom, setServicePeriodFrom] = useState(() => getDefaultServicePeriodRange().from);
+  const [servicePeriodTo, setServicePeriodTo] = useState(() => getDefaultServicePeriodRange().to);
   const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
-  /** Lump sum: opt-in on this invoice to show PO Penalty column and Rate = (Actual÷Auth)×PO rate − Penalty (PO-level penalty mode forces this on). */
+  /** Lump sum: opt-in on this invoice to show PO Penalty column and use Rate = PO rate − Penalty (PO-level penalty mode forces this on). */
   const [lumpSumInvoicePenaltyGeometry, setLumpSumInvoicePenaltyGeometry] = useState(false);
+  /** consolidated = final invoice shows one cumulative geometry line; detailed = final invoice shows every geometry line item. */
+  const [lumpSumInvoicePreviewMode, setLumpSumInvoicePreviewMode] = useState('consolidated');
+  const [lumpSumConsolidatedLineDraft, setLumpSumConsolidatedLineDraft] = useState({
+    description: null,
+    quantity: '',
+    rate: '',
+  });
   const [poBillingTab, setPoBillingTab] = useState('Monthly');
   const [createMainTab, setCreateMainTab] = useState('select-po');
   /** tax | proforma — stored as billing.invoice.invoice_kind; all verticals (Manpower, Training, R&M, M&M, AMC, IEV, trucks / lump-sum, etc.) */
@@ -591,9 +633,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const lumpSumTruckActive = lumpSumBillingMode === 'truck';
   const lumpSumSubtractPenaltyInRate = lumpSumPenaltyActive || lumpSumInvoicePenaltyGeometry;
   /**
-   * Lump sum invoice table behavior:
-   * - Default: show one cumulative (geometry consolidated) line + supplementary/truck lines.
-   * - Truck-mode POs keep the legacy multi-row layout unless duty-geometry (penalty column) is enabled on this invoice.
+   * Lump sum entry-table behavior:
+   * Geometry rows stay as calculation source and are already represented as one
+   * entry line, with supplementary/truck rows below it. The separate main
+   * preview toggle only controls whether these entry lines are cumulated in the
+   * live invoice preview/save.
    */
   const lumpSumSingleInvoiceTableMode =
     isLumpSumBilling && (!lumpSumTruckActive || lumpSumSubtractPenaltyInRate);
@@ -608,6 +652,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
   useEffect(() => {
     if (invoiceDraft?.mode === 'edit') return;
     setLumpSumInvoicePenaltyGeometry(false);
+    setLumpSumConsolidatedLineDraft({ description: null, quantity: '', rate: '' });
+    setLumpSumInvoicePreviewMode(
+      String(selectedPO?.lumpSumBillingMode || selectedPO?.lump_sum_billing_mode || '').trim().toLowerCase() === 'truck'
+        ? 'detailed'
+        : 'consolidated'
+    );
   }, [selectedPO?.id, invoiceDraft?.mode]);
 
   useEffect(() => {
@@ -628,7 +678,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
         editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'months_geometry';
       const editInvDate = editingInvoice.invoiceDate || editingInvoice.invoice_date || today;
       const editAnyPenaltySaved = (editingInvoice.items || []).some((it) => safeNumber(it.penalty) > 0);
+      const editHasConsolidatedLump = (editingInvoice.items || []).some((it) =>
+        /^lump sum billing \((geometry|invoice) consolidated\)$/i.test((it.description || it.designation || '').trim())
+      );
       setLumpSumInvoicePenaltyGeometry(editIsLump && !editPenaltyMode && editAnyPenaltySaved);
+      setLumpSumInvoicePreviewMode(
+        editIsLump && (editingInvoice.lumpSumInvoicePreviewMode || editingInvoice.lump_sum_invoice_preview_mode)
+          ? editingInvoice.lumpSumInvoicePreviewMode || editingInvoice.lump_sum_invoice_preview_mode
+          : editIsLump && !editHasConsolidatedLump
+            ? 'detailed'
+            : 'consolidated'
+      );
       setItems(
         (editingInvoice.items || []).map((i) => {
           const isTruck = !!i.isTruckLine;
@@ -1052,17 +1112,26 @@ const CreateInvoice = ({ onNavigateTab }) => {
     });
   };
 
-  const taxableValue = useMemo(() => round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0)), [items]);
+  const updateLumpSumConsolidatedLine = (patch) => {
+    setLumpSumConsolidatedLineDraft((prev) => ({ ...prev, ...patch }));
+  };
+
+  const cumulateLumpSumInvoiceLines = isLumpSumBilling && lumpSumInvoicePreviewMode === 'consolidated';
   const consolidatedLumpSumLine = useMemo(() => {
     if (!lumpSumSingleInvoiceTableMode) return null;
     const geometryRows = items.filter((it) => !it.isTruckLine && it.geometryEnabled);
     if (!geometryRows.length) return null;
-    const qty = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0));
-    const amount = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
+    const geometryQty = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0));
+    const geometryAmount = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
     const penalty = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0));
-    const rate = qty > 0 ? round2(amount / qty) : 0;
+    const qty = lumpSumConsolidatedLineDraft.quantity === '' ? 1 : safeNumber(lumpSumConsolidatedLineDraft.quantity);
+    const rate = geometryAmount;
+    const amount = round2(qty * rate);
     return {
-      description: 'Lump Sum Billing (Geometry Consolidated)',
+      description:
+        lumpSumConsolidatedLineDraft.description == null
+          ? 'Lump Sum Billing (Geometry Consolidated)'
+          : lumpSumConsolidatedLineDraft.description,
       hsnSac: geometryRows[0]?.hsnSac || displayPO?.hsnCode || displayPO?.sacCode || '',
       quantity: qty,
       rate,
@@ -1076,7 +1145,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       authorizedDuty: null,
       numberOfMonths: null,
     };
-  }, [lumpSumSingleInvoiceTableMode, items, displayPO]);
+  }, [lumpSumSingleInvoiceTableMode, items, displayPO, lumpSumConsolidatedLineDraft]);
   /** Invoice table rows: non-truck lump sum shows aggregated geometry line + supplementary Qty×Rate lines only. */
   const invoiceTableRows = useMemo(() => {
     if (!lumpSumSingleInvoiceTableMode) {
@@ -1096,6 +1165,50 @@ const CreateInvoice = ({ onNavigateTab }) => {
     }
     return rows;
   }, [lumpSumSingleInvoiceTableMode, consolidatedLumpSumLine, items]);
+
+  const lumpSumInvoiceEntryLines = useMemo(() => {
+    if (!isLumpSumBilling) return items;
+    if (lumpSumSingleInvoiceTableMode && consolidatedLumpSumLine) {
+      return [
+        consolidatedLumpSumLine,
+        ...items.filter((row) => row.isTruckLine || (!row.isTruckLine && !row.geometryEnabled)),
+      ];
+    }
+    return items;
+  }, [isLumpSumBilling, lumpSumSingleInvoiceTableMode, consolidatedLumpSumLine, items]);
+
+  const finalInvoiceSourceLines = useMemo(() => {
+    if (!cumulateLumpSumInvoiceLines) return lumpSumInvoiceEntryLines;
+    const sourceRows = lumpSumInvoiceEntryLines.filter((row) => row);
+    if (!sourceRows.length) return sourceRows;
+    const rate = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
+    const qty = round3(consolidatedLumpSumLine ? safeNumber(consolidatedLumpSumLine.quantity) : 1);
+    const amount = round2(qty * rate);
+    const penalty = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0));
+    return [
+      {
+        description: sourceRows[0]?.description ?? 'Lump Sum Billing (Invoice Consolidated)',
+        hsnSac: sourceRows[0]?.hsnSac || displayPO?.hsnCode || displayPO?.sacCode || '',
+        quantity: qty,
+        rate,
+        amount,
+        isTruckLine: false,
+        isLumpSumSupplementaryLine: false,
+        geometryEnabled: false,
+        poReferenceRate: null,
+        poLinePenalty: penalty,
+        poQty: null,
+        actualDuty: null,
+        authorizedDuty: null,
+        numberOfMonths: null,
+      },
+    ];
+  }, [cumulateLumpSumInvoiceLines, lumpSumInvoiceEntryLines, consolidatedLumpSumLine, displayPO]);
+
+  const taxableValue = useMemo(() => {
+    const sourceRows = isLumpSumBilling ? lumpSumInvoiceEntryLines : items;
+    return round2(sourceRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0));
+  }, [isLumpSumBilling, lumpSumInvoiceEntryLines, items]);
 
   const gstSupplyType = useMemo(
     () => normalizeGstSupplyType(displayPO?.gstSupplyType || displayPO?.gst_supply_type),
@@ -1136,6 +1249,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       (invoiceDocumentKind === 'proforma'
         ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
         : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices)));
+    const lastInvSeries = getLastTaxInvoiceNumberInFy(invoices);
     const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
     const billingDurationStr =
       displayPO.startDate || displayPO.start_date
@@ -1149,6 +1263,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       null;
     return {
       taxInvoiceNumber: docNo,
+      lastInvoiceSeries: lastInvSeries,
       billingMonthStr,
       billingDurationStr,
       remarksLine,
@@ -1197,34 +1312,32 @@ const CreateInvoice = ({ onNavigateTab }) => {
     [invoices, viewInvoiceId]
   );
 
-  const toDateInputValue = (v) => {
-    if (!v) return '';
-    const s = String(v);
-    // Handles "YYYY-MM-DD" and ISO like "YYYY-MM-DDTHH:mm:ssZ"
-    return s.length >= 10 ? s.slice(0, 10) : s;
-  };
-
-  // Service period is manually editable in Create/Edit.
+  // Service period is manually editable in Create/Edit. New invoices default both dates to today (local).
   useEffect(() => {
     if (!displayPO) return;
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
-    const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
-    const from =
-      existing?.billingDurationFrom ||
-      existing?.billing_duration_from ||
-      displayPO.startDate ||
-      displayPO.start_date ||
-      '';
-    const to =
-      existing?.billingDurationTo ||
-      existing?.billing_duration_to ||
-      displayPO.endDate ||
-      displayPO.end_date ||
-      '';
-    setServicePeriodFrom(toDateInputValue(from));
-    setServicePeriodTo(toDateInputValue(to));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayPO?.id, invoiceDraft?.mode, invoiceDraft?.invoiceId]);
+    if (isEdit) {
+      if (!editingInvoice) return;
+      const from =
+        editingInvoice.billingDurationFrom ||
+        editingInvoice.billing_duration_from ||
+        displayPO.startDate ||
+        displayPO.start_date ||
+        '';
+      const to =
+        editingInvoice.billingDurationTo ||
+        editingInvoice.billing_duration_to ||
+        displayPO.endDate ||
+        displayPO.end_date ||
+        '';
+      setServicePeriodFrom(toDateInputValue(from));
+      setServicePeriodTo(toDateInputValue(to));
+      return;
+    }
+    const { from, to } = getDefaultServicePeriodRange();
+    setServicePeriodFrom(from);
+    setServicePeriodTo(to);
+  }, [displayPO, invoiceDraft?.mode, invoiceDraft?.invoiceId, editingInvoice]);
 
   const buildInvoiceForPreview = () => {
     if (!displayPO || !canSave) return null;
@@ -1286,13 +1399,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       poWoNumber: displayPO.poWoNumber,
       hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
       items: (() => {
-        let lines =
-          lumpSumSingleInvoiceTableMode && consolidatedLumpSumLine
-            ? [
-                consolidatedLumpSumLine,
-                ...items.filter((row) => row.isTruckLine || (!row.isTruckLine && !row.geometryEnabled)),
-              ]
-            : items;
+        let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
           description: i.description,
           hsnSac: i.hsnSac,
@@ -1354,6 +1461,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       isPostContractBuffer: existing ? !!existing.isPostContractBuffer : !!postContractBillingMoment,
       invoiceKind: effectiveKind,
       invoice_kind: effectiveKind,
+      lumpSumInvoicePreviewMode,
     };
   };
 
@@ -1375,6 +1483,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
     igstAmt,
     totalValue,
     lumpSumInvoicePenaltyGeometry,
+    lumpSumInvoicePreviewMode,
+    lumpSumSingleInvoiceTableMode,
+    consolidatedLumpSumLine,
+    finalInvoiceSourceLines,
   ]);
 
   const handleSaveInvoice = () => {
@@ -1437,13 +1549,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       poWoNumber: displayPO.poWoNumber,
       hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
       items: (() => {
-        let lines =
-          lumpSumSingleInvoiceTableMode && consolidatedLumpSumLine
-            ? [
-                consolidatedLumpSumLine,
-                ...items.filter((row) => row.isTruckLine || (!row.isTruckLine && !row.geometryEnabled)),
-              ]
-            : items;
+        let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
         description: i.description,
         hsnSac: i.hsnSac,
@@ -1515,6 +1621,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       isPostContractBuffer: existing ? !!existing.isPostContractBuffer : !!postContractBillingMoment,
       invoiceKind: effectiveKind,
       invoice_kind: effectiveKind,
+      lumpSumInvoicePreviewMode,
     };
 
     setInvoices((prev) => {
@@ -1862,6 +1969,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   {invoiceDraft?.mode === 'edit' ? 'Edit' : 'Create'} invoice — {displayPO.siteId || '–'}
                 </h3>
                 <p className="text-xs text-gray-500 truncate">{displayPO.locationName || displayPO.legalName || '–'}</p>
+                {invoiceDraft?.mode !== 'edit' && previewBillMeta?.lastInvoiceSeries ? (
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    Last tax invoice series: <span className="font-mono font-semibold text-gray-700">{previewBillMeta.lastInvoiceSeries}</span>
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-end gap-3 shrink-0">
                 <div className="flex flex-col gap-0.5">
@@ -1909,6 +2021,25 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <option value="proforma">Proforma invoice</option>
                   </select>
                 </div>
+                {isLumpSumBilling ? (
+                  <label className="flex min-w-[230px] cursor-pointer items-start gap-2 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-neutral-800">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 rounded border-gray-300 text-amber-700 focus:ring-amber-500"
+                      checked={lumpSumInvoicePreviewMode === 'consolidated'}
+                      onChange={(e) => setLumpSumInvoicePreviewMode(e.target.checked ? 'consolidated' : 'detailed')}
+                      aria-label="Cumulate lump sum entry lines on final invoice preview"
+                    />
+                    <span>
+                      <span className="block font-semibold">Cumulate final invoice entry lines</span>
+                      <span className="text-[11px] text-neutral-600">
+                        {lumpSumInvoicePreviewMode === 'consolidated'
+                          ? 'The line items below cumulate into one live-preview line.'
+                          : 'The line items below show as-is in live preview.'}
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -1918,6 +2049,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   setAttendanceFiles([]);
                   setDocument2Files([]);
                   setInvoiceDocumentKind('tax');
+                  setLumpSumConsolidatedLineDraft({ description: null, quantity: '', rate: '' });
                   setInvoiceDraft(null);
                 }}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
@@ -1958,7 +2090,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           Adds the Penalty (₹) column (from PO Rate per Category, next to Qty/Rate) and uses{' '}
                         </span>
                         <span className="font-mono text-[11px] text-neutral-800 whitespace-nowrap">
-                          Rate = (Actual ÷ Authorised) × PO rate − Penalty
+                          Qty = (Actual ÷ Authorised) × PO Qty; Rate = PO rate − Penalty
                         </span>
                         <span className="text-neutral-600"> on each duty-geometry line.</span>
                       </span>
@@ -2135,7 +2267,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     !it.isTruckLine &&
                     (isMonthlyBilling || isLumpSumBilling);
                   const rateDerived =
-                    isLumpConsolidatedRow ||
                     (isMonthlyBilling && it.geometryEnabled) ||
                     (isLumpSumBilling && !it.isTruckLine && it.geometryEnabled);
                   const mergedMmDescOpts =
@@ -2186,7 +2317,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       title={it.description || ''}
                     >
                       <div className="flex items-center justify-between gap-1.5 min-w-0">
-                        {it.isTruckLine && ii != null ? (
+                        {isLumpConsolidatedRow ? (
+                          <input
+                            type="text"
+                            value={it.description}
+                            onChange={(e) => updateLumpSumConsolidatedLine({ description: e.target.value })}
+                            className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
+                            placeholder="Consolidated line description"
+                          />
+                        ) : it.isTruckLine && ii != null ? (
                           <input
                             type="text"
                             value={it.description}
@@ -2352,6 +2491,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         }
                         value={it.quantity}
                         onChange={(e) => {
+                          if (isLumpConsolidatedRow) {
+                            updateLumpSumConsolidatedLine({ quantity: e.target.value });
+                            return;
+                          }
                           if (ii == null) return;
                           updateItem(ii, { quantity: e.target.value });
                         }}
@@ -2361,7 +2504,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             : 'w-24 px-2 py-1 border border-gray-300 rounded-lg text-center'
                         }
                         readOnly={
-                          isLumpConsolidatedRow ||
                           (isMonthlyBilling && it.geometryEnabled) ||
                           (isLumpSumBilling && it.geometryEnabled && !it.isTruckLine)
                         }
@@ -2378,6 +2520,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         min={0}
                         value={it.rate}
                         onChange={(e) => {
+                          if (isLumpConsolidatedRow) {
+                            updateLumpSumConsolidatedLine({ rate: e.target.value });
+                            return;
+                          }
                           if (ii == null) return;
                           updateItem(ii, { rate: e.target.value });
                         }}
@@ -2386,7 +2532,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
                             : 'w-28 px-2 py-1 border border-gray-300 rounded-lg text-center'
                         }
-                        readOnly={rateDerived}
+                        readOnly={isLumpConsolidatedRow || rateDerived}
                       />
                     </td>
                     {lumpSumSubtractPenaltyInRate ? (
@@ -2550,8 +2696,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals). '
                               : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals). '}
                             {lumpSumSubtractPenaltyInRate
-                              ? 'Rate = (Actual ÷ Authorised) × PO rate − Penalty (from PO). Amount = Qty × Rate.'
-                              : 'Rate = (Actual ÷ Authorised) × PO rate. Amount = Qty × Rate.'}
+                              ? 'Rate = PO rate − Penalty (from PO). Amount = Qty × Rate.'
+                              : 'Rate = PO rate. Amount = Qty × Rate.'}
                           </span>
                         </div>
                       </td>

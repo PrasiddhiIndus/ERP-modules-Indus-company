@@ -43,6 +43,8 @@ import {
   FileCheck,
   FileDigit,
   Bell,
+  FileSpreadsheet,
+  CalendarRange,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -114,6 +116,7 @@ const Layout = () => {
   const [adminStoreOpen, setAdminStoreOpen] = useState(true);
   const [adminGateOpen, setAdminGateOpen] = useState(true);
   const [adminMiscOpen, setAdminMiscOpen] = useState(true);
+  const [adminPayrollOpen, setAdminPayrollOpen] = useState(true);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
   // Keep expandable section open when current path is under that section
@@ -121,6 +124,7 @@ const Layout = () => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
+    if (pathname.startsWith("/app/admin/payroll")) setAdminPayrollOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial/manpower-training")) setCommercialMtOpen(true);
     if (pathname.startsWith("/app/commercial/rm-mm-amc-iev")) setCommercialRmOpen(true);
@@ -356,6 +360,35 @@ const Layout = () => {
                   )}
 
                   <button
+                    type="button"
+                    onClick={() => setAdminPayrollOpen(!adminPayrollOpen)}
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                  >
+                    <span className="flex items-start space-x-2">
+                      <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-600" />
+                      <span className="text-xs font-medium text-left leading-tight">Payroll & attendance sheets</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminPayrollOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {adminPayrollOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="admin/payroll/dashboard" className={subNavClass}>
+                        <LayoutDashboard className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="text-xs">Payroll dashboard</span>
+                      </NavLink>
+                      <NavLink to="admin/payroll/entry" className={subNavClass}>
+                        <Calendar className="h-4 w-4 shrink-0 text-teal-600" />
+                        <span className="text-xs">Entry sheet (Excel)</span>
+                      </NavLink>
+                      <NavLink to="admin/payroll/year" className={subNavClass}>
+                        <CalendarRange className="h-4 w-4 shrink-0 text-sky-600" />
+                        <span className="text-xs">Year view</span>
+                      </NavLink>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
                     onClick={() => setAdminStoreOpen(!adminStoreOpen)}
                     className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
                   >

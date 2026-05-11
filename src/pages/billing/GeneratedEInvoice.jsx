@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileDigit, Search, Eye, Download, Trash2 } from 'lucide-react';
+import { FileDigit, Search, Eye, Download } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { downloadTaxInvoicePdf, getTaxInvoicePdfBlobUrl } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
@@ -21,7 +21,7 @@ function getRealIrn(inv) {
 }
 
 const GeneratedEInvoice = () => {
-  const { invoices, setInvoices, billingVerticalFilter } = useBilling();
+  const { invoices, billingVerticalFilter } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
 
@@ -60,27 +60,6 @@ const GeneratedEInvoice = () => {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const selectedInv = viewId ? invoices.find((i) => i.id === viewId) : null;
-
-  const handleDeleteGeneratedEInvoice = (inv) => {
-    const ok = window.confirm(
-      `Delete generated e-invoice details for ${inv.taxInvoiceNumber || inv.bill_number || 'this invoice'}?`
-    );
-    if (!ok) return;
-    setInvoices((prev) =>
-      prev.map((row) =>
-        String(row.id) === String(inv.id)
-          ? {
-              ...row,
-              e_invoice_irn: null,
-              e_invoice_ack_no: null,
-              e_invoice_ack_dt: null,
-              e_invoice_signed_qr: null,
-            }
-          : row
-      )
-    );
-    if (String(viewId || '') === String(inv.id)) setViewId(null);
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -204,14 +183,6 @@ const GeneratedEInvoice = () => {
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                               >
                                 <Download className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteGeneratedEInvoice(inv)}
-                                title="Delete generated e-invoice data"
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                              >
-                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </td>

@@ -60,6 +60,8 @@ import AdminOpsDashboard from "./pages/adminOperations/AdminOpsDashboard";
 import AdminOpsAlerts from "./pages/adminOperations/AdminOpsAlerts";
 import AdminOpsReports from "./pages/adminOperations/AdminOpsReports";
 import AdminOpsSettings from "./pages/adminOperations/AdminOpsSettings";
+import PayrollLayout from "./pages/adminOperations/payroll/PayrollLayout";
+import { PayrollDashboardPage, PayrollMonthPage, PayrollYearPage } from "./pages/adminOperations/payroll/PayrollViews";
 import {
   EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
@@ -332,6 +334,13 @@ function App() {
             {/* Unified Admin module routes */}
             <Route path="admin" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/dashboard" element={<AdminOpsDashboard />} />
+            <Route path="admin/payroll" element={<PayrollLayout />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<PayrollDashboardPage />} />
+              <Route path="entry" element={<PayrollMonthPage />} />
+              <Route path="month" element={<Navigate to="/app/admin/payroll/entry" replace />} />
+              <Route path="year" element={<PayrollYearPage />} />
+            </Route>
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
@@ -396,6 +405,11 @@ function App() {
             <Route path="billing/generated-e-invoice" element={<Billing />} />
             <Route path="billing/credit-notes" element={<Billing />} />
             <Route path="billing/reports" element={<Billing />} />
+            <Route path="billing/reports/outstanding-debtors" element={<Billing />} />
+            <Route path="billing/reports/gap-report" element={<Billing />} />
+            <Route path="billing/reports/deduction-analysis" element={<Billing />} />
+            <Route path="billing/reports/less-billed-sites" element={<Billing />} />
+            <Route path="billing/reports/billing-delay" element={<Billing />} />
             <Route path="billing/tracking" element={<Billing />} />
             <Route path="billing/tracking/pa-worklist" element={<Billing />} />
             <Route path="billing/tracking/penalty-logs" element={<Billing />} />
