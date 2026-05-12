@@ -65,6 +65,7 @@ import { PayrollDashboardPage, PayrollMonthPage, PayrollYearPage } from "./pages
 import {
   EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
+  EmployeeAttendanceSheetsPage,
   EmployeeLeavesPage,
   EmployeeCompliancePage,
   EmployeeSalaryInputsPage,
@@ -346,6 +347,7 @@ function App() {
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
+            <Route path="admin/employee/attendance-sheets" element={<EmployeeAttendanceSheetsPage />} />
             <Route path="admin/employee/leaves-permissions" element={<EmployeeLeavesPage />} />
             <Route path="admin/employee/compliance-documents" element={<EmployeeCompliancePage />} />
             <Route path="admin/employee/salary-inputs" element={<EmployeeSalaryInputsPage />} />
