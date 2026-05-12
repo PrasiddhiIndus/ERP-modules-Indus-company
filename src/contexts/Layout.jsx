@@ -350,7 +350,11 @@ const Layout = () => {
                       </NavLink>
                       <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
                         <Clock className="h-4 w-4 shrink-0 text-amber-600" />
-                        <span className="text-xs">Attendance Inputs</span>
+                        <span className="text-xs">Raw Attendance Data</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
+                        <FileText className="h-4 w-4 shrink-0 text-blue-600" />
+                        <span className="text-xs">Attendance Sheets</span>
                       </NavLink>
                       <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
                         <Calendar className="h-4 w-4 shrink-0 text-purple-600" />

@@ -445,12 +445,12 @@ export function PayrollDashboardPage() {
         right={<Badge tone="bg-blue-50 text-blue-800">Admin → Finance</Badge>}
       >
         <ol className="list-decimal pl-4 space-y-2 text-xs text-gray-700">
-          <li>Lock attendance corrections in Attendance Inputs for the payroll period.</li>
+          <li>Lock attendance corrections in Raw Attendance Data for the payroll period.</li>
           <li>Review the prefilled entry sheet: attendance days are pulled in, formulas calculate pay, and entry fields stay editable.</li>
           <li>Compliance uses the same file or downstream exports from Accounts.</li>
         </ol>
         <div className="mt-3 flex flex-wrap gap-2">
-          <LinkedChip label="Attendance Inputs" toHint="Corrections before lock" />
+          <LinkedChip label="Raw Attendance Data" toHint="Corrections before lock" />
           <LinkedChip label="Leaves / LOP" toHint="employee leaves" />
           <LinkedChip label="Salary Inputs" toHint="admin salary layer" />
         </div>
