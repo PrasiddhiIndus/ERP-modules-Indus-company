@@ -413,6 +413,20 @@ function EntryCell({ row, column, onChange }) {
   return <span className={isTextDisplay ? "text-gray-800" : "tabular-nums text-gray-800"}>{isTextDisplay ? value : formatMoney(value)}</span>;
 }
 
+function GenerateDraftInput({ field, value, onChange }) {
+  return (
+    <input
+      type={field.type === "text" ? "text" : "number"}
+      step={field.type === "text" ? undefined : "0.01"}
+      value={value}
+      onChange={(event) => onChange(field, event.target.value)}
+      className={`h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-[11px] text-gray-900 focus:border-[#1F3A8A] focus:outline-none focus:ring-2 focus:ring-blue-100 ${
+        field.type === "text" ? "" : "tabular-nums"
+      }`}
+    />
+  );
+}
+
 export function PayrollDashboardPage() {
   const navigate = useNavigate();
   const activeCount = mockEmployees.filter((e) => !String(e.status || "").includes("Exit")).length;
@@ -747,7 +761,7 @@ export function PayrollMonthPage() {
         }
       >
         <div className="space-y-3">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
               <p className="text-[10px] uppercase tracking-wide text-gray-500">Period</p>
               <p className="text-sm font-semibold text-gray-900">{meta.title}</p>
@@ -775,19 +789,58 @@ export function PayrollMonthPage() {
               No employees found for the selected company and site.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-gray-200">
-              <div className="max-h-[58vh] overflow-auto">
-                <table className="min-w-[2500px] text-xs">
+            <>
+              <div className="md:hidden space-y-3">
+                {rows.map((row) => (
+                  <div key={row.id} className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                    <div className="rounded-t-xl border-b border-gray-100 bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-gray-900">{row.employeeCode}</p>
+                      <p className="text-xs text-gray-700">{row.name}</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3">
+                      {PAYROLL_GENERATE_FIELDS.map((field) => {
+                        const value = generateDraft[row.id]?.[field.key] ?? "";
+                        return (
+                          <label key={field.key} className="flex flex-col gap-1 text-[11px] font-medium text-gray-600">
+                            <span className="flex items-center justify-between gap-2">
+                              {field.label}
+                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-gray-500">
+                                {field.group}
+                              </span>
+                            </span>
+                            <GenerateDraftInput
+                              field={field}
+                              value={value}
+                              onChange={(nextField, nextValue) => handleGenerateDraftChange(row.id, nextField, nextValue)}
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white md:block">
+              <div className="max-h-[58vh] overflow-auto pb-3">
+                <table className="min-w-[2600px] table-fixed border-separate border-spacing-0 text-xs">
+                  <colgroup>
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 190 }} />
+                    {PAYROLL_GENERATE_FIELDS.map((field) => (
+                      <col key={field.key} style={{ width: field.type === "text" ? 190 : 130 }} />
+                    ))}
+                  </colgroup>
                   <thead className="sticky top-0 z-30 bg-slate-50 text-gray-700 shadow-sm">
                     <tr>
-                      <th className="sticky left-0 z-40 w-[120px] min-w-[120px] border-b border-r border-gray-200 bg-slate-50 px-2 py-2 text-left font-semibold">
+                      <th className="border-b border-r border-gray-200 bg-slate-50 px-2 py-2 text-left font-semibold">
                         Emp'ee Code
                       </th>
-                      <th className="sticky left-[120px] z-40 w-[190px] min-w-[190px] border-b border-r border-gray-200 bg-slate-50 px-2 py-2 text-left font-semibold">
+                      <th className="border-b border-r border-gray-200 bg-slate-50 px-2 py-2 text-left font-semibold">
                         Name
                       </th>
                       {PAYROLL_GENERATE_FIELDS.map((field) => (
-                        <th key={field.key} className="min-w-[120px] border-b border-r border-gray-200 px-2 py-2 text-left align-bottom last:border-r-0">
+                        <th key={field.key} className="border-b border-r border-gray-200 bg-slate-50 px-2 py-2 text-left align-bottom last:border-r-0">
                           <span className="block whitespace-nowrap font-semibold">{field.label}</span>
                           <span className="mt-1 inline-flex rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-200">
                             {field.group}
@@ -798,24 +851,24 @@ export function PayrollMonthPage() {
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
                     {rows.map((row) => (
-                      <tr key={row.id} className="hover:bg-emerald-50/40">
-                        <td className="sticky left-0 z-20 w-[120px] min-w-[120px] border-r border-gray-100 bg-white px-2 py-2 font-semibold text-gray-900">
+                      <tr key={row.id} className="group hover:bg-emerald-50/40">
+                        <td className="border-b border-r border-gray-100 bg-white px-2 py-2 font-semibold text-gray-900 group-hover:bg-emerald-50">
                           {row.employeeCode}
                         </td>
-                        <td className="sticky left-[120px] z-20 w-[190px] min-w-[190px] border-r border-gray-100 bg-white px-2 py-2 text-gray-800">
+                        <td className="border-b border-r border-gray-100 bg-white px-2 py-2 text-gray-800 group-hover:bg-emerald-50">
                           {row.name}
                         </td>
                         {PAYROLL_GENERATE_FIELDS.map((field) => {
                           const value = generateDraft[row.id]?.[field.key] ?? "";
                           return (
-                            <td key={field.key} className="border-r border-gray-100 px-2 py-1.5 align-middle last:border-r-0">
+                            <td key={field.key} className="border-b border-r border-gray-100 bg-white px-2 py-1.5 align-middle group-hover:bg-emerald-50/40 last:border-r-0">
                               <input
                                 type={field.type === "text" ? "text" : "number"}
                                 step={field.type === "text" ? undefined : "0.01"}
                                 value={value}
                                 onChange={(event) => handleGenerateDraftChange(row.id, field, event.target.value)}
                                 className={`h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-[11px] text-gray-900 focus:border-[#1F3A8A] focus:outline-none focus:ring-2 focus:ring-blue-100 ${
-                                  field.type === "text" ? "min-w-[180px]" : "min-w-[110px] tabular-nums"
+                                  field.type === "text" ? "" : "tabular-nums"
                                 }`}
                               />
                             </td>
@@ -826,7 +879,8 @@ export function PayrollMonthPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </Modal>
