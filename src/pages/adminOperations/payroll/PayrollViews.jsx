@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { SectionCard, KpiTile, Badge, FilterBar, TinySelect, DenseTable, LinkedChip } from "../components/AdminUi";
+import { SectionCard, KpiTile, Badge, FilterBar, TinySelect, DenseTable, LinkedChip, Modal } from "../components/AdminUi";
 import { mockEmployees } from "../data/mockAdminData";
 import {
   PAYROLL_ENTRY_COLUMNS,
@@ -121,6 +121,38 @@ const ALLOWANCE_DRIVER_KEYS = new Set([
   "specialAllowance",
   "uniformAllowance",
 ]);
+
+const PAYROLL_GENERATE_FIELDS = [
+  { key: "grossWages", label: "Gross wages", group: "Wages" },
+  { key: "pfBasic", label: "PF basic", group: "Wages" },
+  { key: "basic", label: "Basic", group: "Wages" },
+  { key: "hraMonthly", label: "HRA", group: "Allowances" },
+  { key: "conveyanceAllowanceMonthly", label: "Convayance Allowance", group: "Allowances" },
+  { key: "medicalAllowanceMonthly", label: "Medical Allowance", group: "Allowances" },
+  { key: "attendanceBonusMonthly", label: "Attendance bonus", group: "Allowances" },
+  { key: "journalPeriodicalsMonthly", label: "Journal & Periodicals", group: "Allowances" },
+  { key: "childrenEduAllowanceMonthly", label: "Children Edu allow", group: "Allowances" },
+  { key: "telephoneInternetMonthly", label: "Telephone/ Internet", group: "Allowances" },
+  { key: "performanceIncentiveMonthly", label: "Performance Incentive", group: "Allowances" },
+  { key: "specialAllowanceMonthly", label: "Special allowance", group: "Allowances" },
+  { key: "uniformAllowanceMonthly", label: "Uniform Allowance", group: "Allowances" },
+  { key: "professionalTax", label: "P Tax", group: "Deductions" },
+  { key: "loan", label: "Loan", group: "Deductions" },
+  { key: "salaryAdvance", label: "Sal adv", group: "Deductions" },
+  { key: "held", label: "Held", group: "Deductions" },
+  { key: "paid", label: "Paid", group: "Payment" },
+  { key: "remarks", label: "Remarks", group: "Notes", type: "text" },
+];
+
+function buildGenerateDraft(rows) {
+  return rows.reduce((acc, row) => {
+    acc[row.id] = PAYROLL_GENERATE_FIELDS.reduce((rowDraft, field) => {
+      rowDraft[field.key] = row[field.key] ?? "";
+      return rowDraft;
+    }, {});
+    return acc;
+  }, {});
+}
 
 function toNumber(value) {
   const n = Number(value);
@@ -452,6 +484,8 @@ export function PayrollMonthPage() {
   const [site, setSite] = useState("All sites");
   const [entryEdits, setEntryEdits] = useState({});
   const [saveState, setSaveState] = useState("Draft ready");
+  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
+  const [generateDraft, setGenerateDraft] = useState({});
 
   const year = selectedYear;
   const month = selectedMonth;
@@ -506,6 +540,37 @@ export function PayrollMonthPage() {
     }));
   };
 
+  const openGenerateModal = () => {
+    setGenerateDraft(buildGenerateDraft(rows));
+    setIsGenerateModalOpen(true);
+  };
+
+  const handleGenerateDraftChange = (employeeId, field, value) => {
+    setGenerateDraft((prev) => ({
+      ...prev,
+      [employeeId]: {
+        ...(prev[employeeId] || {}),
+        [field.key]: field.type === "text" || value === "" ? value : toNumber(value),
+      },
+    }));
+  };
+
+  const saveGenerateDraft = () => {
+    setEntryEdits((prev) => {
+      const next = { ...prev };
+      rows.forEach((row) => {
+        const draftRow = generateDraft[row.id] || {};
+        next[row.id] = { ...(next[row.id] || {}) };
+        PAYROLL_GENERATE_FIELDS.forEach((field) => {
+          next[row.id][field.key] = draftRow[field.key] ?? "";
+        });
+      });
+      return next;
+    });
+    setSaveState("Generated entries saved to preview");
+    setIsGenerateModalOpen(false);
+  };
+
   return (
     <div className="space-y-4">
       <SectionCard title="Payroll entry tab" right={<Badge tone="bg-emerald-50 text-emerald-900">Prefilled Excel-style sheet</Badge>}>
@@ -549,21 +614,30 @@ export function PayrollMonthPage() {
           </label>
           <div className="flex flex-col gap-0.5 text-[11px] text-gray-600">
             <span className="invisible">.</span>
-            <button
-              type="button"
-              className="h-8 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium whitespace-nowrap"
-              onClick={() =>
-                exportEntryXlsx({
-                  year,
-                  month,
-                  company,
-                  site,
-                  rows,
-                })
-              }
-            >
-              Download entry sheet
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="h-8 px-4 rounded-lg bg-emerald-600 text-white text-xs font-medium whitespace-nowrap hover:bg-emerald-700"
+                onClick={openGenerateModal}
+              >
+                Generate
+              </button>
+              <button
+                type="button"
+                className="h-8 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium whitespace-nowrap"
+                onClick={() =>
+                  exportEntryXlsx({
+                    year,
+                    month,
+                    company,
+                    site,
+                    rows,
+                  })
+                }
+              >
+                Download Excel sheet
+              </button>
+            </div>
           </div>
         </FilterBar>
         <p className="text-[11px] text-gray-500 mt-2">
@@ -642,6 +716,120 @@ export function PayrollMonthPage() {
           while earned value calculates from <strong>basis / Days x P. Days</strong> and exports as a live Excel formula.
         </p>
       </SectionCard>
+
+      <Modal
+        open={isGenerateModalOpen}
+        title="Generate payroll entry sheet"
+        onClose={() => setIsGenerateModalOpen(false)}
+        widthClass="max-w-[96vw] xl:max-w-7xl"
+        footer={
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <p className="text-[11px] text-gray-500">
+              Save will update the salary sheet preview for <strong>{meta.label}</strong>.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="h-8 px-4 rounded-lg border border-gray-300 bg-white text-xs font-medium text-gray-700 hover:bg-gray-50"
+                onClick={() => setIsGenerateModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="h-8 px-4 rounded-lg bg-[#1F3A8A] text-xs font-medium text-white hover:bg-[#172c69]"
+                onClick={saveGenerateDraft}
+              >
+                Save to preview
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Period</p>
+              <p className="text-sm font-semibold text-gray-900">{meta.title}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Company</p>
+              <p className="text-sm font-semibold text-gray-900">{company}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Site / unit</p>
+              <p className="text-sm font-semibold text-gray-900">{site}</p>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-emerald-700">Employees</p>
+              <p className="text-sm font-semibold text-emerald-900">{rows.length} rows loaded</p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] text-blue-900">
+            Employee code and name are pulled from the selected salary sheet preview. Enter wages, allowances, deductions, paid amount, and remarks here, then save to update the table below.
+          </div>
+
+          {rows.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-500">
+              No employees found for the selected company and site.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-gray-200">
+              <div className="max-h-[58vh] overflow-auto">
+                <table className="min-w-[2500px] text-xs">
+                  <thead className="sticky top-0 z-30 bg-slate-50 text-gray-700 shadow-sm">
+                    <tr>
+                      <th className="sticky left-0 z-40 w-[120px] min-w-[120px] border-b border-r border-gray-200 bg-slate-50 px-2 py-2 text-left font-semibold">
+                        Emp'ee Code
+                      </th>
+                      <th className="sticky left-[120px] z-40 w-[190px] min-w-[190px] border-b border-r border-gray-200 bg-slate-50 px-2 py-2 text-left font-semibold">
+                        Name
+                      </th>
+                      {PAYROLL_GENERATE_FIELDS.map((field) => (
+                        <th key={field.key} className="min-w-[120px] border-b border-r border-gray-200 px-2 py-2 text-left align-bottom last:border-r-0">
+                          <span className="block whitespace-nowrap font-semibold">{field.label}</span>
+                          <span className="mt-1 inline-flex rounded bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-500 ring-1 ring-gray-200">
+                            {field.group}
+                          </span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {rows.map((row) => (
+                      <tr key={row.id} className="hover:bg-emerald-50/40">
+                        <td className="sticky left-0 z-20 w-[120px] min-w-[120px] border-r border-gray-100 bg-white px-2 py-2 font-semibold text-gray-900">
+                          {row.employeeCode}
+                        </td>
+                        <td className="sticky left-[120px] z-20 w-[190px] min-w-[190px] border-r border-gray-100 bg-white px-2 py-2 text-gray-800">
+                          {row.name}
+                        </td>
+                        {PAYROLL_GENERATE_FIELDS.map((field) => {
+                          const value = generateDraft[row.id]?.[field.key] ?? "";
+                          return (
+                            <td key={field.key} className="border-r border-gray-100 px-2 py-1.5 align-middle last:border-r-0">
+                              <input
+                                type={field.type === "text" ? "text" : "number"}
+                                step={field.type === "text" ? undefined : "0.01"}
+                                value={value}
+                                onChange={(event) => handleGenerateDraftChange(row.id, field, event.target.value)}
+                                className={`h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-[11px] text-gray-900 focus:border-[#1F3A8A] focus:outline-none focus:ring-2 focus:ring-blue-100 ${
+                                  field.type === "text" ? "min-w-[180px]" : "min-w-[110px] tabular-nums"
+                                }`}
+                              />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

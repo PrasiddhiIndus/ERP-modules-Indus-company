@@ -122,12 +122,12 @@ export function Drawer({ open, title, onClose, children, widthClass = "max-w-lg"
   );
 }
 
-export function Modal({ open, title, onClose, children, footer }) {
+export function Modal({ open, title, onClose, children, footer, widthClass = "max-w-md" }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} />
-      <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md max-h-[90vh] flex flex-col">
+      <div className={`relative bg-white rounded-xl shadow-xl border border-gray-200 w-full ${widthClass} max-h-[90vh] flex flex-col`}>
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
           <h4 className="text-sm font-semibold text-gray-900">{title}</h4>
           <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-800">

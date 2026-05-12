@@ -200,7 +200,11 @@ function isBlank(v) {
   return String(v ?? "").trim() === "";
 }
 
-const InternalQuotationForm = () => {
+const InternalQuotationForm = ({
+  quotationStorageKey = "manpower_quotations",
+  listPath = "/app/manpower/quotation",
+  NavbarComponent = null,
+} = {}) => {
   const { id } = useParams();
   const navigate = useNavigate();
 
@@ -232,6 +236,7 @@ const InternalQuotationForm = () => {
   const [particularRateMatrix, setParticularRateMatrix] = useState({});
   const [serviceCategoryId, setServiceCategoryId] = useState(1);
   const [manualParticularRefs, setManualParticularRefs] = useState([]);
+  const [deletedParticularRefs, setDeletedParticularRefs] = useState([]);
   const [blockPickerValue, setBlockPickerValue] = useState({ A: "", B: "", C: "", D: "", E: "" });
 
   const addManpowerRow = () => {
@@ -283,17 +288,64 @@ const InternalQuotationForm = () => {
         const flag = row.cats?.[idx] || "hidden";
         return flag === "hidden";
       });
-      const manualRows = hiddenRows.filter((row) => manualParticularRefs.includes(row.ref));
+      const manuallyAddedRows = allRows.filter((row) => manualParticularRefs.includes(row.ref));
+      const currentRefs = new Set([...autoRows.map((r) => r.ref), ...manuallyAddedRows.map((r) => r.ref)]);
+      const pickerRows = allRows.filter((row) => !currentRefs.has(row.ref) || deletedParticularRefs.includes(row.ref));
+      const manualRows = manuallyAddedRows.filter((row) => !deletedParticularRefs.includes(row.ref));
       const autoRefs = new Set(autoRows.map((r) => r.ref));
-      const rows = [...autoRows, ...manualRows.filter((r) => !autoRefs.has(r.ref))];
+      const rows = [
+        ...autoRows.filter((row) => !deletedParticularRefs.includes(row.ref)),
+        ...manualRows.filter((r) => !autoRefs.has(r.ref)),
+      ];
       return {
         block,
         title: BLOCK_TITLES[block],
         rows,
-        hiddenRows,
+        hiddenRows: pickerRows,
       };
     });
-  }, [serviceCategoryId, manualParticularRefs]);
+  }, [serviceCategoryId, manualParticularRefs, deletedParticularRefs]);
+
+  const visibleBreakupRows = useMemo(
+    () => bcsByBlock.flatMap((blockGroup) => blockGroup.rows),
+    [bcsByBlock]
+  );
+
+  const breakupColumnTotals = useMemo(() => {
+    const totals = selectedManpowerColumns.reduce((acc, col) => ({ ...acc, [col.id]: 0 }), {});
+    let overall = 0;
+
+    visibleBreakupRows.forEach((row) => {
+      selectedManpowerColumns.forEach((col) => {
+        const amount = safeNum(particularRateMatrix[`${row.ref}__${col.id}`]);
+        totals[col.id] = safeNum(totals[col.id]) + amount;
+        overall += amount;
+      });
+    });
+
+    return { columns: totals, overall };
+  }, [particularRateMatrix, selectedManpowerColumns, visibleBreakupRows]);
+
+  const addParticularRow = (block, selectedRef) => {
+    if (!selectedRef) return;
+    setDeletedParticularRefs((prev) => (prev || []).filter((ref) => ref !== selectedRef));
+    setManualParticularRefs((prev) => (prev.includes(selectedRef) ? prev : [...prev, selectedRef]));
+    setBlockPickerValue((prev) => ({ ...prev, [block]: "" }));
+  };
+
+  const deleteParticularRow = (ref) => {
+    setDeletedParticularRefs((prev) => (prev.includes(ref) ? prev : [...prev, ref]));
+    setManualParticularRefs((prev) => (prev || []).filter((item) => item !== ref));
+    setParticularRateMatrix((prev) => {
+      const next = { ...(prev || {}) };
+      Object.keys(next).forEach((key) => {
+        if (key.startsWith(`${ref}__`)) {
+          delete next[key];
+        }
+      });
+      return next;
+    });
+  };
 
   // ---------------------------
   // Cost Breakup (UI only)
@@ -598,6 +650,7 @@ const InternalQuotationForm = () => {
           .filter((v) => Number.isFinite(v));
         setServiceCategoryId(mappedIds.length ? mappedIds[0] : 1);
         setManualParticularRefs([]);
+        setDeletedParticularRefs([]);
         setBlockPickerValue({ A: "", B: "", C: "", D: "", E: "" });
       }
       setLoading(false);
@@ -626,9 +679,9 @@ const InternalQuotationForm = () => {
     };
 
     // Save final quotation in localStorage for now
-    const saved = JSON.parse(localStorage.getItem("manpower_quotations")) || [];
+    const saved = JSON.parse(localStorage.getItem(quotationStorageKey)) || [];
     saved.push(newQuotation);
-    localStorage.setItem("manpower_quotations", JSON.stringify(saved));
+    localStorage.setItem(quotationStorageKey, JSON.stringify(saved));
 
     // Mark enquiry as quoted (non-blocking)
     supabase
@@ -638,7 +691,7 @@ const InternalQuotationForm = () => {
       .then(() => {});
 
     alert("Quotation saved successfully!");
-    navigate("/app/manpower/quotation"); // go to quotation page
+    navigate(listPath); // go to quotation page
   };
 
   const wageTotalsPerRole = useMemo(() => {
@@ -818,6 +871,8 @@ const InternalQuotationForm = () => {
 
   return (
     <div className="p-6">
+      {NavbarComponent ? <NavbarComponent /> : null}
+
       <h2 className="text-2xl font-bold mb-4">
         Internal Quotation - {enquiry.enquiry_number}
       </h2>
@@ -1030,16 +1085,20 @@ const InternalQuotationForm = () => {
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Particulars</th>
                         {selectedManpowerColumns.map((col) => (
                           <th key={col.id} className="px-3 py-2.5 text-left font-semibold text-slate-700 min-w-[170px]">
-                            {col.category} ({col.skill})
+                            <span className="block leading-4" title={`${col.category} (${col.skill})`}>
+                              <span className="block">{col.category}</span>
+                              <span className="block text-[11px] font-medium text-slate-500">({col.skill})</span>
+                            </span>
                           </th>
                         ))}
+                        <th className="px-3 py-2.5 text-right font-semibold text-slate-700 w-[80px]">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {bcsByBlock.map((blockGroup) => (
                         <React.Fragment key={blockGroup.block}>
                           <tr className="bg-slate-100">
-                            <td colSpan={3 + selectedManpowerColumns.length} className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                            <td colSpan={4 + selectedManpowerColumns.length} className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
                               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                 <span>{blockGroup.title}</span>
                                 {blockGroup.hiddenRows.length > 0 && (
@@ -1062,11 +1121,7 @@ const InternalQuotationForm = () => {
                                       type="button"
                                       onClick={() => {
                                         const selectedRef = blockPickerValue[blockGroup.block];
-                                        if (!selectedRef) return;
-                                        setManualParticularRefs((prev) =>
-                                          prev.includes(selectedRef) ? prev : [...prev, selectedRef]
-                                        );
-                                        setBlockPickerValue((prev) => ({ ...prev, [blockGroup.block]: "" }));
+                                        addParticularRow(blockGroup.block, selectedRef);
                                       }}
                                       className="px-2 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 text-[11px]"
                                     >
@@ -1099,14 +1154,43 @@ const InternalQuotationForm = () => {
                                   </td>
                                 );
                               })}
+                              <td className="px-3 py-2.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => deleteParticularRow(row.ref)}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                  aria-label={`Delete ${row.name}`}
+                                  title="Delete row"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </React.Fragment>
                       ))}
                       {selectedManpowerColumns.length === 0 && (
                         <tr>
-                          <td colSpan={3} className="px-3 py-3 text-slate-500">
+                          <td colSpan={4} className="px-3 py-3 text-slate-500">
                             Select manpower category and sub category in Manpower tab to show columns here.
+                          </td>
+                        </tr>
+                      )}
+                      {selectedManpowerColumns.length > 0 && (
+                        <tr className="bg-blue-50/80">
+                          <td colSpan={3} className="px-3 py-3 text-right font-bold text-slate-900">
+                            Total
+                          </td>
+                          {selectedManpowerColumns.map((col) => (
+                            <td key={col.id} className="px-3 py-3 font-bold text-slate-900">
+                              {breakupColumnTotals.columns[col.id] ? `₹${formatINR(breakupColumnTotals.columns[col.id])}` : ""}
+                            </td>
+                          ))}
+                          <td className="px-3 py-3 text-right">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Overall</div>
+                            <div className="font-bold text-blue-900">
+                              {breakupColumnTotals.overall ? `₹${formatINR(breakupColumnTotals.overall)}` : ""}
+                            </div>
                           </td>
                         </tr>
                       )}

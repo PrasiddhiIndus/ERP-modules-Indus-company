@@ -46,7 +46,7 @@ const initialForm = {
   siteZip: "",
   industrySector: "",
   serviceCategory: [],
-  enquirySubType: "Regular",
+  enquirySubType: ["Regular"],
   scopeInputType: "Text",
   scopeOfWork: "",
   scopeAttachment: null,
@@ -96,6 +96,11 @@ function toIsoFromDateTimeLocal(value) {
   if (!value) return "";
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+function normalizeEnquirySubTypes(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : ["Regular"];
 }
 
 const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
@@ -195,7 +200,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           : meta.serviceCategory
             ? [meta.serviceCategory]
             : [],
-        enquirySubType: meta.enquirySubType || "Regular",
+        enquirySubType: normalizeEnquirySubTypes(meta.enquirySubType),
         scopeInputType: meta.scopeInputType || "Text",
         scopeOfWork: data.manpower_required || "",
         scopeAttachment: null,
@@ -262,6 +267,15 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         serviceCategory: next,
         fireTenderRequired: hasFireTender,
       };
+    });
+  };
+
+  const handleEnquirySubTypeToggle = (option) => {
+    setFormData((prev) => {
+      const selected = normalizeEnquirySubTypes(prev.enquirySubType);
+      const exists = selected.includes(option);
+      const next = exists ? selected.filter((item) => item !== option) : [...selected, option];
+      return { ...prev, enquirySubType: next.length ? next : [option] };
     });
   };
 
@@ -765,7 +779,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         <div className="flex flex-wrap gap-4">
           {ENQUIRY_SUBTYPE_OPTIONS.map((opt) => (
             <label key={opt} className="inline-flex items-center gap-2 text-sm text-gray-700">
-              <input type="radio" name="enquirySubType" value={opt} checked={formData.enquirySubType === opt} onChange={handleChange} />
+              <input
+                type="checkbox"
+                checked={normalizeEnquirySubTypes(formData.enquirySubType).includes(opt)}
+                onChange={() => handleEnquirySubTypeToggle(opt)}
+              />
               {opt}
             </label>
           ))}
@@ -795,7 +813,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
       <div className={`${sectionClass} grid grid-cols-1 md:grid-cols-3 gap-4`}>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Contract Duration</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Contract Value</label>
           <div className="flex gap-2">
             <input name="contractDurationValue" type="number" min="0" value={formData.contractDurationValue} onChange={handleChange} className={inputClass} placeholder="Value" />
             <select name="contractDurationUnit" value={formData.contractDurationUnit} onChange={handleChange} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
@@ -907,7 +925,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           <input name="authorizationTo" value={formData.authorizationTo} onChange={handleChange} className={inputClass} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Received By</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">User Login</label>
           <select name="receivedBy" value={formData.receivedBy} onChange={handleChange} className={inputClass}>
             <option value="">Select user</option>
             {receivedByOptions.map((email) => (
