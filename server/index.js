@@ -428,6 +428,88 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
   return safe;
 }
 
+function etimeCfg() {
+  return {
+    baseUrl: (process.env.ETIME_BASE_URL || 'https://api.etimeoffice.com/api').trim(),
+    authCredentials: getRequiredEnv('ETIME_AUTH_CREDENTIALS'),
+  };
+}
+
+function normalizeEtimeDate(value, endOfDay = false) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    throw new HttpError(400, endOfDay ? 'toDate is required.' : 'fromDate is required.');
+  }
+  if (/^\d{2}\/\d{2}\/\d{4}_\d{2}:\d{2}$/.test(raw)) return raw;
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (iso) {
+    const [, yyyy, mm, dd, hh, min] = iso;
+    return `${dd}/${mm}/${yyyy}_${hh || (endOfDay ? '23' : '00')}:${min || (endOfDay ? '59' : '00')}`;
+  }
+
+  const slash = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ _](\d{2}):(\d{2}))?/);
+  if (slash) {
+    const [, dd, mm, yyyy, hh, min] = slash;
+    return `${dd}/${mm}/${yyyy}_${hh || (endOfDay ? '23' : '00')}:${min || (endOfDay ? '59' : '00')}`;
+  }
+
+  throw new HttpError(400, `Invalid ${endOfDay ? 'toDate' : 'fromDate'} format.`);
+}
+
+function pickField(row, keys) {
+  if (!row || typeof row !== 'object') return '';
+  for (const key of keys) {
+    const entry = Object.entries(row).find(([k]) => k.toLowerCase() === key.toLowerCase());
+    if (entry && entry[1] != null && String(entry[1]).trim() !== '') return entry[1];
+  }
+  return '';
+}
+
+function splitPunchDateTime(value) {
+  const text = String(value || '').trim().replace('T', ' ').replace('_', ' ');
+  if (!text) return { date: '', time: '' };
+  const [date = '', time = ''] = text.split(/\s+/);
+  return { date, time: time ? time.slice(0, 5) : '' };
+}
+
+function extractEtimeRows(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return [];
+  const candidates = [
+    data.PunchData,
+    data.punchData,
+    data.InOutPunchData,
+    data.inOutPunchData,
+    data.Data,
+    data.data,
+    data.Result,
+    data.result,
+  ];
+  return candidates.find(Array.isArray) || [];
+}
+
+function normalizeEtimePunchRows(data) {
+  return extractEtimeRows(data).map((row, index) => {
+    const punchDateTime = pickField(row, ['PunchDateTime', 'LogDateTime', 'PunchDate', 'Date', 'AttendanceDate']);
+    const split = splitPunchDateTime(punchDateTime);
+    const empCode = String(pickField(row, ['Empcode', 'EmpCode', 'EmployeeCode', 'EmployeeID', 'EmpId']) || '').trim();
+    const punchDate = String(split.date || pickField(row, ['PunchDate', 'Date', 'AttendanceDate'])).trim();
+    const punchTime = String(pickField(row, ['PunchTimeOnly', 'Time', 'AttendanceTime']) || split.time).trim();
+    return {
+      id: `${empCode || 'emp'}-${punchDate || 'date'}-${punchTime || index}-${index}`,
+      empCode,
+      employeeName: String(pickField(row, ['Name', 'EmployeeName', 'EmpName']) || '').trim(),
+      punchDate,
+      punchTime,
+      deviceName: String(pickField(row, ['MachineNo', 'MachineName', 'DeviceName', 'Device', 'Location']) || '').trim(),
+      direction: String(pickField(row, ['InOut', 'Direction', 'PunchDirection', 'IOType']) || '').trim(),
+      status: String(pickField(row, ['Status', 'AttendanceStatus', 'VerifyMode']) || '').trim(),
+      sourcePayload: row,
+    };
+  });
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'whitebooks-einvoice-proxy' });
 });
@@ -442,6 +524,76 @@ app.get('/api/debug/invoice/:id', (req, res) => {
     });
   }
   return res.json(snap);
+});
+
+app.get('/api/admin/attendance/punches', async (req, res) => {
+  try {
+    const c = etimeCfg();
+    const baseUrl = c.baseUrl.replace(/\/+$/, '');
+    const empCode = String(req.query.empCode || req.query.Empcode || 'ALL').trim() || 'ALL';
+    const fromDate = normalizeEtimeDate(req.query.fromDate || req.query.FromDate || '2024-01-01');
+    const toDate = normalizeEtimeDate(req.query.toDate || req.query.ToDate || '2026-05-12', true);
+
+    const url = new URL(`${baseUrl}/DownloadPunchData`);
+    url.searchParams.set('Empcode', empCode);
+    url.searchParams.set('FromDate', fromDate);
+    url.searchParams.set('ToDate', toDate);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Number(process.env.ETIME_TIMEOUT_MS || 60000));
+    let providerRes;
+    try {
+      providerRes = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Basic ${Buffer.from(c.authCredentials).toString('base64')}`,
+          accept: 'application/json',
+        },
+      });
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        throw new HttpError(504, 'eTimeOffice attendance fetch timed out.');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const text = await providerRes.text();
+    let providerData = null;
+    try {
+      providerData = text ? JSON.parse(text) : null;
+    } catch {
+      providerData = { raw: text };
+    }
+
+    if (!providerRes.ok) {
+      return res.status(providerRes.status).json({
+        message:
+          providerData?.Msg ||
+          providerData?.Message ||
+          providerData?.message ||
+          `eTimeOffice attendance fetch failed (${providerRes.status}).`,
+      });
+    }
+
+    const records = normalizeEtimePunchRows(providerData);
+    res.json({
+      source: 'eTimeOffice',
+      empCode,
+      fromDate,
+      toDate,
+      count: records.length,
+      message: providerData?.Msg || providerData?.Message || providerData?.message || null,
+      records,
+    });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({
+      message: err?.message || 'Failed to fetch eTimeOffice attendance.',
+    });
+  }
 });
 
 app.post('/api/billing/e-invoice/generate', async (req, res) => {

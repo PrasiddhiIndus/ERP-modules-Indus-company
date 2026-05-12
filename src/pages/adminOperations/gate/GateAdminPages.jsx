@@ -66,7 +66,7 @@ export function GateEmployeeMovementPage() {
           </SectionCard>
           <SectionCard title="Attendance link">
             <p className="text-xs text-gray-600">Approved movements can flag attendance exceptions for same day.</p>
-            <LinkedChip label="Attendance Inputs" toHint="corrections" />
+            <LinkedChip label="Raw Attendance Data" toHint="corrections" />
           </SectionCard>
         </div>
       </div>
