@@ -139,6 +139,14 @@ function computeDutyRatioQty(actualDuty, authorizedDuty) {
   return round3(act / auth);
 }
 
+function computeShortDeployment(actualDuty, authorizedDuty) {
+  return round3(Math.max(0, safeNumber(authorizedDuty) - safeNumber(actualDuty)));
+}
+
+function computePenaltyAmount(actualDuty, authorizedDuty, penaltyRate) {
+  return round2(computeShortDeployment(actualDuty, authorizedDuty) * safeNumber(penaltyRate));
+}
+
 /** Lump sum PO lines: Qty carries duty ratio; Rate stays PO rate [− category penalty if enabled]. */
 function computeLumpSumEffectiveRate(poRate, actualDuty, authorizedDuty, categoryPenalty, subtractPenalty) {
   const pr = safeNumber(poRate);
@@ -148,6 +156,23 @@ function computeLumpSumEffectiveRate(poRate, actualDuty, authorizedDuty, categor
     r = round2(Math.max(0, r - safeNumber(categoryPenalty)));
   }
   return r;
+}
+
+function normalizeLumpSumBillingMode(raw) {
+  const m = String(raw || '').trim().toLowerCase();
+  if (m === 'penalty') return 'penalty';
+  if (m === 'truck' || m === 'fire_tender' || m === 'truck_cumulated') return 'truck';
+  if (m === 'months_geometry') return 'months_geometry';
+  return 'normal';
+}
+
+function resolvePoLumpSumInvoicePreviewMode(po) {
+  const explicit = String(po?.lumpSumInvoicePreviewMode || po?.lump_sum_invoice_preview_mode || '').trim().toLowerCase();
+  if (explicit === 'consolidated' || explicit === 'detailed') return explicit;
+  const m = String(po?.lumpSumBillingMode || po?.lump_sum_billing_mode || '').trim().toLowerCase();
+  if (m === 'truck_cumulated') return 'consolidated';
+  if (m === 'truck' || m === 'fire_tender') return 'detailed';
+  return 'consolidated';
 }
 
 function daysInMonth(dateStr) {
@@ -622,11 +647,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const lumpSumBillingMode = useMemo(() => {
     if (!isLumpSumBilling) return 'normal';
-    const m = String(poForLogic?.lumpSumBillingMode || poForLogic?.lump_sum_billing_mode || '').trim().toLowerCase();
-    if (m === 'penalty') return 'penalty';
-    if (m === 'truck' || m === 'fire_tender') return 'truck';
-    if (m === 'months_geometry') return 'months_geometry';
-    return 'normal';
+    return normalizeLumpSumBillingMode(poForLogic?.lumpSumBillingMode || poForLogic?.lump_sum_billing_mode);
   }, [isLumpSumBilling, poForLogic]);
 
   const lumpSumPenaltyActive = lumpSumBillingMode === 'penalty';
@@ -653,12 +674,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (invoiceDraft?.mode === 'edit') return;
     setLumpSumInvoicePenaltyGeometry(false);
     setLumpSumConsolidatedLineDraft({ description: null, quantity: '', rate: '' });
-    setLumpSumInvoicePreviewMode(
-      String(selectedPO?.lumpSumBillingMode || selectedPO?.lump_sum_billing_mode || '').trim().toLowerCase() === 'truck'
-        ? 'detailed'
-        : 'consolidated'
-    );
-  }, [selectedPO?.id, invoiceDraft?.mode]);
+    setLumpSumInvoicePreviewMode(resolvePoLumpSumInvoicePreviewMode(selectedPO));
+  }, [selectedPO?.id, selectedPO?.lumpSumBillingMode, selectedPO?.lump_sum_billing_mode, invoiceDraft?.mode]);
 
   useEffect(() => {
     if (!invoiceDraft) return;
@@ -687,7 +704,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
           ? editingInvoice.lumpSumInvoicePreviewMode || editingInvoice.lump_sum_invoice_preview_mode
           : editIsLump && !editHasConsolidatedLump
             ? 'detailed'
-            : 'consolidated'
+            : editIsLump
+              ? resolvePoLumpSumInvoicePreviewMode(editPo)
+              : 'consolidated'
       );
       setItems(
         (editingInvoice.items || []).map((i) => {
@@ -1117,6 +1136,35 @@ const CreateInvoice = ({ onNavigateTab }) => {
   };
 
   const cumulateLumpSumInvoiceLines = isLumpSumBilling && lumpSumInvoicePreviewMode === 'consolidated';
+  const lumpSumPenaltyBillingSummary = useMemo(() => {
+    if (!isLumpSumBilling || !lumpSumSubtractPenaltyInRate) return null;
+    const geometryRows = items.filter((it) => !it.isTruckLine && it.geometryEnabled);
+    if (!geometryRows.length) return null;
+    const totalActual = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.actualDuty), 0));
+    const totalAuthorized = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.authorizedDuty), 0));
+    const totalShortDeployment = round3(
+      geometryRows.reduce((sum, row) => sum + computeShortDeployment(row.actualDuty, row.authorizedDuty), 0)
+    );
+    const totalPenaltyAmount = round2(
+      geometryRows.reduce((sum, row) => sum + computePenaltyAmount(row.actualDuty, row.authorizedDuty, row.poLinePenalty), 0)
+    );
+    const unit = totalAuthorized > 0 ? round3(totalActual / totalAuthorized) : 0;
+    const billingRatePerMonth = safeNumber(displayPO?.monthlyContractValue || displayPO?.monthly_contract_value);
+    const billingAmount = round2(billingRatePerMonth * unit);
+    const finalBillingValue = round2(Math.max(0, billingAmount - totalPenaltyAmount));
+    return {
+      totalActual,
+      totalAuthorized,
+      totalShortDeployment,
+      totalPenaltyAmount,
+      unit,
+      billingRatePerMonth,
+      billingAmount,
+      finalBillingValue,
+    };
+  }, [isLumpSumBilling, lumpSumSubtractPenaltyInRate, items, displayPO]);
+  const showLumpSumPenaltyBillingSummary =
+    isLumpSumBilling && lumpSumSubtractPenaltyInRate && lumpSumSingleInvoiceTableMode && !!lumpSumPenaltyBillingSummary;
   const consolidatedLumpSumLine = useMemo(() => {
     if (!lumpSumSingleInvoiceTableMode) return null;
     const geometryRows = items.filter((it) => !it.isTruckLine && it.geometryEnabled);
@@ -1125,7 +1173,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const geometryAmount = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
     const penalty = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0));
     const qty = lumpSumConsolidatedLineDraft.quantity === '' ? 1 : safeNumber(lumpSumConsolidatedLineDraft.quantity);
-    const rate = geometryAmount;
+    const rate = lumpSumPenaltyBillingSummary ? lumpSumPenaltyBillingSummary.finalBillingValue : geometryAmount;
     const amount = round2(qty * rate);
     return {
       description:
@@ -1145,14 +1193,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
       authorizedDuty: null,
       numberOfMonths: null,
     };
-  }, [lumpSumSingleInvoiceTableMode, items, displayPO, lumpSumConsolidatedLineDraft]);
+  }, [lumpSumSingleInvoiceTableMode, items, displayPO, lumpSumConsolidatedLineDraft, lumpSumPenaltyBillingSummary]);
   /** Invoice table rows: non-truck lump sum shows aggregated geometry line + supplementary Qty×Rate lines only. */
   const invoiceTableRows = useMemo(() => {
     if (!lumpSumSingleInvoiceTableMode) {
       return items.map((_, itemIndex) => ({ kind: 'item', itemIndex }));
     }
     const rows = [];
-    if (consolidatedLumpSumLine) {
+    if (consolidatedLumpSumLine && !showLumpSumPenaltyBillingSummary) {
       rows.push({ kind: 'lumpConsolidated' });
     }
     items.forEach((it, itemIndex) => {
@@ -1161,10 +1209,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
       }
     });
     if (!rows.length && items.length) {
+      if (showLumpSumPenaltyBillingSummary) return [];
       return items.map((_, itemIndex) => ({ kind: 'item', itemIndex }));
     }
     return rows;
-  }, [lumpSumSingleInvoiceTableMode, consolidatedLumpSumLine, items]);
+  }, [lumpSumSingleInvoiceTableMode, consolidatedLumpSumLine, showLumpSumPenaltyBillingSummary, items]);
 
   const lumpSumInvoiceEntryLines = useMemo(() => {
     if (!isLumpSumBilling) return items;
@@ -1640,14 +1689,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const actual = safeNumber(row.actualDuty);
       const auth = safeNumber(row.authorizedDuty);
       const ratio = auth > 0 ? round3(actual / auth) : 0;
+      const shortDeployment = computeShortDeployment(actual, auth);
+      const penaltyRate = round2(safeNumber(row.poLinePenalty));
+      const penaltyAmount = computePenaltyAmount(actual, auth, penaltyRate);
       return {
         'S.No': idx + 1,
         Description: row.description || `Line ${idx + 1}`,
         'PO Qty': safeNumber(row.poQty),
         'PO Rate': round2(safeNumber(row.poReferenceRate)),
-        'Penalty (PO)': round2(safeNumber(row.poLinePenalty)),
         'Actual Duty': actual,
         'Authorised Duty': auth,
+        'Short Deployment': shortDeployment,
+        'Penalty Rate': penaltyRate,
+        'Penalty Amount': penaltyAmount,
         'Duty Ratio': ratio,
         Qty: round3(safeNumber(row.quantity)),
         Rate: round2(safeNumber(row.rate)),
@@ -1661,9 +1715,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
       Description: 'TOTAL',
       'PO Qty': '',
       'PO Rate': '',
-      'Penalty (PO)': round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0)),
       'Actual Duty': '',
       'Authorised Duty': '',
+      'Short Deployment': round3(sourceRows.reduce((sum, row) => sum + computeShortDeployment(row.actualDuty, row.authorizedDuty), 0)),
+      'Penalty Rate': '',
+      'Penalty Amount': round2(
+        sourceRows.reduce((sum, row) => sum + computePenaltyAmount(row.actualDuty, row.authorizedDuty, row.poLinePenalty), 0)
+      ),
       'Duty Ratio': '',
       Qty: totalQty,
       Rate: totalQty > 0 ? round2(totalAmount / totalQty) : 0,
@@ -2021,25 +2079,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <option value="proforma">Proforma invoice</option>
                   </select>
                 </div>
-                {isLumpSumBilling ? (
-                  <label className="flex min-w-[230px] cursor-pointer items-start gap-2 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-neutral-800">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 rounded border-gray-300 text-amber-700 focus:ring-amber-500"
-                      checked={lumpSumInvoicePreviewMode === 'consolidated'}
-                      onChange={(e) => setLumpSumInvoicePreviewMode(e.target.checked ? 'consolidated' : 'detailed')}
-                      aria-label="Cumulate lump sum entry lines on final invoice preview"
-                    />
-                    <span>
-                      <span className="block font-semibold">Cumulate final invoice entry lines</span>
-                      <span className="text-[11px] text-neutral-600">
-                        {lumpSumInvoicePreviewMode === 'consolidated'
-                          ? 'The line items below cumulate into one live-preview line.'
-                          : 'The line items below show as-is in live preview.'}
-                      </span>
-                    </span>
-                  </label>
-                ) : null}
               </div>
               <button
                 type="button"
@@ -2084,13 +2123,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         aria-label="Duty geometry with PO penalty"
                       />
                       <span>
-                        <span className="font-semibold">Duty geometry — PO penalty on rate</span>
+                        <span className="font-semibold">Duty geometry — PO penalty rate</span>
                         <span className="text-neutral-600">
                           {' '}
-                          Adds the Penalty (₹) column (from PO Rate per Category, next to Qty/Rate) and uses{' '}
+                          Adds penalty-rate and penalty-amount fields from PO Rate per Category and uses{' '}
                         </span>
                         <span className="font-mono text-[11px] text-neutral-800 whitespace-nowrap">
-                          Qty = (Actual ÷ Authorised) × PO Qty; Rate = PO rate − Penalty
+                          Short deployment = Authorised − Actual; Penalty amount = Short deployment × Penalty rate
                         </span>
                         <span className="text-neutral-600"> on each duty-geometry line.</span>
                       </span>
@@ -2124,8 +2163,21 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <div className="mt-2 space-y-2">
                           {items.map((row, rowIdx) => (
                             row.isTruckLine || !row.geometryEnabled ? null : (
-                            <div key={`geo-row-${rowIdx}`} className="grid grid-cols-1 gap-2 rounded border border-amber-100 bg-amber-50/30 p-2 md:grid-cols-6">
-                              <div className="text-xs text-gray-700 md:col-span-2">
+                            <div
+                              key={`geo-row-${rowIdx}`}
+                              className={[
+                                'grid grid-cols-1 gap-2 rounded border border-amber-100 bg-amber-50/30 p-2',
+                                lumpSumSubtractPenaltyInRate
+                                  ? 'md:grid-cols-[minmax(140px,1.6fr)_repeat(5,minmax(95px,1fr))] md:items-end'
+                                  : 'md:grid-cols-[minmax(140px,2fr)_repeat(4,minmax(95px,1fr))] md:items-end',
+                              ].join(' ')}
+                            >
+                              <div
+                                className={[
+                                  'text-xs text-gray-700',
+                                  lumpSumSubtractPenaltyInRate ? '' : 'md:col-span-2',
+                                ].join(' ')}
+                              >
                                 <div className="font-medium text-gray-900 truncate" title={row.description || ''}>{row.description || `Line ${rowIdx + 1}`}</div>
                                 <div className="text-[11px] text-gray-500">PO rate: ₹{safeNumber(row.poReferenceRate).toLocaleString('en-IN')}</div>
                               </div>
@@ -2149,18 +2201,44 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-center"
                                 />
                               </label>
-                              <div className="text-[11px] text-gray-700">
-                                Qty
-                                <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
-                                  {round3(row.quantity).toLocaleString('en-IN')}
-                                </div>
-                              </div>
-                              <div className="text-[11px] text-gray-700">
-                                Amount
-                                <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
-                                  ₹{round2(row.amount).toLocaleString('en-IN')}
-                                </div>
-                              </div>
+                              {lumpSumSubtractPenaltyInRate ? (
+                                <>
+                                  <div className="text-[11px] text-gray-700">
+                                    Short deployment
+                                    <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                      {computeShortDeployment(row.actualDuty, row.authorizedDuty).toLocaleString('en-IN')}
+                                    </div>
+                                  </div>
+                                  <div className="text-[11px] text-gray-700">
+                                    Penalty rate
+                                    <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                      ₹{safeNumber(row.poLinePenalty).toLocaleString('en-IN')}
+                                    </div>
+                                  </div>
+                                  <div className="text-[11px] text-gray-700">
+                                    Penalty amount
+                                    <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                      ₹{computePenaltyAmount(row.actualDuty, row.authorizedDuty, row.poLinePenalty).toLocaleString('en-IN')}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : null}
+                              {!lumpSumSubtractPenaltyInRate ? (
+                                <>
+                                  <div className="text-[11px] text-gray-700">
+                                    Qty
+                                    <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                      {round3(row.quantity).toLocaleString('en-IN')}
+                                    </div>
+                                  </div>
+                                  <div className="text-[11px] text-gray-700">
+                                    Amount
+                                    <div className="mt-1 h-[30px] rounded border border-gray-200 bg-gray-50 px-2 py-1 text-center text-gray-800">
+                                      ₹{round2(row.amount).toLocaleString('en-IN')}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : null}
                             </div>
                             )
                           ))}
@@ -2169,6 +2247,122 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     ) : null}
                   </div>
                 ) : null}
+                {showLumpSumPenaltyBillingSummary ? (
+                  <div className="border-b border-amber-200 bg-amber-50/40 px-3 py-3">
+                    <p className="text-xs font-semibold text-amber-900">Lump sum penalty billing summary</p>
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="min-w-[760px] w-full border border-amber-200 bg-white text-xs">
+                        <thead className="bg-amber-100/60 text-amber-950">
+                          <tr>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Actual total</th>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Authorised total</th>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Short deployment total</th>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Total Penalty amount</th>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Billing rate per month</th>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Unit</th>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Billing amount</th>
+                            <th className="border border-amber-200 px-2 py-2 text-center">Final billing value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border border-amber-200 px-2 py-2 text-center tabular-nums">
+                              {lumpSumPenaltyBillingSummary.totalActual.toLocaleString('en-IN')}
+                            </td>
+                            <td className="border border-amber-200 px-2 py-2 text-center tabular-nums">
+                              {lumpSumPenaltyBillingSummary.totalAuthorized.toLocaleString('en-IN')}
+                            </td>
+                            <td className="border border-amber-200 px-2 py-2 text-center tabular-nums">
+                              {lumpSumPenaltyBillingSummary.totalShortDeployment.toLocaleString('en-IN')}
+                            </td>
+                            <td className="border border-amber-200 px-2 py-2 text-center tabular-nums">
+                              ₹{lumpSumPenaltyBillingSummary.totalPenaltyAmount.toLocaleString('en-IN')}
+                            </td>
+                            <td className="border border-amber-200 px-2 py-2 text-center tabular-nums">
+                              ₹{lumpSumPenaltyBillingSummary.billingRatePerMonth.toLocaleString('en-IN')}
+                            </td>
+                            <td className="border border-amber-200 px-2 py-2">
+                              <input
+                                type="number"
+                                value={lumpSumPenaltyBillingSummary.unit}
+                                readOnly
+                                className="w-full rounded border border-gray-300 bg-gray-50 px-2 py-1 text-center tabular-nums"
+                                aria-label="Unit"
+                              />
+                            </td>
+                            <td className="border border-amber-200 px-2 py-2">
+                              <input
+                                type="number"
+                                value={lumpSumPenaltyBillingSummary.billingAmount}
+                                readOnly
+                                className="w-full rounded border border-gray-300 bg-gray-50 px-2 py-1 text-center tabular-nums"
+                                aria-label="Billing amount"
+                              />
+                            </td>
+                            <td className="border border-amber-200 px-2 py-2">
+                              <input
+                                type="number"
+                                value={lumpSumPenaltyBillingSummary.finalBillingValue}
+                                readOnly
+                                className="w-full rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-center font-semibold text-emerald-800 tabular-nums"
+                                aria-label="Final billing value"
+                              />
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-amber-900/80">
+                      Final billing value = (Billing rate per month × Unit) − Total Penalty amount. This value is used in the tax invoice.
+                    </p>
+                    {consolidatedLumpSumLine ? (
+                      <div className="mt-3 overflow-x-auto">
+                        <table className="min-w-[680px] w-full border border-neutral-300 bg-white text-xs">
+                          <thead className="bg-neutral-100 text-neutral-900">
+                            <tr>
+                              <th className="w-12 border border-neutral-300 px-2 py-2 text-center">#</th>
+                              <th className="border border-neutral-300 px-2 py-2 text-left">Description</th>
+                              <th className="w-24 border border-neutral-300 px-2 py-2 text-center">HSN/SAC</th>
+                              <th className="w-20 border border-neutral-300 px-2 py-2 text-center">Qty</th>
+                              <th className="w-28 border border-neutral-300 px-2 py-2 text-center">Rate</th>
+                              <th className="w-28 border border-neutral-300 px-2 py-2 text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td className="border border-neutral-300 px-2 py-2 text-center">1</td>
+                              <td className="border border-neutral-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={consolidatedLumpSumLine.description || ''}
+                                  onChange={(e) => updateLumpSumConsolidatedLine({ description: e.target.value })}
+                                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                                  placeholder="Final invoice line description"
+                                />
+                              </td>
+                              <td className="border border-neutral-300 px-2 py-2 text-center font-mono">
+                                {consolidatedLumpSumLine.hsnSac || '–'}
+                              </td>
+                              <td className="border border-neutral-300 px-2 py-2 text-center tabular-nums">
+                                {safeNumber(consolidatedLumpSumLine.quantity).toLocaleString('en-IN')}
+                              </td>
+                              <td className="border border-neutral-300 px-2 py-2 text-center tabular-nums">
+                                ₹{round2(consolidatedLumpSumLine.rate).toLocaleString('en-IN')}
+                              </td>
+                              <td className="border border-neutral-300 px-2 py-2 text-right font-semibold tabular-nums">
+                                ₹{round2(consolidatedLumpSumLine.amount).toLocaleString('en-IN')}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <p className="mt-1 text-[11px] text-neutral-500">
+                          Only the description is editable here; calculated values are locked and feed the tax invoice.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {invoiceTableRows.length > 0 || !showLumpSumPenaltyBillingSummary ? (
                 <div className="w-full max-w-full min-w-0 overflow-x-auto">
                   <table
                     className={[
@@ -2232,7 +2426,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         lumpSumDutyGeometryLineTable ? 'w-[10%] min-w-[3.75rem] px-1 py-1.5 leading-tight' : 'w-[12%] px-2 py-2',
                       ].join(' ')}
                     >
-                      Penalty (₹)
+                      Penalty rate (₹)
                     </th>
                   ) : null}
                   <th
@@ -2678,6 +2872,41 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               step="1"
                             />
                           </label>
+                          {lumpSumSubtractPenaltyInRate ? (
+                            <>
+                              <label className="inline-flex items-center gap-2">
+                                <span className="text-gray-600">Short deployment</span>
+                                <input
+                                  type="number"
+                                  value={computeShortDeployment(it.actualDuty, it.authorizedDuty)}
+                                  readOnly
+                                  className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-gray-100 text-gray-700"
+                                  step="0.001"
+                                />
+                              </label>
+                              <label className="inline-flex items-center gap-2">
+                                <span className="text-gray-600">Penalty rate (₹)</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={it.poLinePenalty ?? 0}
+                                  readOnly
+                                  className="w-28 px-2 py-1 border border-gray-300 rounded-md text-center bg-gray-100 text-gray-700"
+                                  step="0.01"
+                                />
+                              </label>
+                              <label className="inline-flex items-center gap-2">
+                                <span className="text-gray-600">Penalty amount (₹)</span>
+                                <input
+                                  type="number"
+                                  value={computePenaltyAmount(it.actualDuty, it.authorizedDuty, it.poLinePenalty)}
+                                  readOnly
+                                  className="w-32 px-2 py-1 border border-gray-300 rounded-md text-center bg-gray-100 text-gray-700"
+                                  step="0.01"
+                                />
+                              </label>
+                            </>
+                          ) : null}
                           {lumpSumBillingMode === 'months_geometry' ? (
                             <label className="inline-flex items-center gap-2">
                               <span className="text-gray-600">Number of months</span>
@@ -2696,7 +2925,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals). '
                               : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals). '}
                             {lumpSumSubtractPenaltyInRate
-                              ? 'Rate = PO rate − Penalty (from PO). Amount = Qty × Rate.'
+                              ? 'Short deployment = Authorised − Actual. Penalty amount = Short deployment × Penalty rate (from PO).'
                               : 'Rate = PO rate. Amount = Qty × Rate.'}
                           </span>
                         </div>
@@ -2709,6 +2938,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </tbody>
             </table>
                 </div>
+                ) : null}
                 {isLumpSumBilling ? (
                   <div className="px-2 pt-2 pb-1 border-t border-gray-100 bg-white space-y-1.5">
                     <div>

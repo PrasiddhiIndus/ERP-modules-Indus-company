@@ -14,6 +14,11 @@ import ClientLegalNameAutocomplete from '../../components/commercial/ClientLegal
 
 const VERTICALS = ['Manpower', 'Training'];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
+const MANPOWER_BILLING_TYPE_FILTERS = [
+  { value: 'Per Day', label: 'Daily' },
+  { value: 'Monthly', label: 'Monthly' },
+  { value: 'Lump Sum', label: 'Lump Sum' },
+];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const BILLING_CYCLES = ['30', '45', '60'];
 const PAGE_SIZE = 10;
@@ -212,6 +217,23 @@ const GST_SUPPLY_TYPES = [
   { value: 'sez_zero', label: '0% GST (SEZ / nil rated)' },
 ];
 
+function normalizeLumpSumBillingModeForForm(raw) {
+  const m = String(raw || 'normal').trim().toLowerCase();
+  if (m === 'fire_tender' || m === 'truck_cumulated') return 'truck';
+  if (m === 'penalty' || m === 'truck' || m === 'months_geometry' || m === 'normal') return m;
+  return 'normal';
+}
+
+function isTruckCumulateMode(raw) {
+  return String(raw || '').trim().toLowerCase() === 'truck_cumulated';
+}
+
+function encodeLumpSumBillingModeForSave(mode, cumulateTruckLines) {
+  const normalized = normalizeLumpSumBillingModeForForm(mode);
+  if (normalized === 'truck') return cumulateTruckLines ? 'truck_cumulated' : 'truck';
+  return normalized;
+}
+
 const initialForm = {
   siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '', panNumber: '',
   currentCoordinator: '', contactNumber: '', ocNumber: '', vertical: 'Manpower', ocSeries: '1',
@@ -220,9 +242,11 @@ const initialForm = {
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
+  totalContractMonth: '',
   startDate: '', endDate: '', billingType: 'Per Day', billingCycle: '30', remarks: '',
   monthlyDutyQtyMode: '',
   lumpSumBillingMode: '',
+  lumpSumTruckCumulateFinalInvoiceLines: false,
   invoiceTermsText: '',
   sellerCin: '', sellerPan: '', msmeRegistrationNo: '', msmeClause: '',
   gstSupplyType: 'intra',
@@ -234,6 +258,7 @@ const POEntry = () => {
   const { userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [manpowerBillingTypeFilter, setManpowerBillingTypeFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [formData, setFormData] = useState(initialForm);
@@ -393,6 +418,9 @@ const POEntry = () => {
     if (departmentFilter) {
       list = list.filter((p) => poDepartmentLabel(p) === departmentFilter);
     }
+    if (departmentFilter === 'Manpower' && manpowerBillingTypeFilter) {
+      list = list.filter((p) => String(p.billingType || p.poType || '').trim() === manpowerBillingTypeFilter);
+    }
     if (!searchTerm.trim()) return list;
     const s = searchTerm.toLowerCase();
     return list.filter(
@@ -402,7 +430,7 @@ const POEntry = () => {
         p.legalName?.toLowerCase().includes(s) ||
         p.siteId?.toLowerCase().includes(s)
     );
-  }, [commercialPOs, searchTerm, departmentFilter]);
+  }, [commercialPOs, searchTerm, departmentFilter, manpowerBillingTypeFilter]);
 
   const sortedFilteredList = useMemo(() => {
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
@@ -426,7 +454,10 @@ const POEntry = () => {
   }, [filteredList, sortConfig]);
 
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, sortConfig]);
+  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, manpowerBillingTypeFilter, sortConfig]);
+  useEffect(() => {
+    if (departmentFilter !== 'Manpower') setManpowerBillingTypeFilter('');
+  }, [departmentFilter]);
   const totalPages = Math.max(1, Math.ceil(sortedFilteredList.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const start = (safePage - 1) * PAGE_SIZE;
@@ -460,6 +491,7 @@ const POEntry = () => {
   const handleOpenEdit = (po) => {
     setEditId(po.id);
     const cycles = Array.isArray(po.renewalCycles) ? po.renewalCycles : [];
+    const rawLumpSumBillingMode = po.lumpSumBillingMode || po.lump_sum_billing_mode || 'normal';
     setFormData({
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
       billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '', placeOfSupply: po.placeOfSupply || '',
@@ -474,6 +506,7 @@ const POEntry = () => {
       renewalCycles: cycles,
       newCyclePoWoNumber: '',
       newCycleTotalContractValue: '',
+      totalContractMonth: po.totalContractMonth ?? po.total_contract_month ?? '',
       vendorCode: po.vendorCode || '',
       ratePerCategory: Array.isArray(po.ratePerCategory) && po.ratePerCategory.length
         ? po.ratePerCategory.map((r) => ({
@@ -493,12 +526,10 @@ const POEntry = () => {
           : '',
       lumpSumBillingMode:
         (po.billingType || po.poType) === 'Lump Sum'
-          ? (() => {
-              const m = String(po.lumpSumBillingMode || po.lump_sum_billing_mode || 'normal').toLowerCase();
-              if (m === 'fire_tender') return 'truck';
-              return po.lumpSumBillingMode || po.lump_sum_billing_mode || 'normal';
-            })()
+          ? normalizeLumpSumBillingModeForForm(rawLumpSumBillingMode)
           : '',
+      lumpSumTruckCumulateFinalInvoiceLines:
+        (po.billingType || po.poType) === 'Lump Sum' && isTruckCumulateMode(rawLumpSumBillingMode),
       invoiceTermsText: po.invoiceTermsText || '',
       sellerCin: po.sellerCin || '',
       sellerPan: po.sellerPan || '',
@@ -688,6 +719,13 @@ const POEntry = () => {
     const poType = trainingSelected
       ? 'Per Day'
       : (ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly');
+    const lumpSumBillingModeForSave =
+      poType === 'Lump Sum'
+        ? encodeLumpSumBillingModeForSave(
+            formData.lumpSumBillingMode,
+            formData.lumpSumTruckCumulateFinalInvoiceLines
+          )
+        : null;
     const rates = formData.ratePerCategory.map((r) => ({
       description: (r.description || '').trim() || 'Other',
       qty: Number(r.qty) || 0,
@@ -702,6 +740,14 @@ const POEntry = () => {
           ? Number(formData.newCycleTotalContractValue) || 0
           : 0)
       : Number(formData.totalContractValue) || 0;
+    const totalContractMonthVal =
+      poType === 'Lump Sum'
+        ? Number(formData.totalContractMonth) || null
+        : null;
+    const monthlyContractValueVal =
+      totalContractMonthVal && totalContractMonthVal > 0
+        ? Math.round(((Number(formData.newCycleTotalContractValue) || 0) / totalContractMonthVal) * 100) / 100
+        : null;
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
     const nowIso = new Date().toISOString();
@@ -735,6 +781,8 @@ const POEntry = () => {
       poWoNumber: trimmedPoWoNumber,
       renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
       ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
+      totalContractMonth: totalContractMonthVal,
+      monthlyContractValue: monthlyContractValueVal,
       sacCode: formData.sacCode.trim() || DEFAULT_SAC, hsnCode: formData.hsnCode.trim(), serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: poType,
       billingCycle: Number(formData.billingCycle) || 30, remarks: formData.remarks.trim(),
@@ -744,7 +792,7 @@ const POEntry = () => {
       paymentTermDays: null,
       advancePercent: null,
       monthlyDutyQtyMode: trainingSelected ? null : (poType === 'Monthly' ? (formData.monthlyDutyQtyMode || null) : null),
-      lumpSumBillingMode: poType === 'Lump Sum' ? (formData.lumpSumBillingMode || null) : null,
+      lumpSumBillingMode: lumpSumBillingModeForSave,
       invoiceTermsText: formData.invoiceTermsText.trim(),
       sellerCin: (formData.sellerCin || '').trim(),
       sellerPan: (formData.sellerPan || '').trim(),
@@ -798,6 +846,12 @@ const POEntry = () => {
 
   const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
   const poForHistory = viewHistoryPoId ? commercialPOs.find((p) => p.id === viewHistoryPoId) : null;
+  const isLumpSumMode = formData.billingType === 'Lump Sum';
+  const isLumpSumPenaltyMode = formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty';
+  const monthlyContractValue =
+    isLumpSumMode && Number(formData.totalContractMonth) > 0
+      ? Math.round(((Number(formData.newCycleTotalContractValue) || 0) / Number(formData.totalContractMonth)) * 100) / 100
+      : '';
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
@@ -855,6 +909,26 @@ const POEntry = () => {
             ))}
           </select>
         </div>
+        {departmentFilter === 'Manpower' ? (
+          <div className="shrink-0 w-full sm:w-52">
+            <label htmlFor="sales-po-entry-billing-type-filter" className="sr-only">
+              Billing type
+            </label>
+            <select
+              id="sales-po-entry-billing-type-filter"
+              value={manpowerBillingTypeFilter}
+              onChange={(e) => setManpowerBillingTypeFilter(e.target.value)}
+              className="w-full h-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All billing types</option>
+              {MANPOWER_BILLING_TYPE_FILTERS.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
       <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
         <div className="p-2">
@@ -1312,6 +1386,38 @@ const POEntry = () => {
                       </p>
                     ) : null}
                   </div>
+                  {isLumpSumMode ? (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Total contract month</label>
+                        <input
+                          type="number"
+                          value={formData.totalContractMonth}
+                          onChange={(e) => setFormData((p) => ({ ...p, totalContractMonth: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                          min="0"
+                          step="1"
+                          placeholder="Enter total months"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Monthly contract value (₹)
+                        </label>
+                        <input
+                          type="number"
+                          readOnly
+                          tabIndex={-1}
+                          value={monthlyContractValue}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-700 cursor-not-allowed"
+                          placeholder="New Total contract value ÷ total contract month"
+                        />
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          Calculated as New Total contract value ÷ total contract month.
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
 
                 {Array.isArray(formData.renewalCycles) && formData.renewalCycles.length > 0 ? (
@@ -1330,7 +1436,9 @@ const POEntry = () => {
                 ) : null}
                 <div className="mt-3">
                   <div className="flex justify-between items-center mb-2">
-                    <label className="text-sm font-medium text-gray-700">Rate per Category</label>
+                    <label className="text-sm font-medium text-gray-700">
+                      {isLumpSumPenaltyMode ? 'Penalty Rate per Category' : 'Rate per Category'}
+                    </label>
                     <button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button>
                   </div>
                   <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
@@ -1338,10 +1446,12 @@ const POEntry = () => {
                       <tr>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
-                        {formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty' ? (
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Penalty (₹)</th>
+                        {isLumpSumPenaltyMode ? (
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Penalty rate (₹)</th>
                         ) : null}
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
+                        {!isLumpSumPenaltyMode ? (
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
+                        ) : null}
                         <th className="w-10" />
                       </tr>
                     </thead>
@@ -1366,7 +1476,7 @@ const POEntry = () => {
                               min="0"
                             />
                           </td>
-                          {formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty' ? (
+                          {isLumpSumPenaltyMode ? (
                             <td className="px-3 py-2">
                               <input
                                 type="number"
@@ -1378,15 +1488,17 @@ const POEntry = () => {
                               />
                             </td>
                           ) : null}
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              value={r.rate}
-                              onChange={(e) => updateRateRow(idx, 'rate', e.target.value)}
-                              className="border border-gray-300 rounded px-2 py-1 w-full"
-                              min="0"
-                            />
-                          </td>
+                          {!isLumpSumPenaltyMode ? (
+                            <td className="px-3 py-2">
+                              <input
+                                type="number"
+                                value={r.rate}
+                                onChange={(e) => updateRateRow(idx, 'rate', e.target.value)}
+                                className="border border-gray-300 rounded px-2 py-1 w-full"
+                                min="0"
+                              />
+                            </td>
+                          ) : null}
                           <td className="px-2 py-1">
                             <button type="button" onClick={() => removeRateRow(idx)} className="text-red-600 hover:bg-red-50 rounded p-1">×</button>
                           </td>
@@ -1449,6 +1561,9 @@ const POEntry = () => {
                               bt === 'Monthly' ? (p.monthlyDutyQtyMode || 'po_geometry') : '',
                             lumpSumBillingMode:
                               bt === 'Lump Sum' ? (p.lumpSumBillingMode || 'normal') : '',
+                            lumpSumTruckCumulateFinalInvoiceLines:
+                              bt === 'Lump Sum' ? !!p.lumpSumTruckCumulateFinalInvoiceLines : false,
+                            totalContractMonth: bt === 'Lump Sum' ? p.totalContractMonth : '',
                           }));
                         }}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -1508,7 +1623,13 @@ const POEntry = () => {
                           <input
                             type="checkbox"
                             checked={formData.lumpSumBillingMode === 'penalty'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'penalty' }))}
+                            onChange={() =>
+                              setFormData((p) => ({
+                                ...p,
+                                lumpSumBillingMode: 'penalty',
+                                lumpSumTruckCumulateFinalInvoiceLines: false,
+                              }))
+                            }
                             className="rounded border-gray-300 mt-0.5"
                           />
                           <span className="text-sm text-gray-700">Penalty column on PO (next to Qty); Rate = (Actual÷Auth)×PO rate − Penalty on invoice</span>
@@ -1517,16 +1638,48 @@ const POEntry = () => {
                           <input
                             type="checkbox"
                             checked={formData.lumpSumBillingMode === 'truck'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'truck' }))}
+                            onChange={() =>
+                              setFormData((p) => ({
+                                ...p,
+                                lumpSumBillingMode: 'truck',
+                              }))
+                            }
                             className="rounded border-gray-300 mt-0.5"
                           />
                           <span className="text-sm text-gray-700">Truck rows — add manual Qty×Rate lines on Create Invoice (PO lines keep duty-based rate)</span>
                         </label>
+                        {formData.lumpSumBillingMode === 'truck' ? (
+                          <label className="ml-6 flex items-start gap-2 cursor-pointer rounded-md border border-amber-200 bg-white/70 px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={!!formData.lumpSumTruckCumulateFinalInvoiceLines}
+                              onChange={(e) =>
+                                setFormData((p) => ({
+                                  ...p,
+                                  lumpSumTruckCumulateFinalInvoiceLines: e.target.checked,
+                                }))
+                              }
+                              className="rounded border-gray-300 mt-0.5"
+                            />
+                            <span className="text-sm text-gray-700">
+                              <span className="block font-medium">Cumulate final invoice entry lines</span>
+                              <span className="block text-xs text-gray-500">
+                                When enabled, Create Invoice saves the truck/manual and PO duty lines as one final invoice line.
+                              </span>
+                            </span>
+                          </label>
+                        ) : null}
                         <label className="flex items-start gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={formData.lumpSumBillingMode === 'normal'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'normal' }))}
+                            onChange={() =>
+                              setFormData((p) => ({
+                                ...p,
+                                lumpSumBillingMode: 'normal',
+                                lumpSumTruckCumulateFinalInvoiceLines: false,
+                              }))
+                            }
                             className="rounded border-gray-300 mt-0.5"
                           />
                           <span className="text-sm text-gray-700">Normal lump sum calculation</span>
@@ -1535,7 +1688,13 @@ const POEntry = () => {
                           <input
                             type="checkbox"
                             checked={formData.lumpSumBillingMode === 'months_geometry'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'months_geometry' }))}
+                            onChange={() =>
+                              setFormData((p) => ({
+                                ...p,
+                                lumpSumBillingMode: 'months_geometry',
+                                lumpSumTruckCumulateFinalInvoiceLines: false,
+                              }))
+                            }
                             className="rounded border-gray-300 mt-0.5"
                           />
                           <span className="text-sm text-gray-700">

@@ -103,6 +103,8 @@ const UNIFIED_PO_CLIENT_DEFAULTS = {
   panNumber: null,
   monthlyDutyQtyMode: null,
   lumpSumBillingMode: null,
+  totalContractMonth: null,
+  monthlyContractValue: null,
   customPaymentTermsPercent: null,
   poType: null,
 };
@@ -133,6 +135,8 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     advancePercent: raw.advance_percent != null ? Number(raw.advance_percent) : null,
     monthlyDutyQtyMode: raw.monthly_duty_qty_mode ?? null,
     lumpSumBillingMode: raw.lump_sum_billing_mode ?? null,
+    totalContractMonth: raw.total_contract_month != null ? Number(raw.total_contract_month) : null,
+    monthlyContractValue: raw.monthly_contract_value != null ? Number(raw.monthly_contract_value) : null,
     panNumber: raw.pan_number ?? null,
     contactEmail: raw.contact_email ?? null,
     poType: raw.po_type ?? raw.billing_type ?? null,
@@ -423,6 +427,7 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
   const rmTerms = deriveRmPaymentTermFields(po);
   const isMp = moduleContext === MODULE_CONTEXT.MANPOWER_TRAINING;
   const isRm = moduleContext === MODULE_CONTEXT.RM_MM_AMC_IEV;
+  const totalContractValueVal = Number(po.totalContractValue) || 0;
 
   const billingCycleVal = isMp ? Number(po.billingCycle) || 30 : null;
   const paymentTermsVal = isMp ? po.paymentTerms || null : null;
@@ -433,6 +438,17 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
   const lumpSumModeVal =
     isMp && po.lumpSumBillingMode && String(po.lumpSumBillingMode).trim()
       ? String(po.lumpSumBillingMode).trim()
+      : null;
+  const totalContractMonthVal =
+    isMp && poType === 'Lump Sum' && po.totalContractMonth != null && String(po.totalContractMonth).trim()
+      ? Number(po.totalContractMonth) || null
+      : null;
+  const monthlyContractValueVal =
+    isMp && poType === 'Lump Sum'
+      ? Number(po.monthlyContractValue) ||
+        (totalContractMonthVal && totalContractMonthVal > 0
+          ? Math.round((totalContractValueVal / totalContractMonthVal) * 100) / 100
+          : null)
       : null;
 
   const poReceivedVal =
@@ -458,7 +474,9 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     vertical: normalizePoVerticalForPersist(po.vertical),
     po_wo_number: po.poWoNumber || null,
     po_quantity: Number(po.poQuantity) || 0,
-    total_contract_value: Number(po.totalContractValue) || 0,
+    total_contract_value: totalContractValueVal,
+    total_contract_month: totalContractMonthVal,
+    monthly_contract_value: monthlyContractValueVal,
     sac_code: po.sacCode || null,
     hsn_code: po.hsnCode || null,
     service_description: po.serviceDescription || null,
@@ -525,12 +543,14 @@ export async function saveCommercialPOs(list, options = {}) {
 
     let { data: saved, error: poError } = await persistPoWo(payload);
     // DB compatibility fallback for environments where some optional columns are absent.
-    if (poError && /column .*po_type|po_type|payment_term_mode|payment_term_days|advance_percent/i.test(String(poError?.message || ''))) {
+    if (poError && /column .*po_type|po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value/i.test(String(poError?.message || ''))) {
       const {
         po_type,
         payment_term_mode,
         payment_term_days,
         advance_percent,
+        total_contract_month,
+        monthly_contract_value,
         ...fallbackPayload
       } = payload;
       ({ data: saved, error: poError } = await persistPoWo(fallbackPayload));
