@@ -180,7 +180,7 @@ const UserManagement = () => {
     return (
       <div className="p-6">
         <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-amber-800">
-          Only Admin or Super Admin can access User Management.
+          Only Super Admin can access User Management.
         </div>
       </div>
     );

@@ -93,6 +93,8 @@ import FireTenderManufacturing from "./pages/fireTenderManufacturing/FireTenderM
 import AMC from "./pages/amc/AMC";
 import Settings from "./pages/Settings";
 import UserManagement from "./pages/UserManagement";
+import SoftwareSubscriptions from "./pages/SoftwareSubscriptions";
+import IndusLmsTrainings from "./pages/IndusLmsTrainings";
 
 // Marketing Module
 import MarketingDashboard from "./pages/marketing/MarketingDashboard";
@@ -444,6 +446,9 @@ function App() {
             {/* Finance/Accounts */}
             <Route path="accounts-finance" element={<AccountsFinance />} />
 
+            {/* Indus LMS / Trainings */}
+            <Route path="indus-lms-trainings" element={<IndusLmsTrainings />} />
+
             {/* Marketing Module Routes */}
             <Route path="marketing" element={<MarketingDashboard />} />
             <Route path="marketing/enquiry-master" element={<EnquiryMaster />} />
@@ -460,8 +465,9 @@ function App() {
             <Route path="marketing/expo-seminar" element={<ExpoSeminar />} />
             <Route path="marketing/gst-upload" element={<GSTUpload />} />
 
-            {/* User Management (admin only) */}
+            {/* Super Admin-only modules */}
             <Route path="user-management" element={<UserManagement />} />
+            <Route path="software-subscriptions-reminders" element={<SoftwareSubscriptions />} />
 
             {/* Settings */}
             <Route path="settings" element={<Settings />} />
