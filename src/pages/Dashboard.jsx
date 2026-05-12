@@ -30,6 +30,67 @@ import {
   InsightRow,
 } from "./dashboard/components/CommandCenterUi";
 
+const META_PREFIX = "__META__:";
+const DAY_MS = 24 * 60 * 60 * 1000;
+const BID_DEADLINE_ALERT_DAYS = [7, 3, 1];
+
+function parseMeta(raw) {
+  if (!raw || typeof raw !== "string" || !raw.startsWith(META_PREFIX)) return {};
+  try {
+    return JSON.parse(raw.slice(META_PREFIX.length)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function toLocalDateStart(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, y, m, d] = match;
+    return new Date(Number(y), Number(m) - 1, Number(d));
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDate(value) {
+  return value.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function buildManpowerBidDeadlineAlerts(rows) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  return (rows || [])
+    .map((row) => {
+      const status = String(row.status || "").trim().toLowerCase();
+      if (["approved", "rejected", "cancelled", "canceled"].includes(status)) return null;
+
+      const meta = parseMeta(row.authorization_to);
+      const deadline = toLocalDateStart(meta.submissionBidDeadline || row.due_date);
+      if (!deadline) return null;
+
+      const daysUntil = Math.round((deadline.getTime() - today.getTime()) / DAY_MS);
+      if (!BID_DEADLINE_ALERT_DAYS.includes(daysUntil)) return null;
+
+      return {
+        id: `manpower-bid-${row.id}-${daysUntil}`,
+        severity: daysUntil === 1 ? "critical" : daysUntil === 3 ? "high" : "warning",
+        module: "Manpower",
+        title: `Bid deadline in ${daysUntil} day${daysUntil === 1 ? "" : "s"} - ${row.client || "Client not set"}`,
+        record: row.enquiry_number || `ENQ-${row.id}`,
+        age: `T-${daysUntil} (${formatDate(deadline)})`,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const severityOrder = { critical: 0, high: 1, warning: 2 };
+      return (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9);
+    });
+}
+
 const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [kpi, setKpi] = useState({
@@ -37,6 +98,7 @@ const Dashboard = () => {
     poCount: 0,
     invoicesCount: 0,
     enquiriesCount: 0,
+    bidDeadlineAlerts: [],
     recentActivity: [],
     activitySpark: Array.from({ length: 12 }).map(() => 0),
     activityByEntity: [],
@@ -68,6 +130,7 @@ const Dashboard = () => {
               poCount: 0,
               invoicesCount: 0,
               enquiriesCount: 0,
+              bidDeadlineAlerts: [],
               recentActivity: [],
               activitySpark: Array.from({ length: 12 }).map(() => 0),
               activityByEntity: [],
@@ -103,6 +166,19 @@ const Dashboard = () => {
             .from("marketing_enquiries")
             .select("id", { count: "exact", head: true })
         );
+
+        const manpowerBidDeadlineAlertsP = (async () => {
+          try {
+            const { data, error } = await supabase
+              .from("manpower_enquiries")
+              .select("id, enquiry_number, client, due_date, status, authorization_to")
+              .limit(500);
+            if (error) return [];
+            return buildManpowerBidDeadlineAlerts(data || []);
+          } catch {
+            return [];
+          }
+        })();
 
         const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const activityP = (async () => {
@@ -140,11 +216,12 @@ const Dashboard = () => {
           }
         })();
 
-        const [employeesActive, poCount, invoicesCount, enquiriesCount, recentActivity] = await Promise.all([
+        const [employeesActive, poCount, invoicesCount, enquiriesCount, bidDeadlineAlerts, recentActivity] = await Promise.all([
           employeesActiveP,
           poCountP,
           invoicesCountP,
           enquiriesCountP,
+          manpowerBidDeadlineAlertsP,
           activityP,
         ]);
 
@@ -176,6 +253,7 @@ const Dashboard = () => {
           poCount,
           invoicesCount,
           enquiriesCount,
+          bidDeadlineAlerts,
           recentActivity: recentActivity.slice(0, 8),
           activitySpark: spark,
           activityByEntity: byEntity,
@@ -209,7 +287,7 @@ const Dashboard = () => {
   const executiveSummary = useMemo(() => {
     const activityCount = kpi.recentActivity.length;
     const approvalsCount = 0;
-    const criticalCount = 0;
+    const criticalCount = kpi.bidDeadlineAlerts.length;
     const priCount = 0;
     const map = {
       pri: priCount,
@@ -222,14 +300,14 @@ const Dashboard = () => {
       ...x,
       value: loading ? "—" : (map[x.id] ?? 0),
     }));
-  }, [kpi.recentActivity.length, loading]);
+  }, [kpi.bidDeadlineAlerts.length, kpi.recentActivity.length, loading]);
 
   const enterpriseKpis = useMemo(() => {
     const fmt = (n) => (typeof n === "number" ? n.toLocaleString("en-IN") : String(n ?? 0));
     const valueById = {
       emp: kpi.employeesActive,
       approval: 0,
-      alerts: 0,
+      alerts: kpi.bidDeadlineAlerts.length,
       tasks: 0,
       billing: "₹0",
       compliance: 0,
@@ -251,7 +329,7 @@ const Dashboard = () => {
         trend: loading ? "—" : (k.trend ? "0" : ""),
       };
     });
-  }, [kpi.employeesActive, kpi.enquiriesCount, kpi.invoicesCount, kpi.poCount, loading]);
+  }, [kpi.bidDeadlineAlerts.length, kpi.employeesActive, kpi.enquiriesCount, kpi.invoicesCount, kpi.poCount, loading]);
 
   const moduleHealth = useMemo(() => {
     return moduleHealthTpl.map((m) => ({
@@ -269,8 +347,9 @@ const Dashboard = () => {
   }, [loading]);
 
   const criticalAlerts = useMemo(() => {
-    return criticalAlertsTpl.map((a) => ({ ...a, age: loading ? "—" : "0m" }));
-  }, [loading]);
+    if (loading) return criticalAlertsTpl.map((a) => ({ ...a, age: "—" }));
+    return kpi.bidDeadlineAlerts;
+  }, [kpi.bidDeadlineAlerts, loading]);
 
   const trends = useMemo(() => {
     return trendsTpl.map((t) => ({ ...t, values: loading ? t.values : t.values.map(() => 0) }));
@@ -333,7 +412,11 @@ const Dashboard = () => {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
           <div className="px-3 py-2 border-b border-gray-200"><SectionHeader title="Critical Alerts & Exceptions" /></div>
           <div>
-            {criticalAlerts.map((a) => <AlertRow key={a.id} row={a} />)}
+            {criticalAlerts.length ? (
+              criticalAlerts.map((a) => <AlertRow key={a.id} row={a} />)
+            ) : (
+              <p className="px-3 py-3 text-xs text-gray-500">No bid deadline reminders for T-7, T-3, or T-1 today.</p>
+            )}
           </div>
         </div>
       </section>

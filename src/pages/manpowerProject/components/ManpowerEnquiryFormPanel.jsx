@@ -3,21 +3,20 @@ import { supabase } from "../../../lib/supabase";
 
 const META_PREFIX = "__META__:";
 const INDUSTRY_OPTIONS = ["Oil & Gas", "Refinery", "Chemical", "Power", "Construction", "Port", "Other"];
-const WORKING_HOURS_OPTIONS = ["8 hrs", "12 hrs", "As per client"];
+const WORKING_HOURS_OPTIONS = ["8 hrs", "12 hrs", "Other"];
 const ENQUIRY_SUBTYPE_OPTIONS = ["Regular", "Shutdown"];
 const TENDER_PORTAL_OPTIONS = ["Ariba", "GeM", "eProcurement", "Custom"];
-const APPLICABLE_MW_OPTIONS = ["State", "Central Zone"];
 const SERVICE_CATEGORY_OPTIONS = [
   { id: 1, label: "Firefighting Manpower Only" },
   { id: 2, label: "Safety Manpower Only" },
-  { id: 3, label: "Manpower + Fire Tender (with Crew)" },
+  { id: 3, label: "Manpower + Fire Tender" },
   { id: 4, label: "Firefighting Manpower + Safety Manpower" },
   { id: 5, label: "Fire Tender (without Crew)" },
 ];
 
 const initialForm = {
   enquiryDate: new Date().toISOString().split("T")[0],
-  source: "Direct Mail",
+  source: "",
   client: "",
   phone: "",
   clientDesignation: "",
@@ -45,6 +44,7 @@ const initialForm = {
   siteCountry: "",
   siteZip: "",
   industrySector: "",
+  customIndustrySector: "",
   serviceCategory: [],
   enquirySubType: ["Regular"],
   scopeInputType: "Text",
@@ -54,8 +54,8 @@ const initialForm = {
   contractDurationUnit: "Days",
   workingHoursShift: "",
   customWorkingHours: "",
-  applicableStateMw: "",
-  minWageEffectiveDate: "",
+  referenceReceivedName: "",
+  referenceReceivedPhone: "",
   submissionBidDeadline: "",
   receivedBy: "",
   portalNameOption: "",
@@ -67,6 +67,7 @@ const initialForm = {
   tenderFeeApplicable: "Not Applicable",
   tenderFeeAmount: "",
   emdFeeStatus: "Not Applicable",
+  emdFeeAmount: "",
   paymentMode: "",
   paymentReferenceNo: "",
   paymentStatus: "",
@@ -108,6 +109,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [submitting, setSubmitting] = useState(false);
   const [receivedByOptions, setReceivedByOptions] = useState([]);
   const [serviceCategoryDropdownOpen, setServiceCategoryDropdownOpen] = useState(false);
+  const [showCustomWorkingHours, setShowCustomWorkingHours] = useState(false);
   const handledByEmailRef = useRef("");
   const existingDocumentsPathRef = useRef("");
   const existingEnquiryNumberRef = useRef("");
@@ -116,6 +118,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const resetForm = useCallback(() => {
     existingDocumentsPathRef.current = "";
     existingEnquiryNumberRef.current = "";
+    setShowCustomWorkingHours(false);
     setFormData({
       ...initialForm,
       receivedBy: handledByEmailRef.current || "",
@@ -163,11 +166,24 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       }
       if (!data) return;
       const meta = parseMeta(data.authorization_to);
+      const savedIndustrySector = meta.industrySector || "";
+      const industrySectorOption =
+        meta.industrySectorOption || (INDUSTRY_OPTIONS.includes(savedIndustrySector) ? savedIndustrySector : savedIndustrySector ? "Other" : "");
+      const savedWorkingHoursShift = meta.workingHoursShift || "";
+      const workingHoursShiftOption =
+        savedWorkingHoursShift === "Custom"
+          ? "Other"
+          : WORKING_HOURS_OPTIONS.includes(savedWorkingHoursShift)
+            ? savedWorkingHoursShift
+            : savedWorkingHoursShift
+              ? "Other"
+              : "";
       existingDocumentsPathRef.current = data.documents || "";
       existingEnquiryNumberRef.current = data.enquiry_number || "";
+      setShowCustomWorkingHours(Boolean(meta.customWorkingHours) || workingHoursShiftOption === "Other");
       setFormData({
         enquiryDate: meta.enquiryDate || (data.created_at ? new Date(data.created_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]),
-        source: data.source || "Direct Mail",
+        source: data.source || "",
         client: data.client || "",
         phone: data.phone || "",
         clientDesignation: meta.clientDesignation || "",
@@ -194,7 +210,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         siteCity: meta.siteCity || "",
         siteCountry: meta.siteCountry || "",
         siteZip: meta.siteZip || "",
-        industrySector: meta.industrySector || "",
+        industrySector: industrySectorOption,
+        customIndustrySector: meta.customIndustrySector || (!INDUSTRY_OPTIONS.includes(savedIndustrySector) ? savedIndustrySector : ""),
         serviceCategory: Array.isArray(meta.serviceCategory)
           ? meta.serviceCategory
           : meta.serviceCategory
@@ -206,10 +223,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         scopeAttachment: null,
         contractDurationValue: meta.contractDurationValue || "",
         contractDurationUnit: meta.contractDurationUnit || "Days",
-        workingHoursShift: meta.workingHoursShift || "",
-        customWorkingHours: meta.customWorkingHours || "",
-        applicableStateMw: meta.applicableStateMw || "",
-        minWageEffectiveDate: meta.minWageEffectiveDate || "",
+        workingHoursShift: workingHoursShiftOption,
+        customWorkingHours:
+          meta.customWorkingHours || (!WORKING_HOURS_OPTIONS.includes(savedWorkingHoursShift) && savedWorkingHoursShift !== "Custom" ? savedWorkingHoursShift : ""),
+        referenceReceivedName: meta.referenceReceivedName || "",
+        referenceReceivedPhone: meta.referenceReceivedPhone || "",
         submissionBidDeadline: toIsoDateTimeLocal(meta.submissionBidDeadline),
         receivedBy: data.handled_by || handledByEmailRef.current || "",
         portalNameOption: meta.portalNameOption || "",
@@ -221,6 +239,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         tenderFeeApplicable: meta.tenderFeeApplicable || "Not Applicable",
         tenderFeeAmount: meta.tenderFeeAmount || "",
         emdFeeStatus: meta.emdFeeStatus || "Not Applicable",
+        emdFeeAmount: meta.emdFeeAmount || "",
         paymentMode: meta.paymentMode || "",
         paymentReferenceNo: meta.paymentReferenceNo || "",
         paymentStatus: meta.paymentStatus || "",
@@ -251,6 +270,15 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     }
     if (type === "checkbox") {
       setFormData((prev) => ({ ...prev, [name]: checked }));
+      return;
+    }
+    if (name === "industrySector") {
+      setFormData((prev) => ({ ...prev, industrySector: value, customIndustrySector: value === "Other" ? prev.customIndustrySector : "" }));
+      return;
+    }
+    if (name === "workingHoursShift") {
+      setShowCustomWorkingHours(value === "Other");
+      setFormData((prev) => ({ ...prev, workingHoursShift: value, customWorkingHours: value === "Other" ? prev.customWorkingHours : "" }));
       return;
     }
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -304,7 +332,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
   const isOnlineTender = formData.source === "Online Tender";
   const isTenderFeeApplicable = formData.tenderFeeApplicable === "Applicable";
-  const isPaymentRequired = isTenderFeeApplicable || formData.emdFeeStatus === "Applicable - Pay";
+  const isEmdFeeApplicable = formData.emdFeeStatus === "Applicable - Pay";
+  const isPaymentRequired = isTenderFeeApplicable || isEmdFeeApplicable;
 
   const getNextEnquiryNumber = async () => {
     const year = new Date().getFullYear();
@@ -328,6 +357,10 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
   const handleSubmit = async () => {
     if (submitting) return;
+    if (!formData.source) {
+      alert("Please select Source Type.");
+      return;
+    }
     try {
       setSubmitting(true);
       const {
@@ -354,6 +387,9 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         portalProofPath = data.path;
       }
 
+      const selectedIndustrySector =
+        formData.industrySector === "Other" ? formData.customIndustrySector.trim() || "Other" : formData.industrySector;
+
       const metaPayload = {
         enquiryDate: formData.enquiryDate || null,
         authorizationTo: formData.authorizationTo || "",
@@ -365,7 +401,9 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         siteCity: formData.siteCity || "",
         siteCountry: formData.siteCountry || "",
         siteZip: formData.siteZip || "",
-        industrySector: formData.industrySector,
+        industrySector: selectedIndustrySector,
+        industrySectorOption: formData.industrySector,
+        customIndustrySector: formData.customIndustrySector,
         serviceCategory: formData.serviceCategory,
         enquirySubType: formData.enquirySubType,
         scopeInputType: formData.scopeInputType,
@@ -373,8 +411,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         contractDurationUnit: formData.contractDurationUnit,
         workingHoursShift: formData.workingHoursShift,
         customWorkingHours: formData.customWorkingHours,
-        applicableStateMw: formData.applicableStateMw,
-        minWageEffectiveDate: formData.minWageEffectiveDate || null,
+        referenceReceivedName: formData.referenceReceivedName,
+        referenceReceivedPhone: formData.referenceReceivedPhone,
         submissionBidDeadline: toIsoFromDateTimeLocal(formData.submissionBidDeadline) || null,
         portalNameOption: formData.portalNameOption,
         portalNameCustom: formData.portalNameCustom,
@@ -385,6 +423,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         tenderFeeApplicable: formData.tenderFeeApplicable,
         tenderFeeAmount: formData.tenderFeeAmount,
         emdFeeStatus: formData.emdFeeStatus,
+        emdFeeAmount: formData.emdFeeAmount,
         paymentMode: formData.paymentMode,
         paymentReferenceNo: formData.paymentReferenceNo,
         paymentStatus: formData.paymentStatus,
@@ -476,6 +515,22 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     formData.siteZip,
   ].filter((v) => String(v || "").trim()).length;
   const contactSectionFilled = (formData.contacts || []).filter((c) => Object.values(c || {}).some((v) => String(v || "").trim())).length;
+  const showReferenceReceivedDetails = Boolean(formData.source);
+  const referenceReceivedDetails = (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+      <h5 className="text-sm font-semibold text-slate-800">Reference Received Details</h5>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+          <input type="text" name="referenceReceivedName" value={formData.referenceReceivedName} onChange={handleChange} className={inputClass} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Phone No.</label>
+          <input type="number" name="referenceReceivedPhone" value={formData.referenceReceivedPhone} onChange={handleChange} className={inputClass} />
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="max-h-[calc(95vh-140px)] overflow-y-auto overflow-x-hidden space-y-5 pr-1 pb-4">
@@ -594,6 +649,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               Source Type <span className="text-red-500">*</span>
             </label>
             <select name="source" value={formData.source} onChange={handleChange} className={inputClass}>
+              <option value="">Select source type</option>
               <option>Direct Mail</option>
               <option>Online Tender</option>
               <option>Verbal</option>
@@ -604,6 +660,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <input type="date" name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass} />
           </div>
         </div>
+        {showReferenceReceivedDetails && !isOnlineTender && <div className="mt-4">{referenceReceivedDetails}</div>}
       </div>
 
       {isOnlineTender && (
@@ -612,6 +669,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <h4 className="text-base font-semibold text-blue-900">Online Tender Details</h4>
             <p className="mt-1 text-xs text-blue-900/70">Fill these fields only for Online Tender enquiries.</p>
           </div>
+
+          {referenceReceivedDetails}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -670,26 +729,45 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                   Not Applicable
                 </label>
               </div>
+
+              {isTenderFeeApplicable && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tender Fee Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                    <input type="number" name="tenderFeeAmount" value={formData.tenderFeeAmount} onChange={handleChange} className={`${inputClass} pl-12`} placeholder="0" />
+                  </div>
+                </div>
+              )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">EMD Fee</label>
-              <select name="emdFeeStatus" value={formData.emdFeeStatus} onChange={handleChange} className={inputClass}>
-                <option>Not Applicable</option>
-                <option>Applicable - Pay</option>
-                <option>Exempted</option>
-              </select>
+              <label className="block text-sm font-medium text-gray-700 mb-2">EMD Fee Applicable?</label>
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="emdFeeStatus" value="Applicable - Pay" checked={formData.emdFeeStatus === "Applicable - Pay"} onChange={handleChange} />
+                  Applicable - Pay
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="emdFeeStatus" value="Not Applicable" checked={formData.emdFeeStatus === "Not Applicable"} onChange={handleChange} />
+                  Not Applicable
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input type="radio" name="emdFeeStatus" value="Exempted" checked={formData.emdFeeStatus === "Exempted"} onChange={handleChange} />
+                  Exempted
+                </label>
+              </div>
+
+              {isEmdFeeApplicable && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">EMD Fee Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                    <input type="number" name="emdFeeAmount" value={formData.emdFeeAmount} onChange={handleChange} className={`${inputClass} pl-12`} placeholder="0" />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-
-          {isTenderFeeApplicable && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tender Fee Amount</label>
-              <div className="relative md:w-1/2">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-                <input type="number" name="tenderFeeAmount" value={formData.tenderFeeAmount} onChange={handleChange} className={`${inputClass} pl-12`} placeholder="0" />
-              </div>
-            </div>
-          )}
 
           {isPaymentRequired && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -735,6 +813,19 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               </option>
             ))}
           </select>
+          {formData.industrySector === "Other" && (
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Enter Industry / Sector</label>
+              <input
+                type="text"
+                name="customIndustrySector"
+                value={formData.customIndustrySector}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="Enter industry / sector"
+              />
+            </div>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Service Category</label>
@@ -813,7 +904,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
       <div className={`${sectionClass} grid grid-cols-1 md:grid-cols-3 gap-4`}>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Contract Value</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Contract Duration</label>
           <div className="flex gap-2">
             <input name="contractDurationValue" type="number" min="0" value={formData.contractDurationValue} onChange={handleChange} className={inputClass} placeholder="Value" />
             <select name="contractDurationUnit" value={formData.contractDurationUnit} onChange={handleChange} className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent">
@@ -833,43 +924,24 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                   {opt}
                 </option>
               ))}
-              <option value="Custom">Custom</option>
             </select>
             <button
               type="button"
-              onClick={() => setFormData((prev) => ({ ...prev, workingHoursShift: "Custom" }))}
+              onClick={() => setShowCustomWorkingHours(true)}
               className="h-10 w-10 rounded-lg border border-gray-300 text-lg text-gray-700 hover:bg-gray-50"
-              title="Add custom shift"
+              title="Add manual working hours"
             >
               +
             </button>
           </div>
-          {formData.workingHoursShift === "Custom" && (
+          {showCustomWorkingHours && (
             <input name="customWorkingHours" value={formData.customWorkingHours} onChange={handleChange} placeholder="Enter custom working hours" className={`${inputClass} mt-2`} />
           )}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Applicable State (MW)</label>
-          <select name="applicableStateMw" value={formData.applicableStateMw} onChange={handleChange} className={inputClass}>
-            <option value="">Select</option>
-            {APPLICABLE_MW_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className={`${sectionClass} grid grid-cols-1 md:grid-cols-3 gap-4`}>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Min Wage Effective Date</label>
-          <input type="date" name="minWageEffectiveDate" value={formData.minWageEffectiveDate} onChange={handleChange} className={inputClass} />
-        </div>
-        <div className="md:col-span-2">
           <label className="block text-sm font-medium text-gray-700 mb-2">Submission / Bid Deadline</label>
           <input type="datetime-local" name="submissionBidDeadline" value={formData.submissionBidDeadline} onChange={handleChange} className={inputClass} />
-          <p className="mt-1 text-xs text-gray-500">Reminder alerts: T-7 and T-1 days.</p>
+          <p className="mt-1 text-xs text-gray-500">Reminder alerts - 7d, 3d and 1d</p>
         </div>
       </div>
 

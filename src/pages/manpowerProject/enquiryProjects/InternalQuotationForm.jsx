@@ -55,14 +55,14 @@ const META_PREFIX = "__META__:";
 const SERVICE_CATEGORY_LABEL_TO_ID = {
   "Firefighting Manpower Only": 1,
   "Safety Manpower Only": 2,
-  "Manpower + Fire Tender (with Crew)": 3,
+  "Manpower + Fire Tender": 3,
   "Firefighting Manpower + Safety Manpower": 4,
   "Fire Tender (without Crew)": 5,
 };
 const SERVICE_CATEGORY_ID_TO_LABEL = {
   1: "Firefighting Manpower Only",
   2: "Safety Manpower Only",
-  3: "Manpower + Fire Tender (with Crew)",
+  3: "Manpower + Fire Tender",
   4: "Firefighting Manpower + Safety Manpower",
   5: "Fire Tender (without Crew)",
 };
@@ -128,6 +128,18 @@ function parseMetaAuthorization(raw) {
   } catch {
     return {};
   }
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function joinAddressParts(parts) {
+  const text = (parts || []).map((part) => String(part || "").trim()).filter(Boolean);
+  return text.length ? text.join(", ") : "—";
 }
 
 const DEFAULT_WAGE_ROWS = [
@@ -869,6 +881,18 @@ const InternalQuotationForm = ({
     );
   }
 
+  const enquiryMeta = parseMetaAuthorization(enquiry.authorization_to);
+  const plantName = enquiryMeta.siteName || enquiry.client || "—";
+  const plantAddress = joinAddressParts([
+    enquiryMeta.siteStreet1 || enquiry.street,
+    enquiryMeta.siteStreet2 || enquiry.street2,
+    enquiryMeta.siteCity || enquiry.city,
+    enquiryMeta.siteState || enquiry.state,
+    enquiryMeta.siteCountry || enquiry.country,
+    enquiryMeta.siteZip || enquiry.zip,
+  ]);
+  const convertDate = formatDate(enquiryMeta.convertedAt || enquiryMeta.approvedAt || enquiry.updated_at || enquiry.created_at);
+
   return (
     <div className="p-6">
       {NavbarComponent ? <NavbarComponent /> : null}
@@ -879,21 +903,31 @@ const InternalQuotationForm = ({
 
       {/* Client Info */}
       <div className="bg-white p-6 shadow rounded-lg mb-6">
-        <h3 className="font-semibold mb-2">Client Details</h3>
-        <p><strong>Client:</strong> {enquiry.client}</p>
-        <p><strong>Email:</strong> {enquiry.email}</p>
-        <p><strong>Phone:</strong> {enquiry.phone}</p>
-        <p>
-          <strong>Address:</strong> {enquiry.street}, {enquiry.city},{" "}
-          {enquiry.state}, {enquiry.country}
-        </p>
+        <h3 className="font-semibold mb-4">Client Details</h3>
+        <div className="space-y-2 text-sm text-left">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-1.5">
+            <span className="min-w-[105px] font-semibold text-slate-950">Client Name -</span>
+            <span className="font-normal text-slate-900">{enquiry.client || "—"}</span>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-1.5">
+            <span className="min-w-[105px] font-semibold text-slate-950">Plant Details -</span>
+            <span className="text-slate-900">
+              <span className="font-normal">{plantName}</span>
+              {plantAddress !== "—" ? <span className="block text-slate-700">{plantAddress}</span> : null}
+            </span>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-1.5">
+            <span className="min-w-[105px] font-semibold text-slate-950">Convert Date -</span>
+            <span className="font-normal text-slate-900">{convertDate}</span>
+          </div>
+        </div>
       </div>
 
       <div className="mb-6 rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 sm:p-5 shadow-sm">
         <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-3">Minimum Wage Selection</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="text-sm">
-            <div className="text-slate-600 mb-1">Jurisdiction</div>
+            <div className="text-slate-600 mb-1">Government Type</div>
             <select
               value={wageSelection.jurisdictionId}
               onChange={(e) =>
@@ -935,7 +969,7 @@ const InternalQuotationForm = ({
             >
               {zoneOptions.map((z) => (
                 <option key={z.code} value={z.code}>
-                  {z.name}
+                  {String(z.name || "").split(" - ")[0] || z.code}
                 </option>
               ))}
             </select>
@@ -978,7 +1012,6 @@ const InternalQuotationForm = ({
                       <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Manpower Category</th>
                       <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[240px]">Sub Category</th>
                       <th className="px-3 py-2.5 text-center font-semibold text-slate-700 w-[160px]">No. of Manpower</th>
-                      <th className="px-3 py-2.5 text-right font-semibold text-slate-700 w-[76px]">Act</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -987,14 +1020,24 @@ const InternalQuotationForm = ({
                         <td className="px-3 py-2.5 text-slate-700">{row.srNo}</td>
                         <td className="px-3 py-2.5">
                           {row.isCustom ? (
-                            <input
-                              value={row.category}
-                              onChange={(e) =>
-                                setManpowerRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, category: e.target.value } : r)))
-                              }
-                              placeholder="Enter category"
-                              className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                value={row.category}
+                                onChange={(e) =>
+                                  setManpowerRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, category: e.target.value } : r)))
+                                }
+                                placeholder="Enter category"
+                                className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => deleteManpowerRow(row.id)}
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                aria-label="Delete row"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           ) : (
                             <span className="block truncate" title={row.category}>
                               {row.category}
@@ -1029,25 +1072,11 @@ const InternalQuotationForm = ({
                             min="0"
                           />
                         </td>
-                        <td className="px-3 py-2.5 text-right">
-                          {row.isCustom ? (
-                            <button
-                              type="button"
-                              onClick={() => deleteManpowerRow(row.id)}
-                              className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
-                              aria-label="Delete row"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          ) : (
-                            <span className="text-xs text-slate-400">—</span>
-                          )}
-                        </td>
                       </tr>
                     ))}
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={4}
                         onClick={addManpowerRow}
                         className="px-3 py-3 text-purple-700 cursor-pointer hover:bg-purple-50/50 font-medium"
                       >
