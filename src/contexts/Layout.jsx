@@ -45,6 +45,7 @@ import {
   Bell,
   FileSpreadsheet,
   CalendarRange,
+  BookOpen,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -112,11 +113,11 @@ const Layout = () => {
   const [amcOpen, setAmcOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
   const [marketingOpen, setMarketingOpen] = useState(false);
-  const [adminEmployeeOpen, setAdminEmployeeOpen] = useState(true);
-  const [adminStoreOpen, setAdminStoreOpen] = useState(true);
-  const [adminGateOpen, setAdminGateOpen] = useState(true);
-  const [adminMiscOpen, setAdminMiscOpen] = useState(true);
-  const [adminPayrollOpen, setAdminPayrollOpen] = useState(true);
+  const [adminEmployeeOpen, setAdminEmployeeOpen] = useState(false);
+  const [adminStoreOpen, setAdminStoreOpen] = useState(false);
+  const [adminGateOpen, setAdminGateOpen] = useState(false);
+  const [adminMiscOpen, setAdminMiscOpen] = useState(false);
+  const [adminPayrollOpen, setAdminPayrollOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
   // Keep expandable section open when current path is under that section
@@ -138,6 +139,14 @@ const Layout = () => {
   const handleSignOut = async () => {
     await signOut();
     navigate("/");
+  };
+
+  const collapseAdminSubmodules = () => {
+    setAdminEmployeeOpen(false);
+    setAdminStoreOpen(false);
+    setAdminGateOpen(false);
+    setAdminMiscOpen(false);
+    setAdminPayrollOpen(false);
   };
 
   const [activityLogOpen, setActivityLogOpen] = useState(false);
@@ -295,7 +304,10 @@ const Layout = () => {
             {can("admin") && (
             <div>
               <button
-                onClick={() => setAdminOpen(!adminOpen)}
+                onClick={() => {
+                  if (!adminOpen) collapseAdminSubmodules();
+                  setAdminOpen(!adminOpen);
+                }}
                 className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
@@ -824,6 +836,13 @@ const Layout = () => {
             </NavLink>
             )}
 
+            {can("indusLms") && (
+            <NavLink to="indus-lms-trainings" className={topNavClass}>
+              <BookOpen className="w-4 h-4 shrink-0" />
+              <span className="text-sm font-medium">Indus LMS / trainings</span>
+            </NavLink>
+            )}
+
             {/* Fire Tender */}
             {can("fireTender") && (
             <div>
@@ -873,6 +892,13 @@ const Layout = () => {
             <NavLink to="user-management" className={topNavClass}>
               <Users className="w-4 h-4 shrink-0" />
               <span className="text-sm font-medium">User Management</span>
+            </NavLink>
+            )}
+
+            {can("softwareSubscriptions") && (
+            <NavLink to="software-subscriptions-reminders" className={topNavClass}>
+              <Bell className="w-4 h-4 shrink-0" />
+              <span className="text-sm font-medium">Software subscriptions/reminders</span>
             </NavLink>
             )}
 

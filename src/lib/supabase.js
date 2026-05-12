@@ -26,6 +26,9 @@ if (!isConfigured) {
 // Avoid AbortSignal.any — combining signals broke some saves/updates with supabase-js.
 const FETCH_TIMEOUT_MS = 20000
 const baseFetch = fetch
+const useStrictSupabaseHealthCheck =
+  import.meta.env.VITE_STRICT_SUPABASE_HEALTH_CHECK === 'true' ||
+  import.meta.env.VITE_STRICT_SUPABASE_HEALTH_CHECK === true
 
 // Activity logging: minimal overhead, batched, fire-and-forget.
 const ACTIVITY_TABLE = 'erp_activity_log'
@@ -51,6 +54,7 @@ const ENTITY_LABELS = {
   payment_advice: 'Payment advice',
   tenders: 'Fire tender',
   costing_rows: 'Costing sheet row',
+  software_subscriptions: 'Software subscription',
 }
 
 const ACTIVITY_IGNORE_TABLES = new Set([
@@ -89,7 +93,9 @@ function screenHint(route) {
   if (r.includes('/marketing/')) return 'Marketing'
   if (r.includes('/manpower')) return 'Manpower (Commercial MT)'
   if (r.includes('/fire-tender')) return 'Fire tender'
+  if (r.includes('/indus-lms-trainings')) return 'Indus LMS / trainings'
   if (r.includes('/user-management')) return 'User management'
+  if (r.includes('/software-subscriptions-reminders')) return 'Software subscriptions/reminders'
   return `App · ${r.replace(/^\/app\/?/, '').slice(0, 52)}`.trim()
 }
 
@@ -429,6 +435,12 @@ function shortUrlForLog(url) {
   }
 }
 
+function isTimeoutError(err) {
+  const name = String(err?.name || '').toLowerCase()
+  const msg = String(err?.message || '').toLowerCase()
+  return name === 'timeouterror' || msg.includes('timed out') || msg.includes('timeout')
+}
+
 /**
  * When `options.signal` is absent, apply a timeout. When present, use Supabase’s signal as-is
  * (do not merge — merging caused flaky PATCH/POST to rest/v1).
@@ -514,6 +526,11 @@ const customFetch = async (url, options = {}) => {
     if (err?.name === 'AbortError') {
       throw err
     }
+    if (isTimeoutError(err)) {
+      throw new Error(
+        `Supabase request timed out (${pathLog}). Check internet, firewall/VPN, or Supabase project availability.`
+      )
+    }
     if (err?.message === 'Failed to fetch' || err?.message?.includes('NetworkError')) {
       throw new Error(
         `Cannot reach Supabase (${pathLog}). Check .env URL/key, restart dev server, firewall/VPN.`
@@ -565,19 +582,22 @@ export async function checkSupabaseConnection() {
   try {
     // 1) Session fetch (may be local-only if cached)
     const { error } = await supabase.auth.getSession();
-    if (error && (error.message?.includes('fetch') || error.message?.toLowerCase().includes('network'))) {
+    if (error && (error.message?.includes('fetch') || error.message?.toLowerCase().includes('network') || isTimeoutError(error))) {
       return { ok: false, message: `Cannot reach Supabase: ${error.message}. Check internet, firewall, or VPN.` }
     }
 
-    // 2) Real network ping to Supabase REST
-    await pingSupabaseRest()
+    // 2) Optional strict network ping. Disabled by default because it can block the
+    // app on slow networks even when normal Supabase auth/data calls are fine.
+    if (useStrictSupabaseHealthCheck) {
+      await pingSupabaseRest()
+    }
     return { ok: true };
   } catch (err) {
     const msg = err?.message || String(err);
-    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || isTimeoutError(err)) {
       return {
         ok: false,
-        message: 'Network error: cannot reach Supabase. Check internet connection, firewall, or try disabling VPN.',
+        message: 'Network timeout: cannot reach Supabase. Check internet connection, firewall, VPN, or Supabase project availability.',
       };
     }
     return {

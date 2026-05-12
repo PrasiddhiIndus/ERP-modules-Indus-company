@@ -2,8 +2,9 @@
  * Role-based access: teams, roles, and module keys used for sidebar and route guards.
  * - Executive: team module + optional extra modules from profile; creates/edits/deletes within that scope (no approvals).
  * - Manager: team + checklist modules; can approve workflows only inside those modules.
- * - Admin / Super Admin: full module access (Admin same app surface as Super Admin; User Management also).
- * Legacy users with no `role` in profile still receive broad access except User Management.
+ * - Admin: full operational module access except Super Admin-only modules.
+ * - Super Admin: full module access including User Management and software subscriptions.
+ * Legacy users with no `role` in profile still receive broad access except Super Admin-only modules.
  */
 
 export const ROLES = {
@@ -31,6 +32,7 @@ export const TEAMS = [
   { value: "amc", label: "AMC" },
   { value: "finance", label: "Finance/Accounts" },
   { value: "fireTender", label: "Fire Tender" },
+  { value: "indusLms", label: "Indus LMS / Trainings" },
 ];
 
 /** Module keys that appear in the sidebar (for Manager checklist and access checks). */
@@ -75,9 +77,13 @@ export const MODULE_PATH_PREFIXES = {
   amc: ["/app/amc"],
   finance: ["/app/accounts-finance"],
   fireTender: ["/app/fire-tender", "/app/fire-tender-manufacturing"],
+  indusLms: ["/app/indus-lms-trainings"],
   settings: ["/app/settings"],
   userManagement: ["/app/user-management"],
+  softwareSubscriptions: ["/app/software-subscriptions-reminders"],
 };
+
+const SUPER_ADMIN_ONLY_MODULES = new Set(["userManagement", "softwareSubscriptions"]);
 
 /**
  * Pick a safe landing path for users who don't have `overview` access.
@@ -98,9 +104,9 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
     if (p) return p;
   }
 
-  // 2) First allowed module except overview/settings/userManagement
+  // 2) First allowed module except overview/settings/Super Admin-only modules
   for (const k of mods) {
-    if (k === "overview" || k === "settings" || k === "userManagement") continue;
+    if (k === "overview" || k === "settings" || SUPER_ADMIN_ONLY_MODULES.has(k)) continue;
     const p = pickFirstPrefix(k);
     if (p) return p;
   }
@@ -168,28 +174,28 @@ export function getAccessibleModules(profile) {
   // “overview” (main dashboard) is restricted to Admin + Super Admin only.
   // Everyone can still access Settings.
   const always = new Set(["settings"]);
-  // Lock down: User Management is only for Super Admin. Even legacy "no role" should not see it.
-  const allWithoutUserMgmt = new Set([...allModules].filter((m) => m !== "userManagement"));
+  // Lock down: these modules are only for Super Admin. Even legacy "no role" should not see them.
+  const allWithoutSuperAdminOnly = new Set([...allModules].filter((m) => !SUPER_ADMIN_ONLY_MODULES.has(m)));
 
-  if (!profile?.role) return allWithoutUserMgmt; // no role = legacy: allow all (except User Management)
+  if (!profile?.role) return allWithoutSuperAdminOnly; // no role = legacy: allow all except Super Admin-only modules
   if (profile.role === ROLES.SUPER_ADMIN_PRO) return allModules;
   if (profile.role === ROLES.SUPER_ADMIN) return allModules;
-  // Admin (HOD / senior): same surface as Super Admin — all modules including User Management.
-  if (profile.role === ROLES.ADMIN) return allModules;
+  // Admin (HOD / senior): full operational access, excluding Super Admin-only modules.
+  if (profile.role === ROLES.ADMIN) return allWithoutSuperAdminOnly;
   if (profile.role === ROLES.EXECUTIVE) {
     // If team metadata is missing, don't accidentally lock the user to dashboard-only access.
-    // Treat it like legacy access (except User Management).
-    if (!profile.team) return allWithoutUserMgmt;
+    // Treat it like legacy access (except Super Admin-only modules).
+    if (!profile.team) return allWithoutSuperAdminOnly;
     always.add(profile.team);
     (profile.allowed_modules || []).forEach((m) => always.add(m));
-    // Never allow user management for non-super-admin.
-    always.delete("userManagement");
+    // Never allow Super Admin-only modules for non-super-admin.
+    SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
     return always;
   }
   if (profile.role === ROLES.MANAGER) {
     if (profile.team) always.add(profile.team);
     (profile.allowed_modules || []).forEach((m) => always.add(m));
-    always.delete("userManagement");
+    SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
     return always;
   }
   return always;
