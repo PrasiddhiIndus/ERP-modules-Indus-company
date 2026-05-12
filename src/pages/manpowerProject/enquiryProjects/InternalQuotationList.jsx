@@ -4,6 +4,44 @@ import { Link } from "react-router-dom";
 
 import { supabase } from "../../../lib/supabase";
 
+const META_PREFIX = "__META__:";
+
+function parseMeta(raw) {
+  if (!raw || typeof raw !== "string") return {};
+  if (raw.startsWith(META_PREFIX)) {
+    try {
+      return JSON.parse(raw.slice(META_PREFIX.length)) || {};
+    } catch {
+      return {};
+    }
+  }
+  try {
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function getConvertDate(enquiry) {
+  const meta = parseMeta(enquiry.authorization_to);
+  return formatDate(meta.convertedAt || meta.approvedAt || enquiry.updated_at || enquiry.created_at);
+}
+
+function getPlantLocation(enquiry) {
+  const meta = parseMeta(enquiry.authorization_to);
+  const parts = [meta.siteStreet1 || enquiry.street, meta.siteState || enquiry.state]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(", ") : "—";
+}
+
 const InternalQuotationList = () => {
   const [enquiries, setEnquiries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -76,19 +114,21 @@ const InternalQuotationList = () => {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-[720px] w-full text-sm">
+          <table className="min-w-[980px] w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Enquiry No</th>
-                <th className="px-4 py-3 text-left font-semibold text-slate-700">Quotation Number</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">Convert Date</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">Quotation No.</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Client Name</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">Plant Location</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-700">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {enquiries.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
                     No approved enquiries available.
                   </td>
                 </tr>
@@ -102,8 +142,10 @@ const InternalQuotationList = () => {
                           {enquiry.enquiry_number || "—"}
                         </Link>
                       </td>
+                      <td className="px-4 py-3 text-slate-700">{getConvertDate(enquiry)}</td>
                       <td className="px-4 py-3 text-slate-700">{qNo}</td>
                       <td className="px-4 py-3 text-slate-800">{enquiry.client || "—"}</td>
+                      <td className="px-4 py-3 text-slate-700">{getPlantLocation(enquiry)}</td>
                       <td className="px-4 py-3 text-right">
                         <Link
                           to={`/app/commercial/manpower-training/internal-quotation/${enquiry.id}`}

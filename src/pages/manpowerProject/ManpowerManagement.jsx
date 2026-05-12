@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Search, Plus, FileText, X, CheckCircle2, XCircle, Pencil, Trash2 } from "lucide-react";
+import { Search, Plus, FileText, X, CheckCircle2, XCircle, Pencil, Trash2, MessageSquare } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
@@ -35,10 +35,31 @@ function statusPillClass(status) {
   return "bg-gray-100 text-gray-700 border border-gray-200";
 }
 
+function statusDisplay(status) {
+  return status === "Rejected" ? "Regret" : status || "Pending";
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatEnquiryDate(row) {
+  const { meta } = parseAuthorizationMeta(row.authorization_to);
+  return formatDate(meta.enquiryDate || row.created_at);
+}
+
 function formatIfslDisplay(row) {
   const { meta } = parseAuthorizationMeta(row.authorization_to);
   if (meta.ifslNumber) return meta.ifslNumber;
   return "—";
+}
+
+function getRejectionRemark(row) {
+  const { meta } = parseAuthorizationMeta(row.authorization_to);
+  return String(meta.rejectionRemark || "").trim();
 }
 
 const ManpowerManagement = () => {
@@ -59,6 +80,8 @@ const ManpowerManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [rejectDialog, setRejectDialog] = useState({ open: false, row: null, remark: "", error: "", submitting: false });
+  const [remarkDialog, setRemarkDialog] = useState({ open: false, row: null, remark: "" });
 
   const fetchEnquiries = async () => {
     setLoading(true);
@@ -172,19 +195,24 @@ const ManpowerManagement = () => {
         (allRows || []).forEach((row) => {
           const { meta } = parseAuthorizationMeta(row.authorization_to);
           const val = String(meta.ifslNumber || "");
-          const match = val.match(/^IFSL\/ENQ\/(\d{4})\/(\d{4})$/);
+          const match = val.match(/^(?:IFSL|IFSPL)\/ENQ\/(\d{4})\/(\d{4})$/);
           if (match && Number(match[1]) === year) {
             maxSequence = Math.max(maxSequence, Number(match[2]));
           }
         });
 
-        ifslNumber = `IFSL/ENQ/${year}/${String(maxSequence + 1).padStart(4, "0")}`;
+        ifslNumber = `IFSPL/ENQ/${year}/${String(maxSequence + 1).padStart(4, "0")}`;
       }
 
+      const approvedAt = currentParsed.meta.approvedAt || currentParsed.meta.convertedAt || new Date().toISOString();
       const nextMeta = {
         ...(currentParsed.meta || {}),
         ifslNumber,
+        approvedAt,
+        convertedAt: approvedAt,
       };
+      delete nextMeta.rejectionRemark;
+      delete nextMeta.rejectedAt;
 
       const { error } = await supabase
         .from("manpower_enquiries")
@@ -201,11 +229,54 @@ const ManpowerManagement = () => {
     fetchEnquiries();
   };
 
-  const handleReject = async (rowId) => {
+  const openRejectDialog = (row) => {
     if (!canApproveEnquiries) return;
-    const { error } = await supabase.from("manpower_enquiries").update({ status: "Rejected" }).eq("id", rowId);
-    if (error) console.error(error);
-    fetchEnquiries();
+    setRejectDialog({ open: true, row, remark: getRejectionRemark(row), error: "", submitting: false });
+  };
+
+  const closeRejectDialog = () => {
+    if (rejectDialog.submitting) return;
+    setRejectDialog({ open: false, row: null, remark: "", error: "", submitting: false });
+  };
+
+  const submitReject = async () => {
+    if (!canApproveEnquiries || !rejectDialog.row) return;
+    const remark = rejectDialog.remark.trim();
+    if (!remark) {
+      setRejectDialog((prev) => ({ ...prev, error: "Please enter rejection remark." }));
+      return;
+    }
+
+    setRejectDialog((prev) => ({ ...prev, submitting: true, error: "" }));
+    try {
+      const currentParsed = parseAuthorizationMeta(rejectDialog.row.authorization_to);
+      const nextMeta = {
+        ...(currentParsed.meta || {}),
+        rejectionRemark: remark,
+        rejectedAt: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("manpower_enquiries")
+        .update({
+          status: "Rejected",
+          authorization_to: buildAuthorizationValue(nextMeta, currentParsed.rawText),
+        })
+        .eq("id", rejectDialog.row.id);
+      if (error) throw error;
+
+      setRejectDialog({ open: false, row: null, remark: "", error: "", submitting: false });
+      fetchEnquiries();
+    } catch (error) {
+      console.error(error);
+      setRejectDialog((prev) => ({ ...prev, submitting: false, error: error?.message || "Failed to reject enquiry." }));
+    }
+  };
+
+  const openRemarkDialog = (row) => {
+    const remark = getRejectionRemark(row);
+    if (!remark) return;
+    setRemarkDialog({ open: true, row, remark });
   };
 
   const handleDelete = async (rowId) => {
@@ -221,7 +292,7 @@ const ManpowerManagement = () => {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 md:mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Manpower Management</h1>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">Enquiries, approval, and IFSL reference — same database as before</p>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">Enquiries, approval, and IFSPL reference — same database as before</p>
             {listError && (
               <p className="mt-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
                 Could not load enquiries: {listError}. If the table is missing, run the migration{" "}
@@ -273,81 +344,94 @@ const ManpowerManagement = () => {
                 .manpower-table-scroll::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.45); border-radius: 4px; }
                 .manpower-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(220, 38, 38, 0.65); }
               `}</style>
-                <table className="w-full min-w-[980px] text-xs table-fixed">
+                <table className="w-full min-w-[1160px] text-xs table-fixed">
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100 sticky top-0 z-10">
                     <tr>
-                      <th className="px-3 py-2.5 w-[18%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Enquiry No.</th>
-                      <th className="px-3 py-2.5 w-[21%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Client</th>
-                      <th className="px-3 py-2.5 w-[14%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Source</th>
-                      <th className="px-3 py-2.5 w-[14%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Due Date</th>
-                      <th className="px-3 py-2.5 w-[14%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">IFSL No.</th>
-                      <th className="px-3 py-2.5 w-[10%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Status</th>
-                      <th className="px-3 py-2.5 w-[9%] text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Actions</th>
+                      <th className="px-3 py-2.5 w-[15%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Enquiry No.</th>
+                      <th className="px-3 py-2.5 w-[13%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Enquiry Date</th>
+                      <th className="px-3 py-2.5 w-[18%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Client</th>
+                      <th className="px-3 py-2.5 w-[12%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Source</th>
+                      <th className="px-3 py-2.5 w-[12%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Due Date</th>
+                      <th className="px-3 py-2.5 w-[13%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">IFSPL No.</th>
+                      <th className="px-3 py-2.5 w-[8%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Status</th>
+                      <th className="px-3 py-2.5 w-[9%] text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Action</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-100">
-                    {paginated.map((e) => (
-                      <tr key={e.id} className="hover:bg-red-50/35 transition-colors">
-                        <td className="px-3 py-2.5 align-middle whitespace-nowrap">
-                          <span className="text-xs font-semibold text-gray-900">{e.enquiry_number || "—"}</span>
-                        </td>
-                        <td className="px-3 py-2.5 align-middle">
-                          <span className="text-xs text-gray-800 font-medium line-clamp-2">{e.client || "—"}</span>
-                        </td>
-                        <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{e.source || "—"}</td>
-                        <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">
-                          {e.due_date ? new Date(e.due_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
-                        </td>
-                        <td className="px-3 py-2.5 align-middle whitespace-nowrap">
-                          <span className="text-xs font-semibold text-purple-700">{formatIfslDisplay(e)}</span>
-                        </td>
-                        <td className="px-3 py-2.5 align-middle whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full ${statusPillClass(e.status)}`}>
-                            {e.status || "Pending"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 align-middle">
-                          <div className="flex justify-center items-center gap-1.5">
-                            {canApproveEnquiries ? (
-                              <>
+                    {paginated.map((e) => {
+                      const rejectionRemark = getRejectionRemark(e);
+                      return (
+                        <tr key={e.id} className="hover:bg-red-50/35 transition-colors">
+                          <td className="px-3 py-2.5 align-middle whitespace-nowrap">
+                            <span className="text-xs font-semibold text-gray-900">{e.enquiry_number || "—"}</span>
+                          </td>
+                          <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{formatEnquiryDate(e)}</td>
+                          <td className="px-3 py-2.5 align-middle">
+                            <span className="text-xs text-gray-800 font-medium line-clamp-2">{e.client || "—"}</span>
+                          </td>
+                          <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{e.source || "—"}</td>
+                          <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{formatDate(e.due_date)}</td>
+                          <td className="px-3 py-2.5 align-middle whitespace-nowrap">
+                            <span className="text-xs font-semibold text-purple-700">{formatIfslDisplay(e)}</span>
+                          </td>
+                          <td className="px-3 py-2.5 align-middle whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full ${statusPillClass(e.status)}`}>
+                              {statusDisplay(e.status)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 align-middle">
+                            <div className="flex justify-center items-center gap-1.5">
+                              {canApproveEnquiries ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApprove(e.id)}
+                                    title="Approve"
+                                    className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openRejectDialog(e)}
+                                    title="Regret with remark"
+                                    className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors"
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </button>
+                                </>
+                              ) : null}
+                              {rejectionRemark ? (
                                 <button
                                   type="button"
-                                  onClick={() => handleApprove(e.id)}
-                                  title="Approve"
-                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                                  onClick={() => openRemarkDialog(e)}
+                                  title="View regret remark"
+                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
                                 >
-                                  <CheckCircle2 className="w-4 h-4" />
+                                  <MessageSquare className="w-4 h-4" />
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleReject(e.id)}
-                                  title="Reject"
-                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors"
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                </button>
-                              </>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => openEdit(e.id)}
-                              title="Edit"
-                              className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(e.id)}
-                              title="Delete"
-                              className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() => openEdit(e.id)}
+                                title="Edit"
+                                className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(e.id)}
+                                title="Delete"
+                                className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
             </div>
@@ -383,6 +467,95 @@ const ManpowerManagement = () => {
           </div>
         )}
       </div>
+
+      {rejectDialog.open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
+            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Regret Enquiry</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  {rejectDialog.row?.enquiry_number || "Enquiry"} · {rejectDialog.row?.client || "Client not set"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeRejectDialog}
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                aria-label="Close reject remark"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Remark</label>
+              <textarea
+                value={rejectDialog.remark}
+                onChange={(event) => setRejectDialog((prev) => ({ ...prev, remark: event.target.value, error: "" }))}
+                rows={4}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200"
+                placeholder="Enter why this enquiry is regretted..."
+              />
+              {rejectDialog.error && <p className="mt-2 text-xs text-red-600">{rejectDialog.error}</p>}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={closeRejectDialog}
+                disabled={rejectDialog.submitting}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitReject}
+                disabled={rejectDialog.submitting}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+              >
+                {rejectDialog.submitting ? "Saving..." : "Save Remark"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {remarkDialog.open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
+            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Regret Remark</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  {remarkDialog.row?.enquiry_number || "Enquiry"} · {remarkDialog.row?.client || "Client not set"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRemarkDialog({ open: false, row: null, remark: "" })}
+                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                aria-label="Close remark"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <p className="whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                {remarkDialog.remark}
+              </p>
+            </div>
+            <div className="flex justify-end border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setRemarkDialog({ open: false, row: null, remark: "" })}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">
