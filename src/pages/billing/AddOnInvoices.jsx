@@ -39,7 +39,7 @@ function makeAddOnInvoiceNumber(invoices, documentKind) {
 }
 
 const AddOnInvoices = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices, billingVerticalFilter } = useBilling();
+  const { commercialPOs, invoices, setInvoices, billingVerticalFilter, billingPoBasisFilter } = useBilling();
   const [addOnType, setAddOnType] = useState('');
   const [addOnDocumentKind, setAddOnDocumentKind] = useState('tax');
   const [selectedPoId, setSelectedPoId] = useState('');
@@ -48,6 +48,12 @@ const AddOnInvoices = ({ onNavigateTab }) => {
   const [previewDraft, setPreviewDraft] = useState(null);
 
   const verticalNotSelected = !billingVerticalFilter;
+  const billingPoBasisLabel =
+    billingPoBasisFilter === 'with_po'
+      ? 'With PO only'
+      : billingPoBasisFilter === 'without_po'
+        ? 'Without PO only'
+        : 'All — With PO & Without PO';
 
   const approvedPOs = useMemo(
     () => commercialPOs.filter((p) => (p.approvalStatus || '').toLowerCase() === APPROVAL_STATUS_APPROVED),
@@ -149,9 +155,9 @@ const AddOnInvoices = ({ onNavigateTab }) => {
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Select a vertical to create add-on invoices</p>
+          <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
           <p className="text-sm mt-1 max-w-lg mx-auto">
-            Pick the vertical that matches your OC. Approved POs come from Commercial → PO Entry.
+            Use the top dropdown. Extra bills need a job that Commercial already approved.
           </p>
         </div>
       ) : null}
@@ -160,17 +166,22 @@ const AddOnInvoices = ({ onNavigateTab }) => {
           <FilePlus2 className="w-6 h-6 text-violet-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Add-On Invoices</h2>
+          <h2 className="text-xl font-bold text-gray-900">Extra bills</h2>
           <p className="text-sm text-gray-600">
-            Appraisal, gratuity, reimbursement and other add-on billing — choose <strong>tax</strong> or <strong>proforma</strong> below (all verticals).
+            Money <strong>not</strong> in the main contract — bonus, travel pay back, etc. Pick real tax bill or draft below.
           </p>
+          {!verticalNotSelected ? (
+            <p className="text-xs text-slate-600 mt-1">
+              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+            </p>
+          ) : null}
         </div>
       </div>
 
       {!verticalNotSelected ? (
         <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-sm text-violet-950 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p className="min-w-0">
-            Requires an <strong>approved OC</strong> from PO Entry. After save you land on <strong>Manage Invoices</strong> for PDF / IRN.
+            Needs an <strong>approved job</strong> from Commercial. After you save, we open <strong>All bills</strong> for print and GST.
           </p>
           <div className="flex flex-wrap gap-3 shrink-0">
             <Link to="/app/commercial/manpower-training/po-entry" className="text-sm font-semibold text-violet-800 hover:underline">

@@ -1,10 +1,104 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createClient } from '@supabase/supabase-js';
 
-dotenv.config({ path: '.env.server' });
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '..');
+
+/**
+ * Merge env files so an empty `KEY=` in one file does not block a real value in another.
+ * Later files override earlier when the new value is non-empty after trim.
+ */
+function normalizeEnvValue(val) {
+  let s = String(val ?? '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+function mergeDotenvFiles() {
+  const envSearchPaths = [
+    path.join(repoRoot, '.env'),
+    path.join(repoRoot, '.env.local'),
+    path.join(repoRoot, '.envserver'),
+    path.join(repoRoot, '.env.server'),
+    path.join(__dirname, '.env.server'),
+  ];
+  for (const filePath of envSearchPaths) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const parsed = dotenv.parse(fs.readFileSync(filePath, 'utf8'));
+      for (const [key, value] of Object.entries(parsed)) {
+        const normalized = normalizeEnvValue(value);
+        if (normalized === '') continue;
+        process.env[key] = normalized;
+      }
+    } catch {
+      /* ignore missing or unreadable env files */
+    }
+  }
+}
+
+mergeDotenvFiles();
+
+function getSupabaseUrlForServer() {
+  return normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+}
+
+function getSupabaseServiceRoleKeyForServer() {
+  return normalizeEnvValue(
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_SERVICE_KEY ||
+      process.env.SERVICE_ROLE_KEY
+  );
+}
+
+function getSupabaseAnonKeyForServer() {
+  return normalizeEnvValue(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY);
+}
+
+/** Supabase API keys are JWTs; service_role can read `profiles`, anon cannot (RLS). */
+function isSupabaseServiceRoleKey(key) {
+  try {
+    const parts = String(key || '').split('.');
+    if (parts.length < 2) return false;
+    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
+    const payload = JSON.parse(json);
+    return payload?.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prefer service_role for presign auth (can read profiles). If unset, fall back to anon key +
+ * JWT user_metadata.role (same anon key already exposed to the browser via Vite).
+ */
+function getSupabaseAuthKeyForR2Presign() {
+  const svc = getSupabaseServiceRoleKeyForServer();
+  if (svc && isSupabaseServiceRoleKey(svc)) {
+    return { key: svc, canQueryProfiles: true };
+  }
+  const anon = getSupabaseAnonKeyForServer();
+  if (anon) {
+    return { key: anon, canQueryProfiles: false };
+  }
+  if (svc) {
+    return { key: svc, canQueryProfiles: false };
+  }
+  return { key: '', canQueryProfiles: false };
+}
+
+let r2AnonAuthFallbackWarned = false;
 
 const app = express();
 // Render/Railway/Fly set PORT; local dev uses SERVER_PORT or 8787.
@@ -21,6 +115,119 @@ class HttpError extends Error {
     this.status = Number(status) || 500;
     this.details = details;
   }
+}
+
+/** R2 object keys for software-subscriptions page; presign-get only signs keys under this prefix. */
+const R2_SOFTWARE_SUB_KEY_PREFIX = 'software-subscriptions/';
+const R2_PRESIGN_GET_EXPIRES_SEC = 600;
+const R2_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+const R2_ALLOWED_EXT = new Set(['pdf', 'jpg', 'jpeg', 'png', 'webp', 'xlsx', 'xls', 'doc', 'docx']);
+const R2_EXT_TO_CONTENT_TYPE = {
+  pdf: 'application/pdf',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+let r2S3Client = null;
+
+function getR2S3Client() {
+  if (r2S3Client) return r2S3Client;
+  const endpoint = String(process.env.R2_ENDPOINT || '').trim();
+  const accessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
+  const secretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
+  if (!endpoint || !accessKeyId || !secretAccessKey) {
+    throw new HttpError(500, 'R2 is not configured. Set R2_ENDPOINT, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY on the server.');
+  }
+  r2S3Client = new S3Client({
+    region: 'auto',
+    endpoint,
+    credentials: { accessKeyId, secretAccessKey },
+    forcePathStyle: true,
+  });
+  return r2S3Client;
+}
+
+/** Bucket name in Cloudflare (not a path prefix; uploads use keys like software-subscriptions/...). */
+const R2_DEFAULT_BUCKET = 'indus-erp-uploads';
+
+function getR2BucketName() {
+  const b = String(process.env.R2_BUCKET || process.env.R2_BUCKET_NAME || R2_DEFAULT_BUCKET).trim();
+  return b || R2_DEFAULT_BUCKET;
+}
+
+function sanitizeR2UploadFileName(name) {
+  return String(name || 'file')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 120);
+}
+
+function fileExtFromName(name) {
+  const m = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+
+function isUuidLike(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
+function resolveR2ContentType(fileName, contentType) {
+  const ext = fileExtFromName(fileName);
+  if (!R2_ALLOWED_EXT.has(ext)) {
+    throw new HttpError(400, `File type not allowed. Allowed: ${[...R2_ALLOWED_EXT].join(', ')}`);
+  }
+  const trimmed = String(contentType || '').trim().toLowerCase();
+  if (trimmed && trimmed !== 'application/octet-stream') {
+    return trimmed;
+  }
+  return R2_EXT_TO_CONTENT_TYPE[ext] || 'application/octet-stream';
+}
+
+const r2InvoiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: R2_MAX_ATTACHMENT_BYTES },
+});
+
+/** Software subscriptions UI is super-admin-only; presign only requires a valid Supabase session. */
+async function requireSessionForSoftwareSubscriptionsR2(req) {
+  const authHeader = req.headers.authorization || '';
+  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+  if (!jwt) throw new HttpError(401, 'Missing Authorization Bearer token.');
+
+  const supabaseUrl = getSupabaseUrlForServer();
+  const { key: supabaseKey, canQueryProfiles } = getSupabaseAuthKeyForR2Presign();
+  if (!supabaseUrl) {
+    throw new HttpError(
+      500,
+      'Server missing Supabase URL. Set SUPABASE_URL or VITE_SUPABASE_URL in the project root .env or .env.server.'
+    );
+  }
+  if (!supabaseKey) {
+    throw new HttpError(
+      500,
+      'Server missing a Supabase API key for presign. Set SUPABASE_SERVICE_ROLE_KEY in .env.server (recommended), or set VITE_SUPABASE_ANON_KEY in .env for local dev (role from JWT metadata only).'
+    );
+  }
+  if (!canQueryProfiles && !r2AnonAuthFallbackWarned) {
+    r2AnonAuthFallbackWarned = true;
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[server] R2 presign auth: SUPABASE_SERVICE_ROLE_KEY not set; using anon key. Role comes from JWT user_metadata only. Add service_role to .env.server if you rely on the profiles table for roles.'
+    );
+  }
+
+  const client = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+  const { data: userData, error } = await client.auth.getUser(jwt);
+  if (error || !userData?.user) throw new HttpError(401, 'Invalid or expired session.');
+  return userData.user;
 }
 
 function getRequiredEnv(name) {
@@ -800,6 +1007,84 @@ app.post('/api/billing/e-invoice/cancel', async (req, res) => {
       message,
       ...(providerResponse ? { providerResponse } : {}),
     });
+  }
+});
+
+// Uploads: browser -> Express -> R2 (avoids R2 bucket CORS on PUT). Opens still use presign-get.
+app.post(
+  '/api/software-subscriptions/r2/upload',
+  (req, res, next) => {
+    r2InvoiceUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_MAX_ATTACHMENT_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  async (req, res) => {
+    try {
+      await requireSessionForSoftwareSubscriptionsR2(req);
+      const bucket = getR2BucketName();
+
+      const sid = String(req.body?.subscriptionId || '').trim();
+      if (!isUuidLike(sid)) {
+        return res.status(400).json({ message: 'subscriptionId must be a UUID.' });
+      }
+
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_SOFTWARE_SUB_KEY_PREFIX}${sid}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: resolvedType });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
+app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
+  try {
+    await requireSessionForSoftwareSubscriptionsR2(req);
+    const bucket = getR2BucketName();
+
+    const objectKey = String(req.body?.objectKey || '').trim();
+    if (!objectKey.startsWith(R2_SOFTWARE_SUB_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
   }
 });
 

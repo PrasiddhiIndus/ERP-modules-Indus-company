@@ -4,6 +4,7 @@ import {
   getCommercialPoModuleType,
   withCommercialModuleMarker,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
+  COMMERCIAL_MODULE_PROJECTS,
 } from '../constants/commercialModuleType';
 import {
   getCommercialPOs,
@@ -31,6 +32,7 @@ import {
   fetchPaymentAdvice,
   savePaymentAdvice as savePaymentAdviceDb,
 } from '../services/billingApi';
+import { PO_BASIS_FILTER_ALL, resolveBillingPoBasis } from '../constants/poBasis';
 
 const BillingContext = createContext({
   __missingProvider: true,
@@ -51,6 +53,9 @@ const BillingContext = createContext({
   billingVerticalFilter: '',
   setBillingVerticalFilter: () => {},
   billingVerticalOptions: [],
+  billingPoBasisFilter: PO_BASIS_FILTER_ALL,
+  setBillingPoBasisFilter: () => {},
+  billingPoBasisOptions: [],
   enableVerticalFilter: false,
   useBillingDb: false,
   billingError: 'Billing context not ready.',
@@ -67,13 +72,22 @@ const BillingContext = createContext({
 });
 const toModuleContext = (moduleScope) =>
   moduleScope
-    ? (moduleScope === COMMERCIAL_MODULE_RM_MM_AMC_IEV ? 'rm_mm_amc_iev' : 'manpower_training')
+    ? moduleScope === COMMERCIAL_MODULE_RM_MM_AMC_IEV || moduleScope === COMMERCIAL_MODULE_PROJECTS
+      ? 'rm_mm_amc_iev'
+      : 'manpower_training'
     : null;
 
 const BILLING_VERTICAL_STORAGE_KEY = 'billing_vertical_filter';
+const BILLING_PO_BASIS_STORAGE_KEY = 'billing_po_basis_filter';
 
 // Must match the vertical dropdown lists used in PO Entry screens.
-const BILLING_VERTICAL_LABELS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV'];
+const BILLING_VERTICAL_LABELS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV', 'Projects'];
+
+const BILLING_PO_BASIS_OPTIONS = [
+  { id: PO_BASIS_FILTER_ALL, label: 'Everything — jobs with or without a PO paper' },
+  { id: 'with_po', label: 'Only jobs that have a PO / WO number' },
+  { id: 'without_po', label: 'Only jobs billed without a PO (still has a dummy WO)' },
+];
 
 function normalizeVerticalKey(v) {
   const raw = String(v || '')
@@ -94,6 +108,8 @@ function normalizeVerticalKey(v) {
     mm: 'mm',
     amc: 'amc',
     iev: 'iev',
+    projects: 'projects',
+    project: 'projects',
   };
   return aliases[raw] || raw;
 }
@@ -123,6 +139,7 @@ function labelVertical(key) {
     mm: 'M&M',
     amc: 'AMC',
     iev: 'IEV',
+    projects: 'Projects',
   };
   if (known[k]) return known[k];
   // fallback label
@@ -142,6 +159,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
   const [useDb, setUseDb] = useState(null);
   const [billingError, setBillingError] = useState(null);
   const [billingVerticalFilter, setBillingVerticalFilterState] = useState('');
+  const [billingPoBasisFilter, setBillingPoBasisFilterState] = useState(PO_BASIS_FILTER_ALL);
 
   const commercialPOs = useMemo(() => {
     if (!commercialModuleScope) return commercialPOsFull;
@@ -152,6 +170,8 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     try {
       const saved = window.localStorage.getItem(BILLING_VERTICAL_STORAGE_KEY);
       if (saved) setBillingVerticalFilterState(saved);
+      const savedBasis = window.localStorage.getItem(BILLING_PO_BASIS_STORAGE_KEY);
+      if (savedBasis === 'with_po' || savedBasis === 'without_po') setBillingPoBasisFilterState(savedBasis);
     } catch {
       /* ignore */
     }
@@ -168,6 +188,19 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     }
   }, []);
 
+  const setBillingPoBasisFilter = useCallback((next) => {
+    const raw = String(next || '').trim();
+    const v =
+      raw === 'with_po' || raw === 'without_po' ? raw : PO_BASIS_FILTER_ALL;
+    setBillingPoBasisFilterState(v);
+    try {
+      if (!v) window.localStorage.removeItem(BILLING_PO_BASIS_STORAGE_KEY);
+      else window.localStorage.setItem(BILLING_PO_BASIS_STORAGE_KEY, v);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const billingVerticalOptions = useMemo(() => {
     return BILLING_VERTICAL_LABELS.map((label) => ({
       id: normalizeVerticalKey(label),
@@ -178,15 +211,34 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
   const commercialPOsVisible = useMemo(() => {
     if (!enableVerticalFilter) return commercialPOs;
     if (!billingVerticalFilter) return [];
-    return commercialPOs.filter((p) => resolvePoVerticalKey(p) === billingVerticalFilter);
-  }, [commercialPOs, billingVerticalFilter, enableVerticalFilter]);
+    let rows = commercialPOs.filter((p) => resolvePoVerticalKey(p) === billingVerticalFilter);
+    if (billingPoBasisFilter) {
+      rows = rows.filter((p) => resolveBillingPoBasis(p) === billingPoBasisFilter);
+    }
+    return rows;
+  }, [commercialPOs, billingVerticalFilter, billingPoBasisFilter, enableVerticalFilter]);
 
   const invoicesVisible = useMemo(() => {
     if (!enableVerticalFilter) return invoicesFull;
     if (!billingVerticalFilter) return [];
-    const allowedPoIds = new Set(commercialPOsVisible.map((p) => String(p.id)));
-    return invoicesFull.filter((inv) => allowedPoIds.has(String(inv.poId)));
-  }, [invoicesFull, commercialPOsVisible, billingVerticalFilter, enableVerticalFilter]);
+    const visibleParents = new Set(commercialPOsVisible.map((p) => String(p.id)));
+    const supplementaryChildIdsForVisibleParents = new Set();
+    commercialPOsFull.forEach((p) => {
+      if (!p?.isSupplementary) return;
+      const pid = String(p?.supplementaryParentPoId || p?.supplementary_parent_po_id || '');
+      if (pid && visibleParents.has(pid)) supplementaryChildIdsForVisibleParents.add(String(p.id));
+    });
+    return invoicesFull.filter((inv) => {
+      const pid = String(inv.poId || '');
+      return visibleParents.has(pid) || supplementaryChildIdsForVisibleParents.has(pid);
+    });
+  }, [
+    invoicesFull,
+    commercialPOsVisible,
+    commercialPOsFull,
+    billingVerticalFilter,
+    enableVerticalFilter,
+  ]);
 
   const loadFromDb = useCallback(async () => {
     try {
@@ -409,6 +461,9 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     billingVerticalFilter,
     setBillingVerticalFilter,
     billingVerticalOptions,
+    billingPoBasisFilter,
+    setBillingPoBasisFilter,
+    billingPoBasisOptions: BILLING_PO_BASIS_OPTIONS,
     enableVerticalFilter,
     useBillingDb: !!useDb,
     billingError,

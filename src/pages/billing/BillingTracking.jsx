@@ -18,8 +18,8 @@ const BillingTracking = () => {
   }, [location.pathname]);
 
   const tabs = [
-    { id: 'pa-worklist', label: 'PA Worklist', component: PAWorklist },
-    { id: 'penalty-logs', label: 'Penalty Logs', component: PenaltyLogs },
+    { id: 'pa-worklist', label: 'Payment proofs', component: PAWorklist },
+    { id: 'penalty-logs', label: 'Penalty cuts', component: PenaltyLogs },
   ];
 
   const ActiveComponent = tabs.find((t) => t.id === activeSubTab)?.component || PAWorklist;
@@ -31,7 +31,14 @@ const BillingTracking = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-4 sm:p-6 pb-8">
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+        <p className="font-semibold text-slate-900">Follow the money after you send the bill</p>
+        <p className="text-xs text-slate-600 mt-1">
+          <strong>Payment proofs</strong> = papers showing the client paid. <strong>Penalty cuts</strong> = money the client
+          kept back for a rule break.
+        </p>
+      </div>
       <div className="flex gap-2 border-b border-gray-200 pb-2">
         {tabs.map((t) => (
           <button

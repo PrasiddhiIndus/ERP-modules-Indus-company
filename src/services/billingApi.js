@@ -9,11 +9,13 @@
 
 import { supabase } from '../lib/supabase';
 import {
+  COMMERCIAL_MODULE_PROJECTS,
   getCommercialModuleTypeFromUpdateHistory,
   getCommercialPoModuleType,
   withCommercialModuleMarker,
 } from '../constants/commercialModuleType';
 import { normalizeGstSupplyType } from '../utils/invoiceRound';
+import { isGeneratedWithoutPoWoNumber } from '../constants/poBasis';
 
 const BILLING_SCHEMA = 'billing';
 const MODULE_CONTEXT = {
@@ -48,9 +50,10 @@ function table(name) {
 }
 
 function toModuleContext(moduleType) {
-  return moduleType === 'rm-mm-amc-iev'
-    ? MODULE_CONTEXT.RM_MM_AMC_IEV
-    : MODULE_CONTEXT.MANPOWER_TRAINING;
+  if (moduleType === 'rm-mm-amc-iev' || moduleType === COMMERCIAL_MODULE_PROJECTS) {
+    return MODULE_CONTEXT.RM_MM_AMC_IEV;
+  }
+  return MODULE_CONTEXT.MANPOWER_TRAINING;
 }
 
 /** Map legacy / alternate labels to canonical manpower PO types before persisting. */
@@ -107,6 +110,7 @@ const UNIFIED_PO_CLIENT_DEFAULTS = {
   monthlyContractValue: null,
   customPaymentTermsPercent: null,
   poType: null,
+  billingWithoutPo: false,
 };
 
 function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
@@ -160,6 +164,9 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     moduleType: getCommercialModuleTypeFromUpdateHistory(
       Array.isArray(raw.update_history) ? raw.update_history : []
     ),
+    billingWithoutPo:
+      raw.billing_without_po === true ||
+      isGeneratedWithoutPoWoNumber(raw.po_wo_number),
   };
 }
 
@@ -521,6 +528,7 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     renewal_cycles: Array.isArray(po.renewalCycles) ? po.renewalCycles : [],
     monthly_duty_qty_mode: monthlyDutyVal,
     lump_sum_billing_mode: lumpSumModeVal,
+    billing_without_po: !!po.billingWithoutPo,
   });
 }
 
@@ -543,7 +551,7 @@ export async function saveCommercialPOs(list, options = {}) {
 
     let { data: saved, error: poError } = await persistPoWo(payload);
     // DB compatibility fallback for environments where some optional columns are absent.
-    if (poError && /column .*po_type|po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value/i.test(String(poError?.message || ''))) {
+    if (poError && /column .*po_type|po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value|billing_without_po/i.test(String(poError?.message || ''))) {
       const {
         po_type,
         payment_term_mode,
@@ -551,6 +559,7 @@ export async function saveCommercialPOs(list, options = {}) {
         advance_percent,
         total_contract_month,
         monthly_contract_value,
+        billing_without_po,
         ...fallbackPayload
       } = payload;
       ({ data: saved, error: poError } = await persistPoWo(fallbackPayload));

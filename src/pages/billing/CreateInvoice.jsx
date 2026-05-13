@@ -16,6 +16,7 @@ import { INDUS_LOGO_SRC } from '../../constants/branding.js';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
+import { rollupMainPoBilling, pickInvoiceForEdit } from '../../utils/billingInvoiceRollup';
 
 const getFinancialYear = () => {
   const d = new Date();
@@ -98,8 +99,8 @@ const BILLING_TABS_RM = [
 ];
 
 const CREATE_PAGE_TABS = [
-  { id: 'select-po', label: '1. Select PO/WO (sent or approved)' },
-  { id: 'cndn', label: 'Credit / Debit note — request approval' },
+  { id: 'select-po', label: '1 · Pick the job and make the bill' },
+  { id: 'cndn', label: '2 · Ask to fix a wrong bill (credit / debit)' },
 ];
 
 function round2(n) {
@@ -182,11 +183,6 @@ function daysInMonth(dateStr) {
   return new Date(y, m + 1, 0).getDate();
 }
 
-function sumRatePerCategory(po) {
-  const rows = Array.isArray(po?.ratePerCategory) ? po.ratePerCategory : [];
-  return round2(rows.reduce((s, r) => s + (Number(r?.rate) || 0), 0));
-}
-
 function getUniqueRateRows(po) {
   const rows = Array.isArray(po?.ratePerCategory) ? po.ratePerCategory : [];
   const seen = new Set();
@@ -233,6 +229,14 @@ function formatDate(d) {
   } catch {
     return d;
   }
+}
+
+/** Next billing date is today or earlier — cycle due. */
+function isBillingCycleDue(nextYmd) {
+  if (!nextYmd) return false;
+  const today = new Date();
+  const y = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  return String(nextYmd).slice(0, 10) <= y;
 }
 
 function formatBillingMonth(ymd) {
@@ -295,6 +299,8 @@ function normalizeVerticalValue(value) {
     mm: 'mm',
     amc: 'amc',
     iev: 'iev',
+    projects: 'projects',
+    project: 'projects',
   };
   return aliases[raw] || raw;
 }
@@ -337,7 +343,16 @@ function sortNewestPoFirst(list) {
 }
 
 const CreateInvoice = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices, invoiceDraft, setInvoiceDraft, refreshBilling, billingVerticalFilter } = useBilling();
+  const {
+    commercialPOs,
+    invoices,
+    setInvoices,
+    invoiceDraft,
+    setInvoiceDraft,
+    refreshBilling,
+    billingVerticalFilter,
+    billingPoBasisFilter,
+  } = useBilling();
   const [selectedPoId, setSelectedPoId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([]); // { description, hsnSac, quantity, rate, amount }
@@ -368,11 +383,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [invoiceDocumentKind, setInvoiceDocumentKind] = useState('tax');
 
   const verticalNotSelected = !billingVerticalFilter;
+  const billingPoBasisLabel =
+    billingPoBasisFilter === 'with_po'
+      ? 'With PO only'
+      : billingPoBasisFilter === 'without_po'
+        ? 'Without PO only'
+        : 'All — With PO & Without PO';
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   const isRmVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
-    return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev';
+    return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev' || v === 'projects';
   }, [billingVerticalFilter]);
   const isTrainingVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
@@ -406,27 +427,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return sortNewestPoFirst(commercialPOs.filter((p) => !p.isSupplementary));
   }, [commercialPOs]);
 
-  const invoiceByPoId = useMemo(() => {
-    const map = new Map();
-    (invoices || []).forEach((inv) => {
-      const key = String(inv?.poId || '');
-      if (!key || map.has(key)) return;
-      map.set(key, inv);
-    });
-    return map;
-  }, [invoices]);
-
-  const supplementaryChildByParentId = useMemo(() => {
-    const map = new Map();
-    (commercialPOs || []).forEach((po) => {
-      if (!po?.isSupplementary) return;
-      const parentId = String(po?.supplementaryParentPoId || po?.supplementary_parent_po_id || '');
-      if (!parentId || map.has(parentId)) return;
-      map.set(parentId, po);
-    });
-    return map;
-  }, [commercialPOs]);
-
   const billablePOsByTab = useMemo(() => {
     if (isTrainingVertical) {
       return billablePOs;
@@ -441,22 +441,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const poTableRows = useMemo(() => {
     return billablePOsByTab.map((po) => {
       const over = resolveSupplementaryOverrides(po, billablePOs);
-      const directInvoice = invoiceByPoId.get(String(po.id));
-      const legacyChild = supplementaryChildByParentId.get(String(po.id));
-      const existingInvoice =
-        directInvoice || (legacyChild ? invoiceByPoId.get(String(legacyChild.id)) : null) || null;
-      const hasInvoice = !!existingInvoice;
-      const dCount = daysInMonth(invoiceDate);
-      const rateSum = sumRatePerCategory(po);
       const contract = Number(over.totalContractValue) || 0;
-      const expected = round2(rateSum * dCount);
-      const remaining = round2(contract - expected);
+      const poQtyHeader = Number(po.poQuantity ?? po.po_quantity) || 0;
+      const roll = rollupMainPoBilling(po, commercialPOs, invoices, contract, poQtyHeader);
       const supSt = po.supplementaryRequestStatus || po.supplementary_request_status;
       const postContractBufferOpen =
         !po.isSupplementary && supSt === 'approved' && isAfterContractEndForInvoice(po.endDate || po.end_date);
       const st = String(po.approvalStatus || 'draft').toLowerCase();
+      const n = roll.taxInvoiceCount;
+      const hasInvoice = n > 0;
       const statusLabel = hasInvoice
-        ? 'Created Tax Invoice'
+        ? `${n} tax invoice${n !== 1 ? 's' : ''}`
         : st === APPROVAL_STATUS_APPROVED
           ? 'Approved'
           : st === APPROVAL_STATUS_SENT
@@ -464,6 +459,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
             : st === 'rejected'
               ? 'Rejected'
               : 'Draft';
+
+      const existingInvoice = roll.latestInvoice || null;
+      const invoiceForEdit = pickInvoiceForEdit(roll.relatedInvoices);
 
       return {
         ...po,
@@ -475,10 +473,21 @@ const CreateInvoice = ({ onNavigateTab }) => {
         statusLabel,
         hasInvoice,
         existingInvoiceId: existingInvoice?.id || null,
-        _calc: { days: dCount, rateSum, contract, expected, remaining },
+        invoiceForEditId: invoiceForEdit?.id || null,
+        roll,
+        _calc: {
+          contract,
+          remainingContract: roll.remainingContract,
+          invoicedAmount: roll.invoicedAmount,
+          remainingQty: roll.remainingQty,
+          invoicedQty: roll.invoicedQty,
+          poQtyTotal: roll.poQtyTotal,
+          lastInvoiceDate: roll.lastInvoiceDate,
+          nextBillingDate: roll.nextBillingDate,
+        },
       };
     });
-  }, [billablePOsByTab, billablePOs, invoiceByPoId, supplementaryChildByParentId, invoiceDate]);
+  }, [billablePOsByTab, billablePOs, commercialPOs, invoices]);
 
   const sortedPoTableRows = useMemo(() => {
     const dir = poSortConfig.direction === 'asc' ? 1 : -1;
@@ -488,7 +497,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
           case 'ocNumber': return String(row.ocNumber || '').toLowerCase();
           case 'siteLocation': return String([row.siteId, row.locationName].filter(Boolean).join(' ') || '').toLowerCase();
           case 'poWo': return String(row.poWoNumber || '').toLowerCase();
-          case 'remaining': return Number(row?._calc?.remaining || 0);
+          case 'remaining': return Number(row?._calc?.remainingContract ?? 0);
+          case 'qtyRemaining':
+            return row?._calc?.remainingQty != null ? Number(row._calc.remainingQty) : -1;
+          case 'nextBilling':
+            return row?._calc?.nextBillingDate
+              ? new Date(row._calc.nextBillingDate).getTime() || 0
+              : 0;
           case 'status': return String(row.statusLabel || '').toLowerCase();
           default: return new Date(row.updated_at || row.updatedAt || row.created_at || row.createdAt || row.startDate || 0).getTime() || 0;
         }
@@ -1750,19 +1765,25 @@ const CreateInvoice = ({ onNavigateTab }) => {
           <FileText className="w-6 h-6 text-emerald-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Create Invoice</h2>
+          <h2 className="text-xl font-bold text-gray-900">Make a bill</h2>
           <p className="text-sm text-gray-600">
-            Raise <strong>tax</strong> or <strong>proforma</strong> invoices from approved PO/WOs (Manpower, Training, R&amp;M, M&amp;M, AMC, IEV, trucks / lump-sum projects, etc.), or use the second tab to request Commercial approval for a credit / debit note.
+            Choose a job that Commercial already sent or approved. You can print a <strong>real tax bill</strong> or a{' '}
+            <strong>draft (proforma)</strong> first. Second tab: ask to correct a bill that was wrong.
           </p>
+          {!verticalNotSelected ? (
+            <p className="text-xs text-slate-600 mt-1">
+              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+            </p>
+          ) : null}
         </div>
       </div>
 
       {!verticalNotSelected ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50/95 px-4 py-3 text-sm text-slate-700 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <p className="min-w-0 leading-snug">
-            <span className="font-semibold text-slate-800">Seamless flow:</span> POs come from{' '}
-            <strong>Commercial → PO Entry</strong> (approved / sent). Save your invoice here, then continue to{' '}
-            <strong>Manage Invoices</strong> for PDF download, e-invoice IRN, payment advice, and edits.
+            <span className="font-semibold text-slate-800">Easy path:</span> Jobs are created in{' '}
+            <strong>Commercial → PO Entry</strong>. After you save the bill here, open{' '}
+            <strong>All bills</strong> to download PDF, get the GST number (IRN), and record payment proof.
           </p>
           <div className="flex flex-wrap items-center gap-3 shrink-0">
             <button
@@ -1770,14 +1791,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
               onClick={() => onNavigateTab && onNavigateTab('manage-invoices')}
               className="inline-flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
             >
-              Open Manage Invoices
+              Open all bills
             </button>
             <button
               type="button"
               onClick={() => onNavigateTab && onNavigateTab('dashboard')}
               className="text-sm font-medium text-slate-600 underline-offset-2 hover:underline"
             >
-              Billing dashboard
+              Billing home
             </button>
           </div>
         </div>
@@ -1870,21 +1891,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                       <thead>
                 <tr>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[18%]"><button type="button" onClick={() => togglePoSort('ocNumber')} className="inline-flex items-center">OC Number {renderSortIndicator('ocNumber')}</button></th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[22%]"><button type="button" onClick={() => togglePoSort('siteLocation')} className="inline-flex items-center">Site / Location {renderSortIndicator('siteLocation')}</button></th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]"><button type="button" onClick={() => togglePoSort('poWo')} className="inline-flex items-center">PO/WO {renderSortIndicator('poWo')}</button></th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]"><button type="button" onClick={() => togglePoSort('remaining')} className="inline-flex items-center">Remaining (₹) {renderSortIndicator('remaining')}</button></th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]"><button type="button" onClick={() => togglePoSort('status')} className="inline-flex items-center">Status {renderSortIndicator('status')}</button></th>
-                  <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]">Action</th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[7rem]"><button type="button" onClick={() => togglePoSort('ocNumber')} className="inline-flex items-center">OC Number {renderSortIndicator('ocNumber')}</button></th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[9rem]"><button type="button" onClick={() => togglePoSort('siteLocation')} className="inline-flex items-center">Site / Location {renderSortIndicator('siteLocation')}</button></th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[6rem]"><button type="button" onClick={() => togglePoSort('poWo')} className="inline-flex items-center">PO/WO {renderSortIndicator('poWo')}</button></th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[7rem]"><button type="button" onClick={() => togglePoSort('remaining')} className="inline-flex items-center">Contract left (₹) {renderSortIndicator('remaining')}</button></th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[6rem]"><button type="button" onClick={() => togglePoSort('qtyRemaining')} className="inline-flex items-center">Qty {renderSortIndicator('qtyRemaining')}</button></th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[8rem]"><button type="button" onClick={() => togglePoSort('nextBilling')} className="inline-flex items-center">Billing schedule {renderSortIndicator('nextBilling')}</button></th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[6rem]"><button type="button" onClick={() => togglePoSort('status')} className="inline-flex items-center">Status {renderSortIndicator('status')}</button></th>
+                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[9rem]">Action</th>
                 </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
                         {poPaginatedRows.map((row) => {
-                          const rowInvoice =
-                            row.existingInvoiceId != null
-                              ? invoices.find((i) => String(i.id) === String(row.existingInvoiceId))
-                              : null;
-                          const editLockedByIrn = !!rowInvoice?.e_invoice_irn;
+                          const editLockedByIrn = !row.invoiceForEditId;
                           return (
                           <tr
                             key={row.id}
@@ -1898,17 +1917,43 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               {row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || '–'}
                             </td>
                             <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={row.poWoNumber || ''}>{row.poWoNumber || '–'}</td>
-                            <td className="px-3 py-2 text-xs text-center">
-                      {Number(row._calc?.contract) > 0 ? (
+                            <td className="px-2 py-2 text-xs text-center align-top">
+                      {Number(row._calc?.contract) > 0 || Number(row._calc?.invoicedAmount) > 0 ? (
                         <span
-                          className={`font-medium ${row._calc.remaining < 0 ? 'text-red-700' : 'text-gray-700'}`}
-                          title={`Contract ₹${row._calc.contract.toLocaleString('en-IN')} − (Rate sum ₹${row._calc.rateSum.toLocaleString('en-IN')} × ${row._calc.days} days = ₹${row._calc.expected.toLocaleString('en-IN')})`}
+                          className={`font-medium ${row._calc.remainingContract < 0 ? 'text-red-700' : 'text-gray-700'}`}
+                          title={`Contract ₹${(row._calc.contract || 0).toLocaleString('en-IN')} − invoiced ₹${(row._calc.invoicedAmount || 0).toLocaleString('en-IN')} (tax invoices only)`}
                         >
-                          {formatINRWithSign(row._calc.remaining)}
+                          {formatINRWithSign(row._calc.remainingContract)}
                         </span>
                       ) : (
                         <span className="text-gray-400">–</span>
                       )}
+                    </td>
+                            <td className="px-2 py-2 text-[11px] text-center align-top text-gray-800">
+                      {row._calc.poQtyTotal > 0 ? (
+                        <span
+                          title={`Provided (invoiced sum of line qty): ${row._calc.invoicedQty}; pending from PO qty ${row._calc.poQtyTotal}`}
+                        >
+                          <span className="block font-medium">{round3(row._calc.invoicedQty)} provided</span>
+                          <span className="block text-gray-600">{row._calc.remainingQty} pending</span>
+                          <span className="text-[10px] text-gray-500">of {row._calc.poQtyTotal} total</span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">–</span>
+                      )}
+                    </td>
+                            <td className="px-2 py-2 text-[10px] text-center align-top leading-tight">
+                      <div className="text-gray-700">Last: {formatDate(row._calc.lastInvoiceDate)}</div>
+                      <div
+                        className={
+                          row._calc.nextBillingDate && isBillingCycleDue(row._calc.nextBillingDate)
+                            ? 'text-amber-700 font-semibold'
+                            : 'text-gray-700'
+                        }
+                      >
+                        Next:{' '}
+                        {row._calc.nextBillingDate ? formatDate(row._calc.nextBillingDate) : '–'}
+                      </div>
                     </td>
                             <td className="px-3 py-2 text-center">
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
@@ -1933,12 +1978,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <button
                               type="button"
                               onClick={() => {
-                                if (editLockedByIrn) return;
-                                setInvoiceDraft({ mode: 'edit', invoiceId: row.existingInvoiceId, poId: row.id });
+                                if (editLockedByIrn || !row.invoiceForEditId) return;
+                                setInvoiceDraft({ mode: 'edit', invoiceId: row.invoiceForEditId, poId: row.id });
                               }}
                               title={
                                 editLockedByIrn
-                                  ? 'Cannot edit after e-invoice (IRN) generated'
+                                  ? row.hasInvoice
+                                    ? 'No editable invoice (IRN locked on all)'
+                                    : 'Edit Tax Invoice'
                                   : 'Edit Tax Invoice'
                               }
                               disabled={editLockedByIrn}

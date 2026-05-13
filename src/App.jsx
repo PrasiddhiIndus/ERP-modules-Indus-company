@@ -45,6 +45,7 @@ import Procurement from "./pages/procurement/Procurement";
 import Operations from "./pages/operations/Operations";
 import ProjectsBilling from "./pages/projectsBilling/ProjectsBilling";
 import ProjectsManagement from "./pages/projectsManagement/ProjectsManagement";
+import ProjectsPoHub from "./pages/projects/ProjectsPoHub";
 import AccountsFinance from "./pages/accountsFinance/AccountsFinance";
 
 // Additional module imports for reorganized structure
@@ -434,6 +435,9 @@ function App() {
             {/* Projects */}
             <Route path="projects-management" element={<ProjectsManagement />} />
             <Route path="projects-billing" element={<ProjectsBilling />} />
+            <Route path="projects/po" element={<ProjectsPoHub />} />
+            <Route path="projects/po/po-entry" element={<ProjectsPoHub />} />
+            <Route path="projects/po/contact-log" element={<ProjectsPoHub />} />
             
             {/* Procurement */}
             <Route path="procurement" element={<Procurement />} />
