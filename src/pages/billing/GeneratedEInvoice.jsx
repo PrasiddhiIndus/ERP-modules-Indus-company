@@ -21,11 +21,17 @@ function getRealIrn(inv) {
 }
 
 const GeneratedEInvoice = () => {
-  const { invoices, billingVerticalFilter } = useBilling();
+  const { invoices, billingVerticalFilter, billingPoBasisFilter } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
 
   const verticalNotSelected = !billingVerticalFilter;
+  const billingPoBasisLabel =
+    billingPoBasisFilter === 'with_po'
+      ? 'With PO only'
+      : billingPoBasisFilter === 'without_po'
+        ? 'Without PO only'
+        : 'All — With PO & Without PO';
 
   const eInvoices = useMemo(() => {
     const list = invoices.filter((inv) => getRealIrn(inv));
@@ -98,8 +104,8 @@ const GeneratedEInvoice = () => {
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Select a vertical to view generated e-invoices</p>
-          <p className="text-sm mt-1">Pick a vertical above to load IRN generated invoices.</p>
+          <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
+          <p className="text-sm mt-1">Choose the billing team above — then you’ll see bills that already have a GST IRN.</p>
         </div>
       ) : null}
       <div className="flex items-center space-x-3">
@@ -107,10 +113,16 @@ const GeneratedEInvoice = () => {
           <FileDigit className="w-6 h-6 text-green-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Generated E-Invoice</h2>
+          <h2 className="text-xl font-bold text-gray-900">Bills filed with GST</h2>
           <p className="text-sm text-gray-600">
-            List of all invoices for which e-invoice (IRN) has been generated. Data from Create Invoice / Manage Invoices.
+            Only bills that already got an official <strong>IRN</strong> number from the government. Same rows as Make bill /
+            All bills — just filtered to “already filed.”
           </p>
+          {!verticalNotSelected ? (
+            <p className="text-xs text-slate-600 mt-1">
+              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -118,7 +130,7 @@ const GeneratedEInvoice = () => {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
         <input
           type="text"
-          placeholder="Search by invoice #, OC, client, IRN..."
+          placeholder="Search bill number, job code, client, or IRN…"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"

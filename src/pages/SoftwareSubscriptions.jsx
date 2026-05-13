@@ -18,7 +18,10 @@ import { ROLES } from "../config/roles";
 import { supabase } from "../lib/supabase";
 
 const TABLE_NAME = "software_subscriptions";
+const INVOICE_FILES_TABLE = "software_subscription_invoice_files";
 const INVOICE_BUCKET = "software-subscription-invoices";
+/** Backend R2 routes (upload via Node proxy; signed GET for opens). Vite proxies /api to Node in dev. */
+const SOFTWARE_SUB_R2_API = "/api/software-subscriptions/r2";
 const FALLBACK_USD_INR_RATE = 94.62;
 const FX_RATE_API_URL = "https://open.er-api.com/v6/latest/USD";
 const FALLBACK_USD_RATES = { USD: 1, INR: FALLBACK_USD_INR_RATE };
@@ -165,14 +168,6 @@ function parseAttachments(value) {
   return [];
 }
 
-function sanitizeFileName(name) {
-  return String(name || "invoice")
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 120);
-}
-
 const SoftwareSubscriptions = () => {
   const { user, userProfile } = useAuth();
   const [subscriptions, setSubscriptions] = useState([]);
@@ -182,6 +177,8 @@ const SoftwareSubscriptions = () => {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [invoiceFiles, setInvoiceFiles] = useState([]);
+  /** Increment to remount the file input so its value clears after save / edit. */
+  const [invoiceFileInputKey, setInvoiceFileInputKey] = useState(0);
   const [usdInrRate, setUsdInrRate] = useState(FALLBACK_USD_INR_RATE);
   const [fxRates, setFxRates] = useState(FALLBACK_USD_RATES);
   const [fxUpdatedAt, setFxUpdatedAt] = useState("");
@@ -298,6 +295,7 @@ const SoftwareSubscriptions = () => {
   const resetForm = () => {
     setForm(emptyForm);
     setInvoiceFiles([]);
+    setInvoiceFileInputKey((k) => k + 1);
     setEditingId(null);
     setError("");
   };
@@ -305,22 +303,45 @@ const SoftwareSubscriptions = () => {
   const uploadInvoiceFiles = async (recordId) => {
     if (!invoiceFiles.length) return [];
 
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!session?.access_token) {
+      throw new Error("You must be signed in to upload invoice attachments.");
+    }
+
     const uploaded = [];
     for (const file of invoiceFiles) {
-      const filePath = `${recordId}/${Date.now()}-${sanitizeFileName(file.name)}`;
-      const { error: uploadError } = await supabase.storage
-        .from(INVOICE_BUCKET)
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: false,
-          contentType: file.type || undefined,
-        });
-      if (uploadError) throw uploadError;
+      const formData = new FormData();
+      formData.append("subscriptionId", recordId);
+      formData.append("fileName", file.name);
+      if (file.type) formData.append("contentType", file.type);
+      formData.append("file", file);
+
+      const uploadRes = await fetch(`${SOFTWARE_SUB_R2_API}/upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+      const uploadBody = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok) {
+        throw new Error(uploadBody.message || `Upload failed (${uploadRes.status}).`);
+      }
+      const { objectKey, contentType: storedContentType } = uploadBody;
+      if (!objectKey) {
+        throw new Error("Upload response missing object key.");
+      }
+
       uploaded.push({
         name: file.name,
-        path: filePath,
+        path: objectKey,
+        storage: "r2",
         size: file.size,
-        type: file.type || "application/octet-stream",
+        type: storedContentType || file.type || "application/octet-stream",
         uploaded_at: new Date().toISOString(),
       });
     }
@@ -338,6 +359,28 @@ const SoftwareSubscriptions = () => {
     const path = attachment?.path;
     if (!path) return;
     try {
+      if (attachment.storage === "r2") {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          setError("You must be signed in to open this attachment.");
+          return;
+        }
+        const res = await fetch(`${SOFTWARE_SUB_R2_API}/presign-get`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ objectKey: path }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.message || `Download link failed (${res.status}).`);
+        if (body.getUrl) window.open(body.getUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+
       const { data, error: signedUrlError } = await supabase.storage
         .from(INVOICE_BUCKET)
         .createSignedUrl(path, 60 * 10);
@@ -410,6 +453,28 @@ const SoftwareSubscriptions = () => {
         ]);
         if (insertError) throw insertError;
       }
+
+      const r2FromPayload = invoiceAttachments.filter((a) => a.storage === "r2" && a.path);
+      const { error: filesDeleteError } = await supabase
+        .from(INVOICE_FILES_TABLE)
+        .delete()
+        .eq("software_subscription_id", recordId)
+        .eq("storage", "r2");
+      if (filesDeleteError) throw filesDeleteError;
+      if (r2FromPayload.length > 0) {
+        const r2FileRows = r2FromPayload.map((a) => ({
+          software_subscription_id: recordId,
+          file_path: a.path,
+          file_name: a.name || null,
+          file_type: a.type || null,
+          file_size: a.size != null ? Math.trunc(Number(a.size)) : null,
+          storage: "r2",
+          uploaded_by: user?.id || null,
+        }));
+        const { error: filesInsertError } = await supabase.from(INVOICE_FILES_TABLE).insert(r2FileRows);
+        if (filesInsertError) throw filesInsertError;
+      }
+
       resetForm();
       await fetchSubscriptions();
     } catch (err) {
@@ -441,6 +506,7 @@ const SoftwareSubscriptions = () => {
       notes: row.notes || "",
     });
     setInvoiceFiles([]);
+    setInvoiceFileInputKey((k) => k + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -646,6 +712,7 @@ const SoftwareSubscriptions = () => {
             </Field>
             <Field label="Attach invoices">
               <input
+                key={invoiceFileInputKey}
                 type="file"
                 multiple
                 accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.doc,.docx"
@@ -776,44 +843,79 @@ const SoftwareSubscriptions = () => {
         </form>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-2 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">2. Tracking of all subscriptions</h2>
-            <p className="text-sm text-slate-500">Track cost, payment method, invoice reference, and current payment status.</p>
+            <p className="text-sm text-slate-500">
+              Track cost, payment method, invoice reference, and current payment status. Scroll horizontally on smaller screens.
+            </p>
           </div>
+          {!loading && subscriptions.length > 0 ? (
+            <span className="inline-flex w-fit shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 shadow-sm">
+              {subscriptions.length} subscription{subscriptions.length === 1 ? "" : "s"}
+            </span>
+          ) : null}
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-[1400px] w-full text-sm">
-            <thead className="bg-blue-700 text-white">
+        <div className="max-h-[min(70vh,52rem)] overflow-auto">
+          <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 shadow-sm backdrop-blur-sm">
               <tr>
-                <th className="px-3 py-3 text-left font-semibold">Tool / Service</th>
-                <th className="px-3 py-3 text-left font-semibold">Description</th>
-                <th className="px-3 py-3 text-right font-semibold">Purchase Price (First Year)</th>
-                <th className="px-3 py-3 text-right font-semibold">Monthly Cost (Ongoing)</th>
-                <th className="px-3 py-3 text-right font-semibold">Yearly Cost (Ongoing)</th>
-                <th className="px-3 py-3 text-left font-semibold">Currency</th>
-                <th className="px-3 py-3 text-right font-semibold">Monthly Cost (in Rs.)</th>
-                <th className="px-3 py-3 text-right font-semibold">Yearly Cost (in Rs.)</th>
-                <th className="px-3 py-3 text-left font-semibold">Credit Card</th>
-                <th className="px-3 py-3 text-left font-semibold">Invoices</th>
-                <th className="px-3 py-3 text-left font-semibold">Payment Type</th>
-                <th className="px-3 py-3 text-left font-semibold">Billing Type</th>
-                <th className="px-3 py-3 text-left font-semibold">Next Payment</th>
-                <th className="px-3 py-3 text-left font-semibold">Status</th>
-                <th className="px-3 py-3 text-right font-semibold">Actions</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Tool / Service
+                </th>
+                <th className="min-w-[7rem] max-w-[11rem] whitespace-normal px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Description
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Purchase (Y1)
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Monthly
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Yearly
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">CCY</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Mo (₹)
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Yr (₹)
+                </th>
+                <th className="min-w-[5rem] max-w-[8rem] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Card
+                </th>
+                <th className="min-w-[9rem] max-w-[12rem] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Invoices
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Pay type
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Billing
+                </th>
+                <th className="min-w-[8.5rem] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Next payment
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Status
+                </th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Actions
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 bg-white">
               {loading ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-8 text-center text-slate-500">
-                    Loading subscriptions...
+                  <td colSpan={15} className="px-4 py-10 text-center text-sm text-slate-500">
+                    Loading subscriptions…
                   </td>
                 </tr>
               ) : subscriptions.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={15} className="px-4 py-10 text-center text-sm text-slate-500">
                     No software subscriptions entered yet.
                   </td>
                 </tr>
@@ -821,81 +923,112 @@ const SoftwareSubscriptions = () => {
                 subscriptions.map((row) => {
                   const reminder = reminderState(row);
                   return (
-                    <tr key={row.id} className="hover:bg-slate-50">
-                      <td className="px-3 py-3 font-semibold text-slate-900">{row.tool_service}</td>
-                      <td className="px-3 py-3 text-slate-600">{row.description || "-"}</td>
-                      <td className="px-3 py-3 text-right text-slate-700">{toNumber(row.purchase_price_first_year).toLocaleString("en-IN")}</td>
-                      <td className="px-3 py-3 text-right text-slate-700">{toNumber(row.monthly_cost_ongoing).toLocaleString("en-IN")}</td>
-                      <td className="px-3 py-3 text-right text-slate-700">{toNumber(row.yearly_cost_ongoing).toLocaleString("en-IN")}</td>
-                      <td className="px-3 py-3 text-slate-700">{row.currency || "INR"}</td>
-                      <td className="px-3 py-3 text-right font-medium text-slate-900">{money(row.monthly_cost_inr)}</td>
-                      <td className="px-3 py-3 text-right font-medium text-slate-900">{money(row.yearly_cost_inr)}</td>
-                      <td className="px-3 py-3 text-slate-600">{row.credit_card || "-"}</td>
-                      <td className="px-3 py-3 text-slate-600">
-                        <div className="space-y-1">
+                    <tr key={row.id} className="align-top transition-colors even:bg-slate-50/60 hover:bg-indigo-50/50">
+                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold text-slate-900">{row.tool_service}</td>
+                      <td
+                        className="max-w-[11rem] px-3 py-2.5 text-slate-600"
+                        title={row.description || undefined}
+                      >
+                        <span className="line-clamp-2 text-xs leading-snug">{row.description || "—"}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-700">
+                        {toNumber(row.purchase_price_first_year).toLocaleString("en-IN")}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-700">
+                        {toNumber(row.monthly_cost_ongoing).toLocaleString("en-IN")}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-700">
+                        {toNumber(row.yearly_cost_ongoing).toLocaleString("en-IN")}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-xs font-medium text-slate-700">{row.currency || "INR"}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold tabular-nums text-slate-900">
+                        {money(row.monthly_cost_inr)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold tabular-nums text-slate-900">
+                        {money(row.yearly_cost_inr)}
+                      </td>
+                      <td className="max-w-[8rem] px-3 py-2.5 text-xs text-slate-600" title={row.credit_card || undefined}>
+                        <span className="line-clamp-2">{row.credit_card || "—"}</span>
+                      </td>
+                      <td className="max-w-[12rem] px-3 py-2.5 text-xs text-slate-600">
+                        <div className="flex flex-col gap-1.5">
                           {isUrl(row.invoices) ? (
-                            <a href={row.invoices} target="_blank" rel="noreferrer" className="font-medium text-indigo-600 hover:underline">
-                              Open invoice link
+                            <a
+                              href={row.invoices}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-medium text-indigo-600 hover:underline"
+                            >
+                              Open link
                             </a>
                           ) : (
-                            <span>{row.invoices || "-"}</span>
+                            <span className="line-clamp-2 break-all">{row.invoices || "—"}</span>
                           )}
                           {parseAttachments(row.invoice_attachments).map((attachment) => (
                             <button
                               key={attachment.path || attachment.name}
                               type="button"
                               onClick={() => openInvoiceAttachment(attachment)}
-                              className="flex max-w-[14rem] items-center gap-1 truncate text-xs font-medium text-indigo-700 hover:underline"
+                              className="flex max-w-full items-center gap-1.5 truncate rounded-md border border-transparent text-left text-[11px] font-medium text-indigo-700 hover:border-indigo-100 hover:bg-indigo-50/80"
                               title={attachment.name || "Invoice attachment"}
                             >
-                              <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate">{attachment.name || "Invoice attachment"}</span>
+                              <Paperclip className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                              <span className="truncate">{attachment.name || "Attachment"}</span>
                             </button>
                           ))}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-slate-700">{row.payment_type || "-"}</td>
-                      <td className="px-3 py-3">
-                        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
-                          {(row.billing_type || "prepaid").toUpperCase()}
+                      <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-700">{row.payment_type || "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                          {row.billing_type || "prepaid"}
                         </span>
                       </td>
-                      <td className="px-3 py-3">
-                        <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${reminderBadgeClasses(reminder.tone)}`}>
-                          {row.next_payment_date ? `${row.next_payment_date} (${reminder.label})` : "Not set"}
+                      <td className="px-3 py-2.5">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs font-semibold tabular-nums text-slate-900">
+                            {row.next_payment_date || "—"}
+                          </span>
+                          <span
+                            className={`inline-flex w-fit max-w-full rounded-md border px-2 py-0.5 text-[10px] font-semibold leading-tight ${reminderBadgeClasses(reminder.tone)}`}
+                          >
+                            {reminder.label}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        <span
+                          className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusBadgeClasses(row.payment_status)}`}
+                        >
+                          {row.payment_status || "pending"}
                         </span>
                       </td>
-                      <td className="px-3 py-3">
-                        <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusBadgeClasses(row.payment_status)}`}>
-                          {(row.payment_status || "pending").toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex justify-end gap-2">
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        <div className="flex justify-end gap-1">
                           <button
                             type="button"
                             onClick={() => editSubscription(row)}
-                            className="rounded-md bg-indigo-50 p-2 text-indigo-700 hover:bg-indigo-100"
+                            className="rounded-lg border border-slate-200 bg-white p-2 text-indigo-700 shadow-sm hover:border-indigo-200 hover:bg-indigo-50"
                             title="Edit"
                           >
-                            <Edit2 className="w-4 h-4" />
+                            <Edit2 className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
                             onClick={() => markPaid(row)}
                             disabled={saving || row.payment_status === "paid"}
-                            className="rounded-md bg-emerald-50 p-2 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                            className="rounded-lg border border-slate-200 bg-white p-2 text-emerald-700 shadow-sm hover:border-emerald-200 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
                             title="Mark paid"
                           >
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle2 className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
                             onClick={() => deleteSubscription(row)}
-                            className="rounded-md bg-red-50 p-2 text-red-700 hover:bg-red-100"
+                            className="rounded-lg border border-slate-200 bg-white p-2 text-red-700 shadow-sm hover:border-red-200 hover:bg-red-50"
                             title="Delete"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </td>

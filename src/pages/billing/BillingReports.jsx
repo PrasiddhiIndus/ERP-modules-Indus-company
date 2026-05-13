@@ -197,7 +197,7 @@ const SearchBox = ({ value, onChange, placeholder = 'Search report...' }) => (
 const BillingReports = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { invoices, paymentAdvice, billingVerticalFilter } = useBilling();
+  const { invoices, paymentAdvice, billingVerticalFilter, billingPoBasisFilter } = useBilling();
   const pathSuffix = location.pathname.replace(/^\/app\/billing\/reports\/?/, '') || REPORT_TABS[0].id;
   const pathTab = pathSuffix.split('/')[0] || REPORT_TABS[0].id;
   const [activeReport, setActiveReport] = useState(REPORT_TAB_IDS.includes(pathTab) ? pathTab : REPORT_TABS[0].id);
@@ -209,6 +209,12 @@ const BillingReports = () => {
   const [selectedDelayRow, setSelectedDelayRow] = useState(null);
 
   const verticalNotSelected = !billingVerticalFilter;
+  const billingPoBasisLabel =
+    billingPoBasisFilter === 'with_po'
+      ? 'With PO only'
+      : billingPoBasisFilter === 'without_po'
+        ? 'Without PO only'
+        : 'All — With PO & Without PO';
 
   useEffect(() => {
     const suffix = location.pathname.replace(/^\/app\/billing\/reports\/?/, '') || REPORT_TABS[0].id;
@@ -415,8 +421,8 @@ const BillingReports = () => {
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-5">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Select a vertical to view reports</p>
-          <p className="text-sm mt-1">Pick a vertical above to load debtor, PA and variance reports.</p>
+          <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
+          <p className="text-sm mt-1">Choose who you bill at the top — then open money tables (who owes, gaps, delays…).</p>
         </div>
       ) : null}
       <div className="flex flex-col gap-4 rounded-2xl border border-red-100 bg-gradient-to-r from-red-50/80 via-white to-slate-50 p-4 shadow-sm sm:p-5">
@@ -425,7 +431,15 @@ const BillingReports = () => {
           <BarChart3 className="w-6 h-6 text-purple-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Report Center</h2>
+          <h2 className="text-xl font-bold text-gray-900">Money tables</h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Each button answers one question — who owes us, where we billed less, what was cut, how late we billed…
+          </p>
+          {!verticalNotSelected ? (
+            <p className="text-xs text-slate-600 mt-1">
+              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+            </p>
+          ) : null}
           </div>
         </div>
 

@@ -1,8 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { COMMERCIAL_RM_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../../config/roles';
+import {
+  COMMERCIAL_RM_APPROVER_MODULE_KEYS,
+  userCanApproveInModules,
+} from '../../../config/roles';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import {
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
@@ -10,6 +13,13 @@ import {
 } from '../../../constants/commercialModuleType';
 import { buildCommercialClientProfiles } from '../../../utils/commercialClientProfiles';
 import ClientLegalNameAutocomplete from '../../../components/commercial/ClientLegalNameAutocomplete';
+import {
+  PO_BASIS_WITH_PO,
+  PO_BASIS_WITHOUT_PO,
+  buildWithoutPoDummyIds,
+  resolveBillingPoBasis,
+  isPoWithoutPoBilling,
+} from '../../../constants/poBasis';
 
 const VERTICALS = ['R&M', 'M&M','AMC','IEV'];
 const BILLING_TYPES = ['Supply', 'Service'];
@@ -242,7 +252,7 @@ const GST_SUPPLY_TYPES = [
   { value: 'sez_zero', label: '0% GST (SEZ / nil rated)' },
 ];
 
-const initialForm = {
+const INITIAL_FORM_RM = {
   siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '', panNumber: '',
   currentCoordinator: '', contactNumber: '', contactEmail: '', ocNumber: '', vertical: 'R&M', ocSeries: '1',
   vendorCode: '',
@@ -259,32 +269,46 @@ const initialForm = {
   sellerCin: '', sellerPan: '', msmeRegistrationNo: '', msmeClause: '',
   gstSupplyType: 'intra',
   revisedPO: false, renewalPending: false,
+  poBasis: PO_BASIS_WITH_PO,
 };
 
-const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
+const POEntry = ({
+  commercialPOs = [],
+  setCommercialPOs,
+  setInvoices,
+  fixedVertical = null,
+  moduleType = COMMERCIAL_MODULE_RM_MM_AMC_IEV,
+  approverModuleKeys = COMMERCIAL_RM_APPROVER_MODULE_KEYS,
+}) => {
   const { userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'created', direction: 'desc' });
   /** OC segment / vertical — R&M, M&M, AMC, IEV */
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [listPoBasisFilter, setListPoBasisFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [formData, setFormData] = useState(initialForm);
+  const freshEmptyForm = useCallback(
+    () => ({
+      ...INITIAL_FORM_RM,
+      vertical: fixedVertical || INITIAL_FORM_RM.vertical,
+    }),
+    [fixedVertical]
+  );
+  const [formData, setFormData] = useState(() => ({
+    ...INITIAL_FORM_RM,
+    vertical: fixedVertical || INITIAL_FORM_RM.vertical,
+  }));
   const [viewHistoryPoId, setViewHistoryPoId] = useState(null);
   const [gstinError, setGstinError] = useState('');
   const [contactError, setContactError] = useState('');
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
-  const canApproveCommercialPOs = userCanApproveInModules(
-    userProfile,
-    accessibleModules,
-    COMMERCIAL_RM_APPROVER_MODULE_KEYS
-  );
+  const canApproveCommercialPOs = userCanApproveInModules(userProfile, accessibleModules, approverModuleKeys);
 
   const clientProfilesFromPOs = useMemo(
-    () =>
-      buildCommercialClientProfiles(commercialPOs, COMMERCIAL_MODULE_RM_MM_AMC_IEV, 'rm', { excludePoId: editId }),
-    [commercialPOs, editId]
+    () => buildCommercialClientProfiles(commercialPOs, moduleType, 'rm', { excludePoId: editId }),
+    [commercialPOs, editId, moduleType]
   );
 
   const handleApplyClientSnapshot = (snapshot) => {
@@ -423,6 +447,11 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
     if (departmentFilter) {
       list = list.filter((p) => poDepartmentLabel(p) === departmentFilter);
     }
+    if (listPoBasisFilter === 'with_po') {
+      list = list.filter((p) => resolveBillingPoBasis(p) === PO_BASIS_WITH_PO);
+    } else if (listPoBasisFilter === 'without_po') {
+      list = list.filter((p) => resolveBillingPoBasis(p) === PO_BASIS_WITHOUT_PO);
+    }
     if (!searchTerm.trim()) return list;
     const s = searchTerm.toLowerCase();
     return list.filter(
@@ -432,7 +461,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
         p.legalName?.toLowerCase().includes(s) ||
         p.siteId?.toLowerCase().includes(s)
     );
-  }, [commercialPOs, searchTerm, departmentFilter]);
+  }, [commercialPOs, searchTerm, departmentFilter, listPoBasisFilter]);
 
   const sortedFilteredList = useMemo(() => {
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
@@ -456,7 +485,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
   }, [filteredList, sortConfig]);
 
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, sortConfig]);
+  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, listPoBasisFilter, sortConfig]);
   const totalPages = Math.max(1, Math.ceil(sortedFilteredList.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const start = (safePage - 1) * PAGE_SIZE;
@@ -473,7 +502,18 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
 
   const handleOpenAdd = () => {
     setEditId(null);
-    setFormData({ ...initialForm, ocSeries: nextSeries });
+    const vertForDummy = fixedVertical || departmentFilter || INITIAL_FORM_RM.vertical;
+    const useWithout = listPoBasisFilter === 'without_po';
+    const dummies = useWithout
+      ? buildWithoutPoDummyIds({ verticalLabel: vertForDummy, ocSeries: nextSeries })
+      : { ocNumber: '', poWoNumber: '' };
+    setFormData({
+      ...freshEmptyForm(),
+      ocSeries: nextSeries,
+      ocNumber: dummies.ocNumber,
+      poWoNumber: dummies.poWoNumber,
+      poBasis: useWithout ? PO_BASIS_WITHOUT_PO : PO_BASIS_WITH_PO,
+    });
     setGstinError('');
     setContactError('');
     setGstTypeError('');
@@ -490,7 +530,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
       gstin: po.gstin || '', panNumber: po.panNumber || '', currentCoordinator: po.currentCoordinator || '',
       contactNumber: po.contactNumber || '', contactEmail: po.contactEmail || '', ocNumber: po.ocNumber || '',
       // Prefer OC-derived vertical so RM POs show up in Billing vertical filter.
-      vertical: (po.ocNumber && po.ocNumber.split('-')[1]) || po.vertical || 'R&M',
+      vertical: fixedVertical || (po.ocNumber && po.ocNumber.split('-')[1]) || po.vertical || INITIAL_FORM_RM.vertical,
       ocSeries: (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       poWoNumber: po.poWoNumber || '',
       renewalCycles: cycles,
@@ -531,6 +571,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
       gstSupplyType: po.gstSupplyType || 'intra',
       revisedPO: !!po.revisedPO, renewalPending: !!po.renewalPending,
       approvalStatus: po.approvalStatus || APPROVAL_STATUS.DRAFT,
+      poBasis: resolveBillingPoBasis(po) === PO_BASIS_WITHOUT_PO ? PO_BASIS_WITHOUT_PO : PO_BASIS_WITH_PO,
     });
     setGstinError('');
     setContactError('');
@@ -685,9 +726,18 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
       return;
     }
     setGstTypeError('');
-    const trimmedOcNumber = (formData.ocNumber || '').trim();
+    const isWithoutPo = formData.poBasis === PO_BASIS_WITHOUT_PO;
+    const vertForDummy = fixedVertical || formData.vertical || INITIAL_FORM_RM.vertical;
+    const dummies = buildWithoutPoDummyIds({
+      verticalLabel: vertForDummy,
+      ocSeries: formData.ocSeries || nextSeries,
+    });
+    const trimmedOcNumber =
+      (formData.ocNumber || '').trim() || (isWithoutPo ? dummies.ocNumber : '');
     const trimmedPoWoNumber =
-      (formData.poWoNumber || '').trim() || String(formData.newCyclePoWoNumber || '').trim();
+      (formData.poWoNumber || '').trim() ||
+      String(formData.newCyclePoWoNumber || '').trim() ||
+      (isWithoutPo ? dummies.poWoNumber : '');
     const primaryTotalEmpty =
       formData.totalContractValue === '' || formData.totalContractValue == null;
     const totalVal = primaryTotalEmpty
@@ -707,14 +757,19 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
       setSaveError('Duplicate PO/WO Number is not allowed.');
       return;
     }
-    if (!trimmedPoWoNumber) {
+    if (!isWithoutPo && !trimmedPoWoNumber) {
       setSaveError('Enter PO/WO number in New PO Number (renewal).');
+      return;
+    }
+    if (isWithoutPo && !trimmedPoWoNumber) {
+      setSaveError('Could not assign dummy PO/WO identifier.');
       return;
     }
     // Ensure OC number exists so vertical can be derived consistently across Billing screens and Supabase.
     // Expected OC format: IFSPL-{VERTICAL}-OC-{FY}-{SEQ}
-    const ocBase = trimmedOcNumber || generateOCNumber(formData.vertical || 'R&M', formData.ocSeries || '1');
-    const ocNum = syncOcVerticalIfStandard(ocBase, formData.vertical || 'R&M');
+    const ocVert = formData.vertical || fixedVertical || INITIAL_FORM_RM.vertical;
+    const ocBase = trimmedOcNumber || generateOCNumber(ocVert, formData.ocSeries || '1');
+    const ocNum = syncOcVerticalIfStandard(ocBase, ocVert);
     const poType = ALLOWED_RM_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Service';
     const rmPayment = deriveRmPaymentTermPayload(formData.paymentTerms, formData.customPaymentTermsPercent);
     const rates = formData.ratePerCategory.map((r) => ({
@@ -759,7 +814,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
       ocNumber: ocNum,
       ocSeries: formData.ocSeries || '1',
       // Persist vertical derived from OC number whenever possible.
-      vertical: (ocNum && String(ocNum).includes('-') ? String(ocNum).split('-')[1] : '') || formData.vertical || 'R&M',
+      vertical: (ocNum && String(ocNum).includes('-') ? String(ocNum).split('-')[1] : '') || formData.vertical || fixedVertical || INITIAL_FORM_RM.vertical,
       poWoNumber: trimmedPoWoNumber,
       renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
       ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
@@ -792,6 +847,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
       supplementaryReason: prevPo?.supplementaryReason || null,
       supplementaryRequestedAt: prevPo?.supplementaryRequestedAt || null,
       supplementaryApprovedAt: prevPo?.supplementaryApprovedAt || null,
+      billingWithoutPo: isWithoutPo,
     };
 
     // Renewal cycle: only when editing an existing PO and contract has ended (new POs use NEW fields for primary PO via merge above).
@@ -817,7 +873,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
     else setCommercialPOs((prev) => [...prev, po]);
     setSaveError('');
     setShowForm(false);
-    setFormData(initialForm);
+    setFormData(freshEmptyForm());
   };
 
   const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
@@ -839,8 +895,13 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
       <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm text-emerald-950">
         <p className="min-w-0 leading-snug">
           <span className="font-semibold">Next — Billing:</span> After you <strong>send for approval</strong> and the PO is{' '}
-          <strong>approved</strong>, open <strong>Billing</strong>, choose the <strong>same vertical</strong> (R&amp;M / M&amp;M / AMC / IEV), then{' '}
-          <strong>Create Invoice</strong>.
+          <strong>approved</strong>, open <strong>Billing</strong>, choose the <strong>same vertical</strong>
+          {fixedVertical ? (
+            <> (<strong>{fixedVertical}</strong>)</>
+          ) : (
+            <> (R&amp;M / M&amp;M / AMC / IEV)</>
+          )}
+          , then <strong>Create Invoice</strong>.
         </p>
         <Link
           to="/app/billing/create-invoice"
@@ -861,6 +922,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
             aria-label="Search POs"
           />
         </div>
+        {!fixedVertical ? (
         <div className="shrink-0 w-full sm:w-52">
           <label htmlFor="po-entry-department-filter" className="sr-only">
             Department
@@ -879,6 +941,22 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
             ))}
           </select>
         </div>
+        ) : null}
+        <div className="shrink-0 w-full sm:w-48">
+          <label htmlFor="rm-po-list-po-basis-filter" className="sr-only">
+            PO basis
+          </label>
+          <select
+            id="rm-po-list-po-basis-filter"
+            value={listPoBasisFilter}
+            onChange={(e) => setListPoBasisFilter(e.target.value)}
+            className="w-full h-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">All — With / Without PO</option>
+            <option value="with_po">With PO only</option>
+            <option value="without_po">Without PO only</option>
+          </select>
+        </div>
       </div>
       <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
         <div className="p-2">
@@ -887,7 +965,10 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
               <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[26%] md:w-[18%] lg:w-[17%]">
+                    <th className="px-1 py-2 text-center text-[9px] sm:text-[10px] font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[8%] md:w-[7%]">
+                      PO?
+                    </th>
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[22%] md:w-[14%] lg:w-[13%]">
                       <button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
                         OC Number {renderSortIndicator('ocNumber')}
                       </button>
@@ -931,6 +1012,16 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
                     const endDateFmt = formatDateDdMmYyyy(cleanCellText(po.endDate)) || '–';
                     return (
                       <tr key={po.id} className="hover:bg-gray-50 align-top">
+                        <td className="px-1 py-2 text-[9px] sm:text-[10px] text-center align-middle">
+                          <span
+                            className={`inline-flex px-1 py-0.5 rounded font-semibold ${
+                              isPoWithoutPoBilling(po) ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-700'
+                            }`}
+                            title={isPoWithoutPoBilling(po) ? 'Billed without customer PO' : 'With PO'}
+                          >
+                            {isPoWithoutPoBilling(po) ? 'No' : 'Yes'}
+                          </span>
+                        </td>
                         <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-900 min-w-0 text-center">
                           <TextCell
                             value={po.ocNumber}
@@ -1139,6 +1230,40 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
             </div>
             <div className="p-4 sm:p-6 space-y-5 bg-gray-50">
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="rm-po-billing-basis">
+                  Billing basis
+                </label>
+                <select
+                  id="rm-po-billing-basis"
+                  value={formData.poBasis}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const vl = fixedVertical || formData.vertical || INITIAL_FORM_RM.vertical;
+                    if (v === PO_BASIS_WITHOUT_PO) {
+                      const d = buildWithoutPoDummyIds({
+                        verticalLabel: vl,
+                        ocSeries: formData.ocSeries || nextSeries,
+                      });
+                      setFormData((p) => ({
+                        ...p,
+                        poBasis: v,
+                        ocNumber: p.ocNumber?.trim() || d.ocNumber,
+                        poWoNumber: p.poWoNumber?.trim() || d.poWoNumber,
+                      }));
+                    } else {
+                      setFormData((p) => ({ ...p, poBasis: v }));
+                    }
+                  }}
+                  className="w-full max-w-md border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                >
+                  <option value={PO_BASIS_WITH_PO}>With PO</option>
+                  <option value={PO_BASIS_WITHOUT_PO}>Without PO</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Without PO: OC and WOPO identifiers are prefilled (editable). Customer PO/WO number is optional for filing bills.
+                </p>
+              </section>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <h4 className="text-sm font-semibold text-gray-900">1. Client Identity</h4>
                 </div>
@@ -1244,15 +1369,32 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
                         onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))}
                         className="flex-1 border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm"
                       />
+                      {fixedVertical ? (
+                        <span
+                          className="shrink-0 inline-flex items-center border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 text-sm text-gray-800 font-medium"
+                          title="Vertical is fixed for this module"
+                        >
+                          {fixedVertical}
+                        </span>
+                      ) : (
                       <select
                         value={formData.vertical}
                         onChange={(e) => {
                           const nextVertical = e.target.value;
-                          setFormData((p) => ({
-                            ...p,
-                            vertical: nextVertical,
-                            ocNumber: syncOcVerticalIfStandard(p.ocNumber, nextVertical),
-                          }));
+                          setFormData((p) => {
+                            if (p.poBasis === PO_BASIS_WITHOUT_PO) {
+                              const d = buildWithoutPoDummyIds({
+                                verticalLabel: nextVertical,
+                                ocSeries: p.ocSeries || nextSeries,
+                              });
+                              return { ...p, vertical: nextVertical, ocNumber: d.ocNumber, poWoNumber: d.poWoNumber };
+                            }
+                            return {
+                              ...p,
+                              vertical: nextVertical,
+                              ocNumber: syncOcVerticalIfStandard(p.ocNumber, nextVertical),
+                            };
+                          });
                         }}
                         className="border border-gray-300 rounded-lg px-3 py-2"
                       >
@@ -1262,6 +1404,7 @@ const POEntry = ({ commercialPOs = [], setCommercialPOs, setInvoices }) => {
                           </option>
                         ))}
                       </select>
+                      )}
                     </div>
                   </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Vendor Code</label><input type="text" value={formData.vendorCode} onChange={(e) => setFormData((p) => ({ ...p, vendorCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Optional" /></div>
