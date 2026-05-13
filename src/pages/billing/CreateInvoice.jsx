@@ -61,6 +61,58 @@ function getLastTaxInvoiceNumberInFy(invoices) {
   return maxSeq > 0 ? generateTaxInvoiceNumber(maxSeq) : null;
 }
 
+/** Build full INV-YYYY-##### from digits-only serial (preserves width when typing leading zeros). */
+function buildFullTaxInvoiceNumberFromSerial(serialDigits) {
+  const fy = String(getFinancialYear());
+  const raw = String(serialDigits || '').replace(/\D/g, '').slice(0, 10);
+  if (!raw) return '';
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return '';
+  const width = Math.max(4, raw.length);
+  const padded = String(n).padStart(width, '0');
+  return `INV-${fy}-${padded}`;
+}
+
+/**
+ * Validate new tax invoice number (strict): format/FY, no duplicate, must be next serial only.
+ */
+function classifyNewTaxInvoice(trimmed, invoices) {
+  const fy = String(getFinancialYear());
+  const m = String(trimmed || '').trim().match(/^INV-(\d{4})-(\d{4,})$/i);
+  if (!m) return { kind: 'hard', message: 'Enter a valid tax invoice number (e.g. INV-2026-0001).' };
+  const year = m[1];
+  const seq = parseInt(m[2], 10);
+  if (!Number.isFinite(seq) || seq < 1) {
+    return { kind: 'hard', message: 'Enter a valid serial in the invoice number.' };
+  }
+  if (year !== fy) {
+    return { kind: 'hard', message: 'Tax invoice number must use the current financial year.' };
+  }
+
+  const lower = String(trimmed).trim().toLowerCase();
+  const dup = (Array.isArray(invoices) ? invoices : []).some((inv) => {
+    const n = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim().toLowerCase();
+    return n === lower;
+  });
+  if (dup) {
+    const nextFull = generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+    return {
+      kind: 'hard',
+      message: `That number is already used — next invoice is ${nextFull}.`,
+    };
+  }
+
+  const nextReq = getNextTaxInvoiceSequence(invoices);
+  if (seq !== nextReq) {
+    const nextFull = generateTaxInvoiceNumber(nextReq);
+    return {
+      kind: 'hard',
+      message: `Not the next invoice — next must be ${nextFull}.`,
+    };
+  }
+  return { kind: 'ok' };
+}
+
 /** Proforma series — separate from INV-* tax invoice numbers (same financial year index). */
 function generateProformaInvoiceNumber(sequence) {
   const y = getFinancialYear();
@@ -381,6 +433,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [createMainTab, setCreateMainTab] = useState('select-po');
   /** tax | proforma — stored as billing.invoice.invoice_kind; all verticals (Manpower, Training, R&M, M&M, AMC, IEV, trucks / lump-sum, etc.) */
   const [invoiceDocumentKind, setInvoiceDocumentKind] = useState('tax');
+  /** Digits after INV-YYYY- for new tax invoices (full number built on preview/save). */
+  const [manualTaxInvoiceSerial, setManualTaxInvoiceSerial] = useState('');
 
   const verticalNotSelected = !billingVerticalFilter;
   const billingPoBasisLabel =
@@ -614,6 +668,16 @@ const CreateInvoice = ({ onNavigateTab }) => {
     }
     return null;
   }, [selectedPO, invoiceDraft, editingInvoice, commercialPOs]);
+
+  useEffect(() => {
+    if (!displayPO) return;
+    const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
+    if (isEdit) return;
+    const next = getNextTaxInvoiceSequence(invoices);
+    setManualTaxInvoiceSerial(String(next).padStart(4, '0'));
+    // Seed when opening the create modal for a PO; avoid listing `invoices` so typing isn't reset on every list refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayPO?.id, invoiceDraft?.mode, invoiceDraft?.invoiceId]);
 
   /** M&M + Service only — enable description dropdown rows. */
   const isMmServiceDescriptionMode = useMemo(() => {
@@ -1312,7 +1376,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       existing?.taxInvoiceNumber ||
       (invoiceDocumentKind === 'proforma'
         ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
-        : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices)));
+        : buildFullTaxInvoiceNumberFromSerial(manualTaxInvoiceSerial) ||
+          generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices)));
     const lastInvSeries = getLastTaxInvoiceNumberInFy(invoices);
     const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
     const billingDurationStr =
@@ -1332,7 +1397,24 @@ const CreateInvoice = ({ onNavigateTab }) => {
       billingDurationStr,
       remarksLine,
     };
-  }, [displayPO, invoiceDraft, invoices, invoiceDate, invoiceDocumentKind]);
+  }, [displayPO, invoiceDraft, invoices, invoiceDate, invoiceDocumentKind, manualTaxInvoiceSerial]);
+
+  const taxInvoiceSerialIssue = useMemo(() => {
+    if (invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId) return '';
+    if (!displayPO || invoiceDocumentKind !== 'tax') return '';
+    const full = buildFullTaxInvoiceNumberFromSerial(manualTaxInvoiceSerial);
+    if (!full) return 'Enter the invoice serial after the year prefix.';
+    const c = classifyNewTaxInvoice(full, invoices);
+    if (c.kind !== 'ok') return c.message;
+    return '';
+  }, [displayPO, invoiceDraft?.mode, invoiceDraft?.invoiceId, invoiceDocumentKind, manualTaxInvoiceSerial, invoices]);
+
+  /** New tax invoices: Save stays disabled until the serial matches the next required number (no duplicates). */
+  const taxInvoiceBlocksSave = useMemo(() => {
+    if (invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId) return false;
+    if (!displayPO || invoiceDocumentKind !== 'tax') return false;
+    return !!taxInvoiceSerialIssue;
+  }, [invoiceDraft?.mode, invoiceDraft?.invoiceId, displayPO, invoiceDocumentKind, taxInvoiceSerialIssue]);
 
   const invoiceTermsLinesPreview = useMemo(() => {
     if (!displayPO) return [];
@@ -1415,7 +1497,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       ? existing.taxInvoiceNumber
       : effectiveKind === 'proforma'
         ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
-        : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+        : buildFullTaxInvoiceNumberFromSerial(manualTaxInvoiceSerial) ||
+          generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
 
     const poRow = commercialPOs.find((p) => String(p.id) === String(displayPO.id));
     let canonicalPoId = displayPO.id;
@@ -1538,6 +1621,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     servicePeriodFrom,
     servicePeriodTo,
     invoiceDocumentKind,
+    manualTaxInvoiceSerial,
     items,
     attendanceFiles,
     document2Files,
@@ -1562,11 +1646,20 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const effectiveKind = hasRealIrn ? 'tax' : invoiceDocumentKind === 'proforma' ? 'proforma' : 'tax';
     // DB + saveInvoice expect a UUID primary key; numeric local-only ids caused duplicate inserts (same tax_invoice_number).
     const id = existing ? existing.id : crypto.randomUUID();
-    const taxInvoiceNumber = existing
+    let taxInvoiceNumber = existing
       ? existing.taxInvoiceNumber
       : effectiveKind === 'proforma'
         ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
-        : generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+        : buildFullTaxInvoiceNumberFromSerial(manualTaxInvoiceSerial) ||
+          generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+
+    if (!existing && effectiveKind === 'tax') {
+      const c = classifyNewTaxInvoice(taxInvoiceNumber, invoices);
+      if (c.kind !== 'ok') {
+        window.alert(c.message);
+        return;
+      }
+    }
 
     const poRow = commercialPOs.find((p) => String(p.id) === String(displayPO.id));
     let canonicalPoId = displayPO.id;
@@ -2076,7 +2169,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 <p className="text-xs text-gray-500 truncate">{displayPO.locationName || displayPO.legalName || '–'}</p>
                 {invoiceDraft?.mode !== 'edit' && previewBillMeta?.lastInvoiceSeries ? (
                   <p className="text-[11px] text-gray-500 mt-0.5">
-                    Last tax invoice series: <span className="font-mono font-semibold text-gray-700">{previewBillMeta.lastInvoiceSeries}</span>
+                    Last tax invoice in this FY: <span className="font-mono font-semibold text-gray-700">{previewBillMeta.lastInvoiceSeries}</span>
                   </p>
                 ) : null}
               </div>
@@ -2126,6 +2219,33 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <option value="proforma">Proforma invoice</option>
                   </select>
                 </div>
+                {invoiceDraft?.mode !== 'edit' && invoiceDocumentKind === 'tax' && !documentKindLockedByIrn ? (
+                  <div className="flex flex-col gap-1 min-w-[220px] max-w-full">
+                    <label className="text-xs font-medium text-gray-700" htmlFor="create-inv-manual-tax-serial">
+                      Tax invoice number <span className="text-red-600">*</span>
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center px-2 py-1.5 rounded-md border border-gray-200 bg-gray-50 text-gray-800 text-xs font-mono shrink-0">
+                        INV-{getFinancialYear()}-
+                      </span>
+                      <input
+                        id="create-inv-manual-tax-serial"
+                        type="text"
+                        inputMode="numeric"
+                        value={manualTaxInvoiceSerial}
+                        onChange={(e) => setManualTaxInvoiceSerial(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        className={`min-w-[4.5rem] max-w-[8rem] px-2 py-1.5 border rounded-md bg-white text-gray-800 text-xs font-mono ${taxInvoiceSerialIssue ? 'border-red-400 bg-red-50/50' : 'border-gray-200'}`}
+                        autoComplete="off"
+                        placeholder={String(getNextTaxInvoiceSequence(invoices)).padStart(4, '0')}
+                        aria-label="Tax invoice serial"
+                        aria-invalid={taxInvoiceSerialIssue ? 'true' : 'false'}
+                      />
+                    </div>
+                    {taxInvoiceSerialIssue ? (
+                      <p className="text-[10px] text-red-600 font-medium leading-snug">{taxInvoiceSerialIssue}</p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -2135,6 +2255,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   setAttendanceFiles([]);
                   setDocument2Files([]);
                   setInvoiceDocumentKind('tax');
+                  setManualTaxInvoiceSerial('');
                   setLumpSumConsolidatedLineDraft({ description: null, quantity: '', rate: '' });
                   setInvoiceDraft(null);
                 }}
@@ -3207,6 +3328,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 setAttendanceFiles([]);
                 setDocument2Files([]);
                 setInvoiceDocumentKind('tax');
+                setManualTaxInvoiceSerial(String(getNextTaxInvoiceSequence(invoices)).padStart(4, '0'));
                 setInvoiceDraft(null);
               }}
               className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -3216,8 +3338,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
             <button
               type="button"
               onClick={handleSaveInvoice}
-              disabled={!canSave}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              disabled={!canSave || taxInvoiceBlocksSave}
+              title={
+                taxInvoiceBlocksSave && taxInvoiceSerialIssue
+                  ? taxInvoiceSerialIssue
+                  : undefined
+              }
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {invoiceDraft?.mode === 'edit' ? 'Update Invoice' : 'Save Invoice'}
             </button>
