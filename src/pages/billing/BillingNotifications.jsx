@@ -1,14 +1,33 @@
 import React, { useMemo } from 'react';
-import { Bell, Clock, FileCheck } from 'lucide-react';
+import { Bell, Clock, FileCheck, CalendarDays } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
+import {
+  rollupMainPoBilling,
+  resolveContractForBillingParentPo,
+} from '../../utils/billingInvoiceRollup';
 
 const PO_EXPIRY_ALERT_DAYS = 10;
 const PA_MISSING_ALERT_DAYS = 5;
+/** Show POs whose computed next billing date falls within this many days (includes overdue). */
+const NEXT_BILLING_ALERT_DAYS = 14;
 
 const BillingNotifications = () => {
-  const { commercialPOs, invoices, billingVerticalFilter } = useBilling();
+  const {
+    commercialPOs,
+    commercialPOsAllModules,
+    invoices,
+    invoicesAll,
+    billingVerticalFilter,
+    billingPoBasisFilter,
+  } = useBilling();
 
   const verticalNotSelected = !billingVerticalFilter;
+  const billingPoBasisLabel =
+    billingPoBasisFilter === 'with_po'
+      ? 'With PO only'
+      : billingPoBasisFilter === 'without_po'
+        ? 'Without PO only'
+        : 'All — With PO & Without PO';
 
   const today = useMemo(() => {
     const d = new Date();
@@ -26,7 +45,7 @@ const BillingNotifications = () => {
       const daysLeft = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
       if (daysLeft >= 0 && daysLeft <= PO_EXPIRY_ALERT_DAYS) {
         list.push({
-          message: `PO ${po.poWoNumber || po.ocNumber} for Site ${po.siteId || po.id} is expiring in ${daysLeft} days.`,
+          message: `Job ${po.poWoNumber || po.ocNumber} (${po.siteId ? `site ${po.siteId}` : 'no site'}) ends in ${daysLeft} day(s) — check renewal.`,
           ocNumber: po.ocNumber,
           siteId: po.siteId,
           endDate,
@@ -47,7 +66,7 @@ const BillingNotifications = () => {
       const created = inv.created_at ? new Date(inv.created_at) : null;
       if (created && created < cutoff) {
         list.push({
-          message: `Payment received for Site ${inv.siteId}, but Payment Advice is missing for 5+ days.`,
+          message: `Client paid (site ${inv.siteId || '—'}) but payment proof paper is still missing after 5 days.`,
           invoiceNumber: inv.taxInvoiceNumber || inv.bill_number,
           siteId: inv.siteId,
           created_at: inv.created_at,
@@ -55,14 +74,44 @@ const BillingNotifications = () => {
       }
     });
     return list;
-  }, [invoices]);
+  }, [invoices, today]);
+
+  /** Next billing window: last tax invoice date + PO billing cycle (days). */
+  const upcomingBillingCycles = useMemo(() => {
+    const invSrc = invoicesAll?.length ? invoicesAll : invoices;
+    const allPosForChildren = commercialPOsAllModules?.length ? commercialPOsAllModules : commercialPOs;
+    const list = [];
+    (commercialPOs || []).forEach((po) => {
+      if (po.isSupplementary) return;
+      const { contract, poQty } = resolveContractForBillingParentPo(po);
+      const roll = rollupMainPoBilling(po, allPosForChildren, invSrc, contract, poQty);
+      if (!roll.nextBillingDate) return;
+      const next = new Date(roll.nextBillingDate);
+      if (Number.isNaN(next.getTime())) return;
+      next.setHours(0, 0, 0, 0);
+      const daysUntil = Math.ceil((next - today) / (1000 * 60 * 60 * 24));
+      if (daysUntil <= NEXT_BILLING_ALERT_DAYS) {
+        list.push({
+          poWo: po.poWoNumber || po.po_wo_number || '–',
+          oc: po.ocNumber || po.oc_number || '–',
+          siteId: po.siteId || po.site_id || '',
+          locationName: po.locationName || po.location_name || '',
+          nextBillingDate: roll.nextBillingDate,
+          lastInvoiceDate: roll.lastInvoiceDate,
+          daysUntil,
+          cycleDays: roll.billingCycleDays,
+        });
+      }
+    });
+    return list.sort((a, b) => a.daysUntil - b.daysUntil);
+  }, [commercialPOs, commercialPOsAllModules, invoices, invoicesAll, today]);
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Select a vertical to view notifications</p>
-          <p className="text-sm mt-1">Choose a vertical above to load PO expiry and compliance alerts.</p>
+          <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
+          <p className="text-sm mt-1">Choose who you bill up top — then you’ll see reminders about dates and money.</p>
         </div>
       ) : null}
       <div className="flex items-center space-x-3">
@@ -70,19 +119,79 @@ const BillingNotifications = () => {
           <Bell className="w-6 h-6 text-indigo-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Notification Alerts</h2>
-          <p className="text-sm text-gray-600">PO expiring in 10 days; Payment received but PA missing 5+ days</p>
+          <h2 className="text-xl font-bold text-gray-900">Reminders</h2>
+          <p className="text-sm text-gray-600">
+            Three simple checks: contract ending soon · time to send the next bill · client paid but proof missing.
+          </p>
+          {!verticalNotSelected ? (
+            <p className="text-xs text-slate-600 mt-1">
+              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 bg-sky-50 flex items-center gap-2">
+          <CalendarDays className="w-5 h-5 text-sky-700" />
+          <div>
+            <h3 className="font-semibold text-gray-900">When to send the next bill</h3>
+            <p className="text-xs text-gray-600">
+              We take your <strong>last real bill date</strong> and add the <strong>days written on the job card</strong>.
+              Shows jobs due in the next {NEXT_BILLING_ALERT_DAYS} days or already late.
+            </p>
+          </div>
+        </div>
+        <div className="p-4">
+          {upcomingBillingCycles.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Nothing due soon — or no tax bill was raised before, so we cannot guess the next date yet.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {upcomingBillingCycles.map((a, i) => (
+                <li
+                  key={`${a.oc}-${a.poWo}-${i}`}
+                  className={`flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 p-3 rounded-lg border ${
+                    a.daysUntil <= 0 ? 'bg-rose-50 border-rose-200' : 'bg-sky-50 border-sky-200'
+                  }`}
+                >
+                  <CalendarDays className={`w-4 h-4 shrink-0 sm:mt-0.5 ${a.daysUntil <= 0 ? 'text-rose-700' : 'text-sky-700'}`} />
+                  <span className="text-sm text-gray-800">
+                    <span className="font-mono font-semibold">{a.oc}</span> · PO/WO {a.poWo}
+                    {a.siteId ? (
+                      <span className="text-gray-600">
+                        {' '}
+                        · Site {a.siteId}
+                        {a.locationName ? ` — ${a.locationName}` : ''}
+                      </span>
+                    ) : null}
+                    . Send next bill by:{' '}
+                    <strong>
+                      {a.nextBillingDate
+                        ? new Date(a.nextBillingDate).toLocaleDateString('en-IN')
+                        : '–'}
+                    </strong>{' '}
+                    ({a.daysUntil <= 0 ? `${Math.abs(a.daysUntil)} day(s) late` : `in ${a.daysUntil} day(s)`}; every{' '}
+                    {a.cycleDays} days
+                    {a.lastInvoiceDate ? ` · last bill ${new Date(a.lastInvoiceDate).toLocaleDateString('en-IN')}` : ''}
+                    ).
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-amber-50 flex items-center gap-2">
           <Clock className="w-5 h-5 text-amber-600" />
-          <h3 className="font-semibold text-gray-900">PO expiring in 10 days</h3>
+          <h3 className="font-semibold text-gray-900">Contract ending in 10 days</h3>
         </div>
         <div className="p-4">
           {poExpiringIn10Days.length === 0 ? (
-            <p className="text-sm text-gray-500">No PO expiring in the next 10 days.</p>
+            <p className="text-sm text-gray-500">No contract ending in the next 10 days.</p>
           ) : (
             <ul className="space-y-2">
               {poExpiringIn10Days.map((a, i) => (
@@ -99,11 +208,11 @@ const BillingNotifications = () => {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-red-50 flex items-center gap-2">
           <FileCheck className="w-5 h-5 text-red-600" />
-          <h3 className="font-semibold text-gray-900">Payment received – PA missing 5+ days</h3>
+          <h3 className="font-semibold text-gray-900">Paid — but proof missing 5+ days</h3>
         </div>
         <div className="p-4">
           {paymentReceivedPaMissing.length === 0 ? (
-            <p className="text-sm text-gray-500">No such cases. All paid invoices have PA or are within 5 days.</p>
+            <p className="text-sm text-gray-500">All good — either proof is in or payment just arrived.</p>
           ) : (
             <ul className="space-y-2">
               {paymentReceivedPaMissing.map((a, i) => (

@@ -1,5 +1,7 @@
 export const COMMERCIAL_MODULE_MANPOWER_TRAINING = "manpower-training";
 export const COMMERCIAL_MODULE_RM_MM_AMC_IEV = "rm-mm-amc-iev";
+/** Projects module PO Entry — same billing.po_wo row shape as R&M family; scoped by update_history marker. */
+export const COMMERCIAL_MODULE_PROJECTS = "projects";
 
 const MODULE_MARKER_PREFIX = "__COMMERCIAL_MODULE__:";
 
@@ -48,6 +50,7 @@ export function getCommercialPoModuleType(po) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, '');
+  if (v === 'projects' || v === 'project') return COMMERCIAL_MODULE_PROJECTS;
   const rmSet = new Set(['rm', 'mm', 'amc', 'iev', 'rm&m', 'm&m']);
   if (rmSet.has(v)) return COMMERCIAL_MODULE_RM_MM_AMC_IEV;
   // DB stores MANP/TRAIN as vertical segments too

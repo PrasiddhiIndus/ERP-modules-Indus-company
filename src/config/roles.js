@@ -72,7 +72,7 @@ export const MODULE_PATH_PREFIXES = {
   billing: ["/app/billing"],
   tracking: ["/app/billing/tracking"],
   operations: ["/app/fire-tender-vehicle", "/app/operations"],
-  projects: ["/app/projects"],
+  projects: ["/app/projects/po", "/app/projects-management", "/app/projects-billing"],
   procurement: ["/app/procurement"],
   amc: ["/app/amc"],
   finance: ["/app/accounts-finance"],
@@ -126,6 +126,9 @@ export const COMMERCIAL_MT_APPROVER_MODULE_KEYS = ["commercialMt", "sales"];
 
 /** Manager needs one of these to approve Commercial — R&M / M&M / AMC / IEV PO workflows. */
 export const COMMERCIAL_RM_APPROVER_MODULE_KEYS = ["commercialRm", "sales"];
+
+/** PO/WO approval in Projects → PO Entry (same workflow as Commercial R&M). */
+export const PROJECTS_PO_APPROVER_MODULE_KEYS = ["projects", "sales"];
 
 /**
  * Universal approval gate: Super Admin tiers and Admin approve anywhere; Managers only within listed module keys.

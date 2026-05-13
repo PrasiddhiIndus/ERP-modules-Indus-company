@@ -62,6 +62,7 @@ const ACTIVITY_IGNORE_TABLES = new Set([
   'invoice_attachment',
   'attachments',
   'marketing_enquiry_documents',
+  'software_subscription_invoice_files',
   'po_rate_category',
   'po_contact_log',
 ])

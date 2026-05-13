@@ -226,13 +226,20 @@ const CREDIT_NOTE_APPROVER_MODULES = ['billing'];
 
 const CreditNotes = () => {
   const { userProfile, accessibleModules } = useAuth();
-  const { invoices, setInvoices, creditDebitNotes, setCreditDebitNotes, billingVerticalFilter } = useBilling();
+  const { invoices, setInvoices, creditDebitNotes, setCreditDebitNotes, billingVerticalFilter, billingPoBasisFilter } =
+    useBilling();
   const canApproveCnDn = userCanApproveInModules(userProfile, accessibleModules, CREDIT_NOTE_APPROVER_MODULES);
   const [searchTerm, setSearchTerm] = useState('');
   const [generatingEInvoiceId, setGeneratingEInvoiceId] = useState(null);
   const [issueContext, setIssueContext] = useState(null);
 
   const verticalNotSelected = !billingVerticalFilter;
+  const billingPoBasisLabel =
+    billingPoBasisFilter === 'with_po'
+      ? 'With PO only'
+      : billingPoBasisFilter === 'without_po'
+        ? 'Without PO only'
+        : 'All — With PO & Without PO';
 
   const pendingRequests = useMemo(
     () =>
@@ -346,8 +353,8 @@ const CreditNotes = () => {
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Select a vertical to manage CN/DN</p>
-          <p className="text-sm mt-1">Choose a vertical above to load invoices and credit/debit note workflow.</p>
+          <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
+          <p className="text-sm mt-1">Use the dropdown at the top to choose who you bill — then you can fix wrong bills.</p>
         </div>
       ) : null}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -356,8 +363,16 @@ const CreditNotes = () => {
             <Receipt className="w-6 h-6 text-amber-600" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Credit / Debit Notes</h2>
-            <p className="text-sm text-gray-600">Approve requests from billing, then issue notes (same layout as tax invoices).</p>
+            <h2 className="text-xl font-bold text-gray-900">Fix a wrong bill</h2>
+            {!verticalNotSelected ? (
+              <p className="text-xs text-slate-600 mt-1">
+                Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+              </p>
+            ) : null}
+            <p className="text-sm text-gray-600">
+              <strong>Credit</strong> lowers what the client owes. <strong>Debit</strong> adds more. Someone asks here → you
+              approve → then print the fix paper like a normal bill.
+            </p>
           </div>
         </div>
       </div>

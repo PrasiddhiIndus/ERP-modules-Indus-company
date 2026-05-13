@@ -9,6 +9,13 @@ import {
   COMMERCIAL_MODULE_MANPOWER_TRAINING,
   isCommercialModuleMarker,
 } from '../../constants/commercialModuleType';
+import {
+  PO_BASIS_WITH_PO,
+  PO_BASIS_WITHOUT_PO,
+  buildWithoutPoDummyIds,
+  resolveBillingPoBasis,
+  isPoWithoutPoBilling,
+} from '../../constants/poBasis';
 import { buildCommercialClientProfiles } from '../../utils/commercialClientProfiles';
 import ClientLegalNameAutocomplete from '../../components/commercial/ClientLegalNameAutocomplete';
 
@@ -251,6 +258,7 @@ const initialForm = {
   sellerCin: '', sellerPan: '', msmeRegistrationNo: '', msmeClause: '',
   gstSupplyType: 'intra',
   revisedPO: false, renewalPending: false,
+  poBasis: PO_BASIS_WITH_PO,
 };
 
 const POEntry = () => {
@@ -258,6 +266,7 @@ const POEntry = () => {
   const { userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [listPoBasisFilter, setListPoBasisFilter] = useState('');
   const [manpowerBillingTypeFilter, setManpowerBillingTypeFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -421,6 +430,11 @@ const POEntry = () => {
     if (departmentFilter === 'Manpower' && manpowerBillingTypeFilter) {
       list = list.filter((p) => String(p.billingType || p.poType || '').trim() === manpowerBillingTypeFilter);
     }
+    if (listPoBasisFilter === 'with_po') {
+      list = list.filter((p) => resolveBillingPoBasis(p) === PO_BASIS_WITH_PO);
+    } else if (listPoBasisFilter === 'without_po') {
+      list = list.filter((p) => resolveBillingPoBasis(p) === PO_BASIS_WITHOUT_PO);
+    }
     if (!searchTerm.trim()) return list;
     const s = searchTerm.toLowerCase();
     return list.filter(
@@ -430,7 +444,7 @@ const POEntry = () => {
         p.legalName?.toLowerCase().includes(s) ||
         p.siteId?.toLowerCase().includes(s)
     );
-  }, [commercialPOs, searchTerm, departmentFilter, manpowerBillingTypeFilter]);
+  }, [commercialPOs, searchTerm, departmentFilter, manpowerBillingTypeFilter, listPoBasisFilter]);
 
   const sortedFilteredList = useMemo(() => {
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
@@ -454,7 +468,7 @@ const POEntry = () => {
   }, [filteredList, sortConfig]);
 
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, manpowerBillingTypeFilter, sortConfig]);
+  useEffect(() => { setPage(1); }, [searchTerm, departmentFilter, manpowerBillingTypeFilter, listPoBasisFilter, sortConfig]);
   useEffect(() => {
     if (departmentFilter !== 'Manpower') setManpowerBillingTypeFilter('');
   }, [departmentFilter]);
@@ -474,12 +488,18 @@ const POEntry = () => {
 
   const handleOpenAdd = () => {
     const nextVertical = departmentFilter || 'Manpower';
+    const useWithout = listPoBasisFilter === 'without_po';
+    const dummies = useWithout
+      ? buildWithoutPoDummyIds({ verticalLabel: nextVertical, ocSeries: nextSeries })
+      : { ocNumber: '', poWoNumber: '' };
     setEditId(null);
     setFormData({
       ...initialForm,
       vertical: nextVertical,
       ocSeries: nextSeries,
-      ocNumber: '',
+      ocNumber: dummies.ocNumber,
+      poWoNumber: dummies.poWoNumber,
+      poBasis: useWithout ? PO_BASIS_WITHOUT_PO : PO_BASIS_WITH_PO,
     });
     setGstinError('');
     setContactError('');
@@ -538,6 +558,7 @@ const POEntry = () => {
       gstSupplyType: po.gstSupplyType || 'intra',
       revisedPO: !!po.revisedPO, renewalPending: !!po.renewalPending,
       approvalStatus: po.approvalStatus || APPROVAL_STATUS.DRAFT,
+      poBasis: resolveBillingPoBasis(po) === PO_BASIS_WITHOUT_PO ? PO_BASIS_WITHOUT_PO : PO_BASIS_WITH_PO,
     });
     setGstinError('');
     setContactError('');
@@ -692,9 +713,18 @@ const POEntry = () => {
       return;
     }
     setGstTypeError('');
-    const trimmedOcNumber = (formData.ocNumber || '').trim();
-    const trimmedPoWoNumber =
-      (formData.poWoNumber || '').trim() || String(formData.newCyclePoWoNumber || '').trim();
+    const isWithoutPo = formData.poBasis === PO_BASIS_WITHOUT_PO;
+    const dummies = buildWithoutPoDummyIds({
+      verticalLabel: formData.vertical || 'Manpower',
+      ocSeries: formData.ocSeries || nextSeries,
+    });
+    const effectiveOc = (formData.ocNumber || '').trim() || (isWithoutPo ? dummies.ocNumber : '');
+    const effectivePoWo =
+      (formData.poWoNumber || '').trim() ||
+      String(formData.newCyclePoWoNumber || '').trim() ||
+      (isWithoutPo ? dummies.poWoNumber : '');
+    const trimmedOcNumber = effectiveOc;
+    const trimmedPoWoNumber = effectivePoWo;
     const primaryTotalEmpty =
       formData.totalContractValue === '' || formData.totalContractValue == null;
     const locNorm = (formData.locationName || '').trim().toLowerCase();
@@ -709,8 +739,12 @@ const POEntry = () => {
       setSaveError('Duplicate PO/WO Number is not allowed.');
       return;
     }
-    if (!trimmedPoWoNumber) {
+    if (!isWithoutPo && !trimmedPoWoNumber) {
       setSaveError('Enter PO/WO number in New PO Number (renewal).');
+      return;
+    }
+    if (isWithoutPo && !trimmedPoWoNumber) {
+      setSaveError('Could not assign dummy PO/WO identifier.');
       return;
     }
     const ocNum = trimmedOcNumber || generateOCNumber(formData.vertical || 'Manpower', formData.ocSeries || nextSeries);
@@ -811,6 +845,7 @@ const POEntry = () => {
       supplementaryReason: prevPo?.supplementaryReason || null,
       supplementaryRequestedAt: prevPo?.supplementaryRequestedAt || null,
       supplementaryApprovedAt: prevPo?.supplementaryApprovedAt || null,
+      billingWithoutPo: isWithoutPo,
     };
 
     // Renewal cycle row: only when editing an existing PO and contract has ended (same as R&M / AM&C PO Entry).
@@ -929,6 +964,21 @@ const POEntry = () => {
             </select>
           </div>
         ) : null}
+        <div className="shrink-0 w-full sm:w-48">
+          <label htmlFor="sales-po-list-po-basis-filter" className="sr-only">
+            PO basis
+          </label>
+          <select
+            id="sales-po-list-po-basis-filter"
+            value={listPoBasisFilter}
+            onChange={(e) => setListPoBasisFilter(e.target.value)}
+            className="w-full h-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="">All — With / Without PO</option>
+            <option value="with_po">With PO only</option>
+            <option value="without_po">Without PO only</option>
+          </select>
+        </div>
       </div>
       <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
         <div className="p-2">
@@ -937,7 +987,10 @@ const POEntry = () => {
               <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[26%] md:w-[18%] lg:w-[17%]">
+                    <th className="px-1 sm:px-1 py-2 text-center text-[9px] sm:text-[10px] font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[8%] md:w-[7%]">
+                      PO?
+                    </th>
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[24%] md:w-[16%] lg:w-[15%]">
                       <button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
                         OC Number {renderSortIndicator('ocNumber')}
                       </button>
@@ -981,6 +1034,16 @@ const POEntry = () => {
                     const endDateFmt = formatDateDdMmYyyy(cleanCellText(po.endDate)) || '–';
                     return (
                       <tr key={po.id} className="hover:bg-gray-50 align-top">
+                        <td className="px-1 py-2 text-[9px] sm:text-[10px] text-center align-middle">
+                          <span
+                            className={`inline-flex px-1 py-0.5 rounded font-semibold ${
+                              isPoWithoutPoBilling(po) ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-700'
+                            }`}
+                            title={isPoWithoutPoBilling(po) ? 'Billed without customer PO' : 'With PO'}
+                          >
+                            {isPoWithoutPoBilling(po) ? 'No' : 'Yes'}
+                          </span>
+                        </td>
                         <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-900 min-w-0 text-center">
                           <TextCell
                             value={po.ocNumber}
@@ -1189,6 +1252,39 @@ const POEntry = () => {
             </div>
             <div className="p-4 sm:p-6 space-y-5 bg-gray-50">
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-billing-basis">
+                  Billing basis
+                </label>
+                <select
+                  id="sales-po-billing-basis"
+                  value={formData.poBasis}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === PO_BASIS_WITHOUT_PO) {
+                      const d = buildWithoutPoDummyIds({
+                        verticalLabel: formData.vertical || 'Manpower',
+                        ocSeries: formData.ocSeries || nextSeries,
+                      });
+                      setFormData((p) => ({
+                        ...p,
+                        poBasis: v,
+                        ocNumber: p.ocNumber?.trim() || d.ocNumber,
+                        poWoNumber: p.poWoNumber?.trim() || d.poWoNumber,
+                      }));
+                    } else {
+                      setFormData((p) => ({ ...p, poBasis: v }));
+                    }
+                  }}
+                  className="w-full max-w-md border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                >
+                  <option value={PO_BASIS_WITH_PO}>With PO</option>
+                  <option value={PO_BASIS_WITHOUT_PO}>Without PO</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Without PO: OC and WOPO identifiers are prefilled for tracking (editable). Customer PO/WO can stay blank until you add one.
+                </p>
+              </section>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3 mb-4">
                   <h4 className="text-sm font-semibold text-gray-900">1. Client Identity</h4>
                 </div>
@@ -1295,7 +1391,19 @@ const POEntry = () => {
                       />
                       <select
                         value={formData.vertical}
-                        onChange={(e) => setFormData((p) => ({ ...p, vertical: e.target.value }))}
+                        onChange={(e) => {
+                          const nv = e.target.value;
+                          setFormData((p) => {
+                            if (p.poBasis === PO_BASIS_WITHOUT_PO) {
+                              const d = buildWithoutPoDummyIds({
+                                verticalLabel: nv,
+                                ocSeries: p.ocSeries || nextSeries,
+                              });
+                              return { ...p, vertical: nv, ocNumber: d.ocNumber, poWoNumber: d.poWoNumber };
+                            }
+                            return { ...p, vertical: nv };
+                          });
+                        }}
                         className="border border-gray-300 rounded-lg px-3 py-2"
                       >
                         {VERTICALS.map((v) => (

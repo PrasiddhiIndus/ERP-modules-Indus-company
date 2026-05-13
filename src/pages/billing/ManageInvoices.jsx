@@ -83,10 +83,10 @@ const BILLING_TYPE_TABS_RM = [
   { id: 'Supply', label: 'Supply' },
 ];
 const MANAGE_INVOICE_TABS = [
-  { id: 'billing-types', label: 'Billing types' },
-  { id: 'add-on-invoices', label: 'Add-On Invoices' },
-  { id: 'issued-cndn', label: 'Issued credit & debit notes' },
-  { id: 'cancelled', label: 'Cancelled billings' },
+  { id: 'billing-types', label: 'By billing type' },
+  { id: 'add-on-invoices', label: 'Extra bills' },
+  { id: 'issued-cndn', label: 'Bill fixes printed' },
+  { id: 'cancelled', label: 'Cancelled bills' },
 ];
 
 const ManageInvoices = ({ onNavigateTab }) => {
@@ -97,6 +97,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
     setInvoiceDraft,
     creditDebitNotes,
     billingVerticalFilter,
+    billingPoBasisFilter,
     useBillingDb,
   } = useBilling();
   const [billingTypeFilter, setBillingTypeFilter] = useState('All');
@@ -126,9 +127,15 @@ const ManageInvoices = ({ onNavigateTab }) => {
   };
 
   const verticalNotSelected = !billingVerticalFilter;
+  const billingPoBasisLabel =
+    billingPoBasisFilter === 'with_po'
+      ? 'With PO only'
+      : billingPoBasisFilter === 'without_po'
+        ? 'Without PO only'
+        : 'All — With PO & Without PO';
   const isRmVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
-    return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev';
+    return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev' || v === 'projects';
   }, [billingVerticalFilter]);
   const isTrainingVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
@@ -443,9 +450,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
-          <p className="text-lg font-semibold text-gray-900">Select a vertical to view invoices</p>
+          <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
           <p className="text-sm mt-1 max-w-lg mx-auto">
-            Same vertical as Commercial PO Entry and Create Invoice. Then you can filter invoices, download PDFs, and generate IRN.
+            Use the dropdown at the top — same team as Commercial. Then you see every bill, print, and GST filing.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <button
@@ -453,13 +460,13 @@ const ManageInvoices = ({ onNavigateTab }) => {
               onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
             >
-              Create Invoice
+              Make a bill
             </button>
             <Link
               to="/app/commercial/manpower-training/po-entry"
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              Commercial PO Entry
+              New job in Commercial
             </Link>
           </div>
         </div>
@@ -469,15 +476,21 @@ const ManageInvoices = ({ onNavigateTab }) => {
           <FileText className="w-6 h-6 text-red-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Manage Invoices</h2>
-          <p className="text-sm text-gray-600">View | Edit | Download | Generate E-Invoice | Manage PA</p>
+          <h2 className="text-xl font-bold text-gray-900">All bills</h2>
+          <p className="text-sm text-gray-600">Open · change · print · get GST number · add payment proof</p>
+          {!verticalNotSelected ? (
+            <p className="text-xs text-slate-600 mt-1">
+              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+            </p>
+          ) : null}
         </div>
       </div>
 
       {!verticalNotSelected ? (
         <div className="rounded-xl border border-red-100 bg-red-50/40 px-4 py-3 text-sm text-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <p className="min-w-0 leading-snug">
-            <strong>New invoices</strong> are raised from <strong>Create Invoice</strong> or <strong>Add-On Invoices</strong> after the PO is approved in Commercial. This screen is for operations on saved invoices.
+            <strong>New bills</strong> start from <strong>Make bill</strong> or <strong>Extra bill</strong> after Commercial
+            approves the job. This screen is for bills that are already saved.
           </p>
           <div className="flex flex-wrap gap-2 shrink-0">
             <button
@@ -485,14 +498,14 @@ const ManageInvoices = ({ onNavigateTab }) => {
               onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
               className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50"
             >
-              Create Invoice
+              Make bill
             </button>
             <button
               type="button"
               onClick={() => onNavigateTab && onNavigateTab('add-on-invoices')}
               className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-violet-700 shadow-sm ring-1 ring-violet-200 hover:bg-violet-50"
             >
-              Add-On Invoices
+              Extra bill
             </button>
             <Link
               to="/app/commercial/rm-mm-amc-iev/po-entry"
@@ -506,7 +519,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 overflow-hidden">
         {verticalNotSelected ? (
-          <div className="p-6 text-sm text-gray-600">Select a vertical above to load invoices.</div>
+          <div className="p-6 text-sm text-gray-600">Pick a team above — then your bills load here.</div>
         ) : null}
         <div className="flex gap-1 px-4 sm:px-6 border-b border-slate-100 bg-slate-50/40 overflow-x-auto">
           {MANAGE_INVOICE_TABS.map((tab) => (
@@ -546,7 +559,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
       {manageTab === 'add-on-invoices' ? (
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-violet-50/60">
-          <h3 className="text-sm font-semibold text-violet-800">Add-On Invoices</h3>
+          <h3 className="text-sm font-semibold text-violet-800">Extra bills</h3>
           <p className="text-xs text-violet-700 mt-0.5">Appraisal / gratuity / reimbursement and other add-on bills</p>
         </div>
         <div className="w-full overflow-x-auto">
@@ -922,8 +935,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
         {filteredInvoices.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             {billingTypeFilter === 'All'
-              ? 'No invoices yet. Create one from Create Invoice.'
-              : `No invoices for ${billingTypeFilter}. Create one from Create Invoice or switch to All.`}
+              ? 'No bills yet — start from Make bill.'
+              : `No bills for “${billingTypeFilter}”. Try Make bill or pick “All”.`}
           </div>
         ) : (
           <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2">

@@ -1,5 +1,6 @@
 import {
   COMMERCIAL_MODULE_MANPOWER_TRAINING,
+  COMMERCIAL_MODULE_PROJECTS,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
   getCommercialPoModuleType,
 } from '../constants/commercialModuleType';
@@ -28,6 +29,7 @@ function filterPOsByCommercialModule(commercialPOs, moduleType) {
   return (commercialPOs || []).filter((po) => {
     if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) return isRmFamilyPo(po);
     if (moduleType === COMMERCIAL_MODULE_MANPOWER_TRAINING) return isManpowerTrainingFamilyPo(po);
+    if (moduleType === COMMERCIAL_MODULE_PROJECTS) return getCommercialPoModuleType(po) === COMMERCIAL_MODULE_PROJECTS;
     return getCommercialPoModuleType(po) === moduleType;
   });
 }
