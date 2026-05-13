@@ -168,6 +168,12 @@ function safeNumber(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Authorised duty inputs: no days-in-month default — show blank until the user enters a value. */
+function authorisedDutyFieldValue(v) {
+  if (v === undefined || v === null || v === '') return '';
+  return v;
+}
+
 function computeArrivedQty(poQty, actualDuty, authorizedDuty) {
   const po = safeNumber(poQty);
   const act = safeNumber(actualDuty);
@@ -226,13 +232,6 @@ function resolvePoLumpSumInvoicePreviewMode(po) {
   if (m === 'truck_cumulated') return 'consolidated';
   if (m === 'truck' || m === 'fire_tender') return 'detailed';
   return 'consolidated';
-}
-
-function daysInMonth(dateStr) {
-  const d = dateStr ? new Date(dateStr) : new Date();
-  const y = d.getFullYear();
-  const m = d.getMonth();
-  return new Date(y, m + 1, 0).getDate();
 }
 
 function getUniqueRateRows(po) {
@@ -741,9 +740,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
    */
   const lumpSumSingleInvoiceTableMode =
     isLumpSumBilling && (!lumpSumTruckActive || lumpSumSubtractPenaltyInRate);
+  /** Truck lump sum: keep penalty-in-rate math when enabled, but hide Short deployment / penalty columns in duty-geometry UI. */
+  const lumpSumShowPenaltyGeometryUi = lumpSumSubtractPenaltyInRate && !lumpSumTruckActive;
   /** Tighter line-item table when Lump Sum + Penalty column (duty geometry) is on — avoids squashed inputs. */
-  const lumpSumDutyGeometryLineTable = isLumpSumBilling && lumpSumSubtractPenaltyInRate;
-  const lineTableColSpan = 6 + (lumpSumSubtractPenaltyInRate ? 1 : 0);
+  const lumpSumDutyGeometryLineTable = isLumpSumBilling && lumpSumShowPenaltyGeometryUi;
+  const lineTableColSpan = 6 + (lumpSumShowPenaltyGeometryUi ? 1 : 0);
   const lumpSumGeometryRowsForExport = useMemo(
     () => (isLumpSumBilling ? items.filter((row) => !row.isTruckLine && row.geometryEnabled) : []),
     [isLumpSumBilling, items]
@@ -829,8 +830,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           const editSubtractPenalty =
             editIsLump && !isTruck && (editPenaltyMode || editAnyPenaltySaved);
           const actD = i.actualDuty != null ? Number(i.actualDuty) : undefined;
-          const authD =
-            i.authorizedDuty != null ? Number(i.authorizedDuty) : daysInMonth(editInvDate);
+          const authD = i.authorizedDuty != null ? Number(i.authorizedDuty) : undefined;
           const numberOfMonths =
             i.numberOfMonths != null
               ? Number(i.numberOfMonths)
@@ -843,7 +843,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           if (editIsLump && !isTruck && geometryEnabled) {
             const poQ = i.poQty != null ? Number(i.poQty) : 0;
             const act = actD ?? 0;
-            const auth = authD ?? daysInMonth(editInvDate);
+            const auth = authD ?? 0;
             const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editSubtractPenalty);
             quantity = editMonthsGeometryMode
               ? computeArrivedQtyByMonths(poQ, act, auth, numberOfMonths)
@@ -884,7 +884,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
     const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
-    const authDutyDefault = daysInMonth(invoiceDate);
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
 
     if (isLump) {
@@ -903,10 +902,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
           poReferenceRate: poRate,
           poLinePenalty: pen,
           actualDuty: 0,
-          authorizedDuty: authDutyDefault,
+          authorizedDuty: undefined,
           numberOfMonths: 1,
-          quantity: computeArrivedQtyByMonths(qty, 0, authDutyDefault, 1),
-          rate: computeLumpSumEffectiveRate(poRate, 0, authDutyDefault, pen, lumpSumSubtractPenaltyInRate),
+          quantity: computeArrivedQtyByMonths(qty, 0, 0, 1),
+          rate: computeLumpSumEffectiveRate(poRate, 0, 0, pen, lumpSumSubtractPenaltyInRate),
           amount: 0,
         };
       });
@@ -923,7 +922,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 poReferenceRate: 0,
                 poLinePenalty: 0,
                 actualDuty: 0,
-                authorizedDuty: authDutyDefault,
+                authorizedDuty: undefined,
                 numberOfMonths: 1,
                 quantity: 0,
                 rate: 0,
@@ -944,7 +943,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           geometryEnabled: false,
           poQty: 0,
           actualDuty: 0,
-          authorizedDuty: authDutyDefault,
+          authorizedDuty: undefined,
           numberOfMonths: 1,
           quantity: 0,
           rate: 0,
@@ -963,7 +962,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         geometryEnabled: false,
         poQty: safeNumber(selectedPO?.ratePerCategory?.find((x) => (x?.description || x?.designation || '').trim() === r.description)?.qty),
         actualDuty: 0,
-        authorizedDuty: authDutyDefault,
+        authorizedDuty: undefined,
         numberOfMonths: 1,
         quantity: 0,
         rate: r.rate,
@@ -993,7 +992,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
         const next = { ...it, ...patch };
         const poQty = next.poQty != null ? safeNumber(next.poQty) : 0;
         const actualDuty = next.actualDuty != null ? safeNumber(next.actualDuty) : 0;
-        const authorizedDuty = next.authorizedDuty != null ? safeNumber(next.authorizedDuty) : 0;
+        const authorizedDuty =
+          next.authorizedDuty === undefined || next.authorizedDuty === null || next.authorizedDuty === ''
+            ? 0
+            : safeNumber(next.authorizedDuty);
         const numberOfMonths = next.numberOfMonths != null ? safeNumber(next.numberOfMonths) : 1;
         const qtyRaw = safeNumber(next.quantity);
 
@@ -1076,7 +1078,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     geometryEnabled: false,
     poQty: 0,
     actualDuty: 0,
-    authorizedDuty: daysInMonth(invoiceDate),
+    authorizedDuty: undefined,
     numberOfMonths: 1,
     quantity: 0,
     rate: 0,
@@ -1192,7 +1194,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         geometryEnabled: false,
         poQty: 0,
         actualDuty: 0,
-        authorizedDuty: daysInMonth(invoiceDate),
+        authorizedDuty: undefined,
         numberOfMonths: 1,
         quantity: 0,
         rate: 0,
@@ -1243,7 +1245,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
     };
   }, [isLumpSumBilling, lumpSumSubtractPenaltyInRate, items, displayPO]);
   const showLumpSumPenaltyBillingSummary =
-    isLumpSumBilling && lumpSumSubtractPenaltyInRate && lumpSumSingleInvoiceTableMode && !!lumpSumPenaltyBillingSummary;
+    isLumpSumBilling &&
+    lumpSumSubtractPenaltyInRate &&
+    lumpSumSingleInvoiceTableMode &&
+    !!lumpSumPenaltyBillingSummary &&
+    !lumpSumTruckActive;
   const consolidatedLumpSumLine = useMemo(() => {
     if (!lumpSumSingleInvoiceTableMode) return null;
     const geometryRows = items.filter((it) => !it.isTruckLine && it.geometryEnabled);
@@ -1252,7 +1258,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const geometryAmount = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
     const penalty = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0));
     const qty = lumpSumConsolidatedLineDraft.quantity === '' ? 1 : safeNumber(lumpSumConsolidatedLineDraft.quantity);
-    const rate = lumpSumPenaltyBillingSummary ? lumpSumPenaltyBillingSummary.finalBillingValue : geometryAmount;
+    const rate =
+      showLumpSumPenaltyBillingSummary && lumpSumPenaltyBillingSummary
+        ? lumpSumPenaltyBillingSummary.finalBillingValue
+        : geometryAmount;
     const amount = round2(qty * rate);
     return {
       description:
@@ -1272,7 +1281,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       authorizedDuty: null,
       numberOfMonths: null,
     };
-  }, [lumpSumSingleInvoiceTableMode, items, displayPO, lumpSumConsolidatedLineDraft, lumpSumPenaltyBillingSummary]);
+  }, [lumpSumSingleInvoiceTableMode, items, displayPO, lumpSumConsolidatedLineDraft, lumpSumPenaltyBillingSummary, showLumpSumPenaltyBillingSummary]);
   /** Invoice table rows: non-truck lump sum shows aggregated geometry line + supplementary Qty×Rate lines only. */
   const invoiceTableRows = useMemo(() => {
     if (!lumpSumSingleInvoiceTableMode) {
@@ -1793,6 +1802,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!isLumpSumBilling) return;
     const sourceRows = items.filter((row) => !row.isTruckLine && row.geometryEnabled);
     if (!sourceRows.length) return;
+    const includePenaltyCols = lumpSumShowPenaltyGeometryUi;
     const exportRows = sourceRows.map((row, idx) => {
       const actual = safeNumber(row.actualDuty);
       const auth = safeNumber(row.authorizedDuty);
@@ -1800,41 +1810,65 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const shortDeployment = computeShortDeployment(actual, auth);
       const penaltyRate = round2(safeNumber(row.poLinePenalty));
       const penaltyAmount = computePenaltyAmount(actual, auth, penaltyRate);
-      return {
+      const common = {
         'S.No': idx + 1,
         Description: row.description || `Line ${idx + 1}`,
         'PO Qty': safeNumber(row.poQty),
         'PO Rate': round2(safeNumber(row.poReferenceRate)),
         'Actual Duty': actual,
         'Authorised Duty': auth,
-        'Short Deployment': shortDeployment,
-        'Penalty Rate': penaltyRate,
-        'Penalty Amount': penaltyAmount,
+      };
+      const tail = {
         'Duty Ratio': ratio,
         Qty: round3(safeNumber(row.quantity)),
         Rate: round2(safeNumber(row.rate)),
         Amount: round2(safeNumber(row.amount)),
       };
+      if (includePenaltyCols) {
+        return {
+          ...common,
+          'Short Deployment': shortDeployment,
+          'Penalty Rate': penaltyRate,
+          'Penalty Amount': penaltyAmount,
+          ...tail,
+        };
+      }
+      return { ...common, ...tail };
     });
     const totalQty = round3(sourceRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0));
     const totalAmount = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
-    exportRows.push({
+    const totalCommon = {
       'S.No': '',
       Description: 'TOTAL',
       'PO Qty': '',
       'PO Rate': '',
       'Actual Duty': '',
       'Authorised Duty': '',
-      'Short Deployment': round3(sourceRows.reduce((sum, row) => sum + computeShortDeployment(row.actualDuty, row.authorizedDuty), 0)),
-      'Penalty Rate': '',
-      'Penalty Amount': round2(
-        sourceRows.reduce((sum, row) => sum + computePenaltyAmount(row.actualDuty, row.authorizedDuty, row.poLinePenalty), 0)
-      ),
+    };
+    const totalTail = {
       'Duty Ratio': '',
       Qty: totalQty,
       Rate: totalQty > 0 ? round2(totalAmount / totalQty) : 0,
       Amount: totalAmount,
-    });
+    };
+    exportRows.push(
+      includePenaltyCols
+        ? {
+            ...totalCommon,
+            'Short Deployment': round3(
+              sourceRows.reduce((sum, row) => sum + computeShortDeployment(row.actualDuty, row.authorizedDuty), 0)
+            ),
+            'Penalty Rate': '',
+            'Penalty Amount': round2(
+              sourceRows.reduce(
+                (sum, row) => sum + computePenaltyAmount(row.actualDuty, row.authorizedDuty, row.poLinePenalty),
+                0
+              )
+            ),
+            ...totalTail,
+          }
+        : { ...totalCommon, ...totalTail }
+    );
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Geometry');
@@ -2288,18 +2322,40 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           setLumpSumInvoicePenaltyGeometry(!!e.target.checked);
                         }}
                         disabled={lumpSumPenaltyActive}
-                        aria-label="Duty geometry with PO penalty"
+                        aria-label={
+                          lumpSumTruckActive
+                            ? 'Duty geometry: subtract category penalty from PO rate (truck lump sum)'
+                            : 'Duty geometry with PO penalty'
+                        }
                       />
                       <span>
-                        <span className="font-semibold">Duty geometry — PO penalty rate</span>
-                        <span className="text-neutral-600">
-                          {' '}
-                          Adds penalty-rate and penalty-amount fields from PO Rate per Category and uses{' '}
-                        </span>
-                        <span className="font-mono text-[11px] text-neutral-800 whitespace-nowrap">
-                          Short deployment = Authorised − Actual; Penalty amount = Short deployment × Penalty rate
-                        </span>
-                        <span className="text-neutral-600"> on each duty-geometry line.</span>
+                        {lumpSumTruckActive ? (
+                          <>
+                            <span className="font-semibold">Duty geometry — truck lump sum (rate uses category penalty)</span>
+                            <span className="text-neutral-600">
+                              {' '}
+                              Category penalty from PO Rate per Category is subtracted from the PO rate on each duty line.{' '}
+                            </span>
+                            <span className="font-mono text-[11px] text-neutral-800">
+                              Qty = (Actual ÷ Authorised) × PO Qty; Rate = PO rate − category penalty; Amount = Qty × Rate
+                            </span>
+                            <span className="text-neutral-600">
+                              . Add separate truck / supplementary lines under the table as Qty × Rate only.
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-semibold">Duty geometry — PO penalty rate</span>
+                            <span className="text-neutral-600">
+                              {' '}
+                              Adds penalty-rate and penalty-amount fields from PO Rate per Category and uses{' '}
+                            </span>
+                            <span className="font-mono text-[11px] text-neutral-800 whitespace-nowrap">
+                              Short deployment = Authorised − Actual; Penalty amount = Short deployment × Penalty rate
+                            </span>
+                            <span className="text-neutral-600"> on each duty-geometry line.</span>
+                          </>
+                        )}
                       </span>
                     </label>
                     {lumpSumPenaltyActive ? (
@@ -2318,7 +2374,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           Export Geometry to Excel
                         </button>
                         <span className="text-[11px] text-amber-900/80 max-w-xl">
-                          Works for all lump sum layouts (including truck): exports every duty-geometry category row.
+                          {lumpSumTruckActive
+                            ? 'Truck lump sum: exports every duty-geometry category row (PO duty lines only; no short deployment or penalty columns in the file).'
+                            : 'Works for all lump sum layouts (including truck): exports every duty-geometry category row.'}
                         </span>
                       </div>
                     ) : null}
@@ -2335,7 +2393,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               key={`geo-row-${rowIdx}`}
                               className={[
                                 'grid grid-cols-1 gap-2 rounded border border-amber-100 bg-amber-50/30 p-2',
-                                lumpSumSubtractPenaltyInRate
+                                lumpSumShowPenaltyGeometryUi
                                   ? 'md:grid-cols-[minmax(140px,1.6fr)_repeat(5,minmax(95px,1fr))] md:items-end'
                                   : 'md:grid-cols-[minmax(140px,2fr)_repeat(4,minmax(95px,1fr))] md:items-end',
                               ].join(' ')}
@@ -2343,7 +2401,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               <div
                                 className={[
                                   'text-xs text-gray-700',
-                                  lumpSumSubtractPenaltyInRate ? '' : 'md:col-span-2',
+                                  lumpSumShowPenaltyGeometryUi ? '' : 'md:col-span-2',
                                 ].join(' ')}
                               >
                                 <div className="font-medium text-gray-900 truncate" title={row.description || ''}>{row.description || `Line ${rowIdx + 1}`}</div>
@@ -2364,12 +2422,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                 <input
                                   type="number"
                                   min={0}
-                                  value={row.authorizedDuty ?? daysInMonth(invoiceDate)}
+                                  value={authorisedDutyFieldValue(row.authorizedDuty)}
                                   onChange={(e) => updateItem(rowIdx, { authorizedDuty: e.target.value, geometryEnabled: true })}
                                   className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-center"
                                 />
                               </label>
-                              {lumpSumSubtractPenaltyInRate ? (
+                              {lumpSumShowPenaltyGeometryUi ? (
                                 <>
                                   <div className="text-[11px] text-gray-700">
                                     Short deployment
@@ -2391,7 +2449,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   </div>
                                 </>
                               ) : null}
-                              {!lumpSumSubtractPenaltyInRate ? (
+                              {!lumpSumSubtractPenaltyInRate || lumpSumTruckActive ? (
                                 <>
                                   <div className="text-[11px] text-gray-700">
                                     Qty
@@ -2587,7 +2645,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   >
                     Rate
                   </th>
-                  {lumpSumSubtractPenaltyInRate ? (
+                  {lumpSumShowPenaltyGeometryUi ? (
                     <th
                       className={[
                         'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
@@ -2829,7 +2887,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           <input
                             type="number"
                             min={0}
-                            value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
+                            value={authorisedDutyFieldValue(it.authorizedDuty)}
                             onChange={(e) => updateItem(ii, { authorizedDuty: e.target.value })}
                             className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-center"
                             step="1"
@@ -2897,7 +2955,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         readOnly={isLumpConsolidatedRow || rateDerived}
                       />
                     </td>
-                    {lumpSumSubtractPenaltyInRate ? (
+                    {lumpSumShowPenaltyGeometryUi ? (
                       <td
                         className={[
                           'border border-neutral-400 text-center align-middle text-neutral-800 min-w-0',
@@ -2957,7 +3015,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <input
                               type="number"
                               min={0}
-                              value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
+                              value={authorisedDutyFieldValue(it.authorizedDuty)}
                               onChange={(e) => updateItem(ii, { authorizedDuty: e.target.value })}
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                               step="1"
@@ -3034,13 +3092,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <input
                               type="number"
                               min={0}
-                              value={it.authorizedDuty ?? daysInMonth(invoiceDate)}
+                              value={authorisedDutyFieldValue(it.authorizedDuty)}
                               onChange={(e) => updateItem(ii, { authorizedDuty: e.target.value })}
                               className="w-24 px-2 py-1 border border-gray-300 rounded-md text-center bg-white"
                               step="1"
                             />
                           </label>
-                          {lumpSumSubtractPenaltyInRate ? (
+                          {lumpSumShowPenaltyGeometryUi ? (
                             <>
                               <label className="inline-flex items-center gap-2">
                                 <span className="text-gray-600">Short deployment</span>
@@ -3092,9 +3150,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             {lumpSumBillingMode === 'months_geometry'
                               ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals). '
                               : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals). '}
-                            {lumpSumSubtractPenaltyInRate
+                            {lumpSumSubtractPenaltyInRate && !lumpSumTruckActive
                               ? 'Short deployment = Authorised − Actual. Penalty amount = Short deployment × Penalty rate (from PO).'
-                              : 'Rate = PO rate. Amount = Qty × Rate.'}
+                              : lumpSumSubtractPenaltyInRate
+                                ? 'Rate = PO rate − category penalty (when enabled). Amount = Qty × Rate.'
+                                : 'Rate = PO rate. Amount = Qty × Rate.'}
                           </span>
                         </div>
                       </td>
