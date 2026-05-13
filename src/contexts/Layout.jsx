@@ -407,6 +407,10 @@ const Layout = () => {
                         <CalendarRange className="h-4 w-4 shrink-0 text-sky-600" />
                         <span className="text-xs">Year view</span>
                       </NavLink>
+                      <NavLink to="admin/payroll/formula" className={subNavClass}>
+                        <Calculator className="h-4 w-4 shrink-0 text-violet-600" />
+                        <span className="text-xs">Formula reference</span>
+                      </NavLink>
                     </div>
                   )}
 

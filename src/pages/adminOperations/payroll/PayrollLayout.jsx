@@ -27,6 +27,9 @@ export default function PayrollLayout() {
           <NavLink to="year" className={tabClass}>
             Year view
           </NavLink>
+          <NavLink to="formula" className={tabClass}>
+            Formula
+          </NavLink>
         </nav>
       </div>
       <Outlet />
