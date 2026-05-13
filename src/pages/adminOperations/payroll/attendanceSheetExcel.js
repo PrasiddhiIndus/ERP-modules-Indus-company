@@ -36,6 +36,45 @@ export const ATTENDANCE_SHEET_LAYOUT = {
   ],
 };
 
+/** Admin → Payroll → Formula tab (mirrors `summaryFormulas`; day columns shift by month length). */
+export const PAYROLL_ATTENDANCE_FORMULA_DOCS = [
+  {
+    header: "Days in month",
+    description: "Calendar days for the register month.",
+    excelPattern: "DAY(EOMONTH(DATE(year,month,1),0))",
+  },
+  {
+    header: "Present (P)",
+    description: "Count of day cells marked P in that employee row.",
+    excelPattern: 'COUNTIF(dayStart:dayEnd,"P")',
+  },
+  {
+    header: "Absent (A)",
+    description: "Count of A marks.",
+    excelPattern: 'COUNTIF(dayStart:dayEnd,"A")',
+  },
+  {
+    header: "Leave (L)",
+    description: "Count of approved leave marks.",
+    excelPattern: 'COUNTIF(dayStart:dayEnd,"L")',
+  },
+  {
+    header: "Holiday (H)",
+    description: "Count of holiday marks.",
+    excelPattern: 'COUNTIF(dayStart:dayEnd,"H")',
+  },
+  {
+    header: "Weekly off (WO)",
+    description: "Count of weekly-off marks.",
+    excelPattern: 'COUNTIF(dayStart:dayEnd,"WO")',
+  },
+  {
+    header: "Payable days*",
+    description: "Present + Leave + Holiday + WO (policy note in export legend; adjust in code if your policy differs).",
+    excelPattern: "Present_col + Leave_col + Holiday_col + WO_col",
+  },
+];
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -243,18 +282,22 @@ export const PAYROLL_ENTRY_COLUMNS = [
   { key: "remarks", header: "Remarks", width: 22, source: "editable" },
 ];
 
+function daysInMonthExcelExpr(year, month) {
+  return `DAY(EOMONTH(DATE(${year},${month},1),0))`;
+}
+
 function colLetterByKey(key) {
   const index = PAYROLL_ENTRY_COLUMNS.findIndex((c) => c.key === key);
   return XLSX.utils.encode_col(index);
 }
 
-function payrollEntryFormula(key, rowNumber) {
+function payrollEntryFormula(key, rowNumber, year, month) {
   const col = (k) => `${colLetterByKey(k)}${rowNumber}`;
-  const daysCell = "$R$3";
+  const d = daysInMonthExcelExpr(year, month);
 
   const formulas = {
-    pfBasicEarned: `${col("pfBasic")}/${daysCell}*${col("presentDays")}`,
-    basicEarned: `${col("basic")}/${daysCell}*${col("presentDays")}`,
+    pfBasicEarned: `${col("pfBasic")}/${d}*${col("presentDays")}`,
+    basicEarned: `${col("basic")}/${d}*${col("presentDays")}`,
     grossWagesEarned: `SUM(${col("basicEarned")}:${col("uniformAllowance")})`,
     pfAmount: `${col("pfBasicEarned")}*0.12`,
     esic: `IF(${col("grossWagesEarned")}<=21000,${col("grossWagesEarned")}*0.75/100,0)`,
@@ -266,51 +309,173 @@ function payrollEntryFormula(key, rowNumber) {
   return formulas[key];
 }
 
-function allowanceFormula(row, key, rowNumber) {
+function allowanceFormula(row, key, rowNumber, year, month) {
   const monthlyValue = Number(row[`${key}Monthly`] ?? row[key] ?? 0);
   const presentDaysCol = colLetterByKey("presentDays");
-  return `${monthlyValue}/$R$3*${presentDaysCol}${rowNumber}`;
+  const d = daysInMonthExcelExpr(year, month);
+  return `${monthlyValue}/${d}*${presentDaysCol}${rowNumber}`;
+}
+
+/** Column keys that use `allowanceFormula` (monthly master ÷ days × present). Keep in sync with `buildPayrollEntryWorkbook`. */
+export const ENTRY_ALLOWANCE_FORMULA_KEYS = new Set([
+  "hra",
+  "conveyanceAllowance",
+  "medicalAllowance",
+  "attendanceBonus",
+  "journalPeriodicals",
+  "childrenEduAllowance",
+  "telephoneInternet",
+  "performanceIncentive",
+  "specialAllowance",
+  "uniformAllowance",
+]);
+
+/**
+ * Sample Excel formula for one data row (default row 5) for admin documentation.
+ * Allowance columns use a placeholder monthly value (5400) in the string; real export embeds each employee’s master value.
+ */
+export function getEntryFormulaExcelSample(key, excelRow = 5, year = 2026, month = 1) {
+  if (ENTRY_ALLOWANCE_FORMULA_KEYS.has(key)) {
+    return allowanceFormula({ [`${key}Monthly`]: 5400 }, key, excelRow, year, month);
+  }
+  return payrollEntryFormula(key, excelRow, year, month) || null;
+}
+
+const GROSS_SUM_PART_KEYS = [
+  "basicEarned",
+  "hra",
+  "conveyanceAllowance",
+  "medicalAllowance",
+  "attendanceBonus",
+  "journalPeriodicals",
+  "childrenEduAllowance",
+  "telephoneInternet",
+  "performanceIncentive",
+  "specialAllowance",
+  "uniformAllowance",
+];
+
+const DEDUCTION_SUM_PART_KEYS = ["pfAmount", "esic", "professionalTax", "loan", "salaryAdvance", "held"];
+
+const ENTRY_SUMMABLE_KEYS = new Set([
+  "grossWages",
+  "pfBasic",
+  "pfBasicEarned",
+  "basic",
+  "basicEarned",
+  "hra",
+  "conveyanceAllowance",
+  "medicalAllowance",
+  "attendanceBonus",
+  "journalPeriodicals",
+  "childrenEduAllowance",
+  "telephoneInternet",
+  "performanceIncentive",
+  "specialAllowance",
+  "uniformAllowance",
+  "grossWagesEarned",
+  "pfAmount",
+  "esic",
+  "professionalTax",
+  "loan",
+  "salaryAdvance",
+  "held",
+  "totalDeduction",
+  "netSalary",
+  "bank",
+  "paid",
+  "diff",
+]);
+
+function getOrderedEntryColumns(columnKeys) {
+  const keys =
+    columnKeys && columnKeys.length > 0 ? columnKeys : PAYROLL_ENTRY_COLUMNS.map((c) => c.key);
+  return keys.map((k) => PAYROLL_ENTRY_COLUMNS.find((c) => c.key === k)).filter(Boolean);
+}
+
+function buildEntryFormulaHelpers(cols, year, month) {
+  const indexByKey = Object.fromEntries(cols.map((c, i) => [c.key, i]));
+  const col = (k) => {
+    const i = indexByKey[k];
+    if (i == null || i < 0) throw new Error(`payroll excel: missing column ${k}`);
+    return XLSX.utils.encode_col(i);
+  };
+  const d = daysInMonthExcelExpr(year, month);
+  const L = (k, row) => `${col(k)}${row}`;
+
+  function payrollEntryFormulaDyn(key, excelRow) {
+    const earningRefs = GROSS_SUM_PART_KEYS.filter((gk) => indexByKey[gk] != null).map((gk) => L(gk, excelRow));
+    const grossExpr = earningRefs.length ? `SUM(${earningRefs.join(",")})` : "0";
+
+    const dedRefs = DEDUCTION_SUM_PART_KEYS.filter((dk) => indexByKey[dk] != null).map((dk) => L(dk, excelRow));
+    const totalDedExpr = dedRefs.length ? `SUM(${dedRefs.join(",")})` : "0";
+
+    if (key === "pfBasicEarned") return `${L("pfBasic", excelRow)}/${d}*${L("presentDays", excelRow)}`;
+    if (key === "basicEarned") return `${L("basic", excelRow)}/${d}*${L("presentDays", excelRow)}`;
+    if (key === "grossWagesEarned") return grossExpr;
+    if (key === "pfAmount") return `${L("pfBasicEarned", excelRow)}*0.12`;
+    if (key === "esic") return `IF(${L("grossWagesEarned", excelRow)}<=21000,${L("grossWagesEarned", excelRow)}*0.75/100,0)`;
+    if (key === "totalDeduction") return totalDedExpr;
+    if (key === "netSalary") return `${L("grossWagesEarned", excelRow)}-${L("totalDeduction", excelRow)}`;
+    if (key === "bank") return `ROUND(${L("netSalary", excelRow)},0)`;
+    if (key === "diff") return `${L("bank", excelRow)}-${L("paid", excelRow)}`;
+    return null;
+  }
+
+  function allowanceFormulaDyn(row, key, excelRow) {
+    const monthlyValue = Number(row[`${key}Monthly`] ?? row[key] ?? 0);
+    return `${monthlyValue}/${d}*${L("presentDays", excelRow)}`;
+  }
+
+  return { payrollEntryFormulaDyn, allowanceFormulaDyn };
 }
 
 /**
  * Build the uploaded-format payroll entry sheet. Rows should already include
  * master data, attendance totals, and editable overrides from the UI.
+ * @param {string[]} [columnKeys] Column order (subset allowed); defaults to full `PAYROLL_ENTRY_COLUMNS`.
  */
-export function buildPayrollEntryWorkbook({ year, month, company = "IFSPL / IEVPL", site = "All sites", rows }) {
+export function buildPayrollEntryWorkbook({ year, month, company = "IFSPL / IEVPL", site = "All sites", rows, columnKeys } = {}) {
   const { days, title } = monthMeta(year, month);
+  const cols = getOrderedEntryColumns(columnKeys);
+  const { payrollEntryFormulaDyn, allowanceFormulaDyn } = buildEntryFormulaHelpers(cols, year, month);
+
   const headerRow0 = 1;
   const headerRow1 = 2;
   const headerRow2 = 3;
   const colHeaderRow = 4;
   const firstDataExcelRow = 5;
   const ws = {};
-  const totalCols = PAYROLL_ENTRY_COLUMNS.length;
+  const totalCols = cols.length;
+  const lastColIdx = totalCols - 1;
 
   ws[XLSX.utils.encode_cell({ r: headerRow0 - 1, c: 0 })] = { v: `${company}, ${site}`, t: "s" };
   ws[XLSX.utils.encode_cell({ r: headerRow1 - 1, c: 0 })] = {
     v: `${site} Fix Term Contract Staff Salary for the month of ${title}`,
     t: "s",
   };
-  ws[XLSX.utils.encode_cell({ r: headerRow2 - 1, c: 16 })] = { v: "Days", t: "s" };
-  ws[XLSX.utils.encode_cell({ r: headerRow2 - 1, c: 17 })] = { v: days, t: "n" };
+  ws[XLSX.utils.encode_cell({ r: headerRow2 - 1, c: 0 })] = {
+    v: `Month calendar days: ${days} (used inside formulas as DAY(EOMONTH(DATE(${year},${month},1),0)))`,
+    t: "s",
+  };
   ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 34 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 34 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: lastColIdx } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: lastColIdx } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: lastColIdx } },
   ];
 
-  PAYROLL_ENTRY_COLUMNS.forEach((column, c) => {
+  cols.forEach((column, c) => {
     ws[XLSX.utils.encode_cell({ r: colHeaderRow - 1, c })] = { v: column.header, t: "s" };
   });
 
   rows.forEach((row, idx) => {
     const r = firstDataExcelRow + idx - 1;
     const excelRow = firstDataExcelRow + idx;
-    PAYROLL_ENTRY_COLUMNS.forEach((column, c) => {
+    cols.forEach((column, c) => {
       const addr = XLSX.utils.encode_cell({ r, c });
-      const formula =
-        ["hra", "conveyanceAllowance", "medicalAllowance", "attendanceBonus", "journalPeriodicals", "childrenEduAllowance", "telephoneInternet", "performanceIncentive", "specialAllowance", "uniformAllowance"].includes(column.key)
-          ? allowanceFormula(row, column.key, excelRow)
-          : payrollEntryFormula(column.key, excelRow);
+      const formula = ENTRY_ALLOWANCE_FORMULA_KEYS.has(column.key)
+        ? allowanceFormulaDyn(row, column.key, excelRow)
+        : payrollEntryFormulaDyn(column.key, excelRow);
       if (formula) {
         ws[addr] = { f: formula, t: "n" };
         return;
@@ -322,26 +487,31 @@ export function buildPayrollEntryWorkbook({ year, month, company = "IFSPL / IEVP
 
   const totalExcelRow = firstDataExcelRow + rows.length;
   const totalRowIndex = totalExcelRow - 1;
-  ws[XLSX.utils.encode_cell({ r: totalRowIndex, c: 5 })] = { v: "TOTAL", t: "s" };
-  PAYROLL_ENTRY_COLUMNS.forEach((column, c) => {
-    if (["grossWages", "pfBasic", "pfBasicEarned", "basic", "basicEarned", "hra", "conveyanceAllowance", "medicalAllowance", "attendanceBonus", "journalPeriodicals", "childrenEduAllowance", "telephoneInternet", "performanceIncentive", "specialAllowance", "uniformAllowance", "grossWagesEarned", "pfAmount", "esic", "professionalTax", "loan", "salaryAdvance", "held", "totalDeduction", "netSalary", "bank", "paid", "diff"].includes(column.key)) {
-      const col = XLSX.utils.encode_col(c);
-      ws[XLSX.utils.encode_cell({ r: totalRowIndex, c })] = { f: `SUM(${col}${firstDataExcelRow}:${col}${totalExcelRow - 1})`, t: "n" };
+  const totalLabelCol = Math.min(5, lastColIdx);
+  ws[XLSX.utils.encode_cell({ r: totalRowIndex, c: totalLabelCol })] = { v: "TOTAL", t: "s" };
+  cols.forEach((column, c) => {
+    if (ENTRY_SUMMABLE_KEYS.has(column.key)) {
+      const colLet = XLSX.utils.encode_col(c);
+      ws[XLSX.utils.encode_cell({ r: totalRowIndex, c })] = {
+        f: `SUM(${colLet}${firstDataExcelRow}:${colLet}${totalExcelRow - 1})`,
+        t: "n",
+      };
     }
   });
 
-  ws["!cols"] = PAYROLL_ENTRY_COLUMNS.map((column) => ({ wch: column.width }));
+  ws["!cols"] = cols.map((column) => ({ wch: column.width }));
   ws["!ref"] = XLSX.utils.encode_range({
     s: { r: 0, c: 0 },
-    e: { r: totalRowIndex, c: totalCols - 1 },
+    e: { r: totalRowIndex, c: lastColIdx },
   });
 
   const sourceSheet = XLSX.utils.aoa_to_sheet([
     ["Source", "Fields"],
-    ["Master", PAYROLL_ENTRY_COLUMNS.filter((c) => c.source === "master").map((c) => c.header).join(", ")],
-    ["Attendance", PAYROLL_ENTRY_COLUMNS.filter((c) => c.source === "attendance").map((c) => c.header).join(", ")],
-    ["Formula", PAYROLL_ENTRY_COLUMNS.filter((c) => c.source === "formula").map((c) => c.header).join(", ")],
-    ["Editable", PAYROLL_ENTRY_COLUMNS.filter((c) => c.source === "editable").map((c) => c.header).join(", ")],
+    ["Master", cols.filter((c) => c.source === "master").map((c) => c.header).join(", ")],
+    ["Attendance", cols.filter((c) => c.source === "attendance").map((c) => c.header).join(", ")],
+    ["Formula", cols.filter((c) => c.source === "formula").map((c) => c.header).join(", ")],
+    ["Editable", cols.filter((c) => c.source === "editable").map((c) => c.header).join(", ")],
+    ["Column keys", cols.map((c) => c.key).join(", ")],
   ]);
 
   const wb = XLSX.utils.book_new();

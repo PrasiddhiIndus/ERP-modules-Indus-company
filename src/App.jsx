@@ -62,6 +62,7 @@ import AdminOpsAlerts from "./pages/adminOperations/AdminOpsAlerts";
 import AdminOpsReports from "./pages/adminOperations/AdminOpsReports";
 import AdminOpsSettings from "./pages/adminOperations/AdminOpsSettings";
 import PayrollLayout from "./pages/adminOperations/payroll/PayrollLayout";
+import PayrollFormulaPage from "./pages/adminOperations/payroll/PayrollFormulaPage";
 import { PayrollDashboardPage, PayrollMonthPage, PayrollYearPage } from "./pages/adminOperations/payroll/PayrollViews";
 import {
   EmployeeOnboardingPage,
@@ -344,6 +345,7 @@ function App() {
               <Route path="entry" element={<PayrollMonthPage />} />
               <Route path="month" element={<Navigate to="/app/admin/payroll/entry" replace />} />
               <Route path="year" element={<PayrollYearPage />} />
+              <Route path="formula" element={<PayrollFormulaPage />} />
             </Route>
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
