@@ -99,7 +99,7 @@ const BCS_COMPONENTS = [
   { block: "D", ref: "D8", name: "Fire Tender / Fire Jeep Rental (without Crew)", cats: ["hidden", "hidden", "hidden", "hidden", "always"] },
   { block: "D", ref: "D9", name: "Fuel for Fire Tender", cats: ["hidden", "hidden", "conditional", "hidden", "conditional"] },
   { block: "D", ref: "D10", name: "Administration & Operations Cost (sub-sheet)", cats: ["always", "always", "always", "always", "conditional"] },
-  { block: "E", ref: "E1", name: "Sub-Total (Gross Salary + Other Liability)", cats: ["always", "always", "always", "always", "always"] },
+  { block: "E", ref: "E1", name: "Sub-Total (Gross Salary)", cats: ["always", "always", "always", "always", "always"] },
   { block: "E", ref: "E2", name: "Service Charge of Agency", cats: ["always", "always", "always", "always", "always"] },
   { block: "E", ref: "E3", name: "Billing Rate (per person / per day based on divisor)", cats: ["always", "always", "always", "always", "always"] },
   { block: "E", ref: "E4", name: "Deployment of Manpower (headcount)", cats: ["always", "always", "always", "always", "hidden"] },
@@ -109,9 +109,17 @@ const BCS_COMPONENTS = [
 const BLOCK_TITLES = {
   A: "Block A - Salary components",
   B: "Block B - Statutory compliances",
-  C: "Block C - Compliance costs",
-  D: "Block D - Operational & equipment costs",
+  C: "Block C - Police cost",
+  D: "Block D - Other overhead operational cost",
   E: "Block E - Service charge & outputs",
+};
+
+const EMPTY_COLUMN_PRICING = {
+  grossSalary: "",
+  monthly: "",
+  yearly: "",
+  servicePct: "",
+  serviceAmt: "",
 };
 
 function parseMetaAuthorization(raw) {
@@ -249,7 +257,8 @@ const InternalQuotationForm = ({
   const [serviceCategoryId, setServiceCategoryId] = useState(1);
   const [manualParticularRefs, setManualParticularRefs] = useState([]);
   const [deletedParticularRefs, setDeletedParticularRefs] = useState([]);
-  const [blockPickerValue, setBlockPickerValue] = useState({ A: "", B: "", C: "", D: "", E: "" });
+  const [blockPickerValue, setBlockPickerValue] = useState({ A: "", B: "", C: "", D: "" });
+  const [pricingByColumn, setPricingByColumn] = useState({});
 
   const addManpowerRow = () => {
     setManpowerRows((prev) => {
@@ -281,6 +290,28 @@ const InternalQuotationForm = ({
       (row) => String(row.category || "").trim() !== "" && String(row.skill || "").trim() !== ""
     );
   }, [manpowerRows]);
+
+  const manpowerColumnIdsKey = useMemo(
+    () => selectedManpowerColumns.map((c) => c.id).join("|"),
+    [selectedManpowerColumns]
+  );
+
+  useEffect(() => {
+    setPricingByColumn((prev) => {
+      const next = {};
+      selectedManpowerColumns.forEach((col) => {
+        next[col.id] = { ...EMPTY_COLUMN_PRICING, ...(prev[col.id] || {}) };
+      });
+      return next;
+    });
+  }, [manpowerColumnIdsKey, selectedManpowerColumns]);
+
+  const patchPricingColumn = (colId, patch) => {
+    setPricingByColumn((prev) => ({
+      ...prev,
+      [colId]: { ...EMPTY_COLUMN_PRICING, ...(prev[colId] || {}), ...patch },
+    }));
+  };
   const visibleBcsRows = useMemo(() => {
     const idx = Math.max(0, Math.min(4, Number(serviceCategoryId || 1) - 1));
     return BCS_COMPONENTS.filter((item) => {
@@ -290,15 +321,11 @@ const InternalQuotationForm = ({
   }, [serviceCategoryId]);
   const bcsByBlock = useMemo(() => {
     const idx = Math.max(0, Math.min(4, Number(serviceCategoryId || 1) - 1));
-    return ["A", "B", "C", "D", "E"].map((block) => {
+    const groups = ["A", "B", "C", "D", "E"].map((block) => {
       const allRows = BCS_COMPONENTS.filter((row) => row.block === block);
       const autoRows = allRows.filter((row) => {
         const flag = row.cats?.[idx] || "hidden";
         return flag !== "hidden";
-      });
-      const hiddenRows = allRows.filter((row) => {
-        const flag = row.cats?.[idx] || "hidden";
-        return flag === "hidden";
       });
       const manuallyAddedRows = allRows.filter((row) => manualParticularRefs.includes(row.ref));
       const currentRefs = new Set([...autoRows.map((r) => r.ref), ...manuallyAddedRows.map((r) => r.ref)]);
@@ -313,13 +340,28 @@ const InternalQuotationForm = ({
         block,
         title: BLOCK_TITLES[block],
         rows,
-        hiddenRows: pickerRows,
+        pickerRows,
       };
     });
+
+    const pickA = new Set((groups.find((g) => g.block === "A")?.pickerRows || []).map((r) => r.ref));
+    const pickB = new Set((groups.find((g) => g.block === "B")?.pickerRows || []).map((r) => r.ref));
+    const mergedAbPicker = BCS_COMPONENTS.filter((row) => {
+      if (row.block === "A") return pickA.has(row.ref);
+      if (row.block === "B") return pickB.has(row.ref);
+      return false;
+    });
+
+    return groups.map((g) => ({
+      block: g.block,
+      title: g.title,
+      rows: g.rows,
+      hiddenRows: g.block === "A" || g.block === "B" ? mergedAbPicker : g.pickerRows,
+    }));
   }, [serviceCategoryId, manualParticularRefs, deletedParticularRefs]);
 
   const visibleBreakupRows = useMemo(
-    () => bcsByBlock.flatMap((blockGroup) => blockGroup.rows),
+    () => bcsByBlock.filter((g) => g.block !== "E").flatMap((blockGroup) => blockGroup.rows),
     [bcsByBlock]
   );
 
@@ -337,6 +379,26 @@ const InternalQuotationForm = ({
 
     return { columns: totals, overall };
   }, [particularRateMatrix, selectedManpowerColumns, visibleBreakupRows]);
+
+  const columnBillingDerived = useMemo(() => {
+    const out = {};
+    selectedManpowerColumns.forEach((col) => {
+      const p = pricingByColumn[col.id] || EMPTY_COLUMN_PRICING;
+      const monthly = safeNum(p.monthly);
+      const svcAmt = safeNum(p.serviceAmt);
+      const perPersonPlusService = monthly + svcAmt;
+      const qty = safeNum(col.qty);
+      out[col.id] = {
+        perPersonPlusService,
+        manpowerTotalCost: perPersonPlusService * qty,
+      };
+    });
+    return out;
+  }, [pricingByColumn, selectedManpowerColumns]);
+
+  const billingGrandOverall = useMemo(() => {
+    return selectedManpowerColumns.reduce((s, col) => s + safeNum(columnBillingDerived[col.id]?.manpowerTotalCost), 0);
+  }, [columnBillingDerived, selectedManpowerColumns]);
 
   const addParticularRow = (block, selectedRef) => {
     if (!selectedRef) return;
@@ -663,7 +725,7 @@ const InternalQuotationForm = ({
         setServiceCategoryId(mappedIds.length ? mappedIds[0] : 1);
         setManualParticularRefs([]);
         setDeletedParticularRefs([]);
-        setBlockPickerValue({ A: "", B: "", C: "", D: "", E: "" });
+        setBlockPickerValue({ A: "", B: "", C: "", D: "" });
       }
       setLoading(false);
     };
@@ -1110,7 +1172,6 @@ const InternalQuotationForm = ({
                     <thead className="bg-white border-b border-slate-200">
                       <tr>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[70px]">Sr No.</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700 w-[90px]">Ref</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Particulars</th>
                         {selectedManpowerColumns.map((col) => (
                           <th key={col.id} className="px-3 py-2.5 text-left font-semibold text-slate-700 min-w-[170px]">
@@ -1124,10 +1185,12 @@ const InternalQuotationForm = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {bcsByBlock.map((blockGroup) => (
+                      {bcsByBlock
+                        .filter((g) => g.block !== "E")
+                        .map((blockGroup) => (
                         <React.Fragment key={blockGroup.block}>
                           <tr className="bg-slate-100">
-                            <td colSpan={4 + selectedManpowerColumns.length} className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
+                            <td colSpan={3 + selectedManpowerColumns.length} className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-700">
                               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                 <span>{blockGroup.title}</span>
                                 {blockGroup.hiddenRows.length > 0 && (
@@ -1137,14 +1200,41 @@ const InternalQuotationForm = ({
                                       onChange={(e) =>
                                         setBlockPickerValue((prev) => ({ ...prev, [blockGroup.block]: e.target.value }))
                                       }
-                                      className="px-2 py-1 border border-slate-300 rounded bg-white text-[11px] text-slate-700"
+                                      className="px-2 py-1 border border-slate-300 rounded bg-white text-[11px] text-slate-700 min-w-[200px]"
                                     >
                                       <option value="">Add particular...</option>
-                                      {blockGroup.hiddenRows.map((row) => (
-                                        <option key={row.ref} value={row.ref}>
-                                          {row.ref} - {row.name}
-                                        </option>
-                                      ))}
+                                      {blockGroup.block === "A" || blockGroup.block === "B" ? (
+                                        <>
+                                          {blockGroup.hiddenRows.filter((r) => r.block === "A").length > 0 && (
+                                            <optgroup label={BLOCK_TITLES.A}>
+                                              {blockGroup.hiddenRows
+                                                .filter((r) => r.block === "A")
+                                                .map((row) => (
+                                                  <option key={row.ref} value={row.ref}>
+                                                    {row.name}
+                                                  </option>
+                                                ))}
+                                            </optgroup>
+                                          )}
+                                          {blockGroup.hiddenRows.filter((r) => r.block === "B").length > 0 && (
+                                            <optgroup label={BLOCK_TITLES.B}>
+                                              {blockGroup.hiddenRows
+                                                .filter((r) => r.block === "B")
+                                                .map((row) => (
+                                                  <option key={row.ref} value={row.ref}>
+                                                    {row.name}
+                                                  </option>
+                                                ))}
+                                            </optgroup>
+                                          )}
+                                        </>
+                                      ) : (
+                                        blockGroup.hiddenRows.map((row) => (
+                                          <option key={row.ref} value={row.ref}>
+                                            {row.name}
+                                          </option>
+                                        ))
+                                      )}
                                     </select>
                                     <button
                                       type="button"
@@ -1164,7 +1254,6 @@ const InternalQuotationForm = ({
                           {blockGroup.rows.map((row, idx) => (
                             <tr key={row.ref} className="hover:bg-slate-50">
                               <td className="px-3 py-2.5 text-slate-700">{idx + 1}</td>
-                              <td className="px-3 py-2.5 text-slate-700 font-medium">{row.ref}</td>
                               <td className="px-3 py-2.5 text-slate-900">{row.name}</td>
                               {selectedManpowerColumns.map((col) => {
                                 const key = `${row.ref}__${col.id}`;
@@ -1196,30 +1285,219 @@ const InternalQuotationForm = ({
                               </td>
                             </tr>
                           ))}
+                          {blockGroup.block === "D" && selectedManpowerColumns.length > 0 && (
+                            <tr className="bg-emerald-50/90 border-y border-emerald-200">
+                              <td className="px-2 py-1.5 w-[56px] bg-emerald-50/90" aria-hidden />
+                              <td className="px-2 py-1.5 text-left text-sm font-bold text-emerald-950 bg-emerald-50/90 leading-tight">
+                                Sub-total (Blocks A–D)
+                              </td>
+                              {selectedManpowerColumns.map((col) => (
+                                <td key={col.id} className="px-2 py-1.5 text-sm font-bold text-emerald-950 leading-tight">
+                                  {breakupColumnTotals.columns[col.id]
+                                    ? `₹${formatINR(breakupColumnTotals.columns[col.id])}`
+                                    : ""}
+                                </td>
+                              ))}
+                              <td className="px-2 py-1.5 text-right text-sm font-bold text-emerald-950 bg-emerald-50/90 leading-tight whitespace-nowrap">
+                                <span className="text-[10px] font-semibold text-emerald-800 uppercase tracking-wide">
+                                  A–D overall
+                                </span>{" "}
+                                <span className="text-emerald-950">
+                                  {breakupColumnTotals.overall
+                                    ? `₹${formatINR(breakupColumnTotals.overall)}`
+                                    : ""}
+                                </span>
+                              </td>
+                            </tr>
+                          )}
                         </React.Fragment>
                       ))}
+                      {selectedManpowerColumns.length > 0 && (
+                        <>
+                          <tr className="bg-slate-100">
+                            <td
+                              colSpan={3 + selectedManpowerColumns.length}
+                              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-700"
+                            >
+                              Billing summary (enter per manpower)
+                            </td>
+                          </tr>
+                          <tr className="bg-white border-t border-slate-100">
+                            <td className="px-2 py-1.5 w-[56px]" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-medium text-slate-800 leading-tight max-w-[260px]">
+                              Sub-Total (Gross Salary)
+                            </td>
+                            {selectedManpowerColumns.map((col) => {
+                              const p = pricingByColumn[col.id] || EMPTY_COLUMN_PRICING;
+                              return (
+                                <td key={col.id} className="px-2 py-1 align-middle">
+                                  <input
+                                    type="number"
+                                    value={p.grossSalary}
+                                    onChange={(e) => patchPricingColumn(col.id, { grossSalary: e.target.value })}
+                                    className="w-full min-w-0 h-8 px-2 py-0.5 text-sm border border-slate-300 rounded-md"
+                                    placeholder="Amount"
+                                    min="0"
+                                  />
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
+                          </tr>
+                          <tr className="bg-slate-50/70">
+                            <td className="px-2 py-1.5" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-medium text-slate-800 leading-tight">
+                              Total per person (monthly)
+                            </td>
+                            {selectedManpowerColumns.map((col) => {
+                              const p = pricingByColumn[col.id] || EMPTY_COLUMN_PRICING;
+                              return (
+                                <td key={col.id} className="px-2 py-1 align-middle">
+                                  <input
+                                    type="number"
+                                    value={p.monthly}
+                                    onChange={(e) => patchPricingColumn(col.id, { monthly: e.target.value })}
+                                    className="w-full min-w-0 h-8 px-2 py-0.5 text-sm border border-slate-300 rounded-md bg-white"
+                                    placeholder="Monthly"
+                                    min="0"
+                                  />
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
+                          </tr>
+                          <tr className="bg-white">
+                            <td className="px-2 py-1.5" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-medium text-slate-800 leading-tight">
+                              Total per person (yearly)
+                            </td>
+                            {selectedManpowerColumns.map((col) => {
+                              const p = pricingByColumn[col.id] || EMPTY_COLUMN_PRICING;
+                              return (
+                                <td key={col.id} className="px-2 py-1 align-middle">
+                                  <input
+                                    type="number"
+                                    value={p.yearly}
+                                    onChange={(e) => patchPricingColumn(col.id, { yearly: e.target.value })}
+                                    className="w-full min-w-0 h-8 px-2 py-0.5 text-sm border border-slate-300 rounded-md"
+                                    placeholder="Yearly"
+                                    min="0"
+                                  />
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
+                          </tr>
+                          <tr className="bg-slate-50/70">
+                            <td className="px-2 py-1.5" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-medium text-slate-800 leading-tight">
+                              Service charge (% / amount)
+                            </td>
+                            {selectedManpowerColumns.map((col) => {
+                              const p = pricingByColumn[col.id] || EMPTY_COLUMN_PRICING;
+                              return (
+                                <td key={col.id} className="px-2 py-1 align-middle">
+                                  <div className="flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-1 min-h-0">
+                                      <span className="text-[10px] text-slate-500 shrink-0 w-5">%</span>
+                                      <input
+                                        type="number"
+                                        value={p.servicePct}
+                                        onChange={(e) => patchPricingColumn(col.id, { servicePct: e.target.value })}
+                                        className="w-full min-w-0 h-7 px-1.5 py-0 text-xs border border-slate-300 rounded bg-white"
+                                        placeholder="%"
+                                        min="0"
+                                      />
+                                    </div>
+                                    <div className="flex items-center gap-1 min-h-0">
+                                      <span className="text-[10px] text-slate-500 shrink-0 w-5">₹</span>
+                                      <input
+                                        type="number"
+                                        value={p.serviceAmt}
+                                        onChange={(e) => patchPricingColumn(col.id, { serviceAmt: e.target.value })}
+                                        className="w-full min-w-0 h-7 px-1.5 py-0 text-xs border border-slate-300 rounded bg-white"
+                                        placeholder="Amt"
+                                        min="0"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
+                          </tr>
+                          <tr className="bg-amber-50/60 border-t border-amber-100/80">
+                            <td className="px-2 py-1.5" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-semibold text-amber-950 leading-snug">
+                              <span className="block">Total (per person + service charge)</span>
+                              <span className="block text-[10px] font-normal text-amber-900/90 normal-case">
+                                Monthly + service amount
+                              </span>
+                            </td>
+                            {selectedManpowerColumns.map((col) => {
+                              const v = columnBillingDerived[col.id]?.perPersonPlusService;
+                              return (
+                                <td key={col.id} className="px-2 py-1.5 text-sm font-semibold text-amber-950 leading-tight align-middle">
+                                  {v ? `₹${formatINR(v)}` : ""}
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
+                          </tr>
+                          <tr className="bg-slate-100">
+                            <td
+                              colSpan={3 + selectedManpowerColumns.length}
+                              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-700"
+                            >
+                              Billing summary (no. of manpower)
+                            </td>
+                          </tr>
+                          <tr className="bg-white border-t border-slate-100">
+                            <td className="px-2 py-1.5 w-[56px]" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-medium text-slate-800 leading-tight">
+                              No. of manpower
+                              <span className="block text-[10px] font-normal text-slate-500 normal-case">
+                                From Manpower tab
+                              </span>
+                            </td>
+                            {selectedManpowerColumns.map((col) => (
+                              <td key={col.id} className="px-2 py-1.5 text-sm font-medium text-slate-900 align-middle">
+                                {String(col.qty || "").trim() !== "" ? col.qty : "—"}
+                              </td>
+                            ))}
+                            <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
+                          </tr>
+                          <tr className="bg-blue-50/70 border-t border-blue-100">
+                            <td className="px-2 py-1.5" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-bold text-blue-950 leading-snug">
+                              <span className="block">No. of manpower total cost</span>
+                              <span className="block text-[10px] font-normal text-blue-900/90 normal-case">
+                                (per person + service charge) × no. of manpower
+                              </span>
+                            </td>
+                            {selectedManpowerColumns.map((col) => {
+                              const v = columnBillingDerived[col.id]?.manpowerTotalCost;
+                              return (
+                                <td key={col.id} className="px-2 py-1.5 text-sm font-bold text-blue-950 leading-tight align-middle">
+                                  {v ? `₹${formatINR(v)}` : ""}
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1.5 text-right text-sm font-bold text-blue-950 leading-tight whitespace-nowrap align-middle">
+                              <span className="text-[10px] font-semibold text-blue-800 uppercase tracking-wide">
+                                All columns
+                              </span>{" "}
+                              <span>
+                                {billingGrandOverall ? `₹${formatINR(billingGrandOverall)}` : ""}
+                              </span>
+                            </td>
+                          </tr>
+                        </>
+                      )}
                       {selectedManpowerColumns.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="px-3 py-3 text-slate-500">
+                          <td colSpan={3} className="px-3 py-3 text-slate-500">
                             Select manpower category and sub category in Manpower tab to show columns here.
-                          </td>
-                        </tr>
-                      )}
-                      {selectedManpowerColumns.length > 0 && (
-                        <tr className="bg-blue-50/80">
-                          <td colSpan={3} className="px-3 py-3 text-right font-bold text-slate-900">
-                            Total
-                          </td>
-                          {selectedManpowerColumns.map((col) => (
-                            <td key={col.id} className="px-3 py-3 font-bold text-slate-900">
-                              {breakupColumnTotals.columns[col.id] ? `₹${formatINR(breakupColumnTotals.columns[col.id])}` : ""}
-                            </td>
-                          ))}
-                          <td className="px-3 py-3 text-right">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Overall</div>
-                            <div className="font-bold text-blue-900">
-                              {breakupColumnTotals.overall ? `₹${formatINR(breakupColumnTotals.overall)}` : ""}
-                            </div>
                           </td>
                         </tr>
                       )}
