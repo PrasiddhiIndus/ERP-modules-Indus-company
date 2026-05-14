@@ -109,8 +109,8 @@ const BCS_COMPONENTS = [
 const BLOCK_TITLES = {
   A: "Block A - Salary components",
   B: "Block B - Statutory compliances",
-  C: "Block C - Police cost",
-  D: "Block D - Other overhead operational cost",
+  C: "Block C - Policy cost",
+  D: "Block D - Other overhead /operational cost",
   E: "Block E - Service charge & outputs",
 };
 
@@ -120,6 +120,7 @@ const EMPTY_COLUMN_PRICING = {
   yearly: "",
   servicePct: "",
   serviceAmt: "",
+  billingRateForDuty: "",
 };
 
 function parseMetaAuthorization(raw) {
@@ -259,6 +260,8 @@ const InternalQuotationForm = ({
   const [deletedParticularRefs, setDeletedParticularRefs] = useState([]);
   const [blockPickerValue, setBlockPickerValue] = useState({ A: "", B: "", C: "", D: "" });
   const [pricingByColumn, setPricingByColumn] = useState({});
+  const [billingDutyDays, setBillingDutyDays] = useState("");
+  const [billingDutyHours, setBillingDutyHours] = useState("");
 
   const addManpowerRow = () => {
     setManpowerRows((prev) => {
@@ -1426,6 +1429,50 @@ const InternalQuotationForm = ({
                             })}
                             <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
                           </tr>
+                          <tr className="bg-white border-t border-slate-100">
+                            <td className="px-2 py-1.5 w-[56px]" aria-hidden />
+                            <td className="px-2 py-1.5 text-left text-sm font-medium text-slate-800 leading-snug align-middle">
+                              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 normal-case">
+                                <span>Billing Rates for</span>
+                                <input
+                                  type="number"
+                                  value={billingDutyDays}
+                                  onChange={(e) => setBillingDutyDays(e.target.value)}
+                                  className="w-14 h-8 shrink-0 px-1.5 text-sm text-center border border-slate-300 rounded-md bg-white"
+                                  placeholder="—"
+                                  min="0"
+                                  aria-label="Days"
+                                />
+                                <span>days</span>
+                                <input
+                                  type="number"
+                                  value={billingDutyHours}
+                                  onChange={(e) => setBillingDutyHours(e.target.value)}
+                                  className="w-14 h-8 shrink-0 px-1.5 text-sm text-center border border-slate-300 rounded-md bg-white"
+                                  placeholder="—"
+                                  min="0"
+                                  aria-label="Hours duty"
+                                />
+                                <span>hrs duty</span>
+                              </div>
+                            </td>
+                            {selectedManpowerColumns.map((col) => {
+                              const p = pricingByColumn[col.id] || EMPTY_COLUMN_PRICING;
+                              return (
+                                <td key={col.id} className="px-2 py-1 align-middle">
+                                  <input
+                                    type="number"
+                                    value={p.billingRateForDuty}
+                                    onChange={(e) => patchPricingColumn(col.id, { billingRateForDuty: e.target.value })}
+                                    className="w-full min-w-0 h-8 px-2 py-0.5 text-sm border border-slate-300 rounded-md"
+                                    placeholder="Rate"
+                                    min="0"
+                                  />
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-1 text-center text-slate-300 text-xs">—</td>
+                          </tr>
                           <tr className="bg-amber-50/60 border-t border-amber-100/80">
                             <td className="px-2 py-1.5" aria-hidden />
                             <td className="px-2 py-1.5 text-left text-sm font-semibold text-amber-950 leading-snug">
@@ -1455,7 +1502,7 @@ const InternalQuotationForm = ({
                           <tr className="bg-white border-t border-slate-100">
                             <td className="px-2 py-1.5 w-[56px]" aria-hidden />
                             <td className="px-2 py-1.5 text-left text-sm font-medium text-slate-800 leading-tight">
-                              No. of manpower
+                              No. of Manpower as per WO
                               <span className="block text-[10px] font-normal text-slate-500 normal-case">
                                 From Manpower tab
                               </span>
@@ -1470,7 +1517,7 @@ const InternalQuotationForm = ({
                           <tr className="bg-blue-50/70 border-t border-blue-100">
                             <td className="px-2 py-1.5" aria-hidden />
                             <td className="px-2 py-1.5 text-left text-sm font-bold text-blue-950 leading-snug">
-                              <span className="block">No. of manpower total cost</span>
+                              <span className="block">Total Billing Rates</span>
                               <span className="block text-[10px] font-normal text-blue-900/90 normal-case">
                                 (per person + service charge) × no. of manpower
                               </span>
