@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import auditLogger from "../../../lib/auditLogger";
+import { isRetiredFireTenderMainComponentLabel } from "../../../lib/retiredFireTenderMainComponents";
 import FireTenderNavbar from "../FireTenderNavbar";
 
 const PriceMasterPage = () => {
@@ -24,92 +25,91 @@ const PriceMasterPage = () => {
   };
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data?.user) setUserId(data.user.id);
-    };
-    getUser();
-  }, []);
+    const load = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth?.user) {
+        setLoading(false);
+        return;
+      }
+      setUserId(auth.user.id);
+      const uid = auth.user.id;
 
-  useEffect(() => {
-    const fetchMainComponents = async () => {
-      if (!userId) return;
-      
       const { data, error } = await supabase
         .from("main_components")
         .select("*")
-        .eq("user_id", userId)
         .order("id", { ascending: true });
 
       if (error) {
         console.error("Fetch main components error:", error.message);
         setError("Failed to load main components: " + error.message);
-      } else {
-        setMainComponents(data || []);
-        
-        // Check if price master entries exist for these components
-        const { data: priceData, error: priceError } = await supabase
-          .from("price_master")
-          .select("*")
-          .eq("user_id", userId)
-          .order("id", { ascending: true });
+        setLoading(false);
+        return;
+      }
 
-        if (priceError) {
-          console.error("Fetch price list error:", priceError.message);
-          setError("Failed to load price master data: " + priceError.message);
+      const mainFiltered = (data || []).filter(
+        (r) => !isRetiredFireTenderMainComponentLabel(r.main_component)
+      );
+      setMainComponents(mainFiltered);
+
+      const { data: priceData, error: priceError } = await supabase
+        .from("price_master")
+        .select("*")
+        .order("id", { ascending: true });
+
+      if (priceError) {
+        console.error("Fetch price list error:", priceError.message);
+        setError("Failed to load price master data: " + priceError.message);
+        setLoading(false);
+        return;
+      }
+
+      const pricesFiltered = (priceData || []).filter(
+        (row) => !isRetiredFireTenderMainComponentLabel(row.main_component)
+      );
+
+      if (priceData.length === 0 && mainFiltered.length > 0) {
+        const priceEntries = mainFiltered.map((comp) => ({
+          main_component: comp.main_component,
+          sub_category1: comp.sub_category1,
+          sub_category2: comp.sub_category2,
+          sub_category3: comp.sub_category3,
+          sub_category4: comp.sub_category4,
+          sub_category5: comp.sub_category5,
+          manual_sub_category: "",
+          weight: 0,
+          unit_cost: 0,
+          is_new: false,
+          user_id: uid,
+        }));
+
+        const { error: insertError } = await supabase.from("price_master").insert(priceEntries);
+
+        if (insertError) {
+          console.error("Insert price master error:", insertError.message);
+          setError("Failed to create price master entries: " + insertError.message);
         } else {
-          // If no price master entries exist, create them from main components
-          if (priceData.length === 0 && data.length > 0) {
-            const priceEntries = data.map(comp => ({
-              main_component: comp.main_component,
-              sub_category1: comp.sub_category1,
-              sub_category2: comp.sub_category2,
-              sub_category3: comp.sub_category3,
-              sub_category4: comp.sub_category4,
-              sub_category5: comp.sub_category5,
-              manual_sub_category: "",
-              weight: 0,
-              unit_cost: 0,
-              is_new: false,
-              user_id: userId
-            }));
-
-            const { error: insertError } = await supabase
-              .from("price_master")
-              .insert(priceEntries);
-
-            if (insertError) {
-              console.error("Insert price master error:", insertError.message);
-              setError("Failed to create price master entries: " + insertError.message);
-            } else {
-              // Fetch the newly created entries
-              const { data: newPriceData } = await supabase
-                .from("price_master")
-                .select("*")
-                .eq("user_id", userId)
-                .order("id", { ascending: true });
-              setPriceList(newPriceData || []);
-              setSuccess(`Successfully created ${data.length} price master entries from main components`);
-
-              // No logging needed for creation - not unit cost specific
-            }
-          } else {
-            setPriceList(priceData || []);
-            if (data.length > 0) {
-              setSuccess(`Loaded ${priceData.length} price master entries`);
-
-              // No logging needed for page view - not unit cost specific
-            }
-          }
+          const { data: newPriceData } = await supabase
+            .from("price_master")
+            .select("*")
+            .order("id", { ascending: true });
+          const newFiltered = (newPriceData || []).filter(
+            (row) => !isRetiredFireTenderMainComponentLabel(row.main_component)
+          );
+          setPriceList(newFiltered);
+          setSuccess(`Successfully created ${mainFiltered.length} price master entries from main components`);
+        }
+      } else {
+        setPriceList(pricesFiltered);
+        if (mainFiltered.length > 0) {
+          setSuccess(`Loaded ${pricesFiltered.length} price master entries`);
         }
       }
+
       setLoading(false);
     };
 
-    if (userId) {
-      fetchMainComponents();
-    }
-  }, [userId]);
+    load();
+  }, []);
 
   // Removed timeout cleanup - no auto-save functionality
 

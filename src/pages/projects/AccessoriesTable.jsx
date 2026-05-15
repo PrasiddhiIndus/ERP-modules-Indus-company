@@ -270,13 +270,19 @@
 
 // export default AccessoriesTable;
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 
 const AccessoriesTable = ({ tenderId, onTotalChange }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [accessoriesAutoHint, setAccessoriesAutoHint] = useState("");
+  const skipAccessoriesAutosaveRef = useRef(true);
+
+  useEffect(() => {
+    skipAccessoriesAutosaveRef.current = true;
+  }, [tenderId]);
 
   useEffect(() => {
     if (!tenderId) return;
@@ -439,6 +445,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       }
       
       // Set rows and verify
+      skipAccessoriesAutosaveRef.current = true;
       setRows(mergedRows);
       console.log("✅ Rows state updated. Total rows:", mergedRows.length);
       
@@ -459,6 +466,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       alert("Failed to fetch accessories: " + errorMessage);
       setRows([]);
     } finally {
+      skipAccessoriesAutosaveRef.current = true;
       setLoading(false);
     }
   };
@@ -470,102 +478,76 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     // Total will automatically update via useEffect
   };
 
-  const saveAll = async () => {
+  const persistAccessories = async (rowData, { silent = false } = {}) => {
     if (!tenderId) {
-      alert("❌ Tender ID is missing. Cannot save.");
+      if (!silent) alert("❌ Tender ID is missing. Cannot save.");
       return;
     }
 
-    if (!rows || rows.length === 0) {
-      alert("⚠️ No accessories to save. Please add accessories in the configuration page first.");
+    if (!rowData || rowData.length === 0) {
+      if (!silent) alert("⚠️ No accessories to save. Please add accessories in the configuration page first.");
       return;
     }
 
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+    if (userError || !user) {
+      throw new Error("User not authenticated");
+    }
+
+    const byAccessory = new Map();
+    for (const row of rowData) {
+      if (!row.accessory_id) continue;
+      byAccessory.set(String(row.accessory_id), row);
+    }
+
+    const payload = [...byAccessory.values()].map((row) => ({
+      tender_id: Number(tenderId),
+      accessory_id: String(row.accessory_id),
+      qty: Number(row.qty) || 0,
+      price: Number(row.price) || 0,
+      updated_at: new Date().toISOString(),
+    }));
+
+    if (payload.length === 0) {
+      if (!silent) alert("⚠️ No valid accessories to save.");
+      return;
+    }
+
+    const payloadWithUser = payload.map((p) => ({ ...p, user_id: user.id }));
+
+    const { error: upsertError } = await supabase
+      .from("costing_accessories")
+      .upsert(payloadWithUser, { onConflict: "tender_id,accessory_id" });
+
+    if (upsertError) {
+      console.warn("Upsert with user_id failed, trying without:", upsertError.message);
+      const { error: upsertError2 } = await supabase
+        .from("costing_accessories")
+        .upsert(payload, { onConflict: "tender_id,accessory_id" });
+
+      if (upsertError2) {
+        console.error("Upsert error:", upsertError2);
+        throw upsertError2;
+      }
+    }
+
+    if (!silent) {
+      alert(`✅ Accessories costing saved successfully! (${payload.length} items)`);
+      await fetchAccessoriesCosting();
+    } else {
+      const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      setAccessoriesAutoHint(`Accessories saved · ${t}`);
+      window.setTimeout(() => setAccessoriesAutoHint(""), 5000);
+    }
+  };
+
+  const saveAll = async () => {
     setSaving(true);
     try {
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        throw new Error("User not authenticated");
-      }
-
-      // Prepare payload - save all rows (even with 0 values)
-      // Filter out rows without accessory_id (shouldn't happen, but safety check)
-      const payload = rows
-        .filter((row) => row.accessory_id) // Only save rows with valid accessory_id (uuid string)
-        .map((row) => {
-          const basePayload = {
-            tender_id: Number(tenderId),
-            accessory_id: String(row.accessory_id), // Ensure it's a string (uuid)
-            qty: Number(row.qty) || 0,
-            price: Number(row.price) || 0,
-            updated_at: new Date().toISOString(),
-          };
-          
-          // Only add user_id if the column exists (try-catch will handle if it doesn't)
-          // We'll try with user_id first, and if it fails, retry without it
-          return basePayload;
-        });
-
-      if (payload.length === 0) {
-        alert("⚠️ No valid accessories to save.");
-        return;
-      }
-
-      console.log("Saving", payload.length, "accessories costing records...");
-      console.log("Sample payload:", payload[0]);
-
-      // First delete existing records for this tender
-      // Try with user_id first, if that fails, try without it
-      let deleteQuery = supabase
-        .from("costing_accessories")
-        .delete()
-        .eq("tender_id", Number(tenderId));
-      
-      const { error: deleteError } = await deleteQuery.eq("user_id", user.id);
-      
-      if (deleteError) {
-        // If user_id column doesn't exist, delete without it
-        console.warn("Delete with user_id failed, trying without:", deleteError.message);
-        const { error: deleteError2 } = await supabase
-          .from("costing_accessories")
-          .delete()
-          .eq("tender_id", Number(tenderId));
-        
-        if (deleteError2) {
-          console.warn("Delete error (non-critical):", deleteError2);
-        }
-      }
-
-      if (deleteError) {
-        console.warn("Error deleting old records (non-critical):", deleteError);
-      }
-
-      // Insert all records - try with user_id first, if that fails, try without it
-      let payloadWithUser = payload.map(p => ({ ...p, user_id: user.id }));
-      
-      const { error: insertError } = await supabase
-        .from("costing_accessories")
-        .insert(payloadWithUser);
-
-      if (insertError) {
-        // If user_id column doesn't exist, try without it
-        console.warn("Insert with user_id failed, trying without:", insertError.message);
-        const { error: insertError2 } = await supabase
-          .from("costing_accessories")
-          .insert(payload);
-
-        if (insertError2) {
-          console.error("Insert error:", insertError2);
-          throw insertError2;
-        }
-      }
-
-      console.log("✅ Successfully saved", payload.length, "accessories costing records");
-      alert(`✅ Accessories costing saved successfully! (${payload.length} items)`);
-      
-      // Refresh to show saved data
-      await fetchAccessoriesCosting();
+      await persistAccessories(rows, { silent: false });
     } catch (err) {
       console.error("Save error:", err);
       const errorMessage = err.message || err.toString() || "Unknown error";
@@ -574,6 +556,27 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!tenderId || loading) return;
+    if (skipAccessoriesAutosaveRef.current) {
+      skipAccessoriesAutosaveRef.current = false;
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await persistAccessories(rows, { silent: true });
+        } catch (e) {
+          console.error("Accessories auto-save:", e);
+          setAccessoriesAutoHint("Accessories: auto-save failed");
+          window.setTimeout(() => setAccessoriesAutoHint(""), 6000);
+        }
+      })();
+    }, 1600);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced upsert uses latest `rows`
+  }, [rows, tenderId, loading]);
 
   if (loading) return <p className="p-4">Loading...</p>;
 
@@ -665,13 +668,21 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
         </tbody>
       </table>
 
-      <button
-        onClick={saveAll}
-        disabled={saving}
-        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
-      >
-        {saving ? "Saving..." : "💾 Save Accessories Costing"}
-      </button>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {accessoriesAutoHint ? (
+          <span className="w-full text-xs font-medium text-emerald-700 sm:w-auto" role="status">
+            {accessoriesAutoHint}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={saveAll}
+          disabled={saving}
+          className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "💾 Save Accessories Costing"}
+        </button>
+      </div>
     </div>
   );
 };
