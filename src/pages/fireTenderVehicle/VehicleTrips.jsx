@@ -18,7 +18,7 @@ import {
   FileText
 } from 'lucide-react';
 
-const VehicleTrips = () => {
+const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [trips, setTrips] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -82,7 +82,7 @@ const VehicleTrips = () => {
     fetchTrips();
     fetchVehicles();
     fetchDrivers();
-  }, []);
+  }, [vehicleCategory]);
 
   const setVehicleStatus = async (vehicleId, status) => {
     if (!vehicleId) return;
@@ -105,6 +105,7 @@ const VehicleTrips = () => {
           operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
         .eq('operations_fire_tender_vehicle_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
         .order('start_date_time', { ascending: false });
 
       if (error) throw error;
@@ -125,6 +126,7 @@ const VehicleTrips = () => {
         .from('operations_fire_tender_vehicle_master')
         .select('id, registration_number, vehicle_type, make, model, vehicle_status')
         .eq('user_id', user.id)
+        .eq('vehicle_category', vehicleCategory)
         .in('vehicle_status', ['Available', 'On Duty'])
         .order('registration_number');
 

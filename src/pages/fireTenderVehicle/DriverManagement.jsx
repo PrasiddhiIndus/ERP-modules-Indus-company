@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
+import FleetAttachmentUploader from './FleetAttachmentUploader';
 import { 
   Users, 
   Plus, 
@@ -10,18 +12,19 @@ import {
   Download,
   Phone,
   Mail,
-  Calendar,
-  Car,
   CheckCircle,
   XCircle,
-  AlertTriangle
+  AlertTriangle,
+  Eye,
+  Paperclip
 } from 'lucide-react';
 
-const DriverManagement = () => {
+const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingDriver, setEditingDriver] = useState(null);
+  const [pendingDriverFiles, setPendingDriverFiles] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [licenseTypeFilter, setLicenseTypeFilter] = useState('All');
@@ -36,7 +39,8 @@ const DriverManagement = () => {
     license_expiry_date: '',
     department: '',
     designation: '',
-    is_active: true
+    is_active: true,
+    r2_attachment_keys: []
   });
 
   const licenseTypes = [
@@ -72,11 +76,16 @@ const DriverManagement = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const maxFiles = 15;
+    if ((formData.r2_attachment_keys || []).length + pendingDriverFiles.length > maxFiles) {
+      alert(`Too many files (max ${maxFiles}).`);
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const driverData = {
+      const driverFields = {
         employee_id: formData.employee_id || null,
         full_name: formData.full_name || null,
         contact_number: formData.contact_number || null,
@@ -90,20 +99,39 @@ const DriverManagement = () => {
         user_id: user.id
       };
 
+      let r2Keys = [...(formData.r2_attachment_keys || [])];
+
       if (editingDriver) {
+        const segment = buildFleetUploadSegment(`driver-${editingDriver.id}`);
+        for (const file of pendingDriverFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'drivers', segment }));
+        }
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_drivers')
-          .update(driverData)
+          .update({ ...driverFields, r2_attachment_keys: r2Keys })
           .eq('id', editingDriver.id);
 
         if (error) throw error;
         alert('Driver updated successfully!');
       } else {
-        const { error } = await supabase
+        const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_drivers')
-          .insert([driverData]);
+          .insert([{ ...driverFields, r2_attachment_keys: [] }])
+          .select('id')
+          .single();
 
-        if (error) throw error;
+        if (insertError) throw insertError;
+        const segment = buildFleetUploadSegment(`driver-${row.id}`);
+        for (const file of pendingDriverFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'drivers', segment }));
+        }
+        if (r2Keys.length) {
+          const { error: upErr } = await supabase
+            .from('operations_fire_tender_vehicle_drivers')
+            .update({ r2_attachment_keys: r2Keys })
+            .eq('id', row.id);
+          if (upErr) throw upErr;
+        }
         alert('Driver added successfully!');
       }
 
@@ -111,12 +139,13 @@ const DriverManagement = () => {
       fetchDrivers();
     } catch (error) {
       console.error('Error saving driver:', error);
-      alert('Failed to save driver. Please try again.');
+      alert(error?.message || 'Failed to save driver. Please try again.');
     }
   };
 
   const handleEdit = (driver) => {
     setEditingDriver(driver);
+    setPendingDriverFiles([]);
     setFormData({
       employee_id: driver.employee_id || '',
       full_name: driver.full_name || '',
@@ -127,7 +156,8 @@ const DriverManagement = () => {
       license_expiry_date: driver.license_expiry_date || '',
       department: driver.department || '',
       designation: driver.designation || '',
-      is_active: driver.is_active
+      is_active: driver.is_active,
+      r2_attachment_keys: parseFleetAttachmentKeys(driver, null)
     });
     setShowForm(true);
   };
@@ -167,6 +197,7 @@ const DriverManagement = () => {
   };
 
   const resetForm = () => {
+    setPendingDriverFiles([]);
     setFormData({
       employee_id: '',
       full_name: '',
@@ -177,10 +208,20 @@ const DriverManagement = () => {
       license_expiry_date: '',
       department: '',
       designation: '',
-      is_active: true
+      is_active: true,
+      r2_attachment_keys: []
     });
     setEditingDriver(null);
     setShowForm(false);
+  };
+
+  const openDriverAttachment = async (objectKey) => {
+    try {
+      const url = await presignFleetR2Get(objectKey);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      alert(err?.message || 'Could not open file.');
+    }
   };
 
   const getStatusColor = (isActive) => {
@@ -237,7 +278,10 @@ const DriverManagement = () => {
           <p className="text-gray-600 mt-2">Manage driver information and licenses</p>
         </div>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            resetForm();
+            setShowForm(true);
+          }}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
         >
           <Plus className="h-5 w-5" />
@@ -415,6 +459,26 @@ const DriverManagement = () => {
                 </div>
               </div>
 
+              <div className="border-t border-gray-200 pt-4">
+                <FleetAttachmentUploader
+                  savedKeys={formData.r2_attachment_keys || []}
+                  onRemoveSavedKey={(key) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      r2_attachment_keys: (prev.r2_attachment_keys || []).filter((k) => k !== key),
+                    }))
+                  }
+                  pendingFiles={pendingDriverFiles}
+                  onPendingAdd={(files) => setPendingDriverFiles((prev) => [...prev, ...files])}
+                  onRemovePending={(idx) =>
+                    setPendingDriverFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  multiple
+                  maxTotal={15}
+                  helperText="License scans, medical certificates, training proofs (max 25 MB each)."
+                />
+              </div>
+
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
                 <button
                   type="button"
@@ -457,6 +521,9 @@ const DriverManagement = () => {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Department
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Files
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
@@ -530,6 +597,35 @@ const DriverManagement = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
                         {driver.department || '-'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {(() => {
+                          const keys = parseFleetAttachmentKeys(driver, null);
+                          if (!keys.length) {
+                            return <span className="text-sm text-gray-400">—</span>;
+                          }
+                          return (
+                            <>
+                              <span className="text-xs text-gray-500 flex items-center gap-1">
+                                <Paperclip className="h-3.5 w-3.5" />
+                                {keys.length}
+                              </span>
+                              {keys.map((key) => (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => openDriverAttachment(key)}
+                                  className="text-blue-600 hover:text-blue-900"
+                                  title="Open file"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              ))}
+                            </>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

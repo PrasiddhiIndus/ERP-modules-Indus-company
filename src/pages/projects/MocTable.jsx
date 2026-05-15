@@ -1,10 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 
 const MocTable = ({ tenderId }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mocAutoHint, setMocAutoHint] = useState("");
+  const skipMocAutosaveRef = useRef(true);
+
+  useEffect(() => {
+    skipMocAutosaveRef.current = true;
+  }, [tenderId]);
 
   useEffect(() => {
     if (!tenderId) return;
@@ -20,9 +26,9 @@ const MocTable = ({ tenderId }) => {
         console.error("❌ Error fetching:", error.message);
       } else {
         if (data.length > 0) {
+          skipMocAutosaveRef.current = true;
           setRows(data);
         } else {
-          // Default MOC rows for new tender
           const defaultRows = [
             { moc: "SS304", unit: "kg", price: null, tender_id: tenderId },
             { moc: "SS202", unit: "kg", price: null, tender_id: tenderId },
@@ -38,6 +44,7 @@ const MocTable = ({ tenderId }) => {
             { moc: "CS", unit: "kg", price: null, tender_id: tenderId },
           ];
 
+          skipMocAutosaveRef.current = true;
           setRows(defaultRows);
 
           const { error: insertError } = await supabase
@@ -49,6 +56,7 @@ const MocTable = ({ tenderId }) => {
           }
         }
       }
+      skipMocAutosaveRef.current = true;
       setLoading(false);
     };
 
@@ -61,26 +69,38 @@ const MocTable = ({ tenderId }) => {
     setRows(updated);
   };
 
+  const persistMoc = async (rowData, { silent = false } = {}) => {
+    if (!tenderId) return;
+
+    const updates = rowData.map((row) => ({
+      moc: row.moc,
+      unit: row.unit,
+      price: row.price === "" ? null : row.price,
+      tender_id: tenderId,
+      updated_at: new Date(),
+    }));
+
+    const { error } = await supabase
+      .from("moc_prices")
+      .upsert(updates, { onConflict: ["moc", "tender_id"] });
+
+    if (error) throw error;
+
+    if (!silent) {
+      alert("✅ MOC Prices saved successfully!");
+    } else {
+      const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      setMocAutoHint(`MOC prices saved · ${t}`);
+      window.setTimeout(() => setMocAutoHint(""), 5000);
+    }
+  };
+
   const saveAll = async () => {
     if (!tenderId) return;
     setSaving(true);
 
     try {
-      const updates = rows.map((row) => ({
-        moc: row.moc,
-        unit: row.unit,
-        price: row.price === "" ? null : row.price, // convert "" to null
-        tender_id: tenderId,
-        updated_at: new Date(),
-      }));
-
-      const { error } = await supabase
-        .from("moc_prices")
-        .upsert(updates, { onConflict: ["moc", "tender_id"] });
-
-      if (error) throw error;
-
-      alert("✅ MOC Prices saved successfully!");
+      await persistMoc(rows, { silent: false });
     } catch (err) {
       console.error("❌ Save error:", err.message);
       alert("❌ Failed to save. Check console for details.");
@@ -88,6 +108,27 @@ const MocTable = ({ tenderId }) => {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!tenderId || loading || rows.length === 0) return;
+    if (skipMocAutosaveRef.current) {
+      skipMocAutosaveRef.current = false;
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await persistMoc(rows, { silent: true });
+        } catch (e) {
+          console.error("MOC auto-save:", e);
+          setMocAutoHint("MOC: auto-save failed");
+          window.setTimeout(() => setMocAutoHint(""), 6000);
+        }
+      })();
+    }, 1600);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced upsert uses latest `rows`
+  }, [rows, tenderId, loading]);
 
   if (loading) return <p className="p-4">Loading...</p>;
 
@@ -120,13 +161,21 @@ const MocTable = ({ tenderId }) => {
         </tbody>
       </table>
 
-      <button
-        onClick={saveAll}
-        disabled={saving}
-        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
-      >
-        {saving ? "Saving..." : "💾 Save MOC"}
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        {mocAutoHint ? (
+          <span className="w-full text-xs font-medium text-emerald-700 sm:w-auto" role="status">
+            {mocAutoHint}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={saveAll}
+          disabled={saving}
+          className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "💾 Save MOC"}
+        </button>
+      </div>
     </div>
   );
 };

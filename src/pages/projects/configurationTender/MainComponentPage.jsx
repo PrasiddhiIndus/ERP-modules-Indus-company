@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../../../lib/supabase";
+import { isRetiredFireTenderMainComponentLabel } from "../../../lib/retiredFireTenderMainComponents";
 import FireTenderNavbar from "../FireTenderNavbar";
 
 const chunkArray = (arr, size) => {
@@ -25,30 +26,25 @@ const MainComponentPage = ({ onDataLoaded }) => {
   const [errors, setErrors] = useState([]);
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data?.user) setUserId(data.user.id);
-    };
-    getUser();
-  }, []);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!userId) return;
+    const init = async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth?.user) return;
+      setUserId(auth.user.id);
       const { data, error } = await supabase
         .from("main_components")
         .select("*")
-        .eq("user_id", userId)
         .order("id", { ascending: true });
 
       if (error) {
         console.error("Fetch error:", error.message);
       } else {
-        setComponents(data || []);
+        setComponents(
+          (data || []).filter((r) => !isRetiredFireTenderMainComponentLabel(r.main_component))
+        );
       }
     };
-    fetchData();
-  }, [userId]);
+    init();
+  }, []);
 
   // retry helper
   const tryInsertWithRetry = async (chunk, maxAttempts = 3) => {
@@ -100,15 +96,24 @@ const MainComponentPage = ({ onDataLoaded }) => {
         }
 
         // map columns -> DB column names
-        const parsedRows = rows.map((row) => ({
-          main_component: row["Main Component"] || "",
-          sub_category1: row["Sub Category 1"] || "",
-          sub_category2: row["Sub Category 2"] || "",
-          sub_category3: row["Sub Category 3"] || "",
-          sub_category4: row["Sub Category 4"] || "",
-          sub_category5: row["Sub Category 5"] || "",
-          user_id: userId, // important for RLS
-        }));
+        const parsedRows = rows
+          .map((row) => ({
+            main_component: row["Main Component"] || "",
+            sub_category1: row["Sub Category 1"] || "",
+            sub_category2: row["Sub Category 2"] || "",
+            sub_category3: row["Sub Category 3"] || "",
+            sub_category4: row["Sub Category 4"] || "",
+            sub_category5: row["Sub Category 5"] || "",
+            user_id: userId, // important for RLS
+          }))
+          .filter((row) => !isRetiredFireTenderMainComponentLabel(row.main_component));
+
+        if (parsedRows.length === 0) {
+          alert("No valid rows to upload after removing retired catalog entries.");
+          setUploading(false);
+          setUploadDisabled(false);
+          return;
+        }
 
         // IMPORTANT: chunk size MUST be 100 (Supabase API limit)
         const chunks = chunkArray(parsedRows, 100);
@@ -212,6 +217,10 @@ const MainComponentPage = ({ onDataLoaded }) => {
   };
 
   const handleEdit = async (index, field, value) => {
+    if (field === "main_component" && isRetiredFireTenderMainComponentLabel(value)) {
+      alert("This main-component name is retired and cannot be used.");
+      return;
+    }
     const updated = [...components];
     updated[index][field] = value;
     setComponents(updated);

@@ -81,20 +81,6 @@ function buildOcBase(vertical, fy) {
   return `IFSPL-${vertical}-OC-${fy}`;
 }
 
-function normalizeVendorFiveDigits(raw) {
-  const digits = String(raw ?? '').replace(/\D/g, '');
-  if (!digits) return '';
-  const n = parseInt(digits, 10);
-  if (!Number.isFinite(n) || n < 1) return '';
-  return String(n).padStart(5, '0');
-}
-
-function buildFullOcNumber(vertical, fy, vendorFiveDigits) {
-  const v = normalizeVendorFiveDigits(vendorFiveDigits);
-  if (!v) return '';
-  return `${buildOcBase(vertical, fy)}-${v}`;
-}
-
 function parseStructuredOc(ocNumber) {
   const s = String(ocNumber || '').trim();
   const m = s.match(/^IFSPL-(.+)-OC-(\d{2}\/\d{2})-(\d{5})$/i);
@@ -106,24 +92,6 @@ function extractFyFromOc(ocNumber) {
   const parts = String(ocNumber || '').split('-');
   const hit = parts.find((p) => /^\d{2}\/\d{2}$/.test(p));
   return hit || null;
-}
-
-function getMaxVendorForBase(ocBase, commercialPOs, excludePoId) {
-  let max = 0;
-  const prefix = `${ocBase}-`;
-  for (const p of commercialPOs || []) {
-    if (excludePoId != null && String(p.id) === String(excludePoId)) continue;
-    const oc = String(p.ocNumber || '').trim();
-    if (!oc.toUpperCase().startsWith(prefix.toUpperCase())) continue;
-    const suffix = oc.slice(prefix.length);
-    const vm = suffix.match(/^(\d{5})$/);
-    if (vm) max = Math.max(max, parseInt(vm[1], 10));
-  }
-  return max;
-}
-
-function getNextVendorSequence(ocBase, commercialPOs, excludePoId) {
-  return getMaxVendorForBase(ocBase, commercialPOs, excludePoId) + 1;
 }
 
 function syncOcVerticalIfStandard(ocNumber, nextVertical) {
@@ -358,32 +326,16 @@ const POEntry = ({
   const canApproveCommercialPOs = userCanApproveInModules(userProfile, accessibleModules, approverModuleKeys);
 
   const fyForOc = formData.ocFyEdit || getFinancialYear();
-  const verticalEff = fixedVertical || formData.vertical || INITIAL_FORM_RM.vertical;
-  const ocBasePreview = useMemo(
-    () => buildOcBase(verticalEff, fyForOc),
-    [verticalEff, fyForOc]
-  );
-  const nextVendorSeq = useMemo(
-    () =>
-      formData.poBasis === PO_BASIS_WITHOUT_PO
-        ? 1
-        : getNextVendorSequence(ocBasePreview, commercialPOs, editId),
-    [formData.poBasis, ocBasePreview, commercialPOs, editId]
-  );
   const vendorCodeError = useMemo(() => {
     if (!showForm || editId || formData.poBasis === PO_BASIS_WITHOUT_PO) return '';
-    const padded = normalizeVendorFiveDigits(formData.vendorCodeDigits);
-    if (!String(formData.vendorCodeDigits ?? '').replace(/\D/g, '')) {
-      return 'Vendor code is required.';
-    }
-    if (!padded) return 'Enter a valid vendor number.';
-    const n = parseInt(padded, 10);
-    if (n !== nextVendorSeq) {
-      if (n < nextVendorSeq) return 'Already used.';
-      return 'Wrong vendor number.';
-    }
+    const manualOc = String(formData.ocNumber || '').trim();
+    if (!manualOc) return '';
+    const dup = commercialPOs.some(
+      (p) => String(p.ocNumber || '').trim().toLowerCase() === manualOc.toLowerCase()
+    );
+    if (dup) return 'This OC number is already in use.';
     return '';
-  }, [showForm, editId, formData.poBasis, formData.vendorCodeDigits, nextVendorSeq]);
+  }, [showForm, editId, formData.poBasis, formData.ocNumber, commercialPOs]);
 
   const clientProfilesFromPOs = useMemo(
     () => buildCommercialClientProfiles(commercialPOs, moduleType, 'rm', { excludePoId: editId }),
@@ -583,9 +535,6 @@ const POEntry = ({
     setEditId(null);
     const vertForDummy = fixedVertical || departmentFilter || INITIAL_FORM_RM.vertical;
     const useWithout = listPoBasisFilter === 'without_po';
-    const fy = getFinancialYear();
-    const base = buildOcBase(vertForDummy, fy);
-    const nextV = getNextVendorSequence(base, commercialPOs, null);
     const dummies = useWithout
       ? buildWithoutPoDummyIds({ verticalLabel: vertForDummy, ocSeries: nextSeries })
       : { ocNumber: '', poWoNumber: '' };
@@ -593,8 +542,8 @@ const POEntry = ({
       ...freshEmptyForm(),
       ocSeries: nextSeries,
       ocFyEdit: null,
-      vendorCodeDigits: useWithout ? '' : String(nextV).padStart(5, '0'),
-      ocNumber: useWithout ? dummies.ocNumber : base,
+      vendorCodeDigits: '',
+      ocNumber: useWithout ? dummies.ocNumber : '',
       poWoNumber: dummies.poWoNumber,
       poBasis: useWithout ? PO_BASIS_WITHOUT_PO : PO_BASIS_WITH_PO,
     });
@@ -617,8 +566,8 @@ const POEntry = ({
       ocFyEdit = parsed.fy;
     } else {
       vendorDigits =
-        normalizeVendorFiveDigits(po.vendorCode ?? po.vendor_code ?? po.ocSeries ?? '') ||
-        normalizeVendorFiveDigits((po.ocNumber || '').split('-').pop()) ||
+        String(po.vendorCode ?? po.vendor_code ?? po.ocSeries ?? '').trim() ||
+        String((po.ocNumber || '').split('-').pop() || '').trim() ||
         '';
       ocFyEdit = extractFyFromOc(po.ocNumber) || fyLive;
     }
@@ -840,34 +789,21 @@ const POEntry = ({
     let paddedVendorSave = '';
 
     if (!isWithoutPo) {
-      const fySave = formData.ocFyEdit || getFinancialYear();
-      const verticalLine = (fixedVertical || formData.vertical || INITIAL_FORM_RM.vertical).trim();
-      const paddedVendor = normalizeVendorFiveDigits(formData.vendorCodeDigits);
-      if (!paddedVendor) {
-        setSaveError('Vendor code is required.');
-        return;
-      }
-      if (!editId) {
-        const nextReq = getNextVendorSequence(buildOcBase(verticalLine, fySave), commercialPOs, null);
-        if (parseInt(paddedVendor, 10) !== nextReq) {
-          setSaveError(parseInt(paddedVendor, 10) < nextReq ? 'Already used.' : 'Wrong vendor number.');
-          return;
-        }
-      }
-      ocNum = buildFullOcNumber(verticalLine, fySave, paddedVendor);
-      if (!ocNum) {
-        setSaveError('Could not build OC number — check vertical and vendor code.');
+      const trimmedManualOc = (formData.ocNumber || '').trim();
+      if (!trimmedManualOc) {
+        setSaveError('Enter OC number.');
         return;
       }
       const dupOc = commercialPOs.some((p) => {
         if (editId && p.id === editId) return false;
-        return ocNum && (p.ocNumber || '').trim().toLowerCase() === ocNum.toLowerCase();
+        return (p.ocNumber || '').trim().toLowerCase() === trimmedManualOc.toLowerCase();
       });
       if (dupOc) {
         setSaveError('Duplicate OC Number is not allowed.');
         return;
       }
-      paddedVendorSave = paddedVendor;
+      ocNum = trimmedManualOc;
+      paddedVendorSave = String(formData.vendorCodeDigits ?? '').trim();
     } else {
       const trimmedOcNumber = (formData.ocNumber || '').trim() || dummies.ocNumber;
       const ocVert = vertForDummy;
@@ -931,7 +867,9 @@ const POEntry = ({
       panNumber: (formData.panNumber || '').trim().toUpperCase(),
       currentCoordinator: formData.currentCoordinator.trim(), contactNumber: formData.contactNumber.trim(),
       contactEmail: formData.contactEmail.trim(),
-      vendorCode: isWithoutPo ? (formData.vendorCode || '').trim() : paddedVendorSave,
+      vendorCode: isWithoutPo
+        ? (formData.vendorCode || '').trim()
+        : paddedVendorSave || parseStructuredOc(ocNum)?.vendorPadded || '',
       gstSupplyType: formData.gstSupplyType || 'intra',
       contactHistoryLog: editId ? (commercialPOs.find((p) => p.id === editId)?.contactHistoryLog || [])
         : [{
@@ -942,7 +880,9 @@ const POEntry = ({
             to: null,
           }],
       ocNumber: ocNum,
-      ocSeries: isWithoutPo ? formData.ocSeries || nextSeries : paddedVendorSave,
+      ocSeries: isWithoutPo
+        ? formData.ocSeries || nextSeries
+        : parseStructuredOc(ocNum)?.vendorPadded || paddedVendorSave || '',
       vertical:
         (fixedVertical ||
           (ocNum && String(ocNum).includes('-') ? String(ocNum).split('-')[1] : '') ||
@@ -1554,12 +1494,16 @@ const POEntry = ({
                         </label>
                         <div className="flex gap-2 items-stretch">
                           <input
+                            id="rm-po-oc-full"
                             type="text"
-                            readOnly
-                            tabIndex={-1}
-                            value={ocBasePreview}
-                            className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-900 font-mono text-sm cursor-default"
-                            aria-label="OC prefix for selected line"
+                            value={formData.ocNumber}
+                            onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))}
+                            className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 font-mono text-sm"
+                            placeholder={buildOcBase(
+                              fixedVertical || formData.vertical || INITIAL_FORM_RM.vertical,
+                              fyForOc
+                            )}
+                            aria-label="Full OC number"
                           />
                           {!fixedVertical ? (
                             <select
@@ -1567,14 +1511,10 @@ const POEntry = ({
                               value={VERTICALS.includes(formData.vertical) ? formData.vertical : formData.vertical || 'R&M'}
                               onChange={(e) => {
                                 const nextVertical = e.target.value;
-                                const fy = formData.ocFyEdit || getFinancialYear();
-                                const base = buildOcBase(nextVertical, fy);
-                                const nextV = getNextVendorSequence(base, commercialPOs, editId);
                                 setFormData((p) => ({
                                   ...p,
                                   vertical: nextVertical,
-                                  ocNumber: editId ? syncOcVerticalIfStandard(p.ocNumber, nextVertical) : base,
-                                  vendorCodeDigits: editId ? p.vendorCodeDigits : String(nextV).padStart(5, '0'),
+                                  ocNumber: editId ? syncOcVerticalIfStandard(p.ocNumber, nextVertical) : p.ocNumber,
                                 }));
                               }}
                               className="border border-gray-300 rounded-lg px-3 py-2 shrink-0 bg-white text-sm min-w-[9rem]"
@@ -1601,34 +1541,28 @@ const POEntry = ({
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="rm-po-vendor-serial">
-                          Vendor Code <span className="text-red-600">*</span>
+                          Vendor Code
                         </label>
                         <input
                           id="rm-po-vendor-serial"
                           type="text"
-                          inputMode="numeric"
                           autoComplete="off"
                           value={formData.vendorCodeDigits}
                           onChange={(e) =>
                             setFormData((p) => ({
                               ...p,
-                              vendorCodeDigits: e.target.value.replace(/\D/g, '').slice(0, 5),
+                              vendorCodeDigits: e.target.value,
                             }))
                           }
                           className={`w-full border rounded-lg px-3 py-2 bg-white font-mono text-sm ${vendorCodeError ? 'border-red-400 bg-red-50/40' : 'border-gray-300'}`}
-                          placeholder="#####"
+                          placeholder="Optional reference"
                           aria-label="Vendor code serial"
                         />
-                        {!editId ? (
-                          <p className="text-xs text-gray-600 mt-1">
-                            Next vendor code —{' '}
-                            <span className="font-mono font-semibold tabular-nums text-gray-900">
-                              {String(nextVendorSeq).padStart(5, '0')}
-                            </span>
-                          </p>
-                        ) : (
-                          <p className="text-xs text-gray-500 mt-1">FY segment stays as saved ({fyForOc}).</p>
-                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          {editId
+                            ? `FY segment stays as saved (${fyForOc}). Vendor digits are optional.`
+                            : 'Enter the full OC above. Vendor digits here are optional (for reference or non-standard OC).'}
+                        </p>
                         {vendorCodeError ? (
                           <p className="text-xs text-red-600 font-medium mt-1">{vendorCodeError}</p>
                         ) : null}
