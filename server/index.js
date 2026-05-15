@@ -230,6 +230,41 @@ async function requireSessionForSoftwareSubscriptionsR2(req) {
   return userData.user;
 }
 
+/** Fleet (vehicle documents, drivers): R2 keys under fleet/{documents|drivers}/{userId}/{segment}/… */
+const R2_FLEET_KEY_PREFIX = 'fleet/';
+
+function normalizeFleetUploadSegment(raw) {
+  const s = String(raw || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 80);
+  return s.length >= 4 ? s : '';
+}
+
+function getFleetKeyPrefixForScope(scope) {
+  if (scope === 'documents') return 'fleet/documents/';
+  if (scope === 'drivers') return 'fleet/drivers/';
+  return null;
+}
+
+function assertFleetObjectKeyAllowedForUser(objectKey, userId) {
+  const key = String(objectKey || '').trim();
+  if (!key.startsWith(R2_FLEET_KEY_PREFIX) || key.includes('..') || key.includes('//')) {
+    throw new HttpError(400, 'Invalid object key.');
+  }
+  const parts = key.split('/').filter(Boolean);
+  if (parts.length < 4 || parts[0] !== 'fleet') {
+    throw new HttpError(400, 'Invalid object key.');
+  }
+  if (!['documents', 'drivers'].includes(parts[1])) {
+    throw new HttpError(400, 'Invalid object key.');
+  }
+  const owner = parts[2];
+  if (owner !== String(userId)) {
+    throw new HttpError(403, 'Not allowed to access this object.');
+  }
+}
+
 function getRequiredEnv(name) {
   const v = process.env[name];
   if (!v || !String(v).trim()) {
@@ -1077,6 +1112,88 @@ app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
     if (!objectKey.startsWith(R2_SOFTWARE_SUB_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
       return res.status(400).json({ message: 'Invalid object key.' });
     }
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+// Fleet management: Cloudflare R2 (same bucket; keys under fleet/documents/… and fleet/drivers/…).
+app.post(
+  '/api/fleet/r2/upload',
+  (req, res, next) => {
+    r2InvoiceUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_MAX_ATTACHMENT_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  async (req, res) => {
+    try {
+      const user = await requireSessionForSoftwareSubscriptionsR2(req);
+      const bucket = getR2BucketName();
+
+      const scope = String(req.body?.scope || '').trim();
+      const basePrefix = getFleetKeyPrefixForScope(scope);
+      if (!basePrefix) {
+        return res.status(400).json({ message: 'scope must be documents or drivers.' });
+      }
+
+      const segment = normalizeFleetUploadSegment(req.body?.segment);
+      if (!segment) {
+        return res.status(400).json({ message: 'segment is required (min 4 safe characters after sanitization).' });
+      }
+
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${basePrefix}${user.id}/${segment}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: resolvedType });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
+app.post('/api/fleet/r2/presign-get', async (req, res) => {
+  try {
+    const user = await requireSessionForSoftwareSubscriptionsR2(req);
+    const bucket = getR2BucketName();
+
+    const objectKey = String(req.body?.objectKey || '').trim();
+    assertFleetObjectKeyAllowedForUser(objectKey, user.id);
 
     const client = getR2S3Client();
     const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });

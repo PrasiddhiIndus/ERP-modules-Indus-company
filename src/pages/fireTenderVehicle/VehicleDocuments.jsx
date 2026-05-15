@@ -1,28 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
+import FleetAttachmentUploader from './FleetAttachmentUploader';
 import { 
   FileText, 
   Plus, 
   Edit, 
   Trash2, 
   Search, 
-  Filter,
   Download,
-  Upload,
   AlertTriangle,
   CheckCircle,
   Clock,
-  Calendar,
-  Eye,
-  Car
+  Eye
 } from 'lucide-react';
 
-const VehicleDocuments = () => {
+const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
   const [documents, setDocuments] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingDocument, setEditingDocument] = useState(null);
+  const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
   const [alertFilter, setAlertFilter] = useState('All');
@@ -35,7 +34,7 @@ const VehicleDocuments = () => {
     expiry_date: '',
     provider: '',
     premium_amount: '',
-    file_url: '',
+    r2_attachment_keys: [],
     remarks: ''
   });
 
@@ -44,12 +43,109 @@ const VehicleDocuments = () => {
     'Fitness Certificate', 'Permit', 'AMC Contract', 'Service Contract', 'Other'
   ];
 
+  const defaultDocumentFieldConfig = {
+    documentNumberLabel: 'Document number',
+    issueDateLabel: 'Issue date',
+    expiryDateLabel: 'Expiry date',
+    providerLabel: 'Provider / issuing authority',
+    secondarySectionTitle: 'Provider & file',
+    showIssueDate: true,
+    showExpiryDate: true,
+    expiryRequired: true,
+    showPremium: true,
+    showAttachments: true,
+    attachmentMultiple: true,
+    attachmentMax: 10,
+    showRemarks: true
+  };
+
+  const documentTypeFieldConfig = {
+    'RC (Registration Certificate)': {
+      documentNumberLabel: 'RC number',
+      issueDateLabel: 'Date of issue',
+      expiryDateLabel: 'Registration valid until',
+      providerLabel: 'Issuing RTO / authority',
+      secondarySectionTitle: 'RTO & file',
+      showPremium: false,
+      attachmentMax: 6
+    },
+    Insurance: {
+      documentNumberLabel: 'Policy number',
+      issueDateLabel: 'Policy start date',
+      expiryDateLabel: 'Policy expiry date',
+      providerLabel: 'Insurer / broker',
+      secondarySectionTitle: 'Insurer, premium & file',
+      showPremium: true,
+      attachmentMultiple: true,
+      attachmentMax: 12
+    },
+    'Pollution Certificate': {
+      documentNumberLabel: 'PUC certificate number',
+      issueDateLabel: 'Test date',
+      expiryDateLabel: 'PUC valid until',
+      providerLabel: 'Testing centre',
+      secondarySectionTitle: 'Centre & file',
+      showPremium: false,
+      attachmentMultiple: false,
+      attachmentMax: 2
+    },
+    'Fitness Certificate': {
+      documentNumberLabel: 'Fitness certificate number',
+      issueDateLabel: 'Date of issue',
+      expiryDateLabel: 'Fitness valid until',
+      providerLabel: 'Issuing authority / RTO',
+      secondarySectionTitle: 'Authority & file',
+      showPremium: false,
+      attachmentMax: 6
+    },
+    Permit: {
+      documentNumberLabel: 'Permit number',
+      issueDateLabel: 'Issue date',
+      expiryDateLabel: 'Permit valid until',
+      providerLabel: 'Issuing / permit authority',
+      secondarySectionTitle: 'Authority & file',
+      showPremium: false,
+      attachmentMax: 6
+    },
+    'AMC Contract': {
+      documentNumberLabel: 'Contract / reference number',
+      issueDateLabel: 'Contract start date',
+      expiryDateLabel: 'Contract end date',
+      providerLabel: 'AMC vendor',
+      secondarySectionTitle: 'Vendor, fee & file',
+      showPremium: true,
+      attachmentMax: 12
+    },
+    'Service Contract': {
+      documentNumberLabel: 'Contract / reference number',
+      issueDateLabel: 'Contract start date',
+      expiryDateLabel: 'Contract end date',
+      providerLabel: 'Service provider',
+      secondarySectionTitle: 'Provider, fee & file',
+      showPremium: true,
+      attachmentMax: 12
+    },
+    Other: {
+      documentNumberLabel: 'Reference / document number',
+      issueDateLabel: 'Issue date',
+      expiryDateLabel: 'Expiry / valid until',
+      providerLabel: 'Issuer / organisation',
+      secondarySectionTitle: 'Details & file',
+      showPremium: true
+    }
+  };
+
+  const getDocumentFieldConfig = (documentType) => ({
+    ...defaultDocumentFieldConfig,
+    ...(documentTypeFieldConfig[documentType] || {})
+  });
+
   const alertStatuses = ['Active', 'Warning', 'Expired'];
 
   useEffect(() => {
     fetchDocuments();
     fetchVehicles();
-  }, []);
+  }, [vehicleCategory]);
 
   const fetchDocuments = async () => {
     try {
@@ -63,6 +159,7 @@ const VehicleDocuments = () => {
           operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
         .eq('operations_fire_tender_vehicle_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
         .order('expiry_date', { ascending: true });
 
       if (error) throw error;
@@ -83,6 +180,7 @@ const VehicleDocuments = () => {
         .from('operations_fire_tender_vehicle_master')
         .select('id, registration_number, vehicle_type')
         .eq('user_id', user.id)
+        .eq('vehicle_category', vehicleCategory)
         .order('registration_number');
 
       if (error) throw error;
@@ -94,25 +192,43 @@ const VehicleDocuments = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const docCfg = getDocumentFieldConfig(formData.document_type);
+    const existingCount = (formData.r2_attachment_keys || []).length;
+    if (existingCount + pendingAttachmentFiles.length > docCfg.attachmentMax) {
+      alert(`Too many attachments for this document type (max ${docCfg.attachmentMax}).`);
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const documentData = {
-        vehicle_id: formData.vehicle_id ? (typeof formData.vehicle_id === 'number' ? formData.vehicle_id : parseInt(formData.vehicle_id, 10)) : null,
+      const vehicleIdNum = formData.vehicle_id
+        ? (typeof formData.vehicle_id === 'number' ? formData.vehicle_id : parseInt(formData.vehicle_id, 10))
+        : null;
+
+      const buildPayload = (r2Keys) => ({
+        vehicle_id: vehicleIdNum,
         document_type: formData.document_type || null,
         document_number: formData.document_number || null,
         issue_date: formData.issue_date && formData.issue_date.trim() !== '' ? formData.issue_date : null,
         expiry_date: formData.expiry_date && formData.expiry_date.trim() !== '' ? formData.expiry_date : null,
         provider: formData.provider || null,
         premium_amount: formData.premium_amount !== '' && formData.premium_amount != null ? parseFloat(formData.premium_amount) : null,
-        file_url: formData.file_url || null,
         remarks: formData.remarks || null,
+        r2_attachment_keys: r2Keys,
+        file_url: null,
         user_id: user.id,
-        alert_status: getAlertStatus(formData.expiry_date)
-      };
+        alert_status: getAlertStatus(formData.expiry_date),
+      });
+
+      let r2Keys = [...(formData.r2_attachment_keys || [])];
 
       if (editingDocument) {
+        const segment = buildFleetUploadSegment(`doc-${editingDocument.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
+        const documentData = buildPayload(r2Keys);
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_documents')
           .update(documentData)
@@ -121,11 +237,24 @@ const VehicleDocuments = () => {
         if (error) throw error;
         alert('Document updated successfully!');
       } else {
-        const { error } = await supabase
+        const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_documents')
-          .insert([documentData]);
+          .insert([buildPayload([])])
+          .select('id')
+          .single();
 
-        if (error) throw error;
+        if (insertError) throw insertError;
+        const segment = buildFleetUploadSegment(`doc-${row.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
+        if (r2Keys.length) {
+          const { error: upErr } = await supabase
+            .from('operations_fire_tender_vehicle_documents')
+            .update({ r2_attachment_keys: r2Keys })
+            .eq('id', row.id);
+          if (upErr) throw upErr;
+        }
         alert('Document added successfully!');
       }
 
@@ -133,7 +262,7 @@ const VehicleDocuments = () => {
       fetchDocuments();
     } catch (error) {
       console.error('Error saving document:', error);
-      alert('Failed to save document. Please try again.');
+      alert(error?.message || 'Failed to save document. Please try again.');
     }
   };
 
@@ -150,6 +279,7 @@ const VehicleDocuments = () => {
 
   const handleEdit = (document) => {
     setEditingDocument(document);
+    setPendingAttachmentFiles([]);
     setFormData({
       vehicle_id: document.vehicle_id || '',
       document_type: document.document_type || '',
@@ -158,7 +288,7 @@ const VehicleDocuments = () => {
       expiry_date: document.expiry_date || '',
       provider: document.provider || '',
       premium_amount: document.premium_amount || '',
-      file_url: document.file_url || '',
+      r2_attachment_keys: parseFleetAttachmentKeys(document, 'file_url'),
       remarks: document.remarks || ''
     });
     setShowForm(true);
@@ -183,6 +313,7 @@ const VehicleDocuments = () => {
   };
 
   const resetForm = () => {
+    setPendingAttachmentFiles([]);
     setFormData({
       vehicle_id: '',
       document_type: '',
@@ -191,7 +322,7 @@ const VehicleDocuments = () => {
       expiry_date: '',
       provider: '',
       premium_amount: '',
-      file_url: '',
+      r2_attachment_keys: [],
       remarks: ''
     });
     setEditingDocument(null);
@@ -224,6 +355,15 @@ const VehicleDocuments = () => {
     return daysUntilExpiry;
   };
 
+  const openDocumentAttachment = async (objectKey) => {
+    try {
+      const url = await presignFleetR2Get(objectKey);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      alert(err?.message || 'Could not open file.');
+    }
+  };
+
   const filteredDocuments = documents.filter(document => {
     const vm = document.operations_fire_tender_vehicle_master;
     const matchesSearch = 
@@ -237,6 +377,8 @@ const VehicleDocuments = () => {
     
     return matchesSearch && matchesType && matchesAlert;
   });
+
+  const docFieldCfg = getDocumentFieldConfig(formData.document_type);
 
   if (loading) {
     return (
@@ -255,7 +397,10 @@ const VehicleDocuments = () => {
           <p className="text-gray-600 mt-2">Manage vehicle documents and track expiries</p>
         </div>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            resetForm();
+            setShowForm(true);
+          }}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
         >
           <Plus className="h-5 w-5" />
@@ -339,7 +484,15 @@ const VehicleDocuments = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Document Type *</label>
                     <select
                       value={formData.document_type}
-                      onChange={(e) => setFormData({...formData, document_type: e.target.value})}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        const nextCfg = getDocumentFieldConfig(next);
+                        setFormData((prev) => ({
+                          ...prev,
+                          document_type: next,
+                          ...(!nextCfg.showPremium ? { premium_amount: '' } : {})
+                        }));
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     >
@@ -351,7 +504,7 @@ const VehicleDocuments = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Document Number</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{docFieldCfg.documentNumberLabel}</label>
                     <input
                       type="text"
                       value={formData.document_number}
@@ -360,8 +513,9 @@ const VehicleDocuments = () => {
                     />
                   </div>
 
+                  {docFieldCfg.showIssueDate && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Issue Date</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{docFieldCfg.issueDateLabel}</label>
                     <input
                       type="date"
                       value={formData.issue_date}
@@ -369,25 +523,28 @@ const VehicleDocuments = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
+                  )}
 
+                  {docFieldCfg.showExpiryDate && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Expiry Date *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{docFieldCfg.expiryDateLabel} *</label>
                     <input
                       type="date"
                       value={formData.expiry_date}
                       onChange={(e) => setFormData({...formData, expiry_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
+                      required={docFieldCfg.expiryRequired}
                     />
                   </div>
+                  )}
                 </div>
 
                 {/* Provider and File */}
                 <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">Provider & File</h3>
+                  <h3 className="text-lg font-medium text-gray-900">{docFieldCfg.secondarySectionTitle}</h3>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Provider/Issuing Authority</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">{docFieldCfg.providerLabel}</label>
                     <input
                       type="text"
                       value={formData.provider}
@@ -396,8 +553,9 @@ const VehicleDocuments = () => {
                     />
                   </div>
 
+                  {docFieldCfg.showPremium && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Premium Amount (₹)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Premium / fee amount (₹)</label>
                     <input
                       type="number"
                       value={formData.premium_amount}
@@ -407,18 +565,30 @@ const VehicleDocuments = () => {
                       step="0.01"
                     />
                   </div>
+                  )}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">File URL</label>
-                    <input
-                      type="url"
-                      value={formData.file_url}
-                      onChange={(e) => setFormData({...formData, file_url: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="https://example.com/document.pdf"
+                  {docFieldCfg.showAttachments && (
+                    <FleetAttachmentUploader
+                      savedKeys={formData.r2_attachment_keys || []}
+                      onRemoveSavedKey={(key) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          r2_attachment_keys: (prev.r2_attachment_keys || []).filter((k) => k !== key),
+                        }))
+                      }
+                      pendingFiles={pendingAttachmentFiles}
+                      onPendingAdd={(files) =>
+                        setPendingAttachmentFiles((prev) => [...prev, ...files])
+                      }
+                      onRemovePending={(idx) =>
+                        setPendingAttachmentFiles((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      multiple={docFieldCfg.attachmentMultiple}
+                      maxTotal={docFieldCfg.attachmentMax}
                     />
-                  </div>
+                  )}
 
+                  {docFieldCfg.showRemarks && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Remarks</label>
                     <textarea
@@ -428,6 +598,7 @@ const VehicleDocuments = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
+                  )}
                 </div>
               </div>
 
@@ -542,14 +713,25 @@ const VehicleDocuments = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        {document.file_url && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {parseFleetAttachmentKeys(document, 'file_url').map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => openDocumentAttachment(key)}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="Open attachment"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        ))}
+                        {document.file_url && String(document.file_url).trim().match(/^https?:\/\//i) && (
                           <a
                             href={document.file_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-600 hover:text-blue-900"
-                            title="View Document"
+                            title="Legacy URL"
                           >
                             <Eye className="h-4 w-4" />
                           </a>
