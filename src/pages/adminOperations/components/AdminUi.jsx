@@ -69,7 +69,11 @@ export const DenseTable = ({ columns, rows, onRowClick, rowKey = "id" }) => (
       <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
         <tr>
           {columns.map((c) => (
-            <th key={c.key} className="text-left font-semibold px-2 py-2 whitespace-nowrap">
+            <th
+              key={c.key}
+              title={c.headerTitle || undefined}
+              className="text-left font-semibold px-2 py-2 whitespace-nowrap"
+            >
               {c.label}
             </th>
           ))}

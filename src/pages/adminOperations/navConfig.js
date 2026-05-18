@@ -11,6 +11,7 @@ export const ADMIN_OPS_NAV = [
       { label: "Employee Master", path: "employee-master" },
       { label: "Onboarding", path: "employee-onboarding" },
       { label: "Raw Attendance Data", path: "employee-attendance-inputs" },
+      { label: "Daily Attendance Register", path: "employee-attendance-daily" },
       { label: "Attendance Sheets", path: "employee-attendance-sheets" },
       { label: "Leaves", path: "employee-leaves" },
       { label: "Permissions / Short Leave", path: "employee-permissions" },

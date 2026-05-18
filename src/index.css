@@ -183,3 +183,13 @@ main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-thumb:hover {
   color: rgba(156, 163, 175, 0.8);
   letter-spacing: 0.05em;
 }
+
+/* Attendance register: color closed cell only; neutral dropdown list */
+select.register-mark-select {
+  color-scheme: light;
+}
+
+select.register-mark-select option {
+  background-color: #ffffff;
+  color: #111827;
+}
