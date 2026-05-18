@@ -1,0 +1,1084 @@
+/** Daily attendance register — pair raw punches into per-employee per-day rows. */
+
+export const ATTENDANCE_PUNCH_TABLE = "erp_attendance_punches";
+export const ATTENDANCE_REGISTER_TABLE = "admin_attendance_register";
+export const EMPLOYEE_MASTER_TABLE = "admin_ifsp_employee_master";
+export const REGISTER_MARK_UPSERT_CHUNK = 200;
+export const PUNCH_FETCH_CHUNK = 1000;
+export const ABSENT_GRID_CAP = 5000;
+
+export const STORAGE_KEYS = {
+  expectedIn: "adminAttendance.expectedIn",
+  expectedOut: "adminAttendance.expectedOut",
+  registerMarks: "adminAttendance.registerMarks",
+};
+
+/** Stored mark code for national holiday / public holiday. */
+export const REGISTER_MARK_NHPH = "NH/PH";
+
+/** Daily register grid — dropdown options (clear + P, L, WO, NH/PH). */
+export const REGISTER_STATUS_OPTIONS = [
+  { value: "", label: "—" },
+  { value: "P", label: "Present (P)" },
+  { value: "L", label: "Leave (L)" },
+  { value: "WO", label: "Weekoff (WO)" },
+  { value: REGISTER_MARK_NHPH, label: "NH/PH" },
+];
+
+export function isRegisterNhphMark(mark) {
+  return mark === REGISTER_MARK_NHPH || mark === "NHPH";
+}
+
+/** Summary table rows (order + labels for month totals). */
+export const REGISTER_SUMMARY_ROWS = [
+  { key: "P", label: "Present (P)", tone: "text-emerald-700" },
+  { key: "L", label: "Leave (L)", tone: "text-red-700" },
+  { key: "leave", label: "Leave (all codes)", tone: "text-red-700", computed: true },
+  { key: "WO", label: "Weekoff (WO)", tone: "text-yellow-700" },
+  { key: REGISTER_MARK_NHPH, label: "NH/PH", tone: "text-orange-700" },
+  { key: "blank", label: "Unmarked", tone: "text-gray-600" },
+];
+
+/** L plus legacy leave codes still stored in older rows. */
+export const REGISTER_LEAVE_MARKS = new Set(["L", "A", "PL", "SL", "CL", "HD"]);
+
+/** Shared palette — closed cell box + bulk Mark P/L/WO/NH/PH buttons. */
+export const REGISTER_MARK_PALETTE = {
+  present: { bg: "#008D62", border: "#006b51", hover: "#006b51" },
+  leave: { bg: "#D62828", border: "#b82222", hover: "#b82222" },
+  weekoff: { bg: "#EAB308", border: "#CA8A04", hover: "#CA8A04" },
+  nhph: { bg: "#F58220", border: "#d9741d", hover: "#d9741d" },
+  empty: { bg: "#f3f4f6", border: "#d1d5db", text: "#4b5563" },
+};
+
+export const REGISTER_BULK_BUTTON_CLASS = {
+  P: "bg-[#008D62] hover:bg-[#006b51] text-white",
+  L: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  WO: "bg-[#EAB308] hover:bg-[#CA8A04] text-gray-900",
+  [REGISTER_MARK_NHPH]: "bg-[#F58220] hover:bg-[#d9741d] text-white",
+};
+
+const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
+
+/** Inner select — transparent; color comes from wrapper only (open list stays neutral via CSS). */
+export const REGISTER_MARK_SELECT_INNER =
+  "register-mark-select w-full h-8 px-1 text-[11px] font-semibold text-center appearance-none cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-0";
+
+export function isRegisterLeaveMark(mark) {
+  return REGISTER_LEAVE_MARKS.has(mark);
+}
+
+/** Colored box behind the closed cell only (not the open dropdown list). */
+export function registerMarkCellWrapperClass(value) {
+  if (value === "P") {
+    return `${REGISTER_MARK_WRAPPER_BASE} border-[#006b51] bg-[#008D62]`;
+  }
+  if (value === "L" || isRegisterLeaveMark(value)) {
+    return `${REGISTER_MARK_WRAPPER_BASE} border-[#b82222] bg-[#D62828]`;
+  }
+  if (value === "WO") {
+    return `${REGISTER_MARK_WRAPPER_BASE} border-[#CA8A04] bg-[#EAB308]`;
+  }
+  if (isRegisterNhphMark(value)) {
+    return `${REGISTER_MARK_WRAPPER_BASE} border-[#d9741d] bg-[#F58220]`;
+  }
+  return `${REGISTER_MARK_WRAPPER_BASE} border-gray-300 bg-gray-100`;
+}
+
+export function registerMarkSelectTextClass(value) {
+  if (!value) return "text-gray-600";
+  if (value === "WO") return "text-gray-900";
+  return "text-white";
+}
+
+/** @deprecated Use registerMarkCellWrapperClass + REGISTER_MARK_SELECT_INNER */
+export function registerMarkCellClass(value) {
+  return `${registerMarkCellWrapperClass(value)} ${REGISTER_MARK_SELECT_INNER} ${registerMarkSelectTextClass(value)}`;
+}
+
+export function dayOfMonthFromIsoDate(isoDate) {
+  const d = normalizeDbDate(isoDate);
+  if (!d) return null;
+  return Number(d.slice(8, 10));
+}
+
+export function defaultBulkDateForMonth(monthKey) {
+  const today = isoDateToday();
+  if (today.startsWith(monthKey)) return today;
+  return `${monthKey}-01`;
+}
+
+export function isoMonthToday() {
+  return isoDateToday().slice(0, 7);
+}
+
+export function daysInCalendarMonth(year, month) {
+  return new Date(year, month, 0).getDate();
+}
+
+export function monthKeyFromParts(year, month) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+export function parseMonthValue(monthValue) {
+  const raw = String(monthValue || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return null;
+  return { year, month, monthKey: monthKeyFromParts(year, month) };
+}
+
+export function monthDateRange(monthValue) {
+  const parsed = parseMonthValue(monthValue);
+  if (!parsed) return null;
+  const { year, month, monthKey } = parsed;
+  const daysInMonth = daysInCalendarMonth(year, month);
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    year,
+    month,
+    monthKey,
+    daysInMonth,
+    fromDate: `${monthKey}-01`,
+    toDate: `${monthKey}-${pad(daysInMonth)}`,
+  };
+}
+
+export function buildPresentKeysFromPunches(punches) {
+  const keys = new Set();
+  for (const punch of punches) {
+    const empCode = String(punch.empCode || "").trim();
+    const punchDate = normalizeDbDate(punch.punchDate);
+    if (!empCode || !punchDate) continue;
+    keys.add(`${empCode}|${punchDate}`);
+  }
+  return keys;
+}
+
+/**
+ * One row per active employee; dayMarks[1..n] hold register codes (P, A, WO, …).
+ * manualMarks[empCode][day] overrides auto Present from raw punches.
+ */
+export function buildMonthlyRegisterGrid(punches, activeEmployees, { year, month, manualMarks = {} }) {
+  const daysInMonth = daysInCalendarMonth(year, month);
+  const presentKeys = buildPresentKeysFromPunches(punches);
+  const pad = (n) => String(n).padStart(2, "0");
+  const monthPrefix = monthKeyFromParts(year, month);
+
+  const employees = [...activeEmployees].sort((a, b) =>
+    String(a.empCode).localeCompare(String(b.empCode), undefined, { numeric: true })
+  );
+
+  const rows = employees.map((emp) => {
+    const code = emp.empCode;
+    const overrides = manualMarks[code] || {};
+    const dayMarks = {};
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const iso = `${monthPrefix}-${pad(day)}`;
+      const manual = overrides[day];
+      if (manual != null && manual !== "") {
+        dayMarks[day] = manual;
+      } else if (presentKeys.has(`${code}|${iso}`)) {
+        dayMarks[day] = "P";
+      } else {
+        dayMarks[day] = "";
+      }
+    }
+
+    return {
+      id: code,
+      empCode: code,
+      employeeName: emp.employeeName,
+      dayMarks,
+    };
+  });
+
+  return { rows, daysInMonth, year, month, monthKey: monthPrefix };
+}
+
+export function readStoredRegisterMarks(monthKey) {
+  try {
+    const all = JSON.parse(localStorage.getItem(STORAGE_KEYS.registerMarks) || "{}");
+    return all[monthKey] && typeof all[monthKey] === "object" ? all[monthKey] : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeStoredRegisterMarks(monthKey, marksByEmp) {
+  try {
+    const all = JSON.parse(localStorage.getItem(STORAGE_KEYS.registerMarks) || "{}");
+    all[monthKey] = marksByEmp;
+    localStorage.setItem(STORAGE_KEYS.registerMarks, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function registerDateFromDay(monthKey, day) {
+  return `${monthKey}-${String(day).padStart(2, "0")}`;
+}
+
+/** Column header in grid: calendar day/month (e.g. 01/05). */
+export function registerDayTableLabel(monthKey, day) {
+  const parts = String(monthKey || "").match(/^(\d{4})-(\d{2})$/);
+  const mm = parts ? parts[2] : "";
+  const dd = String(day).padStart(2, "0");
+  return mm ? `${dd}/${mm}` : dd;
+}
+
+/** Export headers: full ISO date per day. */
+export function registerDayExportHeaders(monthKey, daysInMonth) {
+  return Array.from({ length: daysInMonth }, (_, i) => registerDateFromDay(monthKey, i + 1));
+}
+
+/** DB rows → manualMarks[empCode][dayNumber]. */
+export function dbRowsToManualMarks(rows) {
+  const marks = {};
+  for (const row of rows || []) {
+    const code = String(row.emp_code || "").trim();
+    const day = dayOfMonthFromIsoDate(row.register_date);
+    const mark = String(row.mark || "").trim();
+    if (!code || !day || !mark) continue;
+    if (!marks[code]) marks[code] = {};
+    marks[code][day] = mark;
+  }
+  return marks;
+}
+
+export function manualMarksToDbRows(marksByEmp, monthKey) {
+  const rows = [];
+  for (const [empCode, days] of Object.entries(marksByEmp || {})) {
+    const code = String(empCode).trim();
+    if (!code) continue;
+    for (const [dayKey, mark] of Object.entries(days || {})) {
+      const m = String(mark || "").trim();
+      if (!m) continue;
+      const day = Number(dayKey);
+      if (!Number.isFinite(day) || day < 1 || day > 31) continue;
+      rows.push({
+        emp_code: code,
+        register_date: registerDateFromDay(monthKey, day),
+        month_key: monthKey,
+        mark: m,
+        updated_at: new Date().toISOString(),
+      });
+    }
+  }
+  return rows;
+}
+
+export async function fetchRegisterMarksForMonth(supabase, { fromDate, toDate }) {
+  const { data, error } = await supabase
+    .from(ATTENDANCE_REGISTER_TABLE)
+    .select("emp_code,register_date,mark")
+    .gte("register_date", fromDate)
+    .lte("register_date", toDate);
+  if (error) throw error;
+  return dbRowsToManualMarks(data);
+}
+
+export async function upsertRegisterMarksBatch(supabase, rows) {
+  if (!rows.length) return;
+  for (let i = 0; i < rows.length; i += REGISTER_MARK_UPSERT_CHUNK) {
+    const chunk = rows.slice(i, i + REGISTER_MARK_UPSERT_CHUNK);
+    const { error } = await supabase.from(ATTENDANCE_REGISTER_TABLE).upsert(chunk, {
+      onConflict: "emp_code,register_date",
+    });
+    if (error) throw error;
+  }
+}
+
+export async function deleteRegisterMarksBatch(supabase, deletes) {
+  for (const { emp_code, register_date } of deletes) {
+    const { error } = await supabase
+      .from(ATTENDANCE_REGISTER_TABLE)
+      .delete()
+      .eq("emp_code", emp_code)
+      .eq("register_date", register_date);
+    if (error) throw error;
+  }
+}
+
+export async function upsertRegisterMark(supabase, empCode, registerDate, mark) {
+  const code = String(empCode || "").trim();
+  const date = normalizeDbDate(registerDate);
+  if (!code || !date) return;
+  if (!mark) {
+    await deleteRegisterMarksBatch(supabase, [{ emp_code: code, register_date: date }]);
+    return;
+  }
+  await upsertRegisterMarksBatch(supabase, [
+    {
+      emp_code: code,
+      register_date: date,
+      month_key: date.slice(0, 7),
+      mark: String(mark).trim(),
+      updated_at: new Date().toISOString(),
+    },
+  ]);
+}
+
+/** One-time: copy browser marks to Supabase when DB is empty for the month. */
+export async function migrateLocalRegisterMarksToDb(supabase, monthKey, fromDate, toDate) {
+  const local = readStoredRegisterMarks(monthKey);
+  const rows = manualMarksToDbRows(local, monthKey);
+  if (!rows.length) return false;
+  await upsertRegisterMarksBatch(supabase, rows);
+  return true;
+}
+
+export async function loadRegisterMarksForMonth(supabase, monthMeta) {
+  let marks = await fetchRegisterMarksForMonth(supabase, {
+    fromDate: monthMeta.fromDate,
+    toDate: monthMeta.toDate,
+  });
+  const hasDb = Object.keys(marks).length > 0;
+  const local = readStoredRegisterMarks(monthMeta.monthKey);
+  const hasLocal = Object.keys(local).length > 0;
+  if (!hasDb && hasLocal) {
+    await migrateLocalRegisterMarksToDb(supabase, monthMeta.monthKey, monthMeta.fromDate, monthMeta.toDate);
+    marks = await fetchRegisterMarksForMonth(supabase, {
+      fromDate: monthMeta.fromDate,
+      toDate: monthMeta.toDate,
+    });
+  }
+  return marks;
+}
+
+/**
+ * Monthly attendance totals per employee (for payroll).
+ * Merges raw punches + stored register marks into final day codes, then summaries.
+ */
+export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { empCode = "ALL" } = {}) {
+  const monthMeta = monthDateRange(monthValue);
+  if (!monthMeta) return { monthMeta: null, rows: [] };
+
+  const [punches, employees, manualMarks] = await Promise.all([
+    fetchAttendancePunchesInRange(supabase, {
+      fromDate: monthMeta.fromDate,
+      toDate: monthMeta.toDate,
+      empCode,
+    }),
+    fetchActiveEmployees(supabase),
+    fetchRegisterMarksForMonth(supabase, {
+      fromDate: monthMeta.fromDate,
+      toDate: monthMeta.toDate,
+    }),
+  ]);
+
+  let emps = employees;
+  const codeFilter = String(empCode || "").trim();
+  if (codeFilter && codeFilter.toUpperCase() !== "ALL") {
+    emps = emps.filter((e) => e.empCode === codeFilter);
+  }
+
+  const { rows, daysInMonth } = buildMonthlyRegisterGrid(punches, emps, {
+    year: monthMeta.year,
+    month: monthMeta.month,
+    manualMarks,
+  });
+
+  const withSummary = attachRegisterRowSummaries(rows, manualMarks, daysInMonth);
+
+  return {
+    monthMeta,
+    daysInMonth,
+    rows: withSummary.map((row) => ({
+      empCode: row.empCode,
+      employeeName: row.employeeName,
+      summary: row.summary,
+      dayMarks: row.dayMarks,
+    })),
+  };
+}
+
+export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, daysInMonth) {
+  const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const mark = row.dayMarks[day] || "";
+    if (mark === "P") summary.totalPresent += 1;
+    if (isRegisterLeaveMark(mark)) summary.leave += 1;
+    if (mark === "WO") {
+      summary.weekoff += 1;
+      if (manualMarksForEmp[day] === "WO") summary.appliedWo += 1;
+    }
+    if (isRegisterNhphMark(mark)) summary.nhph += 1;
+  }
+  return summary;
+}
+
+export function attachRegisterRowSummaries(rows, manualMarks, daysInMonth) {
+  return rows.map((row) => ({
+    ...row,
+    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth),
+  }));
+}
+
+export function computeRegisterSummaryFooter(rows) {
+  const footer = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
+  for (const row of rows) {
+    const s = row.summary;
+    if (!s) continue;
+    footer.leave += s.leave;
+    footer.weekoff += s.weekoff;
+    footer.appliedWo += s.appliedWo;
+    footer.nhph += s.nhph;
+    footer.ot += s.ot;
+    footer.totalPresent += s.totalPresent;
+  }
+  return footer;
+}
+
+export function applyBulkRegisterMarks(manualMarks, gridRows, { empCodes, dayFrom, dayTo, mark, overwrite = false }) {
+  const next = { ...manualMarks };
+  const rowByCode = new Map(gridRows.map((r) => [r.empCode, r]));
+
+  for (const code of empCodes) {
+    const row = rowByCode.get(code);
+    if (!row) continue;
+    const empMarks = { ...(next[code] || {}) };
+
+    for (let day = dayFrom; day <= dayTo; day += 1) {
+      const current = row.dayMarks[day] || "";
+      if (!overwrite && current !== "") continue;
+      empMarks[day] = mark;
+    }
+
+    if (Object.keys(empMarks).length) next[code] = empMarks;
+    else delete next[code];
+  }
+
+  return next;
+}
+
+export function computeMonthlyRegisterKpis(rows, daysInMonth) {
+  const totals = { P: 0, L: 0, WO: 0, [REGISTER_MARK_NHPH]: 0, blank: 0 };
+  for (const row of rows) {
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const mark = row.dayMarks[day] || "";
+      if (mark === "P") totals.P += 1;
+      else if (mark === "WO") totals.WO += 1;
+      else if (isRegisterNhphMark(mark)) totals[REGISTER_MARK_NHPH] += 1;
+      else if (isRegisterLeaveMark(mark)) totals.L += 1;
+      else if (!mark) totals.blank += 1;
+      else totals.blank += 1;
+    }
+  }
+  totals.leave = totals.L;
+  return totals;
+}
+
+export function getRegisterSummaryCount(kpis, row) {
+  if (row.key === "leave") return kpis.leave ?? 0;
+  return kpis[row.key] ?? 0;
+}
+
+const REGISTER_SUMMARY_HEADERS = ["Leave", "Weekoff", "Applied WO", "NH/PH", "OT", "Total present"];
+
+function summaryCellsForRow(row) {
+  const s = row.summary || {};
+  return [s.leave ?? 0, s.weekoff ?? 0, s.appliedWo ?? 0, s.nhph ?? 0, s.ot ?? 0, s.totalPresent ?? 0];
+}
+
+export function buildMonthlyRegisterCsv(rows, daysInMonth, monthKey) {
+  const dayHeaders = monthKey ? registerDayExportHeaders(monthKey, daysInMonth) : [];
+  const header = [
+    "Employee ID",
+    "Employee Name",
+    ...(dayHeaders.length ? dayHeaders : Array.from({ length: daysInMonth }, (_, i) => `d${i + 1}`)),
+    ...REGISTER_SUMMARY_HEADERS,
+  ];
+  const lines = rows.map((row) => {
+    const days = Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || "");
+    return [row.empCode, row.employeeName, ...days, ...summaryCellsForRow(row)].map(csvEscape).join(",");
+  });
+  const footer = computeRegisterSummaryFooter(rows);
+  const footerLine = [
+    "Total",
+    "",
+    ...Array(daysInMonth).fill(""),
+    footer.leave,
+    footer.weekoff,
+    footer.appliedWo,
+    footer.nhph,
+    footer.ot,
+    footer.totalPresent,
+  ]
+    .map(csvEscape)
+    .join(",");
+  return [header.map(csvEscape).join(","), ...lines, footerLine].join("\r\n");
+}
+
+export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) {
+  const XLSX = await import("xlsx");
+  const dayHeaders = registerDayExportHeaders(monthKey, daysInMonth);
+  const header = ["Employee ID", "Employee Name", ...dayHeaders, ...REGISTER_SUMMARY_HEADERS];
+  const data = rows.map((row) => [
+    row.empCode,
+    row.employeeName,
+    ...Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || ""),
+    ...summaryCellsForRow(row),
+  ]);
+  const footer = computeRegisterSummaryFooter(rows);
+  data.push([
+    "Total",
+    "",
+    ...Array(daysInMonth).fill(""),
+    footer.leave,
+    footer.weekoff,
+    footer.appliedWo,
+    footer.nhph,
+    footer.ot,
+    footer.totalPresent,
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Register");
+  XLSX.writeFile(wb, `daily-attendance-register-${monthKey}.xlsx`);
+}
+
+/** Full row including JSON payload (sync / export). */
+const PUNCH_SELECT =
+  "id,punch_key,emp_code,employee_name,punch_date,punch_time,device_name,direction,status,synced_at,source_payload";
+
+/** Fast list query — no source_payload (large jsonb). */
+export const PUNCH_LIST_SELECT =
+  "id,punch_key,emp_code,employee_name,punch_date,punch_time,device_name,direction,status,synced_at";
+
+export function normalizeDbDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const slash = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (slash) {
+    const [, dd, mm, yyyy] = slash;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return null;
+}
+
+export function normalizeDbTime(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/\b(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return null;
+  return `${match[1]}:${match[2]}:${match[3] || "00"}`;
+}
+
+export function mapDbPunchToViewRow(row) {
+  const sourcePunchDate = row.source_payload?.PunchDate || row.source_payload?.PunchDateTime || "";
+  const punchTime = row.punch_time || normalizeDbTime(sourcePunchDate) || normalizeDbTime(row.punch_date);
+  return {
+    id: row.id || row.punch_key,
+    empCode: row.emp_code || "",
+    employeeName: row.employee_name || "",
+    punchDate: row.punch_date || "",
+    punchTime: punchTime ? String(punchTime).slice(0, 5) : "",
+    deviceName: row.device_name || "",
+    direction: row.direction || "",
+    status: row.status || "",
+    syncedAt: row.synced_at || "",
+  };
+}
+
+export function isoDateToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function isoDateDaysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function readStoredShiftTimes() {
+  try {
+    return {
+      expectedIn: localStorage.getItem(STORAGE_KEYS.expectedIn) || "09:00",
+      expectedOut: localStorage.getItem(STORAGE_KEYS.expectedOut) || "18:00",
+    };
+  } catch {
+    return { expectedIn: "09:00", expectedOut: "18:00" };
+  }
+}
+
+export function writeStoredShiftTimes({ expectedIn, expectedOut }) {
+  try {
+    if (expectedIn) localStorage.setItem(STORAGE_KEYS.expectedIn, expectedIn);
+    if (expectedOut) localStorage.setItem(STORAGE_KEYS.expectedOut, expectedOut);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function normalizeDirection(value) {
+  const v = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (["in", "i", "1", "punch in", "punchin"].includes(v)) return "in";
+  if (["out", "o", "0", "punch out", "punchout"].includes(v)) return "out";
+  return "";
+}
+
+export function timeToMinutes(timeStr) {
+  const m = String(timeStr || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+export function formatWorkedMinutes(minutes) {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return "—";
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+export function weekdayShort(isoDate) {
+  if (!isoDate) return "";
+  const d = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-IN", { weekday: "short" });
+}
+
+export function enumerateDates(fromDate, toDate) {
+  const from = normalizeDbDate(fromDate);
+  const to = normalizeDbDate(toDate);
+  if (!from || !to || from > to) return [];
+  const out = [];
+  const cur = new Date(`${from}T12:00:00`);
+  const end = new Date(`${to}T12:00:00`);
+  while (cur <= end) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth() + 1).padStart(2, "0");
+    const d = String(cur.getDate()).padStart(2, "0");
+    out.push(`${y}-${m}-${d}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+export function comparePunchInStatus(punchIn, expectedIn) {
+  const inMin = timeToMinutes(punchIn);
+  const expMin = timeToMinutes(expectedIn);
+  if (inMin == null || expMin == null) return "—";
+  return inMin > expMin ? "Late" : "On time";
+}
+
+export function comparePunchOutStatus(punchOut, expectedOut) {
+  const outMin = timeToMinutes(punchOut);
+  const expMin = timeToMinutes(expectedOut);
+  if (outMin == null || expMin == null) return "—";
+  if (outMin < expMin) return "Early";
+  if (outMin > expMin) return "Late";
+  return "On time";
+}
+
+function sortPunchesByTime(punches) {
+  return [...punches].sort((a, b) => {
+    const ta = timeToMinutes(a.punchTime) ?? 0;
+    const tb = timeToMinutes(b.punchTime) ?? 0;
+    return ta - tb;
+  });
+}
+
+function pickInOutTimes(sortedPunches) {
+  const withDir = sortedPunches.filter((p) => normalizeDirection(p.direction));
+  const ins = withDir.filter((p) => normalizeDirection(p.direction) === "in");
+  const outs = withDir.filter((p) => normalizeDirection(p.direction) === "out");
+
+  let punchIn = "";
+  let punchOut = "";
+  let incomplete = false;
+  const remarks = [];
+
+  if (ins.length || outs.length) {
+    punchIn = ins.length ? ins[0].punchTime : "";
+    punchOut = outs.length ? outs[outs.length - 1].punchTime : "";
+    if (ins.length > 1) remarks.push(`Multiple in (${ins.length})`);
+    if (outs.length > 1) remarks.push(`Multiple out (${outs.length})`);
+    if (!punchIn && outs.length) punchIn = sortedPunches[0]?.punchTime || "";
+    if (!punchOut && ins.length) punchOut = sortedPunches[sortedPunches.length - 1]?.punchTime || "";
+  } else if (sortedPunches.length === 1) {
+    punchIn = sortedPunches[0].punchTime;
+    incomplete = true;
+    remarks.push("No punch out");
+  } else if (sortedPunches.length >= 2) {
+    punchIn = sortedPunches[0].punchTime;
+    punchOut = sortedPunches[sortedPunches.length - 1].punchTime;
+    if (sortedPunches.length > 2) remarks.push(`Multiple punches (${sortedPunches.length})`);
+  }
+
+  if (punchIn && !punchOut) {
+    incomplete = true;
+    if (!remarks.some((r) => r.includes("No punch out"))) remarks.push("No punch out");
+  }
+
+  if (punchIn && punchOut) {
+    const inM = timeToMinutes(punchIn);
+    const outM = timeToMinutes(punchOut);
+    if (inM != null && outM != null && outM < inM) {
+      incomplete = true;
+      remarks.push("Out before in (same day)");
+    }
+  }
+
+  let workedMinutes = null;
+  if (punchIn && punchOut && !incomplete) {
+    const inM = timeToMinutes(punchIn);
+    const outM = timeToMinutes(punchOut);
+    if (inM != null && outM != null && outM >= inM) workedMinutes = outM - inM;
+  } else if (punchIn && punchOut) {
+    const inM = timeToMinutes(punchIn);
+    const outM = timeToMinutes(punchOut);
+    if (inM != null && outM != null && outM >= inM) workedMinutes = outM - inM;
+  }
+
+  if (incomplete && !remarks.length) remarks.push("Incomplete");
+
+  return { punchIn, punchOut, workedMinutes, incomplete, remarks };
+}
+
+export function pairPunchesToDailyRows(punches, { expectedIn = "09:00", expectedOut = "18:00" } = {}) {
+  const groups = new Map();
+
+  for (const punch of punches) {
+    const empCode = String(punch.empCode || "").trim();
+    const punchDate = normalizeDbDate(punch.punchDate);
+    if (!empCode || !punchDate) continue;
+    const key = `${empCode}|${punchDate}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        empCode,
+        employeeName: punch.employeeName || "",
+        punchDate,
+        punches: [],
+      });
+    }
+    const g = groups.get(key);
+    if (punch.employeeName && !g.employeeName) g.employeeName = punch.employeeName;
+    g.punches.push(punch);
+  }
+
+  const rows = [];
+  for (const g of groups.values()) {
+    const sorted = sortPunchesByTime(g.punches);
+    const { punchIn, punchOut, workedMinutes, incomplete, remarks } = pickInOutTimes(sorted);
+    const punchCount = sorted.length;
+
+    rows.push({
+      id: `${g.empCode}|${g.punchDate}`,
+      empCode: g.empCode,
+      employeeName: g.employeeName,
+      punchDate: g.punchDate,
+      day: weekdayShort(g.punchDate),
+      punchIn,
+      punchOut,
+      workedMinutes,
+      workedHours: formatWorkedMinutes(workedMinutes),
+      present: "Yes",
+      punchInStatus: comparePunchInStatus(punchIn, expectedIn),
+      punchOutStatus: comparePunchOutStatus(punchOut, expectedOut),
+      punchCount,
+      remarks: remarks.join("; ") || (incomplete ? "Incomplete" : ""),
+      department: "",
+      isAbsent: false,
+    });
+  }
+
+  return rows;
+}
+
+export function masterMatchCode(employee) {
+  const code = String(employee?.emp_code || "").trim();
+  if (code) return code;
+  const sysId = String(employee?.employee_id || "").trim();
+  return sysId || "";
+}
+
+export function mapMasterEmployee(row) {
+  return {
+    empCode: masterMatchCode(row),
+    employeeName: row.full_name || row.name || "",
+    department: row.department || "",
+    employeeId: row.employee_id || "",
+  };
+}
+
+export function mergeAbsentRows(dailyRows, activeEmployees, fromDate, toDate) {
+  const dates = enumerateDates(fromDate, toDate);
+  const presentKeys = new Set(dailyRows.map((r) => `${r.empCode}|${r.punchDate}`));
+  const absentRows = [];
+
+  for (const date of dates) {
+    for (const emp of activeEmployees) {
+      const code = emp.empCode;
+      if (!code) continue;
+      const key = `${code}|${date}`;
+      if (presentKeys.has(key)) continue;
+      absentRows.push({
+        id: `absent|${code}|${date}`,
+        empCode: code,
+        employeeName: emp.employeeName,
+        punchDate: date,
+        day: weekdayShort(date),
+        punchIn: "",
+        punchOut: "",
+        workedMinutes: null,
+        workedHours: "—",
+        present: "No",
+        punchInStatus: "—",
+        punchOutStatus: "—",
+        punchCount: 0,
+        remarks: "Absent",
+        department: emp.department || "",
+        isAbsent: true,
+      });
+    }
+  }
+
+  return [...dailyRows, ...absentRows];
+}
+
+export function estimateAbsentGridSize(fromDate, toDate, employeeCount) {
+  const days = enumerateDates(fromDate, toDate).length;
+  return days * employeeCount;
+}
+
+export function computeDailyKpis(rows) {
+  const present = rows.filter((r) => r.present === "Yes").length;
+  const absent = rows.filter((r) => r.isAbsent || r.present === "No").length;
+  const lateIn = rows.filter((r) => r.punchInStatus === "Late").length;
+  const earlyOut = rows.filter((r) => r.punchOutStatus === "Early").length;
+  const incomplete = rows.filter((r) => r.remarks && /incomplete|no punch out/i.test(r.remarks)).length;
+  const withHours = rows.filter((r) => r.workedMinutes != null && r.workedMinutes > 0);
+  const avgMinutes =
+    withHours.length > 0
+      ? Math.round(withHours.reduce((s, r) => s + r.workedMinutes, 0) / withHours.length)
+      : null;
+
+  return { present, absent, lateIn, earlyOut, incomplete, avgHours: formatWorkedMinutes(avgMinutes) };
+}
+
+export function getDailySortValue(row, sortKey) {
+  switch (sortKey) {
+    case "punchDate":
+      return row.punchDate || "";
+    case "empCode":
+      return String(row.empCode || "").toLowerCase();
+    case "employeeName":
+      return String(row.employeeName || "").toLowerCase();
+    case "punchIn":
+      return row.punchIn || "";
+    case "punchOut":
+      return row.punchOut || "";
+    case "workedHours":
+      return row.workedMinutes ?? -1;
+    case "present":
+      return row.present || "";
+    default:
+      return String(row[sortKey] || "").toLowerCase();
+  }
+}
+
+function applyPunchFilters(query, { fromDate, toDate, empCode, search }) {
+  if (fromDate) query = query.gte("punch_date", fromDate);
+  if (toDate) query = query.lte("punch_date", toDate);
+  const code = String(empCode || "").trim();
+  if (code && code.toUpperCase() !== "ALL") query = query.eq("emp_code", code);
+  const term = String(search || "").trim();
+  if (term) {
+    const q = `%${term.replace(/%/g, "")}%`;
+    query = query.or(
+      `emp_code.ilike.${q},employee_name.ilike.${q},device_name.ilike.${q},direction.ilike.${q},status.ilike.${q}`
+    );
+  }
+  return query;
+}
+
+function applyPunchSort(query, sortKey, sortDir) {
+  const asc = sortDir === "asc";
+  switch (sortKey) {
+    case "empCode":
+      return query.order("emp_code", { ascending: asc, nullsFirst: false });
+    case "employeeName":
+      return query.order("employee_name", { ascending: asc, nullsFirst: false });
+    case "deviceName":
+      return query.order("device_name", { ascending: asc, nullsFirst: false });
+    case "status":
+      return query.order("status", { ascending: asc, nullsFirst: false });
+    case "punchDateTime":
+    default:
+      return query
+        .order("punch_date", { ascending: asc, nullsFirst: false })
+        .order("punch_time", { ascending: asc, nullsFirst: false });
+  }
+}
+
+/**
+ * Paginated read from erp_attendance_punches (display path — no API call).
+ */
+export async function fetchAttendancePunchesPage(supabase, options = {}) {
+  const {
+    fromDate,
+    toDate,
+    empCode = "ALL",
+    page = 1,
+    pageSize = 50,
+    search = "",
+    sortKey = "punchDateTime",
+    sortDir = "desc",
+  } = options;
+
+  const safePage = Math.max(1, page);
+  const safeSize = Math.min(200, Math.max(1, pageSize));
+  const from = (safePage - 1) * safeSize;
+  const to = from + safeSize - 1;
+
+  let query = supabase.from(ATTENDANCE_PUNCH_TABLE).select(PUNCH_LIST_SELECT, { count: "exact" });
+  query = applyPunchFilters(query, { fromDate, toDate, empCode, search });
+  query = applyPunchSort(query, sortKey, sortDir);
+  query = query.range(from, to);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  return {
+    rows: (data || []).map(mapDbPunchToViewRow),
+    total: count ?? 0,
+    page: safePage,
+    pageSize: safeSize,
+  };
+}
+
+export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate, empCode }) {
+  const all = [];
+  let offset = 0;
+
+  while (true) {
+    let query = supabase
+      .from(ATTENDANCE_PUNCH_TABLE)
+      .select(PUNCH_LIST_SELECT)
+      .order("punch_date", { ascending: true })
+      .order("punch_time", { ascending: true })
+      .range(offset, offset + PUNCH_FETCH_CHUNK - 1);
+
+    if (fromDate) query = query.gte("punch_date", fromDate);
+    if (toDate) query = query.lte("punch_date", toDate);
+    if (empCode && String(empCode).trim().toUpperCase() !== "ALL") {
+      query = query.eq("emp_code", String(empCode).trim());
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    const chunk = (data || []).map(mapDbPunchToViewRow);
+    all.push(...chunk);
+    if (chunk.length < PUNCH_FETCH_CHUNK) break;
+    offset += PUNCH_FETCH_CHUNK;
+  }
+
+  return all;
+}
+
+export async function fetchActiveEmployees(supabase) {
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("emp_code,employee_id,full_name,department,status")
+    .eq("status", "Active");
+  if (error) throw error;
+  return (data || []).map(mapMasterEmployee).filter((e) => e.empCode);
+}
+
+export function attachDepartments(dailyRows, activeEmployees) {
+  const deptByCode = new Map(activeEmployees.map((e) => [e.empCode, e.department || ""]));
+  return dailyRows.map((r) => ({
+    ...r,
+    department: r.department || deptByCode.get(r.empCode) || "",
+  }));
+}
+
+const CSV_COLUMNS = [
+  { key: "empCode", label: "Emp code" },
+  { key: "employeeName", label: "Employee" },
+  { key: "department", label: "Department" },
+  { key: "punchDate", label: "Date" },
+  { key: "day", label: "Day" },
+  { key: "punchIn", label: "Punch in" },
+  { key: "punchOut", label: "Punch out" },
+  { key: "workedHours", label: "Worked hours" },
+  { key: "present", label: "Present" },
+  { key: "punchInStatus", label: "Punch-in status" },
+  { key: "punchOutStatus", label: "Punch-out status" },
+  { key: "punchCount", label: "Punch count" },
+  { key: "remarks", label: "Remarks" },
+];
+
+function csvEscape(value) {
+  const s = String(value ?? "");
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export function buildDailyAttendanceCsv(rows) {
+  const header = CSV_COLUMNS.map((c) => csvEscape(c.label)).join(",");
+  const lines = rows.map((row) => CSV_COLUMNS.map((c) => csvEscape(row[c.key])).join(","));
+  return [header, ...lines].join("\r\n");
+}
+
+export function downloadCsv(content, filename) {
+  const blob = new Blob(["\uFEFF" + content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function buildDailyRegisterRows(punches, activeEmployees, options) {
+  const {
+    fromDate,
+    toDate,
+    expectedIn = "09:00",
+    expectedOut = "18:00",
+    showAbsent = false,
+    empCodeFilter = "",
+  } = options;
+
+  let daily = pairPunchesToDailyRows(punches, { expectedIn, expectedOut });
+  daily = attachDepartments(daily, activeEmployees);
+
+  let employees = activeEmployees;
+  const codeFilter = String(empCodeFilter || "").trim();
+  if (codeFilter && codeFilter.toUpperCase() !== "ALL") {
+    employees = employees.filter((e) => e.empCode === codeFilter);
+    daily = daily.filter((r) => r.empCode === codeFilter);
+  }
+
+  if (showAbsent) {
+    const gridSize = estimateAbsentGridSize(fromDate, toDate, employees.length);
+    if (gridSize > ABSENT_GRID_CAP) {
+      return {
+        rows: daily,
+        gridTooLarge: true,
+        gridSize,
+        cap: ABSENT_GRID_CAP,
+      };
+    }
+    daily = mergeAbsentRows(daily, employees, fromDate, toDate);
+    daily = attachDepartments(daily, activeEmployees);
+  }
+
+  daily.sort((a, b) => {
+    const d = (b.punchDate || "").localeCompare(a.punchDate || "");
+    if (d !== 0) return d;
+    return String(a.empCode).localeCompare(String(b.empCode));
+  });
+
+  return { rows: daily, gridTooLarge: false, gridSize: 0, cap: ABSENT_GRID_CAP };
+}

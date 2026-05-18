@@ -14,6 +14,11 @@ import {
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import {
+  fetchAttendancePunchesPage,
+  isoDateDaysAgo,
+  isoDateToday,
+} from "../../../lib/attendanceDaily";
+import {
   mockEmployees,
   mockOnboarding,
   mockLeaveRequests,
@@ -141,7 +146,12 @@ export function EmployeeMasterPage() {
                 </ul>
               )}
               {tab === "Leave" && <LinkedChip label="Open leave workflow" toHint="Leaves" />}
-              {tab === "Attendance" && <LinkedChip label="Raw data" toHint="Raw Attendance Data" />}
+              {tab === "Attendance" && (
+                <div className="flex flex-wrap gap-2">
+                  <LinkedChip label="Daily register" toHint="Daily Attendance Register" />
+                  <LinkedChip label="Raw punches" toHint="Raw Attendance Data" />
+                </div>
+              )}
               {tab === "Exit status" && <LinkedChip label="Exit & F&F" toHint="linked clearance" />}
             </div>
             <div>
@@ -220,10 +230,9 @@ export function EmployeeOnboardingPage() {
   );
 }
 
-const DEFAULT_ATTENDANCE_FROM = "2024-01-01";
-const DEFAULT_ATTENDANCE_TO = "2026-05-12";
+const DEFAULT_ATTENDANCE_FROM = isoDateDaysAgo(7);
+const DEFAULT_ATTENDANCE_TO = isoDateToday();
 const ATTENDANCE_TABLE = "erp_attendance_punches";
-const ATTENDANCE_TABLE_LIMIT = 1000;
 const ATTENDANCE_UPSERT_CHUNK = 500;
 const ATTENDANCE_PAGE_SIZES = [25, 50, 100, 200];
 const ATTENDANCE_SORT_OPTIONS = [
@@ -302,11 +311,6 @@ function mapDbPunchToViewRow(row) {
   };
 }
 
-function getAttendanceSortValue(row, sortKey) {
-  if (sortKey === "punchDateTime") return `${row.punchDate || ""} ${row.punchTime || ""}`;
-  return String(row[sortKey] || "").toLowerCase();
-}
-
 async function upsertAttendanceRows(rows) {
   const uniqueRows = Array.from(new Map(rows.map((row) => [row.punch_key, row])).values());
   for (let i = 0; i < uniqueRows.length; i += ATTENDANCE_UPSERT_CHUNK) {
@@ -322,7 +326,9 @@ export function EmployeeAttendanceInputsPage() {
   const [toDate, setToDate] = useState(DEFAULT_ATTENDANCE_TO);
   const [empCode, setEmpCode] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
   const [rows, setRows] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -332,35 +338,38 @@ export function EmployeeAttendanceInputsPage() {
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchDebounced(search), 350);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const loadAttendanceFromTable = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      let query = supabase
-        .from(ATTENDANCE_TABLE)
-        .select("id,punch_key,emp_code,employee_name,punch_date,punch_time,device_name,direction,status,synced_at,source_payload")
-        .order("punch_date", { ascending: false, nullsFirst: false })
-        .order("punch_time", { ascending: false, nullsFirst: false })
-        .limit(ATTENDANCE_TABLE_LIMIT);
-
-      if (fromDate) query = query.gte("punch_date", fromDate);
-      if (toDate) query = query.lte("punch_date", toDate);
-      if (empCode.trim() && empCode.trim().toUpperCase() !== "ALL") {
-        query = query.eq("emp_code", empCode.trim());
-      }
-
-      const { data, error: tableError } = await query;
-      if (tableError) throw tableError;
-      setRows((data || []).map(mapDbPunchToViewRow));
+      const result = await fetchAttendancePunchesPage(supabase, {
+        fromDate,
+        toDate,
+        empCode: empCode.trim() || "ALL",
+        page,
+        pageSize,
+        search: searchDebounced,
+        sortKey,
+        sortDir,
+      });
+      setRows(result.rows);
+      setTotalCount(result.total);
       setSummary((prev) => ({
         ...(prev || {}),
         source: "Supabase",
         fromDate,
         toDate,
-        count: data?.length || 0,
+        count: result.total,
+        tablePage: result.page,
       }));
     } catch (err) {
       setRows([]);
+      setTotalCount(0);
       const msg = err?.message || "Unable to fetch attendance punches from Supabase.";
       setError(
         msg.includes("erp_attendance_punches") || err?.code === "PGRST205"
@@ -370,7 +379,7 @@ export function EmployeeAttendanceInputsPage() {
     } finally {
       setLoading(false);
     }
-  }, [empCode, fromDate, toDate]);
+  }, [empCode, fromDate, page, pageSize, searchDebounced, sortDir, sortKey, toDate]);
 
   const syncAttendanceFromApi = useCallback(async () => {
     const params = new URLSearchParams({
@@ -394,51 +403,38 @@ export function EmployeeAttendanceInputsPage() {
         syncedCount: storedCount,
         message: storedCount ? `${storedCount} unique API punch row(s) stored in Supabase.` : data?.message || "No API punch rows found.",
       });
-      await loadAttendanceFromTable();
+      const result = await fetchAttendancePunchesPage(supabase, {
+        fromDate,
+        toDate,
+        empCode: empCode.trim() || "ALL",
+        page: 1,
+        pageSize,
+        search: searchDebounced,
+        sortKey,
+        sortDir,
+      });
+      setPage(1);
+      setRows(result.rows);
+      setTotalCount(result.total);
     } catch (err) {
       setError(err?.message || "Unable to sync attendance punches.");
     } finally {
       setSyncing(false);
     }
-  }, [empCode, fromDate, loadAttendanceFromTable, toDate]);
+  }, [empCode, fromDate, pageSize, searchDebounced, sortDir, sortKey, toDate]);
 
   useEffect(() => {
     loadAttendanceFromTable();
   }, [loadAttendanceFromTable]);
 
-  const filteredRows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return rows;
-    return rows.filter((row) =>
-      [row.empCode, row.employeeName, row.punchDate, row.punchTime, row.deviceName, row.direction, row.status]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle)
-    );
-  }, [rows, search]);
-
-  const sortedRows = useMemo(() => {
-    return [...filteredRows].sort((a, b) => {
-      const av = getAttendanceSortValue(a, sortKey);
-      const bv = getAttendanceSortValue(b, sortKey);
-      if (av < bv) return sortDir === "asc" ? -1 : 1;
-      if (av > bv) return sortDir === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [filteredRows, sortDir, sortKey]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = sortedRows.length ? (currentPage - 1) * pageSize + 1 : 0;
-  const pageEnd = Math.min(currentPage * pageSize, sortedRows.length);
-  const pagedRows = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sortedRows.slice(start, start + pageSize);
-  }, [currentPage, pageSize, sortedRows]);
+  const pageStart = totalCount ? (currentPage - 1) * pageSize + 1 : 0;
+  const pageEnd = Math.min(currentPage * pageSize, totalCount);
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize, rows.length, search, sortDir, sortKey]);
+  }, [fromDate, toDate, empCode, pageSize, searchDebounced, sortDir, sortKey]);
 
   return (
     <SectionCard
@@ -500,6 +496,12 @@ export function EmployeeAttendanceInputsPage() {
         </button>
       </FilterBar>
 
+      <p className="mt-2 text-[11px] text-gray-600 rounded-lg border border-blue-100 bg-blue-50/80 px-3 py-2">
+        <span className="font-medium text-blue-900">Display is from Supabase</span> (table{" "}
+        <code className="text-[10px]">erp_attendance_punches</code>). Click{" "}
+        <span className="font-medium">Sync eTimeOffice</span> to fetch API data into the table; the grid then reloads from the database (fast).
+      </p>
+
       {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>}
 
       <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -514,11 +516,11 @@ export function EmployeeAttendanceInputsPage() {
               { key: "direction", label: "In/Out" },
               { key: "status", label: "Status" },
             ]}
-            rows={pagedRows}
+            rows={rows}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>
-              Showing {pageStart}-{pageEnd} of {sortedRows.length} record(s)
+              Showing {pageStart}-{pageEnd} of {totalCount} record(s) in range
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -548,7 +550,7 @@ export function EmployeeAttendanceInputsPage() {
             items={[
               { title: "Source", meta: "Supabase table · eTimeOffice sync" },
               { title: "Range", meta: summary ? `${summary.fromDate} to ${summary.toDate}` : "Waiting for fetch" },
-              { title: "Records loaded", meta: `${sortedRows.length} filtered / ${rows.length} from table` },
+              { title: "Records in range", meta: `${totalCount} total · page ${currentPage} (${rows.length} shown)` },
               { title: "Last API sync", meta: summary?.syncedCount != null ? `${summary.syncedCount} stored` : "Not synced this session" },
             ]}
           />
@@ -847,3 +849,5 @@ export function EmployeeExitPage() {
     </SectionCard>
   );
 }
+
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import {
   nextIfsplEmployeeSystemId,
@@ -39,6 +39,35 @@ import {
 const th = 'px-2 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-tight whitespace-nowrap border-b border-gray-200';
 const td = 'px-2 py-2 text-xs text-gray-900 whitespace-nowrap max-w-[180px] truncate';
 
+function compareEmployeeSortField(a, b, field, direction) {
+  const asc = direction === 'asc';
+  const av = a?.[field];
+  const bv = b?.[field];
+
+  if (field === 'date_of_joining' || field === 'date_of_birth' || field === 'date_of_anniversary' || field === 'date_of_leaving') {
+    const ad = av ? new Date(av).getTime() : 0;
+    const bd = bv ? new Date(bv).getTime() : 0;
+    if (ad === bd) return 0;
+    return asc ? ad - bd : bd - ad;
+  }
+
+  if (field === 'other_experience' || field === 'ifspl_experience' || field === 'years_of_experience') {
+    const an = av == null || av === '' ? null : Number(av);
+    const bn = bv == null || bv === '' ? null : Number(bv);
+    if (an == null && bn == null) return 0;
+    if (an == null) return asc ? 1 : -1;
+    if (bn == null) return asc ? -1 : 1;
+    if (an === bn) return 0;
+    return asc ? an - bn : bn - an;
+  }
+
+  const as = String(av ?? '').toLowerCase();
+  const bs = String(bv ?? '').toLowerCase();
+  if (as === bs) return 0;
+  if (as < bs) return asc ? -1 : 1;
+  return asc ? 1 : -1;
+}
+
 const IfspEmployeeMaster = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +85,7 @@ const IfspEmployeeMaster = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
   const [importBusy, setImportBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const fileInputRef = useRef(null);
 
   const deleteAllEmployees = async () => {
@@ -146,6 +176,48 @@ const IfspEmployeeMaster = () => {
   const religions = ['Hindu', 'Muslim', 'Christian', 'Sikh', 'Buddhist', 'Jain', 'Other'];
   const maritalStatuses = ['Single', 'Married', 'Widowed', 'Divorced', 'Other'];
   const statusOptions = ['Active', 'Inactive'];
+
+  /** snake_case columns — matches import template and table headers */
+  const EMPLOYEE_EXPORT_FIELDS = [
+    'employee_id',
+    'emp_code',
+    'timestamp',
+    'full_name',
+    'gender',
+    'date_of_joining',
+    'designation',
+    'department',
+    'location',
+    'date_of_birth',
+    'date_of_anniversary',
+    'blood_group',
+    'aadhar_no',
+    'pan_card_no',
+    'religion',
+    'father_name',
+    'mother_name',
+    'spouse_name',
+    'son_details',
+    'daughter_details',
+    'address',
+    'full_address',
+    'personal_no',
+    'emergency_no',
+    'identification_mark',
+    'educational_qualification',
+    'other_experience',
+    'ifspl_experience',
+    'years_of_experience',
+    'date_of_leaving',
+    'status',
+    'uan_no',
+    'esic_no',
+    'bank_name',
+    'bank_account_no',
+    'ifsc_code',
+    'email_id',
+    'marital_status',
+  ];
 
   const openAddForm = () => {
     setEditingEmployee(null);
@@ -394,7 +466,7 @@ const IfspEmployeeMaster = () => {
         .from('admin_ifsp_employee_master')
         .select('*')
         .eq('user_id', user.id)
-        .order(sortField, { ascending: sortDirection === 'asc' });
+        .order('employee_id', { ascending: true });
 
       if (error) throw error;
       setEmployees(data || []);
@@ -404,7 +476,7 @@ const IfspEmployeeMaster = () => {
     } finally {
       setLoading(false);
     }
-  }, [sortField, sortDirection]);
+  }, []);
 
   useEffect(() => {
     fetchEmployees();
@@ -644,9 +716,23 @@ const IfspEmployeeMaster = () => {
       setSortField(field);
       setSortDirection('asc');
     }
+    setCurrentPage(1);
   };
 
-  const filteredEmployees = employees.filter((employee) => {
+  const exportCellValue = (employee, field) => {
+    let value = employee[field];
+    if (value == null || value === '') return '';
+    if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+    return value;
+  };
+
+  const filteredEmployees = useMemo(() => employees.filter((employee) => {
     const st = searchTerm.trim().toLowerCase();
     const matchesSearch =
       !st ||
@@ -669,7 +755,10 @@ const IfspEmployeeMaster = () => {
     const matchesSystemId = !sys || String(employee.employee_id || '').toLowerCase().includes(sys);
 
     const code = filterEmployeeCode.trim().toLowerCase();
-    const matchesEmpCode = !code || String(employee.employee_id || '').toLowerCase().includes(code);
+    const matchesEmpCode =
+      !code ||
+      String(employee.emp_code || '').toLowerCase().includes(code) ||
+      String(employee.employee_id || '').toLowerCase().includes(code);
 
     const matchesDepartment = departmentFilter === 'All' || employee.department === departmentFilter;
     const matchesDesignation = designationFilter === 'All' || employee.designation === designationFilter;
@@ -684,13 +773,61 @@ const IfspEmployeeMaster = () => {
       matchesDesignation &&
       matchesStatus
     );
-  });
+  }), [
+    employees,
+    searchTerm,
+    filterFullName,
+    filterSystemId,
+    filterEmployeeCode,
+    departmentFilter,
+    designationFilter,
+    statusFilter,
+  ]);
+
+  const sortedFilteredEmployees = useMemo(() => {
+    const list = [...filteredEmployees];
+    list.sort((a, b) => compareEmployeeSortField(a, b, sortField, sortDirection));
+    return list;
+  }, [filteredEmployees, sortField, sortDirection]);
+
+  const handleExportExcel = () => {
+    if (!filteredEmployees.length) {
+      alert('No employees to export for the current filters.');
+      return;
+    }
+
+    setExportBusy(true);
+    try {
+      const sheetRows = sortedFilteredEmployees.map((emp) => {
+        const out = {};
+        for (const field of EMPLOYEE_EXPORT_FIELDS) {
+          out[field] = exportCellValue(emp, field);
+        }
+        if (out.years_of_experience === '' || out.years_of_experience == null) {
+          const total = computeTotalExperienceYears(emp.date_of_joining, emp.other_experience);
+          if (total != null) out.years_of_experience = total;
+        }
+        return out;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(sheetRows, { header: EMPLOYEE_EXPORT_FIELDS });
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Employee Master');
+      const stamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `ifspl-employee-master-${stamp}.xlsx`);
+    } catch (e) {
+      console.error('Export failed:', e);
+      alert(e?.message || 'Failed to export Excel file.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   // Pagination
-  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredEmployees.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentEmployees = filteredEmployees.slice(startIndex, endIndex);
+  const currentEmployees = sortedFilteredEmployees.slice(startIndex, endIndex);
   const formTotalExperiencePreview = computeTotalExperienceYears(formData.date_of_joining, formData.other_experience);
 
   if (loading) {
@@ -738,9 +875,14 @@ const IfspEmployeeMaster = () => {
             <Trash2 className="h-5 w-5" />
             <span>Delete All</span>
           </button>
-          <button className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={exportBusy || !sortedFilteredEmployees.length}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-60 flex items-center gap-2 whitespace-nowrap"
+          >
             <Download className="h-5 w-5" />
-            <span>Export Excel</span>
+            <span>{exportBusy ? 'Exporting…' : 'Export Excel'}</span>
           </button>
         </div>
       </div>
@@ -853,11 +995,11 @@ const IfspEmployeeMaster = () => {
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full min-w-0 flex flex-col flex-1 min-h-0">
         <div className="px-6 py-3 border-b border-gray-200 flex justify-between items-center shrink-0">
           <h3 className="text-lg font-semibold text-gray-900">
-            Employee Database ({filteredEmployees.length} records)
+            Employee Database ({sortedFilteredEmployees.length} records)
           </h3>
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-500">
-              Showing {startIndex + 1}-{Math.min(endIndex, filteredEmployees.length)} of {filteredEmployees.length}
+              Showing {sortedFilteredEmployees.length ? startIndex + 1 : 0}-{Math.min(endIndex, sortedFilteredEmployees.length)} of {sortedFilteredEmployees.length}
             </span>
             <div className="flex space-x-2">
               <button
