@@ -1847,5 +1847,11 @@ alter table public.software_subscriptions
   check (billing_type in ('prepaid', 'postpaid'));
 
 -- =============================================================================
+-- BEGIN: 20260519120000_amc_management_schema.sql
+-- =============================================================================
+-- Run full file: supabase/migrations/20260519120000_amc_management_schema.sql
+-- AMC Management module tables, views, RLS
+
+-- =============================================================================
 -- END: Consolidated migrations
 -- =============================================================================
