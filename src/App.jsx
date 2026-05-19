@@ -39,6 +39,7 @@ import CommercialRmInternalQuotation from "./pages/commercial-rm-mm-amc-iev/Inte
 import FireTenderVehicleManagement from "./pages/fireTenderVehicle/FireTenderVehicleManagement";
 import Payroll from "./pages/payroll/Payroll";
 import Attendance from "./pages/attendance/Attendance";
+import Salary from "./pages/salary/Salary";
 import StoreInventory from "./pages/store/StoreInventory";
 import HR from "./pages/hr/HR";
 import Procurement from "./pages/procurement/Procurement";
@@ -321,6 +322,7 @@ function App() {
             {/* HR & Admin */}
             <Route path="hr" element={<HR />} />
             <Route path="attendance" element={<Attendance />} />
+            <Route path="salary" element={<Salary />} />
             <Route path="payroll" element={<Payroll />} />
             <Route path="people-management" element={<PeopleManagement />} />
             

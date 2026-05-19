@@ -47,6 +47,7 @@ import {
   CalendarRange,
   BookOpen,
   History,
+  Wallet,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -123,7 +124,7 @@ const Layout = () => {
 
   // Keep expandable section open when current path is under that section
   useEffect(() => {
-    if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management")) setHrAdminOpen(true);
+    if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/admin/payroll")) setAdminPayrollOpen(true);
@@ -238,7 +239,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setHrAdminOpen(!hrAdminOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <UserCheck className="w-4 h-4 shrink-0" />
@@ -260,6 +261,10 @@ const Layout = () => {
                   <NavLink to="attendance" className={subNavClass}>
                     <Clock className="w-4 h-4 shrink-0 text-amber-600" />
                     <span className="text-xs">Attendance</span>
+                  </NavLink>
+                  <NavLink to="salary" className={subNavClass}>
+                    <Wallet className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span className="text-xs">Salary</span>
                   </NavLink>
                   <NavLink to="payroll" className={subNavClass}>
                     <CreditCard className="w-4 h-4 shrink-0 text-yellow-600" />
