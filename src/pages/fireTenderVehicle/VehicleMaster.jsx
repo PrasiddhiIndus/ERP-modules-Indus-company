@@ -18,7 +18,62 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-const VehicleMaster = () => {
+/** DB may store YYYY-MM (preferred) or legacy MM-YYYY; <input type="month"> needs YYYY-MM. */
+const manufactureToMonthInput = (stored) => {
+  if (!stored || typeof stored !== 'string') return '';
+  const t = stored.trim();
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(t)) return t;
+  const m = t.match(/^(0[1-9]|1[0-2])-(\d{4})$/);
+  if (m) return `${m[2]}-${m[1]}`;
+  return '';
+};
+
+/** Legacy date_of_purchase (YYYY-MM-DD) → YYYY-MM for month picker. */
+const legacyPurchaseToMonthInput = (isoDate) => {
+  if (!isoDate || typeof isoDate !== 'string') return '';
+  const match = isoDate.trim().match(/^(\d{4})-(\d{2})-\d{2}/);
+  if (!match) return '';
+  return `${match[1]}-${match[2]}`;
+};
+
+const createEmptyVehicleForm = (vehicleCategory) => ({
+  vehicle_category: vehicleCategory,
+  vehicle_name: '',
+  chassis_model: '',
+  vehicle_type: '',
+  registration_number: '',
+  chassis_number: '',
+  engine_number: '',
+  make: '',
+  model: '',
+  year_of_manufacture: '',
+  date_of_manufacture: '',
+  date_of_registration: '',
+  registry_validity_date: '',
+  date_of_commissioning: '',
+  ownership_type: '',
+  owner_name: '',
+  emission_norms: '',
+  fuel_type: '',
+  financier: '',
+  pump_make_brand: '',
+  pump_model_number: '',
+  pump_serial_number: '',
+  pto_type: '',
+  water_tank_capacity: '',
+  foam_tank_capacity: '',
+  assigned_location: '',
+  assigned_site: '',
+  assigned_department: '',
+  assigned_driver_id: '',
+  vehicle_status: 'Available',
+  current_odometer_reading: '',
+  last_service_date: '',
+  next_service_due: '',
+  remarks: ''
+});
+
+const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
   const currentYear = new Date().getFullYear();
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -29,40 +84,7 @@ const VehicleMaster = () => {
   const [statusFilter, setStatusFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
 
-  const [formData, setFormData] = useState({
-    vehicle_category: 'fire-tender',
-    vehicle_name: '',
-    chassis_model: '',
-    vehicle_type: '',
-    registration_number: '',
-    chassis_number: '',
-    engine_number: '',
-    make: '',
-    model: '',
-    year_of_manufacture: '',
-    date_of_purchase: '',
-    date_of_registration: '',
-    date_of_commissioning: '',
-    owner_name: '',
-    emission_norms: '',
-    fuel_type: '',
-    financier: '',
-    pump_make_brand: '',
-    pump_model_number: '',
-    pump_serial_number: '',
-    pto_type: '',
-    water_tank_capacity: '',
-    foam_tank_capacity: '',
-    assigned_location: '',
-    assigned_site: '',
-    assigned_department: '',
-    assigned_driver_id: '',
-    vehicle_status: 'Available',
-    current_odometer_reading: '',
-    last_service_date: '',
-    next_service_due: '',
-    remarks: ''
-  });
+  const [formData, setFormData] = useState(() => createEmptyVehicleForm(vehicleCategory));
 
   const vehicleTypeByCategory = {
     'in-house': ['SUV', 'Car', 'Bike', 'Utility Vehicle', 'Other'],
@@ -92,7 +114,7 @@ const VehicleMaster = () => {
   useEffect(() => {
     fetchVehicles();
     fetchDrivers();
-  }, []);
+  }, [vehicleCategory]);
 
   const fetchVehicles = async () => {
     try {
@@ -106,6 +128,7 @@ const VehicleMaster = () => {
           operations_fire_tender_vehicle_drivers(full_name, contact_number)
         `)
         .eq('user_id', user.id)
+        .eq('vehicle_category', vehicleCategory)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -138,9 +161,19 @@ const VehicleMaster = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const dm = (formData.date_of_manufacture || '').trim();
+    if (dm && !/^\d{4}-(0[1-9]|1[0-2])$/.test(dm)) {
+      alert('Please choose a valid month and year for Month and year of manufacture.');
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+
+      const parsedYearForm = formData.year_of_manufacture ? parseInt(formData.year_of_manufacture, 10) : null;
+      const yearFromForm = Number.isFinite(parsedYearForm) ? parsedYearForm : null;
+      const yearFromMonth =
+        dm && /^\d{4}-(0[1-9]|1[0-2])$/.test(dm) ? parseInt(dm.slice(0, 4), 10) : null;
 
       const vehicleData = {
         vehicle_category: formData.vehicle_category || null,
@@ -152,9 +185,21 @@ const VehicleMaster = () => {
         engine_number: formData.engine_number || null,
         make: formData.make || null,
         model: formData.model || null,
-        year_of_manufacture: formData.year_of_manufacture ? parseInt(formData.year_of_manufacture, 10) : null,
-        date_of_purchase: formData.date_of_purchase && formData.date_of_purchase.trim() !== '' ? formData.date_of_purchase : null,
+        year_of_manufacture: yearFromForm ?? yearFromMonth,
+        date_of_manufacture:
+          formData.date_of_manufacture && formData.date_of_manufacture.trim() !== ''
+            ? formData.date_of_manufacture.trim()
+            : null,
+        registry_validity_date:
+          formData.registry_validity_date && formData.registry_validity_date.trim() !== ''
+            ? formData.registry_validity_date
+            : null,
+        date_of_registration:
+          formData.date_of_registration && formData.date_of_registration.trim() !== ''
+            ? formData.date_of_registration
+            : null,
         date_of_commissioning: formData.date_of_commissioning && formData.date_of_commissioning.trim() !== '' ? formData.date_of_commissioning : null,
+        ownership_type: formData.ownership_type && formData.ownership_type.trim() !== '' ? formData.ownership_type : null,
         owner_name: formData.owner_name || null,
         emission_norms: formData.emission_norms || null,
         fuel_type: formData.fuel_type || null,
@@ -215,9 +260,14 @@ const VehicleMaster = () => {
       make: vehicle.make || '',
       model: vehicle.model || '',
       year_of_manufacture: vehicle.year_of_manufacture || '',
-      date_of_purchase: vehicle.date_of_purchase || '',
-      date_of_registration: vehicle.date_of_commissioning || '',
+      date_of_manufacture:
+        manufactureToMonthInput(vehicle.date_of_manufacture) ||
+        legacyPurchaseToMonthInput(vehicle.date_of_purchase) ||
+        '',
+      date_of_registration: vehicle.date_of_registration || '',
+      registry_validity_date: vehicle.registry_validity_date || '',
       date_of_commissioning: vehicle.date_of_commissioning || '',
+      ownership_type: vehicle.ownership_type || '',
       owner_name: vehicle.owner_name || '',
       emission_norms: vehicle.emission_norms || '',
       fuel_type: vehicle.fuel_type || '',
@@ -260,40 +310,7 @@ const VehicleMaster = () => {
   };
 
   const resetForm = () => {
-    setFormData({
-      vehicle_category: 'fire-tender',
-      vehicle_name: '',
-      chassis_model: '',
-      vehicle_type: '',
-      registration_number: '',
-      chassis_number: '',
-      engine_number: '',
-      make: '',
-      model: '',
-      year_of_manufacture: '',
-      date_of_purchase: '',
-      date_of_registration: '',
-      date_of_commissioning: '',
-      owner_name: '',
-      emission_norms: '',
-      fuel_type: '',
-      financier: '',
-      pump_make_brand: '',
-      pump_model_number: '',
-      pump_serial_number: '',
-      pto_type: '',
-      water_tank_capacity: '',
-      foam_tank_capacity: '',
-      assigned_location: '',
-      assigned_site: '',
-      assigned_department: '',
-      assigned_driver_id: '',
-      vehicle_status: 'Available',
-      current_odometer_reading: '',
-      last_service_date: '',
-      next_service_due: '',
-      remarks: ''
-    });
+    setFormData(createEmptyVehicleForm(vehicleCategory));
     setEditingVehicle(null);
     setShowForm(false);
   };
@@ -341,7 +358,11 @@ const VehicleMaster = () => {
           <p className="text-gray-600 mt-2">Manage your vehicle fleet database</p>
         </div>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            setEditingVehicle(null);
+            setFormData(createEmptyVehicleForm(vehicleCategory));
+            setShowForm(true);
+          }}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
         >
           <Plus className="h-5 w-5" />
@@ -507,28 +528,30 @@ const VehicleMaster = () => {
                     />
                   </div>
 
-                  {formData.vehicle_category !== 'fire-tender' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Year of Manufacture</label>
-                      <input
-                        type="number"
-                        value={formData.year_of_manufacture}
-                        onChange={(e) => setFormData({...formData, year_of_manufacture: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        min="1900"
-                        max={currentYear}
-                      />
-                    </div>
-                  )}
-
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date of Purchase</label>
-                    <input
-                      type="date"
-                      value={formData.date_of_purchase}
-                      onChange={(e) => setFormData({...formData, date_of_purchase: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Month and year of manufacture</label>
+                    <div className="relative">
+                      <input
+                        type="month"
+                        value={formData.date_of_manufacture}
+                        onChange={(e) => setFormData({ ...formData, date_of_manufacture: e.target.value })}
+                        min="1900-01"
+                        max={`${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`}
+                        className={`w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          !formData.date_of_manufacture ? 'text-transparent caret-gray-700' : ''
+                        }`}
+                        title="Month and year of manufacture (mm-yyyy)"
+                        aria-label="Month and year of manufacture"
+                      />
+                      {!formData.date_of_manufacture && (
+                        <span
+                          className="pointer-events-none absolute left-3 top-1/2 z-[1] -translate-y-1/2 text-sm text-gray-400 select-none"
+                          aria-hidden
+                        >
+                          mm-yyyy
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -537,6 +560,16 @@ const VehicleMaster = () => {
                       type="date"
                       value={formData.date_of_registration}
                       onChange={(e) => setFormData({...formData, date_of_registration: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date of validity of registry</label>
+                    <input
+                      type="date"
+                      value={formData.registry_validity_date}
+                      onChange={(e) => setFormData({ ...formData, registry_validity_date: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -564,6 +597,19 @@ const VehicleMaster = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="For rented/leased vehicles"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Rented or owned</label>
+                    <select
+                      value={formData.ownership_type}
+                      onChange={(e) => setFormData({ ...formData, ownership_type: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select</option>
+                      <option value="rented">Rented</option>
+                      <option value="owned">Owned</option>
+                    </select>
                   </div>
 
                   <div>
@@ -595,7 +641,7 @@ const VehicleMaster = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Financier</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Financer</label>
                     <input
                       type="text"
                       value={formData.financier}

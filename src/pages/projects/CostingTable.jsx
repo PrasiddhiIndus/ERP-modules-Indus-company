@@ -1,10 +1,11 @@
 // src/pages/CostingTable.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import CostingSummary from "./CostingSummary";
 import { FaTrash } from "react-icons/fa";
 import { supabase } from "../../lib/supabase";
 import auditLogger from "../../lib/auditLogger";
+import { isRetiredFireTenderMainComponentLabel } from "../../lib/retiredFireTenderMainComponents";
 
 // 🔹 Convert rows into nested tree structure (unchanged)
 const buildTree = (rows) => {
@@ -39,6 +40,42 @@ const buildTree = (rows) => {
   });
   return tree;
 };
+
+/** Costing sheet shows at most this many lines (Sr. 1 … N). */
+const MAX_COSTING_SHEET_LINES = 120;
+
+function omittedMainStorageKey(tenderId) {
+  return `fire_tender_costing_omitted_main_${Number(tenderId)}`;
+}
+
+function loadOmittedMainComponents(tenderId) {
+  if (!tenderId) return [];
+  try {
+    const raw = localStorage.getItem(omittedMainStorageKey(tenderId));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOmittedMainComponents(tenderId, list) {
+  localStorage.setItem(omittedMainStorageKey(tenderId), JSON.stringify(list));
+}
+
+/** Keep first N rows in fixed-then-extra order (Sr. No. order). */
+function trimCostingSheetToMaxLines(fixed, extra, maxLines) {
+  const nFixed = fixed.length;
+  const all = [...fixed, ...extra];
+  if (all.length <= maxLines) {
+    return { fixedRows: [...fixed], extraRows: [...extra] };
+  }
+  const t = all.slice(0, maxLines);
+  if (maxLines <= nFixed) {
+    return { fixedRows: t, extraRows: [] };
+  }
+  return { fixedRows: t.slice(0, nFixed), extraRows: t.slice(nFixed) };
+}
 
 const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
   const [componentTree, setComponentTree] = useState({});
@@ -161,14 +198,18 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
         // 1️⃣ Fetch main components tree
         const { data: mainData, error: mainError } = await supabase.from("main_components").select("*");
         if (mainError) throw mainError;
-        const tree = buildTree(mainData);
+        const mainRows = (mainData || []).filter((r) => !isRetiredFireTenderMainComponentLabel(r.main_component));
+        const tree = buildTree(mainRows);
 
         // 2️⃣ Fetch existing costing rows for tender
-        const { data: existingRows, error: existingError } = await supabase
+        const { data: existingRowsRaw, error: existingError } = await supabase
           .from("costing_rows")
           .select("*")
           .eq("tender_id", Number(tenderId));
         if (existingError) throw existingError;
+        const existingRows = (existingRowsRaw || []).filter(
+          (r) => !isRetiredFireTenderMainComponentLabel(r.main_component)
+        );
 
         // 3️⃣ Fetch MOC prices for tender
         const { data: mocData, error: mocError } = await supabase
@@ -191,6 +232,7 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
 
         const priceObj = {};
         priceData.forEach((row) => {
+          if (isRetiredFireTenderMainComponentLabel(row.main_component)) return;
           // Create a unique key based on component and sub categories
           const key = `${row.main_component}|${row.sub_category1 || ''}|${row.sub_category2 || ''}|${row.sub_category3 || ''}|${row.sub_category4 || ''}|${row.sub_category5 || ''}`;
           priceObj[key] = {
@@ -204,10 +246,13 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
         const fixed = [];
         const extra = [];
 
+        const omittedMain = new Set(loadOmittedMainComponents(Number(tenderId)));
+
         // Build fixed rows (only main components)
         Object.keys(tree).forEach((comp) => {
           // Skip "Tender Mode" as it should only be in CostingSummary
           if (comp === "Tender Mode") return;
+          if (omittedMain.has(comp)) return;
 
           const rowFromDB = existingRows.find((r) => r.main_component === comp);
           let unitCost = rowFromDB?.unit_cost || 0;
@@ -257,6 +302,7 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
         existingRows.forEach((r) => {
           // Skip "Tender Mode" as it should only be in CostingSummary
           if (r.main_component === "Tender Mode") return;
+          if (omittedMain.has(r.main_component)) return;
 
           if (!tree[r.main_component]) {
             let unitCost = r.unit_cost || 0;
@@ -297,9 +343,16 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
           }
         });
 
+        const { fixedRows: fixedCapped, extraRows: extraCapped } = trimCostingSheetToMaxLines(
+          fixed,
+          extra,
+          MAX_COSTING_SHEET_LINES
+        );
+
+        skipCostingAutosaveRef.current = true;
         setComponentTree(tree);
-        setFixedRows(fixed);
-        setExtraRows(extra);
+        setFixedRows(fixedCapped);
+        setExtraRows(extraCapped);
 
         // Check price drift when costing table loads
         setTimeout(() => {
@@ -316,6 +369,10 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
 
 
   const addRow = () => {
+    if (fixedRows.length + extraRows.length >= MAX_COSTING_SHEET_LINES) {
+      alert(`The costing sheet is limited to ${MAX_COSTING_SHEET_LINES} lines (Sr. 1–${MAX_COSTING_SHEET_LINES}). Remove a line or shorten the main-component list to add more.`);
+      return;
+    }
     setExtraRows([
       ...extraRows,
       {
@@ -333,6 +390,34 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
         remark: "",
       },
     ]);
+  };
+
+  const removeCostingRowAt = (index) => {
+    const total = fixedRows.length + extraRows.length;
+    if (index < 0 || index >= total) return;
+
+    if (index < fixedRows.length) {
+      const comp = fixedRows[index]?.component;
+      if (!comp) return;
+      if (
+        !window.confirm(
+          `Remove line ${index + 1} (“${comp}”) from this tender’s costing sheet?\n\nIt will stay hidden for this tender on this browser until you clear site data.`
+        )
+      ) {
+        return;
+      }
+      const list = loadOmittedMainComponents(Number(tenderId));
+      if (!list.includes(comp)) {
+        list.push(comp);
+        saveOmittedMainComponents(Number(tenderId), list);
+      }
+      setFixedRows((prev) => prev.filter((_, i) => i !== index));
+      return;
+    }
+
+    const extraIndex = index - fixedRows.length;
+    if (!window.confirm(`Remove extra line ${index + 1}?`)) return;
+    setExtraRows((prev) => prev.filter((_, i) => i !== extraIndex));
   };
 
   const handleChange = (rows, setRows, index, field, value) => {
@@ -534,6 +619,8 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
 
   // Calculate accessories total - use prop if provided, otherwise fetch from DB
   const [accessoriesTotal, setAccessoriesTotal] = useState(0);
+  const [autoSaveHint, setAutoSaveHint] = useState("");
+  const skipCostingAutosaveRef = useRef(true);
 
   // Use prop if provided (real-time updates from AccessoriesTable) - this takes precedence
   useEffect(() => {
@@ -574,108 +661,123 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
     fetchAccessoriesTotal();
   }, [tenderId, accessoriesTotalProp]);
 
-  const saveTender = async () => {
-    try {
-      if (!tenderId) {
-        alert("No tender selected. Please open a Tender before saving.");
-        return;
+  useEffect(() => {
+    skipCostingAutosaveRef.current = true;
+  }, [tenderId]);
+
+  /** Persist costing_rows. Manual save uses alerts + DB refresh; auto-save is quiet and skips refresh. */
+  const persistCostingTender = async ({ silent = false } = {}) => {
+    if (!tenderId) {
+      if (!silent) alert("No tender selected. Please open a Tender before saving.");
+      return;
+    }
+
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+
+    if (userErr || !user) {
+      console.error("Auth error:", userErr);
+      if (!silent) alert("User not authenticated. Please login.");
+      else setAutoSaveHint("Could not save — not signed in.");
+      return;
+    }
+    const userId = user.id;
+
+    const { fixedRows: fSave, extraRows: eSave } = trimCostingSheetToMaxLines(
+      fixedRows,
+      extraRows,
+      MAX_COSTING_SHEET_LINES
+    );
+    if (fSave.length !== fixedRows.length || eSave.length !== extraRows.length) {
+      setFixedRows(fSave);
+      setExtraRows(eSave);
+    }
+    const allToSave = [...fSave, ...eSave];
+
+    await supabase.from("costing_rows").delete().eq("tender_id", Number(tenderId));
+
+    const rowsToInsert = allToSave
+      .filter((row) => !isRetiredFireTenderMainComponentLabel(row.component))
+      .map((row) => {
+      const labour = parseNumber(row.labour);
+      const unitCost = parseNumber(row.unitCost);
+      const weight = parseNumber(row.weight);
+      let qty = parseNumber(row.qty);
+
+      if (isMetaconeMounting(row.component)) {
+        qty = computeMetaconeQty(allToSave);
       }
 
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
-
-      if (userErr || !user) {
-        console.error("Auth error:", userErr);
-        alert("User not authenticated. Please login.");
-        return;
-      }
-      const userId = user.id;
-
-      // Delete old rows
-      await supabase.from("costing_rows").delete().eq("tender_id", Number(tenderId));
-
-      // Prepare rows
-      const rowsToInsert = allRows.map((row) => {
-        const labour = parseNumber(row.labour);
-        const unitCost = parseNumber(row.unitCost);
-        const weight = parseNumber(row.weight);
-        let qty = parseNumber(row.qty);
-
-        // For Metacone, compute quantity based on other rows
-        if (isMetaconeMounting(row.component)) {
-          qty = computeMetaconeQty(allRows); // this will replace entered qty
-        }
-
-        // Calculate total
-        let total = 0;
-        if (isMetaconeMounting(row.component)) {
-          total = unitCost * qty + labour;
-        } else if (isTankComponent(row.component)) {
-          total = weight * (unitCost + labour) * qty;
-        } else if (isStructureOrPanelling(row.component)) {
-          total = weight * unitCost; // ✅ Correct formula
-        } else {
-          total = (labour + unitCost) * qty;
-        }
-
-        return {
-          tender_id: Number(tenderId),
-          main_component: row.component || null,
-          sub_category1: row.sub1 || null,
-          sub_category2: row.sub2 || null,
-          sub_category3: row.sub3 || null,
-          sub_category4: row.sub4 || null,
-          sub_category5: row.sub5 || null,
-          manual_sub: row.manualSub || null,
-          weight,
-          labour,
-          unit_cost: unitCost,
-          qty,      // ✅ save computed qty for Metacone
-          remark: row.remark || null,
-          total,    // ✅ save computed total
-          user_id: userId,
-          // Store original prices for drift detection
-          original_unit_cost: unitCost,
-          original_weight: weight,
-          costing_saved_at: new Date().toISOString()
-        };
-      });
-
-      const { data, error } = await supabase
-        .from("costing_rows")
-        .insert(rowsToInsert)
-        .select();
-
-      if (error) {
-        console.error("Insert error:", error);
-        alert("Error saving tender ❌: " + error.message);
-        return;
+      let total = 0;
+      if (isMetaconeMounting(row.component)) {
+        total = unitCost * qty + labour;
+      } else if (isTankComponent(row.component)) {
+        total = weight * (unitCost + labour) * qty;
+      } else if (isStructureOrPanelling(row.component)) {
+        total = weight * unitCost;
+      } else {
+        total = (labour + unitCost) * qty;
       }
 
-      console.log("Insert success:", data);
+      return {
+        tender_id: Number(tenderId),
+        main_component: row.component || null,
+        sub_category1: row.sub1 || null,
+        sub_category2: row.sub2 || null,
+        sub_category3: row.sub3 || null,
+        sub_category4: row.sub4 || null,
+        sub_category5: row.sub5 || null,
+        manual_sub: row.manualSub || null,
+        weight,
+        labour,
+        unit_cost: unitCost,
+        qty,
+        remark: row.remark || null,
+        total,
+        user_id: userId,
+        original_unit_cost: unitCost,
+        original_weight: weight,
+        costing_saved_at: new Date().toISOString(),
+      };
+    });
+
+    const { error } = await supabase.from("costing_rows").insert(rowsToInsert).select();
+
+    if (error) {
+      console.error("Insert error:", error);
+      if (!silent) alert("Error saving tender ❌: " + error.message);
+      else setAutoSaveHint("Save failed — " + (error.message || "error"));
+      throw error;
+    }
+
+    if (!silent) {
+      console.log("Insert success");
       alert("Costing rows saved successfully ✅");
+    } else {
+      const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      setAutoSaveHint(`Costing sheet saved · ${t}`);
+      window.setTimeout(() => setAutoSaveHint(""), 5000);
+    }
 
-      // No logging needed for save action - not unit cost specific
-
-      // ❌ Remove this line to stay on the same page
-      // navigate("/fire-tender/costing");
-
-      // ✅ Optionally, refresh data to make sure table shows saved data
-      // This ensures that any default values or computed fields are updated
-      const { data: refreshedRows, error: fetchError } = await supabase
+    if (!silent) {
+      const { data: refreshedRowsRaw, error: fetchError } = await supabase
         .from("costing_rows")
         .select("*")
         .eq("tender_id", Number(tenderId));
       if (fetchError) throw fetchError;
 
+      const refreshedRows = (refreshedRowsRaw || []).filter(
+        (r) => !isRetiredFireTenderMainComponentLabel(r.main_component)
+      );
       const fixed = [];
       const extra = [];
-      const tree = buildTree(fixedRows); // or fetch main components if needed
+      const omittedMain = new Set(loadOmittedMainComponents(Number(tenderId)));
 
-      // Separate fixed and extra as before
       Object.keys(componentTree).forEach((comp) => {
+        if (comp === "Tender Mode") return;
+        if (omittedMain.has(comp)) return;
         const rowFromDB = refreshedRows.find((r) => r.main_component === comp);
         fixed.push({
           component: comp,
@@ -694,6 +796,7 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
       });
 
       refreshedRows.forEach((r) => {
+        if (omittedMain.has(r.main_component)) return;
         if (!componentTree[r.main_component]) {
           extra.push({
             component: r.main_component,
@@ -712,13 +815,43 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
         }
       });
 
-      setFixedRows(fixed);
-      setExtraRows(extra);
+      const { fixedRows: fixedCapped, extraRows: extraCapped } = trimCostingSheetToMaxLines(
+        fixed,
+        extra,
+        MAX_COSTING_SHEET_LINES
+      );
+      setFixedRows(fixedCapped);
+      setExtraRows(extraCapped);
+    }
+  };
+
+  const saveTender = async () => {
+    try {
+      await persistCostingTender({ silent: false });
     } catch (err) {
       console.error("Save error:", err);
       alert("Error saving tender ❌: " + (err.message || err));
     }
   };
+
+  useEffect(() => {
+    if (!tenderId) return;
+    if (skipCostingAutosaveRef.current) {
+      skipCostingAutosaveRef.current = false;
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await persistCostingTender({ silent: true });
+        } catch {
+          /* persistCostingTender already set hint on failure when silent */
+        }
+      })();
+    }, 1600);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced snapshot save; persist reads latest state
+  }, [fixedRows, extraRows, tenderId]);
 
 
 
@@ -1198,16 +1331,17 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
                     />
                   </td>
 
-                  {/* Action (only for extra rows) */}
+                  {/* Action: delete any line (fixed lines stay omitted for this tender in this browser) */}
                   <td className="border px-2 text-center">
-                    {index >= fixedRows.length && (
-                      <button
-                        onClick={() => setExtraRows(extraRows.filter((_, i) => i !== index - fixedRows.length))}
-                        className="text-red-500"
-                      >
-                        🗑
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeCostingRowAt(index)}
+                      className="rounded p-1 text-red-600 hover:bg-red-50 hover:text-red-800"
+                      title="Remove this line"
+                      aria-label="Remove line"
+                    >
+                      <FaTrash className="inline h-3.5 w-3.5" />
+                    </button>
                   </td>
                 </tr>
               );
@@ -1219,9 +1353,17 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
 
       {/* Buttons and totals */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-4 gap-3">
-        <button onClick={addRow} className="text-blue-600 hover:underline text-sm sm:text-base">
+        <button
+          type="button"
+          onClick={addRow}
+          disabled={fixedRows.length + extraRows.length >= MAX_COSTING_SHEET_LINES}
+          className="text-blue-600 hover:underline text-sm sm:text-base disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+        >
           + Add a line
         </button>
+        <span className="text-xs text-slate-600">
+          Max {MAX_COSTING_SHEET_LINES} lines ({fixedRows.length + extraRows.length}/{MAX_COSTING_SHEET_LINES} used)
+        </span>
       </div>
       <div className="font-bold text-sm sm:text-base">
         Total Fabrication Cost Without Margin (excluding chassis): ₹ {formatCurrency(grandTotal)}
@@ -1229,7 +1371,12 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
 
       <CostingSummary grandTotal={grandTotal} chassisTotal={chassisTotal} accessoriesTotal={accessoriesTotal} tenderId={tenderId} />
 
-      <div className="mt-6 flex flex-wrap gap-3">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        {autoSaveHint ? (
+          <span className="order-first w-full text-xs font-medium text-emerald-700 sm:order-none sm:w-auto" role="status">
+            {autoSaveHint}
+          </span>
+        ) : null}
         <Link
           to="/app/fire-tender/costing"
           className="px-5 py-2.5 bg-gray-600 text-white rounded-lg shadow hover:bg-gray-700 transition text-sm sm:text-base"

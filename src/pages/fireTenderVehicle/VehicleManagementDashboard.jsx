@@ -15,7 +15,7 @@ import {
   Activity
 } from 'lucide-react';
 
-const VehicleManagementDashboard = ({ onNavigate }) => {
+const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }) => {
   const [dashboardData, setDashboardData] = useState({
     totalVehicles: 0,
     availableVehicles: 0,
@@ -32,7 +32,7 @@ const VehicleManagementDashboard = ({ onNavigate }) => {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [vehicleCategory]);
 
   const fetchDashboardData = async () => {
     try {
@@ -43,12 +43,13 @@ const VehicleManagementDashboard = ({ onNavigate }) => {
       const { data: vehicles, error: vehiclesError } = await supabase
         .from('operations_fire_tender_vehicle_master')
         .select('vehicle_status')
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .eq('vehicle_category', vehicleCategory);
 
       if (vehiclesError) throw vehiclesError;
 
       // Count vehicles by status
-      const statusCounts = vehicles.reduce((acc, vehicle) => {
+      const statusCounts = (vehicles || []).reduce((acc, vehicle) => {
         acc[vehicle.vehicle_status] = (acc[vehicle.vehicle_status] || 0) + 1;
         return acc;
       }, {});
@@ -62,7 +63,8 @@ const VehicleManagementDashboard = ({ onNavigate }) => {
           document_type,
           operations_fire_tender_vehicle_master!inner(registration_number)
         `)
-        .eq('operations_fire_tender_vehicle_master.user_id', user.id);
+        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory);
 
       if (expiriesError) throw expiriesError;
 
@@ -81,6 +83,7 @@ const VehicleManagementDashboard = ({ onNavigate }) => {
         `)
         .eq('trip_status', 'Active')
         .eq('operations_fire_tender_vehicle_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
         .order('start_date_time', { ascending: false })
         .limit(5);
 
@@ -96,7 +99,7 @@ const VehicleManagementDashboard = ({ onNavigate }) => {
       if (driversError) throw driversError;
 
       setDashboardData({
-        totalVehicles: vehicles.length,
+        totalVehicles: (vehicles || []).length,
         availableVehicles: statusCounts['Available'] || 0,
         onDutyVehicles: statusCounts['On Duty'] || 0,
         underMaintenanceVehicles: statusCounts['Under Maintenance'] || 0,

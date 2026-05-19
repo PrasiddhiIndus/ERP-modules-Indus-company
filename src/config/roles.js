@@ -4,6 +4,7 @@
  * - Manager: team + checklist modules; can approve workflows only inside those modules.
  * - Admin: full operational module access except Super Admin-only modules.
  * - Super Admin: full module access including User Management and software subscriptions.
+ * - Fire Tender (`fireTender` routes): Super Admin tiers, or profile `team` === `fireTender` only (not via Admin bundle or `allowed_modules`).
  * Legacy users with no `role` in profile still receive broad access except Super Admin-only modules.
  */
 
@@ -84,6 +85,25 @@ export const MODULE_PATH_PREFIXES = {
 };
 
 const SUPER_ADMIN_ONLY_MODULES = new Set(["userManagement", "softwareSubscriptions"]);
+
+/** Fire Tender (tenders, costing, quotations, configuration, manufacturing UI) — not part of generic/Admin bundles. */
+const FIRE_TENDER_MODULE_KEY = "fireTender";
+
+function userHasFireTenderTeam(profile) {
+  return String(profile?.team || "").trim() === FIRE_TENDER_MODULE_KEY;
+}
+
+/**
+ * Remove Fire Tender from the module set unless the user is Super Admin or their assigned team is Fire Tender.
+ * Ignores `allowed_modules` for this key so only team + super roles grant access.
+ */
+function applyFireTenderModuleGate(profile, moduleSet) {
+  if (!moduleSet?.delete) return;
+  const role = profile?.role;
+  if (role === ROLES.SUPER_ADMIN_PRO || role === ROLES.SUPER_ADMIN) return;
+  if (userHasFireTenderTeam(profile)) return;
+  moduleSet.delete(FIRE_TENDER_MODULE_KEY);
+}
 
 /**
  * Pick a safe landing path for users who don't have `overview` access.
@@ -180,27 +200,43 @@ export function getAccessibleModules(profile) {
   // Lock down: these modules are only for Super Admin. Even legacy "no role" should not see them.
   const allWithoutSuperAdminOnly = new Set([...allModules].filter((m) => !SUPER_ADMIN_ONLY_MODULES.has(m)));
 
-  if (!profile?.role) return allWithoutSuperAdminOnly; // no role = legacy: allow all except Super Admin-only modules
+  if (!profile?.role) {
+    // no role = legacy: allow all except Super Admin-only modules
+    const legacy = new Set(allWithoutSuperAdminOnly);
+    applyFireTenderModuleGate(profile, legacy);
+    return legacy;
+  }
   if (profile.role === ROLES.SUPER_ADMIN_PRO) return allModules;
   if (profile.role === ROLES.SUPER_ADMIN) return allModules;
   // Admin (HOD / senior): full operational access, excluding Super Admin-only modules.
-  if (profile.role === ROLES.ADMIN) return allWithoutSuperAdminOnly;
+  if (profile.role === ROLES.ADMIN) {
+    const adminSet = new Set(allWithoutSuperAdminOnly);
+    applyFireTenderModuleGate(profile, adminSet);
+    return adminSet;
+  }
   if (profile.role === ROLES.EXECUTIVE) {
     // If team metadata is missing, don't accidentally lock the user to dashboard-only access.
     // Treat it like legacy access (except Super Admin-only modules).
-    if (!profile.team) return allWithoutSuperAdminOnly;
+    if (!profile.team) {
+      const legacyExec = new Set(allWithoutSuperAdminOnly);
+      applyFireTenderModuleGate(profile, legacyExec);
+      return legacyExec;
+    }
     always.add(profile.team);
     (profile.allowed_modules || []).forEach((m) => always.add(m));
     // Never allow Super Admin-only modules for non-super-admin.
     SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
+    applyFireTenderModuleGate(profile, always);
     return always;
   }
   if (profile.role === ROLES.MANAGER) {
     if (profile.team) always.add(profile.team);
     (profile.allowed_modules || []).forEach((m) => always.add(m));
     SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
+    applyFireTenderModuleGate(profile, always);
     return always;
   }
+  applyFireTenderModuleGate(profile, always);
   return always;
 }
 

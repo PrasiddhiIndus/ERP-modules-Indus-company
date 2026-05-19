@@ -2,7 +2,7 @@
 const demoQuotations = [
   {
     id: 1,
-    tenderNumber: "IFSPL/Ad-X/00001/08-25 - 1",
+    tenderNumber: "IFSPL/Ad-X/DEMO/01-26 - 1",
     client: "Administrator",
     status: "Approved",
     date: "2025-08-28",

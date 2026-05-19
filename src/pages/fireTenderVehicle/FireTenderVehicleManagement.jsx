@@ -5,8 +5,6 @@ import {
   FileText, 
   Wrench, 
   Users, 
-  BarChart3,
-  Settings,
   Home
 } from 'lucide-react';
 import VehicleManagementDashboard from './VehicleManagementDashboard';
@@ -29,7 +27,8 @@ const FireTenderVehicleManagement = () => {
     { id: 'drivers', label: 'Driver Management', icon: Users, component: DriverManagement }
   ];
 
-  const ActiveComponent = tabs.find(tab => tab.id === activeTab)?.component || VehicleManagementDashboard;
+  const activeTabConfig = tabs.find((tab) => tab.id === activeTab);
+  const ActiveComponent = activeTabConfig?.component;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -92,10 +91,10 @@ const FireTenderVehicleManagement = () => {
       {/* Main Content */}
       <div className="flex-1">
         {activeTab === 'dashboard' ? (
-          <VehicleManagementDashboard onNavigate={setActiveTab} />
-        ) : (
-          <ActiveComponent />
-        )}
+          <VehicleManagementDashboard onNavigate={setActiveTab} vehicleCategory={vehicleType} />
+        ) : ActiveComponent ? (
+          <ActiveComponent vehicleCategory={vehicleType} />
+        ) : null}
       </div>
     </div>
   );

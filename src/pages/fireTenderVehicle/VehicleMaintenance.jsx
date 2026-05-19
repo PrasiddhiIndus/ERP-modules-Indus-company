@@ -17,7 +17,7 @@ import {
   FileText
 } from 'lucide-react';
 
-const VehicleMaintenance = () => {
+const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
   const [maintenance, setMaintenance] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +49,7 @@ const VehicleMaintenance = () => {
   useEffect(() => {
     fetchMaintenance();
     fetchVehicles();
-  }, []);
+  }, [vehicleCategory]);
 
   const fetchMaintenance = async () => {
     try {
@@ -63,6 +63,7 @@ const VehicleMaintenance = () => {
           operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
         .eq('operations_fire_tender_vehicle_master.user_id', user.id)
+        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
         .order('service_date', { ascending: false });
 
       if (error) throw error;
@@ -83,6 +84,7 @@ const VehicleMaintenance = () => {
         .from('operations_fire_tender_vehicle_master')
         .select('id, registration_number, vehicle_type')
         .eq('user_id', user.id)
+        .eq('vehicle_category', vehicleCategory)
         .order('registration_number');
 
       if (error) throw error;
