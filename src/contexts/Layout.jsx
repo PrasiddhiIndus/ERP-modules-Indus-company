@@ -47,6 +47,7 @@ import {
   CalendarRange,
   BookOpen,
   History,
+  Wallet,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -123,7 +124,7 @@ const Layout = () => {
 
   // Keep expandable section open when current path is under that section
   useEffect(() => {
-    if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management")) setHrAdminOpen(true);
+    if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/admin/payroll")) setAdminPayrollOpen(true);
@@ -141,6 +142,7 @@ const Layout = () => {
       setProjectsOpen(true);
     }
     if (pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing")) setFireTenderOpen(true);
+    if (pathname.startsWith("/app/amc")) setAmcOpen(true);
   }, [pathname]);
 
   const handleSignOut = async () => {
@@ -238,7 +240,7 @@ const Layout = () => {
             <div>
               <button
                 onClick={() => setHrAdminOpen(!hrAdminOpen)}
-                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/payroll") || pathname.startsWith("/app/people-management") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
               >
                 <span className="flex items-center space-x-2.5">
                   <UserCheck className="w-4 h-4 shrink-0" />
@@ -260,6 +262,10 @@ const Layout = () => {
                   <NavLink to="attendance" className={subNavClass}>
                     <Clock className="w-4 h-4 shrink-0 text-amber-600" />
                     <span className="text-xs">Attendance</span>
+                  </NavLink>
+                  <NavLink to="salary" className={subNavClass}>
+                    <Wallet className="w-4 h-4 shrink-0 text-emerald-600" />
+                    <span className="text-xs">Salary</span>
                   </NavLink>
                   <NavLink to="payroll" className={subNavClass}>
                     <CreditCard className="w-4 h-4 shrink-0 text-yellow-600" />
@@ -853,12 +859,66 @@ const Layout = () => {
             </NavLink>
             )}
 
-            {/* AMC */}
+            {/* AMC Management */}
             {can("amc") && (
-            <NavLink to="amc" className={topNavClass}>
-              <FileText className="w-4 h-4 shrink-0" />
-              <span className="text-sm font-medium">AMC</span>
-            </NavLink>
+            <div>
+              <button
+                type="button"
+                onClick={() => setAmcOpen(!amcOpen)}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${
+                  pathname.startsWith("/app/amc") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"
+                }`}
+              >
+                <span className="flex items-center space-x-2.5 min-w-0">
+                  <FileText className="w-4 h-4 shrink-0" />
+                  <span className="text-sm font-medium">AMC Management</span>
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${amcOpen ? "rotate-180" : ""}`} />
+              </button>
+              {amcOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2 max-h-64 overflow-y-auto">
+                  <NavLink to="/app/amc" end className={subNavClass}>
+                    <span className="text-xs">Dashboard</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/customers" className={subNavClass}>
+                    <span className="text-xs">Customers</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/contracts" className={subNavClass}>
+                    <span className="text-xs">Contracts</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/sites" className={subNavClass}>
+                    <span className="text-xs">Covered Sites</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/assets" className={subNavClass}>
+                    <span className="text-xs">Covered Assets</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/pm-schedule" className={subNavClass}>
+                    <span className="text-xs">PM Schedule</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/complaints" className={subNavClass}>
+                    <span className="text-xs">Complaint Calls</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/visits" className={subNavClass}>
+                    <span className="text-xs">Service Visits</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/technicians" className={subNavClass}>
+                    <span className="text-xs">Technician Allocation</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/service-reports" className={subNavClass}>
+                    <span className="text-xs">Service Reports</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/alerts" className={subNavClass}>
+                    <span className="text-xs">Alerts & SLA</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/reports" className={subNavClass}>
+                    <span className="text-xs">Reports</span>
+                  </NavLink>
+                  <NavLink to="/app/amc/settings" className={subNavClass}>
+                    <span className="text-xs">Settings</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
             )}
 
             {/* Finance/Accounts */}

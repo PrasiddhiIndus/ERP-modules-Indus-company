@@ -39,6 +39,7 @@ import CommercialRmInternalQuotation from "./pages/commercial-rm-mm-amc-iev/Inte
 import FireTenderVehicleManagement from "./pages/fireTenderVehicle/FireTenderVehicleManagement";
 import Payroll from "./pages/payroll/Payroll";
 import Attendance from "./pages/attendance/Attendance";
+import Salary from "./pages/salary/Salary";
 import StoreInventory from "./pages/store/StoreInventory";
 import HR from "./pages/hr/HR";
 import Procurement from "./pages/procurement/Procurement";
@@ -322,6 +323,7 @@ function App() {
             {/* HR & Admin */}
             <Route path="hr" element={<HR />} />
             <Route path="attendance" element={<Attendance />} />
+            <Route path="salary" element={<Salary />} />
             <Route path="payroll" element={<Payroll />} />
             <Route path="people-management" element={<PeopleManagement />} />
             
@@ -450,8 +452,20 @@ function App() {
             {/* Fire Tender Costing already exists above */}
             <Route path="fire-tender-manufacturing" element={<FireTenderManufacturing />} />
             
-            {/* AMC */}
+            {/* AMC Management */}
             <Route path="amc" element={<AMC />} />
+            <Route path="amc/customers" element={<AMC />} />
+            <Route path="amc/contracts" element={<AMC />} />
+            <Route path="amc/sites" element={<AMC />} />
+            <Route path="amc/assets" element={<AMC />} />
+            <Route path="amc/pm-schedule" element={<AMC />} />
+            <Route path="amc/complaints" element={<AMC />} />
+            <Route path="amc/visits" element={<AMC />} />
+            <Route path="amc/technicians" element={<AMC />} />
+            <Route path="amc/service-reports" element={<AMC />} />
+            <Route path="amc/alerts" element={<AMC />} />
+            <Route path="amc/reports" element={<AMC />} />
+            <Route path="amc/settings" element={<AMC />} />
             
             {/* Finance/Accounts */}
             <Route path="accounts-finance" element={<AccountsFinance />} />
