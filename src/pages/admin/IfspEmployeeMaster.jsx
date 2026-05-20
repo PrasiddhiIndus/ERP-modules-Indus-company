@@ -1,7 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import {
-  nextIfsplEmployeeSystemId,
+  EMPLOYMENT_TYPE_OPTIONS,
+  nextEmployeeSystemId,
+  normalizeEmploymentType,
+  inferEmploymentTypeFromEmployeeId,
+  resolveEmployeeIdOnTypeChange,
+  resolveEmployeeIdForSave,
+  validateEmployeeIdentifiers,
+  isEmployeeIdTaken,
+  isEmpCodeTaken,
+  employmentTypeLabel,
   computeTotalExperienceYears,
 } from '../../utils/employeeMasterReminders';
 import { formatDdMonYyyy } from '../../utils/dateFormat';
@@ -112,6 +121,7 @@ const IfspEmployeeMaster = () => {
 
   const emptyForm = () => ({
     employee_id: '',
+    employment_type: 'permanent',
     emp_code: '',
     timestamp: '',
     full_name: '',
@@ -180,6 +190,7 @@ const IfspEmployeeMaster = () => {
   /** snake_case columns — matches import template and table headers */
   const EMPLOYEE_EXPORT_FIELDS = [
     'employee_id',
+    'employment_type',
     'emp_code',
     'timestamp',
     'full_name',
@@ -221,8 +232,42 @@ const IfspEmployeeMaster = () => {
 
   const openAddForm = () => {
     setEditingEmployee(null);
-    setFormData({ ...emptyForm(), employee_id: nextIfsplEmployeeSystemId(employees) });
+    const employment_type = 'permanent';
+    setFormData({
+      ...emptyForm(),
+      employment_type,
+      employee_id: nextEmployeeSystemId(employees, employment_type),
+    });
     setShowForm(true);
+  };
+
+  const handleEmploymentTypeChange = (type) => {
+    const normalized = normalizeEmploymentType(type);
+    if (editingEmployee) {
+      const originalType = normalizeEmploymentType(
+        editingEmployee.employment_type || inferEmploymentTypeFromEmployeeId(editingEmployee.employee_id),
+      );
+      if (normalized === originalType) {
+        setFormData((prev) => ({
+          ...prev,
+          employment_type: normalized,
+          employee_id: editingEmployee.employee_id || '',
+        }));
+        return;
+      }
+      const resolved = resolveEmployeeIdOnTypeChange(employees, editingEmployee, normalized);
+      setFormData((prev) => ({
+        ...prev,
+        employment_type: normalized,
+        employee_id: resolved.employee_id,
+      }));
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      employment_type: normalized,
+      employee_id: nextEmployeeSystemId(employees, normalized),
+    }));
   };
 
   const normalizeHeader = (s) =>
@@ -307,6 +352,8 @@ const IfspEmployeeMaster = () => {
         const k = normalizeHeader(key);
         const dict = {
           ifspl_employee_system_id: 'employee_id',
+          employment_type: 'employment_type',
+          employee_type: 'employment_type',
           emp_code: 'emp_code',
           timestamp: 'timestamp',
           full_name: 'full_name',
@@ -343,15 +390,8 @@ const IfspEmployeeMaster = () => {
         return dict[k] || null;
       };
 
-      // Determine starting sequence for missing system ids
-      let seq = 0;
-      for (const row of employees || []) {
-        const id = String(row?.employee_id || '').trim();
-        const m = /^IFSPL-EMP-(\d+)$/i.exec(id);
-        if (m) seq = Math.max(seq, parseInt(m[1], 10));
-      }
-
       const todayYmd = new Date().toISOString().slice(0, 10);
+      const importRows = [...(employees || [])];
 
       const rows = raw.map((r, idx) => {
         const out = {};
@@ -372,11 +412,20 @@ const IfspEmployeeMaster = () => {
           out.years_of_experience === '' || out.years_of_experience == null ? null : Number(out.years_of_experience);
         const totalExp = Number.isFinite(sheetTotalExp) ? sheetTotalExp : computeTotalExperienceYears(doj, prevExp);
 
+        const employment_type = normalizeEmploymentType(out.employment_type || out.employee_id);
+
         let sysId = String(out.employee_id || '').trim();
-        if (!sysId) {
-          seq += 1;
-          sysId = `IFSPL-EMP-${String(seq).padStart(6, '0')}`;
+        const empCode = out.emp_code ? String(out.emp_code).trim() : '';
+        if (sysId && isEmployeeIdTaken(sysId, importRows)) {
+          throw new Error(`Row ${idx + 2}: employee_id "${sysId}" is already in use.`);
         }
+        if (empCode && isEmpCodeTaken(empCode, importRows)) {
+          throw new Error(`Row ${idx + 2}: emp_code "${empCode}" is already in use.`);
+        }
+        if (!sysId) {
+          sysId = nextEmployeeSystemId(importRows, employment_type);
+        }
+        importRows.push({ employee_id: sysId, employment_type, emp_code: empCode || null });
 
         const statusRaw = String(out.status || '').trim().toLowerCase();
         const normalizedStatus =
@@ -384,6 +433,7 @@ const IfspEmployeeMaster = () => {
 
         return {
           employee_id: sysId,
+          employment_type,
           emp_code: out.emp_code ? String(out.emp_code).trim() : null,
           timestamp: out.timestamp ? String(out.timestamp).trim() : null,
           full_name: fullName,
@@ -485,6 +535,7 @@ const IfspEmployeeMaster = () => {
   const buildPayload = (userEmail) => {
     const payload = {
       employee_id: formData.employee_id || null,
+      employment_type: normalizeEmploymentType(formData.employment_type),
       emp_code: formData.emp_code || null,
       timestamp: formData.timestamp || null,
       full_name: formData.full_name || null,
@@ -545,22 +596,65 @@ const IfspEmployeeMaster = () => {
         return;
       }
       const userEmail = user.email || '';
+      const excludeDbId = editingEmployee?.id ?? null;
 
       if (editingEmployee) {
-        const payload = buildPayload(userEmail);
+        const employment_type = normalizeEmploymentType(formData.employment_type);
+        const employee_id = resolveEmployeeIdForSave(
+          employees,
+          employment_type,
+          formData.employee_id,
+          excludeDbId,
+        );
+        const idCheck = validateEmployeeIdentifiers(employees, {
+          employee_id,
+          emp_code: formData.emp_code,
+          excludeDbId,
+        });
+        if (!idCheck.ok) {
+          alert(idCheck.message);
+          return;
+        }
+
+        const payload = {
+          ...buildPayload(userEmail),
+          employment_type,
+          employee_id,
+        };
         const { error } = await supabase
           .from('admin_ifsp_employee_master')
           .update(payload)
           .eq('id', editingEmployee.id)
           .eq('user_id', user.id);
 
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505') {
+            throw new Error('That employee ID or code is already in use. Change the employee code or switch employment type again.');
+          }
+          throw error;
+        }
         alert('Employee updated successfully!');
         await fetchEmployees();
       } else {
+        const employment_type = normalizeEmploymentType(formData.employment_type);
+        const employee_id = resolveEmployeeIdForSave(
+          employees,
+          employment_type,
+          formData.employee_id,
+        );
+        const idCheck = validateEmployeeIdentifiers(employees, {
+          employee_id,
+          emp_code: formData.emp_code,
+        });
+        if (!idCheck.ok) {
+          alert(idCheck.message);
+          return;
+        }
+
         const payload = {
           ...buildPayload(userEmail),
-          employee_id: nextIfsplEmployeeSystemId(employees),
+          employment_type,
+          employee_id,
         };
         const { error } = await supabase
           .from('admin_ifsp_employee_master')
@@ -572,7 +666,12 @@ const IfspEmployeeMaster = () => {
           .select()
           .single();
 
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505') {
+            throw new Error('That employee ID or code is already in use. Please save again to get the next available ID.');
+          }
+          throw error;
+        }
         alert('Employee added successfully!');
         await fetchEmployees();
       }
@@ -588,6 +687,9 @@ const IfspEmployeeMaster = () => {
     setEditingEmployee(employee);
     setFormData({
       employee_id: employee.employee_id || '',
+      employment_type: normalizeEmploymentType(
+        employee.employment_type || inferEmploymentTypeFromEmployeeId(employee.employee_id),
+      ),
       emp_code: employee.emp_code || '',
       timestamp: employee.timestamp || '',
       full_name: employee.full_name || '',
@@ -1033,6 +1135,7 @@ const IfspEmployeeMaster = () => {
                 <th className={`${th} cursor-pointer hover:bg-gray-100`} onClick={() => handleSort('employee_id')}>
                   employee_id{sortField === 'employee_id' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
                 </th>
+                <th className={th}>employment_type</th>
                 <th className={th}>emp_code</th>
                 <th className={th}>timestamp</th>
                 <th className={`${th} cursor-pointer hover:bg-gray-100`} onClick={() => handleSort('full_name')}>
@@ -1077,6 +1180,9 @@ const IfspEmployeeMaster = () => {
                   <tr key={employee.id} className="hover:bg-gray-50">
                     <td className={td} title={String(employee.id)}>{employee.id}</td>
                     <td className={td} title={employee.employee_id || ''}>{employee.employee_id || '–'}</td>
+                    <td className={td} title={employmentTypeLabel(employee.employment_type || employee.employee_id)}>
+                      {employmentTypeLabel(employee.employment_type || employee.employee_id)}
+                    </td>
                     <td className={td} title={employee.emp_code || ''}>{employee.emp_code || '–'}</td>
                     <td className={td} title={employee.timestamp || ''}>{employee.timestamp || '–'}</td>
                     <td className={td} title={employee.full_name || ''}>{employee.full_name || '–'}</td>
@@ -1162,14 +1268,51 @@ const IfspEmployeeMaster = () => {
                   <h3 className="text-lg font-medium text-gray-900">Employee (master sheet fields)</h3>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">IFSPL_employee_system_id</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Employment type *</label>
+                    <select
+                      value={formData.employment_type}
+                      onChange={(e) => handleEmploymentTypeChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      {EMPLOYMENT_TYPE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    {editingEmployee && (
+                      <p className="text-xs text-amber-700 mt-1">
+                        Changing type assigns a new system ID ({employmentTypeLabel(formData.employment_type)} format). Existing employee code is unchanged.
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">System employee ID</label>
                     <input
                       type="text"
                       value={formData.employee_id}
                       readOnly
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-800"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-800 font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Auto-generated sequentially when you save a new employee.</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {normalizeEmploymentType(formData.employment_type) === 'consultant'
+                        ? 'Consultant: C-000001 (auto for new; changes if type is switched on edit).'
+                        : normalizeEmploymentType(formData.employment_type) === 'voucher'
+                          ? 'Voucher: V-000001 (auto for new; changes if type is switched on edit).'
+                          : 'Permanent: 5-digit number (auto for new; changes if type is switched on edit).'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Employee code</label>
+                    <input
+                      type="text"
+                      value={formData.emp_code}
+                      onChange={(e) => setFormData({ ...formData, emp_code: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Legacy / HR code (optional)"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Existing employees keep their code here; not auto-generated.</p>
                   </div>
 
                   <div>

@@ -1853,5 +1853,14 @@ alter table public.software_subscriptions
 -- AMC Management module tables, views, RLS
 
 -- =============================================================================
+-- BEGIN: 20260519140000_employee_master_employment_type.sql
+-- =============================================================================
+ALTER TABLE public.admin_ifsp_employee_master
+  ADD COLUMN IF NOT EXISTS employment_type text;
+
+COMMENT ON COLUMN public.admin_ifsp_employee_master.employment_type IS
+  'permanent | consultant | voucher — drives auto employee_id format for new rows; legacy rows may infer from employee_id.';
+
+-- =============================================================================
 -- END: Consolidated migrations
 -- =============================================================================
