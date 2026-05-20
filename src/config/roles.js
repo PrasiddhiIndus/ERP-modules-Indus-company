@@ -5,6 +5,7 @@
  * - Admin: full operational module access except Super Admin-only modules.
  * - Super Admin: full module access including User Management and software subscriptions.
  * - Fire Tender (`fireTender` routes): Super Admin tiers, or profile `team` === `fireTender` only (not via Admin bundle or `allowed_modules`).
+ * - IT/IS (`itIs` routes): Super Admin tiers, or profile `team` === `itIs` — software subscriptions/reminders.
  * Legacy users with no `role` in profile still receive broad access except Super Admin-only modules.
  */
 
@@ -34,6 +35,7 @@ export const TEAMS = [
   { value: "finance", label: "Finance/Accounts" },
   { value: "fireTender", label: "Fire Tender" },
   { value: "indusLms", label: "Indus LMS / Trainings" },
+  { value: "itIs", label: "IT/IS" },
 ];
 
 /** Module keys that appear in the sidebar (for Manager checklist and access checks). */
@@ -54,6 +56,7 @@ export const MODULES = [
   { value: "amc", label: "AMC" },
   { value: "finance", label: "Finance/Accounts" },
   { value: "fireTender", label: "Fire Tender" },
+  { value: "itIs", label: "IT/IS" },
 ];
 
 /** Path prefixes that belong to each module (for route guard). */
@@ -82,6 +85,8 @@ export const MODULE_PATH_PREFIXES = {
   settings: ["/app/settings"],
   userManagement: ["/app/user-management"],
   softwareSubscriptions: ["/app/software-subscriptions-reminders"],
+  /** IT/IS team home — same routes as software subscriptions (not Super Admin–only module key). */
+  itIs: ["/app/software-subscriptions-reminders"],
 };
 
 const SUPER_ADMIN_ONLY_MODULES = new Set(["userManagement", "softwareSubscriptions"]);
@@ -96,6 +101,10 @@ const FIRE_TENDER_MODULE_KEY = "fireTender";
 const TEAM_VALUE_ALIASES = {
   commercial: "commercialMt",
   firetender: FIRE_TENDER_MODULE_KEY,
+  itis: "itIs",
+  it_is: "itIs",
+  "it/is": "itIs",
+  "it-is": "itIs",
 };
 
 /**
