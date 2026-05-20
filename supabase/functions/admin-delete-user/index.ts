@@ -69,9 +69,14 @@ Deno.serve(async (req) => {
   const { error: delAuthErr } = await admin.auth.admin.deleteUser(id)
   if (delAuthErr) return json(400, { error: delAuthErr.message || 'Could not delete auth user' })
 
-  // Best-effort cleanup profile row (should cascade, but keep safe).
+  // Best-effort cleanup profile + legacy app_users (auth delete may cascade).
   try {
     await admin.from('profiles').delete().eq('id', id)
+  } catch {
+    /* ignore */
+  }
+  try {
+    await admin.from('app_users').delete().eq('id', id)
   } catch {
     /* ignore */
   }

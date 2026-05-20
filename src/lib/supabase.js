@@ -608,6 +608,107 @@ export async function checkSupabaseConnection() {
   }
 }
 
+/**
+ * Invoke an Edge Function with the signed-in user's access JWT.
+ * supabase.functions.invoke falls back to the anon key when getSession() is briefly empty
+ * (common right after sign-in / onAuthStateChange), which makes login-check return "Invalid token".
+ *
+ * @param {string} name
+ * @param {{ body?: unknown, method?: string, headers?: Record<string, string> }} [options]
+ * @param {string} [accessToken] optional token (e.g. from signInWithPassword result)
+ */
+export async function invokeAuthenticatedFunction(name, options = {}, accessToken) {
+  let token = accessToken
+  if (!token) {
+    const { data } = await supabase.auth.getSession()
+    token = data?.session?.access_token
+  }
+  if (!token) {
+    return {
+      data: null,
+      error: { message: 'Not signed in', name: 'FunctionsError', context: null },
+    }
+  }
+
+  const base = String(supabaseUrl).replace(/\/+$/, '')
+  const url = `${base}/functions/v1/${name}`
+  const method = String(options.method || 'POST').toUpperCase()
+  const body =
+    options.body !== undefined && method !== 'GET' && method !== 'HEAD'
+      ? JSON.stringify(options.body)
+      : undefined
+
+  try {
+    const res = await baseFetch(url, {
+      method,
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+      body,
+    })
+
+    let data = null
+    const text = await res.text()
+    if (text) {
+      try {
+        data = JSON.parse(text)
+      } catch {
+        data = { raw: text }
+      }
+    }
+
+    if (!res.ok) {
+      return {
+        data,
+        error: {
+          message: `Edge Function returned a non-2xx status code: ${res.status}`,
+          name: 'FunctionsHttpError',
+          context: {
+            status: res.status,
+            json: async () => data ?? {},
+          },
+        },
+      }
+    }
+    return { data, error: null }
+  } catch (err) {
+    return {
+      data: null,
+      error: {
+        message: err?.message || String(err),
+        name: 'FunctionsFetchError',
+        context: null,
+      },
+    }
+  }
+}
+
+/**
+ * Edge Functions return a generic message on 4xx/5xx; read JSON body when available.
+ * @param {import('@supabase/supabase-js').FunctionsError | null} fnError
+ * @param {Record<string, unknown> | null} [data]
+ */
+export async function parseEdgeFunctionError(fnError, data) {
+  if (data?.error && typeof data.error === 'string') return data.error
+  if (data?.message && typeof data.message === 'string') return data.message
+  const ctx = fnError?.context
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body = await ctx.json()
+      if (body?.error) return String(body.error)
+      if (body?.message) return String(body.message)
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  const msg = fnError?.message || ''
+  if (msg && !msg.includes('non-2xx')) return msg
+  return 'Request failed. Check your role, password (min 6 chars), and that the email is not already registered.'
+}
+
 // Helper function to clear all auth-related storage
 export const clearAuthStorage = () => {
   try {

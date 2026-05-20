@@ -13,17 +13,20 @@ class AuditLogger {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
 
-      // Get additional user info from app_users table
-      const { data: userData } = await supabase
-        .from('app_users')
-        .select('full_name, email')
+      const { data: profileRow } = await supabase
+        .from('profiles')
+        .select('username, email')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
 
       return {
         id: user.id,
         email: user.email,
-        name: userData?.full_name || user.email?.split('@')[0] || 'Unknown User'
+        name:
+          profileRow?.username ||
+          user.user_metadata?.full_name ||
+          user.email?.split('@')[0] ||
+          'Unknown User',
       };
     } catch (error) {
       console.error('Error getting user info:', error);

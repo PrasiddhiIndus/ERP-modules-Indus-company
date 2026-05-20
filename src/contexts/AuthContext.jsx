@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useMemo } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, parseEdgeFunctionError, invokeAuthenticatedFunction } from "../lib/supabase";
 import { getAccessibleModules } from "../config/roles";
 
 const AuthContext = createContext();
@@ -11,6 +11,9 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const userRef = useRef(null);
+  const profileSyncAttemptedRef = useRef(null);
+  const signInProfileSyncRef = useRef(false);
+  const profileFetchInFlightRef = useRef(null);
 
   useEffect(() => {
     const getSession = async () => {
@@ -49,6 +52,8 @@ export const AuthProvider = ({ children }) => {
           userRef.current = newUser?.id ?? null;
           setUser(newUser);
           setProfileRow(null);
+          profileSyncAttemptedRef.current = null;
+          if (newUser?.id && useProfilesTable) setProfileLoading(true);
         }
       } catch (error) {
         console.error('Error getting session:', error);
@@ -80,88 +85,95 @@ export const AuthProvider = ({ children }) => {
         userRef.current = newUserId;
         setUser(newUser);
         setProfileRow(null);
+        if (!newUserId) {
+          profileSyncAttemptedRef.current = null;
+        }
+        if (newUserId && useProfilesTable && !signInProfileSyncRef.current) {
+          setProfileLoading(true);
+        }
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch profile from DB when user exists. If table missing or access denied, fall back to user_metadata.
-  // NOTE: We do NOT permanently "skip" profiles anymore — role gating (Super Admin) depends on this row.
-  const useProfilesTable =
-    import.meta.env.VITE_USE_PROFILES_TABLE === "true" ||
-    import.meta.env.VITE_USE_PROFILES_TABLE === true;
+  // New methodology: profiles is the single source of truth.
+  // The app never guesses role/team from user_metadata; it uses `login-check`.
+  const useProfilesTable = true;
 
-  /**
-   * Access revocation rule:
-   * When profiles table is enabled, the profiles row is the source of truth.
-   * If the row is missing, the user is considered removed and must be signed out.
-   */
-  const ensureProfileExists = async (uid) => {
-    if (!useProfilesTable) return { ok: true };
-    const userId = String(uid || '').trim();
-    if (!userId) return { ok: false, message: 'Access revoked.' };
+  const fetchProfileFromTable = async (userId) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, email, username, team, role, allowed_modules")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error || !data?.id) return { ok: false };
+    setProfileRow(data);
+    return { ok: true, profile: data };
+  };
+
+  const fetchProfileViaLoginCheck = async (accessToken, userId) => {
+    const uid = userId || user?.id;
+    if (!uid) return { ok: false };
+    if (profileFetchInFlightRef.current === uid) {
+      return { ok: false, message: "Profile sync in progress." };
+    }
+    profileFetchInFlightRef.current = uid;
+    setProfileLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", userId)
-        .maybeSingle();
+      const run = (token) =>
+        invokeAuthenticatedFunction("login-check", { body: {} }, token || accessToken);
+
+      let { data, error } = await run(accessToken);
       if (error) {
-        // If profiles table/RLS is misconfigured, don't lock out valid users silently.
-        return { ok: true };
+        const msg = await parseEdgeFunctionError(error, data);
+        const retryable =
+          msg === "Invalid token" ||
+          msg.includes("Missing Authorization") ||
+          msg === "Not signed in";
+        if (retryable) {
+          await new Promise((r) => setTimeout(r, 300));
+          const { data: sess } = await supabase.auth.getSession();
+          const retryToken = accessToken || sess?.session?.access_token;
+          ({ data, error } = await run(retryToken));
+        }
+        if (error) {
+          const tableFallback = await fetchProfileFromTable(uid);
+          if (tableFallback.ok) return tableFallback;
+          const msg2 = await parseEdgeFunctionError(error, data);
+          return { ok: false, message: msg2 };
+        }
       }
-      if (!data?.id) return { ok: false, message: 'Your access has been revoked. Contact admin.' };
-      return { ok: true };
-    } catch (_) {
-      return { ok: true };
+      if (!data?.ok || !data?.profile?.id) {
+        const tableFallback = await fetchProfileFromTable(uid);
+        if (tableFallback.ok) return tableFallback;
+        return { ok: false, message: data?.error || "Could not load profile." };
+      }
+      setProfileRow(data.profile);
+      return { ok: true, profile: data.profile };
+    } finally {
+      if (profileFetchInFlightRef.current === uid) {
+        profileFetchInFlightRef.current = null;
+      }
+      setProfileLoading(false);
     }
   };
+
   useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
       setProfileLoading(false);
       return;
     }
-    if (!useProfilesTable) {
-      setProfileRow(null);
-      setProfileLoading(false);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setProfileLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id, email, username, team, role, allowed_modules")
-          .eq("id", user.id)
-          .maybeSingle();
-        if (cancelled) return;
-        if (!error && data) {
-          setProfileRow(data);
-          return;
-        }
-        setProfileRow(null);
-      } catch (_) {
-        if (!cancelled) setProfileRow(null);
-      } finally {
-        if (!cancelled) setProfileLoading(false);
-      }
+    if (signInProfileSyncRef.current) return;
+    if (profileSyncAttemptedRef.current === user.id) return;
+    profileSyncAttemptedRef.current = user.id;
+    void (async () => {
+      const { data: sess } = await supabase.auth.getSession();
+      await fetchProfileViaLoginCheck(sess?.session?.access_token, user.id);
     })();
-    return () => { cancelled = true; };
-  }, [user?.id, useProfilesTable]);
-
-  // If a previously valid user gets removed from `profiles`, revoke access immediately.
-  useEffect(() => {
-    if (!useProfilesTable) return;
-    if (!user?.id) return;
-    if (profileLoading) return;
-    if (profileRow) return;
-    // profileRow is null after a completed fetch: treat as revoked.
-    void clearInvalidSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useProfilesTable, user?.id, profileLoading, profileRow]);
+  }, [user?.id]);
 
   // Register user + save role-based profile (username, team, role, allowed_modules for manager)
   const signUpWithProfile = async (email, password, profileData) => {
@@ -218,33 +230,37 @@ export const AuthProvider = ({ children }) => {
   }
 
   const signIn = async (email, password) => {
+    const normEmail = String(email || "").trim().toLowerCase();
+    signInProfileSyncRef.current = true;
     try {
-      const result = await supabase.auth.signInWithPassword({ email, password });
+      const result = await supabase.auth.signInWithPassword({
+        email: normEmail,
+        password,
+      });
+      if (result?.error) {
+        return result;
+      }
+      if (result?.data?.session) {
+        await supabase.auth.setSession(result.data.session);
+      }
       if (result?.data?.user?.id) {
-        // Strong check via Edge Function (service role) so deleted profiles cannot log in
-        // even if RLS blocks profiles reads on the client.
-        try {
-          const { data: resp, error: fnErr } = await supabase.functions.invoke("access-check", { body: {} });
-          // Important: if the function is missing/not deployed, browsers can fail the CORS preflight.
-          // In that case do NOT block logins — fall back to a best-effort direct check.
-          if (fnErr) throw fnErr;
-
-          // Only hard-block when the function explicitly says access is revoked.
-          if (resp?.ok === false) {
-            await clearInvalidSession();
-            return {
-              data: { session: null, user: null },
-              error: { message: resp?.error || "Access revoked." },
-            };
-          }
-        } catch (_) {
-          // If function isn't deployed yet, fall back to best-effort direct check.
-          const chk = await ensureProfileExists(result.data.user.id);
-          if (!chk.ok) {
-            await clearInvalidSession();
-            return { data: { session: null, user: null }, error: { message: chk.message } };
-          }
+        const authUser = result.data.user;
+        profileSyncAttemptedRef.current = authUser.id;
+        userRef.current = authUser.id;
+        setUser(authUser);
+        const checked = await fetchProfileViaLoginCheck(
+          result.data.session?.access_token,
+          authUser.id
+        );
+        if (!checked.ok) {
+          // Do not keep half-authenticated sessions.
+          await clearInvalidSession();
+          return {
+            data: { session: null, user: null },
+            error: { message: checked.message || "Could not load your access profile. Contact admin." },
+          };
         }
+        return { ...result, profile: checked.profile };
       }
       return result;
     } catch (err) {
@@ -254,6 +270,8 @@ export const AuthProvider = ({ children }) => {
         data: { session: null, user: null },
         error: { message: isNetwork ? 'Cannot reach Supabase. Check .env, restart dev server (npm run dev), and firewall/network.' : msg },
       };
+    } finally {
+      signInProfileSyncRef.current = false;
     }
   };
 
@@ -339,19 +357,8 @@ export const AuthProvider = ({ children }) => {
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
       };
     }
-    const meta = user?.user_metadata;
-    if (!meta) return null;
-    const metaRole = meta.role ?? null;
-    const effectiveRole =
-      forcedSuperRole && metaRole !== 'super_admin' && metaRole !== 'super_admin_pro'
-        ? forcedSuperRole
-        : (metaRole ?? forcedSuperRole);
-    return {
-      username: meta.full_name ?? user?.email?.split("@")[0],
-      team: meta.team ?? null,
-      role: effectiveRole,
-      allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
-    };
+    // Single source of truth is `profiles`. If profileRow is missing, treat as not ready.
+    return null;
   }, [user, profileRow]);
 
   const accessibleModules = useMemo(

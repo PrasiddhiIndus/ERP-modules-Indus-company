@@ -89,8 +89,29 @@ const SUPER_ADMIN_ONLY_MODULES = new Set(["userManagement", "softwareSubscriptio
 /** Fire Tender (tenders, costing, quotations, configuration, manufacturing UI) — not part of generic/Admin bundles. */
 const FIRE_TENDER_MODULE_KEY = "fireTender";
 
+/**
+ * Map User Management `team` values to real module keys in MODULE_PATH_PREFIXES.
+ * e.g. TEAMS uses "commercial" but routes are under commercialMt / commercialRm.
+ */
+const TEAM_VALUE_ALIASES = {
+  commercial: "commercialMt",
+  firetender: FIRE_TENDER_MODULE_KEY,
+};
+
+/**
+ * Canonical module key for routing/RLS (case-insensitive; fixes "Billing" vs "billing").
+ */
+export function normalizeTeamModuleKey(raw) {
+  const t = String(raw || "").trim().toLowerCase();
+  if (!t) return "";
+  if (TEAM_VALUE_ALIASES[t]) return TEAM_VALUE_ALIASES[t];
+  const exact = Object.keys(MODULE_PATH_PREFIXES).find((k) => k.toLowerCase() === t);
+  if (exact) return exact;
+  return t;
+}
+
 function userHasFireTenderTeam(profile) {
-  return String(profile?.team || "").trim() === FIRE_TENDER_MODULE_KEY;
+  return normalizeTeamModuleKey(profile?.team) === FIRE_TENDER_MODULE_KEY;
 }
 
 /**
@@ -107,7 +128,8 @@ function applyFireTenderModuleGate(profile, moduleSet) {
 
 /**
  * Pick a safe landing path for users who don't have `overview` access.
- * Preference: user's team module ΓåÆ first non-settings module ΓåÆ settings ΓåÆ /app/dashboard.
+ * Preference: user's team module (normalized) → allowed_modules → stable rest → settings → dashboard.
+ * Executive/Manager never use "first key in Set" (which was often `hr`) when team/allowed are set wrong.
  */
 export function getLandingPathForUser(userProfile, accessibleModules) {
   const mods = accessibleModules && accessibleModules.size ? accessibleModules : new Set();
@@ -117,28 +139,95 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
     return Array.isArray(arr) && arr.length ? arr[0] : null;
   };
 
-  // 1) Team module
-  const team = String(userProfile?.team || "").trim();
-  if (team && mods.has(team)) {
-    const p = pickFirstPrefix(team);
+  const role = userProfile?.role;
+  const teamKey = normalizeTeamModuleKey(userProfile?.team);
+  const allowedKeys = (userProfile?.allowed_modules || [])
+    .map((m) => normalizeTeamModuleKey(m))
+    .filter(Boolean);
+
+  const tryKey = (k) => {
+    if (!k || !mods.has(k)) return null;
+    return pickFirstPrefix(k);
+  };
+
+  // 1) Primary team (normalized)
+  const fromTeam = tryKey(teamKey);
+  if (fromTeam) return fromTeam;
+
+  // 2) Explicit extra modules from User Management
+  for (const k of allowedKeys) {
+    const p = tryKey(k);
     if (p) return p;
   }
 
-  // 2) First allowed module except overview/settings/Super Admin-only modules
-  for (const k of mods) {
-    if (k === "overview" || k === "settings" || SUPER_ADMIN_ONLY_MODULES.has(k)) continue;
-    const p = pickFirstPrefix(k);
+  // 3) Executive / Manager with no team + no allowed_modules: don't guess (legacy "all modules" used to land on /app/hr).
+  if (
+    (role === ROLES.EXECUTIVE || role === ROLES.MANAGER) &&
+    !teamKey &&
+    allowedKeys.length === 0
+  ) {
+    if (mods.has("settings")) {
+      const p = pickFirstPrefix("settings");
+      if (p) return p;
+    }
+    return "/app/dashboard";
+  }
+
+  // 4) Executive / Manager: do not walk Set insertion order (was sending users to /app/hr).
+  if (role === ROLES.EXECUTIVE || role === ROLES.MANAGER) {
+    const rest = [...mods]
+      .filter(
+        (k) =>
+          k !== "overview" &&
+          k !== "settings" &&
+          !SUPER_ADMIN_ONLY_MODULES.has(k) &&
+          k !== teamKey &&
+          !allowedKeys.includes(k),
+      )
+      .sort();
+    for (const k of rest) {
+      const p = tryKey(k);
+      if (p) return p;
+    }
+    if (mods.has("settings")) {
+      const p = pickFirstPrefix("settings");
+      if (p) return p;
+    }
+    return "/app/dashboard";
+  }
+
+  // 5) Other roles: first non-overview module in stable order
+  const rest = [...mods]
+    .filter((k) => k !== "overview" && k !== "settings" && !SUPER_ADMIN_ONLY_MODULES.has(k))
+    .sort();
+  for (const k of rest) {
+    const p = tryKey(k);
     if (p) return p;
   }
 
-  // 3) Settings
   if (mods.has("settings")) {
     const p = pickFirstPrefix("settings");
     if (p) return p;
   }
 
-  // 4) Fallback
   return "/app/dashboard";
+}
+
+/**
+ * Where to send the user immediately after login.
+ * Admin + Super Admin → main dashboard (/app/dashboard).
+ * Executive + Manager → first allowed team/module home via getLandingPathForUser.
+ */
+export function getLoginRedirectPath(userProfile, accessibleModules) {
+  const role = userProfile?.role;
+  if (
+    role === ROLES.ADMIN ||
+    role === ROLES.SUPER_ADMIN ||
+    role === ROLES.SUPER_ADMIN_PRO
+  ) {
+    return "/app/dashboard";
+  }
+  return getLandingPathForUser(userProfile, accessibleModules);
 }
 
 /** Manager needs one of these in `accessibleModules` to approve Commercial ΓÇö Manpower/Training PO workflows. */
@@ -222,16 +311,24 @@ export function getAccessibleModules(profile) {
       applyFireTenderModuleGate(profile, legacyExec);
       return legacyExec;
     }
-    always.add(profile.team);
-    (profile.allowed_modules || []).forEach((m) => always.add(m));
+    const nt = normalizeTeamModuleKey(profile.team);
+    if (nt) always.add(nt);
+    (profile.allowed_modules || []).forEach((m) => {
+      const nk = normalizeTeamModuleKey(m);
+      if (nk) always.add(nk);
+    });
     // Never allow Super Admin-only modules for non-super-admin.
     SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
     applyFireTenderModuleGate(profile, always);
     return always;
   }
   if (profile.role === ROLES.MANAGER) {
-    if (profile.team) always.add(profile.team);
-    (profile.allowed_modules || []).forEach((m) => always.add(m));
+    const nt = normalizeTeamModuleKey(profile.team);
+    if (nt) always.add(nt);
+    (profile.allowed_modules || []).forEach((m) => {
+      const nk = normalizeTeamModuleKey(m);
+      if (nk) always.add(nk);
+    });
     SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
     applyFireTenderModuleGate(profile, always);
     return always;
