@@ -26,7 +26,8 @@ values (
     {"value":"procurement","label":"Procurement"},
     {"value":"amc","label":"AMC"},
     {"value":"finance","label":"Finance/Accounts"},
-    {"value":"fireTender","label":"Fire Tender"}
+    {"value":"fireTender","label":"Fire Tender"},
+    {"value":"itIs","label":"IT/IS"}
   ]'::jsonb,
   '[
     {"value":"hr","label":"HR"},
@@ -43,6 +44,7 @@ values (
     {"value":"amc","label":"AMC"},
     {"value":"finance","label":"Finance/Accounts"},
     {"value":"fireTender","label":"Fire Tender"},
+    {"value":"itIs","label":"IT/IS"},
     {"value":"settings","label":"Settings"}
   ]'::jsonb,
   '{}'::jsonb
