@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { supabase } from "../lib/supabase";
+import { supabase, parseEdgeFunctionError } from "../lib/supabase";
 import { ROLES, TEAMS, MODULES } from "../config/roles";
 import {
   Users,
@@ -118,7 +118,7 @@ const UserManagement = () => {
     setSaving(true);
     setError("");
     try {
-      const { error: updateError } = await supabase.functions.invoke("admin-update-profile", {
+      const { data: updateData, error: updateError } = await supabase.functions.invoke("admin-update-profile", {
         body: {
           id: editId,
           team: editForm.team || null,
@@ -127,7 +127,7 @@ const UserManagement = () => {
         },
       });
       if (updateError) {
-        setError(updateError.message || "Unable to save.");
+        setError(await parseEdgeFunctionError(updateError, updateData));
         return;
       }
       setList((prev) =>
@@ -156,11 +156,11 @@ const UserManagement = () => {
     setSaving(true);
     setError("");
     try {
-      const { error: delErr } = await supabase.functions.invoke("admin-delete-user", {
+      const { data: delData, error: delErr } = await supabase.functions.invoke("admin-delete-user", {
         body: { id: row.id },
       });
       if (delErr) {
-        setError(delErr.message || "Unable to delete user.");
+        setError(await parseEdgeFunctionError(delErr, delData));
         return;
       }
       setList((prev) => prev.filter((r) => r.id !== row.id));
@@ -538,15 +538,20 @@ const UserManagement = () => {
                   setCreateBusy(true);
                   setError("");
                   try {
-                    const email = String(createForm.email || "").trim();
+                    const email = String(createForm.email || "").trim().toLowerCase();
+                    const password = String(createForm.password || "").trim();
                     if (!email) {
                       setError("Email is required.");
+                      return;
+                    }
+                    if (password.length < 6) {
+                      setError("Temporary password is required (at least 6 characters).");
                       return;
                     }
                     const { data, error: fnErr } = await supabase.functions.invoke("admin-create-user", {
                       body: {
                         email,
-                        password: createForm.password || undefined,
+                        password,
                         username: createForm.username || undefined,
                         team: createForm.team || null,
                         role: createForm.role || ROLES.EXECUTIVE,
@@ -554,7 +559,7 @@ const UserManagement = () => {
                       },
                     });
                     if (fnErr) {
-                      setError(fnErr.message || "Could not create user.");
+                      setError(await parseEdgeFunctionError(fnErr, data));
                       return;
                     }
                     if (!data?.ok) {
@@ -562,7 +567,27 @@ const UserManagement = () => {
                       return;
                     }
                     setCreateOpen(false);
+                    setCreateForm({
+                      email: "",
+                      password: "",
+                      username: "",
+                      team: "",
+                      role: ROLES.EXECUTIVE,
+                      allowed_modules: [],
+                    });
                     setPage(0);
+                    // Refresh list after create/restore
+                    const from = page * PAGE_SIZE;
+                    const to = from + PAGE_SIZE - 1;
+                    const { data: rows, count } = await supabase
+                      .from("profiles")
+                      .select("id, email, username, team, role, allowed_modules, created_at", { count: "exact" })
+                      .order("created_at", { ascending: false })
+                      .range(from, to);
+                    if (rows) {
+                      setList(rows);
+                      setTotal(count ?? 0);
+                    }
                   } catch (e) {
                     setError(e?.message || "Could not create user.");
                   } finally {

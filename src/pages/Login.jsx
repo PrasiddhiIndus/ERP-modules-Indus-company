@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { getAccessibleModules, getLoginRedirectPath } from '../config/roles'
+import { supabase, invokeAuthenticatedFunction } from '../lib/supabase'
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import {
   Mail,
@@ -36,6 +38,12 @@ const isNetworkError = (err) => {
   )
 }
 
+const isRateLimitError = (err) => {
+  if (!err?.message) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('too many requests') || msg.includes('only request this after') || msg.includes('rate limit')
+}
+
 const METRICS = [
   { value: '32+', label: 'Years of excellence', icon: Building2 },
   { value: '2000+', label: 'Workforce managed', icon: Users },
@@ -60,9 +68,10 @@ const Login = () => {
   const [error, setError] = useState('')
   const [showVerifyCode, setShowVerifyCode] = useState(false)
   const [verifyCode, setVerifyCode] = useState('')
+  const [otpSendStatus, setOtpSendStatus] = useState('idle') // idle | sending | sent | failed | rate_limited
   const [statIndex, setStatIndex] = useState(0)
 
-  const { signIn, verifyEmailOtp } = useAuth()
+  const { signIn, verifyEmailOtp, resendConfirmation } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -72,23 +81,57 @@ const Login = () => {
     return () => clearInterval(t)
   }, [])
 
+  const sendVerificationCode = async () => {
+    const trimmed = email.trim()
+    if (!trimmed) {
+      setError('Enter your email above, then try again.')
+      return false
+    }
+    setOtpSendStatus('sending')
+    const { error: resendErr } = await resendConfirmation(trimmed)
+    if (resendErr) {
+      setOtpSendStatus(isRateLimitError(resendErr) ? 'rate_limited' : 'failed')
+      setError(
+        isNetworkError(resendErr)
+          ? NETWORK_ERROR_MESSAGE
+          : (resendErr.message || 'Could not send verification code. Ask an admin to confirm your email in Supabase.')
+      )
+      return false
+    }
+    setOtpSendStatus('sent')
+    return true
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setError('')
     setShowVerifyCode(false)
-    const { data, error: signInError } = await signIn(email, password)
+    setOtpSendStatus('idle')
+    const { data, error: signInError } = await signIn(email.trim(), password)
     if (signInError) {
       if (isEmailNotConfirmedError(signInError)) {
         setShowVerifyCode(true)
-        setError('Check your email for a 6-digit code and enter it below to verify your account.')
+        setOtpSendStatus('idle')
+        setError(
+          'Your email is not verified yet. Tap Resend code to get a 6-digit OTP (wait 60s between tries), or ask an admin to confirm your email in Supabase.'
+        )
       } else if (isNetworkError(signInError)) {
         setError(NETWORK_ERROR_MESSAGE)
       } else {
-        setError(signInError.message)
+        setError(signInError.message || 'Sign in failed. Check email, password, and that your account exists in User Management.')
       }
     } else if (data?.session) {
-      navigate('/app/dashboard')
+      const row = data.profile
+      const profile = {
+        role: row?.role ?? 'executive',
+        team: row?.team ?? null,
+        allowed_modules: Array.isArray(row?.allowed_modules) ? row.allowed_modules : [],
+      }
+      const mods = getAccessibleModules(profile)
+      navigate(getLoginRedirectPath(profile, mods))
+    } else {
+      setError('Sign in did not return a session. Confirm email in Supabase Authentication or contact admin.')
     }
     setLoading(false)
   }
@@ -112,7 +155,35 @@ const Login = () => {
       setLoading(false)
       return
     }
-    if (data?.session) navigate('/app/dashboard')
+    if (data?.session) {
+      await supabase.auth.setSession(data.session)
+      const { data: chk } = await invokeAuthenticatedFunction(
+        'login-check',
+        { body: {} },
+        data.session.access_token
+      )
+      let profile
+      if (chk?.ok && chk?.profile) {
+        profile = {
+          role: chk.profile.role ?? 'executive',
+          team: chk.profile.team ?? null,
+          allowed_modules: Array.isArray(chk.profile.allowed_modules)
+            ? chk.profile.allowed_modules
+            : [],
+        }
+      } else {
+        const u = data.user
+        profile = {
+          role: u?.user_metadata?.role ?? 'executive',
+          team: u?.user_metadata?.team ?? null,
+          allowed_modules: Array.isArray(u?.user_metadata?.allowed_modules)
+            ? u.user_metadata.allowed_modules
+            : [],
+        }
+      }
+      const mods = getAccessibleModules(profile)
+      navigate(getLoginRedirectPath(profile, mods))
+    }
     setLoading(false)
   }
 
@@ -244,7 +315,18 @@ const Login = () => {
                 {showVerifyCode ? (
                   <>
                     <p className="text-gray-600 text-sm mb-4 font-body">
-                      Code sent to <strong className="text-gray-900">{email}</strong>. Expires in 1 hour.
+                      {otpSendStatus === 'sent' ? (
+                        <>
+                          Code sent to <strong className="text-gray-900">{email}</strong>. Check inbox and spam.
+                          Expires in about 1 hour.
+                        </>
+                      ) : otpSendStatus === 'sending' ? (
+                        <>Sending code to <strong className="text-gray-900">{email}</strong>…</>
+                      ) : otpSendStatus === 'rate_limited' ? (
+                        <>Too many OTP requests for <strong className="text-gray-900">{email}</strong>. Wait about 1 minute, then tap Resend code.</>
+                      ) : (
+                        <>Enter the code for <strong className="text-gray-900">{email}</strong>, or tap Resend code once.</>
+                      )}
                     </p>
                     <form onSubmit={handleVerifyCode} className="space-y-3">
                       <div>
@@ -278,11 +360,29 @@ const Login = () => {
                         )}
                       </button>
                     </form>
-                    <div className="text-center mt-3">
+                    <div className="text-center mt-3 space-y-2">
                       <button
                         type="button"
-                        onClick={() => { setShowVerifyCode(false); setVerifyCode(''); setError(''); }}
-                        className="text-sm text-indus-red hover:text-indus-red-hover font-medium font-body"
+                        disabled={loading || otpSendStatus === 'sending'}
+                        onClick={async () => {
+                          setLoading(true)
+                          setError('')
+                          await sendVerificationCode()
+                          setLoading(false)
+                        }}
+                        className="block w-full text-sm text-indus-red hover:text-indus-red-hover font-medium font-body disabled:opacity-50"
+                      >
+                        Resend code
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowVerifyCode(false)
+                          setVerifyCode('')
+                          setError('')
+                          setOtpSendStatus('idle')
+                        }}
+                        className="text-sm text-gray-500 hover:text-gray-700 font-medium font-body"
                       >
                         ← Back to sign in
                       </button>
