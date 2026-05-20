@@ -1,0 +1,3 @@
+# Gateway JWT verification can fail for ES256 signing keys; validate inside the function instead.
+[functions.login-check]
+verify_jwt = false

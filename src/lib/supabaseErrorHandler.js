@@ -17,13 +17,14 @@ export const handleSupabaseError = async (operation) => {
     
     // Check for refresh token errors in the result
     if (result.error) {
-      const errorMessage = result.error.message || '';
+      const errorMessage = String(result.error.message || '');
+      const msg = errorMessage.toLowerCase();
       
       if (
-        errorMessage.includes('Refresh Token') ||
-        errorMessage.includes('Invalid Refresh Token') ||
-        errorMessage.includes('JWT') ||
-        errorMessage.includes('token_not_found')
+        msg.includes('invalid refresh token') ||
+        msg.includes('refresh token not found') ||
+        msg.includes('token_not_found') ||
+        msg.includes('refresh_token')
       ) {
         console.warn('Refresh token error detected, clearing session...');
         
@@ -38,8 +39,9 @@ export const handleSupabaseError = async (operation) => {
         clearAuthStorage();
         
         // Redirect to login if we're not already there
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
+        // App login route is `/` (not `/login`).
+        if (window.location.pathname !== '/') {
+          window.location.href = '/';
         }
         
         return {
