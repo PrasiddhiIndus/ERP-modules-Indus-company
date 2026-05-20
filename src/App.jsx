@@ -37,7 +37,6 @@ import CommercialRmMmAmcIev from "./pages/commercial-rm-mm-amc-iev/CommercialRmM
 import CommercialRmManpowerManagement from "./pages/commercial-rm-mm-amc-iev/ManpowerManagement";
 import CommercialRmInternalQuotation from "./pages/commercial-rm-mm-amc-iev/InternalQuotation";
 import FireTenderVehicleManagement from "./pages/fireTenderVehicle/FireTenderVehicleManagement";
-import Payroll from "./pages/payroll/Payroll";
 import Attendance from "./pages/attendance/Attendance";
 import Salary from "./pages/salary/Salary";
 import StoreInventory from "./pages/store/StoreInventory";
@@ -65,6 +64,9 @@ import AdminOpsSettings from "./pages/adminOperations/AdminOpsSettings";
 import PayrollLayout from "./pages/adminOperations/payroll/PayrollLayout";
 import PayrollFormulaPage from "./pages/adminOperations/payroll/PayrollFormulaPage";
 import { PayrollDashboardPage, PayrollMonthPage, PayrollYearPage } from "./pages/adminOperations/payroll/PayrollViews";
+import HrPayrollLayout from "./pages/hr/payroll/HrPayrollLayout";
+import HrPayrollFormulaPage from "./pages/hr/payroll/HrPayrollFormulaPage";
+import { HrPayrollDashboardPage, HrPayrollMonthPage, HrPayrollYearPage } from "./pages/hr/payroll/HrPayrollViews";
 import {
   EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
@@ -324,7 +326,14 @@ function App() {
             <Route path="hr" element={<HR />} />
             <Route path="attendance" element={<Attendance />} />
             <Route path="salary" element={<Salary />} />
-            <Route path="payroll" element={<Payroll />} />
+            <Route path="payroll" element={<Navigate to="/app/hr/payroll/dashboard" replace />} />
+            <Route path="hr/payroll" element={<HrPayrollLayout />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<HrPayrollDashboardPage />} />
+              <Route path="entry" element={<HrPayrollMonthPage />} />
+              <Route path="year" element={<HrPayrollYearPage />} />
+              <Route path="formula" element={<HrPayrollFormulaPage />} />
+            </Route>
             <Route path="people-management" element={<PeopleManagement />} />
             
             {/* Compliance */}

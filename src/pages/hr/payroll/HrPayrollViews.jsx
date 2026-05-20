@@ -1,20 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { SectionCard, KpiTile, Badge, FilterBar, TinySelect, DenseTable, LinkedChip } from "../components/AdminUi";
-import { mockEmployees } from "../data/mockAdminData";
+import { SectionCard, KpiTile, Badge, FilterBar, TinySelect, DenseTable, LinkedChip } from "../../adminOperations/components/AdminUi";
+import { mockEmployees } from "../../adminOperations/data/mockAdminData";
 import {
   PAYROLL_ENTRY_COLUMNS,
   buildPayrollEntryWorkbook,
   downloadAttendanceWorkbook,
   monthMeta,
-} from "./attendanceSheetExcel";
+} from "../../adminOperations/payroll/attendanceSheetExcel";
 import {
   loadPayrollPackages,
   getPackageById,
   resolvePayrollPackageColumnKeys,
   PAYROLL_ENTRY_SELECTED_PACKAGE_KEY,
-} from "./payrollPackages";
-import { usePayrollScope } from "./payrollScope";
+} from "./hrPayrollPackages";
+import { useHrPayrollScope } from "./hrPayrollScope";
 
 const EMPLOYEE_SITE_BY_CODE = {
   "IFS-10482": "IFSPL FACTORY",
@@ -527,9 +527,9 @@ function GenerateDraftInput({ field, value, onChange }) {
   );
 }
 
-export function PayrollDashboardPage() {
+export function HrPayrollDashboardPage() {
   const navigate = useNavigate();
-  const { base, employeeMasterPath, workflowBadge } = usePayrollScope();
+  const { base, employeeMasterPath, workflowBadge } = useHrPayrollScope();
   const activeCount = mockEmployees.filter((e) => !String(e.status || "").includes("Exit")).length;
 
   return (
@@ -559,7 +559,7 @@ export function PayrollDashboardPage() {
 
       <SectionCard title="Quick export (current month, sample data)" right={<Badge tone="bg-gray-100 text-gray-700">Demo</Badge>}>
         <p className="text-xs text-gray-600 mb-2">
-          Uses mock roster from Admin Operations. Replace with API payload when backend is ready.
+          Uses mock roster for HR preview. Replace with HR API payload when backend is ready.
         </p>
         <button
           type="button"
@@ -591,8 +591,8 @@ export function PayrollDashboardPage() {
   );
 }
 
-export function PayrollMonthPage() {
-  const { formulaNavHint } = usePayrollScope();
+export function HrPayrollMonthPage() {
+  const { formulaNavHint } = useHrPayrollScope();
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -621,7 +621,7 @@ export function PayrollMonthPage() {
   const year = selectedYear;
   const month = selectedMonth;
   const meta = useMemo(() => monthMeta(year, month), [year, month]);
-  const autosaveKey = useMemo(() => `indus-payroll-entry:${meta.label}:${company}:${site}`, [company, meta.label, site]);
+  const autosaveKey = useMemo(() => `indus-hr-payroll-entry:${meta.label}:${company}:${site}`, [company, meta.label, site]);
   const filteredEmployees = useMemo(() => filterEmployeesForPayroll({ employees: mockEmployees, company, site }), [company, site]);
   const periodSeedMarks = useMemo(() => buildPeriodAttendanceMarks(filteredEmployees, year, month), [filteredEmployees, month, year]);
   const rows = useMemo(
@@ -1152,7 +1152,7 @@ export function PayrollMonthPage() {
   );
 }
 
-export function PayrollYearPage() {
+export function HrPayrollYearPage() {
   const yNow = new Date().getFullYear();
   const [year, setYear] = useState(yNow);
   const [company, setCompany] = useState("IFSPL / IEVPL");
