@@ -59,7 +59,7 @@ export const MODULES = [
 /** Path prefixes that belong to each module (for route guard). */
 export const MODULE_PATH_PREFIXES = {
   overview: ["/app/dashboard"],
-  hr: ["/app/hr", "/app/attendance", "/app/salary", "/app/payroll", "/app/people-management"],
+  hr: ["/app/hr", "/app/hr/payroll", "/app/attendance", "/app/salary", "/app/payroll", "/app/people-management"],
   compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance"],
   admin: ["/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass", "/app/admin"],
   // Legacy bucket: Sales historically owned /manpower + /commercial routes.
