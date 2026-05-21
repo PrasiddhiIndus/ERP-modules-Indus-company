@@ -293,8 +293,20 @@ export function ActivityItem({ item }) {
   );
 }
 
-export function QuickActionTile({ label }) {
-  return <button className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 text-left">{label}</button>;
+export function QuickActionTile({ label, to, onNavigate }) {
+  const handleClick = () => {
+    if (to && onNavigate) onNavigate(to);
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={!to}
+      className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {label}
+    </button>
+  );
 }
 
 export function HeaderControls() {
