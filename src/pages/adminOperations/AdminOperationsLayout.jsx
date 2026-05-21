@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell, Building2, CalendarDays, ChevronDown, LayoutDashboard, Search } from "lucide-react";
+import { ADMIN_OPS_QUICK_ACTIONS } from "../../config/quickActionRoutes";
 import { ADMIN_OPS_NAV } from "./navConfig";
 import { FilterBar, TinyInput, TinySelect } from "./components/AdminUi";
 import { mockAlerts } from "./data/mockAdminData";
@@ -9,9 +10,11 @@ const base = "/app/admin-operations";
 
 export default function AdminOperationsLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [company, setCompany] = useState("All");
   const [site, setSite] = useState("All");
+  const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const alertCount = useMemo(() => mockAlerts.filter((a) => a.severity === "critical" || a.severity === "high").length, []);
 
   const openGroups = useMemo(() => {
@@ -74,12 +77,39 @@ export default function AdminOperationsLayout() {
               </span>
             )}
           </NavLink>
-          <button
-            type="button"
-            className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50"
-          >
-            Quick actions
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setQuickMenuOpen((o) => !o)}
+              className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1"
+              aria-expanded={quickMenuOpen}
+              aria-haspopup="menu"
+            >
+              Quick actions
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+            {quickMenuOpen ? (
+              <div
+                className="absolute right-0 z-20 mt-1 min-w-[12rem] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+                role="menu"
+              >
+                {ADMIN_OPS_QUICK_ACTIONS.map((item) => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50"
+                    onClick={() => {
+                      setQuickMenuOpen(false);
+                      navigate(item.path);
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50"
