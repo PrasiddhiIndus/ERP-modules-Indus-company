@@ -5,69 +5,69 @@ import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import { checkSupabaseConnection } from "./lib/supabase";
 import { runBackendDiagnostics } from "./lib/backendDiagnostics";
-import Layout from "./contexts/Layout";
-import Dashboard from "./pages/Dashboard";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import FireTender from "./pages/projects/FireTender";
-import FireTenderDashboard from "./pages/projects/FireTenderDashboard";
-import CostingList from "./pages/projects/CostingList";
-import CostingSheet from "./pages/projects/CostingSheet";
-import demoTenders from "./pages/projects/demoTenders";
-import QuotationList from "./pages/projects/QuotationList";
-import QuotationDetail from "./pages/projects/QuotationDetail";
-import demoQuotations from "./pages/projects/demoQuotations";
-import MainComponentPage from "./pages/projects/configurationTender/MainComponentPage";
-import ManualSubCategoryPage from "./pages/projects/configurationTender/ManualSubCategoryPage";
-import FireTenderMailTemplatePage from "./pages/projects/configurationTender/FireTenderMailTemplatePage";
-import PriceMasterPage from "./pages/projects/configurationTender/PriceMasterPage";
-import AccessoriesPage from "./pages/projects/configurationTender/AccessoriesPage";
-import FinalComponentsPage from "./pages/projects/configurationTender/FinalComponentsPage";
-import VehicleTypePage from "./pages/projects/configurationTender/VehicleTypePage";
-import ManpowerManagement from "./pages/manpowerProject/ManpowerManagement";
-import InternalQuotationList from "./pages/manpowerProject/enquiryProjects/InternalQuotationList";
-import InternalQuotationForm from "./pages/manpowerProject/enquiryProjects/InternalQuotationForm";
-import ManpowerQuotationList from "./pages/manpowerProject/quotation/ManpowerQuotationList";
-import ManpowerConfiguration from "./pages/manpowerProject/configuration/ManpowerConfiguration";
-
-// New module imports
-import Billing from "./pages/billing/Billing";
-import Commercial from "./pages/sales/Commercial";
-import CommercialRmMmAmcIev from "./pages/commercial-rm-mm-amc-iev/CommercialRmMmAmcIev";
-import CommercialRmManpowerManagement from "./pages/commercial-rm-mm-amc-iev/ManpowerManagement";
-import CommercialRmInternalQuotation from "./pages/commercial-rm-mm-amc-iev/InternalQuotation";
-import FireTenderVehicleManagement from "./pages/fireTenderVehicle/FireTenderVehicleManagement";
-import Attendance from "./pages/attendance/Attendance";
-import Salary from "./pages/salary/Salary";
-import StoreInventory from "./pages/store/StoreInventory";
-import HR from "./pages/hr/HR";
-import Procurement from "./pages/procurement/Procurement";
-import Operations from "./pages/operations/Operations";
-import ProjectsBilling from "./pages/projectsBilling/ProjectsBilling";
-import ProjectsManagement from "./pages/projectsManagement/ProjectsManagement";
-import ProjectsPoHub from "./pages/projects/ProjectsPoHub";
-import AccountsFinance from "./pages/accountsFinance/AccountsFinance";
-
-// Additional module imports for reorganized structure
-import PeopleManagement from "./pages/peopleManagement/PeopleManagement";
-import IfspEmployeeCompliance from "./pages/compliance/IfspEmployeeCompliance";
-import GeneralCompliance from "./pages/compliance/GeneralCompliance";
-import IfspEmployeeAttendance from "./pages/admin/IfspEmployeeAttendance";
-import IfspEmployeePayroll from "./pages/admin/IfspEmployeePayroll";
-import IfspEmployeeLeaves from "./pages/admin/IfspEmployeeLeaves";
-import IfspEmployeeMaster from "./pages/admin/IfspEmployeeMaster";
-import GatePass from "./pages/admin/GatePass";
-import AdminOpsDashboard from "./pages/adminOperations/AdminOpsDashboard";
-import AdminOpsAlerts from "./pages/adminOperations/AdminOpsAlerts";
-import AdminOpsReports from "./pages/adminOperations/AdminOpsReports";
-import AdminOpsSettings from "./pages/adminOperations/AdminOpsSettings";
-import PayrollLayout from "./pages/adminOperations/payroll/PayrollLayout";
-import PayrollFormulaPage from "./pages/adminOperations/payroll/PayrollFormulaPage";
-import { PayrollDashboardPage, PayrollMonthPage, PayrollYearPage } from "./pages/adminOperations/payroll/PayrollViews";
-import HrPayrollLayout from "./pages/hr/payroll/HrPayrollLayout";
-import HrPayrollFormulaPage from "./pages/hr/payroll/HrPayrollFormulaPage";
-import { HrPayrollDashboardPage, HrPayrollMonthPage, HrPayrollYearPage } from "./pages/hr/payroll/HrPayrollViews";
 import {
+  Layout,
+  demoTenders,
+  demoQuotations,
+  Login,
+  Register,
+  Dashboard,
+  FireTender,
+  FireTenderDashboard,
+  CostingList,
+  CostingSheet,
+  QuotationList,
+  QuotationDetail,
+  MainComponentPage,
+  ManualSubCategoryPage,
+  FireTenderMailTemplatePage,
+  PriceMasterPage,
+  AccessoriesPage,
+  FinalComponentsPage,
+  VehicleTypePage,
+  ManpowerManagement,
+  InternalQuotationList,
+  InternalQuotationForm,
+  ManpowerQuotationList,
+  ManpowerConfiguration,
+  Billing,
+  Commercial,
+  CommercialRmMmAmcIev,
+  CommercialRmManpowerManagement,
+  CommercialRmInternalQuotation,
+  FireTenderVehicleManagement,
+  Attendance,
+  Salary,
+  StoreInventory,
+  HR,
+  Procurement,
+  Operations,
+  ProjectsBilling,
+  ProjectsManagement,
+  ProjectsPoHub,
+  AccountsFinance,
+  PeopleManagement,
+  IfspEmployeeCompliance,
+  GeneralCompliance,
+  IfspEmployeeAttendance,
+  IfspEmployeePayroll,
+  IfspEmployeeLeaves,
+  IfspEmployeeMaster,
+  GatePass,
+  AdminOpsDashboard,
+  AdminOpsAlerts,
+  AdminOpsReports,
+  AdminOpsSettings,
+  PayrollLayout,
+  PayrollFormulaPage,
+  PayrollDashboardPage,
+  PayrollMonthPage,
+  PayrollYearPage,
+  HrPayrollLayout,
+  HrPayrollFormulaPage,
+  HrPayrollDashboardPage,
+  HrPayrollMonthPage,
+  HrPayrollYearPage,
   EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
   EmployeeAttendanceSheetsPage,
@@ -75,9 +75,7 @@ import {
   EmployeeCompliancePage,
   EmployeeSalaryInputsPage,
   EmployeeExitPage,
-} from "./pages/adminOperations/employee/EmployeeAdminPages";
-import { EmployeeAttendanceDailyPage } from "./pages/adminOperations/employee/EmployeeAttendanceDailyPage";
-import {
+  EmployeeAttendanceDailyPage,
   StoreItemMasterPage,
   StoreMasterPage,
   StoreSiteStockPage,
@@ -86,38 +84,36 @@ import {
   StoreTransferPage,
   StorePlannerPage,
   StoreReconciliationPage,
-} from "./pages/adminOperations/store/StoreAdminPages";
-import {
   GateEmployeeMovementPage,
   GateGoodsPage,
   GateVisitorsPage,
   GateVehiclesPage,
   GateDeliveryPage,
   GateSecurityConsolePage,
-} from "./pages/adminOperations/gate/GateAdminPages";
-import { MiscEventsPage, MiscTravelPage, MiscTasksPage } from "./pages/adminOperations/misc/MiscAdminPages";
-import FireTenderManufacturing from "./pages/fireTenderManufacturing/FireTenderManufacturing";
-import AMC from "./pages/amc/AMC";
-import Settings from "./pages/Settings";
-import UserManagement from "./pages/UserManagement";
-import SoftwareSubscriptions from "./pages/SoftwareSubscriptions";
-import IndusLmsTrainings from "./pages/IndusLmsTrainings";
-
-// Marketing Module
-import MarketingDashboard from "./pages/marketing/MarketingDashboard";
-import EnquiryMaster from "./pages/marketing/EnquiryMaster";
-import QuotationTracker from "./pages/marketing/QuotationTracker";
-import CostingSheetList from "./pages/marketing/CostingSheetList";
-import CostingSheetDetail from "./pages/marketing/CostingSheetDetail";
-import MarketingInternalQuotationList from "./pages/marketing/InternalQuotationList";
-import MarketingInternalQuotationForm from "./pages/marketing/InternalQuotationForm";
-import QuotationTemplatePage from "./pages/marketing/QuotationTemplatePage";
-import FollowUpPlanner from "./pages/marketing/FollowUpPlanner";
-import ClientMaster from "./pages/marketing/ClientMaster";
-import ProductCatalog from "./pages/marketing/ProductCatalog";
-import PurchaseOrders from "./pages/marketing/PurchaseOrders";
-import ExpoSeminar from "./pages/marketing/ExpoSeminar";
-import GSTUpload from "./pages/marketing/GSTUpload";
+  MiscEventsPage,
+  MiscTravelPage,
+  MiscTasksPage,
+  FireTenderManufacturing,
+  AMC,
+  Settings,
+  UserManagement,
+  SoftwareSubscriptions,
+  IndusLmsTrainings,
+  MarketingDashboard,
+  EnquiryMaster,
+  QuotationTracker,
+  CostingSheetList,
+  CostingSheetDetail,
+  MarketingInternalQuotationList,
+  MarketingInternalQuotationForm,
+  QuotationTemplatePage,
+  FollowUpPlanner,
+  ClientMaster,
+  ProductCatalog,
+  PurchaseOrders,
+  ExpoSeminar,
+  GSTUpload,
+} from "./routes/lazyPages";
 
 const DATE_INPUT_MIN = "1900-01-01";
 const DATE_INPUT_MAX = "9999-12-31";
@@ -228,11 +224,20 @@ function App() {
     };
 
     applyRulesToAllDateInputs();
-    const observer = new MutationObserver(() => applyRulesToAllDateInputs());
+    let debounceId = null;
+    const scheduleApplyRules = () => {
+      if (debounceId != null) window.clearTimeout(debounceId);
+      debounceId = window.setTimeout(() => {
+        debounceId = null;
+        applyRulesToAllDateInputs();
+      }, 100);
+    };
+    const observer = new MutationObserver(scheduleApplyRules);
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("input", handleDateInputCapture, true);
 
     return () => {
+      if (debounceId != null) window.clearTimeout(debounceId);
       observer.disconnect();
       document.removeEventListener("input", handleDateInputCapture, true);
     };
