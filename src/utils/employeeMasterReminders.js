@@ -172,7 +172,7 @@ export function collectUsedEmpCodes(existingRows, { excludeDbId = null } = {}) {
   const used = new Set();
   for (const row of existingRows || []) {
     if (excludeDbId != null && row?.id === excludeDbId) continue;
-    const code = String(row?.emp_code || '').trim();
+    const code = String(row?.employee_code ?? row?.emp_code ?? '').trim();
     if (code) used.add(code);
   }
   return used;
@@ -187,9 +187,9 @@ export function isEmpCodeTaken(empCode, existingRows, excludeDbId = null) {
 /**
  * @returns {{ ok: true } | { ok: false, message: string }}
  */
-export function validateEmployeeIdentifiers(existingRows, { employee_id, emp_code, excludeDbId = null }) {
+export function validateEmployeeIdentifiers(existingRows, { employee_id, employee_code, emp_code, excludeDbId = null }) {
   const sysId = String(employee_id || '').trim();
-  const code = String(emp_code || '').trim();
+  const code = String(employee_code ?? emp_code ?? '').trim();
 
   if (sysId && isEmployeeIdTaken(sysId, existingRows, excludeDbId)) {
     return { ok: false, message: `System employee ID "${sysId}" is already assigned to another employee.` };

@@ -23,6 +23,7 @@ import {
   defaultBulkDateForMonth,
   deleteRegisterMarksBatch,
   downloadMonthlyRegisterExcel,
+  formatAttendanceSupabaseError,
   fetchActiveEmployees,
   fetchAttendancePunchesInRange,
   isoMonthToday,
@@ -35,6 +36,8 @@ import {
   registerMarkSelectTextClass,
   upsertRegisterMark,
   upsertRegisterMarksBatch,
+  normalizeAttendanceEmpCode,
+  resolveAttendanceEmpCodeFilter,
 } from "../../../lib/attendanceDaily";
 
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -91,6 +94,7 @@ export function EmployeeAttendanceDailyPage() {
   const [bulkOverwrite, setBulkOverwrite] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [savingMark, setSavingMark] = useState(false);
+  const [registerCodeWarning, setRegisterCodeWarning] = useState("");
 
   const monthMeta = useMemo(() => monthDateRange(monthValue), [monthValue]);
 
@@ -111,25 +115,27 @@ export function EmployeeAttendanceDailyPage() {
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
           toDate: monthMeta.toDate,
-          empCode: empCode.trim() || "ALL",
+          empCode: resolveAttendanceEmpCodeFilter(empCode),
         }),
         fetchActiveEmployees(supabase),
         loadRegisterMarksForMonth(supabase, monthMeta),
       ]);
+      const employeesWithCode = employees.filter((e) => e.empCode);
       setPunches(punchRows);
-      setActiveEmployees(employees);
+      setActiveEmployees(employeesWithCode);
       setManualMarks(marks);
+      if (employees.length > employeesWithCode.length) {
+        setRegisterCodeWarning(
+          `${employees.length - employeesWithCode.length} active employee(s) hidden — add employee_code in Employee Master to include them in the register.`
+        );
+      } else {
+        setRegisterCodeWarning("");
+      }
     } catch (err) {
       setPunches([]);
       setManualMarks({});
-      const msg = err?.message || "Unable to load attendance register.";
-      const missingPunches = msg.includes("erp_attendance_punches");
-      const missingRegister = msg.includes(ATTENDANCE_REGISTER_TABLE);
-      setError(
-        missingPunches || missingRegister || err?.code === "PGRST205"
-          ? `Attendance table is missing. Run Supabase migrations for erp_attendance_punches and ${ATTENDANCE_REGISTER_TABLE}, then reload.`
-          : msg
-      );
+      setRegisterCodeWarning("");
+      setError(formatAttendanceSupabaseError(err));
     } finally {
       setLoading(false);
     }
@@ -164,7 +170,7 @@ export function EmployeeAttendanceDailyPage() {
       try {
         await upsertRegisterMark(supabase, empCodeKey, registerDate, value);
       } catch (err) {
-        setError(err?.message || "Failed to save attendance mark.");
+        setError(formatAttendanceSupabaseError(err));
         try {
           const marks = await loadRegisterMarksForMonth(supabase, monthMeta);
           setManualMarks(marks);
@@ -179,12 +185,12 @@ export function EmployeeAttendanceDailyPage() {
   );
 
   const filteredRows = useMemo(() => {
-    const codeFilter = empCode.trim();
+    const codeFilter = normalizeAttendanceEmpCode(empCode.trim());
     const needle = search.trim().toLowerCase();
     return gridRows.filter((row) => {
       if (codeFilter && row.empCode !== codeFilter) return false;
       if (!needle) return true;
-      return [row.empCode, row.employeeName].join(" ").toLowerCase().includes(needle);
+      return [row.employeeId, row.empCode, row.employeeName].join(" ").toLowerCase().includes(needle);
     });
   }, [gridRows, search, empCode]);
 
@@ -242,14 +248,14 @@ export function EmployeeAttendanceDailyPage() {
         if (prev === updated) continue;
         if (updated) {
           upserts.push({
-            emp_code: code,
+            employee_code: code,
             register_date: bulkDate,
             month_key: monthMeta.monthKey,
             mark: updated,
             updated_at: new Date().toISOString(),
           });
         } else {
-          deletes.push({ emp_code: code, register_date: bulkDate });
+          deletes.push({ employee_code: code, register_date: bulkDate });
         }
       }
 
@@ -259,7 +265,7 @@ export function EmployeeAttendanceDailyPage() {
         if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts);
         if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
       } catch (err) {
-        setError(err?.message || "Failed to save bulk attendance marks.");
+        setError(formatAttendanceSupabaseError(err));
         try {
           const marks = await loadRegisterMarksForMonth(supabase, monthMeta);
           setManualMarks(marks);
@@ -289,7 +295,12 @@ export function EmployeeAttendanceDailyPage() {
 
   const columns = useMemo(() => {
     const fixed = [
-      { key: "empCode", label: "Employee ID" },
+      { key: "employeeId", label: "Employee ID" },
+      {
+        key: "empCode",
+        label: "Employee code",
+        render: (row) => row.empCode || "—",
+      },
       { key: "employeeName", label: "Employee Name" },
     ];
     const monthKey = monthMeta?.monthKey || "";
@@ -353,13 +364,13 @@ export function EmployeeAttendanceDailyPage() {
           <TinyInput
             value={empCode}
             onChange={(e) => setEmpCode(e.target.value)}
-            placeholder="Employee ID (optional)"
+            placeholder="Employee code (optional)"
             className="w-[140px]"
           />
           <TinyInput
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name / ID"
+            placeholder="Search name / code"
             className="min-w-[160px]"
           />
           <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">
@@ -445,6 +456,12 @@ export function EmployeeAttendanceDailyPage() {
           </div>
         )}
 
+        {registerCodeWarning && !error && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {registerCodeWarning}
+          </div>
+        )}
+
         {error && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>
         )}
@@ -501,6 +518,7 @@ export function EmployeeAttendanceDailyPage() {
             <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
               <tr>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee ID</th>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee code</th>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee Name</th>
                 {SUMMARY_COLUMNS.map((col) => (
                   <th key={col.key} className="text-center font-semibold px-2 py-2 whitespace-nowrap">
@@ -512,7 +530,8 @@ export function EmployeeAttendanceDailyPage() {
             <tbody className="divide-y divide-gray-100 bg-white">
               {rowsWithSummary.map((row) => (
                 <tr key={row.id} className="hover:bg-sky-50/40">
-                  <td className="px-2 py-1.5 font-medium text-gray-800">{row.empCode}</td>
+                  <td className="px-2 py-1.5 font-medium text-gray-800">{row.employeeId || "—"}</td>
+                  <td className="px-2 py-1.5 text-gray-700 tabular-nums">{row.empCode || "—"}</td>
                   <td className="px-2 py-1.5 text-gray-700">{row.employeeName}</td>
                   {SUMMARY_COLUMNS.map((col) => (
                     <td key={col.key} className="px-2 py-1.5 text-center tabular-nums text-gray-800">
@@ -521,7 +540,7 @@ export function EmployeeAttendanceDailyPage() {
                   ))}
                 </tr>
               ))}
-              <SummaryFooterRow footer={summaryFooter} colSpan={2} />
+              <SummaryFooterRow footer={summaryFooter} colSpan={3} />
             </tbody>
           </table>
         </div>
