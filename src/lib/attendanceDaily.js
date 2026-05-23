@@ -3,6 +3,8 @@
 export const ATTENDANCE_PUNCH_TABLE = "erp_attendance_punches";
 export const ATTENDANCE_REGISTER_TABLE = "admin_attendance_register";
 export const EMPLOYEE_MASTER_TABLE = "admin_ifsp_employee_master";
+/** DB column: eTimeOffice punch / attendance join key (not employee_id). */
+export const EMPLOYEE_MASTER_CODE_COL = "employee_code";
 export const REGISTER_MARK_UPSERT_CHUNK = 200;
 export const PUNCH_FETCH_CHUNK = 1000;
 export const ABSENT_GRID_CAP = 5000;
@@ -27,6 +29,22 @@ export const REGISTER_STATUS_OPTIONS = [
 
 export function isRegisterNhphMark(mark) {
   return mark === REGISTER_MARK_NHPH || mark === "NHPH";
+}
+
+/** Values allowed by admin_attendance_register_mark_check (Supabase). */
+export const REGISTER_MARKS_DB_ALLOWED = new Set(["P", "L", "WO", REGISTER_MARK_NHPH]);
+
+/**
+ * Map UI / legacy marks to a value the DB check constraint accepts.
+ * @returns {string|null} canonical mark, or null to delete the cell
+ */
+export function normalizeRegisterMarkForDb(mark) {
+  const m = String(mark ?? "").trim();
+  if (!m) return null;
+  if (isRegisterNhphMark(m)) return REGISTER_MARK_NHPH;
+  if (isRegisterLeaveMark(m) || m === "A") return "L";
+  if (REGISTER_MARKS_DB_ALLOWED.has(m)) return m;
+  return "L";
 }
 
 /** Summary table rows (order + labels for month totals). */
@@ -146,10 +164,42 @@ export function monthDateRange(monthValue) {
   };
 }
 
+/**
+ * Canonical emp code for attendance (matches eTimeOffice / raw punches).
+ * Numeric codes drop leading zeros (09750 → 9750).
+ */
+export function normalizeAttendanceEmpCode(code) {
+  const s = String(code ?? "").trim();
+  if (!s) return "";
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return Number.isFinite(n) ? String(n) : s;
+  }
+  return s;
+}
+
+/** DB filter variants so 9750 still matches legacy 09750 rows. */
+export function attendanceEmpCodeLookupVariants(code) {
+  const raw = String(code ?? "").trim();
+  const n = normalizeAttendanceEmpCode(raw);
+  if (!n) return [];
+  const variants = new Set([n]);
+  if (raw) variants.add(raw);
+  if (/^\d+$/.test(n) && n.length < 5) variants.add(n.padStart(5, "0"));
+  return [...variants];
+}
+
+/** Filter value for punch queries: ALL or canonical emp code. */
+export function resolveAttendanceEmpCodeFilter(empCode) {
+  const trimmed = String(empCode ?? "").trim();
+  if (!trimmed || trimmed.toUpperCase() === "ALL") return "ALL";
+  return normalizeAttendanceEmpCode(trimmed);
+}
+
 export function buildPresentKeysFromPunches(punches) {
   const keys = new Set();
   for (const punch of punches) {
-    const empCode = String(punch.empCode || "").trim();
+    const empCode = normalizeAttendanceEmpCode(punch.empCode);
     const punchDate = normalizeDbDate(punch.punchDate);
     if (!empCode || !punchDate) continue;
     keys.add(`${empCode}|${punchDate}`);
@@ -172,7 +222,7 @@ export function buildMonthlyRegisterGrid(punches, activeEmployees, { year, month
   );
 
   const rows = employees.map((emp) => {
-    const code = emp.empCode;
+    const code = normalizeAttendanceEmpCode(emp.empCode);
     const overrides = manualMarks[code] || {};
     const dayMarks = {};
 
@@ -189,8 +239,9 @@ export function buildMonthlyRegisterGrid(punches, activeEmployees, { year, month
     }
 
     return {
-      id: code,
+      id: code || `id:${emp.employeeId}`,
       empCode: code,
+      employeeId: emp.employeeId || "",
       employeeName: emp.employeeName,
       dayMarks,
     };
@@ -239,9 +290,9 @@ export function registerDayExportHeaders(monthKey, daysInMonth) {
 export function dbRowsToManualMarks(rows) {
   const marks = {};
   for (const row of rows || []) {
-    const code = String(row.emp_code || "").trim();
+    const code = normalizeAttendanceEmpCode(row.employee_code);
     const day = dayOfMonthFromIsoDate(row.register_date);
-    const mark = String(row.mark || "").trim();
+    const mark = normalizeRegisterMarkForDb(row.mark);
     if (!code || !day || !mark) continue;
     if (!marks[code]) marks[code] = {};
     marks[code][day] = mark;
@@ -252,15 +303,15 @@ export function dbRowsToManualMarks(rows) {
 export function manualMarksToDbRows(marksByEmp, monthKey) {
   const rows = [];
   for (const [empCode, days] of Object.entries(marksByEmp || {})) {
-    const code = String(empCode).trim();
+    const code = normalizeAttendanceEmpCode(empCode);
     if (!code) continue;
     for (const [dayKey, mark] of Object.entries(days || {})) {
-      const m = String(mark || "").trim();
+      const m = normalizeRegisterMarkForDb(mark);
       if (!m) continue;
       const day = Number(dayKey);
       if (!Number.isFinite(day) || day < 1 || day > 31) continue;
       rows.push({
-        emp_code: code,
+        employee_code: code,
         register_date: registerDateFromDay(monthKey, day),
         month_key: monthKey,
         mark: m,
@@ -274,7 +325,7 @@ export function manualMarksToDbRows(marksByEmp, monthKey) {
 export async function fetchRegisterMarksForMonth(supabase, { fromDate, toDate }) {
   const { data, error } = await supabase
     .from(ATTENDANCE_REGISTER_TABLE)
-    .select("emp_code,register_date,mark")
+    .select("employee_code,register_date,mark")
     .gte("register_date", fromDate)
     .lte("register_date", toDate);
   if (error) throw error;
@@ -282,41 +333,51 @@ export async function fetchRegisterMarksForMonth(supabase, { fromDate, toDate })
 }
 
 export async function upsertRegisterMarksBatch(supabase, rows) {
-  if (!rows.length) return;
-  for (let i = 0; i < rows.length; i += REGISTER_MARK_UPSERT_CHUNK) {
-    const chunk = rows.slice(i, i + REGISTER_MARK_UPSERT_CHUNK);
+  const normalized = (rows || [])
+    .map((row) => {
+      const employee_code = normalizeAttendanceEmpCode(row.employee_code);
+      const mark = normalizeRegisterMarkForDb(row.mark);
+      if (!employee_code || !mark) return null;
+      return { ...row, employee_code, mark };
+    })
+    .filter(Boolean);
+  if (!normalized.length) return;
+  for (let i = 0; i < normalized.length; i += REGISTER_MARK_UPSERT_CHUNK) {
+    const chunk = normalized.slice(i, i + REGISTER_MARK_UPSERT_CHUNK);
     const { error } = await supabase.from(ATTENDANCE_REGISTER_TABLE).upsert(chunk, {
-      onConflict: "emp_code,register_date",
+      onConflict: "employee_code,register_date",
     });
     if (error) throw error;
   }
 }
 
 export async function deleteRegisterMarksBatch(supabase, deletes) {
-  for (const { emp_code, register_date } of deletes) {
+  for (const { employee_code, register_date } of deletes) {
+    const code = normalizeAttendanceEmpCode(employee_code);
     const { error } = await supabase
       .from(ATTENDANCE_REGISTER_TABLE)
       .delete()
-      .eq("emp_code", emp_code)
+      .eq("employee_code", code)
       .eq("register_date", register_date);
     if (error) throw error;
   }
 }
 
 export async function upsertRegisterMark(supabase, empCode, registerDate, mark) {
-  const code = String(empCode || "").trim();
+  const code = normalizeAttendanceEmpCode(empCode);
   const date = normalizeDbDate(registerDate);
   if (!code || !date) return;
-  if (!mark) {
-    await deleteRegisterMarksBatch(supabase, [{ emp_code: code, register_date: date }]);
+  const canonical = normalizeRegisterMarkForDb(mark);
+  if (!canonical) {
+    await deleteRegisterMarksBatch(supabase, [{ employee_code: code, register_date: date }]);
     return;
   }
   await upsertRegisterMarksBatch(supabase, [
     {
-      emp_code: code,
+      employee_code: code,
       register_date: date,
       month_key: date.slice(0, 7),
-      mark: String(mark).trim(),
+      mark: canonical,
       updated_at: new Date().toISOString(),
     },
   ]);
@@ -371,8 +432,8 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
   ]);
 
   let emps = employees;
-  const codeFilter = String(empCode || "").trim();
-  if (codeFilter && codeFilter.toUpperCase() !== "ALL") {
+  const codeFilter = normalizeAttendanceEmpCode(empCode);
+  if (codeFilter && String(empCode || "").trim().toUpperCase() !== "ALL") {
     emps = emps.filter((e) => e.empCode === codeFilter);
   }
 
@@ -389,6 +450,7 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
     daysInMonth,
     rows: withSummary.map((row) => ({
       empCode: row.empCode,
+      employeeId: row.employeeId,
       employeeName: row.employeeName,
       summary: row.summary,
       dayMarks: row.dayMarks,
@@ -488,17 +550,19 @@ export function buildMonthlyRegisterCsv(rows, daysInMonth, monthKey) {
   const dayHeaders = monthKey ? registerDayExportHeaders(monthKey, daysInMonth) : [];
   const header = [
     "Employee ID",
+    "Employee code",
     "Employee Name",
     ...(dayHeaders.length ? dayHeaders : Array.from({ length: daysInMonth }, (_, i) => `d${i + 1}`)),
     ...REGISTER_SUMMARY_HEADERS,
   ];
   const lines = rows.map((row) => {
     const days = Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || "");
-    return [row.empCode, row.employeeName, ...days, ...summaryCellsForRow(row)].map(csvEscape).join(",");
+    return [row.employeeId, row.empCode, row.employeeName, ...days, ...summaryCellsForRow(row)].map(csvEscape).join(",");
   });
   const footer = computeRegisterSummaryFooter(rows);
   const footerLine = [
     "Total",
+    "",
     "",
     ...Array(daysInMonth).fill(""),
     footer.leave,
@@ -516,8 +580,9 @@ export function buildMonthlyRegisterCsv(rows, daysInMonth, monthKey) {
 export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) {
   const XLSX = await import("xlsx");
   const dayHeaders = registerDayExportHeaders(monthKey, daysInMonth);
-  const header = ["Employee ID", "Employee Name", ...dayHeaders, ...REGISTER_SUMMARY_HEADERS];
+  const header = ["Employee ID", "Employee code", "Employee Name", ...dayHeaders, ...REGISTER_SUMMARY_HEADERS];
   const data = rows.map((row) => [
+    row.employeeId,
     row.empCode,
     row.employeeName,
     ...Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || ""),
@@ -526,6 +591,7 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
   const footer = computeRegisterSummaryFooter(rows);
   data.push([
     "Total",
+    "",
     "",
     ...Array(daysInMonth).fill(""),
     footer.leave,
@@ -543,11 +609,11 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
 
 /** Full row including JSON payload (sync / export). */
 const PUNCH_SELECT =
-  "id,punch_key,emp_code,employee_name,punch_date,punch_time,device_name,direction,status,synced_at,source_payload";
+  "id,punch_key,employee_code,employee_name,punch_date,punch_time,device_name,direction,status,synced_at,source_payload";
 
 /** Fast list query — no source_payload (large jsonb). */
 export const PUNCH_LIST_SELECT =
-  "id,punch_key,emp_code,employee_name,punch_date,punch_time,device_name,direction,status,synced_at";
+  "id,punch_key,employee_code,employee_name,punch_date,punch_time,device_name,direction,status,synced_at";
 
 export function normalizeDbDate(value) {
   const raw = String(value || "").trim();
@@ -573,7 +639,7 @@ export function mapDbPunchToViewRow(row) {
   const punchTime = row.punch_time || normalizeDbTime(sourcePunchDate) || normalizeDbTime(row.punch_date);
   return {
     id: row.id || row.punch_key,
-    empCode: row.emp_code || "",
+    empCode: normalizeAttendanceEmpCode(row.employee_code),
     employeeName: row.employee_name || "",
     punchDate: row.punch_date || "",
     punchTime: punchTime ? String(punchTime).slice(0, 5) : "",
@@ -748,7 +814,7 @@ export function pairPunchesToDailyRows(punches, { expectedIn = "09:00", expected
   const groups = new Map();
 
   for (const punch of punches) {
-    const empCode = String(punch.empCode || "").trim();
+    const empCode = normalizeAttendanceEmpCode(punch.empCode);
     const punchDate = normalizeDbDate(punch.punchDate);
     if (!empCode || !punchDate) continue;
     const key = `${empCode}|${punchDate}`;
@@ -795,10 +861,7 @@ export function pairPunchesToDailyRows(punches, { expectedIn = "09:00", expected
 }
 
 export function masterMatchCode(employee) {
-  const code = String(employee?.emp_code || "").trim();
-  if (code) return code;
-  const sysId = String(employee?.employee_id || "").trim();
-  return sysId || "";
+  return normalizeAttendanceEmpCode(employee?.[EMPLOYEE_MASTER_CODE_COL]);
 }
 
 export function mapMasterEmployee(row) {
@@ -824,6 +887,7 @@ export function mergeAbsentRows(dailyRows, activeEmployees, fromDate, toDate) {
       absentRows.push({
         id: `absent|${code}|${date}`,
         empCode: code,
+        employeeId: emp.employeeId || "",
         employeeName: emp.employeeName,
         punchDate: date,
         day: weekdayShort(date),
@@ -889,13 +953,17 @@ export function getDailySortValue(row, sortKey) {
 function applyPunchFilters(query, { fromDate, toDate, empCode, search }) {
   if (fromDate) query = query.gte("punch_date", fromDate);
   if (toDate) query = query.lte("punch_date", toDate);
-  const code = String(empCode || "").trim();
-  if (code && code.toUpperCase() !== "ALL") query = query.eq("emp_code", code);
+  const rawCode = String(empCode || "").trim();
+  if (rawCode && rawCode.toUpperCase() !== "ALL") {
+    const variants = attendanceEmpCodeLookupVariants(rawCode);
+    if (variants.length === 1) query = query.eq("employee_code", variants[0]);
+    else if (variants.length) query = query.in("employee_code", variants);
+  }
   const term = String(search || "").trim();
   if (term) {
     const q = `%${term.replace(/%/g, "")}%`;
     query = query.or(
-      `emp_code.ilike.${q},employee_name.ilike.${q},device_name.ilike.${q},direction.ilike.${q},status.ilike.${q}`
+      `employee_code.ilike.${q},employee_name.ilike.${q},device_name.ilike.${q},direction.ilike.${q},status.ilike.${q}`
     );
   }
   return query;
@@ -905,7 +973,7 @@ function applyPunchSort(query, sortKey, sortDir) {
   const asc = sortDir === "asc";
   switch (sortKey) {
     case "empCode":
-      return query.order("emp_code", { ascending: asc, nullsFirst: false });
+      return query.order("employee_code", { ascending: asc, nullsFirst: false });
     case "employeeName":
       return query.order("employee_name", { ascending: asc, nullsFirst: false });
     case "deviceName":
@@ -970,8 +1038,11 @@ export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate
 
     if (fromDate) query = query.gte("punch_date", fromDate);
     if (toDate) query = query.lte("punch_date", toDate);
-    if (empCode && String(empCode).trim().toUpperCase() !== "ALL") {
-      query = query.eq("emp_code", String(empCode).trim());
+    const rawCode = String(empCode || "").trim();
+    if (rawCode && rawCode.toUpperCase() !== "ALL") {
+      const variants = attendanceEmpCodeLookupVariants(rawCode);
+      if (variants.length === 1) query = query.eq("employee_code", variants[0]);
+      else if (variants.length) query = query.in("employee_code", variants);
     }
 
     const { data, error } = await query;
@@ -988,10 +1059,53 @@ export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate
 export async function fetchActiveEmployees(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("emp_code,employee_id,full_name,department,status")
+    .select("employee_code,employee_id,full_name,department,status")
     .eq("status", "Active");
   if (error) throw error;
-  return (data || []).map(mapMasterEmployee).filter((e) => e.empCode);
+  return (data || []).map(mapMasterEmployee).filter((e) => e.employeeId || e.empCode);
+}
+
+/** Active employees with a non-empty employee_code (required for register saves + FK). */
+export async function fetchActiveEmployeesForRegister(supabase) {
+  const all = await fetchActiveEmployees(supabase);
+  return all.filter((e) => e.empCode);
+}
+
+/**
+ * Turn Supabase/PostgREST errors into actionable attendance messages.
+ */
+export function formatAttendanceSupabaseError(err) {
+  const msg = String(err?.message || "");
+  const code = String(err?.code || "");
+  const details = String(err?.details || "");
+
+  if (code === "PGRST205" || /schema cache|relation.*does not exist/i.test(msg)) {
+    return `Attendance table is missing. Run Supabase migrations for ${ATTENDANCE_PUNCH_TABLE} and ${ATTENDANCE_REGISTER_TABLE}, then reload.`;
+  }
+
+  if (
+    code === "23503" ||
+    /foreign key constraint/i.test(msg) ||
+    /violates foreign key/i.test(msg) ||
+    /employee_code_fkey/i.test(msg)
+  ) {
+    return (
+      "This employee code is not on Employee Master (or employee_code is empty there). " +
+      "Open Employee Master, set employee_code to the same value as eTimeOffice / raw attendance (e.g. 9750), then save the mark again."
+    );
+  }
+
+  if (code === "23514" || /admin_attendance_register_mark_check/i.test(msg)) {
+    return "Invalid attendance mark. Allowed values: P, L, WO, NH/PH.";
+  }
+
+  if (code === "409" && /employee_code_fkey/i.test(msg)) {
+    return (
+      "Employee code not found on Employee Master. Add or fix employee_code on the employee record, then retry."
+    );
+  }
+
+  return msg || details || "Unable to complete attendance operation.";
 }
 
 export function attachDepartments(dailyRows, activeEmployees) {
@@ -1054,8 +1168,8 @@ export function buildDailyRegisterRows(punches, activeEmployees, options) {
   daily = attachDepartments(daily, activeEmployees);
 
   let employees = activeEmployees;
-  const codeFilter = String(empCodeFilter || "").trim();
-  if (codeFilter && codeFilter.toUpperCase() !== "ALL") {
+  const codeFilter = normalizeAttendanceEmpCode(empCodeFilter);
+  if (codeFilter && String(empCodeFilter || "").trim().toUpperCase() !== "ALL") {
     employees = employees.filter((e) => e.empCode === codeFilter);
     daily = daily.filter((r) => r.empCode === codeFilter);
   }
