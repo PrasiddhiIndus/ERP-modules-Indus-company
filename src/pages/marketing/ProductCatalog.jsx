@@ -49,6 +49,8 @@ const ProductCatalog = () => {
 
   // Calculate pagination (server-side)
   const totalPages = Math.max(1, Math.ceil((totalCount || 0) / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalCount || 0);
   const currentProducts = products;
 
   const handlePreviousPage = () => {
@@ -1384,7 +1386,7 @@ const ProductCatalog = () => {
           )}
 
           {/* Pagination Controls */}
-          {products.length > itemsPerPage && (
+          {totalCount > itemsPerPage && (
             <div className="mt-4 flex items-center justify-between px-2 sm:px-4 py-3 bg-gray-50 border-t border-gray-200">
               <div className="flex items-center gap-2">
                 <button
@@ -1416,7 +1418,7 @@ const ProductCatalog = () => {
                 </button>
               </div>
               <div className="text-sm text-gray-600">
-                Showing {startIndex + 1} to {Math.min(endIndex, products.length)} of {products.length} products
+                Showing {totalCount === 0 ? 0 : startIndex + 1} to {endIndex} of {totalCount} products
               </div>
             </div>
           )}

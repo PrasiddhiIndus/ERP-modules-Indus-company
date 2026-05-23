@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { QUICK_ACTION_ROUTES } from "../config/quickActionRoutes";
 import { supabase } from "../lib/supabase";
 import {
   executiveSummary as executiveSummaryTpl,
@@ -370,6 +372,8 @@ const Dashboard = () => {
   const recentActivity = useMemo(() => kpi.recentActivity, [kpi.recentActivity]);
   const activitySpark = useMemo(() => (loading ? Array.from({ length: 12 }).map(() => 0) : kpi.activitySpark), [kpi.activitySpark, loading]);
   const activityByEntity = useMemo(() => (loading ? [] : kpi.activityByEntity), [kpi.activityByEntity, loading]);
+  const navigate = useNavigate();
+  const goToQuickAction = useCallback((path) => navigate(path), [navigate]);
   const quickActions = useMemo(() => quickActionsTpl, []);
   const managementInsights = useMemo(() => managementInsightsTpl.map(() => (loading ? "—" : "0")), [loading]);
 
@@ -456,7 +460,14 @@ const Dashboard = () => {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
           <SectionHeader title="Quick Access / Quick Actions" />
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
-            {quickActions.map((q) => <QuickActionTile key={q} label={q} />)}
+            {quickActions.map((q) => (
+              <QuickActionTile
+                key={q}
+                label={q}
+                to={QUICK_ACTION_ROUTES[q]}
+                onNavigate={goToQuickAction}
+              />
+            ))}
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
