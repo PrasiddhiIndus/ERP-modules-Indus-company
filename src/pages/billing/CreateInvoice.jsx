@@ -405,7 +405,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
     billingPoBasisFilter,
   } = useBilling();
   const [selectedPoId, setSelectedPoId] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [invoiceDate, setInvoiceDate] = useState('');
+  const [invoiceDateError, setInvoiceDateError] = useState('');
   const [items, setItems] = useState([]); // { description, hsnSac, quantity, rate, amount }
   const itemsRef = useRef(items);
   useEffect(() => {
@@ -763,7 +764,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
       const ik = String(editingInvoice.invoiceKind || editingInvoice.invoice_kind || 'tax').toLowerCase();
       setInvoiceDocumentKind(ik === 'proforma' ? 'proforma' : 'tax');
       setSelectedPoId(String(editingInvoice.poId || ''));
-      setInvoiceDate(editingInvoice.invoiceDate || editingInvoice.created_at || today);
+      setInvoiceDate(
+        toDateInputValue(editingInvoice.invoiceDate || editingInvoice.invoice_date || '')
+      );
+      setInvoiceDateError('');
       const atts = Array.isArray(editingInvoice.attachments) ? editingInvoice.attachments : [];
       setAttendanceFiles(atts.filter((a) => a.type === 'attendance').map((a) => ({ name: a.name, url: a.url })));
       setDocument2Files(atts.filter((a) => a.type === 'document_2').map((a) => ({ name: a.name, url: a.url })));
@@ -773,7 +777,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
         editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'penalty';
       const editMonthsGeometryMode =
         editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'months_geometry';
-      const editInvDate = editingInvoice.invoiceDate || editingInvoice.invoice_date || today;
       const editAnyPenaltySaved = (editingInvoice.items || []).some((it) => safeNumber(it.penalty) > 0);
       const editHasConsolidatedLump = (editingInvoice.items || []).some((it) =>
         /^lump sum billing \((geometry|invoice) consolidated\)$/i.test((it.description || it.designation || '').trim())
@@ -876,6 +879,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
     }
     if (invoiceDraft.mode === 'create' && invoiceDraft.poId) {
       setSelectedPoId(String(invoiceDraft.poId));
+      setInvoiceDate('');
+      setInvoiceDateError('');
     }
   }, [invoiceDraft, editingInvoice, today, commercialPOs]);
 
@@ -1648,6 +1653,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const handleSaveInvoice = () => {
     if (!displayPO || !canSave) return;
+    const trimmedInvoiceDate = String(invoiceDate || '').trim();
+    if (!trimmedInvoiceDate) {
+      setInvoiceDateError('Invoice date is required. Please select a date.');
+      return;
+    }
+    setInvoiceDateError('');
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
     const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
     const rawIrn = existing?.e_invoice_irn || existing?.eInvoiceIrn;
@@ -1692,9 +1703,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
       siteId: displayPO.siteId,
       billingType: displayPO.billingType || 'Monthly',
       taxInvoiceNumber,
-      invoiceDate,
+      invoiceDate: trimmedInvoiceDate,
       billNumber: existing?.billNumber || existing?.bill_number || taxInvoiceNumber,
-      billingMonth: existing?.billingMonth || existing?.billing_month || formatBillingMonth(invoiceDate),
+      billingMonth: existing?.billingMonth || existing?.billing_month || formatBillingMonth(trimmedInvoiceDate),
       billingDurationFrom: servicePeriodFrom || null,
       billingDurationTo: servicePeriodTo || null,
       invoiceHeaderRemarks:
@@ -1873,7 +1884,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Geometry');
     const oc = String(displayPO?.ocNumber || 'OC').replace(/[\\/:*?"<>|]/g, '-');
-    const dt = String(invoiceDate || today);
+    const dt = String(invoiceDate || '').trim() || 'undated';
     XLSX.writeFile(wb, `Geometry-${oc}-${dt}.xlsx`);
   };
 
@@ -2126,6 +2137,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           type="button"
                           onClick={() => {
                             setInvoiceDocumentKind('tax');
+                            setInvoiceDate('');
+                            setInvoiceDateError('');
                             setSelectedPoId(String(row.id));
                           }}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
@@ -2209,14 +2222,31 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </div>
               <div className="flex flex-wrap items-end gap-3 shrink-0">
                 <div className="flex flex-col gap-0.5">
-                  <label className="text-xs text-gray-500 whitespace-nowrap">Invoice date</label>
+                  <label className="text-xs text-gray-500 whitespace-nowrap">
+                    Invoice date <span className="text-red-600">*</span>
+                  </label>
                   <input
                     type="date"
                     value={invoiceDate}
-                    readOnly
-                    disabled
-                    className="px-2 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-gray-700 text-xs"
+                    onChange={(e) => {
+                      setInvoiceDate(e.target.value);
+                      if (invoiceDateError) setInvoiceDateError('');
+                    }}
+                    disabled={documentKindLockedByIrn}
+                    title={
+                      documentKindLockedByIrn
+                        ? 'Invoice date is fixed after e-invoice (IRN) is generated'
+                        : undefined
+                    }
+                    className={`px-2 py-1.5 border rounded-md bg-white text-gray-800 text-xs disabled:bg-gray-100 disabled:text-gray-500 ${
+                      invoiceDateError ? 'border-red-400 bg-red-50/50' : 'border-gray-200'
+                    }`}
                   />
+                  {invoiceDateError ? (
+                    <p className="text-[10px] text-red-600 font-medium leading-snug max-w-[11rem]">
+                      {invoiceDateError}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <label className="text-xs text-gray-500 whitespace-nowrap">Service period (from)</label>
@@ -2288,6 +2318,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   setItems([]);
                   setAttendanceFiles([]);
                   setDocument2Files([]);
+                  setInvoiceDate('');
+                  setInvoiceDateError('');
                   setInvoiceDocumentKind('tax');
                   setManualTaxInvoiceSerial('');
                   setLumpSumConsolidatedLineDraft({ description: null, quantity: '', rate: '' });
@@ -3387,6 +3419,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 setItems([]);
                 setAttendanceFiles([]);
                 setDocument2Files([]);
+                setInvoiceDate('');
+                setInvoiceDateError('');
                 setInvoiceDocumentKind('tax');
                 setManualTaxInvoiceSerial(String(getNextTaxInvoiceSequence(invoices)).padStart(4, '0'));
                 setInvoiceDraft(null);
