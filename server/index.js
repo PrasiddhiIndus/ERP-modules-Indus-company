@@ -731,11 +731,24 @@ function extractEtimeRows(data) {
   return candidates.find(Array.isArray) || [];
 }
 
+/** Match client attendance: numeric codes without leading zeros (09750 → 9750). */
+function normalizeAttendanceEmpCode(code) {
+  const s = String(code ?? '').trim();
+  if (!s) return '';
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return Number.isFinite(n) ? String(n) : s;
+  }
+  return s;
+}
+
 function normalizeEtimePunchRows(data) {
   return extractEtimeRows(data).map((row, index) => {
     const punchDateTime = pickField(row, ['PunchDateTime', 'LogDateTime', 'PunchDate', 'Date', 'AttendanceDate']);
     const split = splitPunchDateTime(punchDateTime);
-    const empCode = String(pickField(row, ['Empcode', 'EmpCode', 'EmployeeCode', 'EmployeeID', 'EmpId']) || '').trim();
+    const empCode = normalizeAttendanceEmpCode(
+      pickField(row, ['Empcode', 'EmpCode', 'EmployeeCode', 'EmployeeID', 'EmpId'])
+    );
     const punchDate = String(split.date || pickField(row, ['PunchDate', 'Date', 'AttendanceDate'])).trim();
     const punchTime = String(pickField(row, ['PunchTimeOnly', 'Time', 'AttendanceTime']) || split.time).trim();
     return {

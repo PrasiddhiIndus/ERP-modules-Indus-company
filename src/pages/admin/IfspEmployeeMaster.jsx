@@ -122,7 +122,7 @@ const IfspEmployeeMaster = () => {
   const emptyForm = () => ({
     employee_id: '',
     employment_type: 'permanent',
-    emp_code: '',
+    employee_code: '',
     timestamp: '',
     full_name: '',
     gender: '',
@@ -191,7 +191,7 @@ const IfspEmployeeMaster = () => {
   const EMPLOYEE_EXPORT_FIELDS = [
     'employee_id',
     'employment_type',
-    'emp_code',
+    'employee_code',
     'timestamp',
     'full_name',
     'gender',
@@ -354,7 +354,8 @@ const IfspEmployeeMaster = () => {
           ifspl_employee_system_id: 'employee_id',
           employment_type: 'employment_type',
           employee_type: 'employment_type',
-          emp_code: 'emp_code',
+          employee_code: 'employee_code',
+          emp_code: 'employee_code',
           timestamp: 'timestamp',
           full_name: 'full_name',
           gender: 'gender',
@@ -415,17 +416,17 @@ const IfspEmployeeMaster = () => {
         const employment_type = normalizeEmploymentType(out.employment_type || out.employee_id);
 
         let sysId = String(out.employee_id || '').trim();
-        const empCode = out.emp_code ? String(out.emp_code).trim() : '';
+        const empCode = out.employee_code ? String(out.employee_code).trim() : '';
         if (sysId && isEmployeeIdTaken(sysId, importRows)) {
           throw new Error(`Row ${idx + 2}: employee_id "${sysId}" is already in use.`);
         }
         if (empCode && isEmpCodeTaken(empCode, importRows)) {
-          throw new Error(`Row ${idx + 2}: emp_code "${empCode}" is already in use.`);
+          throw new Error(`Row ${idx + 2}: employee code "${empCode}" is already in use.`);
         }
         if (!sysId) {
           sysId = nextEmployeeSystemId(importRows, employment_type);
         }
-        importRows.push({ employee_id: sysId, employment_type, emp_code: empCode || null });
+        importRows.push({ employee_id: sysId, employment_type, employee_code: empCode || null });
 
         const statusRaw = String(out.status || '').trim().toLowerCase();
         const normalizedStatus =
@@ -434,7 +435,7 @@ const IfspEmployeeMaster = () => {
         return {
           employee_id: sysId,
           employment_type,
-          emp_code: out.emp_code ? String(out.emp_code).trim() : null,
+          employee_code: out.employee_code ? String(out.employee_code).trim() : null,
           timestamp: out.timestamp ? String(out.timestamp).trim() : null,
           full_name: fullName,
           gender: out.gender ? String(out.gender).trim() : null,
@@ -536,7 +537,7 @@ const IfspEmployeeMaster = () => {
     const payload = {
       employee_id: formData.employee_id || null,
       employment_type: normalizeEmploymentType(formData.employment_type),
-      emp_code: formData.emp_code || null,
+      employee_code: formData.employee_code || null,
       timestamp: formData.timestamp || null,
       full_name: formData.full_name || null,
       gender: formData.gender || null,
@@ -608,7 +609,7 @@ const IfspEmployeeMaster = () => {
         );
         const idCheck = validateEmployeeIdentifiers(employees, {
           employee_id,
-          emp_code: formData.emp_code,
+          employee_code: formData.employee_code,
           excludeDbId,
         });
         if (!idCheck.ok) {
@@ -644,7 +645,7 @@ const IfspEmployeeMaster = () => {
         );
         const idCheck = validateEmployeeIdentifiers(employees, {
           employee_id,
-          emp_code: formData.emp_code,
+          employee_code: formData.employee_code,
         });
         if (!idCheck.ok) {
           alert(idCheck.message);
@@ -690,7 +691,7 @@ const IfspEmployeeMaster = () => {
       employment_type: normalizeEmploymentType(
         employee.employment_type || inferEmploymentTypeFromEmployeeId(employee.employee_id),
       ),
-      emp_code: employee.emp_code || '',
+      employee_code: employee.employee_code || '',
       timestamp: employee.timestamp || '',
       full_name: employee.full_name || '',
       gender: employee.gender || '',
@@ -859,7 +860,7 @@ const IfspEmployeeMaster = () => {
     const code = filterEmployeeCode.trim().toLowerCase();
     const matchesEmpCode =
       !code ||
-      String(employee.emp_code || '').toLowerCase().includes(code) ||
+      String(employee.employee_code || '').toLowerCase().includes(code) ||
       String(employee.employee_id || '').toLowerCase().includes(code);
 
     const matchesDepartment = departmentFilter === 'All' || employee.department === departmentFilter;
@@ -1136,7 +1137,7 @@ const IfspEmployeeMaster = () => {
                   employee_id{sortField === 'employee_id' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
                 </th>
                 <th className={th}>employment_type</th>
-                <th className={th}>emp_code</th>
+                <th className={th}>employee_code</th>
                 <th className={th}>timestamp</th>
                 <th className={`${th} cursor-pointer hover:bg-gray-100`} onClick={() => handleSort('full_name')}>
                   full_name{sortField === 'full_name' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
@@ -1183,7 +1184,7 @@ const IfspEmployeeMaster = () => {
                     <td className={td} title={employmentTypeLabel(employee.employment_type || employee.employee_id)}>
                       {employmentTypeLabel(employee.employment_type || employee.employee_id)}
                     </td>
-                    <td className={td} title={employee.emp_code || ''}>{employee.emp_code || '–'}</td>
+                    <td className={td} title={employee.employee_code || ''}>{employee.employee_code || '–'}</td>
                     <td className={td} title={employee.timestamp || ''}>{employee.timestamp || '–'}</td>
                     <td className={td} title={employee.full_name || ''}>{employee.full_name || '–'}</td>
                     <td className={td} title={employee.gender || ''}>{employee.gender || '–'}</td>
@@ -1307,8 +1308,8 @@ const IfspEmployeeMaster = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Employee code</label>
                     <input
                       type="text"
-                      value={formData.emp_code}
-                      onChange={(e) => setFormData({ ...formData, emp_code: e.target.value })}
+                      value={formData.employee_code}
+                      onChange={(e) => setFormData({ ...formData, employee_code: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="Legacy / HR code (optional)"
                     />

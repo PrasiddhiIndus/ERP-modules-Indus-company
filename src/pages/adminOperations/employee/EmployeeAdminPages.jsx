@@ -15,8 +15,9 @@ import {
 import { supabase } from "../../../lib/supabase";
 import {
   fetchAttendancePunchesPage,
-  isoDateDaysAgo,
   isoDateToday,
+  normalizeAttendanceEmpCode,
+  resolveAttendanceEmpCodeFilter,
 } from "../../../lib/attendanceDaily";
 import {
   mockEmployees,
@@ -230,8 +231,6 @@ export function EmployeeOnboardingPage() {
   );
 }
 
-const DEFAULT_ATTENDANCE_FROM = isoDateDaysAgo(7);
-const DEFAULT_ATTENDANCE_TO = isoDateToday();
 const ATTENDANCE_TABLE = "erp_attendance_punches";
 const ATTENDANCE_UPSERT_CHUNK = 500;
 const ATTENDANCE_PAGE_SIZES = [25, 50, 100, 200];
@@ -239,8 +238,6 @@ const ATTENDANCE_SORT_OPTIONS = [
   { value: "punchDateTime", label: "Punch date/time" },
   { value: "empCode", label: "Emp code" },
   { value: "employeeName", label: "Employee" },
-  { value: "deviceName", label: "Device" },
-  { value: "status", label: "Status" },
 ];
 
 function normalizeDbDate(value) {
@@ -266,7 +263,7 @@ function makePunchKey(record, index = 0) {
   const date = normalizeDbDate(record.punchDate) || "no-date";
   const time = normalizeDbTime(record.punchTime || record.punchDate) || "no-time";
   const parts = [
-    record.empCode || "no-emp",
+    normalizeAttendanceEmpCode(record.empCode) || "no-emp",
     date,
     time,
     record.deviceName || "no-device",
@@ -281,7 +278,7 @@ function mapApiPunchToDbRow(record, index) {
   const now = new Date().toISOString();
   return {
     punch_key: makePunchKey(record, index),
-    emp_code: String(record.empCode || "").trim(),
+    employee_code: normalizeAttendanceEmpCode(record.empCode),
     employee_name: String(record.employeeName || "").trim() || null,
     punch_date: normalizeDbDate(record.punchDate),
     punch_time: normalizeDbTime(record.punchTime || record.punchDate),
@@ -300,7 +297,7 @@ function mapDbPunchToViewRow(row) {
   const punchTime = row.punch_time || normalizeDbTime(sourcePunchDate);
   return {
     id: row.id || row.punch_key,
-    empCode: row.emp_code || "",
+    empCode: normalizeAttendanceEmpCode(row.employee_code),
     employeeName: row.employee_name || "",
     punchDate: row.punch_date || "",
     punchTime: punchTime ? String(punchTime).slice(0, 5) : "",
@@ -322,8 +319,7 @@ async function upsertAttendanceRows(rows) {
 }
 
 export function EmployeeAttendanceInputsPage() {
-  const [fromDate, setFromDate] = useState(DEFAULT_ATTENDANCE_FROM);
-  const [toDate, setToDate] = useState(DEFAULT_ATTENDANCE_TO);
+  const [selectedDate, setSelectedDate] = useState(isoDateToday());
   const [empCode, setEmpCode] = useState("ALL");
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
@@ -348,9 +344,9 @@ export function EmployeeAttendanceInputsPage() {
     setError("");
     try {
       const result = await fetchAttendancePunchesPage(supabase, {
-        fromDate,
-        toDate,
-        empCode: empCode.trim() || "ALL",
+        fromDate: selectedDate,
+        toDate: selectedDate,
+        empCode: resolveAttendanceEmpCodeFilter(empCode),
         page,
         pageSize,
         search: searchDebounced,
@@ -362,8 +358,7 @@ export function EmployeeAttendanceInputsPage() {
       setSummary((prev) => ({
         ...(prev || {}),
         source: "Supabase",
-        fromDate,
-        toDate,
+        selectedDate,
         count: result.total,
         tablePage: result.page,
       }));
@@ -379,13 +374,13 @@ export function EmployeeAttendanceInputsPage() {
     } finally {
       setLoading(false);
     }
-  }, [empCode, fromDate, page, pageSize, searchDebounced, sortDir, sortKey, toDate]);
+  }, [empCode, page, pageSize, searchDebounced, selectedDate, sortDir, sortKey]);
 
   const syncAttendanceFromApi = useCallback(async () => {
     const params = new URLSearchParams({
-      empCode: empCode.trim() || "ALL",
-      fromDate,
-      toDate,
+      empCode: resolveAttendanceEmpCodeFilter(empCode),
+      fromDate: selectedDate,
+      toDate: selectedDate,
     });
     setSyncing(true);
     setError("");
@@ -404,9 +399,9 @@ export function EmployeeAttendanceInputsPage() {
         message: storedCount ? `${storedCount} unique API punch row(s) stored in Supabase.` : data?.message || "No API punch rows found.",
       });
       const result = await fetchAttendancePunchesPage(supabase, {
-        fromDate,
-        toDate,
-        empCode: empCode.trim() || "ALL",
+        fromDate: selectedDate,
+        toDate: selectedDate,
+        empCode: resolveAttendanceEmpCodeFilter(empCode),
         page: 1,
         pageSize,
         search: searchDebounced,
@@ -421,7 +416,7 @@ export function EmployeeAttendanceInputsPage() {
     } finally {
       setSyncing(false);
     }
-  }, [empCode, fromDate, pageSize, searchDebounced, sortDir, sortKey, toDate]);
+  }, [empCode, pageSize, searchDebounced, selectedDate, sortDir, sortKey]);
 
   useEffect(() => {
     loadAttendanceFromTable();
@@ -434,7 +429,7 @@ export function EmployeeAttendanceInputsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [fromDate, toDate, empCode, pageSize, searchDebounced, sortDir, sortKey]);
+  }, [selectedDate, empCode, pageSize, searchDebounced, sortDir, sortKey]);
 
   return (
     <SectionCard
@@ -448,12 +443,13 @@ export function EmployeeAttendanceInputsPage() {
     >
       <FilterBar>
         <label className="text-[11px] text-gray-600">
-          From
-          <TinyInput type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-[130px] ml-1" />
-        </label>
-        <label className="text-[11px] text-gray-600">
-          To
-          <TinyInput type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-[130px] ml-1" />
+          Date
+          <TinyInput
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="w-[130px] ml-1"
+          />
         </label>
         <TinyInput value={empCode} onChange={(e) => setEmpCode(e.target.value)} placeholder="Emp code / ALL" className="w-[130px]" />
         <TinyInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search punches" className="min-w-[160px]" />
@@ -512,15 +508,12 @@ export function EmployeeAttendanceInputsPage() {
               { key: "employeeName", label: "Employee" },
               { key: "punchDate", label: "Punch date" },
               { key: "punchTime", label: "Punch time" },
-              { key: "deviceName", label: "Device" },
-              { key: "direction", label: "In/Out" },
-              { key: "status", label: "Status" },
             ]}
             rows={rows}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>
-              Showing {pageStart}-{pageEnd} of {totalCount} record(s) in range
+              Showing {pageStart}-{pageEnd} of {totalCount} record(s) for {selectedDate}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -549,8 +542,8 @@ export function EmployeeAttendanceInputsPage() {
           <Timeline
             items={[
               { title: "Source", meta: "Supabase table · eTimeOffice sync" },
-              { title: "Range", meta: summary ? `${summary.fromDate} to ${summary.toDate}` : "Waiting for fetch" },
-              { title: "Records in range", meta: `${totalCount} total · page ${currentPage} (${rows.length} shown)` },
+              { title: "Date", meta: summary?.selectedDate || selectedDate },
+              { title: "Records for date", meta: `${totalCount} total · page ${currentPage} (${rows.length} shown)` },
               { title: "Last API sync", meta: summary?.syncedCount != null ? `${summary.syncedCount} stored` : "Not synced this session" },
             ]}
           />
