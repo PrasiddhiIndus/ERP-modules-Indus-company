@@ -240,6 +240,22 @@ const ATTENDANCE_SORT_OPTIONS = [
   { value: "employeeName", label: "Employee" },
 ];
 
+const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+
+function apiUrl(path) {
+  return `${API_BASE_URL}${path}`;
+}
+
+async function readJsonResponse(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text.slice(0, 300) };
+  }
+}
+
 function normalizeDbDate(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -385,10 +401,15 @@ export function EmployeeAttendanceInputsPage() {
     setSyncing(true);
     setError("");
     try {
-      const res = await fetch(`/api/admin/attendance/punches?${params.toString()}`);
-      const data = await res.json().catch(() => ({}));
+      const res = await fetch(apiUrl(`/api/admin/attendance/punches?${params.toString()}`));
+      const data = await readJsonResponse(res);
       if (!res.ok) {
-        throw new Error(data?.message || `Attendance fetch failed (${res.status})`);
+        const message = data?.message || `Attendance fetch failed (${res.status})`;
+        throw new Error(
+          res.status === 500 && !data?.message
+            ? `${message}. Check that the local Node server is running on port 8787 and .env.server has ETIME_AUTH_CREDENTIALS.`
+            : message
+        );
       }
       const dbRows = (Array.isArray(data?.records) ? data.records : []).map(mapApiPunchToDbRow);
       const storedCount = dbRows.length ? await upsertAttendanceRows(dbRows) : 0;
