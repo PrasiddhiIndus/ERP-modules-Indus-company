@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -36,6 +36,10 @@ const APPROVAL_STATUS = {
   APPROVED: 'approved',
   REJECTED: 'rejected',
 };
+
+function poRowDomId(id) {
+  return `po-row-${String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
 
 const SUPPLEMENTARY_STATUS = {
   PENDING: 'pending',
@@ -282,8 +286,9 @@ const initialForm = {
 };
 
 const POEntry = () => {
+  const location = useLocation();
   const { commercialPOs, setCommercialPOs, setInvoices } = useBilling();
-  const { userProfile, accessibleModules } = useAuth();
+  const { user, userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [listPoBasisFilter, setListPoBasisFilter] = useState('');
@@ -314,6 +319,11 @@ const POEntry = () => {
     userProfile,
     accessibleModules,
     COMMERCIAL_MT_APPROVER_MODULE_KEYS
+  );
+  const currentActorName = userProfile?.username || user?.email || 'User';
+  const highlightedPoId = useMemo(
+    () => new URLSearchParams(location.search).get('highlightPoId') || '',
+    [location.search]
   );
 
   const clientProfilesFromPOs = useMemo(
@@ -511,6 +521,26 @@ const POEntry = () => {
   const paginatedList = sortedFilteredList.slice(start, start + PAGE_SIZE);
   const goToPage = (p) => setPage(Math.min(Math.max(1, p), totalPages));
 
+  useEffect(() => {
+    if (!highlightedPoId) return;
+    if (!commercialPOs.some((po) => String(po.id) === String(highlightedPoId))) return;
+    setSearchTerm('');
+    setDepartmentFilter('');
+    setManpowerBillingTypeFilter('');
+    setListPoBasisFilter('');
+    setSortConfig({ key: 'created', direction: 'desc' });
+  }, [commercialPOs, highlightedPoId]);
+
+  useEffect(() => {
+    if (!highlightedPoId || !sortedFilteredList.length) return;
+    const idx = sortedFilteredList.findIndex((po) => String(po.id) === String(highlightedPoId));
+    if (idx < 0) return;
+    setPage(Math.floor(idx / PAGE_SIZE) + 1);
+    window.setTimeout(() => {
+      document.getElementById(poRowDomId(highlightedPoId))?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 120);
+  }, [highlightedPoId, sortedFilteredList]);
+
   const nextId = useMemo(() => Math.max(0, ...commercialPOs.map((p) => p.id), 0) + 1, [commercialPOs]);
   const nextSeries = useMemo(() => {
     const fy = getFinancialYear();
@@ -641,13 +671,24 @@ const POEntry = () => {
   };
 
   const sendToApproval = (id) => {
+    const nowIso = new Date().toISOString();
     setCommercialPOs((prev) =>
       prev.map((p) =>
         p.id === id
           ? {
               ...p,
               approvalStatus: APPROVAL_STATUS.SENT,
-              approvalSentAt: p.approvalSentAt || new Date().toISOString(),
+              approvalSentAt: nowIso,
+              updateHistory: [
+                ...(Array.isArray(p.updateHistory) ? p.updateHistory : []),
+                {
+                  at: nowIso,
+                  event: 'po_sent_for_approval',
+                  summary: 'PO sent for approval',
+                  actorUserId: user?.id || null,
+                  actorName: currentActorName,
+                },
+              ],
             }
           : p
       )
@@ -688,8 +729,25 @@ const POEntry = () => {
             }
           : {}),
         updateHistory: Array.isArray(p.updateHistory)
-          ? [...p.updateHistory, { at: nowIso, summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : 'PO approved by Commercial Manager' }]
-          : [{ at: nowIso, summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : 'PO approved by Commercial Manager' }],
+          ? [
+              ...p.updateHistory,
+              {
+                at: nowIso,
+                event: 'po_approved',
+                summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : 'PO approved by Commercial Manager',
+                actorUserId: user?.id || null,
+                actorName: currentActorName,
+              },
+            ]
+          : [
+              {
+                at: nowIso,
+                event: 'po_approved',
+                summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : 'PO approved by Commercial Manager',
+                actorUserId: user?.id || null,
+                actorName: currentActorName,
+              },
+            ],
       };
     });
 
@@ -740,12 +798,23 @@ const POEntry = () => {
 
   const rejectPO = (id) => {
     if (!canApproveCommercialPOs) return;
+    const nowIso = new Date().toISOString();
     setCommercialPOs((prev) =>
       prev.map((p) =>
         p.id === id
           ? {
               ...p,
               approvalStatus: APPROVAL_STATUS.REJECTED,
+              updateHistory: [
+                ...(Array.isArray(p.updateHistory) ? p.updateHistory : []),
+                {
+                  at: nowIso,
+                  event: 'po_rejected',
+                  summary: 'PO rejected by Commercial Manager',
+                  actorUserId: user?.id || null,
+                  actorName: currentActorName,
+                },
+              ],
             }
           : p
       )
@@ -1104,11 +1173,19 @@ const POEntry = () => {
                   {paginatedList.map((po) => {
                     const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
                     const approval = getApprovalBadge(po.approvalStatus);
+                    const isHighlighted = highlightedPoId && String(po.id) === String(highlightedPoId);
                     const startDateFmt =
                       formatDateDdMmYyyy(cleanCellText(po.startDate)) || '–';
                     const endDateFmt = formatDateDdMmYyyy(cleanCellText(po.endDate)) || '–';
                     return (
-                      <tr key={po.id} className="hover:bg-gray-50 align-top">
+                      <tr
+                        id={poRowDomId(po.id)}
+                        key={po.id}
+                        className={[
+                          'hover:bg-gray-50 align-top transition-colors',
+                          isHighlighted ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : '',
+                        ].join(' ')}
+                      >
                         <td className="px-1 py-2 text-[9px] sm:text-[10px] text-center align-middle">
                           <span
                             className={`inline-flex px-1 py-0.5 rounded font-semibold ${
