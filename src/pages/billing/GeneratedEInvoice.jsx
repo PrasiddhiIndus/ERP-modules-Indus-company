@@ -146,18 +146,22 @@ const GeneratedEInvoice = () => {
                   <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                     <thead>
                       <tr>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">Tax Invoice #</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[16%]">OC / Site</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[18%]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[10%]">Amount</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[22%]">IRN</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[5%]">S.No</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[13%]">Tax Invoice #</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[15%]">OC / Site</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[17%]">Client</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[9%]">Amount</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[21%]">IRN</th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">Ack No / Date</th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[6%]">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                      {paginatedEInvoices.map((inv) => (
+                      {paginatedEInvoices.map((inv, idx) => (
                         <tr key={inv.id} className="hover:bg-gray-50 align-top">
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center font-medium tabular-nums whitespace-nowrap">
+                            {start + idx + 1}
+                          </td>
                           <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
                             {inv.taxInvoiceNumber || inv.bill_number}
                           </td>

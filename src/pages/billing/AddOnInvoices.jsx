@@ -41,6 +41,7 @@ function makeAddOnInvoiceNumber(invoices, documentKind) {
 const AddOnInvoices = ({ onNavigateTab }) => {
   const { commercialPOs, invoices, setInvoices, billingVerticalFilter, billingPoBasisFilter } = useBilling();
   const [addOnType, setAddOnType] = useState('');
+  const [manualAddOnType, setManualAddOnType] = useState('');
   const [addOnDocumentKind, setAddOnDocumentKind] = useState('tax');
   const [selectedPoId, setSelectedPoId] = useState('');
   const [invoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -65,7 +66,8 @@ const AddOnInvoices = ({ onNavigateTab }) => {
     [approvedPOs, selectedPoId]
   );
 
-  const canOpen = !!addOnType && !!selectedPO;
+  const resolvedAddOnType = addOnType === 'Other' ? manualAddOnType.trim() : addOnType;
+  const canOpen = !!resolvedAddOnType && !!selectedPO;
   const gstSupplyType = normalizeGstSupplyType(selectedPO?.gstSupplyType || selectedPO?.gst_supply_type);
   const taxableValue = useMemo(() => round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0)), [items]);
   const cgstRate = 9;
@@ -101,7 +103,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
     const inv = {
       id: newId,
       isAddOn: true,
-      addOnType,
+      addOnType: resolvedAddOnType,
       poId: selectedPO.id,
       siteId: selectedPO.siteId,
       locationName: selectedPO.locationName || '',
@@ -204,7 +206,10 @@ const AddOnInvoices = ({ onNavigateTab }) => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Add-on bill type</label>
             <select
               value={addOnType}
-              onChange={(e) => setAddOnType(e.target.value)}
+              onChange={(e) => {
+                setAddOnType(e.target.value);
+                if (e.target.value !== 'Other') setManualAddOnType('');
+              }}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
             >
               <option value="">Select add-on type…</option>
@@ -212,6 +217,16 @@ const AddOnInvoices = ({ onNavigateTab }) => {
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
+            {addOnType === 'Other' ? (
+              <input
+                type="text"
+                value={manualAddOnType}
+                onChange={(e) => setManualAddOnType(e.target.value)}
+                className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-2"
+                placeholder="Enter add-on bill type"
+                autoComplete="off"
+              />
+            ) : null}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Document type</label>
@@ -248,14 +263,14 @@ const AddOnInvoices = ({ onNavigateTab }) => {
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-600">
               OC: <span className="font-medium text-gray-800">{selectedPO.ocNumber}</span> · Add-on type:{' '}
-              <span className="font-medium text-gray-800">{addOnType}</span>
+              <span className="font-medium text-gray-800">{resolvedAddOnType}</span>
             </p>
             <button
               type="button"
               onClick={() => {
                 const draft = {
                   isAddOn: true,
-                  addOnType,
+                  addOnType: resolvedAddOnType,
                   invoiceKind: addOnDocumentKind === 'proforma' ? 'proforma' : 'tax',
                   invoice_kind: addOnDocumentKind === 'proforma' ? 'proforma' : 'tax',
                   taxInvoiceNumber: 'Preview',

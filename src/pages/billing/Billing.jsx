@@ -10,7 +10,6 @@ import CreditNotes from './CreditNotes';
 import BillingReports from './BillingReports';
 import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
-import BillingFlowNav from './components/BillingFlowNav';
 import BillingPlainEnglishGuide from './components/BillingPlainEnglishGuide';
 import { PO_BASIS_FILTER_ALL } from '../../constants/poBasis';
 
@@ -180,7 +179,6 @@ const BillingInner = () => {
           billingPoBasisOptions={billingPoBasisOptions}
         />
         <BillingPlainEnglishGuide />
-        <BillingFlowNav />
         <BillingErrorBoundary>
           <ActiveComponent onNavigateTab={handleTabChange} />
         </BillingErrorBoundary>

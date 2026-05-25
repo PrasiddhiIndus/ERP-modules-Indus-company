@@ -1,13 +1,18 @@
 import { getInvoiceTotals } from './taxInvoicePdf';
 
-/**
- * Build CN/DN document number: same base as parent tax invoice, prefixed CN- or DN-.
- */
-export function cnDnDocumentNumber(noteType, parentTaxInvoiceNumber) {
-  const base = String(parentTaxInvoiceNumber || '').trim() || 'INV';
-  const u = base.toUpperCase();
-  if (u.startsWith('CN-') || u.startsWith('DN-')) return base;
-  return noteType === 'debit' ? `DN-${base}` : `CN-${base}`;
+/** Build standalone CN/DN series: CN-INV-2026-0001, DN-INV-2026-0001, etc. */
+export function cnDnDocumentNumber(noteType, existingNotes = [], noteDate) {
+  const prefix = noteType === 'debit' ? 'DN' : 'CN';
+  const d = noteDate ? new Date(noteDate) : new Date();
+  const year = Number.isNaN(d.getTime()) ? new Date().getFullYear() : d.getFullYear();
+  const notes = Array.isArray(existingNotes) ? existingNotes : [];
+  const re = new RegExp(`^${prefix}-INV-${year}-(\\d+)$`, 'i');
+  const maxSeq = notes.reduce((max, note) => {
+    const number = String(note?.noteTaxInvoiceNumber || note?.note_tax_invoice_number || '').trim();
+    const match = number.match(re);
+    return match ? Math.max(max, Number(match[1]) || 0) : max;
+  }, 0);
+  return `${prefix}-INV-${year}-${String(maxSeq + 1).padStart(4, '0')}`;
 }
 
 /** Net receivable for parent tax invoice after linked credit (reduces) and debit (increases) notes. */

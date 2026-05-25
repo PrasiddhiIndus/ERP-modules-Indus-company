@@ -896,7 +896,7 @@ export async function saveInvoice(inv) {
     gst_supply_type: gstSupply,
     igst_rate: Number(inv.igstRate) || 0,
     igst_amt: Number(inv.igstAmt) || 0,
-    digital_signature_data_url: inv.digitalSignatureDataUrl || null,
+    digital_signature_data_url: inv.digitalSignatureDataUrl || inv.digital_signature_data_url || null,
     is_cancelled: !!(inv.isCancelled ?? inv.is_cancelled),
     cancelled_at: normalizeTimestamptzOrNull(inv.cancelledAt ?? inv.cancelled_at),
     cancel_reason: inv.cancelReason ?? inv.cancel_reason ?? null,

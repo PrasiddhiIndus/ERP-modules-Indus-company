@@ -1009,17 +1009,20 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const signForY = termsTop + 4.9;
   const signLineY = signForY + 12;
   const signAuthY = signLineY + 3.5;
+  const signLineLeft = pageW - MARGIN - 46;
+  const signLineRight = pageW - MARGIN - 2;
+  const signLineCenter = (signLineLeft + signLineRight) / 2;
   const signatureBlockBottom = signAuthY + 2;
   doc.setFontSize(9.5);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(15, 47, 102);
   doc.text(`For ${COMPANY_DISPLAY_NAME}`, pageW - MARGIN - 2, signForY, { align: 'right' });
   doc.setDrawColor(130, 130, 130);
-  doc.line(pageW - MARGIN - 46, signLineY, pageW - MARGIN - 2, signLineY);
+  doc.line(signLineLeft, signLineY, signLineRight, signLineY);
   doc.setFontSize(FONT.body);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(0, 0, 0);
-  doc.text('Authorised Signatory', pageW - MARGIN - 2, signAuthY, { align: 'right' });
+  doc.text('Authorised Signatory', signLineCenter, signAuthY, { align: 'center' });
   const termsContentBottom = Math.max(tY + 0.8, signatureBlockBottom);
   if (termsContentBottom > termsTop + termsH) {
     termsH = termsContentBottom - termsTop;
@@ -1048,11 +1051,11 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     doc.setTextColor(15, 47, 102);
     doc.text(`For ${COMPANY_DISPLAY_NAME}`, pageW - MARGIN - 2, signForY2, { align: 'right' });
     doc.setDrawColor(130, 130, 130);
-    doc.line(pageW - MARGIN - 46, signLineY2, pageW - MARGIN - 2, signLineY2);
+    doc.line(signLineLeft, signLineY2, signLineRight, signLineY2);
     doc.setFontSize(FONT.body);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(0, 0, 0);
-    doc.text('Authorised Signatory', pageW - MARGIN - 2, signAuthY2, { align: 'right' });
+    doc.text('Authorised Signatory', signLineCenter, signAuthY2, { align: 'center' });
   }
 
   y = termsTop + termsH + 1;
@@ -1062,13 +1065,11 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   if (typeof sig === 'string' && sig.startsWith('data:image/')) {
     try {
       const sigType = sig.startsWith('data:image/jpeg') || sig.startsWith('data:image/jpg') ? 'JPEG' : 'PNG';
-      const sigW = 42;
-      const sigH = 16;
-      const sigX = pageW - MARGIN - sigW;
-      const sigY = termsTop + termsH - sigH - 3;
+      const sigW = 34;
+      const sigH = 14;
+      const sigX = signLineCenter - sigW / 2;
+      const sigY = signLineY - sigH + 1.5;
       doc.addImage(sig, sigType, sigX, sigY, sigW, sigH);
-      doc.setFontSize(FONT.small);
-      doc.text('Digital Signature', sigX + sigW / 2, sigY + sigH + 4, { align: 'center' });
     } catch {
       /* ignore bad image */
     }
