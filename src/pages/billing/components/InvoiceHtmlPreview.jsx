@@ -458,14 +458,15 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
             </div>
             <div className="px-2 pt-1 pb-2 text-right">
               <p className="text-[9px] font-bold text-[#1a3a6c] leading-snug m-0">For {COMPANY_DISPLAY_NAME}</p>
-              <div className="h-12" aria-hidden />
-              <div className="w-[120px] border-b border-[#333] ml-auto" />
-              <p className="text-center w-[120px] ml-auto mt-2">Authorised Signatory</p>
-              {typeof sig === 'string' && sig.startsWith('data:image/') ? (
-                <div className="mt-2 flex justify-end">
-                  <img src={sig} alt="" className="max-h-12 max-w-[9rem] object-contain" />
+              <div className="w-[120px] ml-auto">
+                <div className="h-12 flex items-end justify-center">
+                  {typeof sig === 'string' && sig.startsWith('data:image/') ? (
+                    <img src={sig} alt="" className="max-h-12 max-w-[7.5rem] object-contain" />
+                  ) : null}
                 </div>
-              ) : null}
+                <div className="border-b border-[#333]" />
+                <p className="text-center mt-2">Authorised Signatory</p>
+              </div>
             </div>
           </div>
         </div>
