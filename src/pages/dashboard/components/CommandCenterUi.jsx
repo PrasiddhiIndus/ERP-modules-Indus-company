@@ -309,7 +309,7 @@ export function QuickActionTile({ label, to, onNavigate }) {
   );
 }
 
-export function HeaderControls() {
+export function HeaderControls({ onRefresh, refreshing = false }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="relative">
@@ -321,7 +321,15 @@ export function HeaderControls() {
         <option>IFSPL</option>
         <option>IEVPL</option>
       </select>
-      <button className="h-8 px-2 rounded border border-gray-300 text-xs inline-flex items-center gap-1"><RefreshCw className="w-3.5 h-3.5" />Refresh</button>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={refreshing}
+        className="h-8 px-2 rounded border border-gray-300 text-xs inline-flex items-center gap-1 disabled:opacity-60"
+      >
+        <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+        Refresh
+      </button>
       <button className="h-8 px-2 rounded border border-gray-300 text-xs inline-flex items-center gap-1"><Download className="w-3.5 h-3.5" />Export snapshot</button>
       <button className="h-8 w-8 rounded border border-gray-300 inline-flex items-center justify-center"><Bell className="w-4 h-4 text-gray-600" /></button>
       <div className="h-8 px-2 rounded border border-gray-300 text-xs inline-flex items-center gap-1 bg-white"><UserCircle2 className="w-4 h-4 text-gray-600" />Super Admin</div>
