@@ -422,8 +422,9 @@ const IfspEmployeeMaster = () => {
 
         const employment_type = normalizeEmploymentType(out.employment_type || out.employee_id);
 
-        let sysId = String(out.employee_id || '').trim();
         const empCode = out.employee_code ? String(out.employee_code).trim() : '';
+        const rawSysId = String(out.employee_id || '').trim();
+        let sysId = rawSysId && rawSysId !== empCode ? rawSysId : '';
         if (sysId && isEmployeeIdTaken(sysId, importRows)) {
           throw new Error(`Row ${idx + 2}: employee_id "${sysId}" is already in use.`);
         }
@@ -1294,7 +1295,7 @@ const IfspEmployeeMaster = () => {
                     </select>
                     {editingEmployee && (
                       <p className="text-xs text-amber-700 mt-1">
-                        Changing type assigns a new system ID ({employmentTypeLabel(formData.employment_type)} format). Existing employee code is unchanged.
+                        Changing type keeps the same system ID. Existing employee code is unchanged.
                       </p>
                     )}
                   </div>
@@ -1308,11 +1309,7 @@ const IfspEmployeeMaster = () => {
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-800 font-mono"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      {normalizeEmploymentType(formData.employment_type) === 'consultant'
-                        ? 'Consultant: C-000001 (auto for new; changes if type is switched on edit).'
-                        : normalizeEmploymentType(formData.employment_type) === 'voucher'
-                          ? 'Voucher: V-000001 (auto for new; changes if type is switched on edit).'
-                          : 'Permanent: 5-digit number (auto for new; changes if type is switched on edit).'}
+                      One continuous 5-digit IFSPL system series for Permanent, Consultant, and Voucher employees.
                     </p>
                   </div>
 
