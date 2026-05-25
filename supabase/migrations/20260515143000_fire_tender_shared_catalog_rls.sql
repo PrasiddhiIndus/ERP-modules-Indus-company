@@ -1,5 +1,5 @@
--- Fire Tender shared catalog: main_components + price_master visible/editable by Fire Tender team
--- and Super Admins (same dataset for all, e.g. rows owned by the canonical maintainer user).
+-- Fire Tender shared catalog: main_components + price_master visible/editable by Fire Tender team,
+-- users with Fire Tender as an extra module, and Super Admins.
 -- Replaces strict "only own user_id" RLS on these tables when those policies exist.
 
 CREATE OR REPLACE FUNCTION public.current_user_has_fire_tender_shared_catalog_access()
@@ -16,13 +16,14 @@ AS $$
       WHERE p.id = auth.uid()
         AND (
           p.team = 'fireTender'
+          OR COALESCE(p.allowed_modules, '[]'::jsonb) ? 'fireTender'
           OR p.role IN ('super_admin', 'super_admin_pro')
         )
     );
 $$;
 
 COMMENT ON FUNCTION public.current_user_has_fire_tender_shared_catalog_access() IS
-  'RLS helper: Fire Tender shared catalog — team fireTender, super admins, or no profiles row (legacy).';
+  'RLS helper: Fire Tender shared catalog - team/extra module fireTender, super admins, or no profiles row (legacy).';
 
 -- ---------------------------------------------------------------------------
 -- main_components

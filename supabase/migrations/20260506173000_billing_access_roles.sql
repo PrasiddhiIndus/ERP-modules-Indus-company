@@ -20,14 +20,14 @@ begin
   ) into has_access;
   if has_access then return true; end if;
 
-  -- Allow if role/team or module assignment indicates access.
+  -- Allow if admin/billing legacy role, team, or module assignment indicates access.
   -- NOTE: billing.po_wo is the master PO store used by both Commercial verticals + Billing.
   select exists (
     select 1
     from public.profiles p
     where p.id = auth.uid()
       and (
-        p.role in ('admin', 'manager', 'executive', 'billing')
+        p.role in ('admin', 'billing')
         or p.team in ('billing', 'commercial', 'commercialMt', 'commercialRm')
         or (
           p.allowed_modules is not null

@@ -1,11 +1,11 @@
 ﻿/**
  * Role-based access: teams, roles, and module keys used for sidebar and route guards.
- * - Executive: team module + optional extra modules from profile; creates/edits/deletes within that scope (no approvals).
- * - Manager: team + checklist modules; can approve workflows only inside those modules.
- * - Admin: full operational module access except Super Admin-only modules.
+ * - Executive: team module + optional extra modules from profile; can view/edit within that scope (no approvals).
+ * - Manager: team module + optional extra modules from profile; can view/edit and approve within that scope.
+ * - Admin: dashboard + assigned team/extra modules; can approve workflows only inside those modules.
  * - Super Admin: full module access including User Management and software subscriptions.
- * - Fire Tender (`fireTender` routes): Super Admin tiers, or profile `team` === `fireTender` only (not via Admin bundle or `allowed_modules`).
- * - IT/IS (`itIs` routes): Super Admin tiers, or profile `team` === `itIs` — software subscriptions/reminders.
+ * - Fire Tender (`fireTender` routes): Super Admin tiers, or profile `team` / `allowed_modules` includes `fireTender`.
+ * - IT/IS (`itIs` routes): Super Admin tiers, or profile `team` / `allowed_modules` includes `itIs`.
  * Legacy users with no `role` in profile still receive broad access except Super Admin-only modules.
  */
 
@@ -38,7 +38,7 @@ export const TEAMS = [
   { value: "itIs", label: "IT/IS" },
 ];
 
-/** Module keys that appear in the sidebar (for Manager checklist and access checks). */
+/** Module keys that appear in the sidebar (for extra module checklist and access checks). */
 export const MODULES = [
   { value: "hr", label: "HR" },
   { value: "compliance", label: "Compliance" },
@@ -90,6 +90,7 @@ export const MODULE_PATH_PREFIXES = {
 };
 
 const SUPER_ADMIN_ONLY_MODULES = new Set(["userManagement", "softwareSubscriptions"]);
+const SCOPED_ROLE_MODULES = new Set([ROLES.EXECUTIVE, ROLES.MANAGER]);
 
 /** Fire Tender (tenders, costing, quotations, configuration, manufacturing UI) — not part of generic/Admin bundles. */
 const FIRE_TENDER_MODULE_KEY = "fireTender";
@@ -124,15 +125,37 @@ function userHasFireTenderTeam(profile) {
 }
 
 /**
- * Remove Fire Tender from the module set unless the user is Super Admin or their assigned team is Fire Tender.
- * Ignores `allowed_modules` for this key so only team + super roles grant access.
+ * Remove Fire Tender from the module set unless the user is Super Admin or the module is explicitly selected.
  */
 function applyFireTenderModuleGate(profile, moduleSet) {
   if (!moduleSet?.delete) return;
   const role = profile?.role;
   if (role === ROLES.SUPER_ADMIN_PRO || role === ROLES.SUPER_ADMIN) return;
-  if (userHasFireTenderTeam(profile)) return;
+  const hasFireTenderModule =
+    userHasFireTenderTeam(profile) ||
+    normalizedAllowedModuleKeys(profile).includes(FIRE_TENDER_MODULE_KEY);
+  if (hasFireTenderModule) return;
   moduleSet.delete(FIRE_TENDER_MODULE_KEY);
+}
+
+function normalizedAllowedModuleKeys(profile) {
+  return (profile?.allowed_modules || [])
+    .map((m) => normalizeTeamModuleKey(m))
+    .filter(Boolean);
+}
+
+function hasAssignedScopedModules(profile) {
+  return Boolean(normalizeTeamModuleKey(profile?.team) || normalizedAllowedModuleKeys(profile).length);
+}
+
+function buildScopedModuleSet(profile, { includeOverview = false } = {}) {
+  const scoped = new Set(includeOverview ? ["overview", "settings"] : ["settings"]);
+  const teamKey = normalizeTeamModuleKey(profile?.team);
+  if (teamKey) scoped.add(teamKey);
+  normalizedAllowedModuleKeys(profile).forEach((key) => scoped.add(key));
+  SUPER_ADMIN_ONLY_MODULES.forEach((m) => scoped.delete(m));
+  applyFireTenderModuleGate(profile, scoped);
+  return scoped;
 }
 
 /**
@@ -260,8 +283,7 @@ export function userCanApproveInModules(userProfile, accessibleModules, moduleKe
 
   if (
     role === ROLES.SUPER_ADMIN_PRO ||
-    role === ROLES.SUPER_ADMIN ||
-    role === ROLES.ADMIN
+    role === ROLES.SUPER_ADMIN
   ) {
     return true;
   }
@@ -269,7 +291,7 @@ export function userCanApproveInModules(userProfile, accessibleModules, moduleKe
   // Executives submit work for approval; they do not approve in-app workflows.
   if (role === ROLES.EXECUTIVE) return false;
 
-  if (role === ROLES.MANAGER && accessibleModules?.size) {
+  if ((role === ROLES.ADMIN || role === ROLES.MANAGER) && accessibleModules?.size) {
     return keys.some((k) => accessibleModules.has(k));
   }
 
@@ -282,9 +304,39 @@ export function userCanApproveInModules(userProfile, accessibleModules, moduleKe
 }
 
 /**
+ * Edit gate for module-scoped roles. Executives and Managers can edit anything inside
+ * their selected Team / Extra modules; approvals remain Manager/Admin/Super Admin only.
+ * @param {{ role?: string }} userProfile - from AuthContext
+ * @param {Set<string>|undefined|null} accessibleModules
+ * @param {string[]} moduleKeysAnyOf
+ */
+export function userCanEditInModules(userProfile, accessibleModules, moduleKeysAnyOf) {
+  const role = userProfile?.role;
+  const keys = Array.isArray(moduleKeysAnyOf) ? moduleKeysAnyOf : [];
+
+  if (
+    role === ROLES.SUPER_ADMIN_PRO ||
+    role === ROLES.SUPER_ADMIN
+  ) {
+    return true;
+  }
+
+  if (
+    role === ROLES.ADMIN ||
+    role === ROLES.MANAGER ||
+    role === ROLES.EXECUTIVE ||
+    !role
+  ) {
+    return Boolean(accessibleModules?.size && keys.some((k) => accessibleModules.has(k)));
+  }
+
+  return false;
+}
+
+/**
  * Returns the set of module keys the user is allowed to access.
  * @param {{ role: string, team?: string, allowed_modules?: string[] }} profile - from user_metadata
- * @returns {Set<string>} - module keys (includes 'overview' and 'settings' for all)
+ * @returns {Set<string>} - module keys (always includes 'settings'; Admin/Super Admin include 'overview')
  */
 export function getAccessibleModules(profile) {
   const allModules = new Set([
@@ -306,41 +358,26 @@ export function getAccessibleModules(profile) {
   }
   if (profile.role === ROLES.SUPER_ADMIN_PRO) return allModules;
   if (profile.role === ROLES.SUPER_ADMIN) return allModules;
-  // Admin (HOD / senior): full operational access, excluding Super Admin-only modules.
+
+  // Admin/HOD with configured modules is scoped to those modules, with dashboard access.
+  // Legacy Admin profiles without team/modules keep broad operational access.
   if (profile.role === ROLES.ADMIN) {
-    const adminSet = new Set(allWithoutSuperAdminOnly);
+    const adminSet = hasAssignedScopedModules(profile)
+      ? buildScopedModuleSet(profile, { includeOverview: true })
+      : new Set(allWithoutSuperAdminOnly);
     applyFireTenderModuleGate(profile, adminSet);
     return adminSet;
   }
-  if (profile.role === ROLES.EXECUTIVE) {
+
+  if (SCOPED_ROLE_MODULES.has(profile.role)) {
     // If team metadata is missing, don't accidentally lock the user to dashboard-only access.
     // Treat it like legacy access (except Super Admin-only modules).
-    if (!profile.team) {
+    if (!hasAssignedScopedModules(profile)) {
       const legacyExec = new Set(allWithoutSuperAdminOnly);
       applyFireTenderModuleGate(profile, legacyExec);
       return legacyExec;
     }
-    const nt = normalizeTeamModuleKey(profile.team);
-    if (nt) always.add(nt);
-    (profile.allowed_modules || []).forEach((m) => {
-      const nk = normalizeTeamModuleKey(m);
-      if (nk) always.add(nk);
-    });
-    // Never allow Super Admin-only modules for non-super-admin.
-    SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
-    applyFireTenderModuleGate(profile, always);
-    return always;
-  }
-  if (profile.role === ROLES.MANAGER) {
-    const nt = normalizeTeamModuleKey(profile.team);
-    if (nt) always.add(nt);
-    (profile.allowed_modules || []).forEach((m) => {
-      const nk = normalizeTeamModuleKey(m);
-      if (nk) always.add(nk);
-    });
-    SUPER_ADMIN_ONLY_MODULES.forEach((m) => always.delete(m));
-    applyFireTenderModuleGate(profile, always);
-    return always;
+    return buildScopedModuleSet(profile);
   }
   applyFireTenderModuleGate(profile, always);
   return always;

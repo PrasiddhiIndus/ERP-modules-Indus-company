@@ -11,6 +11,7 @@ import {
   isEmployeeIdTaken,
   isEmpCodeTaken,
   employmentTypeLabel,
+  computeIfsplExperienceYears,
   computeTotalExperienceYears,
 } from '../../utils/employeeMasterReminders';
 import { formatDdMonYyyy } from '../../utils/dateFormat';
@@ -50,8 +51,8 @@ const td = 'px-2 py-2 text-xs text-gray-900 whitespace-nowrap max-w-[180px] trun
 
 function compareEmployeeSortField(a, b, field, direction) {
   const asc = direction === 'asc';
-  const av = a?.[field];
-  const bv = b?.[field];
+  let av = a?.[field];
+  let bv = b?.[field];
 
   if (field === 'date_of_joining' || field === 'date_of_birth' || field === 'date_of_anniversary' || field === 'date_of_leaving') {
     const ad = av ? new Date(av).getTime() : 0;
@@ -61,6 +62,13 @@ function compareEmployeeSortField(a, b, field, direction) {
   }
 
   if (field === 'other_experience' || field === 'ifspl_experience' || field === 'years_of_experience') {
+    if (field === 'ifspl_experience') {
+      av = computeIfsplExperienceYears(a?.date_of_joining);
+      bv = computeIfsplExperienceYears(b?.date_of_joining);
+    } else if (field === 'years_of_experience') {
+      av = computeTotalExperienceYears(a?.date_of_joining, a?.other_experience);
+      bv = computeTotalExperienceYears(b?.date_of_joining, b?.other_experience);
+    }
     const an = av == null || av === '' ? null : Number(av);
     const bn = bv == null || bv === '' ? null : Number(bv);
     if (an == null && bn == null) return 0;
@@ -108,7 +116,7 @@ const IfspEmployeeMaster = () => {
       const { error } = await supabase
         .from('admin_ifsp_employee_master')
         .delete()
-        .eq('user_id', user.id);
+        .not('id', 'is', null);
       if (error) throw error;
       setEmployees([]);
       setCurrentPage(1);
@@ -409,9 +417,8 @@ const IfspEmployeeMaster = () => {
         const doj = parseExcelDate(out.date_of_joining) || todayYmd;
 
         const prevExp = out.other_experience === '' || out.other_experience == null ? null : Number(out.other_experience);
-        const sheetTotalExp =
-          out.years_of_experience === '' || out.years_of_experience == null ? null : Number(out.years_of_experience);
-        const totalExp = Number.isFinite(sheetTotalExp) ? sheetTotalExp : computeTotalExperienceYears(doj, prevExp);
+        const ifsplExp = computeIfsplExperienceYears(doj);
+        const totalExp = computeTotalExperienceYears(doj, prevExp);
 
         const employment_type = normalizeEmploymentType(out.employment_type || out.employee_id);
 
@@ -471,8 +478,7 @@ const IfspEmployeeMaster = () => {
           date_of_leaving: parseExcelDate(out.date_of_leaving),
           other_experience: Number.isFinite(prevExp) ? prevExp : null,
           years_of_experience: totalExp,
-          ifspl_experience:
-            out.ifspl_experience === '' || out.ifspl_experience == null ? null : Number(out.ifspl_experience),
+          ifspl_experience: ifsplExp,
           status: normalizedStatus,
           // Tenant + audit
           user_id: user.id,
@@ -516,7 +522,6 @@ const IfspEmployeeMaster = () => {
       const { data, error } = await supabase
         .from('admin_ifsp_employee_master')
         .select('*')
-        .eq('user_id', user.id)
         .order('employee_id', { ascending: true });
 
       if (error) throw error;
@@ -534,6 +539,8 @@ const IfspEmployeeMaster = () => {
   }, [fetchEmployees]);
 
   const buildPayload = (userEmail) => {
+    const ifsplExperience = computeIfsplExperienceYears(formData.date_of_joining);
+    const totalExperience = computeTotalExperienceYears(formData.date_of_joining, formData.other_experience);
     const payload = {
       employee_id: formData.employee_id || null,
       employment_type: normalizeEmploymentType(formData.employment_type),
@@ -562,7 +569,7 @@ const IfspEmployeeMaster = () => {
       personal_no: formData.personal_no || null,
       emergency_no: formData.emergency_no || null,
       identification_mark: formData.identification_mark || null,
-      years_of_experience: computeTotalExperienceYears(formData.date_of_joining, formData.other_experience),
+      years_of_experience: totalExperience,
       qualification: (formData.educational_qualification || formData.qualification) || null,
       educational_qualification: formData.educational_qualification || null,
       location: formData.location || null,
@@ -578,7 +585,7 @@ const IfspEmployeeMaster = () => {
       anniversary_reminder: formData.anniversary_reminder !== false,
       department: formData.department || null,
       other_experience: formData.other_experience ? parseFloat(formData.other_experience) : null,
-      ifspl_experience: formData.ifspl_experience ? parseFloat(formData.ifspl_experience) : null,
+      ifspl_experience: ifsplExperience,
       date_of_leaving: formData.date_of_leaving || null,
       status: formData.status || 'Active',
       status_reason: formData.status_reason || null,
@@ -625,8 +632,7 @@ const IfspEmployeeMaster = () => {
         const { error } = await supabase
           .from('admin_ifsp_employee_master')
           .update(payload)
-          .eq('id', editingEmployee.id)
-          .eq('user_id', user.id);
+          .eq('id', editingEmployee.id);
 
         if (error) {
           if (error.code === '23505') {
@@ -724,7 +730,7 @@ const IfspEmployeeMaster = () => {
       anniversary_reminder: employee.anniversary_reminder !== false,
       department: employee.department || '',
       other_experience: employee.other_experience || '',
-      ifspl_experience: employee.ifspl_experience || '',
+      ifspl_experience: computeIfsplExperienceYears(employee.date_of_joining) ?? '',
       date_of_leaving: employee.date_of_leaving || '',
       status: employee.status || 'Active',
       status_reason: employee.status_reason || '',
@@ -749,8 +755,7 @@ const IfspEmployeeMaster = () => {
       const { error } = await supabase
         .from('admin_ifsp_employee_master')
         .delete()
-        .eq('id', id)
-        .eq('user_id', user.id);
+        .eq('id', id);
 
       if (error) throw error;
       setEmployees(prev => prev.filter(emp => emp.id !== id));
@@ -776,8 +781,7 @@ const IfspEmployeeMaster = () => {
           updated_by: user.email,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', id)
-        .eq('user_id', user.id);
+        .eq('id', id);
 
       if (error) throw error;
       setEmployees(prev => prev.map(emp =>
@@ -823,6 +827,12 @@ const IfspEmployeeMaster = () => {
   };
 
   const exportCellValue = (employee, field) => {
+    if (field === 'ifspl_experience') {
+      return computeIfsplExperienceYears(employee.date_of_joining) ?? '';
+    }
+    if (field === 'years_of_experience') {
+      return computeTotalExperienceYears(employee.date_of_joining, employee.other_experience) ?? '';
+    }
     let value = employee[field];
     if (value == null || value === '') return '';
     if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
@@ -931,6 +941,7 @@ const IfspEmployeeMaster = () => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const currentEmployees = sortedFilteredEmployees.slice(startIndex, endIndex);
+  const formIfsplExperiencePreview = computeIfsplExperienceYears(formData.date_of_joining);
   const formTotalExperiencePreview = computeTotalExperienceYears(formData.date_of_joining, formData.other_experience);
 
   if (loading) {
@@ -1175,7 +1186,8 @@ const IfspEmployeeMaster = () => {
               </tr>
               </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {currentEmployees.map((employee, rowIdx) => {
+              {currentEmployees.map((employee) => {
+                const ifsplExp = computeIfsplExperienceYears(employee.date_of_joining);
                 const totalExp = computeTotalExperienceYears(employee.date_of_joining, employee.other_experience);
                 return (
                   <tr key={employee.id} className="hover:bg-gray-50">
@@ -1210,8 +1222,8 @@ const IfspEmployeeMaster = () => {
                     <td className={td} title={employee.identification_mark || ''}>{employee.identification_mark || '–'}</td>
                     <td className={td} title={employee.educational_qualification || ''}>{employee.educational_qualification || '–'}</td>
                     <td className={td}>{employee.other_experience != null ? employee.other_experience : '–'}</td>
-                    <td className={td}>{employee.ifspl_experience != null ? employee.ifspl_experience : '–'}</td>
-                    <td className={td} title="Computed if sheet value missing">{(employee.years_of_experience ?? totalExp) != null ? (employee.years_of_experience ?? totalExp) : '–'}</td>
+                    <td className={td}>{ifsplExp != null ? ifsplExp : '–'}</td>
+                    <td className={td} title="Previous experience + IFSPL experience">{totalExp != null ? totalExp : '–'}</td>
                     <td className={td}>{formatDdMonYyyy(employee.date_of_leaving)}</td>
                     <td className="px-2 py-2 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusColor(employee.status)}`}>
@@ -1692,12 +1704,10 @@ const IfspEmployeeMaster = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">IFSPL Experience</label>
                     <input
-                      type="number"
-                      value={formData.ifspl_experience}
-                      onChange={(e) => setFormData({...formData, ifspl_experience: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      min="0"
-                      step="0.1"
+                      type="text"
+                      readOnly
+                      value={formIfsplExperiencePreview != null ? `${formIfsplExperiencePreview} years` : '—'}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-800"
                     />
                   </div>
 

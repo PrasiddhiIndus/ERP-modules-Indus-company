@@ -1,4 +1,4 @@
--- IT/IS team: software subscriptions + invoice storage (profile.team = 'itIs')
+-- IT/IS team/extra module: software subscriptions + invoice storage
 
 CREATE OR REPLACE FUNCTION public.is_current_user_software_subscriptions_editor()
 RETURNS boolean
@@ -14,12 +14,13 @@ AS $$
       AND (
         p.role IN ('super_admin', 'super_admin_pro')
         OR p.team = 'itIs'
+        OR COALESCE(p.allowed_modules, '[]'::jsonb) ? 'itIs'
       )
   );
 $$;
 
 COMMENT ON FUNCTION public.is_current_user_software_subscriptions_editor() IS
-  'Super Admin tiers or IT/IS team (profiles.team = itIs) may manage software_subscriptions.';
+  'Super Admin tiers or IT/IS team/extra module (profiles.team/allowed_modules = itIs) may manage software_subscriptions.';
 
 -- software_subscriptions table
 DROP POLICY IF EXISTS "software_subscriptions_select_super_admin" ON public.software_subscriptions;

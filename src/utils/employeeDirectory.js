@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
  *
  * Some deployments previously queried a non-existent table `ifsp_employees`,
  * which causes noisy 404s from Supabase REST. The canonical source in this repo
- * is `admin_ifsp_employee_master` (per-tenant via user_id).
+ * is the shared `admin_ifsp_employee_master`.
  */
 export async function fetchActiveEmployeesForDropdown() {
   try {
@@ -17,7 +17,6 @@ export async function fetchActiveEmployeesForDropdown() {
     const { data, error } = await supabase
       .from('admin_ifsp_employee_master')
       .select('id, employee_id, full_name, status')
-      .eq('user_id', user.id)
       .eq('status', 'Active')
       .order('full_name', { ascending: true });
 
