@@ -13,6 +13,14 @@ const STORAGE_KEYS = {
   EINVOICE_CACHE: 'erp_einvoice_cache',
 };
 
+function notifyBillingStoreChange(key) {
+  try {
+    window.dispatchEvent(new CustomEvent('erp-dashboard-refresh', { detail: { key } }));
+  } catch {
+    /* ignore */
+  }
+}
+
 // ——— Commercial PO (Master) ———
 // Each PO has: id, siteId, locationName, legalName, billingAddress, gstin,
 // currentCoordinator, contactNumber, contactHistoryLog (array of { name, number, from, to }),
@@ -32,6 +40,7 @@ export const getCommercialPOs = () => {
 
 export const setCommercialPOs = (list) => {
   localStorage.setItem(STORAGE_KEYS.COMMERCIAL_POS, JSON.stringify(list));
+  notifyBillingStoreChange(STORAGE_KEYS.COMMERCIAL_POS);
 };
 
 function getDefaultCommercialPOs() {
@@ -142,6 +151,7 @@ export const getContactHistory = () => {
 
 export const setContactHistory = (byPoId) => {
   localStorage.setItem(STORAGE_KEYS.CONTACT_HISTORY, JSON.stringify(byPoId));
+  notifyBillingStoreChange(STORAGE_KEYS.CONTACT_HISTORY);
 };
 
 // ——— Invoices ———
@@ -215,6 +225,7 @@ export const getInvoices = () => {
 
 export const setInvoices = (list) => {
   localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(list));
+  notifyBillingStoreChange(STORAGE_KEYS.INVOICES);
 };
 
 // ——— Credit / Debit Notes ———
@@ -231,6 +242,7 @@ export const getCreditDebitNotes = () => {
 
 export const setCreditDebitNotes = (list) => {
   localStorage.setItem(STORAGE_KEYS.CREDIT_DEBIT_NOTES, JSON.stringify(list));
+  notifyBillingStoreChange(STORAGE_KEYS.CREDIT_DEBIT_NOTES);
 };
 
 // ——— Payment Advice (keyed by invoiceId) ———
@@ -246,6 +258,7 @@ export const getPaymentAdvice = () => {
 
 export const setPaymentAdvice = (byInvoiceId) => {
   localStorage.setItem(STORAGE_KEYS.PAYMENT_ADVICE, JSON.stringify(byInvoiceId));
+  notifyBillingStoreChange(STORAGE_KEYS.PAYMENT_ADVICE);
 };
 
 // ——— E-Invoice cache (IRN/QR by invoice or note id) ———
@@ -260,4 +273,5 @@ export const getEInvoiceCache = () => {
 
 export const setEInvoiceCache = (cache) => {
   localStorage.setItem(STORAGE_KEYS.EINVOICE_CACHE, JSON.stringify(cache));
+  notifyBillingStoreChange(STORAGE_KEYS.EINVOICE_CACHE);
 };

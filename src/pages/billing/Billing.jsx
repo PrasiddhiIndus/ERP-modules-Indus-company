@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { BillingProvider, useBilling } from '../../contexts/BillingContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { Bell, X } from 'lucide-react';
 import BillingDashboard from './BillingDashboard';
 import CreateInvoice from './CreateInvoice';
 import AddOnInvoices from './AddOnInvoices';
@@ -12,6 +14,17 @@ import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
 import BillingPlainEnglishGuide from './components/BillingPlainEnglishGuide';
 import { PO_BASIS_FILTER_ALL } from '../../constants/poBasis';
+import {
+  COMMERCIAL_MODULE_PROJECTS,
+  COMMERCIAL_MODULE_RM_MM_AMC_IEV,
+  getCommercialPoModuleType,
+} from '../../constants/commercialModuleType';
+import {
+  COMMERCIAL_MT_APPROVER_MODULE_KEYS,
+  COMMERCIAL_RM_APPROVER_MODULE_KEYS,
+  PROJECTS_PO_APPROVER_MODULE_KEYS,
+  userCanApproveInModules,
+} from '../../config/roles';
 
 // Order matches left sidebar: Generated E-Invoice last (after Manage Invoices workflow)
 const TAB_IDS = ['dashboard', 'create-invoice', 'add-on-invoices', 'manage-invoices', 'credit-notes', 'reports', 'tracking', 'notifications', 'generated-e-invoice'];
@@ -126,6 +139,125 @@ class BillingErrorBoundary extends React.Component {
   }
 }
 
+const PO_APPROVAL_PENDING_STATUSES = new Set(['sent_for_approval', 'pending_approval']);
+const BILLING_APPROVAL_POPUP_DISMISSED_KEY = 'billing_po_approval_popup_dismissed';
+
+function readDismissedApprovalPopups() {
+  try {
+    return JSON.parse(window.localStorage.getItem(BILLING_APPROVAL_POPUP_DISMISSED_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedApprovalPopup(key) {
+  try {
+    const next = Array.from(new Set([...readDismissedApprovalPopups(), key])).slice(-200);
+    window.localStorage.setItem(BILLING_APPROVAL_POPUP_DISMISSED_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+}
+
+function pendingApprovalKey(po) {
+  return [
+    po?.id,
+    po?.approvalSentAt || po?.approval_sent_at || po?.updated_at || po?.updatedAt || '',
+    po?.approvalStatus || po?.approval_status || '',
+  ].join('|');
+}
+
+function approverKeysForPo(po) {
+  const moduleType = getCommercialPoModuleType(po);
+  if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) return COMMERCIAL_RM_APPROVER_MODULE_KEYS;
+  if (moduleType === COMMERCIAL_MODULE_PROJECTS) return PROJECTS_PO_APPROVER_MODULE_KEYS;
+  return COMMERCIAL_MT_APPROVER_MODULE_KEYS;
+}
+
+function approvalRouteForPo(po) {
+  const moduleType = getCommercialPoModuleType(po);
+  const query = `highlightPoId=${encodeURIComponent(po?.id || '')}`;
+  if (moduleType === COMMERCIAL_MODULE_RM_MM_AMC_IEV) {
+    return `/app/commercial/rm-mm-amc-iev/po-entry?${query}`;
+  }
+  if (moduleType === COMMERCIAL_MODULE_PROJECTS) {
+    return `/app/projects/po/po-entry?${query}`;
+  }
+  return `/app/commercial/manpower-training/po-entry?${query}`;
+}
+
+const BillingPoApprovalPopup = () => {
+  const navigate = useNavigate();
+  const { userProfile, accessibleModules } = useAuth();
+  const { commercialPOsAllModules, commercialPOs } = useBilling();
+  const [dismissed, setDismissed] = useState(() => new Set(readDismissedApprovalPopups()));
+
+  const pendingPo = useMemo(() => {
+    const rows = (commercialPOsAllModules?.length ? commercialPOsAllModules : commercialPOs || [])
+      .filter((po) => !po?.isSupplementary)
+      .filter((po) => PO_APPROVAL_PENDING_STATUSES.has(String(po.approvalStatus || po.approval_status || '').toLowerCase()))
+      .filter((po) => userCanApproveInModules(userProfile, accessibleModules, approverKeysForPo(po)))
+      .sort((a, b) => {
+        const at = new Date(a.approvalSentAt || a.approval_sent_at || a.updated_at || 0).getTime() || 0;
+        const bt = new Date(b.approvalSentAt || b.approval_sent_at || b.updated_at || 0).getTime() || 0;
+        return bt - at;
+      });
+    return rows.find((po) => !dismissed.has(pendingApprovalKey(po))) || null;
+  }, [accessibleModules, commercialPOs, commercialPOsAllModules, dismissed, userProfile]);
+
+  if (!pendingPo) return null;
+
+  const key = pendingApprovalKey(pendingPo);
+  const oc = pendingPo.ocNumber || pendingPo.oc_number || 'PO';
+  const poNo = pendingPo.poWoNumber || pendingPo.po_wo_number || '';
+  const client = pendingPo.legalName || pendingPo.legal_name || pendingPo.clientName || '';
+
+  const dismiss = () => {
+    writeDismissedApprovalPopup(key);
+    setDismissed((prev) => new Set([...prev, key]));
+  };
+
+  return (
+    <div className="fixed bottom-5 right-5 z-[70] w-[min(92vw,380px)] rounded-2xl border border-amber-200 bg-white shadow-2xl">
+      <div className="flex items-start gap-3 p-4">
+        <div className="mt-0.5 rounded-full bg-amber-100 p-2 text-amber-700">
+          <Bell className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-gray-900">PO approval pending</p>
+          <p className="mt-1 text-sm text-gray-700">
+            <span className="font-mono font-semibold">{oc}</span>
+            {poNo ? ` · ${poNo}` : ''}
+            {client ? ` · ${client}` : ''} is waiting for approval.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                dismiss();
+                navigate(approvalRouteForPo(pendingPo));
+              }}
+              className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              Open PO
+            </button>
+            <button
+              type="button"
+              onClick={dismiss}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+        <button type="button" onClick={dismiss} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const BillingInner = () => {
   const {
     billingVerticalFilter,
@@ -182,6 +314,7 @@ const BillingInner = () => {
         <BillingErrorBoundary>
           <ActiveComponent onNavigateTab={handleTabChange} />
         </BillingErrorBoundary>
+        <BillingPoApprovalPopup />
       </div>
     </div>
   );

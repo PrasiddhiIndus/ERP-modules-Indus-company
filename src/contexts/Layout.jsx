@@ -6,6 +6,7 @@ import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { ROLES, getLandingPathForUser, isPathAllowed } from "../config/roles";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
+import PoApprovalBell from "../components/PoApprovalBell";
 import {
   LogOut,
   User,
@@ -1075,6 +1076,7 @@ const Layout = () => {
             <h2 className="text-xl font-semibold text-gray-900 truncate">Welcome back!</h2>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <PoApprovalBell />
             {canSeeActivityLog ? (
               <button
                 type="button"
