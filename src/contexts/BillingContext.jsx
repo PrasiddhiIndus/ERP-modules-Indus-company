@@ -400,7 +400,9 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
           return (
             String(old.updated_at || old.updatedAt || '') !== String(inv.updated_at || inv.updatedAt || '') ||
             String(old.taxInvoiceNumber || old.tax_invoice_number || '') !== String(inv.taxInvoiceNumber || inv.tax_invoice_number || '') ||
-            Number(old.totalAmount || 0) !== Number(inv.totalAmount || 0)
+            Number(old.totalAmount || 0) !== Number(inv.totalAmount || 0) ||
+            String(old.digitalSignatureDataUrl || old.digital_signature_data_url || '') !==
+              String(inv.digitalSignatureDataUrl || inv.digital_signature_data_url || '')
           );
         });
         const persist = changed.length

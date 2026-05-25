@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
@@ -241,6 +241,82 @@ const GST_SUPPLY_TYPES = [
   { value: 'inter', label: 'IGST (other state)' },
   { value: 'sez_zero', label: '0% GST (SEZ / nil rated)' },
 ];
+
+function PlaceOfSupplySearchSelect({ value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef(null);
+  const filteredOptions = useMemo(() => {
+    const clean = query.trim().toLowerCase();
+    if (!clean) return options;
+    return options.filter((option) => option.toLowerCase().includes(clean));
+  }, [options, query]);
+
+  useEffect(() => {
+    const onMouseDown = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, []);
+
+  const selectedLabel = value || '';
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left"
+      >
+        <span className={selectedLabel ? 'text-gray-900' : 'text-gray-400'}>
+          {selectedLabel || 'Select state/UT…'}
+        </span>
+        <span className="text-xs text-gray-400">v</span>
+      </button>
+      {open ? (
+        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+          <div className="relative border-b border-gray-100">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              autoFocus
+              placeholder="Search state/UT..."
+              className="w-full px-9 py-2 text-sm outline-none"
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto py-1">
+            {filteredOptions.length ? (
+              filteredOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                  className={`block w-full px-3 py-2 text-left text-sm hover:bg-blue-50 ${
+                    option === value ? 'bg-blue-50 font-semibold text-blue-700' : 'text-gray-700'
+                  }`}
+                >
+                  {option}
+                </button>
+              ))
+            ) : (
+              <p className="px-3 py-3 text-sm text-gray-500">No state/UT found.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function normalizeLumpSumBillingModeForForm(raw) {
   const m = String(raw || 'normal').trim().toLowerCase();
@@ -1385,10 +1461,10 @@ const POEntry = () => {
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Site / Location ID</label><input type="text" value={formData.siteId} onChange={(e) => setFormData((p) => ({ ...p, siteId: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. SITE-001" /></div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Place of supply (invoice)</label>
-                    <select
+                    <PlaceOfSupplySearchSelect
                       value={formData.placeOfSupply}
-                      onChange={(e) => {
-                        const nextState = e.target.value;
+                      options={INDIA_STATES_UT}
+                      onChange={(nextState) => {
                         setFormData((p) => {
                           const next = { ...p, placeOfSupply: nextState };
                           // Auto-define tax slab based on state selection:
@@ -1402,13 +1478,7 @@ const POEntry = () => {
                         setGstTypeError(msg);
                         if (msg) window.alert(msg);
                       }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
-                    >
-                      <option value="">Select state/UT…</option>
-                      {INDIA_STATES_UT.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
+                    />
                     <p className="text-[11px] text-gray-500 mt-1">
                       Tax type auto-sets to CGST+SGST for Gujarat; IGST for other states (SEZ 0% remains as selected).
                     </p>

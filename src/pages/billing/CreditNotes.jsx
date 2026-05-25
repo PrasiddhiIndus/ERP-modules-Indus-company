@@ -21,7 +21,7 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-function IssueCnDnModal({ parent, noteType, requestReason, onClose, onIssue, defaultDate }) {
+function IssueCnDnModal({ parent, noteType, requestReason, existingNotes, onClose, onIssue, defaultDate }) {
   const [items, setItems] = useState(() =>
     (parent.items || []).map((i) => ({
       description: i.description || '',
@@ -37,8 +37,8 @@ function IssueCnDnModal({ parent, noteType, requestReason, onClose, onIssue, def
 
   const gstSupplyType = normalizeGstSupplyType(parent.gstSupplyType || parent.gst_supply_type);
   const noteTaxNo = useMemo(
-    () => cnDnDocumentNumber(noteType, parent.taxInvoiceNumber || parent.bill_number),
-    [noteType, parent.taxInvoiceNumber, parent.bill_number]
+    () => cnDnDocumentNumber(noteType, existingNotes, noteDate),
+    [noteType, existingNotes, noteDate]
   );
 
   const updateItem = (idx, patch) => {
@@ -401,6 +401,7 @@ const CreditNotes = () => {
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tax invoice</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
@@ -409,8 +410,9 @@ const CreditNotes = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {pendingRequests.map((inv) => (
+                {pendingRequests.map((inv, idx) => (
                   <tr key={String(inv.id)}>
+                    <td className="px-4 py-2 text-center tabular-nums text-gray-700">{idx + 1}</td>
                     <td className="px-4 py-2 capitalize font-medium">
                       {(inv.cnDnRequestNoteType || inv.cn_dn_request_note_type) === 'debit' ? 'Debit' : 'Credit'}
                     </td>
@@ -452,7 +454,7 @@ const CreditNotes = () => {
       <div className="bg-white rounded-xl border border-emerald-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-emerald-100 bg-emerald-50/80">
           <h3 className="font-semibold text-emerald-900">Approved — issue note</h3>
-          <p className="text-sm text-emerald-800/90">Document number will be CN-… or DN-… with the same base as the tax invoice.</p>
+          <p className="text-sm text-emerald-800/90">Document number will follow its own note series, like CN-INV-2026-0001.</p>
         </div>
         {approvedReady.length === 0 ? (
           <div className="px-4 py-5 text-sm text-gray-600">Nothing approved yet. Approve a row above, then issue the note here.</div>
@@ -461,6 +463,7 @@ const CreditNotes = () => {
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tax invoice</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
@@ -468,8 +471,9 @@ const CreditNotes = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {approvedReady.map((inv) => (
+                {approvedReady.map((inv, idx) => (
                   <tr key={`appr-${inv.id}`}>
+                    <td className="px-4 py-2 text-center tabular-nums text-gray-700">{idx + 1}</td>
                     <td className="px-4 py-2 capitalize font-medium">
                       {(inv.cnDnRequestNoteType || inv.cn_dn_request_note_type) === 'debit' ? 'Debit' : 'Credit'}
                     </td>
@@ -518,8 +522,9 @@ const CreditNotes = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Note #</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Note</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Parent invoice</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
@@ -529,8 +534,9 @@ const CreditNotes = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredNotes.map((note) => (
+              {filteredNotes.map((note, idx) => (
                 <tr key={String(note.id)}>
+                  <td className="px-4 py-3 text-sm text-center tabular-nums text-gray-700">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium capitalize">{note.type}</td>
                   <td className="px-4 py-3 text-sm font-mono text-gray-800">{note.noteTaxInvoiceNumber || '–'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 font-mono">{note.parentTaxInvoiceNumber}</td>
@@ -584,6 +590,7 @@ const CreditNotes = () => {
           parent={issueContext.parent}
           noteType={issueContext.noteType}
           requestReason={issueContext.requestReason}
+          existingNotes={creditDebitNotes || []}
           onClose={() => setIssueContext(null)}
           onIssue={(payload) => handleIssueComplete(issueContext.parent, issueContext.noteType, payload)}
         />
