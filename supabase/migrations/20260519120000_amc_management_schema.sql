@@ -403,7 +403,8 @@ END $$;
 -- ---------------------------------------------------------------------------
 -- Dashboard views
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE VIEW public.vw_amc_dashboard_summary AS
+CREATE OR REPLACE VIEW public.vw_amc_dashboard_summary
+WITH (security_invoker = on) AS
 SELECT
   (SELECT count(*) FROM public.amc_contracts WHERE status IN ('active', 'running')) AS active_contracts,
   (SELECT count(*) FROM public.amc_contracts
@@ -419,7 +420,8 @@ SELECT
   (SELECT count(*) FROM public.amc_service_visits WHERE report_status = 'pending') AS pending_service_reports,
   (SELECT count(*) FROM public.amc_contracts WHERE status = 'at_risk') AS contracts_at_risk;
 
-CREATE OR REPLACE VIEW public.vw_amc_contract_expiry AS
+CREATE OR REPLACE VIEW public.vw_amc_contract_expiry
+WITH (security_invoker = on) AS
 SELECT
   c.id,
   c.contract_no,
@@ -436,7 +438,8 @@ LEFT JOIN public.amc_customers cust ON cust.id = c.customer_id
 WHERE c.end_date >= CURRENT_DATE - interval '90 days'
 ORDER BY c.end_date ASC;
 
-CREATE OR REPLACE VIEW public.vw_amc_pm_due_overdue AS
+CREATE OR REPLACE VIEW public.vw_amc_pm_due_overdue
+WITH (security_invoker = on) AS
 SELECT
   p.id,
   p.pm_no,
@@ -456,7 +459,8 @@ SELECT
   END AS due_bucket
 FROM public.amc_pm_schedules p;
 
-CREATE OR REPLACE VIEW public.vw_amc_complaint_sla AS
+CREATE OR REPLACE VIEW public.vw_amc_complaint_sla
+WITH (security_invoker = on) AS
 SELECT
   c.id,
   c.complaint_no,
@@ -473,7 +477,8 @@ SELECT
 FROM public.amc_complaints c
 WHERE c.status NOT IN ('closed');
 
-CREATE OR REPLACE VIEW public.vw_amc_engineer_workload AS
+CREATE OR REPLACE VIEW public.vw_amc_engineer_workload
+WITH (security_invoker = on) AS
 SELECT
   t.technician_id,
   t.allocation_date,

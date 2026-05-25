@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase, parseEdgeFunctionError } from "../lib/supabase";
-import { ROLES, TEAMS, MODULES } from "../config/roles";
+import { ROLES, TEAMS, MODULES, normalizeTeamModuleKey } from "../config/roles";
 import {
   Users,
   ChevronLeft,
@@ -26,6 +26,12 @@ const roleLabel = (role) => {
 };
 
 const teamLabel = (value) => TEAMS.find((t) => t.value === value)?.label ?? value ?? "—";
+const moduleLabel = (value) =>
+  MODULES.find((m) => m.value === value)?.label ?? teamLabel(value);
+const selectableExtraModules = (team) => {
+  const teamKey = normalizeTeamModuleKey(team);
+  return MODULES.filter((m) => m.value !== "userManagement" && normalizeTeamModuleKey(m.value) !== teamKey);
+};
 
 const UserManagement = () => {
   const { userProfile } = useAuth();
@@ -195,7 +201,7 @@ const UserManagement = () => {
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
           <p className="text-sm text-gray-500">
-            View all users and edit role or team access. Passwords cannot be changed here.
+            Team and Extra modules are editable for executives and managers. Managers can also approve inside those selected modules.
           </p>
         </div>
         <button
@@ -264,8 +270,8 @@ const UserManagement = () => {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-gray-600">
-                      {row.role === ROLES.MANAGER && Array.isArray(row.allowed_modules) && row.allowed_modules.length
-                        ? row.allowed_modules.map((m) => teamLabel(m)).join(", ")
+                      {Array.isArray(row.allowed_modules) && row.allowed_modules.length
+                        ? row.allowed_modules.map((m) => moduleLabel(m)).join(", ")
                         : "—"}
                     </td>
                     <td className="py-3 px-4 text-right">
@@ -371,7 +377,7 @@ const UserManagement = () => {
                 >
                   <option value={ROLES.EXECUTIVE}>Executive</option>
                   <option value={ROLES.MANAGER}>Manager</option>
-                  <option value={ROLES.ADMIN}>Admin</option>
+                  <option value={ROLES.ADMIN}>Admin (assigned modules)</option>
                   <option value={ROLES.SUPER_ADMIN}>Super Admin</option>
                 </select>
               </div>
@@ -379,10 +385,10 @@ const UserManagement = () => {
               {editForm.role !== ROLES.SUPER_ADMIN && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Allowed modules (extra)
+                    Extra editable modules
                   </label>
                   <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
-                    {MODULES.filter((m) => m.value !== "userManagement" && m.value !== editForm.team).map((m) => (
+                    {selectableExtraModules(editForm.team).map((m) => (
                       <label key={m.value} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -490,7 +496,7 @@ const UserManagement = () => {
                   >
                     <option value={ROLES.EXECUTIVE}>Executive</option>
                     <option value={ROLES.MANAGER}>Manager</option>
-                    <option value={ROLES.ADMIN}>Admin</option>
+                    <option value={ROLES.ADMIN}>Admin (assigned modules)</option>
                     <option value={ROLES.SUPER_ADMIN}>Super Admin</option>
                   </select>
                 </div>
@@ -498,9 +504,9 @@ const UserManagement = () => {
 
               {createForm.role !== ROLES.SUPER_ADMIN ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Allowed modules (extra)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Extra editable modules</label>
                   <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
-                    {MODULES.filter((m) => m.value !== "userManagement" && m.value !== createForm.team).map((m) => (
+                    {selectableExtraModules(createForm.team).map((m) => (
                       <label key={m.value} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"

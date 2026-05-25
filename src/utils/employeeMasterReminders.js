@@ -41,6 +41,20 @@ export function employeesWithAnniversaryToday(employees, refDate = new Date()) {
 }
 
 /**
+ * IFSPL experience (years) = tenure from Date_of_Joining to ref date.
+ * @param {string|Date|null} dateOfJoining
+ */
+export function computeIfsplExperienceYears(dateOfJoining, refDate = new Date()) {
+  if (!dateOfJoining) return null;
+  const join = new Date(dateOfJoining);
+  if (Number.isNaN(join.getTime())) return null;
+  const end = refDate < join ? join : refDate;
+  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
+  const tenureYears = Math.max(0, (end - join) / msPerYear);
+  return Math.round(tenureYears * 10) / 10;
+}
+
+/**
  * Total experience (years) = Previous_Experience + tenure from Date_of_Joining to ref date.
  * @param {string|Date|null} dateOfJoining
  * @param {number|null|undefined} previousExperienceYears
@@ -48,15 +62,11 @@ export function employeesWithAnniversaryToday(employees, refDate = new Date()) {
 export function computeTotalExperienceYears(dateOfJoining, previousExperienceYears, refDate = new Date()) {
   const prev = Number(previousExperienceYears);
   const prevSafe = Number.isFinite(prev) ? prev : 0;
-  if (!dateOfJoining) {
+  const ifsplExperience = computeIfsplExperienceYears(dateOfJoining, refDate);
+  if (ifsplExperience == null) {
     return prevSafe > 0 ? Math.round(prevSafe * 10) / 10 : null;
   }
-  const join = new Date(dateOfJoining);
-  if (Number.isNaN(join.getTime())) return Math.round(prevSafe * 10) / 10;
-  const end = refDate < join ? join : refDate;
-  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
-  const tenureYears = (end - join) / msPerYear;
-  const total = prevSafe + Math.max(0, tenureYears);
+  const total = prevSafe + ifsplExperience;
   return Math.round(total * 10) / 10;
 }
 
