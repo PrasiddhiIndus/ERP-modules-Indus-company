@@ -93,7 +93,7 @@ export function normalizeEmploymentType(value) {
   return EMPLOYMENT_TYPES.PERMANENT;
 }
 
-/** Infer type from existing employee_id (legacy IFSPL-EMP-* counts as permanent). */
+/** Infer type from existing employee_id (legacy prefixed ids remain supported). */
 export function inferEmploymentTypeFromEmployeeId(employeeId) {
   const id = String(employeeId || '').trim();
   if (/^[Cc]-\d+$/i.test(id)) return EMPLOYMENT_TYPES.CONSULTANT;
@@ -146,14 +146,6 @@ function isPermanentSeqTaken(seq, existingRows, excludeDbId = null) {
   for (const row of existingRows || []) {
     if (excludeDbId != null && row?.id === excludeDbId) continue;
     if (permanentNumericValue(row?.employee_id) === seq) return true;
-  }
-  return false;
-}
-
-function isPrefixedSeqTaken(letter, seq, existingRows, excludeDbId = null) {
-  for (const row of existingRows || []) {
-    if (excludeDbId != null && row?.id === excludeDbId) continue;
-    if (prefixedNumericValue(row?.employee_id, letter) === seq) return true;
   }
   return false;
 }
@@ -215,11 +207,6 @@ function formatPermanentId(seq) {
   return String(seq).padStart(5, '0');
 }
 
-function formatPrefixedId(letter, seq) {
-  if (seq > 999999) throw new Error(`${letter} employee ID limit reached.`);
-  return `${letter}-${String(seq).padStart(6, '0')}`;
-}
-
 function maxPermanentSeq(existingRows) {
   let max = 0;
   for (const row of existingRows || []) {
@@ -231,49 +218,20 @@ function maxPermanentSeq(existingRows) {
   return max;
 }
 
-function maxPrefixedSeq(existingRows, letter) {
-  const re = new RegExp(`^${letter}-(\\d+)$`, 'i');
-  let max = 0;
-  for (const row of existingRows || []) {
-    for (const id of idsToScanFromRow(row)) {
-      const m = re.exec(id);
-      if (m) max = Math.max(max, parseInt(m[1], 10));
-    }
-  }
-  return max;
-}
-
 /**
- * Next employee_id for the given employment type (per tenant row list).
- * Skips any ID already used (gaps, legacy imports, cross-type collisions).
+ * Next employee_id uses one continuous IFSPL system series for every employment type.
+ * Consultants and voucher employees still keep their employment_type, but do not get
+ * C-/V-prefixed employee IDs. employee_code remains the separate attendance/device code.
  */
-export function nextEmployeeSystemId(existingRows, employmentType, options = {}) {
+export function nextEmployeeSystemId(existingRows, _employmentType, options = {}) {
   const { excludeDbId = null } = options;
   const used = collectUsedEmployeeIds(existingRows, { excludeDbId });
-  const type = normalizeEmploymentType(employmentType);
-
-  let seq;
-  let formatId;
-  if (type === EMPLOYMENT_TYPES.CONSULTANT) {
-    seq = maxPrefixedSeq(existingRows, 'C') + 1;
-    formatId = (n) => formatPrefixedId('C', n);
-  } else if (type === EMPLOYMENT_TYPES.VOUCHER) {
-    seq = maxPrefixedSeq(existingRows, 'V') + 1;
-    formatId = (n) => formatPrefixedId('V', n);
-  } else {
-    seq = maxPermanentSeq(existingRows) + 1;
-    formatId = formatPermanentId;
-  }
+  let seq = maxPermanentSeq(existingRows) + 1;
 
   const maxAttempts = 100000;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const candidate = formatId(seq);
-    const seqFree =
-      type === EMPLOYMENT_TYPES.CONSULTANT
-        ? !isPrefixedSeqTaken('C', seq, existingRows, excludeDbId)
-        : type === EMPLOYMENT_TYPES.VOUCHER
-          ? !isPrefixedSeqTaken('V', seq, existingRows, excludeDbId)
-          : !isPermanentSeqTaken(seq, existingRows, excludeDbId);
+    const candidate = formatPermanentId(seq);
+    const seqFree = !isPermanentSeqTaken(seq, existingRows, excludeDbId);
     if (!used.has(candidate) && seqFree) return candidate;
     seq += 1;
   }
@@ -302,19 +260,9 @@ export function employmentTypeLabel(type) {
 }
 
 /**
- * When employment type changes on edit, assign a new system employee_id for the new type.
+ * When employment type changes on edit, keep the system employee_id. Employment type
+ * no longer changes the ID series.
  */
-export function resolveEmployeeIdOnTypeChange(existingRows, editingEmployee, newEmploymentType) {
-  const prevType = editingEmployee?.employment_type
-    ? normalizeEmploymentType(editingEmployee.employment_type)
-    : inferEmploymentTypeFromEmployeeId(editingEmployee?.employee_id);
-  const nextType = normalizeEmploymentType(newEmploymentType);
-  if (prevType === nextType) {
-    return { employee_id: editingEmployee?.employee_id || '' };
-  }
-  return {
-    employee_id: nextEmployeeSystemId(existingRows, nextType, {
-      excludeDbId: editingEmployee?.id ?? null,
-    }),
-  };
+export function resolveEmployeeIdOnTypeChange(_existingRows, editingEmployee, _newEmploymentType) {
+  return { employee_id: editingEmployee?.employee_id || '' };
 }
