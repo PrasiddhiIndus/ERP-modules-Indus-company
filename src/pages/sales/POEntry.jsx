@@ -644,11 +644,7 @@ const POEntry = () => {
     setDepartmentFilter('');
     setManpowerBillingTypeFilter('');
     setListPoBasisFilter('');
-<<<<<<< Updated upstream
-    setSortConfig({ key: 'created', direction: 'desc' });
-=======
     setSortConfig({ key: 'modified', direction: 'desc' });
->>>>>>> Stashed changes
   }, [commercialPOs, highlightedPoId]);
 
   useEffect(() => {
@@ -858,11 +854,7 @@ const POEntry = () => {
               {
                 at: nowIso,
                 event: 'po_approved',
-<<<<<<< Updated upstream
-                summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : 'PO approved by Commercial Manager',
-=======
                 summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : `PO approved by ${currentActorName}`,
->>>>>>> Stashed changes
                 actorUserId: user?.id || null,
                 actorName: currentActorName,
               },
@@ -871,11 +863,7 @@ const POEntry = () => {
               {
                 at: nowIso,
                 event: 'po_approved',
-<<<<<<< Updated upstream
-                summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : 'PO approved by Commercial Manager',
-=======
                 summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : `PO approved by ${currentActorName}`,
->>>>>>> Stashed changes
                 actorUserId: user?.id || null,
                 actorName: currentActorName,
               },
@@ -937,22 +925,15 @@ const POEntry = () => {
           ? {
               ...p,
               approvalStatus: APPROVAL_STATUS.REJECTED,
-<<<<<<< Updated upstream
-=======
               rejectedByUserId: user?.id || null,
               rejectedByName: currentActorName,
               rejectedAt: nowIso,
->>>>>>> Stashed changes
               updateHistory: [
                 ...(Array.isArray(p.updateHistory) ? p.updateHistory : []),
                 {
                   at: nowIso,
                   event: 'po_rejected',
-<<<<<<< Updated upstream
-                  summary: 'PO rejected by Commercial Manager',
-=======
                   summary: `PO rejected by ${currentActorName}`,
->>>>>>> Stashed changes
                   actorUserId: user?.id || null,
                   actorName: currentActorName,
                 },
@@ -1349,11 +1330,7 @@ const POEntry = () => {
                 <tbody className="divide-y divide-gray-200 bg-white">
                   {paginatedList.map((po, rowIdx) => {
                     const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
-<<<<<<< Updated upstream
-                    const approval = getApprovalBadge(po.approvalStatus);
-=======
                     const approval = getApprovalBadge(po.approvalStatus, po);
->>>>>>> Stashed changes
                     const isHighlighted = highlightedPoId && String(po.id) === String(highlightedPoId);
                     const startDateFmt =
                       formatDateDdMmYyyy(cleanCellText(po.startDate)) || '–';
@@ -1367,12 +1344,9 @@ const POEntry = () => {
                           isHighlighted ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : '',
                         ].join(' ')}
                       >
-<<<<<<< Updated upstream
-=======
                         <td className="px-1 py-2 text-[9px] sm:text-[10px] text-center align-middle font-semibold text-gray-700">
                           {start + rowIdx + 1}
                         </td>
->>>>>>> Stashed changes
                         <td className="px-1 py-2 text-[9px] sm:text-[10px] text-center align-middle">
                           <span
                             className={`inline-flex px-1 py-0.5 rounded font-semibold ${
