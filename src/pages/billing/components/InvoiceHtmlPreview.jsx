@@ -339,7 +339,7 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
               <tr className="bg-[#1a3a6c] text-white" style={invoiceBlueHeaderTextStyle}>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>SR No.</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-left font-bold text-white leading-tight w-[39%]" style={invoiceBlueHeaderTextStyle}>Description of Goods</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>HSN/SAC</th>
+                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>SAC/HSN</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Qty</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]" style={invoiceBlueHeaderTextStyle}>Rate ({PDF_RS})</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>UOM</th>

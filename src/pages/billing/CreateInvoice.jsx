@@ -74,7 +74,8 @@ function buildFullTaxInvoiceNumberFromSerial(serialDigits) {
 }
 
 /**
- * Validate new tax invoice number (strict): format/FY, no duplicate, must be next serial only.
+ * Validate new tax invoice number: format/FY and duplicate protection only.
+ * Users may enter any serial number; it does not need to be the next sequence.
  */
 function classifyNewTaxInvoice(trimmed, invoices) {
   const fy = String(getFinancialYear());
@@ -95,19 +96,9 @@ function classifyNewTaxInvoice(trimmed, invoices) {
     return n === lower;
   });
   if (dup) {
-    const nextFull = generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
     return {
       kind: 'hard',
-      message: `That number is already used — next invoice is ${nextFull}.`,
-    };
-  }
-
-  const nextReq = getNextTaxInvoiceSequence(invoices);
-  if (seq !== nextReq) {
-    const nextFull = generateTaxInvoiceNumber(nextReq);
-    return {
-      kind: 'hard',
-      message: `Not the next invoice — next must be ${nextFull}.`,
+      message: 'That invoice number is already used.',
     };
   }
   return { kind: 'ok' };
@@ -382,6 +373,63 @@ function computeLumpSumEffectiveRate(poRate, actualDuty, authorizedDuty, categor
   return r;
 }
 
+function firstPositiveNumber(source, keys) {
+  if (!source) return 0;
+  for (const key of keys) {
+    const value = source[key];
+    if (value === undefined || value === null || value === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+function getPoHeaderQty(po) {
+  return firstPositiveNumber(po, ['poQuantity', 'po_quantity', 'poQty', 'po_qty', 'quantity', 'qty']);
+}
+
+function getRateCategoryQty(row, po) {
+  return firstPositiveNumber(row, ['qty', 'quantity', 'poQty', 'po_qty', 'poQuantity', 'po_quantity']) || getPoHeaderQty(po);
+}
+
+function getPoTotalQtyForRollup(po) {
+  const headerQty = getPoHeaderQty(po);
+  if (headerQty > 0) return headerQty;
+  const rows = Array.isArray(po?.ratePerCategory) ? po.ratePerCategory : [];
+  return round3(rows.reduce((sum, row) => {
+    return sum + firstPositiveNumber(row, ['qty', 'quantity', 'poQty', 'po_qty', 'poQuantity', 'po_quantity']);
+  }, 0));
+}
+
+function getRateCategoryRate(row) {
+  return firstPositiveNumber(row, ['rate', 'poRate', 'po_rate', 'poReferenceRate', 'po_reference_rate']);
+}
+
+function getRateCategoryPenalty(row) {
+  if (!row) return 0;
+  for (const key of ['penalty', 'category_penalty', 'poLinePenalty', 'po_line_penalty']) {
+    const value = row[key];
+    if (value === undefined || value === null || value === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return Math.max(0, n);
+  }
+  return 0;
+}
+
+function getRateCategoryHsnSac(row, fallback = '') {
+  if (!row) return fallback;
+  const value = row.hsnSac ?? row.hsn_sac ?? row.sacHsn ?? row.sac_hsn ?? row.hsnCode ?? row.hsn_code ?? row.sacCode ?? row.sac_code;
+  const normalized = String(value ?? '').trim();
+  return normalized || fallback;
+}
+
+function normalizeMonthlyDutyQtyMode(raw) {
+  const m = String(raw || '').trim();
+  if (m === 'po_geometry_by_months') return 'po_geometry_by_months';
+  if (m === 'duty_ratio') return 'duty_ratio';
+  return 'po_geometry';
+}
+
 function normalizeLumpSumBillingMode(raw) {
   const m = String(raw || '').trim().toLowerCase();
   if (m === 'penalty') return 'penalty';
@@ -405,11 +453,14 @@ function getUniqueRateRows(po) {
   const unique = [];
   rows.forEach((r) => {
     const description = (r?.description || r?.designation || '').trim();
-    const rate = Number(r?.rate) || 0;
-    const key = `${description.toLowerCase()}|${rate}`;
+    const rate = getRateCategoryRate(r);
+    const qty = getRateCategoryQty(r, po);
+    const penalty = getRateCategoryPenalty(r);
+    const hsnSac = getRateCategoryHsnSac(r);
+    const key = `${description.toLowerCase()}|${hsnSac.toLowerCase()}|${rate}|${qty}|${penalty}`;
     if (seen.has(key)) return;
     seen.add(key);
-    unique.push({ description, rate });
+    unique.push({ description, hsnSac, rate, qty, penalty });
   });
   return unique;
 }
@@ -588,12 +639,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [servicePeriodTo, setServicePeriodTo] = useState(() => getDefaultServicePeriodRange().to);
   const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
+  const [invoiceMonthlyDutyQtyMode, setInvoiceMonthlyDutyQtyMode] = useState('po_geometry');
+  const [invoiceLumpSumBillingMode, setInvoiceLumpSumBillingMode] = useState('normal');
   /** Lump sum: opt-in on this invoice to show PO Penalty column and use Rate = PO rate − Penalty (PO-level penalty mode forces this on). */
   const [lumpSumInvoicePenaltyGeometry, setLumpSumInvoicePenaltyGeometry] = useState(false);
   /** consolidated = final invoice shows one cumulative geometry line; detailed = final invoice shows every geometry line item. */
   const [lumpSumInvoicePreviewMode, setLumpSumInvoicePreviewMode] = useState('consolidated');
   const [lumpSumConsolidatedLineDraft, setLumpSumConsolidatedLineDraft] = useState({
     description: null,
+    hsnSac: null,
     quantity: '',
     rate: '',
   });
@@ -664,8 +718,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return billablePOsByTab.map((po) => {
       const over = resolveSupplementaryOverrides(po, billablePOs);
       const contract = Number(over.totalContractValue) || 0;
-      const poQtyHeader = Number(po.poQuantity ?? po.po_quantity) || 0;
-      const roll = rollupMainPoBilling(po, commercialPOs, invoices, contract, poQtyHeader);
+      const poQtyTotal = getPoTotalQtyForRollup(po);
+      const roll = rollupMainPoBilling(po, commercialPOs, invoices, contract, poQtyTotal);
       const supSt = po.supplementaryRequestStatus || po.supplementary_request_status;
       const postContractBufferOpen =
         !po.isSupplementary && supSt === 'approved' && isAfterContractEndForInvoice(po.endDate || po.end_date);
@@ -716,9 +770,16 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return [...poTableRows].sort((a, b) => {
       const valueFor = (row) => {
         switch (poSortConfig.key) {
+          case 'modified': return new Date(row.updated_at || row.updatedAt || row.created_at || row.createdAt || row.startDate || 0).getTime() || 0;
+          case 'created': return new Date(row.created_at || row.createdAt || row.startDate || row.updated_at || row.updatedAt || 0).getTime() || 0;
           case 'ocNumber': return String(row.ocNumber || '').toLowerCase();
+          case 'client': return String(row.legalName || row.clientLegalName || row.client_name || '').toLowerCase();
           case 'siteLocation': return String([row.siteId, row.locationName].filter(Boolean).join(' ') || '').toLowerCase();
           case 'poWo': return String(row.poWoNumber || '').toLowerCase();
+          case 'invoiceDate':
+            return row?._calc?.lastInvoiceDate
+              ? new Date(row._calc.lastInvoiceDate).getTime() || 0
+              : 0;
           case 'remaining': return Number(row?._calc?.remainingContract ?? 0);
           case 'qtyRemaining':
             return row?._calc?.remainingQty != null ? Number(row._calc.remainingQty) : -1;
@@ -732,8 +793,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
       };
       const av = valueFor(a);
       const bv = valueFor(b);
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+      let result = 0;
+      if (typeof av === 'number' && typeof bv === 'number') result = av - bv;
+      else result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+      if (result === 0) result = String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+      return result * dir;
     });
   }, [poTableRows, poSortConfig]);
 
@@ -878,24 +942,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return String(displayPO.billingType || '').toLowerCase() === 'lump sum';
   }, [displayPO]);
 
-  const poForLogic = useMemo(() => {
-    if (invoiceDraft?.mode === 'edit' && editingInvoice?.poId) {
-      return commercialPOs.find((p) => String(p.id) === String(editingInvoice.poId)) || null;
-    }
-    return selectedPO || null;
-  }, [invoiceDraft, editingInvoice, commercialPOs, selectedPO]);
-
   const monthlyDutyQtyMode = useMemo(() => {
     if (!isMonthlyBilling) return 'po_geometry';
-    const m = String(poForLogic?.monthlyDutyQtyMode || poForLogic?.monthly_duty_qty_mode || '').trim();
-    if (m === 'po_geometry_by_months') return 'po_geometry_by_months';
-    return m === 'duty_ratio' ? 'duty_ratio' : 'po_geometry';
-  }, [isMonthlyBilling, poForLogic]);
+    return normalizeMonthlyDutyQtyMode(invoiceMonthlyDutyQtyMode);
+  }, [isMonthlyBilling, invoiceMonthlyDutyQtyMode]);
 
   const lumpSumBillingMode = useMemo(() => {
     if (!isLumpSumBilling) return 'normal';
-    return normalizeLumpSumBillingMode(poForLogic?.lumpSumBillingMode || poForLogic?.lump_sum_billing_mode);
-  }, [isLumpSumBilling, poForLogic]);
+    return normalizeLumpSumBillingMode(invoiceLumpSumBillingMode);
+  }, [isLumpSumBilling, invoiceLumpSumBillingMode]);
 
   const lumpSumPenaltyActive = lumpSumBillingMode === 'penalty';
   const lumpSumTruckActive = lumpSumBillingMode === 'truck';
@@ -922,9 +977,23 @@ const CreateInvoice = ({ onNavigateTab }) => {
   useEffect(() => {
     if (invoiceDraft?.mode === 'edit') return;
     setLumpSumInvoicePenaltyGeometry(false);
-    setLumpSumConsolidatedLineDraft({ description: null, quantity: '', rate: '' });
+    setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, quantity: '', rate: '' });
+    setInvoiceMonthlyDutyQtyMode(
+      normalizeMonthlyDutyQtyMode(selectedPO?.monthlyDutyQtyMode || selectedPO?.monthly_duty_qty_mode)
+    );
+    setInvoiceLumpSumBillingMode(
+      normalizeLumpSumBillingMode(selectedPO?.lumpSumBillingMode || selectedPO?.lump_sum_billing_mode)
+    );
     setLumpSumInvoicePreviewMode(resolvePoLumpSumInvoicePreviewMode(selectedPO));
-  }, [selectedPO?.id, selectedPO?.lumpSumBillingMode, selectedPO?.lump_sum_billing_mode, invoiceDraft?.mode]);
+  }, [
+    selectedPO?.id,
+    selectedPO?.billingType,
+    selectedPO?.monthlyDutyQtyMode,
+    selectedPO?.monthly_duty_qty_mode,
+    selectedPO?.lumpSumBillingMode,
+    selectedPO?.lump_sum_billing_mode,
+    invoiceDraft?.mode,
+  ]);
 
   useEffect(() => {
     if (!invoiceDraft) return;
@@ -943,13 +1012,31 @@ const CreateInvoice = ({ onNavigateTab }) => {
       setDocument2Files(atts.filter((a) => a.type === 'document_2').map((a) => ({ name: a.name, url: a.url })));
       const editIsLump = String(editingInvoice.billingType || '').toLowerCase() === 'lump sum';
       const editPo = commercialPOs.find((p) => String(p.id) === String(editingInvoice.poId));
-      const editPenaltyMode =
-        editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'penalty';
-      const editMonthsGeometryMode =
-        editIsLump && String(editPo?.lumpSumBillingMode || editPo?.lump_sum_billing_mode || '').toLowerCase() === 'months_geometry';
       const editAnyPenaltySaved = (editingInvoice.items || []).some((it) => safeNumber(it.penalty) > 0);
+      const editLumpMode = editIsLump
+        ? normalizeLumpSumBillingMode(
+            editingInvoice.lumpSumBillingMode ||
+              editingInvoice.lump_sum_billing_mode ||
+              editPo?.lumpSumBillingMode ||
+              editPo?.lump_sum_billing_mode ||
+              (editAnyPenaltySaved ? 'penalty' : 'normal')
+          )
+        : 'normal';
+      const editPenaltyMode = editIsLump && editLumpMode === 'penalty';
+      const editMonthsGeometryMode = editIsLump && editLumpMode === 'months_geometry';
       const editHasConsolidatedLump = (editingInvoice.items || []).some((it) =>
         /^lump sum billing \((geometry|invoice) consolidated\)$/i.test((it.description || it.designation || '').trim())
+      );
+      setInvoiceMonthlyDutyQtyMode(
+        normalizeMonthlyDutyQtyMode(
+          editingInvoice.monthlyDutyQtyMode ||
+            editingInvoice.monthly_duty_qty_mode ||
+            editPo?.monthlyDutyQtyMode ||
+            editPo?.monthly_duty_qty_mode
+        )
+      );
+      setInvoiceLumpSumBillingMode(
+        editLumpMode
       );
       setLumpSumInvoicePenaltyGeometry(editIsLump && !editPenaltyMode && editAnyPenaltySaved);
       setLumpSumInvoicePreviewMode(
@@ -1013,8 +1100,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
           let quantity = qty;
           let lineRate = rate;
           let amount = isTruck ? round2(qty * rate) : round2(Number(i.amount) || 0);
+          const poQ = safeNumber(i.poQty) || getRateCategoryQty(matchCat, editPo);
           if (editIsLump && !isTruck && geometryEnabled) {
-            const poQ = i.poQty != null ? Number(i.poQty) : 0;
             const act = actD ?? 0;
             const auth = authD ?? 0;
             const eff = computeLumpSumEffectiveRate(poRef || 0, act, auth, poLinePen, editSubtractPenalty);
@@ -1033,7 +1120,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             isTruckLine: isTruck,
             isLumpSumSupplementaryLine: isSavedSupplementary || false,
             geometryEnabled,
-            poQty: i.poQty != null ? Number(i.poQty) : undefined,
+            poQty: poQ,
             poReferenceRate: poRef,
             poLinePenalty: poLinePen,
             actualDuty: actD,
@@ -1060,19 +1147,20 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!selectedPO) return;
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
-    const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
+    const hsnSac = selectedPO.hsnCode || '';
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
 
     if (isLump) {
       const rows = Array.isArray(selectedPO.ratePerCategory) ? selectedPO.ratePerCategory : [];
       const nextRows = rows.map((x) => {
         const desc = ((x.description || x.designation || '').trim()) || 'Other';
-        const poRate = Number(x.rate) || 0;
-        const qty = Number(x.qty) || 0;
-        const pen = Math.max(0, Number(x.penalty) || 0);
+        const poRate = getRateCategoryRate(x);
+        const qty = getRateCategoryQty(x, selectedPO);
+        const pen = getRateCategoryPenalty(x);
+        const rowHsnSac = getRateCategoryHsnSac(x, hsnSac);
         return {
           description: desc,
-          hsnSac,
+          hsnSac: rowHsnSac,
           isTruckLine: false,
           geometryEnabled: true,
           poQty: qty,
@@ -1095,7 +1183,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 hsnSac,
                 isTruckLine: false,
                 geometryEnabled: true,
-                poQty: 0,
+                poQty: getPoHeaderQty(selectedPO),
                 poReferenceRate: 0,
                 poLinePenalty: 0,
                 actualDuty: 0,
@@ -1134,21 +1222,21 @@ const CreateInvoice = ({ onNavigateTab }) => {
     setItems(
       uniqueRates.map((r) => ({
         description: r.description,
-        hsnSac,
+        hsnSac: r.hsnSac || hsnSac,
         isTruckLine: false,
         geometryEnabled: false,
-        poQty: safeNumber(selectedPO?.ratePerCategory?.find((x) => (x?.description || x?.designation || '').trim() === r.description)?.qty),
+        poQty: safeNumber(r.qty),
         actualDuty: 0,
         authorizedDuty: undefined,
         numberOfMonths: 1,
         quantity: 0,
         rate: r.rate,
         amount: 0,
-        poReferenceRate: undefined,
-        poLinePenalty: 0,
+        poReferenceRate: r.rate,
+        poLinePenalty: r.penalty || 0,
       }))
     );
-  }, [selectedPO, invoiceDraft, invoiceDate, lumpSumSubtractPenaltyInRate, isMmServiceDescriptionMode]);
+  }, [selectedPO, invoiceDraft, isMmServiceDescriptionMode]);
 
   // Single sync on mount only — avoid repeat refresh (focus / delayed) wiping in-memory fields
   // such as CN/DN request status before async invoice saves finish or if DB columns lag migrations.
@@ -1167,7 +1255,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
       prev.map((it, i) => {
         if (i !== idx) return it;
         const next = { ...it, ...patch };
-        const poQty = next.poQty != null ? safeNumber(next.poQty) : 0;
+        let poQty = next.poQty != null ? safeNumber(next.poQty) : 0;
+        if (poQty <= 0 && patch.poQty === undefined && next.geometryEnabled && !next.isTruckLine) {
+          const fallbackQty = getRateCategoryQty(findRateCategoryRow(displayPO, next.description), displayPO);
+          if (fallbackQty > 0) {
+            next.poQty = fallbackQty;
+            poQty = fallbackQty;
+          }
+        }
         const actualDuty = next.actualDuty != null ? safeNumber(next.actualDuty) : 0;
         const authorizedDuty =
           next.authorizedDuty === undefined || next.authorizedDuty === null || next.authorizedDuty === ''
@@ -1229,6 +1324,29 @@ const CreateInvoice = ({ onNavigateTab }) => {
   };
 
   useEffect(() => {
+    if (!isMonthlyBilling) return;
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.isTruckLine || !it.geometryEnabled) return it;
+        const poQty =
+          safeNumber(it.poQty) ||
+          getRateCategoryQty(findRateCategoryRow(displayPO, it.description), displayPO);
+        const actualDuty = safeNumber(it.actualDuty);
+        const authorizedDuty = safeNumber(it.authorizedDuty);
+        const numberOfMonths = safeNumber(it.numberOfMonths) || 1;
+        const qty =
+          monthlyDutyQtyMode === 'duty_ratio'
+            ? computeDutyRatioQty(actualDuty, authorizedDuty)
+            : monthlyDutyQtyMode === 'po_geometry_by_months'
+              ? computeArrivedQtyByMonths(poQty, actualDuty, authorizedDuty, numberOfMonths)
+              : computeArrivedQty(poQty, actualDuty, authorizedDuty);
+        const rate = Number(it.rate) || 0;
+        return { ...it, poQty, quantity: qty, amount: round2(qty * rate) };
+      })
+    );
+  }, [isMonthlyBilling, monthlyDutyQtyMode, displayPO]);
+
+  useEffect(() => {
     if (!isLumpSumBilling) return;
     setItems((prev) =>
       prev.map((it) => {
@@ -1239,14 +1357,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
         const authorizedDuty = safeNumber(it.authorizedDuty);
         const numberOfMonths = safeNumber(it.numberOfMonths) || 1;
         const effRate = computeLumpSumEffectiveRate(poRef, actualDuty, authorizedDuty, pen, lumpSumSubtractPenaltyInRate);
+        const poQty =
+          safeNumber(it.poQty) ||
+          getRateCategoryQty(findRateCategoryRow(displayPO, it.description), displayPO);
         const qty =
           lumpSumBillingMode === 'months_geometry'
-            ? computeArrivedQtyByMonths(it.poQty, actualDuty, authorizedDuty, numberOfMonths)
-            : computeArrivedQty(it.poQty, actualDuty, authorizedDuty);
-        return { ...it, rate: effRate, quantity: qty, amount: round2(qty * effRate) };
+            ? computeArrivedQtyByMonths(poQty, actualDuty, authorizedDuty, numberOfMonths)
+            : computeArrivedQty(poQty, actualDuty, authorizedDuty);
+        return { ...it, poQty, rate: effRate, quantity: qty, amount: round2(qty * effRate) };
       })
     );
-  }, [lumpSumSubtractPenaltyInRate, isLumpSumBilling, lumpSumBillingMode]);
+  }, [lumpSumSubtractPenaltyInRate, isLumpSumBilling, lumpSumBillingMode, displayPO]);
 
   const createMmEmptyLine = (hsnSac = '') => ({
     description: '',
@@ -1270,12 +1391,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const po = displayPO;
     if (!po || !isMmServiceDescriptionMode) return;
     const cat = value ? findRateCategoryRow(po, value) : null;
-    const hsn = po.hsnCode || po.sacCode || '';
+    const hsn = getRateCategoryHsnSac(cat, po.hsnCode || '');
     const patch = { description: value, hsnSac: hsn };
     if (cat) {
-      const poQty = Number(cat.qty) || 0;
-      const poRate = Number(cat.rate) || 0;
-      const pen = Math.max(0, Number(cat.penalty) || 0);
+      const poQty = getRateCategoryQty(cat, po);
+      const poRate = getRateCategoryRate(cat);
+      const pen = getRateCategoryPenalty(cat);
       patch.poQty = poQty;
       patch.poReferenceRate = poRate;
       patch.poLinePenalty = pen;
@@ -1316,7 +1437,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   /** M&M only: remove selected description row; rows below shift up. */
   const clearMmDescriptionRow = (idx) => {
     if (!isMmServiceDescriptionMode) return;
-    const hsn = displayPO?.hsnCode || displayPO?.sacCode || '';
+    const hsn = displayPO?.hsnCode || '';
     setItems((prev) => {
       const next = prev.filter((_, i) => i !== idx);
       const hasBlankSelectableRow = next.some(
@@ -1329,7 +1450,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const addTruckLine = () => {
     if (!displayPO) return;
-    const hsn = displayPO.hsnCode || displayPO.sacCode || '';
+    const hsn = displayPO.hsnCode || '';
     setItems((prev) => [
       ...prev,
       {
@@ -1360,7 +1481,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   /** User-added lump sum rows: editable Qty × Rate; excluded from duty-geometry totals. */
   const addLumpSumSupplementaryLine = () => {
     if (!displayPO || !isLumpSumBilling) return;
-    const hsn = displayPO.hsnCode || displayPO.sacCode || '';
+    const hsn = displayPO.hsnCode || '';
     setItems((prev) => [
       ...prev,
       {
@@ -1445,7 +1566,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
         lumpSumConsolidatedLineDraft.description == null
           ? 'Lump Sum Billing (Geometry Consolidated)'
           : lumpSumConsolidatedLineDraft.description,
-      hsnSac: geometryRows[0]?.hsnSac || displayPO?.hsnCode || displayPO?.sacCode || '',
+      hsnSac:
+        lumpSumConsolidatedLineDraft.hsnSac == null
+          ? geometryRows[0]?.hsnSac || displayPO?.hsnCode || ''
+          : lumpSumConsolidatedLineDraft.hsnSac,
       quantity: qty,
       rate,
       amount,
@@ -1502,7 +1626,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return [
       {
         description: sourceRows[0]?.description ?? 'Lump Sum Billing (Invoice Consolidated)',
-        hsnSac: sourceRows[0]?.hsnSac || displayPO?.hsnCode || displayPO?.sacCode || '',
+        hsnSac: sourceRows[0]?.hsnSac || displayPO?.hsnCode || '',
         quantity: qty,
         rate,
         amount,
@@ -1595,7 +1719,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return '';
   }, [displayPO, invoiceDraft?.mode, invoiceDraft?.invoiceId, invoiceDocumentKind, manualTaxInvoiceSerial, invoices]);
 
-  /** New tax invoices: Save stays disabled until the serial matches the next required number (no duplicates). */
+  /** New tax invoices: Save stays disabled only for blank/invalid/duplicate serials. */
   const taxInvoiceBlocksSave = useMemo(() => {
     if (invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId) return false;
     if (!displayPO || invoiceDocumentKind !== 'tax') return false;
@@ -1732,6 +1856,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
       poId: canonicalPoId,
       siteId: displayPO.siteId,
       billingType: displayPO.billingType || 'Monthly',
+      monthlyDutyQtyMode: isMonthlyBilling ? monthlyDutyQtyMode : null,
+      monthly_duty_qty_mode: isMonthlyBilling ? monthlyDutyQtyMode : null,
+      lumpSumBillingMode: isLumpSumBilling ? lumpSumBillingMode : null,
+      lump_sum_billing_mode: isLumpSumBilling ? lumpSumBillingMode : null,
       taxInvoiceNumber,
       invoiceDate,
       billNumber: existing?.billNumber || existing?.bill_number || taxInvoiceNumber,
@@ -1755,7 +1883,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       buyerStateCode: buyerPinMeta.stateCode || null,
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
-      hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
+      hsnSac: displayPO.hsnCode || '',
       items: (() => {
         let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
@@ -1771,8 +1899,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
           penalty:
             isLumpSumBilling && !i.isTruckLine && lumpSumSubtractPenaltyInRate ? Math.max(0, safeNumber(i.poLinePenalty)) : 0,
           poQty:
-            (isMonthlyBilling || isLumpSumBilling) && i.geometryEnabled && !i.isTruckLine && i.poQty != null
-              ? safeNumber(i.poQty)
+            (isMonthlyBilling || isLumpSumBilling) && i.geometryEnabled && !i.isTruckLine
+              ? safeNumber(i.poQty) || getRateCategoryQty(findRateCategoryRow(displayPO, i.description), displayPO)
               : null,
           actualDuty:
             i.geometryEnabled && !i.isTruckLine && (isMonthlyBilling || isLumpSumBilling) && i.actualDuty != null
@@ -1924,46 +2052,46 @@ const CreateInvoice = ({ onNavigateTab }) => {
       buyerStateCode: buyerPinMeta.stateCode || null,
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
-      hsnSac: displayPO.hsnCode || displayPO.sacCode || '',
+      hsnSac: displayPO.hsnCode || '',
       items: (() => {
         let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
-        description: i.description,
-        hsnSac: i.hsnSac,
-        quantity: isManpowerMonthly ? round3(i.quantity) : (Number(i.quantity) || 0),
-        rate: Number(i.rate) || 0,
-        amount: round2(i.amount),
-        isTruckLine: !!i.isTruckLine,
-        isLumpSumSupplementaryLine: !!i.isLumpSumSupplementaryLine,
-        poReferenceRate:
-          isLumpSumBilling && !i.isTruckLine && i.poReferenceRate != null ? safeNumber(i.poReferenceRate) : null,
-        penalty:
-          isLumpSumBilling && !i.isTruckLine && lumpSumSubtractPenaltyInRate ? Math.max(0, safeNumber(i.poLinePenalty)) : 0,
-        poQty:
-          ((isMonthlyBilling || isLumpSumBilling) && i.geometryEnabled && !i.isTruckLine && i.poQty != null
-            ? safeNumber(i.poQty)
-            : null),
-        actualDuty:
-          i.geometryEnabled &&
-          !i.isTruckLine &&
-          (isMonthlyBilling || isLumpSumBilling) &&
-          i.actualDuty != null
-            ? safeNumber(i.actualDuty)
-            : null,
-        authorizedDuty:
-          i.geometryEnabled &&
-          !i.isTruckLine &&
-          (isMonthlyBilling || isLumpSumBilling) &&
-          i.authorizedDuty != null
-            ? safeNumber(i.authorizedDuty)
-            : null,
-        numberOfMonths:
-          i.geometryEnabled &&
-          !i.isTruckLine &&
-          (isMonthlyBilling || isLumpSumBilling) &&
-          i.numberOfMonths != null
-            ? safeNumber(i.numberOfMonths)
-            : null,
+          description: i.description,
+          hsnSac: i.hsnSac,
+          quantity: isManpowerMonthly ? round3(i.quantity) : (Number(i.quantity) || 0),
+          rate: Number(i.rate) || 0,
+          amount: round2(i.amount),
+          isTruckLine: !!i.isTruckLine,
+          isLumpSumSupplementaryLine: !!i.isLumpSumSupplementaryLine,
+          poReferenceRate:
+            isLumpSumBilling && !i.isTruckLine && i.poReferenceRate != null ? safeNumber(i.poReferenceRate) : null,
+          penalty:
+            isLumpSumBilling && !i.isTruckLine && lumpSumSubtractPenaltyInRate ? Math.max(0, safeNumber(i.poLinePenalty)) : 0,
+          poQty:
+            (isMonthlyBilling || isLumpSumBilling) && i.geometryEnabled && !i.isTruckLine
+              ? safeNumber(i.poQty) || getRateCategoryQty(findRateCategoryRow(displayPO, i.description), displayPO)
+              : null,
+          actualDuty:
+            i.geometryEnabled &&
+            !i.isTruckLine &&
+            (isMonthlyBilling || isLumpSumBilling) &&
+            i.actualDuty != null
+              ? safeNumber(i.actualDuty)
+              : null,
+          authorizedDuty:
+            i.geometryEnabled &&
+            !i.isTruckLine &&
+            (isMonthlyBilling || isLumpSumBilling) &&
+            i.authorizedDuty != null
+              ? safeNumber(i.authorizedDuty)
+              : null,
+          numberOfMonths:
+            i.geometryEnabled &&
+            !i.isTruckLine &&
+            (isMonthlyBilling || isLumpSumBilling) &&
+            i.numberOfMonths != null
+              ? safeNumber(i.numberOfMonths)
+              : null,
         }));
         return lines;
       })(),
@@ -2219,22 +2347,66 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 })}
               </div>
             ) : null}
+            <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
+              <select
+                value={poSortConfig.key}
+                onChange={(e) => setPoSortConfig((prev) => ({ ...prev, key: e.target.value }))}
+                className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+                aria-label="Sort PO list by"
+              >
+                <option value="modified">Last modified</option>
+                <option value="created">Last created</option>
+                <option value="invoiceDate">Invoice date</option>
+                <option value="ocNumber">OC number</option>
+                <option value="client">Client name</option>
+                <option value="siteLocation">Site / Location</option>
+                <option value="poWo">PO/WO</option>
+                <option value="remaining">Contract left</option>
+                <option value="qtyRemaining">Quantity</option>
+                <option value="nextBilling">Next billing</option>
+                <option value="status">Status</option>
+              </select>
+              <select
+                value={poSortConfig.direction}
+                onChange={(e) => setPoSortConfig((prev) => ({ ...prev, direction: e.target.value }))}
+                className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+                aria-label="Sort PO list direction"
+              >
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+            </div>
             <div className="rounded-xl border border-slate-200/90 overflow-hidden bg-gradient-to-br from-red-50/40 via-white to-amber-50/30 ring-1 ring-slate-900/5">
               <div className="p-2">
                 <div className="bg-white rounded-lg overflow-hidden">
-                  <div className="w-full max-w-full min-w-0 overflow-x-auto">
-                    <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
+                  <div className="w-full max-w-full min-w-0 overflow-hidden">
+                    <table className="w-full table-fixed border-collapse">
+                      <colgroup>
+                        <col className="w-[4%]" />
+                        <col className="w-[9%]" />
+                        <col className="w-[12%]" />
+                        <col className="w-[12%]" />
+                        <col className="w-[8%]" />
+                        <col className="w-[8%]" />
+                        <col className="w-[8%]" />
+                        <col className="w-[8%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[7%]" />
+                        <col className="w-[14%]" />
+                      </colgroup>
                       <thead>
                 <tr>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[3.5rem]">S.No</th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[7rem]"><button type="button" onClick={() => togglePoSort('ocNumber')} className="inline-flex items-center">OC Number {renderSortIndicator('ocNumber')}</button></th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[9rem]"><button type="button" onClick={() => togglePoSort('siteLocation')} className="inline-flex items-center">Site / Location {renderSortIndicator('siteLocation')}</button></th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[6rem]"><button type="button" onClick={() => togglePoSort('poWo')} className="inline-flex items-center">PO/WO {renderSortIndicator('poWo')}</button></th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[7rem]"><button type="button" onClick={() => togglePoSort('remaining')} className="inline-flex items-center">Contract left (₹) {renderSortIndicator('remaining')}</button></th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[6rem]"><button type="button" onClick={() => togglePoSort('qtyRemaining')} className="inline-flex items-center">Qty {renderSortIndicator('qtyRemaining')}</button></th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[8rem]"><button type="button" onClick={() => togglePoSort('nextBilling')} className="inline-flex items-center">Billing schedule {renderSortIndicator('nextBilling')}</button></th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[6rem]"><button type="button" onClick={() => togglePoSort('status')} className="inline-flex items-center">Status {renderSortIndicator('status')}</button></th>
-                  <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 min-w-[9rem]">Action</th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60">S.No</th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('ocNumber')} className="inline-flex w-full items-center justify-center leading-tight">OC Number {renderSortIndicator('ocNumber')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('client')} className="inline-flex w-full items-center justify-center leading-tight">Client Name {renderSortIndicator('client')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('siteLocation')} className="inline-flex w-full items-center justify-center leading-tight">Site / Location {renderSortIndicator('siteLocation')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('poWo')} className="inline-flex w-full items-center justify-center leading-tight">PO/WO {renderSortIndicator('poWo')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('invoiceDate')} className="inline-flex w-full items-center justify-center leading-tight">Invoice Date {renderSortIndicator('invoiceDate')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('remaining')} className="inline-flex w-full items-center justify-center leading-tight">Contract left (₹) {renderSortIndicator('remaining')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('qtyRemaining')} className="inline-flex w-full items-center justify-center leading-tight">Qty {renderSortIndicator('qtyRemaining')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('nextBilling')} className="inline-flex w-full items-center justify-center leading-tight">Billing schedule {renderSortIndicator('nextBilling')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => togglePoSort('status')} className="inline-flex w-full items-center justify-center leading-tight">Status {renderSortIndicator('status')}</button></th>
+                  <th className="px-1 py-2 text-center text-[11px] font-bold text-black border-b border-red-100/60">Action</th>
                 </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
@@ -2248,13 +2420,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               row.postContractBufferOpen ? 'bg-amber-50 hover:bg-amber-100/60' : 'hover:bg-gray-50',
                             ].join(' ')}
                           >
-                            <td className="px-3 py-2 text-xs text-gray-700 text-center font-medium tabular-nums whitespace-nowrap">{poStart + idx + 1}</td>
-                            <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={row.ocNumber || ''}>{row.ocNumber || '–'}</td>
-                            <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || ''}>
+                            <td className="px-1 py-2 text-[11px] text-gray-700 text-center font-medium tabular-nums whitespace-nowrap">{poStart + idx + 1}</td>
+                            <td className="px-1 py-2 text-[11px] text-gray-900 text-center font-semibold font-mono truncate" title={row.ocNumber || ''}>{row.ocNumber || '–'}</td>
+                            <td className="px-1 py-2 text-[11px] text-gray-700 text-center truncate" title={row.legalName || row.clientLegalName || row.client_name || ''}>
+                              {row.legalName || row.clientLegalName || row.client_name || '–'}
+                            </td>
+                            <td className="px-1 py-2 text-[11px] text-gray-700 text-center truncate" title={row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || ''}>
                               {row.siteId && row.locationName ? `${row.siteId} – ${row.locationName}` : row.siteId || row.locationName || '–'}
                             </td>
-                            <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={row.poWoNumber || ''}>{row.poWoNumber || '–'}</td>
-                            <td className="px-2 py-2 text-xs text-center align-top">
+                            <td className="px-1 py-2 text-[11px] text-gray-700 text-center truncate" title={row.poWoNumber || ''}>{row.poWoNumber || '–'}</td>
+                            <td className="px-1 py-2 text-[11px] text-center align-top text-gray-700 whitespace-nowrap">
+                              {formatDate(row._calc.lastInvoiceDate)}
+                            </td>
+                            <td className="px-1 py-2 text-[11px] text-center align-top">
                       {Number(row._calc?.contract) > 0 || Number(row._calc?.invoicedAmount) > 0 ? (
                         <span
                           className={`font-medium ${row._calc.remainingContract < 0 ? 'text-red-700' : 'text-gray-700'}`}
@@ -2266,7 +2444,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <span className="text-gray-400">–</span>
                       )}
                     </td>
-                            <td className="px-2 py-2 text-[11px] text-center align-top text-gray-800">
+                            <td className="px-1 py-2 text-[10px] text-center align-top text-gray-800">
                       {row._calc.poQtyTotal > 0 ? (
                         <span
                           title={`Provided (invoiced sum of line qty): ${row._calc.invoicedQty}; pending from PO qty ${row._calc.poQtyTotal}`}
@@ -2279,7 +2457,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <span className="text-gray-400">–</span>
                       )}
                     </td>
-                            <td className="px-2 py-2 text-[10px] text-center align-top leading-tight">
+                            <td className="px-1 py-2 text-[10px] text-center align-top leading-tight">
                       <div className="text-gray-700">Last: {formatDate(row._calc.lastInvoiceDate)}</div>
                       <div
                         className={
@@ -2292,23 +2470,23 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         {row._calc.nextBillingDate ? formatDate(row._calc.nextBillingDate) : '–'}
                       </div>
                     </td>
-                            <td className="px-3 py-2 text-center">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                            <td className="px-1 py-2 text-center">
+                      <span className={`inline-flex px-1.5 py-1 text-[10px] font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
                         {row.statusLabel}
                       </span>
                       {row.postContractBufferOpen ? (
                         <span className="block text-[10px] text-amber-800 font-medium mt-1">Post-contract window</span>
                       ) : null}
                     </td>
-                            <td className="px-3 py-2 text-center">
-                              <div className="inline-flex items-center justify-center gap-2">
+                            <td className="px-1 py-2 text-center">
+                              <div className="inline-flex items-center justify-center gap-1">
                         {row.hasInvoice && row.existingInvoiceId && (
                           <>
                             <button
                               type="button"
                               onClick={() => setViewInvoiceId(row.existingInvoiceId)}
                               title="View Tax Invoice"
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
@@ -2326,7 +2504,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   : 'Edit Tax Invoice'
                               }
                               disabled={editLockedByIrn}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-full border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
@@ -2340,7 +2518,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             setInvoiceDateError('');
                             setSelectedPoId(String(row.id));
                           }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
+                          className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
                         >
                           <PlusCircle className="w-4 h-4" />
                           Create Invoice
@@ -2521,7 +2699,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   setInvoiceDateError('');
                   setInvoiceDocumentKind('tax');
                   setManualTaxInvoiceSerial('');
-                  setLumpSumConsolidatedLineDraft({ description: null, quantity: '', rate: '' });
+                  setInvoiceMonthlyDutyQtyMode('po_geometry');
+                  setInvoiceLumpSumBillingMode('normal');
+                  setLumpSumInvoicePenaltyGeometry(false);
+                  setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, quantity: '', rate: '' });
                   setInvoiceDraft(null);
                 }}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
@@ -2543,57 +2724,74 @@ const CreateInvoice = ({ onNavigateTab }) => {
               <div className="bg-white rounded-lg overflow-hidden">
                 {isLumpSumBilling ? (
                   <div className="px-3 py-2.5 border-b border-amber-200/90 bg-amber-50/60">
-                    <label className="flex flex-wrap items-start gap-2.5 text-sm text-neutral-800 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 rounded border-gray-300 text-amber-700 focus:ring-amber-500"
-                        checked={lumpSumSubtractPenaltyInRate}
-                        onChange={(e) => {
-                          if (lumpSumPenaltyActive) return;
-                          setLumpSumInvoicePenaltyGeometry(!!e.target.checked);
-                        }}
-                        disabled={lumpSumPenaltyActive}
-                        aria-label={
-                          lumpSumTruckActive
-                            ? 'Duty geometry: subtract category penalty from PO rate (truck lump sum)'
-                            : 'Duty geometry with PO penalty'
-                        }
-                      />
-                      <span>
+                    <div className="flex flex-wrap items-start gap-3 text-sm text-neutral-800">
+                      <label className="flex flex-col gap-1 min-w-[230px]">
+                        <span className="text-xs font-semibold text-amber-950">Geometry logic</span>
+                        <select
+                          value={lumpSumBillingMode}
+                          onChange={(e) => {
+                            const nextMode = normalizeLumpSumBillingMode(e.target.value);
+                            setInvoiceLumpSumBillingMode(nextMode);
+                            if (nextMode !== 'truck') {
+                              setLumpSumInvoicePenaltyGeometry(false);
+                              setLumpSumInvoicePreviewMode('consolidated');
+                            }
+                          }}
+                          className="rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-sm text-neutral-900"
+                        >
+                          <option value="normal">Normal duty geometry</option>
+                          <option value="penalty">Penalty duty geometry</option>
+                          <option value="truck">Truck/manual lines</option>
+                          <option value="months_geometry">Months-based duty geometry</option>
+                        </select>
+                      </label>
+                      <div className="flex-1 min-w-[260px]">
                         {lumpSumTruckActive ? (
-                          <>
-                            <span className="font-semibold">Duty geometry — truck lump sum (rate uses category penalty)</span>
+                          <p>
+                            <span className="font-semibold">Duty geometry — truck lump sum</span>
                             <span className="text-neutral-600">
                               {' '}
-                              Category penalty from PO Rate per Category is subtracted from the PO rate on each duty line.{' '}
+                              Qty = (Actual ÷ Authorised) × PO Qty. Add truck / supplementary rows as Qty × Rate only.
                             </span>
-                            <span className="font-mono text-[11px] text-neutral-800">
-                              Qty = (Actual ÷ Authorised) × PO Qty; Rate = PO rate − category penalty; Amount = Qty × Rate
-                            </span>
+                          </p>
+                        ) : lumpSumBillingMode === 'months_geometry' ? (
+                          <p>
+                            <span className="font-semibold">Duty geometry — months based</span>
                             <span className="text-neutral-600">
-                              . Add separate truck / supplementary lines under the table as Qty × Rate only.
+                              {' '}
+                              Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months).
                             </span>
-                          </>
-                        ) : (
-                          <>
+                          </p>
+                        ) : lumpSumPenaltyActive ? (
+                          <p>
                             <span className="font-semibold">Duty geometry — PO penalty rate</span>
                             <span className="text-neutral-600">
                               {' '}
-                              Adds penalty-rate and penalty-amount fields from PO Rate per Category and uses{' '}
+                              Uses Short deployment = Authorised − Actual and Penalty amount = Short deployment × Penalty rate.
                             </span>
-                            <span className="font-mono text-[11px] text-neutral-800 whitespace-nowrap">
-                              Short deployment = Authorised − Actual; Penalty amount = Short deployment × Penalty rate
+                          </p>
+                        ) : (
+                          <p>
+                            <span className="font-semibold">Duty geometry — normal</span>
+                            <span className="text-neutral-600">
+                              {' '}
+                              Qty = (Actual ÷ Authorised) × PO Qty; Rate = PO rate; Amount = Qty × Rate.
                             </span>
-                            <span className="text-neutral-600"> on each duty-geometry line.</span>
-                          </>
+                          </p>
                         )}
-                      </span>
-                    </label>
-                    {lumpSumPenaltyActive ? (
-                      <p className="text-[11px] text-amber-900/85 mt-2 pl-7">
-                        This PO is configured for penalty mode; the formula always applies for lump sum.
-                      </p>
-                    ) : null}
+                        {lumpSumTruckActive ? (
+                          <label className="mt-2 inline-flex items-center gap-2 text-xs text-amber-950 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300 text-amber-700 focus:ring-amber-500"
+                              checked={lumpSumInvoicePenaltyGeometry}
+                              onChange={(e) => setLumpSumInvoicePenaltyGeometry(!!e.target.checked)}
+                            />
+                            Apply category penalty to PO duty lines (Rate = PO rate − category penalty)
+                          </label>
+                        ) : null}
+                      </div>
+                    </div>
                     {lumpSumSubtractPenaltyInRate ? (
                       <div className="mt-2 ml-7 flex flex-wrap items-center gap-2">
                         <button
@@ -2658,6 +2856,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-center"
                                 />
                               </label>
+                              {lumpSumBillingMode === 'months_geometry' ? (
+                                <label className="text-[11px] text-gray-700">
+                                  Number of months
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={row.numberOfMonths ?? 1}
+                                    onChange={(e) => updateItem(rowIdx, { numberOfMonths: e.target.value, geometryEnabled: true })}
+                                    className="mt-1 w-full px-2 py-1 border border-gray-300 rounded text-center"
+                                    step="1"
+                                  />
+                                </label>
+                              ) : null}
                               {lumpSumShowPenaltyGeometryUi ? (
                                 <>
                                   <div className="text-[11px] text-gray-700">
@@ -2779,7 +2990,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <tr>
                               <th className="w-12 border border-neutral-300 px-2 py-2 text-center">#</th>
                               <th className="border border-neutral-300 px-2 py-2 text-left">Description</th>
-                              <th className="w-24 border border-neutral-300 px-2 py-2 text-center">HSN/SAC</th>
+                              <th className="w-24 border border-neutral-300 px-2 py-2 text-center">SAC/HSN</th>
                               <th className="w-20 border border-neutral-300 px-2 py-2 text-center">Qty</th>
                               <th className="w-28 border border-neutral-300 px-2 py-2 text-center">Rate</th>
                               <th className="w-28 border border-neutral-300 px-2 py-2 text-right">Amount</th>
@@ -2851,7 +3062,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
                     ].join(' ')}
                   >
-                    HSN/SAC
+                    SAC/HSN
                   </th>
                   {null ? (
                     <>
@@ -2910,7 +3121,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     ii != null && !!it && !it.isTruckLine && isLumpSumBilling && !it.geometryEnabled;
                   const hsnEditable =
                     !!it &&
-                    (it.isTruckLine || (ii != null && isLumpSumBilling && !it.geometryEnabled && !isLumpConsolidatedRow));
+                    (ii != null || isLumpConsolidatedRow);
                   const canDutyRuler =
                     ii != null &&
                     !isLumpConsolidatedRow &&
@@ -3077,11 +3288,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
                       ].join(' ')}
                     >
-                      {hsnEditable && ii != null ? (
+                      {hsnEditable ? (
                         <input
                           type="text"
                           value={it.hsnSac || ''}
-                          onChange={(e) => updateItem(ii, { hsnSac: e.target.value })}
+                          onChange={(e) => {
+                            if (isLumpConsolidatedRow) {
+                              updateLumpSumConsolidatedLine({ hsnSac: e.target.value });
+                              return;
+                            }
+                            if (ii != null) updateItem(ii, { hsnSac: e.target.value });
+                          }}
                           className={
                             lumpSumDutyGeometryLineTable
                               ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
@@ -3217,6 +3434,18 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
                           <span className="font-semibold text-gray-700">Geometry (Monthly) calculator</span>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">Logic</span>
+                            <select
+                              value={monthlyDutyQtyMode}
+                              onChange={(e) => setInvoiceMonthlyDutyQtyMode(normalizeMonthlyDutyQtyMode(e.target.value))}
+                              className="min-w-[14rem] px-2 py-1 border border-gray-300 rounded-md bg-white text-gray-800"
+                            >
+                              <option value="po_geometry">(Actual duty ÷ Authorised duty) × PO quantity</option>
+                              <option value="duty_ratio">(Actual duty ÷ Authorised duty)</option>
+                              <option value="po_geometry_by_months">(Actual duty ÷ Authorised duty) × (PO quantity ÷ months)</option>
+                            </select>
+                          </label>
                           {monthlyDutyQtyMode === 'po_geometry' || monthlyDutyQtyMode === 'po_geometry_by_months' ? (
                             <label className="inline-flex items-center gap-2">
                               <span className="text-gray-600">PO Qty</span>
@@ -3267,10 +3496,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           ) : null}
                           <span className="text-gray-500">
                             {monthlyDutyQtyMode === 'duty_ratio'
-                              ? 'Qty = (Actual ÷ Authorised) (3 decimals) — per PO Entry rule'
+                              ? 'Qty = (Actual ÷ Authorised) (3 decimals)'
                               : monthlyDutyQtyMode === 'po_geometry_by_months'
-                                ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals) — per PO Entry rule'
-                                : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals) — per PO Entry rule'}
+                                ? 'Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) (3 decimals)'
+                                : 'Qty = (Actual ÷ Authorised) × PO Qty (3 decimals)'}
                           </span>
                         </div>
                       </td>
@@ -3285,6 +3514,28 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
                           <span className="font-semibold text-gray-800">Lump sum — duty geometry</span>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">Logic</span>
+                            <select
+                              value={lumpSumBillingMode}
+                              onChange={(e) => {
+                                const nextMode = normalizeLumpSumBillingMode(e.target.value);
+                                setInvoiceLumpSumBillingMode(nextMode);
+                                if (nextMode !== 'truck') {
+                                  setLumpSumInvoicePreviewMode('consolidated');
+                                } else if (lumpSumInvoicePreviewMode !== 'consolidated' && lumpSumInvoicePreviewMode !== 'detailed') {
+                                  setLumpSumInvoicePreviewMode('detailed');
+                                }
+                                if (nextMode === 'penalty') setLumpSumInvoicePenaltyGeometry(false);
+                              }}
+                              className="min-w-[13rem] px-2 py-1 border border-gray-300 rounded-md bg-white text-gray-800"
+                            >
+                              <option value="normal">Normal duty geometry</option>
+                              <option value="penalty">Penalty duty geometry</option>
+                              <option value="truck">Truck/manual lines</option>
+                              <option value="months_geometry">Months-based duty geometry</option>
+                            </select>
+                          </label>
                           <label className="inline-flex items-center gap-2">
                             <span className="text-gray-600">PO Qty</span>
                             <input

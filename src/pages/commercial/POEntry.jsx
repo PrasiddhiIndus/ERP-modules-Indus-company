@@ -17,7 +17,7 @@ const LEGACY_OC_LINE_TO_LABEL = {
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
 const BILLING_CYCLES = ['30', '45', '60'];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
-const DEFAULT_SAC = '9985';
+const DEFAULT_SAC = '';
 const APPROVAL_STATUS = {
   DRAFT: 'draft',
   SENT: 'sent_for_approval',
@@ -93,7 +93,7 @@ const initialForm = {
   vertical: 'Manpower',
   ocSeries: '',
   poWoNumber: '',
-  ratePerCategory: [{ description: '', rate: '' }],
+  ratePerCategory: [{ description: '', hsnSac: '', qty: '', rate: '' }],
   totalContractValue: '',
   sacCode: DEFAULT_SAC,
   hsnCode: '',
@@ -107,6 +107,30 @@ const initialForm = {
   renewalPending: false,
 };
 
+function dateTimeValue(value) {
+  if (!value) return 0;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function latestHistoryTime(po) {
+  const rows = Array.isArray(po?.updateHistory) ? po.updateHistory : [];
+  return rows.reduce((max, row) => Math.max(max, dateTimeValue(row?.at)), 0);
+}
+
+function poCreatedTime(po) {
+  return dateTimeValue(po?.created_at || po?.createdAt || po?.created || po?.startDate);
+}
+
+function poModifiedTime(po) {
+  return Math.max(
+    dateTimeValue(po?.updated_at || po?.updatedAt || po?.modified_at || po?.modifiedAt),
+    dateTimeValue(po?.approvalSentAt || po?.approval_sent_at),
+    latestHistoryTime(po),
+    poCreatedTime(po)
+  );
+}
+
 const POEntry = () => {
   const { commercialPOs, setCommercialPOs } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
@@ -116,6 +140,7 @@ const POEntry = () => {
   const [viewHistoryPoId, setViewHistoryPoId] = useState(null);
   const [gstinError, setGstinError] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
 
   const fyForOc = formData.ocFyEdit || getFinancialYear();
   const ocBasePreview = useMemo(
@@ -145,6 +170,26 @@ const POEntry = () => {
     );
   };
 
+  const renderSortIndicator = (key) => {
+    const active = sortConfig.key === key;
+    const ascActive = active && sortConfig.direction === 'asc';
+    const descActive = active && sortConfig.direction === 'desc';
+    return (
+      <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
+        <span className={ascActive ? 'text-emerald-500' : 'text-slate-300'}>▲</span>
+        <span className={descActive ? 'text-rose-500' : 'text-slate-300'}>▼</span>
+      </span>
+    );
+  };
+
+  const toggleSort = (key) => {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'desc' }
+    );
+  };
+
   const filteredList = useMemo(() => {
     if (!searchTerm.trim()) return commercialPOs;
     const s = searchTerm.toLowerCase();
@@ -156,6 +201,32 @@ const POEntry = () => {
         p.siteId?.toLowerCase().includes(s)
     );
   }, [commercialPOs, searchTerm]);
+
+  const sortedFilteredList = useMemo(() => {
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    return [...filteredList].sort((a, b) => {
+      const getValue = (po) => {
+        switch (sortConfig.key) {
+          case 'ocNumber': return String(po.ocNumber || '').toLowerCase();
+          case 'siteLocation': return String([po.siteId, po.locationName].filter(Boolean).join(' ') || '').toLowerCase();
+          case 'client': return String(po.legalName || '').toLowerCase();
+          case 'poWo': return String(po.poWoNumber || '').toLowerCase();
+          case 'startEnd': return dateTimeValue(po.startDate || po.endDate);
+          case 'status': return String(po.approvalStatus || '').toLowerCase();
+          case 'created': return poCreatedTime(po);
+          case 'modified':
+          default: return poModifiedTime(po);
+        }
+      };
+      const av = getValue(a);
+      const bv = getValue(b);
+      let result = 0;
+      if (typeof av === 'number' && typeof bv === 'number') result = av - bv;
+      else result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+      if (result === 0) result = String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+      return result * dir;
+    });
+  }, [filteredList, sortConfig]);
 
   const nextId = useMemo(() => Math.max(0, ...commercialPOs.map((p) => p.id), 0) + 1, [commercialPOs]);
   const handleOpenAdd = () => {
@@ -208,8 +279,13 @@ const POEntry = () => {
       ocSeries: vendorDigits || (po.ocNumber && po.ocNumber.split('-').pop()) || '',
       poWoNumber: po.poWoNumber || '',
       ratePerCategory: Array.isArray(po.ratePerCategory) && po.ratePerCategory.length
-        ? po.ratePerCategory.map((r) => ({ description: r.description || r.designation || '', rate: r.rate ?? '' }))
-        : [{ description: '', rate: '' }],
+        ? po.ratePerCategory.map((r) => ({
+            description: r.description || r.designation || '',
+            hsnSac: r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '',
+            qty: r.qty ?? r.quantity ?? r.poQty ?? r.po_qty ?? '',
+            rate: r.rate ?? '',
+          }))
+        : [{ description: '', hsnSac: '', qty: '', rate: '' }],
       totalContractValue: po.totalContractValue ?? '',
       sacCode: po.sacCode || DEFAULT_SAC,
       hsnCode: po.hsnCode || '',
@@ -238,7 +314,7 @@ const POEntry = () => {
   const addRateRow = () => {
     setFormData((prev) => ({
       ...prev,
-      ratePerCategory: [...prev.ratePerCategory, { description: '', rate: '' }],
+      ratePerCategory: [...prev.ratePerCategory, { description: '', hsnSac: '', qty: '', rate: '' }],
     }));
   };
 
@@ -309,14 +385,17 @@ const POEntry = () => {
     const ratesMap = new Map();
     formData.ratePerCategory.forEach((r) => {
       const description = (r.description || '').trim() || 'Other';
-      const key = description.toLowerCase();
+      const hsnSac = String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim();
+      const key = `${description.toLowerCase()}|${hsnSac.toLowerCase()}`;
+      const qty = Number(r.qty) || 0;
       const rate = Number(r.rate) || 0;
-      ratesMap.set(key, { description, rate });
+      ratesMap.set(key, { description, hsnSac, qty, rate });
     });
     const rates = Array.from(ratesMap.values());
     const totalVal = Number(formData.totalContractValue) || 0;
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
+    const nowIso = new Date().toISOString();
     const po = {
       id: newId,
       siteId: formData.siteId.trim() || `SITE-${String(newId).slice(0, 8)}`,
@@ -334,10 +413,10 @@ const POEntry = () => {
       vendorCode: paddedVendor || '',
       vertical: formData.ocLine || formData.vertical || 'Manpower',
       poWoNumber: formData.poWoNumber.trim(),
-      ratePerCategory: rates.length ? rates : [{ description: 'Other', rate: 0 }],
+      ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', qty: 0, rate: 0 }],
       totalContractValue: totalVal,
-      sacCode: formData.sacCode.trim() || DEFAULT_SAC,
-      hsnCode: formData.hsnCode.trim(),
+      sacCode: '',
+      hsnCode: '',
       serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '',
       endDate: formData.endDate || '',
@@ -353,6 +432,10 @@ const POEntry = () => {
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       approvalStatus: prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT,
       approvalSentAt: prevPo?.approvalSentAt || null,
+      created_at: prevPo?.created_at || prevPo?.createdAt || nowIso,
+      createdAt: prevPo?.createdAt || prevPo?.created_at || nowIso,
+      updated_at: nowIso,
+      updatedAt: nowIso,
     };
     if (editId) {
       setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
@@ -394,15 +477,47 @@ const POEntry = () => {
         </button>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search by OC, PO number, client, site..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-        />
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by OC, PO number, client, site..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="shrink-0 w-full sm:w-44">
+          <label htmlFor="commercial-po-list-sort-key" className="sr-only">Sort by</label>
+          <select
+            id="commercial-po-list-sort-key"
+            value={sortConfig.key}
+            onChange={(e) => setSortConfig((prev) => ({ ...prev, key: e.target.value }))}
+            className="w-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="modified">Last modified</option>
+            <option value="created">Last created</option>
+            <option value="ocNumber">OC number</option>
+            <option value="client">Client</option>
+            <option value="siteLocation">Site / Location</option>
+            <option value="poWo">PO/WO</option>
+            <option value="startEnd">Start-End</option>
+            <option value="status">Status</option>
+          </select>
+        </div>
+        <div className="shrink-0 w-full sm:w-36">
+          <label htmlFor="commercial-po-list-sort-direction" className="sr-only">Sort direction</label>
+          <select
+            id="commercial-po-list-sort-direction"
+            value={sortConfig.direction}
+            onChange={(e) => setSortConfig((prev) => ({ ...prev, direction: e.target.value }))}
+            className="w-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </div>
       </div>
 
       <div className="rounded-xl border border-gray-200 shadow-sm overflow-hidden bg-[#f2f6ff]">
@@ -412,23 +527,38 @@ const POEntry = () => {
               <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[17%] min-w-0 bg-[#f2f6ff]">
-                  OC Number
+                <th className="px-2 sm:px-3 py-2.5 text-center text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[5%] min-w-0 bg-[#f2f6ff]">
+                  Sr.
                 </th>
                 <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-[#f2f6ff]">
-                  Site / Location
+                  <button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center font-bold text-black">
+                    OC Number {renderSortIndicator('ocNumber')}
+                  </button>
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[19%] min-w-0 bg-[#f2f6ff]">
-                  Client (Legal Name)
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[18%] min-w-0 bg-[#f2f6ff]">
+                  <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center font-bold text-black">
+                    Client (Legal Name) {renderSortIndicator('client')}
+                  </button>
+                </th>
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[14%] min-w-0 bg-[#f2f6ff]">
+                  <button type="button" onClick={() => toggleSort('siteLocation')} className="inline-flex items-center font-bold text-black">
+                    Site / Location {renderSortIndicator('siteLocation')}
+                  </button>
                 </th>
                 <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[10%] min-w-0 bg-[#f2f6ff]">
-                  PO/WO
+                  <button type="button" onClick={() => toggleSort('poWo')} className="inline-flex items-center font-bold text-black">
+                    PO/WO {renderSortIndicator('poWo')}
+                  </button>
                 </th>
                 <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[11%] min-w-0 bg-[#f2f6ff]">
-                  Start-End
+                  <button type="button" onClick={() => toggleSort('startEnd')} className="inline-flex items-center font-bold text-black">
+                    Start-End {renderSortIndicator('startEnd')}
+                  </button>
                 </th>
                 <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-[#f2f6ff]">
-                  Status
+                  <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center font-bold text-black">
+                    Status {renderSortIndicator('status')}
+                  </button>
                 </th>
                 <th className="px-2 sm:px-3 py-2.5 text-right text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[13%] min-w-0 bg-[#f2f6ff]">
                   Actions
@@ -436,21 +566,24 @@ const POEntry = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {filteredList.map((po) => {
+                  {sortedFilteredList.map((po, index) => {
                     const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
                     const startFmt = formatDateDdMmYyyy(po.startDate) || '–';
                     const endFmt = formatDateDdMmYyyy(po.endDate) || '–';
                     const approval = getApprovalBadge(po.approvalStatus);
                     return (
                       <tr key={po.id} className="hover:bg-gray-50 align-top">
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0 text-center font-semibold">
+                          {index + 1}
+                        </td>
                         <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-900 min-w-0">
                           <TextCell value={po.ocNumber} className="font-semibold font-mono" />
                         </td>
-                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0">
-                          <TextCell value={siteLocation} />
-                        </td>
                         <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-900 min-w-0">
                           <TextCell value={po.legalName} />
+                        </td>
+                        <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0">
+                          <TextCell value={siteLocation} />
                         </td>
                         <td className="px-2 sm:px-3 py-2.5 text-xs sm:text-sm text-gray-700 min-w-0">
                           <TextCell value={po.poWoNumber} />
@@ -535,7 +668,7 @@ const POEntry = () => {
                 </tbody>
               </table>
             </div>
-            {filteredList.length === 0 && (
+            {sortedFilteredList.length === 0 && (
               <div className="p-8 text-center text-gray-500">No PO/WO found. Add one to start.</div>
             )}
           </div>
@@ -741,7 +874,7 @@ const POEntry = () => {
                     <button type="button" onClick={addRateRow} className="text-sm text-blue-600 hover:underline">+ Add row</button>
                   </div>
                   <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
-                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th><th className="w-10"/></tr></thead>
+                    <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SAC/HSN</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PO Qty</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th><th className="w-10"/></tr></thead>
                     <tbody className="divide-y divide-gray-200">
                       {formData.ratePerCategory.map((r, idx) => (
                         <tr key={idx}>
@@ -752,6 +885,25 @@ const POEntry = () => {
                               onChange={(e) => updateRateRow(idx, 'description', e.target.value)}
                               className="border border-gray-300 rounded px-2 py-1 w-full"
                               placeholder=""
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={r.hsnSac || ''}
+                              onChange={(e) => updateRateRow(idx, 'hsnSac', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                              placeholder="SAC/HSN"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={r.qty}
+                              onChange={(e) => updateRateRow(idx, 'qty', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                              min="0"
+                              step="0.001"
                             />
                           </td>
                           <td className="px-3 py-2">
@@ -777,26 +929,6 @@ const POEntry = () => {
               <section>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">4. Tax & Service</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">SAC Code (default)</label>
-                    <input
-                      type="text"
-                      value={formData.sacCode}
-                      onChange={(e) => setFormData((p) => ({ ...p, sacCode: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      placeholder="e.g. 9985"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">HSN Code (goods/consumables)</label>
-                    <input
-                      type="text"
-                      value={formData.hsnCode}
-                      onChange={(e) => setFormData((p) => ({ ...p, hsnCode: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                      placeholder="e.g. 9983"
-                    />
-                  </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Service Description</label>
                     <textarea
