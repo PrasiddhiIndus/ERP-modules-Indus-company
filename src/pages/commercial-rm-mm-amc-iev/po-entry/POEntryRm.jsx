@@ -55,12 +55,36 @@ const SUPPLEMENTARY_STATUS = {
   REJECTED: 'rejected',
 };
 
-function getApprovalBadge(status) {
+function getApprovalActorName(po, eventName) {
+  const direct =
+    eventName === 'po_approved'
+      ? po?.approvedByName || po?.approved_by_name || po?.approvedBy || po?.approved_by
+      : po?.rejectedByName || po?.rejected_by_name || po?.rejectedBy || po?.rejected_by;
+  const normalizeActor = (value) => {
+    const name = String(value || '').trim();
+    return name && name.toLowerCase() !== 'commercial manager' ? name : '';
+  };
+  const directName = normalizeActor(direct);
+  if (directName) return directName;
+  const history = Array.isArray(po?.updateHistory)
+    ? po.updateHistory
+    : Array.isArray(po?.update_history)
+      ? po.update_history
+      : [];
+  const match = [...history]
+    .reverse()
+    .find((row) => row?.event === eventName && normalizeActor(row?.actorName || row?.actor_name || row?.name));
+  return normalizeActor(match?.actorName || match?.actor_name || match?.name);
+}
+
+function getApprovalBadge(status, po) {
   if (status === APPROVAL_STATUS.APPROVED) {
-    return { label: 'Approved by Commercial Manager', cls: 'bg-emerald-100 text-emerald-800' };
+    const actor = getApprovalActorName(po, 'po_approved');
+    return { label: actor ? `Approved by ${actor}` : 'Approved (name not recorded)', cls: 'bg-emerald-100 text-emerald-800' };
   }
   if (status === APPROVAL_STATUS.REJECTED) {
-    return { label: 'Rejected by Commercial Manager', cls: 'bg-red-100 text-red-700' };
+    const actor = getApprovalActorName(po, 'po_rejected');
+    return { label: actor ? `Rejected by ${actor}` : 'Rejected (name not recorded)', cls: 'bg-red-100 text-red-700' };
   }
   if (status === APPROVAL_STATUS.SENT) {
     return { label: 'Pending Commercial Manager approval', cls: 'bg-indigo-100 text-indigo-800' };
@@ -150,13 +174,30 @@ function poDepartmentLabel(p) {
   return String(p?.vertical || '').trim();
 }
 
-function sortNewestPoFirst(list) {
-  return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
-    const aTs = new Date(a?.updated_at || a?.updatedAt || a?.created_at || a?.createdAt || a?.startDate || 0).getTime() || 0;
-    const bTs = new Date(b?.updated_at || b?.updatedAt || b?.created_at || b?.createdAt || b?.startDate || 0).getTime() || 0;
-    if (bTs !== aTs) return bTs - aTs;
-    return String(b?.id || '').localeCompare(String(a?.id || ''));
-  });
+function dateTimeValue(value) {
+  if (!value) return 0;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+function latestHistoryTime(po) {
+  const rows = Array.isArray(po?.updateHistory) ? po.updateHistory : [];
+  return rows.reduce((max, row) => Math.max(max, dateTimeValue(row?.at)), 0);
+}
+
+function poCreatedTime(po) {
+  return dateTimeValue(po?.created_at || po?.createdAt || po?.created || po?.startDate);
+}
+
+function poModifiedTime(po) {
+  return Math.max(
+    dateTimeValue(po?.updated_at || po?.updatedAt || po?.modified_at || po?.modifiedAt),
+    dateTimeValue(po?.approvalSentAt || po?.approval_sent_at),
+    dateTimeValue(po?.supplementaryRequestedAt || po?.supplementary_requested_at),
+    dateTimeValue(po?.supplementaryApprovedAt || po?.supplementary_approved_at),
+    latestHistoryTime(po),
+    poCreatedTime(po)
+  );
 }
 
 function makeCycle({ poWoNumber, totalContractValue, startDate, endDate, approvedAt } = {}) {
@@ -279,7 +320,7 @@ const INITIAL_FORM_RM = {
   vendorCodeDigits: '',
   ocFyEdit: null,
   vendorCode: '',
-  poWoNumber: '', ratePerCategory: [{ description: '', qty: '', rate: '', penalty: '' }],
+  poWoNumber: '', ratePerCategory: [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
@@ -306,7 +347,7 @@ const POEntry = ({
   const location = useLocation();
   const { user, userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortConfig, setSortConfig] = useState({ key: 'created', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
   /** OC segment / vertical — R&M, M&M, AMC, IEV */
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [listPoBasisFilter, setListPoBasisFilter] = useState('');
@@ -483,7 +524,7 @@ const POEntry = ({
 
   const filteredList = useMemo(() => {
     // Hide supplementary/mock POs from PO Entry UI — only manage the parent PO here.
-    const base = sortNewestPoFirst(commercialPOs.filter((p) => !p.isSupplementary));
+    const base = commercialPOs.filter((p) => !p.isSupplementary);
     let list = base;
     if (departmentFilter) {
       list = list.filter((p) => poDepartmentLabel(p) === departmentFilter);
@@ -515,13 +556,18 @@ const POEntry = ({
           case 'poWo': return String(po.poWoNumber || '').toLowerCase();
           case 'startEnd': return new Date(po.startDate || po.endDate || 0).getTime() || 0;
           case 'status': return String(po.approvalStatus || '').toLowerCase();
-          default: return new Date(po.updated_at || po.updatedAt || po.created_at || po.createdAt || 0).getTime() || 0;
+          case 'created': return poCreatedTime(po);
+          case 'modified':
+          default: return poModifiedTime(po);
         }
       };
       const av = getValue(a);
       const bv = getValue(b);
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+      let result = 0;
+      if (typeof av === 'number' && typeof bv === 'number') result = av - bv;
+      else result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+      if (result === 0) result = String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+      return result * dir;
     });
   }, [filteredList, sortConfig]);
 
@@ -539,7 +585,7 @@ const POEntry = ({
     setSearchTerm('');
     setDepartmentFilter('');
     setListPoBasisFilter('');
-    setSortConfig({ key: 'created', direction: 'desc' });
+    setSortConfig({ key: 'modified', direction: 'desc' });
   }, [commercialPOs, highlightedPoId]);
 
   useEffect(() => {
@@ -618,11 +664,12 @@ const POEntry = ({
       ratePerCategory: Array.isArray(po.ratePerCategory) && po.ratePerCategory.length
         ? po.ratePerCategory.map((r) => ({
             description: r.description || r.designation || '',
-            qty: r.qty ?? '',
+            hsnSac: r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '',
+            qty: r.qty ?? r.quantity ?? r.poQty ?? r.po_qty ?? '',
             rate: r.rate ?? '',
             penalty: r.penalty ?? r.category_penalty ?? '',
           }))
-        : [{ description: '', qty: '', rate: '', penalty: '' }],
+        : [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       poReceivedDate: po.poReceivedDate || '',
@@ -666,7 +713,7 @@ const POEntry = ({
   const addRateRow = () =>
     setFormData((prev) => ({
       ...prev,
-      ratePerCategory: [...prev.ratePerCategory, { description: '', qty: '', rate: '', penalty: '' }],
+      ratePerCategory: [...prev.ratePerCategory, { description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
     }));
   const updateRateRow = (idx, field, value) =>
     setFormData((prev) => ({ ...prev, ratePerCategory: prev.ratePerCategory.map((r, i) => (i === idx ? { ...r, [field]: value } : r)) }));
@@ -724,6 +771,9 @@ const POEntry = ({
       return {
         ...p,
         approvalStatus: APPROVAL_STATUS.APPROVED,
+        approvedByUserId: user?.id || null,
+        approvedByName: currentActorName,
+        approvedAt: nowIso,
         ...(cycles.length ? { renewalCycles: cycles } : {}),
         ...(hasActiveRenewal
           ? {
@@ -743,7 +793,7 @@ const POEntry = ({
               {
                 at: nowIso,
                 event: 'po_approved',
-                summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : 'PO approved by Commercial Manager',
+                summary: hasActiveRenewal ? `PO renewed and approved (${latest.po_wo_number})` : `PO approved by ${currentActorName}`,
                 actorUserId: user?.id || null,
                 actorName: currentActorName,
               },
@@ -752,7 +802,7 @@ const POEntry = ({
               {
                 at: nowIso,
                 event: 'po_approved',
-                summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : 'PO approved by Commercial Manager',
+                summary: hasActiveRenewal ? `PO renewed and approved (${latest?.po_wo_number || ''})` : `PO approved by ${currentActorName}`,
                 actorUserId: user?.id || null,
                 actorName: currentActorName,
               },
@@ -814,12 +864,15 @@ const POEntry = ({
           ? {
               ...p,
               approvalStatus: APPROVAL_STATUS.REJECTED,
+              rejectedByUserId: user?.id || null,
+              rejectedByName: currentActorName,
+              rejectedAt: nowIso,
               updateHistory: [
                 ...(Array.isArray(p.updateHistory) ? p.updateHistory : []),
                 {
                   at: nowIso,
                   event: 'po_rejected',
-                  summary: 'PO rejected by Commercial Manager',
+                  summary: `PO rejected by ${currentActorName}`,
                   actorUserId: user?.id || null,
                   actorName: currentActorName,
                 },
@@ -909,10 +962,11 @@ const POEntry = ({
     const rmPayment = deriveRmPaymentTermPayload(formData.paymentTerms, formData.customPaymentTermsPercent);
     const rates = formData.ratePerCategory.map((r) => ({
       description: (r.description || '').trim() || 'Other',
+      hsnSac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim(),
       qty: Number(r.qty) || 0,
       rate: Number(r.rate) || 0,
       penalty:
-        formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty'
+        formData.billingType === 'Lump Sum'
           ? Math.max(0, Number(r.penalty) || 0)
           : 0,
     }));
@@ -959,8 +1013,8 @@ const POEntry = ({
           INITIAL_FORM_RM.vertical),
       poWoNumber: trimmedPoWoNumber,
       renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
-      ratePerCategory: rates.length ? rates : [{ description: 'Other', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
-      sacCode: formData.sacCode.trim() || DEFAULT_SAC, hsnCode: formData.hsnCode.trim(), serviceDescription: formData.serviceDescription.trim(),
+      ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
+      sacCode: '', hsnCode: '', serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', poReceivedDate: formData.poReceivedDate || '', billingType: poType,
       billingCycle: null, remarks: formData.remarks.trim(),
       paymentTerms: formData.paymentTerms || 'Immediate',
@@ -969,8 +1023,8 @@ const POEntry = ({
       paymentTermMode: rmPayment.paymentTermMode,
       paymentTermDays: rmPayment.paymentTermDays,
       advancePercent: rmPayment.advancePercent,
-      monthlyDutyQtyMode: poType === 'Monthly' ? (formData.monthlyDutyQtyMode || null) : null,
-      lumpSumBillingMode: poType === 'Lump Sum' ? (formData.lumpSumBillingMode || null) : null,
+      monthlyDutyQtyMode: null,
+      lumpSumBillingMode: null,
       invoiceTermsText: formData.invoiceTermsText.trim(),
       sellerCin: (formData.sellerCin || '').trim(),
       sellerPan: (formData.sellerPan || '').trim(),
@@ -981,6 +1035,10 @@ const POEntry = ({
       approvalStatus: editId ? APPROVAL_STATUS.DRAFT : (prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT),
       approvalSentAt: editId ? null : (prevPo?.approvalSentAt || null),
       updateHistory: editId ? historyPrev : [],
+      created_at: prevPo?.created_at || prevPo?.createdAt || nowIso,
+      createdAt: prevPo?.createdAt || prevPo?.created_at || nowIso,
+      updated_at: nowIso,
+      updatedAt: nowIso,
       // Preserve supplementary workflow fields on edit
       isSupplementary: !!prevPo?.isSupplementary,
       supplementaryParentPoId: prevPo?.supplementaryParentPoId || null,
@@ -1099,6 +1157,40 @@ const POEntry = ({
             <option value="without_po">Without PO only</option>
           </select>
         </div>
+        <div className="shrink-0 w-full sm:w-44">
+          <label htmlFor="rm-po-list-sort-key" className="sr-only">
+            Sort by
+          </label>
+          <select
+            id="rm-po-list-sort-key"
+            value={sortConfig.key}
+            onChange={(e) => setSortConfig((prev) => ({ ...prev, key: e.target.value }))}
+            className="w-full h-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="modified">Last modified</option>
+            <option value="created">Last created</option>
+            <option value="ocNumber">OC number</option>
+            <option value="client">Client</option>
+            <option value="siteLocation">Site / Location</option>
+            <option value="poWo">PO/WO</option>
+            <option value="startEnd">Start-End</option>
+            <option value="status">Status</option>
+          </select>
+        </div>
+        <div className="shrink-0 w-full sm:w-36">
+          <label htmlFor="rm-po-list-sort-direction" className="sr-only">
+            Sort direction
+          </label>
+          <select
+            id="rm-po-list-sort-direction"
+            value={sortConfig.direction}
+            onChange={(e) => setSortConfig((prev) => ({ ...prev, direction: e.target.value }))}
+            className="w-full h-full min-h-[42px] py-2.5 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </div>
       </div>
       <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
         <div className="p-2">
@@ -1107,22 +1199,25 @@ const POEntry = ({
               <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
+                    <th className="px-1 py-2 text-center text-[9px] sm:text-[10px] font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[5%] md:w-[4%]">
+                      Sr.
+                    </th>
                     <th className="px-1 py-2 text-center text-[9px] sm:text-[10px] font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[8%] md:w-[7%]">
                       PO?
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[22%] md:w-[14%] lg:w-[13%]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%] md:w-[12%] lg:w-[11%]">
                       <button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
                         OC Number {renderSortIndicator('ocNumber')}
                       </button>
                     </th>
-                    <th className="hidden md:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[16%] lg:w-[15%]">
-                      <button type="button" onClick={() => toggleSort('siteLocation')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
-                        Site / Location {renderSortIndicator('siteLocation')}
-                      </button>
-                    </th>
-                    <th className="hidden lg:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[19%]">
+                    <th className="hidden lg:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[17%]">
                       <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
                         Client (Legal Name) {renderSortIndicator('client')}
+                      </button>
+                    </th>
+                    <th className="hidden md:table-cell px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[14%] lg:w-[13%]">
+                      <button type="button" onClick={() => toggleSort('siteLocation')} className="inline-flex items-center text-[10px] sm:text-xs font-bold text-black">
+                        Site / Location {renderSortIndicator('siteLocation')}
                       </button>
                     </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[14%] md:w-[12%] lg:w-[10%]">
@@ -1146,9 +1241,9 @@ const POEntry = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {paginatedList.map((po) => {
+                  {paginatedList.map((po, rowIdx) => {
                     const siteLocation = [po.siteId, po.locationName].filter(Boolean).join(' – ');
-                    const approval = getApprovalBadge(po.approvalStatus);
+                    const approval = getApprovalBadge(po.approvalStatus, po);
                     const isHighlighted = highlightedPoId && String(po.id) === String(highlightedPoId);
                     const startDateFmt =
                       formatDateDdMmYyyy(cleanCellText(po.startDate)) || '–';
@@ -1162,6 +1257,9 @@ const POEntry = ({
                           isHighlighted ? 'bg-amber-50 ring-2 ring-inset ring-amber-400' : '',
                         ].join(' ')}
                       >
+                        <td className="px-1 py-2 text-[9px] sm:text-[10px] text-center align-middle font-semibold text-gray-700">
+                          {start + rowIdx + 1}
+                        </td>
                         <td className="px-1 py-2 text-[9px] sm:text-[10px] text-center align-middle">
                           <span
                             className={`inline-flex px-1 py-0.5 rounded font-semibold ${
@@ -1178,11 +1276,11 @@ const POEntry = ({
                             className="text-center font-semibold font-mono"
                           />
                         </td>
-                        <td className="hidden md:table-cell px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 min-w-0 text-center">
-                          <TextCell value={siteLocation} className="text-center" />
-                        </td>
                         <td className="hidden lg:table-cell px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 min-w-0 text-center">
                           <TextCell value={po.legalName} className="text-center" />
+                        </td>
+                        <td className="hidden md:table-cell px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 min-w-0 text-center">
+                          <TextCell value={siteLocation} className="text-center" />
                         </td>
                         <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-700 text-center">
                           <TextCell value={po.poWoNumber} className="text-center" />
@@ -1741,8 +1839,9 @@ const POEntry = ({
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SAC/HSN</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
-                        {formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty' ? (
+                        {formData.billingType === 'Lump Sum' ? (
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Penalty (₹)</th>
                         ) : null}
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
@@ -1763,6 +1862,14 @@ const POEntry = ({
                           </td>
                           <td className="px-3 py-2">
                             <input
+                              type="text"
+                              value={r.hsnSac || ''}
+                              onChange={(e) => updateRateRow(idx, 'hsnSac', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1 w-full"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
                               type="number"
                               value={r.qty}
                               onChange={(e) => updateRateRow(idx, 'qty', e.target.value)}
@@ -1770,7 +1877,7 @@ const POEntry = ({
                               min="0"
                             />
                           </td>
-                          {formData.billingType === 'Lump Sum' && formData.lumpSumBillingMode === 'penalty' ? (
+                          {formData.billingType === 'Lump Sum' ? (
                             <td className="px-3 py-2">
                               <input
                                 type="number"
@@ -1822,8 +1929,6 @@ const POEntry = ({
                     </select>
                     {gstTypeError && <p className="text-red-600 text-xs mt-1">{gstTypeError}</p>}
                   </div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">SAC Code</label><input type="text" value={formData.sacCode} onChange={(e) => setFormData((p) => ({ ...p, sacCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label><input type="text" value={formData.hsnCode} onChange={(e) => setFormData((p) => ({ ...p, hsnCode: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Service Description</label><textarea value={formData.serviceDescription} onChange={(e) => setFormData((p) => ({ ...p, serviceDescription: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" rows={2} /></div>
                 </div>
               </section>
@@ -1902,91 +2007,6 @@ const POEntry = ({
                         className="w-full border border-gray-300 rounded-lg px-3 py-2"
                         placeholder="Enter custom percentage"
                       />
-                    </div>
-                  ) : null}
-                  {formData.billingType === 'Monthly' ? (
-                    <div className="md:col-span-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-gray-800">Monthly billing — quantity rule (pick one)</p>
-                      <div className="flex flex-col sm:flex-row flex-wrap gap-4">
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.monthlyDutyQtyMode === 'po_geometry'}
-                            onChange={() => setFormData((p) => ({ ...p, monthlyDutyQtyMode: 'po_geometry' }))}
-                            className="rounded border-gray-300 mt-0.5"
-                          />
-                          <span className="text-sm text-gray-700">
-                            (Actual duty ÷ Authorised duty) × PO quantity = Qty
-                          </span>
-                        </label>
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.monthlyDutyQtyMode === 'duty_ratio'}
-                            onChange={() => setFormData((p) => ({ ...p, monthlyDutyQtyMode: 'duty_ratio' }))}
-                            className="rounded border-gray-300 mt-0.5"
-                          />
-                          <span className="text-sm text-gray-700">
-                            (Actual duty ÷ Authorised duty) = Qty
-                          </span>
-                        </label>
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.monthlyDutyQtyMode === 'po_geometry_by_months'}
-                            onChange={() => setFormData((p) => ({ ...p, monthlyDutyQtyMode: 'po_geometry_by_months' }))}
-                            className="rounded border-gray-300 mt-0.5"
-                          />
-                          <span className="text-sm text-gray-700">
-                            (Actual duty ÷ Authorised duty) × (PO quantity ÷ Number of months) = Qty
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-                  ) : null}
-                  {formData.billingType === 'Lump Sum' ? (
-                    <div className="md:col-span-2 rounded-lg border border-amber-100 bg-amber-50/50 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-gray-800">Lump sum billing — layout &amp; calculation (pick one)</p>
-                      <div className="flex flex-col gap-2">
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.lumpSumBillingMode === 'penalty'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'penalty' }))}
-                            className="rounded border-gray-300 mt-0.5"
-                          />
-                          <span className="text-sm text-gray-700">Penalty column on PO (next to Qty); Rate = (Actual÷Auth)×PO rate − Penalty on invoice</span>
-                        </label>
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.lumpSumBillingMode === 'truck'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'truck' }))}
-                            className="rounded border-gray-300 mt-0.5"
-                          />
-                          <span className="text-sm text-gray-700">Truck rows — add manual Qty×Rate lines on Create Invoice (PO lines keep duty-based rate)</span>
-                        </label>
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.lumpSumBillingMode === 'normal'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'normal' }))}
-                            className="rounded border-gray-300 mt-0.5"
-                          />
-                          <span className="text-sm text-gray-700">Normal lump sum calculation</span>
-                        </label>
-                        <label className="flex items-start gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.lumpSumBillingMode === 'months_geometry'}
-                            onChange={() => setFormData((p) => ({ ...p, lumpSumBillingMode: 'months_geometry' }))}
-                            className="rounded border-gray-300 mt-0.5"
-                          />
-                          <span className="text-sm text-gray-700">
-                            Qty = (Actual ÷ Authorised) × (PO Qty ÷ Number of months) with manual Number of months in Create Invoice
-                          </span>
-                        </label>
-                      </div>
                     </div>
                   ) : null}
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter remarks" /></div>
