@@ -2,10 +2,11 @@
 # 1. Push this repo to GitHub/GitLab connected to Render.
 # 2. Create "Blueprint" from this file or add a Web Service manually:
 #    Build: npm install   Start: npm start
-# 3. In Render → Environment, add all variables from .env.server.example (WHITEBOOKS_*).
+# 3. In Render → Environment, add all variables from .env.server.example (WHITEBOOKS_*, ETIME_*).
 # 4. Copy the service URL (e.g. https://xxx.onrender.com), then set frontend env:
+#    VITE_API_BASE_URL=https://xxx.onrender.com
 #    VITE_EINVOICE_API_URL=https://xxx.onrender.com/api/billing/e-invoice
-#    Redeploy frontend with this variable.
+#    Redeploy frontend with these variables.
 
 services:
   - type: web

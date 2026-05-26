@@ -883,6 +883,28 @@ app.get('/api/debug/invoice/:id', (req, res) => {
   return res.json(snap);
 });
 
+app.get('/api/admin/attendance/status', (_req, res) => {
+  try {
+    const c = etimeCfg();
+    res.json({
+      ok: true,
+      service: 'eTimeOffice',
+      etimeConfigured: true,
+      baseUrl: c.baseUrl,
+      punchEndpoint: c.punchEndpoint,
+      fallbackEndpoints: uniqueEtimePunchEndpoints(c.punchEndpoint).filter((e) => e !== c.punchEndpoint),
+      timeoutMs: c.timeoutMs,
+    });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({
+      ok: false,
+      etimeConfigured: false,
+      message: err?.message || 'eTimeOffice is not configured on the server.',
+    });
+  }
+});
+
 app.get('/api/admin/attendance/punches', async (req, res) => {
   try {
     const c = etimeCfg();
