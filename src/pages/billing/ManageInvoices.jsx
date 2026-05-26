@@ -270,6 +270,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
     return [...filteredInvoices].sort((a, b) => {
       const valueFor = (inv) => {
         switch (mainSortConfig.key) {
+          case 'modified': return new Date(inv.updated_at || inv.updatedAt || inv.invoiceDate || inv.invoice_date || inv.created_at || 0).getTime() || 0;
+          case 'created': return new Date(inv.created_at || inv.createdAt || inv.invoiceDate || inv.invoice_date || inv.updated_at || 0).getTime() || 0;
           case 'taxInvoice': return String(inv.taxInvoiceNumber || inv.bill_number || '').toLowerCase();
           case 'invoiceDate': return new Date(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt || 0).getTime() || 0;
           case 'billingType': return String(getInvoiceBillingType(inv) || '').toLowerCase();
@@ -299,7 +301,10 @@ const ManageInvoices = ({ onNavigateTab }) => {
     return [...addOnInvoices].sort((a, b) => {
       const valueFor = (inv) => {
         switch (addOnSortConfig.key) {
+          case 'modified': return new Date(inv.updated_at || inv.updatedAt || inv.invoiceDate || inv.invoice_date || inv.created_at || 0).getTime() || 0;
+          case 'created': return new Date(inv.created_at || inv.createdAt || inv.invoiceDate || inv.invoice_date || inv.updated_at || 0).getTime() || 0;
           case 'taxInvoice': return String(inv.taxInvoiceNumber || inv.bill_number || '').toLowerCase();
+          case 'invoiceDate': return new Date(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt || 0).getTime() || 0;
           case 'billingType': return String(inv.addOnType || 'Add-On').toLowerCase();
           case 'ocNumber': return String(inv.ocNumber || '').toLowerCase();
           case 'client': return String(inv.clientLegalName || inv.client_name || '').toLowerCase();
@@ -311,10 +316,41 @@ const ManageInvoices = ({ onNavigateTab }) => {
       };
       const av = valueFor(a);
       const bv = valueFor(b);
-      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-      return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+      let result = 0;
+      if (typeof av === 'number' && typeof bv === 'number') result = av - bv;
+      else result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+      if (result === 0) result = String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+      return result * dir;
     });
   }, [addOnInvoices, addOnSortConfig, creditDebitNotes]);
+
+  const sortedCancelledInvoices = useMemo(() => {
+    const dir = mainSortConfig.direction === 'asc' ? 1 : -1;
+    return [...cancelledInvoices].sort((a, b) => {
+      const valueFor = (inv) => {
+        switch (mainSortConfig.key) {
+          case 'modified': return new Date(inv.updated_at || inv.updatedAt || inv.invoiceDate || inv.invoice_date || inv.created_at || 0).getTime() || 0;
+          case 'created': return new Date(inv.created_at || inv.createdAt || inv.invoiceDate || inv.invoice_date || inv.updated_at || 0).getTime() || 0;
+          case 'taxInvoice': return String(inv.taxInvoiceNumber || inv.bill_number || '').toLowerCase();
+          case 'invoiceDate': return new Date(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt || 0).getTime() || 0;
+          case 'billingType': return String(getInvoiceBillingType(inv) || '').toLowerCase();
+          case 'ocNumber': return String(inv.ocNumber || '').toLowerCase();
+          case 'client': return String(inv.clientLegalName || inv.client_name || '').toLowerCase();
+          case 'amount': return Number(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0);
+          case 'net': return Number(netAfterCnDn(inv.id, creditDebitNotes, inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0) || 0);
+          case 'eInvoice': return inv.e_invoice_irn ? 1 : 0;
+          default: return new Date(inv.updated_at || inv.updatedAt || inv.invoiceDate || inv.invoice_date || inv.created_at || 0).getTime() || 0;
+        }
+      };
+      const av = valueFor(a);
+      const bv = valueFor(b);
+      let result = 0;
+      if (typeof av === 'number' && typeof bv === 'number') result = av - bv;
+      else result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+      if (result === 0) result = String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+      return result * dir;
+    });
+  }, [cancelledInvoices, mainSortConfig, creditDebitNotes, commercialPOs]);
 
   const totalPages = Math.max(1, Math.ceil(sortedFilteredInvoices.length / PAGE_SIZE));
   const start = (page - 1) * PAGE_SIZE;
@@ -578,19 +614,54 @@ const ManageInvoices = ({ onNavigateTab }) => {
       </div>
 
       {manageTab !== 'issued-cndn' ? (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder={
-              manageTab === 'add-on-invoices'
-                ? 'Search add-on invoice number, OC, client, type...'
-                : 'Search by invoice number, OC, client...'
-            }
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
-          />
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder={
+                manageTab === 'add-on-invoices'
+                  ? 'Search add-on invoice number, OC, client, type...'
+                  : 'Search by invoice number, OC, client...'
+              }
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
+            />
+          </div>
+          <select
+            value={manageTab === 'add-on-invoices' ? addOnSortConfig.key : mainSortConfig.key}
+            onChange={(e) => {
+              const setter = manageTab === 'add-on-invoices' ? setAddOnSortConfig : setMainSortConfig;
+              setter((prev) => ({ ...prev, key: e.target.value }));
+            }}
+            className="min-h-[42px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+            aria-label="Sort invoice list by"
+          >
+            <option value="modified">Last modified</option>
+            <option value="created">Last created</option>
+            <option value="invoiceDate">Invoice date</option>
+            <option value="taxInvoice">Tax invoice</option>
+            <option value="billingType">Billing type</option>
+            <option value="ocNumber">OC number</option>
+            <option value="client">Client name</option>
+            <option value="amount">Amount</option>
+            <option value="net">Net after CN/DN</option>
+            {manageTab === 'billing-types' ? <option value="poRemaining">PO remaining</option> : null}
+            <option value="eInvoice">E-Invoice</option>
+          </select>
+          <select
+            value={manageTab === 'add-on-invoices' ? addOnSortConfig.direction : mainSortConfig.direction}
+            onChange={(e) => {
+              const setter = manageTab === 'add-on-invoices' ? setAddOnSortConfig : setMainSortConfig;
+              setter((prev) => ({ ...prev, direction: e.target.value }));
+            }}
+            className="min-h-[42px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+            aria-label="Sort invoice list direction"
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
         </div>
       ) : null}
 
@@ -604,7 +675,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
                   <table className="w-full min-w-[1220px] table-fixed border-collapse">
                     <colgroup>
                       <col className="w-[5%]" />
-                      <col className="w-[14%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[10%]" />
                       {showBillingTypeColumn ? <col className="w-[12%]" /> : null}
                       <col className="w-[12%]" />
                       <col className="w-[20%]" />
@@ -617,11 +689,12 @@ const ManageInvoices = ({ onNavigateTab }) => {
                       <tr>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap">S.No</th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'taxInvoice' ? { key: 'taxInvoice', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'taxInvoice', direction: 'desc' })} className="inline-flex items-center">Tax Invoice {renderSortIndicator(addOnSortConfig.key === 'taxInvoice', addOnSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'invoiceDate' ? { key: 'invoiceDate', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'invoiceDate', direction: 'desc' })} className="inline-flex items-center">Invoice Date {renderSortIndicator(addOnSortConfig.key === 'invoiceDate', addOnSortConfig.direction)}</button></th>
                         {showBillingTypeColumn ? (
                           <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'billingType' ? { key: 'billingType', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'billingType', direction: 'desc' })} className="inline-flex items-center">Billing type {renderSortIndicator(addOnSortConfig.key === 'billingType', addOnSortConfig.direction)}</button></th>
                         ) : null}
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'ocNumber' ? { key: 'ocNumber', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'ocNumber', direction: 'desc' })} className="inline-flex items-center">OC Number {renderSortIndicator(addOnSortConfig.key === 'ocNumber', addOnSortConfig.direction)}</button></th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'client' ? { key: 'client', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'client', direction: 'desc' })} className="inline-flex items-center">Client {renderSortIndicator(addOnSortConfig.key === 'client', addOnSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'client' ? { key: 'client', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'client', direction: 'desc' })} className="inline-flex items-center">Client Name {renderSortIndicator(addOnSortConfig.key === 'client', addOnSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'amount' ? { key: 'amount', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'amount', direction: 'desc' })} className="inline-flex items-center">Amount {renderSortIndicator(addOnSortConfig.key === 'amount', addOnSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'net' ? { key: 'net', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'net', direction: 'desc' })} className="inline-flex items-center">Net after CN/DN {renderSortIndicator(addOnSortConfig.key === 'net', addOnSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setAddOnSortConfig((p) => p.key === 'eInvoice' ? { key: 'eInvoice', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'eInvoice', direction: 'desc' })} className="inline-flex items-center">E-Inv {renderSortIndicator(addOnSortConfig.key === 'eInvoice', addOnSortConfig.direction)}</button></th>
@@ -647,6 +720,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 whitespace-nowrap">CN/DN approved</span>
                               ) : null}
                             </div>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center whitespace-nowrap">
+                            {formatManageInvoiceDate(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt)}
                           </td>
                           {showBillingTypeColumn ? (
                             <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={inv.addOnType || 'Add-On'}>{inv.addOnType || 'Add-On'}</td>
@@ -859,7 +935,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                           <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'billingType' ? { key: 'billingType', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'billingType', direction: 'desc' })} className="inline-flex w-full items-center justify-center">Billing type {renderSortIndicator(mainSortConfig.key === 'billingType', mainSortConfig.direction)}</button></th>
                         ) : null}
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'ocNumber' ? { key: 'ocNumber', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'ocNumber', direction: 'desc' })} className="inline-flex w-full items-center justify-center">OC Number {renderSortIndicator(mainSortConfig.key === 'ocNumber', mainSortConfig.direction)}</button></th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'client' ? { key: 'client', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'client', direction: 'desc' })} className="inline-flex w-full items-center justify-center">Client {renderSortIndicator(mainSortConfig.key === 'client', mainSortConfig.direction)}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'client' ? { key: 'client', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'client', direction: 'desc' })} className="inline-flex w-full items-center justify-center">Client Name {renderSortIndicator(mainSortConfig.key === 'client', mainSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'amount' ? { key: 'amount', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'amount', direction: 'desc' })} className="inline-flex w-full items-center justify-center">Amount {renderSortIndicator(mainSortConfig.key === 'amount', mainSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'net' ? { key: 'net', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'net', direction: 'desc' })} className="inline-flex w-full items-center justify-center">Net after CN/DN {renderSortIndicator(mainSortConfig.key === 'net', mainSortConfig.direction)}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 whitespace-nowrap"><button type="button" onClick={() => setMainSortConfig((p) => p.key === 'poRemaining' ? { key: 'poRemaining', direction: p.direction === 'asc' ? 'desc' : 'asc' } : { key: 'poRemaining', direction: 'desc' })} className="inline-flex w-full items-center justify-center">PO rem. (₹) {renderSortIndicator(mainSortConfig.key === 'poRemaining', mainSortConfig.direction)}</button></th>
@@ -1147,13 +1223,14 @@ const ManageInvoices = ({ onNavigateTab }) => {
             <p className="text-xs text-rose-800/80 mt-0.5">Cancelled invoices are kept for audit proof; invoice number series continues.</p>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] border-collapse text-sm">
+            <table className="w-full min-w-[1120px] border-collapse text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">S.No</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Invoice #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Invoice Date</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">OC Number</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Client</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Client Name</th>
                   <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Cancelled at</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Remark</th>
@@ -1161,10 +1238,13 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {cancelledInvoices.map((inv, idx) => (
+                {sortedCancelledInvoices.map((inv, idx) => (
                   <tr key={`cancel-${inv.id}`} className="bg-rose-50/30 hover:bg-rose-50/50">
                     <td className="px-3 py-2 text-center tabular-nums text-gray-700">{idx + 1}</td>
                     <td className="px-3 py-2 font-mono text-gray-900">{inv.taxInvoiceNumber || inv.bill_number || '–'}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">
+                      {formatManageInvoiceDate(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt)}
+                    </td>
                     <td className="px-3 py-2 font-mono text-gray-700">{inv.ocNumber || '–'}</td>
                     <td className="px-3 py-2 text-gray-800">{inv.clientLegalName || inv.client_name || '–'}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-800">
@@ -1214,7 +1294,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
               </tbody>
             </table>
           </div>
-          {cancelledInvoices.length === 0 ? (
+          {sortedCancelledInvoices.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-gray-500">No cancelled invoices.</p>
           ) : null}
         </div>

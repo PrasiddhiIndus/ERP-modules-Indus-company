@@ -123,7 +123,7 @@ function IssueCnDnModal({ parent, noteType, requestReason, existingNotes, onClos
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-2 py-2 text-left">Description</th>
-                  <th className="px-2 py-2 text-left">HSN/SAC</th>
+                  <th className="px-2 py-2 text-left">SAC/HSN</th>
                   <th className="px-2 py-2 text-center">Qty</th>
                   <th className="px-2 py-2 text-center">Rate</th>
                   <th className="px-2 py-2 text-right">Amount</th>

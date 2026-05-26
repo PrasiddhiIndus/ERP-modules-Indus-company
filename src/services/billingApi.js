@@ -261,6 +261,17 @@ function normalizeCnDnStatusDb(raw) {
   return null;
 }
 
+function firstNumber(source, keys, fallback = 0) {
+  if (!source) return fallback;
+  for (const key of keys) {
+    const value = source[key];
+    if (value === undefined || value === null || value === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
 function normalizeCnDnNoteTypeDb(raw) {
   if (raw == null || raw === '') return null;
   const v = String(raw).trim().toLowerCase();
@@ -298,6 +309,7 @@ function textColumnOrNull(v) {
 const OPTIONAL_INVOICE_BUYER_KEYS = ['buyer_pin', 'buyer_pincode', 'buyer_state_code'];
 // Optional cancellation columns (may not exist in older DBs).
 const OPTIONAL_INVOICE_CANCEL_KEYS = ['is_cancelled', 'cancelled_at', 'cancel_reason'];
+const OPTIONAL_INVOICE_GEOMETRY_KEYS = ['monthly_duty_qty_mode', 'lump_sum_billing_mode'];
 
 function stripOptionalBuyerInvoiceColumns(payload) {
   const next = { ...payload };
@@ -308,6 +320,12 @@ function stripOptionalBuyerInvoiceColumns(payload) {
 function stripOptionalCancelInvoiceColumns(payload) {
   const next = { ...payload };
   for (const k of OPTIONAL_INVOICE_CANCEL_KEYS) delete next[k];
+  return next;
+}
+
+function stripOptionalGeometryInvoiceColumns(payload) {
+  const next = { ...payload };
+  for (const k of OPTIONAL_INVOICE_GEOMETRY_KEYS) delete next[k];
   return next;
 }
 
@@ -328,6 +346,20 @@ function isCancelInvoiceColumnsMissingError(err) {
   if (!s) return false;
   if (!/is_cancelled|cancelled_at|cancel_reason/i.test(s)) return false;
   return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
+}
+
+function isGeometryInvoiceColumnsMissingError(err) {
+  const s = supabaseErrBlob(err);
+  if (!s) return false;
+  if (!/monthly_duty_qty_mode|lump_sum_billing_mode/i.test(s)) return false;
+  return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
+}
+
+function isLineNumberOfMonthsMissingError(err) {
+  const s = supabaseErrBlob(err);
+  if (!s) return false;
+  if (!/number_of_months/i.test(s)) return false;
+  return /could not find|schema cache|column of 'invoice_line_item'|PGRST204|undefined column/i.test(s);
 }
 
 /** Check if billing DB is available (billing schema + RLS). */
@@ -382,14 +414,18 @@ export async function fetchCommercialPOs(options) {
   });
   const seenRateKeys = new Set();
   sortedRates.forEach((r) => {
-    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.category_penalty) || 0}::${Number(r.sort_order) || 0}`;
+    const hsnSac = String(r.hsn_sac || r.sac_hsn || '').trim();
+    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${hsnSac.toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.category_penalty) || 0}::${Number(r.sort_order) || 0}`;
     if (seenRateKeys.has(dedupeKey)) return;
     seenRateKeys.add(dedupeKey);
     if (!ratesByPo[r.po_id]) ratesByPo[r.po_id] = [];
     ratesByPo[r.po_id].push({
       description: r.description,
-      qty: Number(r.qty) || 0,
-      rate: Number(r.rate),
+      hsnSac,
+      hsn_sac: hsnSac,
+      sacHsn: hsnSac,
+      qty: firstNumber(r, ['qty', 'quantity', 'po_qty', 'poQuantity', 'po_quantity'], 0),
+      rate: firstNumber(r, ['rate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
       penalty: r.category_penalty != null ? Number(r.category_penalty) : 0,
     });
   });
@@ -480,7 +516,7 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     oc_series: po.ocSeries || null,
     vertical: normalizePoVerticalForPersist(po.vertical),
     po_wo_number: po.poWoNumber || null,
-    po_quantity: Number(po.poQuantity) || 0,
+    po_quantity: firstNumber(po, ['poQuantity', 'po_quantity', 'poQty', 'po_qty', 'quantity', 'qty'], 0),
     total_contract_value: totalContractValueVal,
     total_contract_month: totalContractMonthVal,
     monthly_contract_value: monthlyContractValueVal,
@@ -571,13 +607,22 @@ export async function saveCommercialPOs(list, options = {}) {
     const rateRows = (po.ratePerCategory || []).map((r, i) => ({
       po_id: savedPoId,
       description: r.description ?? r.designation ?? '',
-      qty: Number(r.qty) || 0,
-      rate: Number(r.rate) || 0,
-      category_penalty: r.penalty != null ? Number(r.penalty) : 0,
+      hsn_sac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim() || null,
+      qty: firstNumber(r, ['qty', 'quantity', 'poQty', 'po_qty', 'poQuantity', 'po_quantity'], 0),
+      rate: firstNumber(r, ['rate', 'poRate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
+      category_penalty: firstNumber(r, ['penalty', 'category_penalty', 'poLinePenalty', 'po_line_penalty'], 0),
       sort_order: i,
     }));
     if (rateRows.length) {
-      const { error: rateErr } = await table('po_rate_category').upsert(rateRows, { onConflict: 'po_id,sort_order' });
+      let { error: rateErr } = await table('po_rate_category').upsert(rateRows, { onConflict: 'po_id,sort_order' });
+      if (rateErr && /hsn_sac|sac_hsn/i.test(String(rateErr?.message || ''))) {
+        const compatibleRateRows = rateRows.map((row) => {
+          const next = { ...row };
+          delete next.hsn_sac;
+          return next;
+        });
+        ({ error: rateErr } = await table('po_rate_category').upsert(compatibleRateRows, { onConflict: 'po_id,sort_order' }));
+      }
       if (rateErr) throw new Error(billingErrorMsg(rateErr, 'Rate category save'));
     }
 
@@ -703,6 +748,7 @@ export async function fetchInvoices() {
       poQty: l.po_qty != null ? Number(l.po_qty) : undefined,
       actualDuty: l.actual_duty != null ? Number(l.actual_duty) : undefined,
       authorizedDuty: l.authorized_duty != null ? Number(l.authorized_duty) : undefined,
+      numberOfMonths: l.number_of_months != null ? Number(l.number_of_months) : undefined,
       penalty: l.line_penalty != null ? Number(l.line_penalty) : 0,
       poReferenceRate: l.po_reference_rate != null ? Number(l.po_reference_rate) : undefined,
       isTruckLine: !!l.is_truck_line,
@@ -725,6 +771,8 @@ export async function fetchInvoices() {
     c.ocNumber = inv.oc_number;
     c.poWoNumber = inv.po_wo_number;
     c.billingType = inv.billing_type;
+    c.monthlyDutyQtyMode = inv.monthly_duty_qty_mode || null;
+    c.lumpSumBillingMode = inv.lump_sum_billing_mode || null;
     c.hsnSac = inv.hsn_sac;
     c.taxableValue = inv.taxable_value;
     c.cgstRate = inv.cgst_rate;
@@ -851,6 +899,8 @@ export async function saveInvoice(inv) {
     oc_number: inv.ocNumber ?? null,
     po_wo_number: inv.poWoNumber ?? null,
     billing_type: inv.billingType ?? null,
+    monthly_duty_qty_mode: inv.monthlyDutyQtyMode ?? inv.monthly_duty_qty_mode ?? null,
+    lump_sum_billing_mode: inv.lumpSumBillingMode ?? inv.lump_sum_billing_mode ?? null,
     hsn_sac: inv.hsnSac ?? null,
     taxable_value: inv.taxableValue ?? 0,
     cgst_rate: inv.cgstRate ?? 9,
@@ -918,12 +968,19 @@ export async function saveInvoice(inv) {
 
   let saved;
   let invError;
-  ({ data: saved, error: invError } = await persistInvoiceRow(payload));
+  let invoicePayload = payload;
+  ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
   if (invError && isBuyerInvoiceColumnsMissingError(invError)) {
-    ({ data: saved, error: invError } = await persistInvoiceRow(stripOptionalBuyerInvoiceColumns(payload)));
+    invoicePayload = stripOptionalBuyerInvoiceColumns(invoicePayload);
+    ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
   }
   if (invError && isCancelInvoiceColumnsMissingError(invError)) {
-    ({ data: saved, error: invError } = await persistInvoiceRow(stripOptionalCancelInvoiceColumns(payload)));
+    invoicePayload = stripOptionalCancelInvoiceColumns(invoicePayload);
+    ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
+  }
+  if (invError && isGeometryInvoiceColumnsMissingError(invError)) {
+    invoicePayload = stripOptionalGeometryInvoiceColumns(invoicePayload);
+    ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
   }
   if (invError) throw invError;
   const invoiceId = saved?.id ?? invId ?? inv.id;
@@ -940,12 +997,21 @@ export async function saveInvoice(inv) {
     po_qty: it.poQty != null ? Number(it.poQty) : null,
     actual_duty: it.actualDuty != null ? Number(it.actualDuty) : null,
     authorized_duty: it.authorizedDuty != null ? Number(it.authorizedDuty) : null,
+    number_of_months: it.numberOfMonths != null ? Number(it.numberOfMonths) : null,
     line_penalty: it.penalty != null ? Number(it.penalty) : 0,
     po_reference_rate: it.poReferenceRate != null ? Number(it.poReferenceRate) : null,
     is_truck_line: !!it.isTruckLine,
   }));
   if (lineRows.length) {
-    const { error: lineErr } = await table('invoice_line_item').insert(lineRows);
+    let { error: lineErr } = await table('invoice_line_item').insert(lineRows);
+    if (lineErr && isLineNumberOfMonthsMissingError(lineErr)) {
+      const compatibleLineRows = lineRows.map((row) => {
+        const next = { ...row };
+        delete next.number_of_months;
+        return next;
+      });
+      ({ error: lineErr } = await table('invoice_line_item').insert(compatibleLineRows));
+    }
     if (lineErr) throw lineErr;
   }
 
