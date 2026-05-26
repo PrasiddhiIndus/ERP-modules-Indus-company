@@ -671,9 +671,15 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
 }
 
 function etimeCfg() {
+  const timeoutMs = Number(process.env.ETIME_TIMEOUT_MS || 60000);
+  const punchEndpoint = String(process.env.ETIME_PUNCH_ENDPOINT || 'DownloadInOutPunchData')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
   return {
     baseUrl: (process.env.ETIME_BASE_URL || 'https://api.etimeoffice.com/api').trim(),
     authCredentials: getRequiredEnv('ETIME_AUTH_CREDENTIALS'),
+    punchEndpoint: punchEndpoint || 'DownloadInOutPunchData',
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60000,
   };
 }
 
@@ -682,18 +688,16 @@ function normalizeEtimeDate(value, endOfDay = false) {
   if (!raw) {
     throw new HttpError(400, endOfDay ? 'toDate is required.' : 'fromDate is required.');
   }
-  if (/^\d{2}\/\d{2}\/\d{4}_\d{2}:\d{2}$/.test(raw)) return raw;
+  const slash = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ _]\d{2}:\d{2}(?::\d{2})?)?/);
+  if (slash) {
+    const [, dd, mm, yyyy] = slash;
+    return `${dd}/${mm}/${yyyy}`;
+  }
 
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
   if (iso) {
-    const [, yyyy, mm, dd, hh, min] = iso;
-    return `${dd}/${mm}/${yyyy}_${hh || (endOfDay ? '23' : '00')}:${min || (endOfDay ? '59' : '00')}`;
-  }
-
-  const slash = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ _](\d{2}):(\d{2}))?/);
-  if (slash) {
-    const [, dd, mm, yyyy, hh, min] = slash;
-    return `${dd}/${mm}/${yyyy}_${hh || (endOfDay ? '23' : '00')}:${min || (endOfDay ? '59' : '00')}`;
+    const [, yyyy, mm, dd] = iso;
+    return `${dd}/${mm}/${yyyy}`;
   }
 
   throw new HttpError(400, `Invalid ${endOfDay ? 'toDate' : 'fromDate'} format.`);
@@ -713,6 +717,11 @@ function splitPunchDateTime(value) {
   if (!text) return { date: '', time: '' };
   const [date = '', time = ''] = text.split(/\s+/);
   return { date, time: time ? time.slice(0, 5) : '' };
+}
+
+function isValidEtimePunchTime(value) {
+  const text = String(value || '').trim();
+  return /^\d{2}:\d{2}(?::\d{2})?$/.test(text) && text !== '00:00' && text !== '00:00:00';
 }
 
 function extractEtimeRows(data) {
@@ -743,26 +752,119 @@ function normalizeAttendanceEmpCode(code) {
 }
 
 function normalizeEtimePunchRows(data) {
-  return extractEtimeRows(data).map((row, index) => {
+  return extractEtimeRows(data).flatMap((row, index) => {
     const punchDateTime = pickField(row, ['PunchDateTime', 'LogDateTime', 'PunchDate', 'Date', 'AttendanceDate']);
     const split = splitPunchDateTime(punchDateTime);
     const empCode = normalizeAttendanceEmpCode(
       pickField(row, ['Empcode', 'EmpCode', 'EmployeeCode', 'EmployeeID', 'EmpId'])
     );
-    const punchDate = String(split.date || pickField(row, ['PunchDate', 'Date', 'AttendanceDate'])).trim();
+    const employeeName = String(pickField(row, ['Name', 'EmployeeName', 'EmpName']) || '').trim();
+    const punchDate = String(split.date || pickField(row, ['DateString', 'PunchDate', 'Date', 'AttendanceDate'])).trim();
+    const inTime = pickField(row, ['INTime', 'InTime', 'InTimeOnly']);
+    const outTime = pickField(row, ['OUTTime', 'OutTime', 'OutTimeOnly']);
+    const sourceStatus = String(pickField(row, ['Status', 'AttendanceStatus', 'VerifyMode']) || '').trim();
+    const dailyPunches = [];
+    if (empCode && punchDate && isValidEtimePunchTime(inTime)) {
+      dailyPunches.push({
+        id: `${empCode}-${punchDate}-${String(inTime).slice(0, 5)}-in-${index}`,
+        empCode,
+        employeeName,
+        punchDate,
+        punchTime: String(inTime).slice(0, 5),
+        deviceName: 'eTimeOffice',
+        direction: 'IN',
+        status: sourceStatus,
+        sourcePayload: row,
+      });
+    }
+    if (empCode && punchDate && isValidEtimePunchTime(outTime)) {
+      dailyPunches.push({
+        id: `${empCode}-${punchDate}-${String(outTime).slice(0, 5)}-out-${index}`,
+        empCode,
+        employeeName,
+        punchDate,
+        punchTime: String(outTime).slice(0, 5),
+        deviceName: 'eTimeOffice',
+        direction: 'OUT',
+        status: sourceStatus,
+        sourcePayload: row,
+      });
+    }
+    if (dailyPunches.length) return dailyPunches;
+
     const punchTime = String(pickField(row, ['PunchTimeOnly', 'Time', 'AttendanceTime']) || split.time).trim();
+    if (!empCode || !punchDate || !punchTime) return [];
     return {
       id: `${empCode || 'emp'}-${punchDate || 'date'}-${punchTime || index}-${index}`,
       empCode,
-      employeeName: String(pickField(row, ['Name', 'EmployeeName', 'EmpName']) || '').trim(),
+      employeeName,
       punchDate,
       punchTime,
       deviceName: String(pickField(row, ['MachineNo', 'MachineName', 'DeviceName', 'Device', 'Location']) || '').trim(),
       direction: String(pickField(row, ['InOut', 'Direction', 'PunchDirection', 'IOType']) || '').trim(),
-      status: String(pickField(row, ['Status', 'AttendanceStatus', 'VerifyMode']) || '').trim(),
+      status: sourceStatus,
       sourcePayload: row,
     };
   });
+}
+
+function uniqueEtimePunchEndpoints(primary) {
+  return Array.from(new Set([primary, 'DownloadInOutPunchData', 'DownloadPunchData'].filter(Boolean)));
+}
+
+function buildEtimePunchUrl(baseUrl, endpoint, empCode, fromDate, toDate) {
+  const url = new URL(`${baseUrl.replace(/\/+$/, '')}/${endpoint}`);
+  url.searchParams.set('Empcode', empCode);
+  url.searchParams.set('FromDate', fromDate);
+  url.searchParams.set('ToDate', toDate);
+  return url;
+}
+
+function parseEtimeProviderText(text) {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return { raw: text };
+  }
+}
+
+async function requestEtimePunchEndpoint(c, endpoint, empCode, fromDate, toDate) {
+  const url = buildEtimePunchUrl(c.baseUrl, endpoint, empCode, fromDate, toDate);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), c.timeoutMs);
+  try {
+    const providerRes = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Basic ${Buffer.from(c.authCredentials).toString('base64')}`,
+        accept: 'application/json',
+      },
+    });
+    const text = await providerRes.text();
+    return {
+      endpoint,
+      providerRes,
+      providerData: parseEtimeProviderText(text),
+    };
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new HttpError(504, `eTimeOffice attendance fetch timed out while calling ${endpoint}.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchEtimePunchData(c, empCode, fromDate, toDate) {
+  let lastNotFound = null;
+  for (const endpoint of uniqueEtimePunchEndpoints(c.punchEndpoint)) {
+    const result = await requestEtimePunchEndpoint(c, endpoint, empCode, fromDate, toDate);
+    if (result.providerRes.ok || ![404, 405].includes(result.providerRes.status)) return result;
+    lastNotFound = result;
+  }
+  return lastNotFound;
 }
 
 app.get('/api/health', (_req, res) => {
@@ -784,44 +886,11 @@ app.get('/api/debug/invoice/:id', (req, res) => {
 app.get('/api/admin/attendance/punches', async (req, res) => {
   try {
     const c = etimeCfg();
-    const baseUrl = c.baseUrl.replace(/\/+$/, '');
     const empCode = String(req.query.empCode || req.query.Empcode || 'ALL').trim() || 'ALL';
     const fromDate = normalizeEtimeDate(req.query.fromDate || req.query.FromDate || '2024-01-01');
     const toDate = normalizeEtimeDate(req.query.toDate || req.query.ToDate || '2026-05-12', true);
 
-    const url = new URL(`${baseUrl}/DownloadPunchData`);
-    url.searchParams.set('Empcode', empCode);
-    url.searchParams.set('FromDate', fromDate);
-    url.searchParams.set('ToDate', toDate);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Number(process.env.ETIME_TIMEOUT_MS || 60000));
-    let providerRes;
-    try {
-      providerRes = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal,
-        headers: {
-          Authorization: `Basic ${Buffer.from(c.authCredentials).toString('base64')}`,
-          accept: 'application/json',
-        },
-      });
-    } catch (err) {
-      if (err?.name === 'AbortError') {
-        throw new HttpError(504, 'eTimeOffice attendance fetch timed out.');
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    const text = await providerRes.text();
-    let providerData = null;
-    try {
-      providerData = text ? JSON.parse(text) : null;
-    } catch {
-      providerData = { raw: text };
-    }
+    const { endpoint, providerRes, providerData } = await fetchEtimePunchData(c, empCode, fromDate, toDate);
 
     if (!providerRes.ok) {
       return res.status(providerRes.status).json({
@@ -836,6 +905,7 @@ app.get('/api/admin/attendance/punches', async (req, res) => {
     const records = normalizeEtimePunchRows(providerData);
     res.json({
       source: 'eTimeOffice',
+      providerEndpoint: endpoint,
       empCode,
       fromDate,
       toDate,

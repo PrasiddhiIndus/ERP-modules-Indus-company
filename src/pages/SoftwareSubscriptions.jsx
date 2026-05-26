@@ -16,12 +16,13 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import { ROLES } from "../config/roles";
 import { supabase } from "../lib/supabase";
+import { apiUrl } from "../lib/apiBase";
 
 const TABLE_NAME = "software_subscriptions";
 const INVOICE_FILES_TABLE = "software_subscription_invoice_files";
 const INVOICE_BUCKET = "software-subscription-invoices";
-/** Backend R2 routes (upload via Node proxy; signed GET for opens). Vite proxies /api to Node in dev. */
-const SOFTWARE_SUB_R2_API = "/api/software-subscriptions/r2";
+/** Backend R2 routes (upload via Node proxy; signed GET for opens). */
+const softwareSubR2Url = (subpath) => apiUrl(`/api/software-subscriptions/r2${subpath}`);
 const FALLBACK_USD_INR_RATE = 94.62;
 const FX_RATE_API_URL = "https://open.er-api.com/v6/latest/USD";
 const FALLBACK_USD_RATES = { USD: 1, INR: FALLBACK_USD_INR_RATE };
@@ -320,7 +321,7 @@ const SoftwareSubscriptions = () => {
       if (file.type) formData.append("contentType", file.type);
       formData.append("file", file);
 
-      const uploadRes = await fetch(`${SOFTWARE_SUB_R2_API}/upload`, {
+      const uploadRes = await fetch(softwareSubR2Url("/upload"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -367,7 +368,7 @@ const SoftwareSubscriptions = () => {
           setError("You must be signed in to open this attachment.");
           return;
         }
-        const res = await fetch(`${SOFTWARE_SUB_R2_API}/presign-get`, {
+        const res = await fetch(softwareSubR2Url("/presign-get"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
