@@ -1,18 +1,9 @@
 import { supabase } from './supabase';
-
-
-function getFleetApiOrigin() {
-  const fromEnv = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (fromEnv) return fromEnv;
-  if (import.meta.env.DEV) return 'http://127.0.0.1:8787';
-  return '';
-}
+import { apiUrl } from './apiBase';
 
 function fleetR2Url(subpath) {
   const sub = subpath.startsWith('/') ? subpath : `/${subpath}`;
-  const origin = getFleetApiOrigin();
-  if (origin) return `${origin}/api/fleet/r2${sub}`;
-  return `/api/fleet/r2${sub}`;
+  return apiUrl(`/api/fleet/r2${sub}`);
 }
 
 /**
