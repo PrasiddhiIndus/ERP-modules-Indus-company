@@ -15,6 +15,13 @@ function formatDate(d) {
   }
 }
 
+function formatShortDate(d) {
+  if (!d) return '–';
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return String(d);
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 function getRealIrn(inv) {
   const irn = inv?.e_invoice_irn || inv?.eInvoiceIrn || '';
   return String(irn).toUpperCase().startsWith('MOCK-IRN-') ? '' : irn;
@@ -24,6 +31,7 @@ const GeneratedEInvoice = () => {
   const { invoices, billingVerticalFilter, billingPoBasisFilter } = useBilling();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState({ key: 'invoiceDate', direction: 'desc' });
 
   const verticalNotSelected = !billingVerticalFilter;
   const billingPoBasisLabel =
@@ -52,14 +60,61 @@ const GeneratedEInvoice = () => {
     );
   }, [invoices, searchTerm]);
 
+  const sortedEInvoices = useMemo(() => {
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    return [...eInvoices].sort((a, b) => {
+      const valueFor = (inv) => {
+        switch (sortConfig.key) {
+          case 'modified': return new Date(inv.updated_at || inv.updatedAt || inv.invoiceDate || inv.invoice_date || inv.created_at || 0).getTime() || 0;
+          case 'created': return new Date(inv.created_at || inv.createdAt || inv.invoiceDate || inv.invoice_date || inv.updated_at || 0).getTime() || 0;
+          case 'taxInvoice': return String(inv.taxInvoiceNumber || inv.bill_number || '').toLowerCase();
+          case 'ocNumber': return String(inv.ocNumber || '').toLowerCase();
+          case 'client': return String(inv.clientLegalName || inv.client_name || '').toLowerCase();
+          case 'amount': return Number(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0);
+          case 'irn': return String(getRealIrn(inv) || '').toLowerCase();
+          case 'ack': return String(inv.e_invoice_ack_no || '').toLowerCase();
+          case 'invoiceDate':
+          default: return new Date(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt || 0).getTime() || 0;
+        }
+      };
+      const av = valueFor(a);
+      const bv = valueFor(b);
+      let result = 0;
+      if (typeof av === 'number' && typeof bv === 'number') result = av - bv;
+      else result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' });
+      if (result === 0) result = String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
+      return result * dir;
+    });
+  }, [eInvoices, sortConfig]);
+
+  const renderSortIndicator = (key) => {
+    const active = sortConfig.key === key;
+    const ascActive = active && sortConfig.direction === 'asc';
+    const descActive = active && sortConfig.direction === 'desc';
+    return (
+      <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
+        <span className={ascActive ? 'text-emerald-400' : 'text-slate-300'}>▲</span>
+        <span className={descActive ? 'text-rose-400' : 'text-slate-300'}>▼</span>
+      </span>
+    );
+  };
+
+  const toggleSort = (key) => {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: 'desc' }
+    );
+  };
+
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, eInvoices.length]);
+  }, [searchTerm, sortedEInvoices.length, sortConfig]);
 
-  const totalPages = Math.max(1, Math.ceil(eInvoices.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(sortedEInvoices.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), totalPages);
   const start = (safePage - 1) * PAGE_SIZE;
-  const paginatedEInvoices = eInvoices.slice(start, start + PAGE_SIZE);
+  const paginatedEInvoices = sortedEInvoices.slice(start, start + PAGE_SIZE);
   const goToPage = (p) => setPage(Math.min(Math.max(1, p), totalPages));
 
   const [viewId, setViewId] = useState(null);
@@ -126,15 +181,42 @@ const GeneratedEInvoice = () => {
         </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search bill number, job code, client, or IRN…"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
-        />
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search bill number, job code, client, or IRN…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
+          />
+        </div>
+        <select
+          value={sortConfig.key}
+          onChange={(e) => setSortConfig((prev) => ({ ...prev, key: e.target.value }))}
+          className="min-h-[42px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+          aria-label="Sort generated e-invoices by"
+        >
+          <option value="modified">Last modified</option>
+          <option value="created">Last created</option>
+          <option value="invoiceDate">Invoice date</option>
+          <option value="taxInvoice">Tax invoice</option>
+          <option value="ocNumber">OC number</option>
+          <option value="client">Client name</option>
+          <option value="amount">Amount</option>
+          <option value="irn">IRN</option>
+          <option value="ack">Ack No</option>
+        </select>
+        <select
+          value={sortConfig.direction}
+          onChange={(e) => setSortConfig((prev) => ({ ...prev, direction: e.target.value }))}
+          className="min-h-[42px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+          aria-label="Sort generated e-invoices direction"
+        >
+          <option value="desc">Descending</option>
+          <option value="asc">Ascending</option>
+        </select>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -147,12 +229,13 @@ const GeneratedEInvoice = () => {
                     <thead>
                       <tr>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[5%]">S.No</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[13%]">Tax Invoice #</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[15%]">OC / Site</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[17%]">Client</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[9%]">Amount</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[21%]">IRN</th>
-                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]">Ack No / Date</th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[13%]"><button type="button" onClick={() => toggleSort('taxInvoice')} className="inline-flex items-center">Tax Invoice # {renderSortIndicator('taxInvoice')}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[10%]"><button type="button" onClick={() => toggleSort('invoiceDate')} className="inline-flex items-center">Invoice Date {renderSortIndicator('invoiceDate')}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]"><button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center">OC / Site {renderSortIndicator('ocNumber')}</button></th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[16%]"><button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center">Client Name {renderSortIndicator('client')}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[9%]"><button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center">Amount {renderSortIndicator('amount')}</button></th>
+                        <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[19%]"><button type="button" onClick={() => toggleSort('irn')} className="inline-flex items-center">IRN {renderSortIndicator('irn')}</button></th>
+                        <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[14%]"><button type="button" onClick={() => toggleSort('ack')} className="inline-flex items-center">Ack No / Date {renderSortIndicator('ack')}</button></th>
                         <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[6%]">Actions</th>
                       </tr>
                     </thead>
@@ -164,6 +247,9 @@ const GeneratedEInvoice = () => {
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono truncate" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
                             {inv.taxInvoiceNumber || inv.bill_number}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-700 text-center whitespace-nowrap">
+                            {formatShortDate(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt)}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={`${inv.ocNumber || ''} / ${inv.siteId || '–'}`}>
                             {inv.ocNumber} / {inv.siteId || '–'}
@@ -224,8 +310,8 @@ const GeneratedEInvoice = () => {
           <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-gray-600">
               Showing <span className="font-medium">{start + 1}</span>–
-              <span className="font-medium">{Math.min(start + PAGE_SIZE, eInvoices.length)}</span> of{' '}
-              <span className="font-medium">{eInvoices.length}</span> invoice{eInvoices.length !== 1 ? 's' : ''}
+              <span className="font-medium">{Math.min(start + PAGE_SIZE, sortedEInvoices.length)}</span> of{' '}
+              <span className="font-medium">{sortedEInvoices.length}</span> invoice{sortedEInvoices.length !== 1 ? 's' : ''}
             </p>
             <div className="flex items-center gap-1">
               <button

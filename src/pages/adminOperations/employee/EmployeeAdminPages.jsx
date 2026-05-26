@@ -28,6 +28,7 @@ import {
   mockSalaryInputs,
   mockExits,
 } from "../data/mockAdminData";
+import { apiUrl } from "../../../lib/apiBase";
 
 const tabs = ["Personal", "Employment", "Salary", "Compliance", "Documents", "Leave", "Attendance", "Exit status"];
 
@@ -239,12 +240,6 @@ const ATTENDANCE_SORT_OPTIONS = [
   { value: "empCode", label: "Emp code" },
   { value: "employeeName", label: "Employee" },
 ];
-
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
-
-function apiUrl(path) {
-  return `${API_BASE_URL}${path}`;
-}
 
 async function readJsonResponse(res) {
   const text = await res.text();

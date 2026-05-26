@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { apiUrl } from '../lib/apiBase';
 import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
 
 /**
@@ -21,7 +22,14 @@ import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
  * validation message to fix (GSTIN, HSN, buyer PIN vs state, etc.).
  */
 
-const EINVOICE_API_BASE = import.meta.env?.VITE_EINVOICE_API_URL || '/api/billing/e-invoice';
+function resolveEInvoiceApiBase() {
+  const configured = String(import.meta.env?.VITE_EINVOICE_API_URL || '').trim().replace(/\/+$/, '');
+  if (!configured) return apiUrl('/api/billing/e-invoice');
+  if (/^https?:\/\//i.test(configured)) return configured;
+  return apiUrl(configured);
+}
+
+const EINVOICE_API_BASE = resolveEInvoiceApiBase();
 const EINVOICE_PROVIDER = String(import.meta.env?.VITE_EINVOICE_PROVIDER || 'backend').toLowerCase();
 const WHITEBOOKS_BASE_URL = import.meta.env?.VITE_WHITEBOOKS_BASE_URL || 'https://api.whitebooks.in';
 
