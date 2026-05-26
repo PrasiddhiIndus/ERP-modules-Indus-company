@@ -539,7 +539,7 @@ const WOPOManagement = () => {
                                   <p className="text-gray-900 mt-0.5">{row.payment_terms}</p>
                                 </div>
                                 <div>
-                                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">HSN/SAC</p>
+                                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">SAC/HSN</p>
                                   <p className="text-gray-900 mt-0.5">{row.hsn_sac}</p>
                                 </div>
                                 <div>
@@ -825,7 +825,7 @@ const WOPOManagement = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">HSN/SAC Code *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">SAC/HSN Code *</label>
                     <input
                       type="text"
                       value={formData.hsn_sac}

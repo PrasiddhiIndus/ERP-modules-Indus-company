@@ -309,7 +309,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-3 py-2 border-b text-left">Description</th>
-                  <th className="px-3 py-2 border-b text-left">HSN/SAC</th>
+                  <th className="px-3 py-2 border-b text-left">SAC/HSN</th>
                   <th className="px-3 py-2 border-b text-center">Qty</th>
                   <th className="px-3 py-2 border-b text-center">Rate</th>
                   <th className="px-3 py-2 border-b text-right">Amount</th>
