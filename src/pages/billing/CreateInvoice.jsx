@@ -354,6 +354,14 @@ function computeDutyRatioQty(actualDuty, authorizedDuty) {
   return round3(act / auth);
 }
 
+/** Lump sum consolidated / cumulated invoice qty: Σ actual ÷ Σ authorised across geometry rows. */
+function computeCumulativeGeometryQty(geometryRows) {
+  if (!geometryRows?.length) return 0;
+  const totalActual = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.actualDuty), 0));
+  const totalAuthorized = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.authorizedDuty), 0));
+  return computeDutyRatioQty(totalActual, totalAuthorized);
+}
+
 function computeShortDeployment(actualDuty, authorizedDuty) {
   return round3(Math.max(0, safeNumber(authorizedDuty) - safeNumber(actualDuty)));
 }
@@ -1552,15 +1560,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!lumpSumSingleInvoiceTableMode) return null;
     const geometryRows = items.filter((it) => !it.isTruckLine && it.geometryEnabled);
     if (!geometryRows.length) return null;
-    const geometryQty = round3(geometryRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0));
     const geometryAmount = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
     const penalty = round2(geometryRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0));
-    const qty = lumpSumConsolidatedLineDraft.quantity === '' ? 1 : safeNumber(lumpSumConsolidatedLineDraft.quantity);
-    const rate =
+    const qty = computeCumulativeGeometryQty(geometryRows);
+    const billAmount =
       showLumpSumPenaltyBillingSummary && lumpSumPenaltyBillingSummary
         ? lumpSumPenaltyBillingSummary.finalBillingValue
         : geometryAmount;
-    const amount = round2(qty * rate);
+    const rate = qty > 0 ? round2(billAmount / qty) : round2(billAmount);
+    const amount = round2(billAmount);
     return {
       description:
         lumpSumConsolidatedLineDraft.description == null
@@ -1619,9 +1627,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!cumulateLumpSumInvoiceLines) return lumpSumInvoiceEntryLines;
     const sourceRows = lumpSumInvoiceEntryLines.filter((row) => row);
     if (!sourceRows.length) return sourceRows;
-    const rate = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
-    const qty = round3(consolidatedLumpSumLine ? safeNumber(consolidatedLumpSumLine.quantity) : 1);
-    const amount = round2(qty * rate);
+    const geometryRows = items.filter((it) => !it.isTruckLine && it.geometryEnabled);
+    const amount = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
+    const qty = geometryRows.length
+      ? computeCumulativeGeometryQty(geometryRows)
+      : round3(consolidatedLumpSumLine ? safeNumber(consolidatedLumpSumLine.quantity) : 1);
+    const rate = qty > 0 ? round2(amount / qty) : round2(amount);
     const penalty = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.poLinePenalty), 0));
     return [
       {
@@ -1641,7 +1652,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         numberOfMonths: null,
       },
     ];
-  }, [cumulateLumpSumInvoiceLines, lumpSumInvoiceEntryLines, consolidatedLumpSumLine, displayPO]);
+  }, [cumulateLumpSumInvoiceLines, lumpSumInvoiceEntryLines, consolidatedLumpSumLine, displayPO, items]);
 
   const taxableValue = useMemo(() => {
     const sourceRows = isLumpSumBilling ? lumpSumInvoiceEntryLines : items;
@@ -2176,7 +2187,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       }
       return { ...common, ...tail };
     });
-    const totalQty = round3(sourceRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0));
+    const totalQty = computeCumulativeGeometryQty(sourceRows);
     const totalAmount = round2(sourceRows.reduce((sum, row) => sum + safeNumber(row.amount), 0));
     const totalCommon = {
       'S.No': '',
@@ -2813,7 +2824,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       <div className="mt-3 ml-7 mr-1 rounded-md border border-amber-200 bg-white/80 p-2.5">
                         <p className="text-xs font-semibold text-amber-900">Geometry inputs (calculation source)</p>
                         <p className="text-[11px] text-amber-900/85 mt-1">
-                          Edit each geometry category below; the invoice table shows their cumulative totals on the first line. Add supplementary rows (Qty × Rate) under the table for extras.
+                          Edit each geometry category below; the invoice table shows cumulative qty as (total actual / total authorised) on the first line. Add supplementary rows (Qty × Rate) under the table for extras.
                         </p>
                         <div className="mt-2 space-y-2">
                           {items.map((row, rowIdx) => (
