@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
+import {
+  FIRE_TENDER_APPROVER_MODULE_KEYS,
+  userCanApproveInModules,
+  userCanEditInModules,
+} from "../../config/roles";
+import { fetchQuotationByTenderId } from "../../lib/fireTenderShared";
 
 /** NET TOTAL row labels: A, B, … Z, then AA, AB, … (Excel-style). */
 function indexToNetTotalLetters(i) {
@@ -170,6 +177,17 @@ function getNetTotalFormulaText(row, rows, ctx) {
 
 const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0, tenderId }) => {
   console.log("CostingSummary component loaded with new checklist items");
+  const { userProfile, accessibleModules } = useAuth();
+  const canApproveQuotation = userCanApproveInModules(
+    userProfile,
+    accessibleModules,
+    FIRE_TENDER_APPROVER_MODULE_KEYS
+  );
+  const canEditSummary = userCanEditInModules(
+    userProfile,
+    accessibleModules,
+    FIRE_TENDER_APPROVER_MODULE_KEYS
+  );
   const [rows, setRows] = useState([
     { component: "Inflation Cost %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
     { component: "Overhead cost %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
@@ -218,8 +236,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
       const { data, error } = await supabase
         .from("costing_summary")
         .select("*")
-        .eq("tender_id", Number(tenderId))
-        .eq("user_id", user.id);
+        .eq("tender_id", Number(tenderId));
 
       if (error) throw error;
 
@@ -287,11 +304,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
 
     const userId = user.id;
 
-    await supabase
-      .from("costing_summary")
-      .delete()
-      .eq("tender_id", Number(tenderId))
-      .eq("user_id", userId);
+    await supabase.from("costing_summary").delete().eq("tender_id", Number(tenderId));
 
     const payload = rows.map((row) => ({
       tender_id: Number(tenderId),
@@ -351,6 +364,10 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
   }, [rows, tenderId, loading]);
 
   const approveForQuotation = async () => {
+    if (!canApproveQuotation) {
+      alert("Only managers and admins with Fire Tender access can approve into quotation.");
+      return;
+    }
     if (!tenderId) {
       alert("No tender selected. Please open a tender before approving.");
       return;
@@ -379,12 +396,11 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
 
       const userId = user.id;
 
-      // 🔹 1️⃣ Delete existing approved items for this tender and user
+      // 🔹 1️⃣ Replace approved items for this tender (shared team workflow)
       await supabase
         .from("approved_quotation_items")
         .delete()
-        .eq("tender_id", Number(tenderId))
-        .eq("user_id", userId);
+        .eq("tender_id", Number(tenderId));
 
       // 🔹 2️⃣ Insert approved items
       const payload = checkedItems.map((row) => ({
@@ -404,36 +420,25 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
 
       if (insertError) throw insertError;
 
-      // 🔹 3️⃣ Check if quotation already exists for this tender and user
-      const { data: existingQuotation, error: fetchError } = await supabase
-        .from("quotations")
-        .select("id, quotation_number")
-        .eq("tender_id", Number(tenderId))
-        .eq("user_id", userId)
-        .single();
-
-      if (fetchError && fetchError.code !== "PGRST116") {
-        // PGRST116 = "No rows found" → not an actual error here
-        throw fetchError;
-      }
+      // 🔹 3️⃣ Ensure one quotation row per tender (unique on tender_id)
+      const existingQuotation = await fetchQuotationByTenderId(supabase, tenderId);
 
       if (!existingQuotation) {
-        // 🔹 4️⃣ Generate unique quotation number (count user's quotations)
         const { count, error: countError } = await supabase
           .from("quotations")
-          .select("*", { count: "exact", head: true })
-          .eq("user_id", userId);
+          .select("*", { count: "exact", head: true });
 
         if (countError) throw countError;
 
         const paddedIndex = String((count || 0) + 1).padStart(4, "0");
         const quotationNumber = `QN/IFSPL/FT/${paddedIndex}`;
 
-        // 🔹 5️⃣ Insert quotation record with user_id
         const { error: quotationInsertError } = await supabase.from("quotations").insert([
           {
             tender_id: Number(tenderId),
             quotation_number: quotationNumber,
+            base_quotation_no: quotationNumber,
+            version: 0,
             user_id: userId,
           },
         ]);
@@ -958,7 +963,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
           ) : null}
           <button
             onClick={saveSummaryData}
-            disabled={saving || loading}
+            disabled={saving || loading || !canEditSummary}
             className="px-4 py-2 bg-green-700 text-white rounded hover:bg-green-800 disabled:opacity-50"
           >
             {saving ? "Saving..." : "💾 Save Summary"}
@@ -971,12 +976,14 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
             Export Costing Sheet XLSX Report
           </button>
 
-          <button
-            onClick={approveForQuotation}
-            className="px-5 py-2.5 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition text-sm sm:text-base"
-          >
-            ✅ Approve Into Quotation
-          </button>
+          {canApproveQuotation && (
+            <button
+              onClick={approveForQuotation}
+              className="px-5 py-2.5 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition text-sm sm:text-base"
+            >
+              ✅ Approve Into Quotation
+            </button>
+          )}
 
         </div>
       </div>

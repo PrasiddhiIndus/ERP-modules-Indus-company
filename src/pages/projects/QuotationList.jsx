@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 import { FileText, Loader2, Search } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import FireTenderNavbar from "./FireTenderNavbar";
-
-const generateQuotationNumber = (index) => {
-  const paddedIndex = String(index + 1).padStart(4, "0");
-  return `QN/IFSPL/FT/${paddedIndex}`;
-};
+import {
+  fetchApprovedQuotationTenderIds,
+  generateFireTenderQuotationNumber,
+  quotationsByTenderId,
+} from "../../lib/fireTenderShared";
 
 const QuotationList = () => {
   const [quotations, setQuotations] = useState([]);
@@ -21,22 +21,7 @@ const QuotationList = () => {
         setLoading(true);
         setError(null);
 
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-        if (userError || !user) {
-          throw new Error("User not authenticated");
-        }
-
-        const { data: approvedItems, error: approvedError } = await supabase
-          .from("approved_quotation_items")
-          .select("tender_id")
-          .eq("user_id", user.id);
-
-        if (approvedError) throw approvedError;
-
-        const tenderIds = [...new Set(approvedItems.map((i) => i.tender_id))];
+        const tenderIds = await fetchApprovedQuotationTenderIds(supabase);
 
         if (tenderIds.length === 0) {
           setQuotations([]);
@@ -53,56 +38,29 @@ const QuotationList = () => {
 
         const { data: existingQuotations, error: quotationsError } = await supabase
           .from("quotations")
-          .select("*")
-          .eq("user_id", user.id);
+          .select("tender_id, quotation_number, base_quotation_no")
+          .in("tender_id", tenderIds);
 
         if (quotationsError) throw quotationsError;
 
-        const finalQuotations = [];
-        const newQuotationsToInsert = [];
+        const quotationMap = quotationsByTenderId(existingQuotations);
+        const sortedTenders = [...(tenders || [])].sort((a, b) => a.id - b.id);
 
-        for (let i = 0; i < tenders.length; i++) {
-          const tender = tenders[i];
-          const existing = existingQuotations.find((q) => q.tender_id === tender.id);
+        const finalQuotations = sortedTenders.map((tender, index) => {
+          const existing = quotationMap.get(tender.id);
+          const quotationNumber =
+            existing?.quotation_number ||
+            existing?.base_quotation_no ||
+            generateFireTenderQuotationNumber(index);
 
-          if (existing) {
-            finalQuotations.push({
-              id: tender.id,
-              tenderNumber: tender.tender_number,
-              quotationNumber: existing.quotation_number,
-              client: tender.client,
-              status: tender.status || "Approved",
-            });
-          } else {
-            const quotationNumber = generateQuotationNumber(existingQuotations.length + newQuotationsToInsert.length);
-
-            newQuotationsToInsert.push({
-              tender_id: tender.id,
-              quotation_number: quotationNumber,
-            });
-
-            finalQuotations.push({
-              id: tender.id,
-              tenderNumber: tender.tender_number,
-              quotationNumber,
-              client: tender.client,
-              status: tender.status || "Approved",
-            });
-          }
-        }
-
-        if (newQuotationsToInsert.length > 0) {
-          const { error: insertError } = await supabase.from("quotations").insert(
-            newQuotationsToInsert.map((q) => ({
-              tender_id: q.tender_id,
-              quotation_number: q.quotation_number,
-              base_quotation_no: q.quotation_number,
-              version: 0,
-              user_id: user.id,
-            }))
-          );
-          if (insertError) throw insertError;
-        }
+          return {
+            id: tender.id,
+            tenderNumber: tender.tender_number,
+            quotationNumber,
+            client: tender.client,
+            status: tender.status || "Approved",
+          };
+        });
 
         setQuotations(finalQuotations);
       } catch (err) {
