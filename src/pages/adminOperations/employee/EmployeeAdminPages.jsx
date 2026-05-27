@@ -28,7 +28,7 @@ import {
   mockSalaryInputs,
   mockExits,
 } from "../data/mockAdminData";
-import { apiUrl } from "../../../lib/apiBase";
+import { apiUrl, fetchApiHealth, fetchAttendanceApiStatus } from "../../../lib/apiBase";
 
 const tabs = ["Personal", "Employment", "Salary", "Compliance", "Documents", "Leave", "Attendance", "Exit status"];
 
@@ -251,6 +251,27 @@ async function readJsonResponse(res) {
   }
 }
 
+function formatAttendanceApiError(err, res, data) {
+  if (err?.name === "AbortError") {
+    return "eTimeOffice request timed out. Try a single date or fewer employees, then sync again.";
+  }
+  const msg = String(err?.message || data?.message || "").trim();
+  if (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(msg)) {
+    return [
+      "Cannot reach the ERP API server (eTimeOffice proxy).",
+      "Run `npm run dev` (starts Vite + Node on port 8787) or `npm run server` in a separate terminal.",
+      "Ensure `.env.server` includes ETIME_AUTH_CREDENTIALS (see `.env.server.example`).",
+      import.meta.env.DEV
+        ? "In dev, the app calls /api via the Vite proxy — both processes must be running."
+        : "In production, set VITE_API_BASE_URL to your deployed Node server URL and redeploy the frontend.",
+    ].join(" ");
+  }
+  if (res?.status === 500 && /ETIME_AUTH_CREDENTIALS/i.test(msg)) {
+    return `${msg} Add ETIME_* variables to .env.server and restart the Node server.`;
+  }
+  return msg || "Unable to sync attendance punches from eTimeOffice.";
+}
+
 function normalizeDbDate(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -344,11 +365,66 @@ export function EmployeeAttendanceInputsPage() {
   const [sortDir, setSortDir] = useState("desc");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const [apiConnection, setApiConnection] = useState({
+    checking: true,
+    reachable: false,
+    etimeConfigured: false,
+    message: "",
+    baseUrl: "",
+    punchEndpoint: "",
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchDebounced(search), 350);
     return () => clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setApiConnection((prev) => ({ ...prev, checking: true }));
+      const health = await fetchApiHealth();
+      if (cancelled) return;
+      if (!health.ok) {
+        setApiConnection({
+          checking: false,
+          reachable: false,
+          etimeConfigured: false,
+          message: health.error || `API health check failed (${health.status || "offline"}).`,
+          baseUrl: "",
+          punchEndpoint: "",
+        });
+        return;
+      }
+      const status = await fetchAttendanceApiStatus();
+      if (cancelled) return;
+      if (!status.ok || !status.data?.etimeConfigured) {
+        setApiConnection({
+          checking: false,
+          reachable: true,
+          etimeConfigured: false,
+          message:
+            status.data?.message ||
+            status.error ||
+            "Node server is up but eTimeOffice credentials are missing on the server.",
+          baseUrl: status.data?.baseUrl || "",
+          punchEndpoint: status.data?.punchEndpoint || "",
+        });
+        return;
+      }
+      setApiConnection({
+        checking: false,
+        reachable: true,
+        etimeConfigured: true,
+        message: "",
+        baseUrl: status.data?.baseUrl || "",
+        punchEndpoint: status.data?.punchEndpoint || "",
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadAttendanceFromTable = useCallback(async () => {
     setLoading(true);
@@ -396,15 +472,16 @@ export function EmployeeAttendanceInputsPage() {
     setSyncing(true);
     setError("");
     try {
+      if (!apiConnection.etimeConfigured && !apiConnection.checking) {
+        throw new Error(
+          apiConnection.message ||
+            "eTimeOffice API is not configured. Fix server env (ETIME_AUTH_CREDENTIALS) and restart Node."
+        );
+      }
       const res = await fetch(apiUrl(`/api/admin/attendance/punches?${params.toString()}`));
       const data = await readJsonResponse(res);
       if (!res.ok) {
-        const message = data?.message || `Attendance fetch failed (${res.status})`;
-        throw new Error(
-          res.status === 500 && !data?.message
-            ? `${message}. Check that the local Node server is running on port 8787 and .env.server has ETIME_AUTH_CREDENTIALS.`
-            : message
-        );
+        throw new Error(formatAttendanceApiError(null, res, data));
       }
       const dbRows = (Array.isArray(data?.records) ? data.records : []).map(mapApiPunchToDbRow);
       const storedCount = dbRows.length ? await upsertAttendanceRows(dbRows) : 0;
@@ -428,11 +505,21 @@ export function EmployeeAttendanceInputsPage() {
       setRows(result.rows);
       setTotalCount(result.total);
     } catch (err) {
-      setError(err?.message || "Unable to sync attendance punches.");
+      setError(formatAttendanceApiError(err));
     } finally {
       setSyncing(false);
     }
-  }, [empCode, pageSize, searchDebounced, selectedDate, sortDir, sortKey]);
+  }, [
+    apiConnection.checking,
+    apiConnection.etimeConfigured,
+    apiConnection.message,
+    empCode,
+    pageSize,
+    searchDebounced,
+    selectedDate,
+    sortDir,
+    sortKey,
+  ]);
 
   useEffect(() => {
     loadAttendanceFromTable();
@@ -493,7 +580,12 @@ export function EmployeeAttendanceInputsPage() {
         <button
           type="button"
           onClick={syncAttendanceFromApi}
-          disabled={syncing || loading}
+          disabled={syncing || loading || apiConnection.checking || !apiConnection.etimeConfigured}
+          title={
+            !apiConnection.etimeConfigured && !apiConnection.checking
+              ? apiConnection.message || "eTimeOffice API not ready"
+              : "Fetch punches from eTimeOffice into Supabase"
+          }
           className="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs disabled:opacity-60"
         >
           {syncing ? "Syncing..." : "Sync eTimeOffice"}
@@ -510,11 +602,35 @@ export function EmployeeAttendanceInputsPage() {
 
       <p className="mt-2 text-[11px] text-gray-600 rounded-lg border border-blue-100 bg-blue-50/80 px-3 py-2">
         <span className="font-medium text-blue-900">Display is from Supabase</span> (table{" "}
-        <code className="text-[10px]">erp_attendance_punches</code>). Click{" "}
-        <span className="font-medium">Sync eTimeOffice</span> to fetch API data into the table; the grid then reloads from the database (fast).
+        <code className="text-[10px]">erp_attendance_punches</code>). eTimeOffice data is{" "}
+        <span className="font-medium">not loaded automatically</span> — click{" "}
+        <span className="font-medium">Sync eTimeOffice</span> to pull punches for the selected date into Supabase, then the grid reloads.
       </p>
 
-      {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>}
+      {apiConnection.checking ? (
+        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+          Checking connection to eTimeOffice proxy…
+        </div>
+      ) : null}
+      {!apiConnection.checking && !apiConnection.reachable ? (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 whitespace-pre-wrap">
+          {apiConnection.message}
+        </div>
+      ) : null}
+      {!apiConnection.checking && apiConnection.reachable && !apiConnection.etimeConfigured ? (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 whitespace-pre-wrap">
+          {apiConnection.message}
+        </div>
+      ) : null}
+      {!apiConnection.checking && apiConnection.etimeConfigured ? (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
+          eTimeOffice proxy ready
+          {apiConnection.punchEndpoint ? ` (${apiConnection.punchEndpoint})` : ""}. Use Sync to import punches for{" "}
+          {selectedDate}.
+        </div>
+      ) : null}
+
+      {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 whitespace-pre-wrap">{error}</div>}
 
       <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2">
@@ -557,7 +673,12 @@ export function EmployeeAttendanceInputsPage() {
         <SectionCard title="eTimeOffice sync" className="!shadow-none">
           <Timeline
             items={[
-              { title: "Source", meta: "Supabase table · eTimeOffice sync" },
+              {
+                title: "Source",
+                meta: apiConnection.etimeConfigured
+                  ? `Supabase · eTimeOffice (${apiConnection.punchEndpoint || "API"})`
+                  : "Supabase table · eTimeOffice sync",
+              },
               { title: "Date", meta: summary?.selectedDate || selectedDate },
               { title: "Records for date", meta: `${totalCount} total · page ${currentPage} (${rows.length} shown)` },
               { title: "Last API sync", meta: summary?.syncedCount != null ? `${summary.syncedCount} stored` : "Not synced this session" },

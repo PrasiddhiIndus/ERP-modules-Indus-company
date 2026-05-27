@@ -2,6 +2,12 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
+import {
+  fetchApprovedQuotationItemsByTenderId,
+  fetchApprovedQuotationTenderIds,
+  fetchQuotationByTenderId,
+  generateFireTenderQuotationNumber,
+} from "../../lib/fireTenderShared";
 import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { INDUS_LOGO_SRC } from "../../constants/branding.js";
@@ -88,14 +94,8 @@ const QuotationDetail = () => {
           throw new Error("User not authenticated");
         }
 
-        /* ---- 1. Approved tender IDs (to generate quotation number) for current user ---- */
-        const { data: approvedIds, error: idsErr } = await supabase
-          .from("approved_quotation_items")
-          .select("tender_id")
-          .eq("include", true)
-          .eq("user_id", user.id);
-        if (idsErr) throw idsErr;
-        const approvedTenderIds = [...new Set(approvedIds.map((i) => i.tender_id))].sort(
+        /* ---- 1. Approved tender IDs (shared team workflow) ---- */
+        const approvedTenderIds = (await fetchApprovedQuotationTenderIds(supabase)).sort(
           (a, b) => a - b
         );
 
@@ -110,15 +110,8 @@ const QuotationDetail = () => {
         if (tenderErr) throw tenderErr;
         setClientEmail(tender.email || "");
 
-        /* ---- 3. Approved items for current user ---- */
-        const { data: approved, error: approvedErr } = await supabase
-          .from("approved_quotation_items")
-          .select("*")
-          .eq("tender_id", id)
-          .eq("include", true)
-          .eq("user_id", user.id)
-          .order("component", { ascending: true });
-        if (approvedErr) throw approvedErr;
+        /* ---- 3. Approved items (shared per tender) ---- */
+        const approved = await fetchApprovedQuotationItemsByTenderId(supabase, id);
 
         const items = approved.map((i) => ({
           description: i.component,
@@ -132,18 +125,11 @@ const QuotationDetail = () => {
         if (!quotationNumber) {
           const idx = approvedTenderIds.indexOf(parseInt(id));
           if (idx === -1) throw new Error("Tender not approved");
-          quotationNumber = generateQuotationNumber(idx);
+          quotationNumber = generateFireTenderQuotationNumber(idx);
         }
 
-        /* ---- 5. Existing saved quotation (if any) for current user ---- */
-        const { data: savedQuotation, error: savedErr } = await supabase
-          .from("quotations")
-          .select("*")
-          .eq("tender_id", id)
-          .eq("user_id", user.id)
-          .single();
-
-        if (savedErr && savedErr.code !== "PGRST116") console.error(savedErr);
+        /* ---- 5. Existing saved quotation (one row per tender) ---- */
+        const savedQuotation = await fetchQuotationByTenderId(supabase, id);
 
         const baseNo = savedQuotation?.base_quotation_no || quotationNumber;
         const version = savedQuotation?.version || 0;
@@ -316,26 +302,22 @@ const QuotationDetail = () => {
         updated_at: new Date().toISOString(),
       };
 
-      // Get current user for user_id
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
         throw new Error("User not authenticated");
       }
 
-      // Try update by tender_id and user_id
-      const { data: updatedRows, error: updateErr } = await supabase
-        .from("quotations")
-        .update({ ...payload, user_id: user.id })
-        .eq("tender_id", parseInt(id))
-        .eq("user_id", user.id)
-        .select();
-      if (updateErr) throw updateErr;
-
-      // If no existing row, insert new with user_id
-      if (!updatedRows || updatedRows.length === 0) {
-        const { error: insertErr } = await supabase
+      const existing = await fetchQuotationByTenderId(supabase, id);
+      if (existing) {
+        const { error: updateErr } = await supabase
           .from("quotations")
-          .insert([{ tender_id: parseInt(id), ...payload, user_id: user.id }]);
+          .update(payload)
+          .eq("tender_id", parseInt(id));
+        if (updateErr) throw updateErr;
+      } else {
+        const { error: insertErr } = await supabase.from("quotations").insert([
+          { tender_id: parseInt(id), ...payload, user_id: user.id },
+        ]);
         if (insertErr) throw insertErr;
       }
 
@@ -498,14 +480,9 @@ const QuotationDetail = () => {
       let latestQ = overrideQuotation || quotation;
       
       // Fetch latest quotation from database to get all current values
-      const { data: latestQuotation, error: fetchErr } = await supabase
-        .from("quotations")
-        .select("*")
-        .eq("tender_id", id)
-        .eq("user_id", user.id)
-        .single();
-      
-      if (!fetchErr && latestQuotation) {
+      const latestQuotation = await fetchQuotationByTenderId(supabase, id);
+
+      if (latestQuotation) {
         // Merge latest database data with current state - ensure all fields from database
         latestQ = {
           ...latestQ,
@@ -530,22 +507,14 @@ const QuotationDetail = () => {
           signed_by: latestQuotation.signed_by || "EMPTY",
           signature_url: latestQuotation.signature_url ? "EXISTS" : "EMPTY",
         });
-      } else if (fetchErr && fetchErr.code !== "PGRST116") {
-        // PGRST116 means no rows found, which is okay for new quotations
-        console.warn("⚠️ Could not fetch latest quotation from database, using current state:", fetchErr);
       }
       
       // Ensure we have a PDF to send - save first to generate PDF if needed
       if (!latestQ.pdf_url && !overrideQuotation) {
         await handleSave(); // Save first to generate PDF and ensure latest data is saved
         // After save, fetch again to get the updated PDF URL and all fields
-        const { data: savedQuotation } = await supabase
-          .from("quotations")
-          .select("*")
-          .eq("tender_id", id)
-          .eq("user_id", user.id)
-          .single();
-        
+        const savedQuotation = await fetchQuotationByTenderId(supabase, id);
+
         if (savedQuotation) {
           latestQ = {
             ...latestQ,

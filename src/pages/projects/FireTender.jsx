@@ -20,6 +20,12 @@ import {
   XCircle,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
+import {
+  FIRE_TENDER_APPROVER_MODULE_KEYS,
+  userCanApproveInModules,
+  userCanEditInModules,
+} from "../../config/roles";
 import FireTenderNavbar from "./FireTenderNavbar";
 
 /** Form controls — slate borders, red focus ring (Fire Tender) */
@@ -382,6 +388,17 @@ const FireTender = () => {
   const [formData, setFormData] = useState(initialFormData);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const { userProfile, accessibleModules } = useAuth();
+  const canApproveTenders = userCanApproveInModules(
+    userProfile,
+    accessibleModules,
+    FIRE_TENDER_APPROVER_MODULE_KEYS
+  );
+  const canEditTenders = userCanEditInModules(
+    userProfile,
+    accessibleModules,
+    FIRE_TENDER_APPROVER_MODULE_KEYS
+  );
 
   const filteredTenders = useMemo(() => {
     if (!searchQuery.trim()) return tenders;
@@ -518,6 +535,10 @@ const FireTender = () => {
   };
 
   const handleSaveTender = async () => {
+    if (!canEditTenders) {
+      alert("You do not have permission to create or update tenders.");
+      return;
+    }
     if (!formData.client || !formData.dueDate || !formData.authorizationTo) {
       alert("Client, Due Date, and Authorization To are required!");
       return;
@@ -649,6 +670,10 @@ const FireTender = () => {
   };
 
   const openEditEntry = async (tender) => {
+    if (!canEditTenders) {
+      alert("You do not have permission to edit tenders.");
+      return;
+    }
     setModalEditId(tender.id);
     setFormData(initialFormData);
     setEntryModalOpen(true);
@@ -669,6 +694,10 @@ const FireTender = () => {
   };
 
   const handleApprove = async (tid) => {
+    if (!canApproveTenders) {
+      alert("You do not have permission to approve tenders. Managers and admins can approve.");
+      return;
+    }
     const tender = tenders.find((t) => t.id === tid);
     let tenderNumber = tender.tender_number;
 
@@ -690,6 +719,10 @@ const FireTender = () => {
   };
 
   const handleReject = async (tid) => {
+    if (!canApproveTenders) {
+      alert("You do not have permission to reject tenders. Managers and admins can approve.");
+      return;
+    }
     const tender = tenders.find((t) => t.id === tid);
     let tenderNumber = tender.tender_number;
 
@@ -711,6 +744,10 @@ const FireTender = () => {
   };
 
   const handleDelete = async (tid) => {
+    if (!canEditTenders) {
+      alert("You do not have permission to delete tenders.");
+      return;
+    }
     if (!window.confirm("Delete this tender? This cannot be undone.")) return;
     await supabase.from("tenders").delete().eq("id", tid);
     setTenders((prev) => prev.filter((t) => t.id !== tid));
@@ -829,42 +866,50 @@ const FireTender = () => {
                           <td className="px-4 py-3 text-gray-800 text-xs">{tender.tender_number || "Not assigned"}</td>
                           <td className="px-4 py-3 text-right">
                             <div className="inline-flex flex-wrap items-center justify-end gap-1.5" role="group" aria-label="Tender actions">
-                              <button
-                                type="button"
-                                title="Edit tender"
-                                aria-label="Edit tender"
-                                onClick={() => openEditEntry(tender)}
-                                className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-300 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1"
-                              >
-                                <Pencil className="w-4 h-4" strokeWidth={2} />
-                              </button>
-                              <button
-                                type="button"
-                                title="Approve tender"
-                                aria-label="Approve tender"
-                                onClick={() => handleApprove(tender.id)}
-                                className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-300 transition-colors focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-1"
-                              >
-                                <CheckCircle2 className="w-4 h-4" strokeWidth={2} />
-                              </button>
-                              <button
-                                type="button"
-                                title="Reject tender"
-                                aria-label="Reject tender"
-                                onClick={() => handleReject(tender.id)}
-                                className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-300 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
-                              >
-                                <XCircle className="w-4 h-4" strokeWidth={2} />
-                              </button>
-                              <button
-                                type="button"
-                                title="Delete tender"
-                                aria-label="Delete tender"
-                                onClick={() => handleDelete(tender.id)}
-                                className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-red-700 hover:border-red-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1"
-                              >
-                                <Trash2 className="w-4 h-4" strokeWidth={2} />
-                              </button>
+                              {canEditTenders && (
+                                <button
+                                  type="button"
+                                  title="Edit tender"
+                                  aria-label="Edit tender"
+                                  onClick={() => openEditEntry(tender)}
+                                  className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-300 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1"
+                                >
+                                  <Pencil className="w-4 h-4" strokeWidth={2} />
+                                </button>
+                              )}
+                              {canApproveTenders && (
+                                <>
+                                  <button
+                                    type="button"
+                                    title="Approve tender"
+                                    aria-label="Approve tender"
+                                    onClick={() => handleApprove(tender.id)}
+                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-300 transition-colors focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-1"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" strokeWidth={2} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Reject tender"
+                                    aria-label="Reject tender"
+                                    onClick={() => handleReject(tender.id)}
+                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-300 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
+                                  >
+                                    <XCircle className="w-4 h-4" strokeWidth={2} />
+                                  </button>
+                                </>
+                              )}
+                              {canEditTenders && (
+                                <button
+                                  type="button"
+                                  title="Delete tender"
+                                  aria-label="Delete tender"
+                                  onClick={() => handleDelete(tender.id)}
+                                  className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-red-700 hover:border-red-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1"
+                                >
+                                  <Trash2 className="w-4 h-4" strokeWidth={2} />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
