@@ -61,6 +61,7 @@ export const Operations = lazy(() => import("../pages/operations/Operations"));
 export const ProjectsBilling = lazy(() => import("../pages/projectsBilling/ProjectsBilling"));
 export const ProjectsManagement = lazy(() => import("../pages/projectsManagement/ProjectsManagement"));
 export const ProjectsPoHub = lazy(() => import("../pages/projects/ProjectsPoHub"));
+export const ProjectsEnquiryHub = lazy(() => import("../pages/projects/enquiry/ProjectsEnquiryHub"));
 export const AccountsFinance = lazy(() => import("../pages/accountsFinance/AccountsFinance"));
 
 // HR / admin / compliance
