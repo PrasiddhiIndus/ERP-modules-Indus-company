@@ -45,6 +45,7 @@ import {
   ProjectsBilling,
   ProjectsManagement,
   ProjectsPoHub,
+  ProjectsEnquiryHub,
   AccountsFinance,
   PeopleManagement,
   IfspEmployeeCompliance,
@@ -458,6 +459,10 @@ function App() {
             <Route path="projects/po" element={<ProjectsPoHub />} />
             <Route path="projects/po/po-entry" element={<ProjectsPoHub />} />
             <Route path="projects/po/contact-log" element={<ProjectsPoHub />} />
+            <Route path="projects/enquiry" element={<ProjectsEnquiryHub />} />
+            <Route path="projects/enquiry/enquiry-entry" element={<ProjectsEnquiryHub />} />
+            <Route path="projects/enquiry/enquiry-database" element={<ProjectsEnquiryHub />} />
+            <Route path="projects/enquiry/enquiry-dropdown" element={<ProjectsEnquiryHub />} />
             
             {/* Procurement */}
             <Route path="procurement" element={<Procurement />} />
