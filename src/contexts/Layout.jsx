@@ -140,6 +140,7 @@ const Layout = () => {
     if (pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations")) setOperationsOpen(true);
     if (
       pathname.startsWith("/app/projects/po") ||
+      pathname.startsWith("/app/projects/enquiry") ||
       pathname.startsWith("/app/projects-management") ||
       pathname.startsWith("/app/projects-billing")
     ) {
@@ -842,6 +843,7 @@ const Layout = () => {
                 onClick={() => setProjectsOpen(!projectsOpen)}
                 className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${
                   pathname.startsWith("/app/projects/po") ||
+                  pathname.startsWith("/app/projects/enquiry") ||
                   pathname.startsWith("/app/projects-management") ||
                   pathname.startsWith("/app/projects-billing")
                     ? "bg-red-50 text-red-800 shadow-sm"
@@ -868,6 +870,10 @@ const Layout = () => {
                   <NavLink to="projects-billing" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-purple-600" />
                     <span className="text-xs">Projects Billing</span>
+                  </NavLink>
+                  <NavLink to="projects/enquiry" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <span className="text-xs">Enquiry Master</span>
                   </NavLink>
                   <NavLink to="projects/po" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-blue-600" />
