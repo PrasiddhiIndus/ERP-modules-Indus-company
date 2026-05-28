@@ -276,6 +276,9 @@ export const COMMERCIAL_RM_APPROVER_MODULE_KEYS = ["commercialRm", "sales"];
 /** PO/WO approval in Projects → PO Entry (same workflow as Commercial R&M). */
 export const PROJECTS_PO_APPROVER_MODULE_KEYS = ["projects", "sales"];
 
+/** Tender approve/reject and costing → quotation approval in Fire Tender. */
+export const FIRE_TENDER_APPROVER_MODULE_KEYS = ["fireTender"];
+
 /**
  * Universal approval gate: Super Admin tiers and Admin approve anywhere; Managers only within listed module keys.
  * @param {{ role?: string }} userProfile - from AuthContext
