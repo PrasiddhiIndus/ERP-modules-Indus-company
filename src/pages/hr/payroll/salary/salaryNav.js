@@ -1,0 +1,15 @@
+export const SALARY_NAV = [
+  { to: 'dashboard', label: 'Dashboard' },
+  { to: 'employees', label: 'Employee payroll list' },
+  { to: 'run', label: 'Payroll run' },
+  { to: 'site-formulas', label: 'Site formulas' },
+  { to: 'manual-inputs', label: 'Manual inputs' },
+  { to: 'pf', label: 'PF' },
+  { to: 'esic', label: 'ESIC' },
+  { to: 'pt', label: 'State tax (PT)' },
+  { to: 'tds', label: 'Income tax (TDS)' },
+  { to: 'loans', label: 'Loans & recoveries' },
+  { to: 'register', label: 'Payroll register' },
+  { to: 'outputs', label: 'Payslips / outputs' },
+  { to: 'settings', label: 'Settings' },
+];
