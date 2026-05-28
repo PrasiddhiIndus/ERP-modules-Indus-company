@@ -53,6 +53,7 @@ const SUMMARY_COLUMNS = [
 
 const BULK_MARKS = [
   { mark: "P", label: "Mark P" },
+  { mark: "P(OD)", label: "Mark P(OD)" },
   { mark: "L", label: "Mark L" },
   { mark: "WO", label: "Mark WO" },
   { mark: REGISTER_MARK_NHPH, label: "Mark NH/PH" },
@@ -82,8 +83,10 @@ export function EmployeeAttendanceDailyPage() {
   const [monthValue, setMonthValue] = useState(isoMonthToday());
   const [empCode, setEmpCode] = useState("");
   const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState("ALL");
   const [punches, setPunches] = useState([]);
   const [manualMarks, setManualMarks] = useState({});
+  const [manualRemarks, setManualRemarks] = useState({});
   const [activeEmployees, setActiveEmployees] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -92,9 +95,17 @@ export function EmployeeAttendanceDailyPage() {
   const [summaryOverlayOpen, setSummaryOverlayOpen] = useState(false);
   const [bulkDate, setBulkDate] = useState("");
   const [bulkOverwrite, setBulkOverwrite] = useState(false);
+  const [bulkPodComment, setBulkPodComment] = useState("");
+  const [bulkPodCommentOpen, setBulkPodCommentOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [savingMark, setSavingMark] = useState(false);
   const [registerCodeWarning, setRegisterCodeWarning] = useState("");
+  const [commentEditor, setCommentEditor] = useState({
+    open: false,
+    empCode: "",
+    day: null,
+    value: "",
+  });
 
   const monthMeta = useMemo(() => monthDateRange(monthValue), [monthValue]);
 
@@ -111,7 +122,7 @@ export function EmployeeAttendanceDailyPage() {
     setLoading(true);
     setError("");
     try {
-      const [punchRows, employees, marks] = await Promise.all([
+      const [punchRows, employees, registerData] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
           toDate: monthMeta.toDate,
@@ -123,7 +134,8 @@ export function EmployeeAttendanceDailyPage() {
       const employeesWithCode = employees.filter((e) => e.empCode);
       setPunches(punchRows);
       setActiveEmployees(employeesWithCode);
-      setManualMarks(marks);
+      setManualMarks(registerData?.marks || {});
+      setManualRemarks(registerData?.remarks || {});
       if (employees.length > employeesWithCode.length) {
         setRegisterCodeWarning(
           `${employees.length - employeesWithCode.length} active employee(s) hidden — add employee_code in Employee Master to include them in the register.`
@@ -134,6 +146,7 @@ export function EmployeeAttendanceDailyPage() {
     } catch (err) {
       setPunches([]);
       setManualMarks({});
+      setManualRemarks({});
       setRegisterCodeWarning("");
       setError(formatAttendanceSupabaseError(err));
     } finally {
@@ -160,20 +173,35 @@ export function EmployeeAttendanceDailyPage() {
       const registerDate = registerDateFromDay(monthMeta.monthKey, day);
       const next = { ...manualMarks };
       const empMarks = { ...(next[empCodeKey] || {}) };
+      const nextRemarks = { ...manualRemarks };
+      const empRemarks = { ...(nextRemarks[empCodeKey] || {}) };
       if (!value) delete empMarks[day];
       else empMarks[day] = value;
+      if (value !== "P(OD)") delete empRemarks[day];
       if (Object.keys(empMarks).length) next[empCodeKey] = empMarks;
       else delete next[empCodeKey];
+      if (Object.keys(empRemarks).length) nextRemarks[empCodeKey] = empRemarks;
+      else delete nextRemarks[empCodeKey];
       setManualMarks(next);
+      setManualRemarks(nextRemarks);
+      if (value === "P(OD)") {
+        setCommentEditor({
+          open: true,
+          empCode: empCodeKey,
+          day,
+          value: empRemarks[day] || "",
+        });
+      }
 
       setSavingMark(true);
       try {
-        await upsertRegisterMark(supabase, empCodeKey, registerDate, value);
+        await upsertRegisterMark(supabase, empCodeKey, registerDate, value, value === "P(OD)" ? empRemarks[day] || "" : "");
       } catch (err) {
         setError(formatAttendanceSupabaseError(err));
         try {
-          const marks = await loadRegisterMarksForMonth(supabase, monthMeta);
-          setManualMarks(marks);
+          const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+          setManualMarks(registerData?.marks || {});
+          setManualRemarks(registerData?.remarks || {});
         } catch {
           /* ignore reload failure */
         }
@@ -181,18 +209,65 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [manualMarks, monthMeta]
+    [manualMarks, manualRemarks, monthMeta]
   );
+
+  const openPodCommentEditor = useCallback(
+    (empCodeKey, day) => {
+      if (manualMarks[empCodeKey]?.[day] !== "P(OD)") return;
+      setCommentEditor({
+        open: true,
+        empCode: empCodeKey,
+        day,
+        value: manualRemarks[empCodeKey]?.[day] || "",
+      });
+    },
+    [manualMarks, manualRemarks]
+  );
+
+  const closePodCommentEditor = useCallback(() => {
+    setCommentEditor({ open: false, empCode: "", day: null, value: "" });
+  }, []);
+
+  const savePodCommentEditor = useCallback(async () => {
+    if (!monthMeta?.monthKey || !commentEditor.empCode || !commentEditor.day) return;
+    const { empCode: empCodeKey, day, value } = commentEditor;
+    const trimmed = value.trim();
+    const next = { ...manualRemarks };
+    const empRemarks = { ...(next[empCodeKey] || {}) };
+    if (!trimmed) delete empRemarks[day];
+    else empRemarks[day] = trimmed;
+    if (Object.keys(empRemarks).length) next[empCodeKey] = empRemarks;
+    else delete next[empCodeKey];
+    setManualRemarks(next);
+
+    setSavingMark(true);
+    try {
+      await upsertRegisterMark(
+        supabase,
+        empCodeKey,
+        registerDateFromDay(monthMeta.monthKey, day),
+        "P(OD)",
+        trimmed
+      );
+      closePodCommentEditor();
+    } catch (err) {
+      setError(formatAttendanceSupabaseError(err));
+    } finally {
+      setSavingMark(false);
+    }
+  }, [commentEditor, closePodCommentEditor, manualRemarks, monthMeta]);
 
   const filteredRows = useMemo(() => {
     const codeFilter = normalizeAttendanceEmpCode(empCode.trim());
     const needle = search.trim().toLowerCase();
     return gridRows.filter((row) => {
       if (codeFilter && row.empCode !== codeFilter) return false;
+      if (department !== "ALL" && (row.department || "") !== department) return false;
       if (!needle) return true;
-      return [row.employeeId, row.empCode, row.employeeName].join(" ").toLowerCase().includes(needle);
+      return [row.employeeId, row.empCode, row.employeeName, row.department].join(" ").toLowerCase().includes(needle);
     });
-  }, [gridRows, search, empCode]);
+  }, [gridRows, search, empCode, department]);
 
   const rowsWithSummary = useMemo(
     () => attachRegisterRowSummaries(filteredRows, manualMarks, daysInMonth),
@@ -212,13 +287,17 @@ export function EmployeeAttendanceDailyPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize, rowsWithSummary.length, search, monthValue, empCode]);
+  }, [pageSize, rowsWithSummary.length, search, monthValue, empCode, department]);
 
   const handleExportExcel = async () => {
     if (!monthMeta || !rowsWithSummary.length) return;
     setExporting(true);
     try {
-      await downloadMonthlyRegisterExcel(rowsWithSummary, daysInMonth, monthMeta?.monthKey);
+      const rowsWithRemarks = rowsWithSummary.map((row) => ({
+        ...row,
+        dayRemarks: manualRemarks[row.empCode] || {},
+      }));
+      await downloadMonthlyRegisterExcel(rowsWithRemarks, daysInMonth, monthMeta?.monthKey);
     } finally {
       setExporting(false);
     }
@@ -232,6 +311,11 @@ export function EmployeeAttendanceDailyPage() {
       const empCodes = filteredRows.map((r) => r.empCode);
       if (!empCodes.length) return;
 
+      if (mark === "P(OD)") {
+        setBulkPodCommentOpen(true);
+        return;
+      }
+
       const next = applyBulkRegisterMarks(manualMarks, gridRows, {
         empCodes,
         dayFrom: day,
@@ -242,16 +326,25 @@ export function EmployeeAttendanceDailyPage() {
 
       const upserts = [];
       const deletes = [];
+      const nextRemarks = { ...manualRemarks };
       for (const code of empCodes) {
         const prev = manualMarks[code]?.[day];
         const updated = next[code]?.[day];
         if (prev === updated) continue;
+        const existingRemark = nextRemarks[code]?.[day] || "";
+        if (updated !== "P(OD)" && nextRemarks[code]?.[day]) {
+          const empRemarks = { ...(nextRemarks[code] || {}) };
+          delete empRemarks[day];
+          if (Object.keys(empRemarks).length) nextRemarks[code] = empRemarks;
+          else delete nextRemarks[code];
+        }
         if (updated) {
           upserts.push({
             employee_code: code,
             register_date: bulkDate,
             month_key: monthMeta.monthKey,
             mark: updated,
+            mark_remark: updated === "P(OD)" ? existingRemark : null,
             updated_at: new Date().toISOString(),
           });
         } else {
@@ -260,6 +353,7 @@ export function EmployeeAttendanceDailyPage() {
       }
 
       setManualMarks(next);
+      setManualRemarks(nextRemarks);
       setSavingMark(true);
       try {
         if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts);
@@ -267,8 +361,9 @@ export function EmployeeAttendanceDailyPage() {
       } catch (err) {
         setError(formatAttendanceSupabaseError(err));
         try {
-          const marks = await loadRegisterMarksForMonth(supabase, monthMeta);
-          setManualMarks(marks);
+          const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+          setManualMarks(registerData?.marks || {});
+          setManualRemarks(registerData?.remarks || {});
         } catch {
           /* ignore */
         }
@@ -276,8 +371,118 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [bulkDate, bulkOverwrite, filteredRows, gridRows, manualMarks, monthMeta]
+    [bulkDate, bulkOverwrite, filteredRows, gridRows, manualMarks, manualRemarks, monthMeta]
   );
+
+  const handleBulkPodCommentApply = useCallback(async () => {
+    if (!monthMeta?.monthKey) return;
+    const day = dayOfMonthFromIsoDate(bulkDate);
+    if (!day || !bulkDate.startsWith(monthMeta.monthKey)) return;
+    const empCodes = filteredRows.map((r) => r.empCode);
+    if (!empCodes.length) return;
+    const trimmed = bulkPodComment.trim();
+
+    const next = applyBulkRegisterMarks(manualMarks, gridRows, {
+      empCodes,
+      dayFrom: day,
+      dayTo: day,
+      mark: "P(OD)",
+      overwrite: bulkOverwrite,
+    });
+
+    const nextRemarks = { ...manualRemarks };
+    const upserts = [];
+    const deletes = [];
+    for (const code of empCodes) {
+      const prev = manualMarks[code]?.[day];
+      const updated = next[code]?.[day];
+      if (prev === updated && (updated !== "P(OD)" || (nextRemarks[code]?.[day] || "") === trimmed)) continue;
+      if (updated === "P(OD)") {
+        const empRemarks = { ...(nextRemarks[code] || {}) };
+        if (!trimmed) delete empRemarks[day];
+        else empRemarks[day] = trimmed;
+        if (Object.keys(empRemarks).length) nextRemarks[code] = empRemarks;
+        else delete nextRemarks[code];
+        upserts.push({
+          employee_code: code,
+          register_date: bulkDate,
+          month_key: monthMeta.monthKey,
+          mark: "P(OD)",
+          mark_remark: trimmed || null,
+          updated_at: new Date().toISOString(),
+        });
+      } else if (!updated && prev) {
+        deletes.push({ employee_code: code, register_date: bulkDate });
+      }
+    }
+
+    setManualMarks(next);
+    setManualRemarks(nextRemarks);
+    setSavingMark(true);
+    try {
+      if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts);
+      if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
+      setBulkPodCommentOpen(false);
+      setBulkPodComment("");
+    } catch (err) {
+      setError(formatAttendanceSupabaseError(err));
+    } finally {
+      setSavingMark(false);
+    }
+  }, [bulkDate, bulkOverwrite, bulkPodComment, filteredRows, gridRows, manualMarks, manualRemarks, monthMeta]);
+
+  const handleClearSelectedDate = useCallback(async () => {
+    if (!monthMeta?.monthKey) return;
+    const day = dayOfMonthFromIsoDate(bulkDate);
+    if (!day || !bulkDate.startsWith(monthMeta.monthKey)) return;
+    const empCodes = filteredRows.map((r) => r.empCode);
+    if (!empCodes.length) return;
+
+    const nextMarks = { ...manualMarks };
+    const nextRemarks = { ...manualRemarks };
+    const deletes = [];
+    for (const code of empCodes) {
+      if (nextMarks[code]?.[day] != null) {
+        const empMarks = { ...(nextMarks[code] || {}) };
+        delete empMarks[day];
+        if (Object.keys(empMarks).length) nextMarks[code] = empMarks;
+        else delete nextMarks[code];
+      }
+      if (nextRemarks[code]?.[day] != null) {
+        const empRemarks = { ...(nextRemarks[code] || {}) };
+        delete empRemarks[day];
+        if (Object.keys(empRemarks).length) nextRemarks[code] = empRemarks;
+        else delete nextRemarks[code];
+      }
+      deletes.push({ employee_code: code, register_date: bulkDate });
+    }
+
+    setManualMarks(nextMarks);
+    setManualRemarks(nextRemarks);
+    setSavingMark(true);
+    try {
+      if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
+    } catch (err) {
+      setError(formatAttendanceSupabaseError(err));
+      try {
+        const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+        setManualMarks(registerData?.marks || {});
+        setManualRemarks(registerData?.remarks || {});
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      setSavingMark(false);
+    }
+  }, [bulkDate, filteredRows, manualMarks, manualRemarks, monthMeta]);
+
+  const departmentOptions = useMemo(() => {
+    const values = new Set();
+    for (const row of gridRows) {
+      if (row.department) values.add(row.department);
+    }
+    return ["ALL", ...Array.from(values).sort((a, b) => a.localeCompare(b))];
+  }, [gridRows]);
 
   const summaryColumnDefs = useMemo(
     () =>
@@ -302,6 +507,7 @@ export function EmployeeAttendanceDailyPage() {
         render: (row) => row.empCode || "—",
       },
       { key: "employeeName", label: "Employee Name" },
+      { key: "department", label: "Department", render: (row) => row.department || "—" },
     ];
     const monthKey = monthMeta?.monthKey || "";
     const dayCols = Array.from({ length: daysInMonth }, (_, i) => {
@@ -313,30 +519,55 @@ export function EmployeeAttendanceDailyPage() {
         headerTitle: isoDate || undefined,
         render: (row) => {
           const value = row.dayMarks[day] || "";
+          const comment = manualRemarks[row.empCode]?.[day] || "";
           return (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className={registerMarkCellWrapperClass(value)}
-            >
-              <select
-                value={value}
-                onChange={(e) => handleMarkChange(row.empCode, day, e.target.value)}
-                className={`${REGISTER_MARK_SELECT_INNER} ${registerMarkSelectTextClass(value)}`}
-                title={REGISTER_STATUS_OPTIONS.find((o) => o.value === value)?.label || "No mark"}
-              >
-                {REGISTER_STATUS_OPTIONS.map((o) => (
-                  <option key={o.value || "blank"} value={o.value}>
-                    {o.value || "—"}
-                  </option>
-                ))}
-              </select>
+            <div onClick={(e) => e.stopPropagation()}>
+              <div className={`${registerMarkCellWrapperClass(value)} relative group`}>
+                <select
+                  value={value}
+                  onChange={(e) => handleMarkChange(row.empCode, day, e.target.value)}
+                  className={`${REGISTER_MARK_SELECT_INNER} ${registerMarkSelectTextClass(value)}`}
+                  title={REGISTER_STATUS_OPTIONS.find((o) => o.value === value)?.label || "No mark"}
+                >
+                  {REGISTER_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value || "blank"} value={o.value}>
+                      {o.value || "—"}
+                    </option>
+                  ))}
+                </select>
+                {value === "P(OD)" && !!comment && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openPodCommentEditor(row.empCode, day);
+                      }}
+                      className="absolute top-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-t-[8px] border-t-red-500"
+                      title="Has comment"
+                    />
+                    <div className="pointer-events-none absolute z-20 right-0 top-full mt-1 hidden min-w-[180px] max-w-[260px] rounded border border-gray-300 bg-white p-2 text-[10px] text-gray-700 shadow-lg group-hover:block">
+                      {comment}
+                    </div>
+                  </>
+                )}
+              </div>
+              {value === "P(OD)" && (
+                <button
+                  type="button"
+                  onClick={() => openPodCommentEditor(row.empCode, day)}
+                  className="mt-1 text-[10px] underline text-sky-700"
+                >
+                  {comment ? "Edit comment" : "Add comment"}
+                </button>
+              )}
             </div>
           );
         },
       };
     });
     return [...fixed, ...dayCols, ...summaryColumnDefs];
-  }, [daysInMonth, handleMarkChange, monthMeta?.monthKey, summaryColumnDefs]);
+  }, [daysInMonth, handleMarkChange, manualRemarks, monthMeta?.monthKey, openPodCommentEditor, summaryColumnDefs]);
 
   return (
     <div className="space-y-3">
@@ -373,6 +604,13 @@ export function EmployeeAttendanceDailyPage() {
             placeholder="Search name / code"
             className="min-w-[160px]"
           />
+          <TinySelect value={department} onChange={(e) => setDepartment(e.target.value)} className="w-[170px]">
+            {departmentOptions.map((dept) => (
+              <option key={dept} value={dept}>
+                {dept === "ALL" ? "All departments" : dept}
+              </option>
+            ))}
+          </TinySelect>
           <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">
             {PAGE_SIZES.map((s) => (
               <option key={s} value={s}>
@@ -443,6 +681,14 @@ export function EmployeeAttendanceDailyPage() {
                 {b.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={handleClearSelectedDate}
+              disabled={!filteredRows.length}
+              className="h-8 px-3 rounded-lg text-xs font-semibold border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              Clear date marks
+            </button>
           </div>
         </div>
 
@@ -503,6 +749,70 @@ export function EmployeeAttendanceDailyPage() {
           <code className="text-[10px]">fetchMonthlyRegisterPayrollTotals</code> for salary month totals.
         </p>
       </SectionCard>
+
+      {commentEditor.open && (
+        <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-lg border border-gray-300 bg-white p-4 shadow-xl">
+            <h3 className="text-sm font-semibold text-gray-800">P(OD) Comment</h3>
+            <p className="mt-1 text-xs text-gray-600">Comment for selected employee/date (Excel-style cell note).</p>
+            <textarea
+              value={commentEditor.value}
+              onChange={(e) => setCommentEditor((prev) => ({ ...prev, value: e.target.value }))}
+              rows={4}
+              className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
+              placeholder="Enter comment"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closePodCommentEditor}
+                className="h-8 px-3 rounded border border-gray-300 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={savePodCommentEditor}
+                className="h-8 px-3 rounded bg-gray-900 text-white text-xs"
+              >
+                Save comment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkPodCommentOpen && (
+        <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-lg border border-gray-300 bg-white p-4 shadow-xl">
+            <h3 className="text-sm font-semibold text-gray-800">Bulk P(OD) Comment</h3>
+            <p className="mt-1 text-xs text-gray-600">This comment will be applied to all filtered employees for selected date.</p>
+            <textarea
+              value={bulkPodComment}
+              onChange={(e) => setBulkPodComment(e.target.value)}
+              rows={4}
+              className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
+              placeholder="Enter bulk P(OD) comment (optional)"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkPodCommentOpen(false)}
+                className="h-8 px-3 rounded border border-gray-300 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkPodCommentApply}
+                className="h-8 px-3 rounded bg-gray-900 text-white text-xs"
+              >
+                Apply P(OD)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Drawer
         open={summaryOverlayOpen}
