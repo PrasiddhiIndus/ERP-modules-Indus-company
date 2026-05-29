@@ -42,6 +42,9 @@ import {
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
+const SCROLL_DAY_COL_CLASS = "min-w-[4.75rem] w-[4.75rem]";
+const SCROLL_SUMMARY_COL_CLASS = "min-w-[5.5rem] w-[5.5rem] text-center";
+
 const SUMMARY_COLUMNS = [
   { key: "leave", label: "Leave", field: "leave" },
   { key: "weekoff", label: "Weekoff", field: "weekoff" },
@@ -138,7 +141,7 @@ export function EmployeeAttendanceDailyPage() {
       setManualRemarks(registerData?.remarks || {});
       if (employees.length > employeesWithCode.length) {
         setRegisterCodeWarning(
-          `${employees.length - employeesWithCode.length} active employee(s) hidden — add employee_code in Employee Master to include them in the register.`
+          `${employees.length - employeesWithCode.length} active employee(s) hidden ? add employee_code in Employee Master to include them in the register.`
         );
       } else {
         setRegisterCodeWarning("");
@@ -489,6 +492,8 @@ export function EmployeeAttendanceDailyPage() {
       SUMMARY_COLUMNS.map((col) => ({
         key: col.key,
         label: col.label,
+        headerClassName: SCROLL_SUMMARY_COL_CLASS,
+        cellClassName: SCROLL_SUMMARY_COL_CLASS,
         render: (row) => (
           <span className="tabular-nums font-medium text-gray-800">
             {formatSummaryValue(row.summary?.[col.field], col.decimals)}
@@ -500,14 +505,14 @@ export function EmployeeAttendanceDailyPage() {
 
   const columns = useMemo(() => {
     const fixed = [
-      { key: "employeeId", label: "Employee ID" },
+      { key: "employeeId", label: "Employee ID", render: (row) => row.employeeId || "?" },
       {
         key: "empCode",
         label: "Employee code",
-        render: (row) => row.empCode || "—",
+        render: (row) => row.empCode || "?",
       },
       { key: "employeeName", label: "Employee Name" },
-      { key: "department", label: "Department", render: (row) => row.department || "—" },
+      { key: "department", label: "Department", render: (row) => row.department || "?" },
     ];
     const monthKey = monthMeta?.monthKey || "";
     const dayCols = Array.from({ length: daysInMonth }, (_, i) => {
@@ -517,34 +522,50 @@ export function EmployeeAttendanceDailyPage() {
         key: `d${day}`,
         label: monthKey ? registerDayTableLabel(monthKey, day) : String(day),
         headerTitle: isoDate || undefined,
+        headerClassName: SCROLL_DAY_COL_CLASS,
+        cellClassName: SCROLL_DAY_COL_CLASS,
         render: (row) => {
           const value = row.dayMarks[day] || "";
           const comment = manualRemarks[row.empCode]?.[day] || "";
+          const isPod = value === "P(OD)";
           return (
-            <div onClick={(e) => e.stopPropagation()}>
-              <div className={`${registerMarkCellWrapperClass(value)} relative group`}>
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isPod) return;
+                if (e.target.closest("select")) return;
+                openPodCommentEditor(row.empCode, day);
+              }}
+              title={
+                isPod
+                  ? comment
+                    ? `P(OD) ? ${comment} (click cell to edit comment)`
+                    : "P(OD) ? click cell to add comment"
+                  : undefined
+              }
+            >
+              <div
+                className={`${registerMarkCellWrapperClass(value)} relative group ${isPod ? "cursor-pointer" : ""}`}
+              >
                 <select
                   value={value}
                   onChange={(e) => handleMarkChange(row.empCode, day, e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                   className={`${REGISTER_MARK_SELECT_INNER} ${registerMarkSelectTextClass(value)}`}
                   title={REGISTER_STATUS_OPTIONS.find((o) => o.value === value)?.label || "No mark"}
                 >
                   {REGISTER_STATUS_OPTIONS.map((o) => (
                     <option key={o.value || "blank"} value={o.value}>
-                      {o.value || "—"}
+                      {o.value || o.label}
                     </option>
                   ))}
                 </select>
-                {value === "P(OD)" && !!comment && (
+                {isPod && !!comment && (
                   <>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openPodCommentEditor(row.empCode, day);
-                      }}
-                      className="absolute top-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-t-[8px] border-t-red-500"
-                      title="Has comment"
+                    <span
+                      className="absolute top-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-t-[8px] border-t-red-500 pointer-events-none"
+                      aria-hidden
                     />
                     <div className="pointer-events-none absolute z-20 right-0 top-full mt-1 hidden min-w-[180px] max-w-[260px] rounded border border-gray-300 bg-white p-2 text-[10px] text-gray-700 shadow-lg group-hover:block">
                       {comment}
@@ -552,15 +573,6 @@ export function EmployeeAttendanceDailyPage() {
                   </>
                 )}
               </div>
-              {value === "P(OD)" && (
-                <button
-                  type="button"
-                  onClick={() => openPodCommentEditor(row.empCode, day)}
-                  className="mt-1 text-[10px] underline text-sky-700"
-                >
-                  {comment ? "Edit comment" : "Add comment"}
-                </button>
-              )}
             </div>
           );
         },
@@ -570,13 +582,14 @@ export function EmployeeAttendanceDailyPage() {
   }, [daysInMonth, handleMarkChange, manualRemarks, monthMeta?.monthKey, openPodCommentEditor, summaryColumnDefs]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0 max-w-full">
       <SectionCard
+        className="min-w-0"
         title="Daily Attendance Register"
         right={
           <StatusChip
             label={
-              loading ? "Loading…" : savingMark ? "Saving…" : `${filteredRows.length} employee(s) · Supabase`
+              loading ? "Loading?" : savingMark ? "Saving?" : `${filteredRows.length} employee(s) ? Supabase`
             }
             severity={loading || savingMark ? "warning" : "info"}
           />
@@ -624,7 +637,7 @@ export function EmployeeAttendanceDailyPage() {
             disabled={loading}
             className="h-8 px-3 rounded-lg border border-gray-300 text-xs disabled:opacity-60"
           >
-            {loading ? "Loading…" : "Reload"}
+            {loading ? "Loading?" : "Reload"}
           </button>
           <button
             type="button"
@@ -632,7 +645,7 @@ export function EmployeeAttendanceDailyPage() {
             disabled={!rowsWithSummary.length || exporting}
             className="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium disabled:opacity-60 inline-flex items-center gap-1.5"
           >
-            {exporting ? "Exporting…" : "Export to Excel"}
+            {exporting ? "Exporting?" : "Export to Excel"}
           </button>
           <button
             type="button"
@@ -698,7 +711,7 @@ export function EmployeeAttendanceDailyPage() {
             <Link to="/app/admin/employee/attendance-inputs" className="font-medium underline">
               Raw Attendance Data
             </Link>{" "}
-            — Present (P) is filled automatically when a punch exists for that day.
+            ? Present (P) is filled automatically when a punch exists for that day.
           </div>
         )}
 
@@ -712,12 +725,17 @@ export function EmployeeAttendanceDailyPage() {
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>
         )}
 
-        <div className="mt-3">
-          <DenseTable columns={columns} rows={pagedRows} />
+        <div className="mt-3 min-w-0 max-w-full">
+          <DenseTable
+            columns={columns}
+            rows={pagedRows}
+            frozenColumnCount={4}
+            frozenColumnWidths={[96, 116, 220, 140]}
+          />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>
-              Showing {pageStart}-{pageEnd} of {rowsWithSummary.length} · {activeEmployees.length} active in master
-              {monthMeta ? ` · ${monthMeta.monthKey}` : ""}
+              Showing {pageStart}-{pageEnd} of {rowsWithSummary.length} ? {activeEmployees.length} active in master
+              {monthMeta ? ` ? ${monthMeta.monthKey}` : ""}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -816,7 +834,7 @@ export function EmployeeAttendanceDailyPage() {
 
       <Drawer
         open={summaryOverlayOpen}
-        title={`Register summary${monthMeta ? ` — ${monthMeta.monthKey}` : ""}`}
+        title={`Register summary${monthMeta ? ` ? ${monthMeta.monthKey}` : ""}`}
         onClose={() => setSummaryOverlayOpen(false)}
         widthClass="max-w-3xl"
       >
@@ -840,8 +858,8 @@ export function EmployeeAttendanceDailyPage() {
             <tbody className="divide-y divide-gray-100 bg-white">
               {rowsWithSummary.map((row) => (
                 <tr key={row.id} className="hover:bg-sky-50/40">
-                  <td className="px-2 py-1.5 font-medium text-gray-800">{row.employeeId || "—"}</td>
-                  <td className="px-2 py-1.5 text-gray-700 tabular-nums">{row.empCode || "—"}</td>
+                  <td className="px-2 py-1.5 font-medium text-gray-800">{row.employeeId || "?"}</td>
+                  <td className="px-2 py-1.5 text-gray-700 tabular-nums">{row.empCode || "?"}</td>
                   <td className="px-2 py-1.5 text-gray-700">{row.employeeName}</td>
                   {SUMMARY_COLUMNS.map((col) => (
                     <td key={col.key} className="px-2 py-1.5 text-center tabular-nums text-gray-800">

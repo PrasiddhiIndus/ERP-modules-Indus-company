@@ -17,6 +17,13 @@ import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 import { rollupMainPoBilling, pickInvoiceForEdit } from '../../utils/billingInvoiceRollup';
+import {
+  applyPreGstAdjustments,
+  poRequiresMaterialCode,
+  resolveInvoiceDescriptionFromPo,
+  resolvePoPaymentTerms,
+  resolvePoDateRaw,
+} from '../../utils/billingPoInvoiceFields';
 
 const getFinancialYear = () => {
   const d = new Date();
@@ -30,6 +37,15 @@ const generateTaxInvoiceNumber = (sequence) => {
   const seq = String(sequence).padStart(4, '0');
   return `INV-${y}-${seq}`;
 };
+
+function generateDraftInvoiceNumber(invoices) {
+  const y = new Date().getFullYear();
+  const seq =
+    (Array.isArray(invoices) ? invoices : []).filter(
+      (inv) => String(inv?.invoiceKind || inv?.invoice_kind || '').toLowerCase() === 'draft'
+    ).length + 1;
+  return `DFT-${y}-${String(seq).padStart(4, '0')}`;
+}
 
 function getNextTaxInvoiceSequence(invoices) {
   const fy = String(getFinancialYear());
@@ -665,6 +681,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [invoiceDocumentKind, setInvoiceDocumentKind] = useState('tax');
   /** Digits after INV-YYYY- for new tax invoices (full number built on preview/save). */
   const [manualTaxInvoiceSerial, setManualTaxInvoiceSerial] = useState('');
+  const [invoiceLevelHsn, setInvoiceLevelHsn] = useState('');
+  const [preGstDeduction, setPreGstDeduction] = useState('');
+  const [preGstAddition, setPreGstAddition] = useState('');
 
   const verticalNotSelected = !billingVerticalFilter;
   const billingPoBasisLabel =
@@ -976,7 +995,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const lumpSumShowPenaltyGeometryUi = lumpSumSubtractPenaltyInRate && !lumpSumTruckActive;
   /** Tighter line-item table when Lump Sum + Penalty column (duty geometry) is on — avoids squashed inputs. */
   const lumpSumDutyGeometryLineTable = isLumpSumBilling && lumpSumShowPenaltyGeometryUi;
-  const lineTableColSpan = 6 + (lumpSumShowPenaltyGeometryUi ? 1 : 0);
   const lumpSumGeometryRowsForExport = useMemo(
     () => (isLumpSumBilling ? items.filter((row) => !row.isTruckLine && row.geometryEnabled) : []),
     [isLumpSumBilling, items]
@@ -1125,6 +1143,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
           return {
             description: i.description || i.designation || '',
             hsnSac: i.hsnSac || editingInvoice.hsnSac || '',
+            materialCode: i.materialCode || i.material_code || '',
+            uom: i.uom || 'No.',
             isTruckLine: isTruck,
             isLumpSumSupplementaryLine: isSavedSupplementary || false,
             geometryEnabled,
@@ -1153,9 +1173,21 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   useEffect(() => {
     if (!selectedPO) return;
+    setInvoiceLevelHsn(selectedPO.hsnCode || selectedPO.sacCode || '');
+  }, [selectedPO?.id, selectedPO?.hsnCode, selectedPO?.sacCode]);
+
+  useEffect(() => {
+    if (!editingInvoice) return;
+    setInvoiceLevelHsn(editingInvoice.hsnSac || '');
+    setPreGstDeduction(String(editingInvoice.preGstDeduction ?? editingInvoice.pre_gst_deduction ?? ''));
+    setPreGstAddition(String(editingInvoice.preGstAddition ?? editingInvoice.pre_gst_addition ?? ''));
+  }, [editingInvoice?.id]);
+
+  useEffect(() => {
+    if (!selectedPO) return;
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
-    const hsnSac = selectedPO.hsnCode || '';
+    const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
 
     if (isLump) {
@@ -1169,6 +1201,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return {
           description: desc,
           hsnSac: rowHsnSac,
+          materialCode: '',
+          uom: 'No.',
           isTruckLine: false,
           geometryEnabled: true,
           poQty: qty,
@@ -1189,6 +1223,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
               {
                 description: 'Other',
                 hsnSac,
+                materialCode: '',
+                uom: 'No.',
                 isTruckLine: false,
                 geometryEnabled: true,
                 poQty: getPoHeaderQty(selectedPO),
@@ -1380,6 +1416,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const createMmEmptyLine = (hsnSac = '') => ({
     description: '',
     hsnSac,
+    materialCode: '',
+    uom: 'No.',
     isTruckLine: false,
     geometryEnabled: false,
     poQty: 0,
@@ -1464,6 +1502,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       {
         description: '',
         hsnSac: hsn,
+        materialCode: '',
+        uom: 'No.',
         isTruckLine: true,
         geometryEnabled: false,
         quantity: 0,
@@ -1495,6 +1535,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       {
         description: '',
         hsnSac: hsn,
+        materialCode: '',
+        uom: 'No.',
         isTruckLine: false,
         isLumpSumSupplementaryLine: true,
         geometryEnabled: false,
@@ -1654,10 +1696,22 @@ const CreateInvoice = ({ onNavigateTab }) => {
     ];
   }, [cumulateLumpSumInvoiceLines, lumpSumInvoiceEntryLines, consolidatedLumpSumLine, displayPO, items]);
 
-  const taxableValue = useMemo(() => {
+  const lineSubtotal = useMemo(() => {
     const sourceRows = isLumpSumBilling ? lumpSumInvoiceEntryLines : items;
     return round2(sourceRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0));
   }, [isLumpSumBilling, lumpSumInvoiceEntryLines, items]);
+
+  const taxableValue = useMemo(
+    () => applyPreGstAdjustments(lineSubtotal, preGstDeduction, preGstAddition),
+    [lineSubtotal, preGstDeduction, preGstAddition]
+  );
+
+  const materialCodeRequired = useMemo(
+    () => poRequiresMaterialCode(displayPO),
+    [displayPO]
+  );
+  const lineTableColSpan =
+    6 + (materialCodeRequired ? 1 : 0) + (lumpSumShowPenaltyGeometryUi ? 1 : 0);
 
   const gstSupplyType = useMemo(
     () => normalizeGstSupplyType(displayPO?.gstSupplyType || displayPO?.gst_supply_type),
@@ -1705,12 +1759,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       displayPO.startDate || displayPO.start_date
         ? `${formatDate(displayPO.startDate || displayPO.start_date)} – ${formatDate(displayPO.endDate || displayPO.end_date)}`
         : '–';
-    const remarksLine =
-      displayPO.remarks ||
-      displayPO.paymentTerms ||
-      displayPO.payment_terms ||
-      displayPO.invoiceTermsText ||
-      null;
+    const remarksLine = resolveInvoiceDescriptionFromPo(displayPO);
     return {
       taxInvoiceNumber: docNo,
       lastInvoiceSeries: lastInvSeries,
@@ -1734,6 +1783,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const taxInvoiceBlocksSave = useMemo(() => {
     if (invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId) return false;
     if (!displayPO || invoiceDocumentKind !== 'tax') return false;
+    if (invoiceDocumentKind === 'draft' || invoiceDocumentKind === 'proforma') return false;
     return !!taxInvoiceSerialIssue;
   }, [invoiceDraft?.mode, invoiceDraft?.invoiceId, displayPO, invoiceDocumentKind, taxInvoiceSerialIssue]);
 
@@ -1837,7 +1887,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
     const rawIrn = existing?.e_invoice_irn || existing?.eInvoiceIrn;
     const hasRealIrn = !!rawIrn && !String(rawIrn).toUpperCase().startsWith('MOCK-IRN-');
-    const effectiveKind = hasRealIrn ? 'tax' : invoiceDocumentKind === 'proforma' ? 'proforma' : 'tax';
+    const effectiveKind = hasRealIrn
+      ? 'tax'
+      : invoiceDocumentKind === 'proforma'
+        ? 'proforma'
+        : invoiceDocumentKind === 'draft'
+          ? 'draft'
+          : 'tax';
     const id = existing ? existing.id : crypto.randomUUID();
     const taxInvoiceNumber = existing
       ? existing.taxInvoiceNumber
@@ -1881,7 +1937,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       invoiceHeaderRemarks:
         existing?.invoiceHeaderRemarks ||
         existing?.invoice_header_remarks ||
-        (displayPO.remarks || displayPO.paymentTerms || displayPO.payment_terms || null),
+        resolveInvoiceDescriptionFromPo(displayPO),
       clientLegalName: displayPO.legalName,
       clientAddress: displayPO.billingAddress,
       clientPincode: String(buyerPinMeta.pin || ''),
@@ -1894,7 +1950,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
       buyerStateCode: buyerPinMeta.stateCode || null,
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
-      hsnSac: displayPO.hsnCode || '',
+      hsnSac: invoiceLevelHsn || displayPO.hsnCode || displayPO.sacCode || '',
+      paymentTerms: resolvePoPaymentTerms(displayPO),
+      poDate: resolvePoDateRaw(displayPO),
+      materialCodeRequired,
+      preGstDeduction: Number(preGstDeduction) || 0,
+      preGstAddition: Number(preGstAddition) || 0,
       items: (() => {
         let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
@@ -2002,15 +2063,23 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const existing = isEdit ? invoices.find((i) => String(i.id) === String(invoiceDraft.invoiceId)) : null;
     const rawIrn = existing?.e_invoice_irn || existing?.eInvoiceIrn;
     const hasRealIrn = !!rawIrn && !String(rawIrn).toUpperCase().startsWith('MOCK-IRN-');
-    const effectiveKind = hasRealIrn ? 'tax' : invoiceDocumentKind === 'proforma' ? 'proforma' : 'tax';
+    const effectiveKind = hasRealIrn
+      ? 'tax'
+      : invoiceDocumentKind === 'proforma'
+        ? 'proforma'
+        : invoiceDocumentKind === 'draft'
+          ? 'draft'
+          : 'tax';
     // DB + saveInvoice expect a UUID primary key; numeric local-only ids caused duplicate inserts (same tax_invoice_number).
     const id = existing ? existing.id : crypto.randomUUID();
     let taxInvoiceNumber = existing
       ? existing.taxInvoiceNumber
       : effectiveKind === 'proforma'
         ? generateProformaInvoiceNumber(getNextProformaSequence(invoices))
-        : buildFullTaxInvoiceNumberFromSerial(manualTaxInvoiceSerial) ||
-          generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
+        : effectiveKind === 'draft'
+          ? generateDraftInvoiceNumber(invoices)
+          : buildFullTaxInvoiceNumberFromSerial(manualTaxInvoiceSerial) ||
+            generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices));
 
     if (!existing && effectiveKind === 'tax') {
       const c = classifyNewTaxInvoice(taxInvoiceNumber, invoices);
@@ -2050,7 +2119,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       invoiceHeaderRemarks:
         existing?.invoiceHeaderRemarks ||
         existing?.invoice_header_remarks ||
-        (displayPO.remarks || displayPO.paymentTerms || displayPO.payment_terms || null),
+        resolveInvoiceDescriptionFromPo(displayPO),
       clientLegalName: displayPO.legalName,
       clientAddress: displayPO.billingAddress,
       clientPincode: String(buyerPinMeta.pin || ''),
@@ -2063,12 +2132,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
       buyerStateCode: buyerPinMeta.stateCode || null,
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
-      hsnSac: displayPO.hsnCode || '',
+      hsnSac: invoiceLevelHsn || displayPO.hsnCode || displayPO.sacCode || '',
+      paymentTerms: resolvePoPaymentTerms(displayPO),
+      poDate: resolvePoDateRaw(displayPO),
+      materialCodeRequired,
+      preGstDeduction: Number(preGstDeduction) || 0,
+      preGstAddition: Number(preGstAddition) || 0,
       items: (() => {
         let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
           description: i.description,
-          hsnSac: i.hsnSac,
+          hsnSac: invoiceLevelHsn || i.hsnSac,
+          materialCode: i.materialCode || '',
+          uom: i.uom || 'No.',
           quantity: isManpowerMonthly ? round3(i.quantity) : (Number(i.quantity) || 0),
           rate: Number(i.rate) || 0,
           amount: round2(i.amount),
@@ -2669,6 +2745,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   >
                     <option value="tax">Tax invoice</option>
                     <option value="proforma">Proforma invoice</option>
+                    <option value="draft">Draft invoice</option>
                   </select>
                 </div>
                 {invoiceDraft?.mode !== 'edit' && invoiceDocumentKind === 'tax' && !documentKindLockedByIrn ? (
@@ -3001,7 +3078,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <tr>
                               <th className="w-12 border border-neutral-300 px-2 py-2 text-center">#</th>
                               <th className="border border-neutral-300 px-2 py-2 text-left">Description</th>
-                              <th className="w-24 border border-neutral-300 px-2 py-2 text-center">SAC/HSN</th>
                               <th className="w-20 border border-neutral-300 px-2 py-2 text-center">Qty</th>
                               <th className="w-28 border border-neutral-300 px-2 py-2 text-center">Rate</th>
                               <th className="w-28 border border-neutral-300 px-2 py-2 text-right">Amount</th>
@@ -3018,9 +3094,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
                                   placeholder="Final invoice line description"
                                 />
-                              </td>
-                              <td className="border border-neutral-300 px-2 py-2 text-center font-mono">
-                                {consolidatedLumpSumLine.hsnSac || '–'}
                               </td>
                               <td className="border border-neutral-300 px-2 py-2 text-center tabular-nums">
                                 {safeNumber(consolidatedLumpSumLine.quantity).toLocaleString('en-IN')}
@@ -3040,6 +3113,23 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       </div>
                     ) : null}
                   </div>
+                ) : null}
+                {invoiceTableRows.length > 0 || !showLumpSumPenaltyBillingSummary ? (
+                <div className="px-3 py-2 border-b border-neutral-200 bg-white">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    HSN / SAC (invoice level)
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceLevelHsn}
+                    onChange={(e) => setInvoiceLevelHsn(e.target.value)}
+                    className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono"
+                    placeholder="e.g. 998314"
+                  />
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    Applies to the whole invoice (not per line). PO description is shown separately on the tax invoice.
+                  </p>
+                </div>
                 ) : null}
                 {invoiceTableRows.length > 0 || !showLumpSumPenaltyBillingSummary ? (
                 <div className="w-full max-w-full min-w-0 overflow-x-auto">
@@ -3067,14 +3157,16 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   >
                     Description
                   </th>
-                  <th
-                    className={[
-                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
-                      lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
-                    ].join(' ')}
-                  >
-                    SAC/HSN
-                  </th>
+                  {materialCodeRequired ? (
+                    <th
+                      className={[
+                        'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                        lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[12%] px-2 py-2',
+                      ].join(' ')}
+                    >
+                      Material code
+                    </th>
+                  ) : null}
                   {null ? (
                     <>
                       <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">PO Qty</th>
@@ -3110,6 +3202,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   ) : null}
                   <th
                     className={[
+                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      lumpSumDutyGeometryLineTable ? 'w-[9%] min-w-[3.25rem] px-1 py-1.5' : 'w-[10%] px-2 py-2',
+                    ].join(' ')}
+                  >
+                    UOM
+                  </th>
+                  <th
+                    className={[
                       'border border-neutral-400 bg-[#e8edf5] text-right text-[11px] font-bold text-neutral-900',
                       lumpSumDutyGeometryLineTable ? 'w-[13%] min-w-[4.5rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
                     ].join(' ')}
@@ -3130,9 +3230,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       : `item-${ii}`;
                   const isLumpSumSupplementaryRow =
                     ii != null && !!it && !it.isTruckLine && isLumpSumBilling && !it.geometryEnabled;
-                  const hsnEditable =
-                    !!it &&
-                    (ii != null || isLumpConsolidatedRow);
                   const canDutyRuler =
                     ii != null &&
                     !isLumpConsolidatedRow &&
@@ -3293,33 +3390,36 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <span className="mt-1 inline-block text-[10px] font-semibold text-sky-800 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5">Qty × Rate</span>
                       ) : null}
                     </td>
-                    <td
-                      className={[
-                        'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0',
-                        lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
-                      ].join(' ')}
-                    >
-                      {hsnEditable ? (
-                        <input
-                          type="text"
-                          value={it.hsnSac || ''}
-                          onChange={(e) => {
-                            if (isLumpConsolidatedRow) {
-                              updateLumpSumConsolidatedLine({ hsnSac: e.target.value });
-                              return;
+                    {materialCodeRequired ? (
+                      <td
+                        className={[
+                          'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0',
+                          lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
+                        ].join(' ')}
+                      >
+                        {ii != null || isLumpConsolidatedRow ? (
+                          <input
+                            type="text"
+                            value={it.materialCode || ''}
+                            onChange={(e) => {
+                              if (isLumpConsolidatedRow) {
+                                updateLumpSumConsolidatedLine({ materialCode: e.target.value });
+                                return;
+                              }
+                              if (ii != null) updateItem(ii, { materialCode: e.target.value });
+                            }}
+                            className={
+                              lumpSumDutyGeometryLineTable
+                                ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
+                                : 'w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono'
                             }
-                            if (ii != null) updateItem(ii, { hsnSac: e.target.value });
-                          }}
-                          className={
-                            lumpSumDutyGeometryLineTable
-                              ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
-                              : 'w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono'
-                          }
-                        />
-                      ) : (
-                        <span className="block break-all font-mono">{it.hsnSac || '–'}</span>
-                      )}
-                    </td>
+                            placeholder="Code"
+                          />
+                        ) : (
+                          <span className="block break-all font-mono">{it.materialCode || '–'}</span>
+                        )}
+                      </td>
+                    ) : null}
                     {null ? (
                       <>
                         <td className="px-3 py-2 text-center">
@@ -3428,6 +3528,35 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         )}
                       </td>
                     ) : null}
+                    <td
+                      className={[
+                        'border border-neutral-400 text-center align-middle min-w-0',
+                        lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
+                      ].join(' ')}
+                    >
+                      {ii != null || isLumpConsolidatedRow ? (
+                        <input
+                          type="text"
+                          value={it.uom || 'No.'}
+                          onChange={(e) => {
+                            const nextUom = e.target.value;
+                            if (isLumpConsolidatedRow) {
+                              updateLumpSumConsolidatedLine({ uom: nextUom });
+                              return;
+                            }
+                            if (ii != null) updateItem(ii, { uom: nextUom });
+                          }}
+                          className={
+                            lumpSumDutyGeometryLineTable
+                              ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
+                              : 'w-20 px-2 py-1 border border-gray-300 rounded-lg text-center text-xs'
+                          }
+                          placeholder="No."
+                        />
+                      ) : (
+                        <span className="text-xs">{it.uom || 'No.'}</span>
+                      )}
+                    </td>
                     <td
                       className={[
                         'border border-neutral-400 text-right align-middle font-semibold text-neutral-900 min-w-0 tabular-nums',
@@ -3707,11 +3836,39 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     </p>
                     <p>
                       <span className="font-semibold text-neutral-600">Payment terms:</span>{' '}
-                      {displayPO.paymentTerms || `${displayPO.billingCycle || 30} days`}
+                      {resolvePoPaymentTerms(displayPO)}
                     </p>
                   </div>
                   <div className="p-3 sm:p-4 text-xs">
                     <div className="space-y-1.5 border border-neutral-400 bg-white p-3">
+                      <div className="flex justify-between gap-4 text-neutral-600">
+                        <span>Line items subtotal</span>
+                        <span className="tabular-nums">₹{lineSubtotal.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <label className="text-[11px] text-neutral-600">
+                          Less (before GST)
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={preGstDeduction}
+                            onChange={(e) => setPreGstDeduction(e.target.value)}
+                            className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-xs"
+                          />
+                        </label>
+                        <label className="text-[11px] text-neutral-600">
+                          Add (before GST)
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={preGstAddition}
+                            onChange={(e) => setPreGstAddition(e.target.value)}
+                            className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-xs"
+                          />
+                        </label>
+                      </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-neutral-600">Taxable value</span>
                         <span className="font-semibold tabular-nums">₹{taxableValue.toLocaleString('en-IN')}</span>

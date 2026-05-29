@@ -1072,7 +1072,7 @@ const Layout = () => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:ml-64">
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
         {/* Top Header */}
         <header className="bg-white shadow-sm border-b border-slate-200/90 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">

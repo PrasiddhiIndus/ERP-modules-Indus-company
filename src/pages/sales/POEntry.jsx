@@ -380,7 +380,8 @@ const initialForm = {
   vendorCodeDigits: '',
   ocFyEdit: null,
   vendorCode: '',
-  poWoNumber: '', ratePerCategory: [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
+  poWoNumber: '', poDate: '', pincode: '', materialCodeRequired: false, paymentTerms: '',
+  ratePerCategory: [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
@@ -738,7 +739,12 @@ const POEntry = () => {
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       billingType: po.billingType || po.poType || 'Monthly',
-      billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
+      billingCycle: String(po.billingCycle || '30'),
+      remarks: po.remarks || '',
+      paymentTerms: po.paymentTerms || (po.billingCycle ? `${po.billingCycle} Days` : ''),
+      poDate: po.poDate || '',
+      pincode: po.pincode || '',
+      materialCodeRequired: !!po.materialCodeRequired,
       monthlyDutyQtyMode:
         (po.billingType || po.poType) === 'Monthly'
           ? (po.monthlyDutyQtyMode || po.monthly_duty_qty_mode || 'po_geometry')
@@ -1080,8 +1086,14 @@ const POEntry = () => {
       monthlyContractValue: monthlyContractValueVal,
       sacCode: '', hsnCode: '', serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: poType,
-      billingCycle: Number(formData.billingCycle) || 30, remarks: formData.remarks.trim(),
-      paymentTerms: formData.remarks.trim(),
+      billingCycle: Number(formData.billingCycle) || 30,
+      remarks: formData.remarks.trim(),
+      paymentTerms:
+        String(formData.paymentTerms || '').trim() ||
+        `${Number(formData.billingCycle) || 30} Days`,
+      poDate: formData.poDate || null,
+      pincode: String(formData.pincode || '').trim() || null,
+      materialCodeRequired: !!formData.materialCodeRequired,
       poReceivedDate: null,
       paymentTermMode: null,
       paymentTermDays: null,
@@ -2062,7 +2074,11 @@ const POEntry = () => {
                     </div>
                   ) : null}
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Enter remarks" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">PO Date</label><input type="date" value={formData.poDate} onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label><input type="text" inputMode="numeric" maxLength={6} value={formData.pincode} onChange={(e) => setFormData((p) => ({ ...p, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="6-digit pincode" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label><input type="text" value={formData.paymentTerms} onChange={(e) => setFormData((p) => ({ ...p, paymentTerms: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. 30 Days" /></div>
+                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Internal only — not printed on tax invoice" /></div>
+                  <div className="md:col-span-2 flex items-center gap-2 pt-5"><input type="checkbox" id="materialCodeRequired" checked={!!formData.materialCodeRequired} onChange={(e) => setFormData((p) => ({ ...p, materialCodeRequired: e.target.checked }))} className="rounded border-gray-300" /><label htmlFor="materialCodeRequired" className="text-sm text-gray-700">Material code required on invoice line items</label></div>
                   <p className="md:col-span-2 text-xs font-semibold text-gray-700">
                     Select to enable PO updates and Renewal reminders
                   </p>

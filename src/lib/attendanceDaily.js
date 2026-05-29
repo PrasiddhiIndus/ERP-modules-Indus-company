@@ -678,6 +678,13 @@ export function normalizeDbDate(value) {
     const [, dd, mm, yyyy] = slash;
     return `${yyyy}-${mm}-${dd}`;
   }
+  const dash = raw.match(/^(\d{2})-(\d{2})-(\d{4})/);
+  if (dash) {
+    const [, dd, mm, yyyy] = dash;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const isoPrefix = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoPrefix) return `${isoPrefix[1]}-${isoPrefix[2]}-${isoPrefix[3]}`;
   return null;
 }
 
@@ -757,6 +764,25 @@ export function formatWorkedMinutes(minutes) {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
+}
+
+/** Standard day: 8.5h minimum; above 9h flagged as long day (reports / analytics). */
+export const WORKING_HOURS_SHORT_THRESHOLD_MIN = 8.5 * 60;
+export const WORKING_HOURS_LONG_THRESHOLD_MIN = 9 * 60;
+
+/** @returns {"short"|"long"|""} */
+export function workingHoursHighlightTone(workedMinutes) {
+  if (workedMinutes == null || !Number.isFinite(workedMinutes)) return "";
+  if (workedMinutes < WORKING_HOURS_SHORT_THRESHOLD_MIN) return "short";
+  if (workedMinutes > WORKING_HOURS_LONG_THRESHOLD_MIN) return "long";
+  return "";
+}
+
+export function workingHoursRowClass(workedMinutes) {
+  const tone = workingHoursHighlightTone(workedMinutes);
+  if (tone === "short") return "bg-red-100 text-red-950";
+  if (tone === "long") return "bg-amber-100 text-amber-950";
+  return "";
 }
 
 export function weekdayShort(isoDate) {
@@ -923,6 +949,7 @@ export function mapMasterEmployee(row) {
     empCode: masterMatchCode(row),
     employeeName: row.full_name || row.name || "",
     department: row.department || "",
+    designation: row.designation || "",
     employeeId: row.employee_id || "",
   };
 }
@@ -1113,7 +1140,7 @@ export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate
 export async function fetchActiveEmployees(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,status")
+    .select("employee_code,employee_id,full_name,department,designation,status")
     .eq("status", "Active");
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.employeeId || e.empCode);
@@ -1168,6 +1195,20 @@ export function attachDepartments(dailyRows, activeEmployees) {
     ...r,
     department: r.department || deptByCode.get(r.empCode) || "",
   }));
+}
+
+export function attachMasterFields(dailyRows, activeEmployees) {
+  const byCode = new Map(activeEmployees.map((e) => [e.empCode, e]));
+  return dailyRows.map((r) => {
+    const master = byCode.get(r.empCode);
+    return {
+      ...r,
+      employeeName: r.employeeName || master?.employeeName || "",
+      department: r.department || master?.department || "",
+      designation: master?.designation || "",
+      employeeId: master?.employeeId || r.employeeId || "",
+    };
+  });
 }
 
 const CSV_COLUMNS = [
