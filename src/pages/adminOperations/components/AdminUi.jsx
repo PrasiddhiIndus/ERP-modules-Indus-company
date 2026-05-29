@@ -63,48 +63,171 @@ export const FilterBar = ({ children }) => (
   <div className="flex flex-wrap items-end gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50/80">{children}</div>
 );
 
-export const DenseTable = ({ columns, rows, onRowClick, rowKey = "id" }) => (
-  <div className="overflow-x-auto rounded-lg border border-gray-200">
-    <table className="min-w-full text-xs">
-      <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
-        <tr>
-          {columns.map((c) => (
-            <th
-              key={c.key}
-              title={c.headerTitle || undefined}
-              className="text-left font-semibold px-2 py-2 whitespace-nowrap"
+const DEFAULT_FROZEN_COLUMN_WIDTHS = [88, 104, 180, 132];
+
+function renderDenseCell(col, row) {
+  if (col.render) return col.render(row);
+  const value = row[col.key];
+  return value == null || value === "" ? "" : value;
+}
+
+/** Excel-style freeze: first N columns stay fixed; only columns to the right scroll horizontally. */
+function FreezePaneDenseTable({
+  columns,
+  rows,
+  onRowClick,
+  rowKey,
+  frozenColumnCount,
+  frozenColumnWidths,
+}) {
+  const frozenCols = columns.slice(0, frozenColumnCount);
+  const scrollCols = columns.slice(frozenColumnCount);
+  const widths = frozenColumnWidths.slice(0, frozenColumnCount);
+  const frozenBlockWidth = widths.reduce((sum, w) => sum + w, 0);
+
+  if (rows.length === 0) {
+    return (
+      <div className="w-full min-w-0 max-w-full rounded-lg border border-gray-200 px-3 py-6 text-center text-xs text-gray-500">
+        No records
+      </div>
+    );
+  }
+
+  return (
+    <div className="erp-freeze-pane-scroll w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-gray-200">
+      <div className="w-max min-w-full">
+        <div className="flex border-b border-gray-200 bg-gray-50 text-xs text-gray-600">
+          <div
+            className="erp-freeze-pane-frozen flex shrink-0 sticky left-0 z-30 bg-gray-50 erp-freeze-pane-edge"
+            style={{ width: frozenBlockWidth, minWidth: frozenBlockWidth }}
+          >
+            {frozenCols.map((c, i) => (
+              <div
+                key={c.key}
+                title={c.headerTitle || c.label}
+                className="box-border px-2 py-2 font-semibold text-left whitespace-nowrap overflow-hidden text-ellipsis shrink-0"
+                style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
+              >
+                {c.label}
+              </div>
+            ))}
+          </div>
+          <div className="flex shrink-0">
+            {scrollCols.map((c) => (
+              <div
+                key={c.key}
+                title={c.headerTitle || undefined}
+                className={`box-border px-2 py-2 font-semibold text-left whitespace-nowrap shrink-0 ${c.headerClassName || ""}`}
+              >
+                {c.label}
+              </div>
+            ))}
+          </div>
+        </div>
+        {rows.map((row) => (
+          <div
+            key={row[rowKey]}
+            className={`flex border-b border-gray-100 text-xs group ${onRowClick ? "cursor-pointer" : ""}`}
+            onClick={() => onRowClick?.(row)}
+          >
+            <div
+              className="erp-freeze-pane-frozen flex shrink-0 sticky left-0 z-20 bg-white group-hover:bg-blue-50 erp-freeze-pane-edge"
+              style={{ width: frozenBlockWidth, minWidth: frozenBlockWidth }}
             >
-              {c.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-100 bg-white">
-        {rows.length === 0 ? (
-          <tr>
-            <td colSpan={columns.length} className="px-3 py-6 text-center text-gray-500">
-              No records
-            </td>
-          </tr>
-        ) : (
-          rows.map((row) => (
-            <tr
-              key={row[rowKey]}
-              className={onRowClick ? "cursor-pointer hover:bg-blue-50/40" : ""}
-              onClick={() => onRowClick?.(row)}
-            >
-              {columns.map((c) => (
-                <td key={c.key} className="px-2 py-1.5 align-middle text-gray-800 whitespace-nowrap">
-                  {c.render ? c.render(row) : row[c.key]}
-                </td>
+              {frozenCols.map((c, i) => (
+                <div
+                  key={c.key}
+                  className="box-border px-2 py-1.5 text-gray-800 align-top shrink-0 overflow-hidden"
+                  style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
+                >
+                  {renderDenseCell(c, row)}
+                </div>
               ))}
+            </div>
+            <div className="flex shrink-0 group-hover:bg-blue-50/40">
+              {scrollCols.map((c) => (
+                <div
+                  key={c.key}
+                  className={`box-border px-2 py-1.5 text-gray-800 align-top shrink-0 ${c.cellClassName || ""}`}
+                >
+                  {renderDenseCell(c, row)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export const DenseTable = ({
+  columns,
+  rows,
+  onRowClick,
+  rowKey = "id",
+  frozenColumnCount = 0,
+  frozenColumnWidths = DEFAULT_FROZEN_COLUMN_WIDTHS,
+}) => {
+  if (frozenColumnCount > 0) {
+    return (
+      <FreezePaneDenseTable
+        columns={columns}
+        rows={rows}
+        onRowClick={onRowClick}
+        rowKey={rowKey}
+        frozenColumnCount={frozenColumnCount}
+        frozenColumnWidths={frozenColumnWidths}
+      />
+    );
+  }
+
+  return (
+    <div className="w-full max-w-full min-w-0 overflow-x-auto rounded-lg border border-gray-200">
+      <table className="w-max min-w-full text-xs border-separate border-spacing-0">
+        <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+          <tr>
+            {columns.map((c) => (
+              <th
+                key={c.key}
+                title={c.headerTitle || undefined}
+                className={`text-left font-semibold px-2 py-2 whitespace-nowrap bg-gray-50 ${c.headerClassName || ""}`}
+              >
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100 bg-white">
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="px-3 py-6 text-center text-gray-500">
+                No records
+              </td>
             </tr>
-          ))
-        )}
-      </tbody>
-    </table>
-  </div>
-);
+          ) : (
+            rows.map((row) => (
+              <tr
+                key={row[rowKey]}
+                className={`group ${onRowClick ? "cursor-pointer" : ""}`}
+                onClick={() => onRowClick?.(row)}
+              >
+                {columns.map((c) => (
+                  <td
+                    key={c.key}
+                    className={`px-2 py-1.5 align-middle text-gray-800 whitespace-nowrap bg-white group-hover:bg-blue-50/40 ${c.cellClassName || ""}`}
+                  >
+                    {renderDenseCell(c, row)}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 export function Drawer({ open, title, onClose, children, widthClass = "max-w-lg" }) {
   if (!open) return null;

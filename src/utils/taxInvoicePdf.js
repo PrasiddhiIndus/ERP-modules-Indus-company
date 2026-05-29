@@ -12,6 +12,7 @@ import {
 } from './invoiceRound';
 import { getTermsForVertical } from './invoiceTermsTemplates';
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
+import { applyPreGstAdjustments, formatBillingDisplayDate } from './billingPoInvoiceFields.js';
 
 let companyLogoDataUrlPromise = null;
 
@@ -266,10 +267,13 @@ export function getInvoiceTotals(inv) {
   let sgstAmt = Number(inv.sgstAmt);
   let igstAmt = Number(inv.igstAmt);
   const sumItems = round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0));
+  const preGstDeduction = Number(inv.preGstDeduction ?? inv.pre_gst_deduction) || 0;
+  const preGstAddition = Number(inv.preGstAddition ?? inv.pre_gst_addition) || 0;
 
   if (forceItemTotals || !Number.isFinite(taxableValue) || taxableValue === 0) {
     taxableValue = sumItems;
   }
+  taxableValue = applyPreGstAdjustments(taxableValue, preGstDeduction, preGstAddition);
 
   if (gstMode === 'sez_zero') {
     cgstAmt = 0;
@@ -299,6 +303,9 @@ export function getInvoiceTotals(inv) {
   const totalAmount = roundInvoiceAmount(round2(taxableValue + cgstAmt + sgstAmt + igstAmt));
   return {
     taxableValue: round2(taxableValue),
+    lineSubtotal: round2(sumItems),
+    preGstDeduction: round2(preGstDeduction),
+    preGstAddition: round2(preGstAddition),
     cgstRate,
     sgstRate,
     cgstAmt,
@@ -356,6 +363,9 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const invoiceKind = inv.invoiceKind || options.invoiceKind || 'tax';
   const {
     taxableValue,
+    lineSubtotal,
+    preGstDeduction,
+    preGstAddition,
     cgstRate,
     sgstRate,
     cgstAmt,
@@ -384,7 +394,10 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const buyerGstin = inv.gstin || '–';
   const invoiceNo = inv.taxInvoiceNumber || inv.bill_number || '–';
   const invoiceDate = formatPdfDate(inv.invoiceDate || inv.created_at);
-  const paymentTerms = inv.paymentTerms || '30 Days';
+  const paymentTerms = inv.paymentTerms || inv.payment_terms || '30 Days';
+  const poDateDisp = formatBillingDisplayDate(inv.poDate || inv.po_date);
+  const invoiceLevelHsn = String(inv.hsnSac || inv.hsn_sac || '').trim() || '–';
+  const showMaterialCode = !!(inv.materialCodeRequired || inv.material_code_required);
   const placeOfSupply = inv.placeOfSupply || inv.place_of_supply || 'Gujarat';
   const irn = inv.e_invoice_irn || inv.eInvoiceIrn;
   const ackNo = inv.e_invoice_ack_no || inv.eInvoiceAckNo;
@@ -597,6 +610,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
       ['Invoice No.', invoiceNo],
       ['Billing Month', billMonth],
       ['PO Number', poNumberDisp],
+      ['PO Date', poDateDisp],
     ];
     rightMeta = [
       ['Invoice Date', invoiceDate],
@@ -609,6 +623,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
       ['Invoice No.', invoiceNo],
       ['Billing Month', billMonth],
       ['PO Number', poNumberDisp],
+      ['PO Date', poDateDisp],
       ['Delivery Note', deliveryNote],
       ['Dispatch Doc. No.', dispatchDocNo],
       ['Terms of Delivery', termsOfDelivery],
@@ -757,73 +772,122 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   y = partyTop + partyBoxH + BOX_GAP;
   ensureSpace(18);
 
-  const hdrRemarks = inv.invoiceHeaderRemarks || inv.invoice_header_remarks;
-  const remarksText = hdrRemarks && String(hdrRemarks).trim() ? String(hdrRemarks).trim() : '–';
+  const hdrDescription = inv.invoiceHeaderRemarks || inv.invoice_header_remarks;
+  const descriptionText =
+    hdrDescription && String(hdrDescription).trim() ? String(hdrDescription).trim() : '–';
   doc.setDrawColor(187, 187, 187);
   doc.setFillColor(255, 255, 255);
-  const hdrLines = doc.splitTextToSize(remarksText, contentW - 4);
+  const hdrLines = doc.splitTextToSize(descriptionText, contentW - 4);
   const boxH = Math.max(hdrLines.length * LH(FONT.body) + 8, 14);
   doc.rect(MARGIN, y, contentW, boxH, 'FD');
   doc.setFont(undefined, 'bold');
   doc.setFontSize(FONT.small);
   doc.setTextColor(26, 58, 108);
-  doc.text('Description / Remarks', MARGIN + 2, y + 4);
+  doc.text('Description', MARGIN + 2, y + 4);
   doc.setFont(undefined, 'normal');
   doc.setTextColor(110, 110, 110);
   doc.text(hdrLines, MARGIN + 2, y + 8);
   doc.setTextColor(0, 0, 0);
   y += boxH + BOX_GAP;
+
+  doc.setFontSize(FONT.small);
+  doc.setFont(undefined, 'bold');
+  doc.text('HSN / SAC:', MARGIN + 2, y + 3.5);
+  doc.setFont(undefined, 'normal');
+  doc.text(invoiceLevelHsn, MARGIN + 22, y + 3.5);
+  y += 6;
   ensureSpace(28);
 
   // ----- Item table (widths sum to contentW)
-  const tableHeaders = [
-    'SR\nNo.',
-    'DESCRIPTION OF GOODS',
-    'HSN/\nSAC',
-    'Qty',
-    `RATE\n(${PDF_RS})`,
-    'UOM',
-    'DISC.\n%',
-    `AMOUNT\n(${PDF_RS})`,
-  ];
+  const tableHeaders = showMaterialCode
+    ? [
+        'SR\nNo.',
+        'DESCRIPTION OF GOODS',
+        'MATERIAL\nCODE',
+        'Qty',
+        `RATE\n(${PDF_RS})`,
+        'UOM',
+        'DISC.\n%',
+        `AMOUNT\n(${PDF_RS})`,
+      ]
+    : [
+        'SR\nNo.',
+        'DESCRIPTION OF GOODS',
+        'Qty',
+        `RATE\n(${PDF_RS})`,
+        'UOM',
+        'DISC.\n%',
+        `AMOUNT\n(${PDF_RS})`,
+      ];
   const rowItems =
     items.length > 0
       ? items
       : [{ description: 'Services as per PO', hsnSac: inv.hsnSac || '9983', quantity: 1, rate: taxableValue, amount: taxableValue }];
 
-  const tableBody = rowItems.map((it, idx) => [
-    String(idx + 1),
-    (it.description || it.designation || '–').substring(0, 120),
-    String(it.hsnSac || inv.hsnSac || '–'),
-    formatInrPdf(it.quantity || 0),
-    formatMoney2(it.rate || 0),
-    'No.',
-    '—',
-    formatMoney2(it.amount || 0),
-  ]);
+  const tableBody = rowItems.map((it, idx) => {
+    const uom = String(it.uom || 'No.').trim() || 'No.';
+    const base = [
+      String(idx + 1),
+      (it.description || it.designation || '–').substring(0, 120),
+    ];
+    if (showMaterialCode) {
+      base.push(String(it.materialCode || it.material_code || '–').substring(0, 40));
+    }
+    base.push(
+      formatInrPdf(it.quantity || 0),
+      formatMoney2(it.rate || 0),
+      uom,
+      '—',
+      formatMoney2(it.amount || 0)
+    );
+    return base;
+  });
 
+  const subtotalColSpan = tableHeaders.length - 1;
   const subtotalRowStyle = { halign: 'right', fontStyle: 'bold', fillColor: [248, 250, 252] };
+  if (lineSubtotal != null && (preGstDeduction > 0 || preGstAddition > 0)) {
+    tableBody.push([
+      { content: 'Line items subtotal', colSpan: subtotalColSpan, styles: subtotalRowStyle },
+      { content: formatMoney2(lineSubtotal), styles: subtotalRowStyle },
+    ]);
+    if (preGstDeduction > 0) {
+      tableBody.push([
+        { content: 'Less: supplementary deduction', colSpan: subtotalColSpan, styles: subtotalRowStyle },
+        { content: formatMoney2(-preGstDeduction), styles: subtotalRowStyle },
+      ]);
+    }
+    if (preGstAddition > 0) {
+      tableBody.push([
+        { content: 'Add: supplementary addition', colSpan: subtotalColSpan, styles: subtotalRowStyle },
+        { content: formatMoney2(preGstAddition), styles: subtotalRowStyle },
+      ]);
+    }
+    tableBody.push([
+      { content: 'Taxable value (before GST)', colSpan: subtotalColSpan, styles: subtotalRowStyle },
+      { content: formatMoney2(taxableValue), styles: subtotalRowStyle },
+    ]);
+  }
   if (gstMode === 'intra') {
     if (cgstAmt > 0) {
       tableBody.push([
-        { content: 'CGST @ ' + cgstRate + '%', colSpan: 7, styles: subtotalRowStyle },
+        { content: 'CGST @ ' + cgstRate + '%', colSpan: subtotalColSpan, styles: subtotalRowStyle },
         { content: formatMoney2(cgstAmt), styles: subtotalRowStyle },
       ]);
     }
     if (sgstAmt > 0) {
       tableBody.push([
-        { content: 'SGST @ ' + sgstRate + '%', colSpan: 7, styles: subtotalRowStyle },
+        { content: 'SGST @ ' + sgstRate + '%', colSpan: subtotalColSpan, styles: subtotalRowStyle },
         { content: formatMoney2(sgstAmt), styles: subtotalRowStyle },
       ]);
     }
   } else if (gstMode === 'inter' && igstAmt > 0) {
     tableBody.push([
-      { content: 'IGST @ ' + igstRate + '%', colSpan: 7, styles: subtotalRowStyle },
+      { content: 'IGST @ ' + igstRate + '%', colSpan: subtotalColSpan, styles: subtotalRowStyle },
       { content: formatMoney2(igstAmt), styles: subtotalRowStyle },
     ]);
   } else if (gstMode === 'sez_zero') {
     tableBody.push([
-      { content: 'GST @ 0% (SEZ / nil rated)', colSpan: 7, styles: subtotalRowStyle },
+      { content: 'GST @ 0% (SEZ / nil rated)', colSpan: subtotalColSpan, styles: subtotalRowStyle },
       { content: formatMoney2(0), styles: subtotalRowStyle },
     ]);
   }
@@ -851,16 +915,26 @@ function buildTaxInvoiceDoc(inv, options = {}) {
       valign: 'middle',
       minCellHeight: 9,
     },
-    columnStyles: {
-      0: { cellWidth: ITEM_TABLE_COL_WIDTHS[0], halign: 'center' },
-      1: { cellWidth: ITEM_TABLE_COL_WIDTHS[1], halign: 'left', overflow: 'linebreak' },
-      2: { cellWidth: ITEM_TABLE_COL_WIDTHS[2], halign: 'center' },
-      3: { cellWidth: ITEM_TABLE_COL_WIDTHS[3], halign: 'right' },
-      4: { cellWidth: ITEM_TABLE_COL_WIDTHS[4], halign: 'right' },
-      5: { cellWidth: ITEM_TABLE_COL_WIDTHS[5], halign: 'center' },
-      6: { cellWidth: ITEM_TABLE_COL_WIDTHS[6], halign: 'center' },
-      7: { cellWidth: ITEM_TABLE_COL_WIDTHS[7], halign: 'right' },
-    },
+    columnStyles: showMaterialCode
+      ? {
+          0: { cellWidth: 11, halign: 'center' },
+          1: { cellWidth: 58, halign: 'left', overflow: 'linebreak' },
+          2: { cellWidth: 22, halign: 'center' },
+          3: { cellWidth: 14, halign: 'right' },
+          4: { cellWidth: 20, halign: 'right' },
+          5: { cellWidth: 12, halign: 'center' },
+          6: { cellWidth: 11, halign: 'center' },
+          7: { cellWidth: 24, halign: 'right' },
+        }
+      : {
+          0: { cellWidth: 13, halign: 'center' },
+          1: { cellWidth: 72, halign: 'left', overflow: 'linebreak' },
+          2: { cellWidth: 16, halign: 'right' },
+          3: { cellWidth: 22, halign: 'right' },
+          4: { cellWidth: 12, halign: 'center' },
+          5: { cellWidth: 12, halign: 'center' },
+          6: { cellWidth: 25, halign: 'right' },
+        },
   });
   y = doc.lastAutoTable.finalY + 0.6;
   ensureSpace(48);

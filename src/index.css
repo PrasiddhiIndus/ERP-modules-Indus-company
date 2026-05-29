@@ -60,6 +60,24 @@ main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-thumb:hover {
   background: rgba(220, 38, 38, 0.65);
 }
 
+/* Daily register: Excel-style freeze panes (sticky left employee columns) */
+main.erp-app-shell .erp-freeze-pane-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+main.erp-app-shell .erp-freeze-pane-frozen {
+  background-color: #ffffff;
+}
+
+main.erp-app-shell .erp-freeze-pane-scroll > div > div:first-child .erp-freeze-pane-frozen {
+  background-color: #f9fafb;
+}
+
+main.erp-app-shell .erp-freeze-pane-edge {
+  box-shadow: 4px 0 10px -6px rgba(0, 0, 0, 0.18);
+  border-right: 1px solid #d1d5db;
+}
+
 /* INDUS OS – Command Interface login */
 .login-page {
   --indus-red: #C8102E;
