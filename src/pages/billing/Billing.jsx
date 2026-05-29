@@ -13,6 +13,7 @@ import BillingReports from './BillingReports';
 import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
 import BillingPlainEnglishGuide from './components/BillingPlainEnglishGuide';
+import BillingPoNotificationBar from './components/BillingPoNotificationBar';
 import { PO_BASIS_FILTER_ALL } from '../../constants/poBasis';
 import {
   COMMERCIAL_MODULE_PROJECTS,
@@ -311,6 +312,7 @@ const BillingInner = () => {
           billingPoBasisOptions={billingPoBasisOptions}
         />
         <BillingPlainEnglishGuide />
+        <BillingPoNotificationBar />
         <BillingErrorBoundary>
           <ActiveComponent onNavigateTab={handleTabChange} />
         </BillingErrorBoundary>

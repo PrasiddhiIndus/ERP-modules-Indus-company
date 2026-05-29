@@ -9,6 +9,15 @@ import QRCode from 'qrcode';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createClient } from '@supabase/supabase-js';
+import {
+  etimeCfg,
+  fetchEtimePunchDataMerged,
+  fetchEtimePunchesForIsoRange,
+  normalizeEtimeDate,
+  runAttendanceOverlapSync,
+  startAttendanceSyncCron,
+  uniqueEtimePunchEndpoints,
+} from './attendanceEtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -670,203 +679,6 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
   return safe;
 }
 
-function etimeCfg() {
-  const timeoutMs = Number(process.env.ETIME_TIMEOUT_MS || 60000);
-  const punchEndpoint = String(process.env.ETIME_PUNCH_ENDPOINT || 'DownloadInOutPunchData')
-    .trim()
-    .replace(/^\/+|\/+$/g, '');
-  return {
-    baseUrl: (process.env.ETIME_BASE_URL || 'https://api.etimeoffice.com/api').trim(),
-    authCredentials: getRequiredEnv('ETIME_AUTH_CREDENTIALS'),
-    punchEndpoint: punchEndpoint || 'DownloadInOutPunchData',
-    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 60000,
-  };
-}
-
-function normalizeEtimeDate(value, endOfDay = false) {
-  const raw = String(value || '').trim();
-  if (!raw) {
-    throw new HttpError(400, endOfDay ? 'toDate is required.' : 'fromDate is required.');
-  }
-  const slash = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ _]\d{2}:\d{2}(?::\d{2})?)?/);
-  if (slash) {
-    const [, dd, mm, yyyy] = slash;
-    return `${dd}/${mm}/${yyyy}`;
-  }
-
-  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
-  if (iso) {
-    const [, yyyy, mm, dd] = iso;
-    return `${dd}/${mm}/${yyyy}`;
-  }
-
-  throw new HttpError(400, `Invalid ${endOfDay ? 'toDate' : 'fromDate'} format.`);
-}
-
-function pickField(row, keys) {
-  if (!row || typeof row !== 'object') return '';
-  for (const key of keys) {
-    const entry = Object.entries(row).find(([k]) => k.toLowerCase() === key.toLowerCase());
-    if (entry && entry[1] != null && String(entry[1]).trim() !== '') return entry[1];
-  }
-  return '';
-}
-
-function splitPunchDateTime(value) {
-  const text = String(value || '').trim().replace('T', ' ').replace('_', ' ');
-  if (!text) return { date: '', time: '' };
-  const [date = '', time = ''] = text.split(/\s+/);
-  return { date, time: time ? time.slice(0, 5) : '' };
-}
-
-function isValidEtimePunchTime(value) {
-  const text = String(value || '').trim();
-  return /^\d{2}:\d{2}(?::\d{2})?$/.test(text) && text !== '00:00' && text !== '00:00:00';
-}
-
-function extractEtimeRows(data) {
-  if (Array.isArray(data)) return data;
-  if (!data || typeof data !== 'object') return [];
-  const candidates = [
-    data.PunchData,
-    data.punchData,
-    data.InOutPunchData,
-    data.inOutPunchData,
-    data.Data,
-    data.data,
-    data.Result,
-    data.result,
-  ];
-  return candidates.find(Array.isArray) || [];
-}
-
-/** Match client attendance: numeric codes without leading zeros (09750 → 9750). */
-function normalizeAttendanceEmpCode(code) {
-  const s = String(code ?? '').trim();
-  if (!s) return '';
-  if (/^\d+$/.test(s)) {
-    const n = Number(s);
-    return Number.isFinite(n) ? String(n) : s;
-  }
-  return s;
-}
-
-function normalizeEtimePunchRows(data) {
-  return extractEtimeRows(data).flatMap((row, index) => {
-    const punchDateTime = pickField(row, ['PunchDateTime', 'LogDateTime', 'PunchDate', 'Date', 'AttendanceDate']);
-    const split = splitPunchDateTime(punchDateTime);
-    const empCode = normalizeAttendanceEmpCode(
-      pickField(row, ['Empcode', 'EmpCode', 'EmployeeCode', 'EmployeeID', 'EmpId'])
-    );
-    const employeeName = String(pickField(row, ['Name', 'EmployeeName', 'EmpName']) || '').trim();
-    const punchDate = String(split.date || pickField(row, ['DateString', 'PunchDate', 'Date', 'AttendanceDate'])).trim();
-    const inTime = pickField(row, ['INTime', 'InTime', 'InTimeOnly']);
-    const outTime = pickField(row, ['OUTTime', 'OutTime', 'OutTimeOnly']);
-    const sourceStatus = String(pickField(row, ['Status', 'AttendanceStatus', 'VerifyMode']) || '').trim();
-    const dailyPunches = [];
-    if (empCode && punchDate && isValidEtimePunchTime(inTime)) {
-      dailyPunches.push({
-        id: `${empCode}-${punchDate}-${String(inTime).slice(0, 5)}-in-${index}`,
-        empCode,
-        employeeName,
-        punchDate,
-        punchTime: String(inTime).slice(0, 5),
-        deviceName: 'eTimeOffice',
-        direction: 'IN',
-        status: sourceStatus,
-        sourcePayload: row,
-      });
-    }
-    if (empCode && punchDate && isValidEtimePunchTime(outTime)) {
-      dailyPunches.push({
-        id: `${empCode}-${punchDate}-${String(outTime).slice(0, 5)}-out-${index}`,
-        empCode,
-        employeeName,
-        punchDate,
-        punchTime: String(outTime).slice(0, 5),
-        deviceName: 'eTimeOffice',
-        direction: 'OUT',
-        status: sourceStatus,
-        sourcePayload: row,
-      });
-    }
-    if (dailyPunches.length) return dailyPunches;
-
-    const punchTime = String(pickField(row, ['PunchTimeOnly', 'Time', 'AttendanceTime']) || split.time).trim();
-    if (!empCode || !punchDate || !punchTime) return [];
-    return {
-      id: `${empCode || 'emp'}-${punchDate || 'date'}-${punchTime || index}-${index}`,
-      empCode,
-      employeeName,
-      punchDate,
-      punchTime,
-      deviceName: String(pickField(row, ['MachineNo', 'MachineName', 'DeviceName', 'Device', 'Location']) || '').trim(),
-      direction: String(pickField(row, ['InOut', 'Direction', 'PunchDirection', 'IOType']) || '').trim(),
-      status: sourceStatus,
-      sourcePayload: row,
-    };
-  });
-}
-
-function uniqueEtimePunchEndpoints(primary) {
-  return Array.from(new Set([primary, 'DownloadInOutPunchData', 'DownloadPunchData'].filter(Boolean)));
-}
-
-function buildEtimePunchUrl(baseUrl, endpoint, empCode, fromDate, toDate) {
-  const url = new URL(`${baseUrl.replace(/\/+$/, '')}/${endpoint}`);
-  url.searchParams.set('Empcode', empCode);
-  url.searchParams.set('FromDate', fromDate);
-  url.searchParams.set('ToDate', toDate);
-  return url;
-}
-
-function parseEtimeProviderText(text) {
-  try {
-    return text ? JSON.parse(text) : null;
-  } catch {
-    return { raw: text };
-  }
-}
-
-async function requestEtimePunchEndpoint(c, endpoint, empCode, fromDate, toDate) {
-  const url = buildEtimePunchUrl(c.baseUrl, endpoint, empCode, fromDate, toDate);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), c.timeoutMs);
-  try {
-    const providerRes = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      headers: {
-        Authorization: `Basic ${Buffer.from(c.authCredentials).toString('base64')}`,
-        accept: 'application/json',
-      },
-    });
-    const text = await providerRes.text();
-    return {
-      endpoint,
-      providerRes,
-      providerData: parseEtimeProviderText(text),
-    };
-  } catch (err) {
-    if (err?.name === 'AbortError') {
-      throw new HttpError(504, `eTimeOffice attendance fetch timed out while calling ${endpoint}.`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function fetchEtimePunchData(c, empCode, fromDate, toDate) {
-  let lastNotFound = null;
-  for (const endpoint of uniqueEtimePunchEndpoints(c.punchEndpoint)) {
-    const result = await requestEtimePunchEndpoint(c, endpoint, empCode, fromDate, toDate);
-    if (result.providerRes.ok || ![404, 405].includes(result.providerRes.status)) return result;
-    lastNotFound = result;
-  }
-  return lastNotFound;
-}
-
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'whitebooks-einvoice-proxy' });
 });
@@ -885,15 +697,20 @@ app.get('/api/debug/invoice/:id', (req, res) => {
 
 app.get('/api/admin/attendance/status', (_req, res) => {
   try {
-    const c = etimeCfg();
+    const c = etimeCfg(getRequiredEnv);
     res.json({
       ok: true,
       service: 'eTimeOffice',
       etimeConfigured: true,
       baseUrl: c.baseUrl,
       punchEndpoint: c.punchEndpoint,
+      mergeEndpoints: c.mergeEndpoints,
       fallbackEndpoints: uniqueEtimePunchEndpoints(c.punchEndpoint).filter((e) => e !== c.punchEndpoint),
       timeoutMs: c.timeoutMs,
+      syncOverlapHours: c.overlapHours,
+      syncLookbackDays: c.lookbackDays,
+      syncTimezone: c.syncTimezone,
+      cronEnabled: String(process.env.ETIME_SYNC_CRON_ENABLED || '').toLowerCase() === 'true',
     });
   } catch (err) {
     const status = Number(err?.status) || 500;
@@ -907,38 +724,86 @@ app.get('/api/admin/attendance/status', (_req, res) => {
 
 app.get('/api/admin/attendance/punches', async (req, res) => {
   try {
-    const c = etimeCfg();
+    const c = etimeCfg(getRequiredEnv);
     const empCode = String(req.query.empCode || req.query.Empcode || 'ALL').trim() || 'ALL';
-    const fromDate = normalizeEtimeDate(req.query.fromDate || req.query.FromDate || '2024-01-01');
-    const toDate = normalizeEtimeDate(req.query.toDate || req.query.ToDate || '2026-05-12', true);
+    const fromIso = String(req.query.fromDate || req.query.FromDate || '').trim();
+    const toIso = String(req.query.toDate || req.query.ToDate || '').trim();
 
-    const { endpoint, providerRes, providerData } = await fetchEtimePunchData(c, empCode, fromDate, toDate);
+    let records;
+    let endpointsUsed;
+    let fromDate;
+    let toDate;
 
-    if (!providerRes.ok) {
-      return res.status(providerRes.status).json({
-        message:
-          providerData?.Msg ||
-          providerData?.Message ||
-          providerData?.message ||
-          `eTimeOffice attendance fetch failed (${providerRes.status}).`,
-      });
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fromIso) && /^\d{4}-\d{2}-\d{2}$/.test(toIso)) {
+      const fetchResult = await fetchEtimePunchesForIsoRange(c, empCode, fromIso, toIso);
+      records = fetchResult.records;
+      endpointsUsed = fetchResult.endpointsUsed;
+      fromDate = fromIso;
+      toDate = toIso;
+    } else {
+      fromDate = normalizeEtimeDate(fromIso || '2024-01-01', false);
+      toDate = normalizeEtimeDate(toIso || '2026-05-12', true);
+      const result = await fetchEtimePunchDataMerged(c, empCode, fromDate, toDate);
+      if (!result.providerRes?.ok) {
+        return res.status(result.providerRes?.status || 502).json({
+          message:
+            result.providerData?.Msg ||
+            result.providerData?.Message ||
+            result.providerData?.message ||
+            `eTimeOffice attendance fetch failed (${result.providerRes?.status}).`,
+        });
+      }
+      records = result.records || [];
+      endpointsUsed = result.endpointsUsed || [result.endpoint];
     }
 
-    const records = normalizeEtimePunchRows(providerData);
     res.json({
       source: 'eTimeOffice',
-      providerEndpoint: endpoint,
+      providerEndpoints: endpointsUsed,
       empCode,
       fromDate,
       toDate,
       count: records.length,
-      message: providerData?.Msg || providerData?.Message || providerData?.message || null,
       records,
     });
   } catch (err) {
     const status = Number(err?.status) || 500;
     res.status(status).json({
       message: err?.message || 'Failed to fetch eTimeOffice attendance.',
+    });
+  }
+});
+
+app.post('/api/admin/attendance/sync', async (req, res) => {
+  try {
+    const secret = String(process.env.ETIME_SYNC_SECRET || '').trim();
+    if (secret) {
+      const provided = String(req.headers['x-etime-sync-secret'] || req.body?.secret || '').trim();
+      if (provided !== secret) {
+        return res.status(401).json({ message: 'Invalid attendance sync secret.' });
+      }
+    }
+
+    const empCode = String(req.body?.empCode || req.query?.empCode || 'ALL').trim() || 'ALL';
+    const fromDate = String(req.body?.fromDate || req.query?.fromDate || '').trim() || null;
+    const toDate = String(req.body?.toDate || req.query?.toDate || '').trim() || null;
+
+    const summary = await runAttendanceOverlapSync({
+      getRequiredEnv,
+      getSupabaseUrl: getSupabaseUrlForServer,
+      getServiceKey: getSupabaseServiceRoleKeyForServer,
+      empCode,
+      fromDate,
+      toDate,
+    });
+
+    res.json(summary);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({
+      message: err?.message || 'Attendance sync failed.',
+      details: err?.details || null,
+      partialUpserted: err?.partialUpserted ?? null,
     });
   }
 });
@@ -1310,8 +1175,23 @@ app.post('/api/fleet/r2/presign-get', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const httpServer = app.listen(PORT, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Whitebooks proxy listening on port ${PORT}`);
+  startAttendanceSyncCron({
+    getRequiredEnv,
+    getSupabaseUrl: getSupabaseUrlForServer,
+    getServiceKey: getSupabaseServiceRoleKeyForServer,
+  });
+});
+
+httpServer.on('error', (err) => {
+  // eslint-disable-next-line no-console
+  console.error(`API server failed on port ${PORT}:`, err?.message || err);
+  if (err?.code === 'EADDRINUSE') {
+    // eslint-disable-next-line no-console
+    console.error('Port already in use. Stop the other process or change SERVER_PORT in .env.server.');
+  }
+  process.exit(1);
 });
 

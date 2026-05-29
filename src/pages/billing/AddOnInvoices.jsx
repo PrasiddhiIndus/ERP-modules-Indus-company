@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FilePlus2, Eye, X } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
+import { resolveInvoiceDescriptionFromPo, resolvePoPaymentTerms } from '../../utils/billingPoInvoiceFields';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 
@@ -27,14 +28,17 @@ function round2(n) {
 /** Tax add-ons use AON-*; proforma add-ons use PAO-* so numbering stays unique vs tax series. */
 function makeAddOnInvoiceNumber(invoices, documentKind) {
   const y = new Date().getFullYear();
-  const wantProforma = documentKind === 'proforma';
+  const kind = String(documentKind || 'tax').toLowerCase();
   const seq =
     (Array.isArray(invoices) ? invoices : []).filter((i) => {
       if (!i.isAddOn) return false;
       const k = String(i.invoiceKind || i.invoice_kind || 'tax').toLowerCase();
-      return wantProforma ? k === 'proforma' : k !== 'proforma';
+      if (kind === 'proforma') return k === 'proforma';
+      if (kind === 'draft') return k === 'draft';
+      return k === 'tax';
     }).length + 1;
-  if (wantProforma) return `PAO-${y}-${String(seq).padStart(4, '0')}`;
+  if (kind === 'proforma') return `PAO-${y}-${String(seq).padStart(4, '0')}`;
+  if (kind === 'draft') return `DAON-${y}-${String(seq).padStart(4, '0')}`;
   return `AON-${y}-${String(seq).padStart(4, '0')}`;
 }
 
@@ -98,7 +102,8 @@ const AddOnInvoices = ({ onNavigateTab }) => {
   const handleSave = () => {
     if (!canOpen) return;
     const no = makeAddOnInvoiceNumber(invoices, addOnDocumentKind);
-    const resolvedKind = addOnDocumentKind === 'proforma' ? 'proforma' : 'tax';
+    const resolvedKind =
+      addOnDocumentKind === 'proforma' ? 'proforma' : addOnDocumentKind === 'draft' ? 'draft' : 'tax';
     const newId = Math.max(0, ...invoices.map((i) => Number(i.id) || 0), 0) + 1;
     const inv = {
       id: newId,
@@ -114,7 +119,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       billingMonth: null,
       billingDurationFrom: null,
       billingDurationTo: null,
-      invoiceHeaderRemarks: null,
+      invoiceHeaderRemarks: resolveInvoiceDescriptionFromPo(selectedPO),
       clientLegalName: selectedPO.legalName,
       clientAddress: selectedPO.billingAddress,
       clientShippingAddress: selectedPO.shippingAddress || null,
@@ -122,6 +127,8 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       gstin: selectedPO.gstin,
       ocNumber: selectedPO.ocNumber,
       poWoNumber: selectedPO.poWoNumber,
+      poDate: selectedPO.poDate || selectedPO.po_date || null,
+      materialCodeRequired: !!(selectedPO.materialCodeRequired || selectedPO.material_code_required),
       hsnSac: selectedPO.hsnCode || selectedPO.sacCode || '',
       items: items.map((i) => ({
         description: i.description || '',
@@ -130,7 +137,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
         rate: Number(i.rate) || 0,
         amount: round2(i.amount),
       })),
-      paymentTerms: selectedPO.remarks || `${selectedPO.billingCycle || 30} days`,
+      paymentTerms: resolvePoPaymentTerms(selectedPO),
       taxableValue,
       cgstRate,
       sgstRate,
@@ -238,6 +245,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
             >
               <option value="tax">Tax invoice</option>
               <option value="proforma">Proforma invoice</option>
+              <option value="draft">Draft invoice</option>
             </select>
           </div>
           <div className="md:col-span-2 lg:col-span-1">
@@ -271,8 +279,18 @@ const AddOnInvoices = ({ onNavigateTab }) => {
                 const draft = {
                   isAddOn: true,
                   addOnType: resolvedAddOnType,
-                  invoiceKind: addOnDocumentKind === 'proforma' ? 'proforma' : 'tax',
-                  invoice_kind: addOnDocumentKind === 'proforma' ? 'proforma' : 'tax',
+                  invoiceKind:
+                    addOnDocumentKind === 'proforma'
+                      ? 'proforma'
+                      : addOnDocumentKind === 'draft'
+                        ? 'draft'
+                        : 'tax',
+                  invoice_kind:
+                    addOnDocumentKind === 'proforma'
+                      ? 'proforma'
+                      : addOnDocumentKind === 'draft'
+                        ? 'draft'
+                        : 'tax',
                   taxInvoiceNumber: 'Preview',
                   clientLegalName: selectedPO.legalName,
                   clientAddress: selectedPO.billingAddress,
@@ -283,7 +301,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
                   poWoNumber: selectedPO.poWoNumber,
                   hsnSac: selectedPO.hsnCode || selectedPO.sacCode || '',
                   invoiceDate,
-                  paymentTerms: selectedPO.remarks || `${selectedPO.billingCycle || 30} days`,
+                  paymentTerms: resolvePoPaymentTerms(selectedPO),
                   items,
                   taxableValue,
                   cgstRate,

@@ -13,6 +13,7 @@ import {
   DEFAULT_MSME_CLAUSE,
 } from '../../../utils/taxInvoicePdf';
 import { formatAmountUpTo3Decimals, formatInvoiceTotalDisplay } from '../../../utils/invoiceRound';
+import { formatBillingDisplayDate } from '../../../utils/billingPoInvoiceFields';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
 
 const PDF_RS = 'Rs.';
@@ -70,6 +71,10 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
     igstAmt: previewIgst,
     gstMode: previewGstMode,
     totalAmount: previewTotal,
+    taxableValue: previewTaxable,
+    lineSubtotal: previewLineSubtotal,
+    preGstDeduction: previewPreGstDeduction,
+    preGstAddition: previewPreGstAddition,
   } = totals;
 
   const invoiceKind = inv.invoiceKind || 'tax';
@@ -141,6 +146,12 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
     preferredTextValue(inv.poWoNumber, inv.po_wo_number) ||
     preferredTextValue(inv.ocNumber, inv.oc_number) ||
     '–';
+  const poDateDisp = formatBillingDisplayDate(inv.poDate || inv.po_date) || '–';
+  const invoiceLevelHsn =
+    preferredTextValue(inv.hsnSac, inv.hsn_sac) || '–';
+  const showMaterialCode = !!(inv.materialCodeRequired || inv.material_code_required);
+  const tableColCount = showMaterialCode ? 8 : 7;
+  const summaryColSpan = tableColCount - 1;
 
   const deliveryNote = inv.deliveryNote || inv.delivery_note || '–';
   const otherReference = inv.otherReference || inv.other_reference || '–';
@@ -158,6 +169,7 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
       ['Invoice No.', invoiceNo],
       ['Billing Month', billMonth],
       ['PO Number', poNumberDisp],
+      ['PO Date', poDateDisp],
     ];
     metaRowsRight = [
       ['Invoice Date', previewInvoiceDateStr],
@@ -170,6 +182,7 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
       ['Invoice No.', invoiceNo],
       ['Billing Month', billMonth],
       ['PO Number', poNumberDisp],
+      ['PO Date', poDateDisp],
       ['Delivery Note', deliveryNote],
       ['Dispatch Doc. No.', dispatchDocNo],
       ['Terms of Delivery', termsOfDelivery],
@@ -185,7 +198,8 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
       ...origTaxNoRow,
     ];
   }
-  const invoiceSubtotal = round2(previewTotal - previewCgst - previewSgst - previewIgst);
+  const invoiceSubtotal = round2(previewTaxable);
+  const showPreGstRows = previewPreGstDeduction > 0 || previewPreGstAddition > 0;
   const showEinvBlock = showEInvoiceMeta && isEInvoicePreview;
   const uiTitle = docTitle;
 
@@ -328,9 +342,14 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
 
         <div className="px-[28px] pt-2">
           <div className="border border-[#bbb] px-2 py-1.5 text-[8px]">
-            <p className="font-bold text-[#1a3a6c]">Description / Remarks</p>
+            <p className="font-bold text-[#1a3a6c]">Description</p>
             <p className="italic text-gray-500 mt-0.5">{remarksText || '–'}</p>
           </div>
+        </div>
+
+        <div className="px-[28px] pt-2 pb-1 text-[8.5px]">
+          <span className="font-bold text-[#1a3a6c]">HSN / SAC:</span>{' '}
+          <span className="font-mono text-gray-700">{invoiceLevelHsn}</span>
         </div>
 
         <div className="px-[28px] pt-2 space-y-0">
@@ -339,7 +358,9 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
               <tr className="bg-[#1a3a6c] text-white" style={invoiceBlueHeaderTextStyle}>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>SR No.</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-left font-bold text-white leading-tight w-[39%]" style={invoiceBlueHeaderTextStyle}>Description of Goods</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>SAC/HSN</th>
+                {showMaterialCode ? (
+                  <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>Material Code</th>
+                ) : null}
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Qty</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]" style={invoiceBlueHeaderTextStyle}>Rate ({PDF_RS})</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>UOM</th>
@@ -348,34 +369,68 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
               </tr>
             </thead>
             <tbody>
-              {(previewItems.length ? previewItems : [{ description: 'Services as per PO', quantity: 1, rate: invoiceSubtotal, amount: invoiceSubtotal }]).map((it, idx) => (
+              {(previewItems.length ? previewItems : [{ description: 'Services as per PO', quantity: 1, rate: previewLineSubtotal || invoiceSubtotal, amount: previewLineSubtotal || invoiceSubtotal }]).map((it, idx) => (
                 <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-[#f8f9fc]'}>
                   <td className="border border-[#bbb] px-1 py-1 text-center">{idx + 1}</td>
                   <td className="border border-[#bbb] px-1 py-1 font-bold">{(it.description || it.designation || '–').slice(0, 120)}</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-center font-mono text-gray-600">{it.hsnSac || inv.hsnSac || '–'}</td>
+                  {showMaterialCode ? (
+                    <td className="border border-[#bbb] px-1 py-1 text-center font-mono text-gray-600">
+                      {(it.materialCode || it.material_code || '–').slice(0, 40)}
+                    </td>
+                  ) : null}
                   <td className="border border-[#bbb] px-1 py-1 text-right">{formatAmountUpTo3Decimals(it.quantity || 0)}</td>
                   <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.rate || 0)}</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-center">No.</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-center">{String(it.uom || 'No.').trim() || 'No.'}</td>
                   <td className="border border-[#bbb] px-1 py-1 text-center">—</td>
                   <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.amount || 0)}</td>
                 </tr>
               ))}
+              {showPreGstRows ? (
+                <>
+                  <tr className="bg-[#f0f4fa]">
+                    <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Line items subtotal</td>
+                    <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewLineSubtotal)}</td>
+                  </tr>
+                  {previewPreGstDeduction > 0 ? (
+                    <tr className="bg-[#f0f4fa]">
+                      <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Less: supplementary deduction</td>
+                      <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(-previewPreGstDeduction)}</td>
+                    </tr>
+                  ) : null}
+                  {previewPreGstAddition > 0 ? (
+                    <tr className="bg-[#f0f4fa]">
+                      <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Add: supplementary addition</td>
+                      <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewPreGstAddition)}</td>
+                    </tr>
+                  ) : null}
+                  <tr className="bg-[#f0f4fa]">
+                    <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Taxable value (before GST)</td>
+                    <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewTaxable)}</td>
+                  </tr>
+                </>
+              ) : null}
               {previewCgst > 0 ? (
                 <tr className="bg-[#f0f4fa]">
-                  <td colSpan={7} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">CGST @ {previewCgstRate}%</td>
+                  <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">CGST @ {previewCgstRate}%</td>
                   <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewCgst)}</td>
                 </tr>
               ) : null}
               {previewSgst > 0 ? (
                 <tr className="bg-[#f0f4fa]">
-                  <td colSpan={7} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">SGST @ {previewSgstRate}%</td>
+                  <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">SGST @ {previewSgstRate}%</td>
                   <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewSgst)}</td>
                 </tr>
               ) : null}
               {previewIgst > 0 ? (
                 <tr className="bg-[#f0f4fa]">
-                  <td colSpan={7} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">IGST @ {previewIgstRate}%</td>
+                  <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">IGST @ {previewIgstRate}%</td>
                   <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewIgst)}</td>
+                </tr>
+              ) : null}
+              {previewGstMode === 'sez_zero' && previewCgst === 0 && previewSgst === 0 && previewIgst === 0 ? (
+                <tr className="bg-[#f0f4fa]">
+                  <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">GST @ 0% (SEZ / nil rated)</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(0)}</td>
                 </tr>
               ) : null}
             </tbody>

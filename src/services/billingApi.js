@@ -130,8 +130,14 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     ...UNIFIED_PO_CLIENT_DEFAULTS,
     ...c,
     billingType: billingTypeCanonical ?? c.billingType ?? null,
-    remarks: raw.remarks ?? raw.payment_terms ?? null,
-    paymentTerms: inferredTerms ?? raw.payment_terms ?? raw.remarks ?? null,
+    remarks: raw.remarks ?? null,
+    paymentTerms:
+      inferredTerms ??
+      raw.payment_terms ??
+      (raw.billing_cycle != null ? `${Number(raw.billing_cycle) || 30} Days` : null),
+    poDate: raw.po_date ?? null,
+    pincode: raw.pincode ?? null,
+    materialCodeRequired: !!raw.material_code_required,
     customPaymentTermsPercent: raw.custom_advance_percent ?? null,
     poReceivedDate: raw.po_received_date ?? null,
     paymentTermMode: raw.payment_term_mode ?? null,
@@ -310,6 +316,8 @@ const OPTIONAL_INVOICE_BUYER_KEYS = ['buyer_pin', 'buyer_pincode', 'buyer_state_
 // Optional cancellation columns (may not exist in older DBs).
 const OPTIONAL_INVOICE_CANCEL_KEYS = ['is_cancelled', 'cancelled_at', 'cancel_reason'];
 const OPTIONAL_INVOICE_GEOMETRY_KEYS = ['monthly_duty_qty_mode', 'lump_sum_billing_mode'];
+const OPTIONAL_INVOICE_ENHANCEMENT_KEYS = ['po_date', 'pre_gst_deduction', 'pre_gst_addition'];
+const OPTIONAL_LINE_ENHANCEMENT_KEYS = ['material_code', 'uom'];
 
 function stripOptionalBuyerInvoiceColumns(payload) {
   const next = { ...payload };
@@ -327,6 +335,26 @@ function stripOptionalGeometryInvoiceColumns(payload) {
   const next = { ...payload };
   for (const k of OPTIONAL_INVOICE_GEOMETRY_KEYS) delete next[k];
   return next;
+}
+
+function stripOptionalEnhancementInvoiceColumns(payload) {
+  const next = { ...payload };
+  for (const k of OPTIONAL_INVOICE_ENHANCEMENT_KEYS) delete next[k];
+  return next;
+}
+
+function isEnhancementInvoiceColumnsMissingError(err) {
+  const s = supabaseErrBlob(err);
+  if (!s) return false;
+  if (!/po_date|pre_gst_deduction|pre_gst_addition/i.test(s)) return false;
+  return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
+}
+
+function isLineEnhancementColumnsMissingError(err) {
+  const s = supabaseErrBlob(err);
+  if (!s) return false;
+  if (!/material_code|\buom\b/i.test(s)) return false;
+  return /could not find|schema cache|column of 'invoice_line_item'|PGRST204|undefined column/i.test(s);
 }
 
 function supabaseErrBlob(err) {
@@ -473,7 +501,10 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
   const totalContractValueVal = Number(po.totalContractValue) || 0;
 
   const billingCycleVal = isMp ? Number(po.billingCycle) || 30 : null;
-  const paymentTermsVal = isMp ? po.paymentTerms || null : null;
+  const paymentTermsVal = isMp
+    ? String(po.paymentTerms ?? '').trim() ||
+      (billingCycleVal ? `${billingCycleVal} Days` : null)
+    : null;
   const monthlyDutyVal =
     isMp && po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim()
       ? String(po.monthlyDutyQtyMode).trim()
@@ -516,6 +547,9 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     oc_series: po.ocSeries || null,
     vertical: normalizePoVerticalForPersist(po.vertical),
     po_wo_number: po.poWoNumber || null,
+    po_date: po.poDate && String(po.poDate).trim() ? po.poDate : null,
+    pincode: po.pincode && String(po.pincode).trim() ? String(po.pincode).trim() : null,
+    material_code_required: !!po.materialCodeRequired,
     po_quantity: firstNumber(po, ['poQuantity', 'po_quantity', 'poQty', 'po_qty', 'quantity', 'qty'], 0),
     total_contract_value: totalContractValueVal,
     total_contract_month: totalContractMonthVal,
@@ -752,6 +786,8 @@ export async function fetchInvoices() {
       penalty: l.line_penalty != null ? Number(l.line_penalty) : 0,
       poReferenceRate: l.po_reference_rate != null ? Number(l.po_reference_rate) : undefined,
       isTruckLine: !!l.is_truck_line,
+      materialCode: l.material_code || '',
+      uom: l.uom || 'No.',
     });
   });
   const attsByInv = {};
@@ -822,6 +858,9 @@ export async function fetchInvoices() {
     c.isCancelled = !!inv.is_cancelled;
     c.cancelledAt = inv.cancelled_at || null;
     c.cancelReason = inv.cancel_reason || null;
+    c.poDate = inv.po_date || null;
+    c.preGstDeduction = inv.pre_gst_deduction != null ? Number(inv.pre_gst_deduction) : 0;
+    c.preGstAddition = inv.pre_gst_addition != null ? Number(inv.pre_gst_addition) : 0;
     c.created_at = inv.created_at;
     c.updated_at = inv.updated_at;
     c.items = linesByInv[inv.id] || [];
@@ -950,6 +989,9 @@ export async function saveInvoice(inv) {
     is_cancelled: !!(inv.isCancelled ?? inv.is_cancelled),
     cancelled_at: normalizeTimestamptzOrNull(inv.cancelledAt ?? inv.cancelled_at),
     cancel_reason: inv.cancelReason ?? inv.cancel_reason ?? null,
+    po_date: normalizePgDateOnly(inv.poDate ?? inv.po_date) || null,
+    pre_gst_deduction: Number(inv.preGstDeduction ?? inv.pre_gst_deduction) || 0,
+    pre_gst_addition: Number(inv.preGstAddition ?? inv.pre_gst_addition) || 0,
   });
 
   /** New row: insert without id. Existing row: upsert with id in body (onConflict=id). Avoid PATCH/update — RLS/PostgREST often returns errors on PATCH for billing.invoice. */
@@ -982,6 +1024,10 @@ export async function saveInvoice(inv) {
     invoicePayload = stripOptionalGeometryInvoiceColumns(invoicePayload);
     ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
   }
+  if (invError && isEnhancementInvoiceColumnsMissingError(invError)) {
+    invoicePayload = stripOptionalEnhancementInvoiceColumns(invoicePayload);
+    ({ data: saved, error: invError } = await persistInvoiceRow(invoicePayload));
+  }
   if (invError) throw invError;
   const invoiceId = saved?.id ?? invId ?? inv.id;
 
@@ -1001,13 +1047,24 @@ export async function saveInvoice(inv) {
     line_penalty: it.penalty != null ? Number(it.penalty) : 0,
     po_reference_rate: it.poReferenceRate != null ? Number(it.poReferenceRate) : null,
     is_truck_line: !!it.isTruckLine,
+    material_code: it.materialCode ? String(it.materialCode).trim() : null,
+    uom: it.uom ? String(it.uom).trim() : 'No.',
   }));
   if (lineRows.length) {
-    let { error: lineErr } = await table('invoice_line_item').insert(lineRows);
+    let compatibleLineRows = lineRows;
+    let { error: lineErr } = await table('invoice_line_item').insert(compatibleLineRows);
     if (lineErr && isLineNumberOfMonthsMissingError(lineErr)) {
-      const compatibleLineRows = lineRows.map((row) => {
+      compatibleLineRows = compatibleLineRows.map((row) => {
         const next = { ...row };
         delete next.number_of_months;
+        return next;
+      });
+      ({ error: lineErr } = await table('invoice_line_item').insert(compatibleLineRows));
+    }
+    if (lineErr && isLineEnhancementColumnsMissingError(lineErr)) {
+      compatibleLineRows = compatibleLineRows.map((row) => {
+        const next = { ...row };
+        for (const k of OPTIONAL_LINE_ENHANCEMENT_KEYS) delete next[k];
         return next;
       });
       ({ error: lineErr } = await table('invoice_line_item').insert(compatibleLineRows));

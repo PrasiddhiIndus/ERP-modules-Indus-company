@@ -16,9 +16,16 @@ import { supabase } from "../../../lib/supabase";
 import {
   fetchAttendancePunchesPage,
   isoDateToday,
-  normalizeAttendanceEmpCode,
+  mapDbPunchToViewRow,
   resolveAttendanceEmpCodeFilter,
 } from "../../../lib/attendanceDaily";
+import {
+  ATTENDANCE_PUNCH_TABLE,
+  ATTENDANCE_UPSERT_CHUNK,
+  addDaysToIsoDate,
+  dedupePunchDbRows,
+  mapApiPunchToDbRow,
+} from "../../../../shared/attendancePunchSync.mjs";
 import {
   mockEmployees,
   mockOnboarding,
@@ -232,9 +239,9 @@ export function EmployeeOnboardingPage() {
   );
 }
 
-const ATTENDANCE_TABLE = "erp_attendance_punches";
-const ATTENDANCE_UPSERT_CHUNK = 500;
+const ATTENDANCE_TABLE = ATTENDANCE_PUNCH_TABLE;
 const ATTENDANCE_PAGE_SIZES = [25, 50, 100, 200];
+const SYNC_OVERLAP_DAYS = 2;
 const ATTENDANCE_SORT_OPTIONS = [
   { value: "punchDateTime", label: "Punch date/time" },
   { value: "empCode", label: "Emp code" },
@@ -269,85 +276,26 @@ function formatAttendanceApiError(err, res, data) {
   if (res?.status === 500 && /ETIME_AUTH_CREDENTIALS/i.test(msg)) {
     return `${msg} Add ETIME_* variables to .env.server and restart the Node server.`;
   }
+  if (res?.status === 502 || /cannot reach etimeoffice|eTimeOffice network/i.test(msg)) {
+    return msg || "Cannot reach eTimeOffice. Check network/firewall/VPN and .env.server credentials.";
+  }
   return msg || "Unable to sync attendance punches from eTimeOffice.";
 }
 
-function normalizeDbDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const slash = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (slash) {
-    const [, dd, mm, yyyy] = slash;
-    return `${yyyy}-${mm}-${dd}`;
-  }
-  return null;
-}
-
-function normalizeDbTime(value) {
-  const raw = String(value || "").trim();
-  const match = raw.match(/\b(\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!match) return null;
-  return `${match[1]}:${match[2]}:${match[3] || "00"}`;
-}
-
-function makePunchKey(record, index = 0) {
-  const date = normalizeDbDate(record.punchDate) || "no-date";
-  const time = normalizeDbTime(record.punchTime || record.punchDate) || "no-time";
-  const parts = [
-    normalizeAttendanceEmpCode(record.empCode) || "no-emp",
-    date,
-    time,
-    record.deviceName || "no-device",
-    record.direction || "no-direction",
-    record.status || "no-status",
-  ];
-  if (date === "no-date" || time === "no-time") parts.push(String(index));
-  return parts.join("|").toLowerCase();
-}
-
-function mapApiPunchToDbRow(record, index) {
-  const now = new Date().toISOString();
-  return {
-    punch_key: makePunchKey(record, index),
-    employee_code: normalizeAttendanceEmpCode(record.empCode),
-    employee_name: String(record.employeeName || "").trim() || null,
-    punch_date: normalizeDbDate(record.punchDate),
-    punch_time: normalizeDbTime(record.punchTime || record.punchDate),
-    device_name: String(record.deviceName || "").trim() || null,
-    direction: String(record.direction || "").trim() || null,
-    status: String(record.status || "").trim() || null,
-    source: "eTimeOffice",
-    source_payload: record.sourcePayload || record,
-    synced_at: now,
-    updated_at: now,
-  };
-}
-
-function mapDbPunchToViewRow(row) {
-  const sourcePunchDate = row.source_payload?.PunchDate || row.source_payload?.PunchDateTime || "";
-  const punchTime = row.punch_time || normalizeDbTime(sourcePunchDate);
-  return {
-    id: row.id || row.punch_key,
-    empCode: normalizeAttendanceEmpCode(row.employee_code),
-    employeeName: row.employee_name || "",
-    punchDate: row.punch_date || "",
-    punchTime: punchTime ? String(punchTime).slice(0, 5) : "",
-    deviceName: row.device_name || "",
-    direction: row.direction || "",
-    status: row.status || "",
-    syncedAt: row.synced_at || "",
-  };
-}
-
 async function upsertAttendanceRows(rows) {
-  const uniqueRows = Array.from(new Map(rows.map((row) => [row.punch_key, row])).values());
+  const { rows: uniqueRows, collisionCount, inputCount, uniqueCount } = dedupePunchDbRows(rows);
+  if (collisionCount > 0) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[attendance-sync] ${collisionCount} punch_key collision(s) in batch of ${inputCount}; kept ${uniqueCount} unique row(s).`
+    );
+  }
   for (let i = 0; i < uniqueRows.length; i += ATTENDANCE_UPSERT_CHUNK) {
     const chunk = uniqueRows.slice(i, i + ATTENDANCE_UPSERT_CHUNK);
     const { error } = await supabase.from(ATTENDANCE_TABLE).upsert(chunk, { onConflict: "punch_key" });
     if (error) throw error;
   }
-  return uniqueRows.length;
+  return { stored: uniqueRows.length, apiRows: rows.length, collisions: collisionCount };
 }
 
 export function EmployeeAttendanceInputsPage() {
@@ -464,9 +412,10 @@ export function EmployeeAttendanceInputsPage() {
   }, [empCode, page, pageSize, searchDebounced, selectedDate, sortDir, sortKey]);
 
   const syncAttendanceFromApi = useCallback(async () => {
+    const syncFromDate = addDaysToIsoDate(selectedDate, -SYNC_OVERLAP_DAYS);
     const params = new URLSearchParams({
       empCode: resolveAttendanceEmpCodeFilter(empCode),
-      fromDate: selectedDate,
+      fromDate: syncFromDate,
       toDate: selectedDate,
     });
     setSyncing(true);
@@ -483,13 +432,23 @@ export function EmployeeAttendanceInputsPage() {
       if (!res.ok) {
         throw new Error(formatAttendanceApiError(null, res, data));
       }
-      const dbRows = (Array.isArray(data?.records) ? data.records : []).map(mapApiPunchToDbRow);
-      const storedCount = dbRows.length ? await upsertAttendanceRows(dbRows) : 0;
+      const apiRecords = Array.isArray(data?.records) ? data.records : [];
+      const dbRows = apiRecords.map((record, index) => mapApiPunchToDbRow(record, index));
+      const rowsToStore = dbRows.filter((row) => row.punch_date && row.employee_code);
+      const skipped = dbRows.length - rowsToStore.length;
+      const upsertResult = rowsToStore.length ? await upsertAttendanceRows(rowsToStore) : { stored: 0, apiRows: 0, collisions: 0 };
       setSummary({
         ...data,
         source: "Supabase",
-        syncedCount: storedCount,
-        message: storedCount ? `${storedCount} unique API punch row(s) stored in Supabase.` : data?.message || "No API punch rows found.",
+        syncFromDate,
+        syncToDate: selectedDate,
+        apiCount: apiRecords.length,
+        syncedCount: upsertResult.stored,
+        skippedNoDateOrEmp: skipped,
+        dedupeCollisions: upsertResult.collisions,
+        message: upsertResult.stored
+          ? `${upsertResult.stored} punch row(s) stored (${syncFromDate} → ${selectedDate}, overlap ${SYNC_OVERLAP_DAYS} day(s)).`
+          : data?.message || "No punch rows with a valid date and employee code to store.",
       });
       const result = await fetchAttendancePunchesPage(supabase, {
         fromDate: selectedDate,

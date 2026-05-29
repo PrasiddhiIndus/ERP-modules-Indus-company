@@ -84,12 +84,12 @@ function formatManageInvoiceDate(value) {
   });
 }
 
-function sortInvoicesOldestFirst(list) {
+function sortInvoicesNewestFirst(list) {
   return [...(Array.isArray(list) ? list : [])].sort((a, b) => {
     const aTs = new Date(a?.updated_at || a?.updatedAt || a?.invoiceDate || a?.invoice_date || a?.created_at || a?.createdAt || 0).getTime() || 0;
     const bTs = new Date(b?.updated_at || b?.updatedAt || b?.invoiceDate || b?.invoice_date || b?.created_at || b?.createdAt || 0).getTime() || 0;
-    if (aTs !== bTs) return aTs - bTs;
-    return String(a?.id || '').localeCompare(String(b?.id || ''));
+    if (aTs !== bTs) return bTs - aTs;
+    return String(b?.id || '').localeCompare(String(a?.id || ''));
   });
 }
 
@@ -133,7 +133,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [mainSortConfig, setMainSortConfig] = useState({ key: 'created', direction: 'asc' });
   const [addOnSortConfig, setAddOnSortConfig] = useState({ key: 'created', direction: 'asc' });
   const todayForDateFilter = useMemo(() => dateInputValue(), []);
-  const [dateFilterMode, setDateFilterMode] = useState('range');
+  const [dateFilterMode, setDateFilterMode] = useState('all');
   const [dateFrom, setDateFrom] = useState(todayForDateFilter);
   const [dateTo, setDateTo] = useState(todayForDateFilter);
   const [cancelModalInv, setCancelModalInv] = useState(null);
@@ -232,7 +232,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           inv.clientLegalName?.toLowerCase().includes(s)
       );
     }
-    return sortInvoicesOldestFirst(list);
+    return sortInvoicesNewestFirst(list);
   }, [hydratedInvoices, commercialPOs, billingTypeFilter, dateFilterMode, dateFrom, dateTo, searchTerm, isTrainingVertical]);
 
   const addOnInvoices = useMemo(() => {
@@ -247,7 +247,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           inv.addOnType?.toLowerCase().includes(s)
       );
     }
-    return sortInvoicesOldestFirst(list);
+    return sortInvoicesNewestFirst(list);
   }, [hydratedInvoices, searchTerm]);
 
   const cancelledInvoices = useMemo(() => {
@@ -262,7 +262,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
           (inv.cancelReason || '').toLowerCase().includes(s)
       );
     }
-    return sortInvoicesOldestFirst(list);
+    return sortInvoicesNewestFirst(list);
   }, [hydratedInvoices, searchTerm]);
 
   const sortedFilteredInvoices = useMemo(() => {
