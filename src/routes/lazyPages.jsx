@@ -109,6 +109,22 @@ export const HrPayrollYearPage = lazyNamed(
   "HrPayrollYearPage"
 );
 
+export const HrSalaryLayout = lazy(() => import("../pages/hr/payroll/salary/SalaryLayout"));
+export const HrSalaryDashboard = lazy(() => import("../pages/hr/payroll/salary/Dashboard"));
+export const HrSalaryEmployeeList = lazy(() => import("../pages/hr/payroll/salary/EmployeePayrollList"));
+export const HrSalaryEmployeeProfile = lazy(() => import("../pages/hr/payroll/salary/EmployeePayrollProfile"));
+export const HrSalaryPayrollRun = lazy(() => import("../pages/hr/payroll/salary/PayrollRun"));
+export const HrSalarySiteFormulas = lazy(() => import("../pages/hr/payroll/salary/SiteFormulaSetup"));
+export const HrSalaryManualInputs = lazy(() => import("../pages/hr/payroll/salary/ManualInputs"));
+export const HrSalaryPF = lazy(() => import("../pages/hr/payroll/salary/statutory/PF"));
+export const HrSalaryESIC = lazy(() => import("../pages/hr/payroll/salary/statutory/ESIC"));
+export const HrSalaryPT = lazy(() => import("../pages/hr/payroll/salary/statutory/PT"));
+export const HrSalaryTDS = lazy(() => import("../pages/hr/payroll/salary/statutory/TDS"));
+export const HrSalaryLoans = lazy(() => import("../pages/hr/payroll/salary/LoansRecoveries"));
+export const HrSalaryRegister = lazy(() => import("../pages/hr/payroll/salary/Register"));
+export const HrSalaryOutputs = lazy(() => import("../pages/hr/payroll/salary/Outputs"));
+export const HrSalarySettings = lazy(() => import("../pages/hr/payroll/salary/Settings"));
+
 export const EmployeeOnboardingPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
   "EmployeeOnboardingPage"

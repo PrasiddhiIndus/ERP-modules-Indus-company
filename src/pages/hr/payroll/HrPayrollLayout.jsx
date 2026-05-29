@@ -22,6 +22,9 @@ function HrPayrollLayoutInner() {
           <NavLink to="dashboard" className={tabClass} end>
             Payroll dashboard
           </NavLink>
+          <NavLink to="salary/dashboard" className={tabClass}>
+            Salary Management
+          </NavLink>
           <NavLink to="entry" className={tabClass}>
             Entry sheet (Excel)
           </NavLink>

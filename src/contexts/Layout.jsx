@@ -268,9 +268,9 @@ const Layout = () => {
                     <Clock className="w-4 h-4 shrink-0 text-amber-600" />
                     <span className="text-xs">Attendance</span>
                   </NavLink>
-                  <NavLink to="salary" className={subNavClass}>
+                  <NavLink to="hr/payroll/salary/dashboard" className={subNavClass}>
                     <Wallet className="w-4 h-4 shrink-0 text-emerald-600" />
-                    <span className="text-xs">Salary</span>
+                    <span className="text-xs">Salary Management</span>
                   </NavLink>
                   <button
                     type="button"
@@ -300,6 +300,10 @@ const Layout = () => {
                       <NavLink to="hr/payroll/formula" className={subNavClass}>
                         <Calculator className="h-4 w-4 shrink-0 text-violet-600" />
                         <span className="text-xs">Formula reference</span>
+                      </NavLink>
+                      <NavLink to="hr/payroll/salary/dashboard" className={subNavClass}>
+                        <Wallet className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="text-xs">Salary Management</span>
                       </NavLink>
                     </div>
                   )}
