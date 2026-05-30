@@ -4,6 +4,7 @@ import {
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
   getCommercialPoModuleType,
 } from '../constants/commercialModuleType';
+import { deriveBillToShipToPinSameFromPo, normalizePoPincode } from './poPincodeFields';
 
 const RM_VERTICAL_LABELS = new Set(['R&M', 'M&M', 'AMC', 'IEV']);
 
@@ -50,6 +51,9 @@ export function extractClientSnapshotFromPo(po, variant = 'manpower') {
   const base = {
     legalName: String(po.legalName || '').trim(),
     billingAddress: String(po.billingAddress || po.billing_address || '').trim(),
+    pincode: normalizePoPincode(po.pincode),
+    shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
+    billToShipToPinSame: deriveBillToShipToPinSameFromPo(po),
     shippingAddress: String(po.shippingAddress || po.shipping_address || '').trim(),
     placeOfSupply: String(po.placeOfSupply || po.place_of_supply || '').trim(),
     gstin: String(po.gstin || '')

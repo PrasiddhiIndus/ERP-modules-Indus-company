@@ -8,6 +8,7 @@ import {
   TinySelect,
   StatusChip,
   Drawer,
+  KpiTile,
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import {
@@ -38,6 +39,8 @@ import {
   upsertRegisterMarksBatch,
   normalizeAttendanceEmpCode,
   resolveAttendanceEmpCodeFilter,
+  computeDayAttendanceBreakdown,
+  registerMarkStatusLabel,
 } from "../../../lib/attendanceDaily";
 
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -96,6 +99,8 @@ export function EmployeeAttendanceDailyPage() {
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [summaryOverlayOpen, setSummaryOverlayOpen] = useState(false);
+  const [dayAttendanceDrawer, setDayAttendanceDrawer] = useState({ open: false, mode: "total" });
+  const [tableDayAttendanceFilter, setTableDayAttendanceFilter] = useState(null);
   const [bulkDate, setBulkDate] = useState("");
   const [bulkOverwrite, setBulkOverwrite] = useState(false);
   const [bulkPodComment, setBulkPodComment] = useState("");
@@ -272,9 +277,41 @@ export function EmployeeAttendanceDailyPage() {
     });
   }, [gridRows, search, empCode, department]);
 
+  const bulkDayNumber = useMemo(() => {
+    if (!monthMeta?.monthKey || !bulkDate?.startsWith(monthMeta.monthKey)) return null;
+    return dayOfMonthFromIsoDate(bulkDate);
+  }, [bulkDate, monthMeta?.monthKey]);
+
+  const dayAttendanceStats = useMemo(() => {
+    if (!bulkDayNumber) {
+      return {
+        total: 0,
+        present: 0,
+        absent: 0,
+        presentEmployees: [],
+        absentEmployees: [],
+        allEmployees: [],
+      };
+    }
+    return computeDayAttendanceBreakdown(filteredRows, bulkDayNumber);
+  }, [bulkDayNumber, filteredRows]);
+
+  const dayFilteredRows = useMemo(() => {
+    if (!tableDayAttendanceFilter || !bulkDayNumber) return filteredRows;
+    if (tableDayAttendanceFilter === "present") return dayAttendanceStats.presentEmployees;
+    if (tableDayAttendanceFilter === "absent") return dayAttendanceStats.absentEmployees;
+    return filteredRows;
+  }, [bulkDayNumber, dayAttendanceStats, filteredRows, tableDayAttendanceFilter]);
+
+  const openDayAttendanceDrawer = useCallback((mode) => {
+    setDayAttendanceDrawer({ open: true, mode });
+    if (mode === "total") setTableDayAttendanceFilter(null);
+    else setTableDayAttendanceFilter(mode);
+  }, []);
+
   const rowsWithSummary = useMemo(
-    () => attachRegisterRowSummaries(filteredRows, manualMarks, daysInMonth),
-    [filteredRows, manualMarks, daysInMonth]
+    () => attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth),
+    [dayFilteredRows, manualMarks, daysInMonth]
   );
 
   const summaryFooter = useMemo(() => computeRegisterSummaryFooter(rowsWithSummary), [rowsWithSummary]);
@@ -290,7 +327,11 @@ export function EmployeeAttendanceDailyPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize, rowsWithSummary.length, search, monthValue, empCode, department]);
+  }, [pageSize, rowsWithSummary.length, search, monthValue, empCode, department, tableDayAttendanceFilter, bulkDate]);
+
+  useEffect(() => {
+    setTableDayAttendanceFilter(null);
+  }, [bulkDate, monthValue, empCode, department, search]);
 
   const handleExportExcel = async () => {
     if (!monthMeta || !rowsWithSummary.length) return;
@@ -311,7 +352,7 @@ export function EmployeeAttendanceDailyPage() {
       if (!monthMeta?.monthKey) return;
       const day = dayOfMonthFromIsoDate(bulkDate);
       if (!day || !bulkDate.startsWith(monthMeta.monthKey)) return;
-      const empCodes = filteredRows.map((r) => r.empCode);
+      const empCodes = dayFilteredRows.map((r) => r.empCode);
       if (!empCodes.length) return;
 
       if (mark === "P(OD)") {
@@ -374,14 +415,14 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [bulkDate, bulkOverwrite, filteredRows, gridRows, manualMarks, manualRemarks, monthMeta]
+    [bulkDate, bulkOverwrite, dayFilteredRows, gridRows, manualMarks, manualRemarks, monthMeta]
   );
 
   const handleBulkPodCommentApply = useCallback(async () => {
     if (!monthMeta?.monthKey) return;
     const day = dayOfMonthFromIsoDate(bulkDate);
     if (!day || !bulkDate.startsWith(monthMeta.monthKey)) return;
-    const empCodes = filteredRows.map((r) => r.empCode);
+    const empCodes = dayFilteredRows.map((r) => r.empCode);
     if (!empCodes.length) return;
     const trimmed = bulkPodComment.trim();
 
@@ -432,13 +473,13 @@ export function EmployeeAttendanceDailyPage() {
     } finally {
       setSavingMark(false);
     }
-  }, [bulkDate, bulkOverwrite, bulkPodComment, filteredRows, gridRows, manualMarks, manualRemarks, monthMeta]);
+  }, [bulkDate, bulkOverwrite, bulkPodComment, dayFilteredRows, gridRows, manualMarks, manualRemarks, monthMeta]);
 
   const handleClearSelectedDate = useCallback(async () => {
     if (!monthMeta?.monthKey) return;
     const day = dayOfMonthFromIsoDate(bulkDate);
     if (!day || !bulkDate.startsWith(monthMeta.monthKey)) return;
-    const empCodes = filteredRows.map((r) => r.empCode);
+    const empCodes = dayFilteredRows.map((r) => r.empCode);
     if (!empCodes.length) return;
 
     const nextMarks = { ...manualMarks };
@@ -477,7 +518,7 @@ export function EmployeeAttendanceDailyPage() {
     } finally {
       setSavingMark(false);
     }
-  }, [bulkDate, filteredRows, manualMarks, manualRemarks, monthMeta]);
+  }, [bulkDate, dayFilteredRows, manualMarks, manualRemarks, monthMeta]);
 
   const departmentOptions = useMemo(() => {
     const values = new Set();
@@ -581,6 +622,19 @@ export function EmployeeAttendanceDailyPage() {
     return [...fixed, ...dayCols, ...summaryColumnDefs];
   }, [daysInMonth, handleMarkChange, manualRemarks, monthMeta?.monthKey, openPodCommentEditor, summaryColumnDefs]);
 
+  const dayDrawerRows = useMemo(() => {
+    if (dayAttendanceDrawer.mode === "present") return dayAttendanceStats.presentEmployees;
+    if (dayAttendanceDrawer.mode === "absent") return dayAttendanceStats.absentEmployees;
+    return dayAttendanceStats.allEmployees;
+  }, [dayAttendanceDrawer.mode, dayAttendanceStats]);
+
+  const dayDrawerTitle =
+    dayAttendanceDrawer.mode === "present"
+      ? "Present employees"
+      : dayAttendanceDrawer.mode === "absent"
+        ? "Absent employees"
+        : "All employees";
+
   return (
     <div className="space-y-3 min-w-0 max-w-full">
       <SectionCard
@@ -589,7 +643,7 @@ export function EmployeeAttendanceDailyPage() {
         right={
           <StatusChip
             label={
-              loading ? "Loading?" : savingMark ? "Saving?" : `${filteredRows.length} employee(s) ? Supabase`
+              loading ? "Loading?" : savingMark ? "Saving?" : `${dayFilteredRows.length} employee(s) · Supabase`
             }
             severity={loading || savingMark ? "warning" : "info"}
           />
@@ -660,8 +714,67 @@ export function EmployeeAttendanceDailyPage() {
           </button>
         </FilterBar>
 
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <KpiTile
+            label="Total employees"
+            value={bulkDayNumber ? dayAttendanceStats.total : "—"}
+            sub={
+              bulkDate
+                ? `All employees for ${bulkDate}${tableDayAttendanceFilter ? " · click to show all" : ""}`
+                : "Select a date below"
+            }
+            onClick={() => openDayAttendanceDrawer("total")}
+            tone={
+              tableDayAttendanceFilter === null && dayAttendanceDrawer.open && dayAttendanceDrawer.mode === "total"
+                ? "border-[#1F3A8A] ring-2 ring-[#1F3A8A]/20"
+                : "border-gray-200"
+            }
+          />
+          <KpiTile
+            label="Present employees"
+            value={bulkDayNumber ? dayAttendanceStats.present : "—"}
+            sub={bulkDate ? `P / P(OD) on ${bulkDate}` : "Select a date below"}
+            onClick={() => openDayAttendanceDrawer("present")}
+            tone={
+              tableDayAttendanceFilter === "present"
+                ? "border-emerald-400 ring-2 ring-emerald-100"
+                : "border-emerald-100"
+            }
+          />
+          <KpiTile
+            label="Absent employees"
+            value={bulkDayNumber ? dayAttendanceStats.absent : "—"}
+            sub={bulkDate ? `Not present on ${bulkDate}` : "Select a date below"}
+            onClick={() => openDayAttendanceDrawer("absent")}
+            tone={
+              tableDayAttendanceFilter === "absent"
+                ? "border-red-300 ring-2 ring-red-100"
+                : "border-red-100"
+            }
+          />
+        </div>
+
+        {tableDayAttendanceFilter && bulkDate && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-600">
+            <span>
+              Grid filtered to{" "}
+              <strong>{tableDayAttendanceFilter === "present" ? "present" : "absent"}</strong> employees on {bulkDate}.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setTableDayAttendanceFilter(null);
+                setDayAttendanceDrawer((prev) => ({ ...prev, mode: "total" }));
+              }}
+              className="h-7 px-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+            >
+              Clear filter
+            </button>
+          </div>
+        )}
+
         <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2">
-          <p className="text-[11px] font-semibold text-gray-700 mb-2">Bulk mark (filtered employees: {filteredRows.length})</p>
+          <p className="text-[11px] font-semibold text-gray-700 mb-2">Bulk mark (filtered employees: {dayFilteredRows.length})</p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[11px] text-gray-600">
               Date
@@ -688,7 +801,7 @@ export function EmployeeAttendanceDailyPage() {
                 key={b.mark}
                 type="button"
                 onClick={() => handleBulkMark(b.mark)}
-                disabled={!filteredRows.length}
+                disabled={!dayFilteredRows.length}
                 className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 ${REGISTER_BULK_BUTTON_CLASS[b.mark] || ""}`}
               >
                 {b.label}
@@ -697,7 +810,7 @@ export function EmployeeAttendanceDailyPage() {
             <button
               type="button"
               onClick={handleClearSelectedDate}
-              disabled={!filteredRows.length}
+              disabled={!dayFilteredRows.length}
               className="h-8 px-3 rounded-lg text-xs font-semibold border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
             >
               Clear date marks
@@ -869,6 +982,61 @@ export function EmployeeAttendanceDailyPage() {
                 </tr>
               ))}
               <SummaryFooterRow footer={summaryFooter} colSpan={3} />
+            </tbody>
+          </table>
+        </div>
+      </Drawer>
+
+      <Drawer
+        open={dayAttendanceDrawer.open}
+        title={`${dayDrawerTitle}${bulkDate ? ` · ${bulkDate}` : ""}`}
+        onClose={() => setDayAttendanceDrawer({ open: false, mode: "total" })}
+        widthClass="max-w-2xl"
+      >
+        <p className="text-[11px] text-gray-500 mb-3">
+          {dayAttendanceDrawer.mode === "present"
+            ? "Employees marked Present (P) or Present on Duty P(OD), including auto-present from punches."
+            : dayAttendanceDrawer.mode === "absent"
+              ? "Employees not marked present — unmarked, leave, weekoff, or NH/PH."
+              : "Full employee list for the selected date with attendance status."}
+          {tableDayAttendanceFilter
+            ? " The register grid is filtered to match this list."
+            : " Click Present or Absent to filter the grid."}
+        </p>
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="min-w-full text-xs">
+            <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+              <tr>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee code</th>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee name</th>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Department</th>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Status</th>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Mark</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 bg-white">
+              {dayDrawerRows.length ? (
+                dayDrawerRows.map((row) => (
+                  <tr key={row.id || row.empCode} className="hover:bg-sky-50/40">
+                    <td className="px-2 py-1.5 tabular-nums text-gray-800">{row.empCode || "—"}</td>
+                    <td className="px-2 py-1.5 text-gray-800">{row.employeeName || "—"}</td>
+                    <td className="px-2 py-1.5 text-gray-600">{row.department || "—"}</td>
+                    <td className="px-2 py-1.5">
+                      <StatusChip
+                        label={registerMarkStatusLabel(row.dayMark)}
+                        severity={row.dayMark === "P" || row.dayMark === "P(OD)" ? "info" : "warning"}
+                      />
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums text-gray-700">{row.dayMark || "—"}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-2 py-6 text-center text-gray-500">
+                    No employees in this list for the selected date.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -13,6 +13,17 @@ import {
 } from '../../../constants/commercialModuleType';
 import { buildCommercialClientProfiles } from '../../../utils/commercialClientProfiles';
 import ClientLegalNameAutocomplete from '../../../components/commercial/ClientLegalNameAutocomplete';
+import PoClientPincodeFields from '../../../components/PoClientPincodeFields';
+import {
+  deriveBillToShipToPinSameFromPo,
+  normalizePoPincode,
+  shipToPincodeForPoSave,
+} from '../../../utils/poPincodeFields';
+import {
+  getApprovalBadge,
+  getCommercialPoActorDisplayName,
+  PO_APPROVAL_STATUS as APPROVAL_STATUS,
+} from '../../../utils/commercialPoApproval';
 import {
   PO_BASIS_WITH_PO,
   PO_BASIS_WITHOUT_PO,
@@ -38,13 +49,6 @@ const PAYMENT_TERMS_OPTIONS = [
 const CUSTOM_PAYMENT_TERM = 'Advance (Custom % with PO)';
 const PAGE_SIZE = 10;
 const DEFAULT_SAC = '';
-const APPROVAL_STATUS = {
-  DRAFT: 'draft',
-  SENT: 'sent_for_approval',
-  APPROVED: 'approved',
-  REJECTED: 'rejected',
-};
-
 function poRowDomId(id) {
   return `po-row-${String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 }
@@ -54,43 +58,6 @@ const SUPPLEMENTARY_STATUS = {
   APPROVED: 'approved',
   REJECTED: 'rejected',
 };
-
-function getApprovalActorName(po, eventName) {
-  const direct =
-    eventName === 'po_approved'
-      ? po?.approvedByName || po?.approved_by_name || po?.approvedBy || po?.approved_by
-      : po?.rejectedByName || po?.rejected_by_name || po?.rejectedBy || po?.rejected_by;
-  const normalizeActor = (value) => {
-    const name = String(value || '').trim();
-    return name && name.toLowerCase() !== 'commercial manager' ? name : '';
-  };
-  const directName = normalizeActor(direct);
-  if (directName) return directName;
-  const history = Array.isArray(po?.updateHistory)
-    ? po.updateHistory
-    : Array.isArray(po?.update_history)
-      ? po.update_history
-      : [];
-  const match = [...history]
-    .reverse()
-    .find((row) => row?.event === eventName && normalizeActor(row?.actorName || row?.actor_name || row?.name));
-  return normalizeActor(match?.actorName || match?.actor_name || match?.name);
-}
-
-function getApprovalBadge(status, po) {
-  if (status === APPROVAL_STATUS.APPROVED) {
-    const actor = getApprovalActorName(po, 'po_approved');
-    return { label: actor ? `Approved by ${actor}` : 'Approved (name not recorded)', cls: 'bg-emerald-100 text-emerald-800' };
-  }
-  if (status === APPROVAL_STATUS.REJECTED) {
-    const actor = getApprovalActorName(po, 'po_rejected');
-    return { label: actor ? `Rejected by ${actor}` : 'Rejected (name not recorded)', cls: 'bg-red-100 text-red-700' };
-  }
-  if (status === APPROVAL_STATUS.SENT) {
-    return { label: 'Pending Commercial Manager approval', cls: 'bg-indigo-100 text-indigo-800' };
-  }
-  return { label: 'Draft', cls: 'bg-gray-100 text-gray-700' };
-}
 
 function getFinancialYear() {
   const d = new Date();
@@ -315,7 +282,8 @@ const GST_SUPPLY_TYPES = [
 ];
 
 const INITIAL_FORM_RM = {
-  siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '', panNumber: '',
+  siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', pincode: '', shipToPincode: '',
+  billToShipToPinSame: true, placeOfSupply: '', gstin: '', panNumber: '',
   currentCoordinator: '', contactNumber: '', contactEmail: '', ocNumber: '', vertical: 'R&M', ocSeries: '1',
   vendorCodeDigits: '',
   ocFyEdit: null,
@@ -370,7 +338,7 @@ const POEntry = ({
   const [gstTypeError, setGstTypeError] = useState('');
   const [saveError, setSaveError] = useState('');
   const canApproveCommercialPOs = userCanApproveInModules(userProfile, accessibleModules, approverModuleKeys);
-  const currentActorName = userProfile?.username || user?.email || 'User';
+  const currentActorName = getCommercialPoActorDisplayName(userProfile, user);
   const highlightedPoId = useMemo(
     () => new URLSearchParams(location.search).get('highlightPoId') || '',
     [location.search]
@@ -649,7 +617,11 @@ const POEntry = ({
     }
     setFormData({
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
-      billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '', placeOfSupply: po.placeOfSupply || '',
+      billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '',
+      pincode: normalizePoPincode(po.pincode),
+      shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
+      billToShipToPinSame: deriveBillToShipToPinSameFromPo(po),
+      placeOfSupply: po.placeOfSupply || '',
       gstin: po.gstin || '', panNumber: po.panNumber || '', currentCoordinator: po.currentCoordinator || '',
       contactNumber: po.contactNumber || '', contactEmail: po.contactEmail || '', ocNumber: po.ocNumber || '',
       vertical: fixedVertical || (parsed ? parsed.vertical : (po.ocNumber && po.ocNumber.split('-')[1])) || po.vertical || INITIAL_FORM_RM.vertical,
@@ -985,6 +957,8 @@ const POEntry = ({
       locationName: formData.locationName.trim() || formData.legalName, legalName: formData.legalName.trim(),
       billingAddress: formData.billingAddress.trim(),
       shippingAddress: formData.shippingAddress.trim(),
+      pincode: String(formData.pincode || '').trim() || null,
+      shipToPincode: shipToPincodeForPoSave(formData),
       placeOfSupply: formData.placeOfSupply.trim(),
       gstin: formData.gstin.trim().toUpperCase(),
       panNumber: (formData.panNumber || '').trim().toUpperCase(),
@@ -1530,7 +1504,20 @@ const POEntry = ({
                     />
                   </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, formData.gstSupplyType); setGstTypeError(msg); }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label><textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" /></div>
+                  <PoClientPincodeFields
+                    formData={formData}
+                    setFormData={setFormData}
+                    billToInputId="rm-po-pincode-bill"
+                    shipToInputId="rm-po-pincode-ship"
+                    sameCheckboxId="rm-po-pincode-same"
+                  />
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label>
+                    <textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      If different from billing, invoice will show separate BILL TO and SHIP TO blocks.
+                    </p>
+                  </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label><input type="text" value={formData.panNumber} onChange={(e) => setFormData((p) => ({ ...p, panNumber: e.target.value.toUpperCase() }))} maxLength={10} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. AABCU9603R" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label><input type="text" value={formData.locationName} onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>

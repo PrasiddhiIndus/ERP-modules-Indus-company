@@ -32,6 +32,43 @@ export function isRegisterNhphMark(mark) {
   return mark === REGISTER_MARK_NHPH || mark === "NHPH";
 }
 
+export function isRegisterPresentMark(mark) {
+  return mark === "P" || mark === "P(OD)";
+}
+
+/** Human-readable status for a single day cell (present / absent / leave / …). */
+export function registerMarkStatusLabel(mark) {
+  if (isRegisterPresentMark(mark)) return mark === "P(OD)" ? "Present (OD)" : "Present";
+  if (!mark) return "Absent";
+  const opt = REGISTER_STATUS_OPTIONS.find((o) => o.value === mark);
+  return opt?.label || mark;
+}
+
+/**
+ * Present vs absent counts for one calendar day across register rows.
+ * Present = P or P(OD); absent = all other marks (including unmarked).
+ */
+export function computeDayAttendanceBreakdown(rows, day) {
+  const presentEmployees = [];
+  const absentEmployees = [];
+  const allEmployees = [];
+  for (const row of rows || []) {
+    const dayMark = row.dayMarks?.[day] || "";
+    const entry = { ...row, dayMark };
+    allEmployees.push(entry);
+    if (isRegisterPresentMark(dayMark)) presentEmployees.push(entry);
+    else absentEmployees.push(entry);
+  }
+  return {
+    total: allEmployees.length,
+    present: presentEmployees.length,
+    absent: absentEmployees.length,
+    presentEmployees,
+    absentEmployees,
+    allEmployees,
+  };
+}
+
 /** Values allowed by admin_attendance_register_mark_check (Supabase). */
 export const REGISTER_MARKS_DB_ALLOWED = new Set(["P", "P(OD)", "L", "WO", REGISTER_MARK_NHPH]);
 
