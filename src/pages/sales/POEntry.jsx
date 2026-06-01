@@ -18,6 +18,17 @@ import {
 } from '../../constants/poBasis';
 import { buildCommercialClientProfiles } from '../../utils/commercialClientProfiles';
 import ClientLegalNameAutocomplete from '../../components/commercial/ClientLegalNameAutocomplete';
+import PoClientPincodeFields from '../../components/PoClientPincodeFields';
+import {
+  deriveBillToShipToPinSameFromPo,
+  normalizePoPincode,
+  shipToPincodeForPoSave,
+} from '../../utils/poPincodeFields';
+import {
+  getApprovalBadge,
+  getCommercialPoActorDisplayName,
+  PO_APPROVAL_STATUS as APPROVAL_STATUS,
+} from '../../utils/commercialPoApproval';
 
 const VERTICALS = ['Manpower', 'Training'];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
@@ -30,13 +41,6 @@ const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const BILLING_CYCLES = ['30', '45', '60'];
 const PAGE_SIZE = 10;
 const DEFAULT_SAC = '';
-const APPROVAL_STATUS = {
-  DRAFT: 'draft',
-  SENT: 'sent_for_approval',
-  APPROVED: 'approved',
-  REJECTED: 'rejected',
-};
-
 function poRowDomId(id) {
   return `po-row-${String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 }
@@ -46,43 +50,6 @@ const SUPPLEMENTARY_STATUS = {
   APPROVED: 'approved',
   REJECTED: 'rejected',
 };
-
-function getApprovalActorName(po, eventName) {
-  const direct =
-    eventName === 'po_approved'
-      ? po?.approvedByName || po?.approved_by_name || po?.approvedBy || po?.approved_by
-      : po?.rejectedByName || po?.rejected_by_name || po?.rejectedBy || po?.rejected_by;
-  const normalizeActor = (value) => {
-    const name = String(value || '').trim();
-    return name && name.toLowerCase() !== 'commercial manager' ? name : '';
-  };
-  const directName = normalizeActor(direct);
-  if (directName) return directName;
-  const history = Array.isArray(po?.updateHistory)
-    ? po.updateHistory
-    : Array.isArray(po?.update_history)
-      ? po.update_history
-      : [];
-  const match = [...history]
-    .reverse()
-    .find((row) => row?.event === eventName && normalizeActor(row?.actorName || row?.actor_name || row?.name));
-  return normalizeActor(match?.actorName || match?.actor_name || match?.name);
-}
-
-function getApprovalBadge(status, po) {
-  if (status === APPROVAL_STATUS.APPROVED) {
-    const actor = getApprovalActorName(po, 'po_approved');
-    return { label: actor ? `Approved by ${actor}` : 'Approved (name not recorded)', cls: 'bg-emerald-100 text-emerald-800' };
-  }
-  if (status === APPROVAL_STATUS.REJECTED) {
-    const actor = getApprovalActorName(po, 'po_rejected');
-    return { label: actor ? `Rejected by ${actor}` : 'Rejected (name not recorded)', cls: 'bg-red-100 text-red-700' };
-  }
-  if (status === APPROVAL_STATUS.SENT) {
-    return { label: 'Pending Commercial Manager approval', cls: 'bg-indigo-100 text-indigo-800' };
-  }
-  return { label: 'Draft', cls: 'bg-gray-100 text-gray-700' };
-}
 
 function getFinancialYear() {
   const d = new Date();
@@ -380,7 +347,8 @@ const initialForm = {
   vendorCodeDigits: '',
   ocFyEdit: null,
   vendorCode: '',
-  poWoNumber: '', poDate: '', pincode: '', materialCodeRequired: false, paymentTerms: '',
+  poWoNumber: '', poDate: '', pincode: '', shipToPincode: '', billToShipToPinSame: true,
+  materialCodeRequired: false, paymentTerms: '',
   ratePerCategory: [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
@@ -432,7 +400,7 @@ const POEntry = () => {
     accessibleModules,
     COMMERCIAL_MT_APPROVER_MODULE_KEYS
   );
-  const currentActorName = userProfile?.username || user?.email || 'User';
+  const currentActorName = getCommercialPoActorDisplayName(userProfile, user);
   const highlightedPoId = useMemo(
     () => new URLSearchParams(location.search).get('highlightPoId') || '',
     [location.search]
@@ -743,7 +711,9 @@ const POEntry = () => {
       remarks: po.remarks || '',
       paymentTerms: po.paymentTerms || (po.billingCycle ? `${po.billingCycle} Days` : ''),
       poDate: po.poDate || '',
-      pincode: po.pincode || '',
+      pincode: normalizePoPincode(po.pincode),
+      shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
+      billToShipToPinSame: deriveBillToShipToPinSameFromPo(po),
       materialCodeRequired: !!po.materialCodeRequired,
       monthlyDutyQtyMode:
         (po.billingType || po.poType) === 'Monthly'
@@ -1093,6 +1063,7 @@ const POEntry = () => {
         `${Number(formData.billingCycle) || 30} Days`,
       poDate: formData.poDate || null,
       pincode: String(formData.pincode || '').trim() || null,
+      shipToPincode: shipToPincodeForPoSave(formData),
       materialCodeRequired: !!formData.materialCodeRequired,
       poReceivedDate: null,
       paymentTermMode: null,
@@ -1577,35 +1548,51 @@ const POEntry = () => {
             </div>
             <div className="p-4 sm:p-6 space-y-5 bg-gray-50">
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
-                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-billing-basis">
-                  Billing basis
-                </label>
-                <select
-                  id="sales-po-billing-basis"
-                  value={formData.poBasis}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === PO_BASIS_WITHOUT_PO) {
-                      const d = buildWithoutPoDummyIds({
-                        verticalLabel: formData.vertical || 'Manpower',
-                        ocSeries: formData.ocSeries || nextSeries,
-                      });
-                      setFormData((p) => ({
-                        ...p,
-                        poBasis: v,
-                        ocNumber: p.ocNumber?.trim() || d.ocNumber,
-                        poWoNumber: p.poWoNumber?.trim() || d.poWoNumber,
-                      }));
-                    } else {
-                      setFormData((p) => ({ ...p, poBasis: v }));
-                    }
-                  }}
-                  className="w-full max-w-md border border-gray-300 rounded-lg px-3 py-2 bg-white"
-                >
-                  <option value={PO_BASIS_WITH_PO}>With PO</option>
-                  <option value={PO_BASIS_WITHOUT_PO}>Without PO</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-billing-basis">
+                      Billing basis
+                    </label>
+                    <select
+                      id="sales-po-billing-basis"
+                      value={formData.poBasis}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === PO_BASIS_WITHOUT_PO) {
+                          const d = buildWithoutPoDummyIds({
+                            verticalLabel: formData.vertical || 'Manpower',
+                            ocSeries: formData.ocSeries || nextSeries,
+                          });
+                          setFormData((p) => ({
+                            ...p,
+                            poBasis: v,
+                            ocNumber: p.ocNumber?.trim() || d.ocNumber,
+                            poWoNumber: p.poWoNumber?.trim() || d.poWoNumber,
+                          }));
+                        } else {
+                          setFormData((p) => ({ ...p, poBasis: v }));
+                        }
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                    >
+                      <option value={PO_BASIS_WITH_PO}>With PO</option>
+                      <option value={PO_BASIS_WITHOUT_PO}>Without PO</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-date">
+                      PO Date
+                    </label>
+                    <input
+                      id="sales-po-date"
+                      type="date"
+                      value={formData.poDate}
+                      onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
                   Without PO: OC and WOPO identifiers are prefilled for tracking (editable). Customer PO/WO can stay blank until you add one.
                 </p>
               </section>
@@ -1628,7 +1615,20 @@ const POEntry = () => {
                     />
                   </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing Address (with State)</label><input type="text" value={formData.billingAddress} onChange={(e) => { const v = e.target.value; setFormData((p) => ({ ...p, billingAddress: v })); const msg = validateGstSupplyTypeForState(formData.placeOfSupply, v, formData.gstSupplyType); setGstTypeError(msg); }} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Full address including State" /></div>
-                  <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label><textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" /></div>
+                  <PoClientPincodeFields
+                    formData={formData}
+                    setFormData={setFormData}
+                    billToInputId="sales-po-pincode-bill"
+                    shipToInputId="sales-po-pincode-ship"
+                    sameCheckboxId="sales-po-pincode-same"
+                  />
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Consignee / Ship-to address</label>
+                    <textarea value={formData.shippingAddress} onChange={(e) => setFormData((p) => ({ ...p, shippingAddress: e.target.value }))} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Leave blank if same as billing address" />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      If different from billing, invoice will show separate BILL TO and SHIP TO blocks.
+                    </p>
+                  </div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label><input type="text" value={formData.panNumber} onChange={(e) => setFormData((p) => ({ ...p, panNumber: e.target.value.toUpperCase() }))} maxLength={10} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. AABCU9603R" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label><input type="text" value={formData.locationName} onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
@@ -2074,8 +2074,6 @@ const POEntry = () => {
                     </div>
                   ) : null}
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">PO Date</label><input type="date" value={formData.poDate} onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label><input type="text" inputMode="numeric" maxLength={6} value={formData.pincode} onChange={(e) => setFormData((p) => ({ ...p, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="6-digit pincode" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label><input type="text" value={formData.paymentTerms} onChange={(e) => setFormData((p) => ({ ...p, paymentTerms: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. 30 Days" /></div>
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Internal only — not printed on tax invoice" /></div>
                   <div className="md:col-span-2 flex items-center gap-2 pt-5"><input type="checkbox" id="materialCodeRequired" checked={!!formData.materialCodeRequired} onChange={(e) => setFormData((p) => ({ ...p, materialCodeRequired: e.target.checked }))} className="rounded border-gray-300" /><label htmlFor="materialCodeRequired" className="text-sm text-gray-700">Material code required on invoice line items</label></div>

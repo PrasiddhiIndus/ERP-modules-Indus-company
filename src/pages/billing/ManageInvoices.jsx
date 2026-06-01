@@ -16,6 +16,8 @@ import {
 import { useBilling } from '../../contexts/BillingContext';
 import { generateEInvoice } from '../../services/eInvoiceApi';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
+import { resolveInvoicePartyAddresses } from '../../utils/invoicePartyAddresses';
+import { resolveInvoicePartyPincodes } from '../../utils/poPincodeFields';
 import { downloadTaxInvoicePdf, downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
@@ -182,15 +184,42 @@ const ManageInvoices = ({ onNavigateTab }) => {
     (inv) => {
       const po = getPoByInvoice(inv);
       if (!po) return inv;
+      const parties = resolveInvoicePartyAddresses(
+        po.billingAddress || po.billing_address || inv.clientAddress || inv.client_address,
+        po.shippingAddress ||
+          po.shipping_address ||
+          inv.clientShippingAddress ||
+          inv.client_shipping_address
+      );
+      const pinMeta = resolveBuyerStateAndPin({
+        gstin: po.gstin || inv.gstin,
+        placeOfSupply: po.placeOfSupply || po.place_of_supply || inv.placeOfSupply || inv.place_of_supply,
+        billingAddress: parties.billToAddress,
+        existingPin:
+          po.pincode ||
+          inv.buyerPin ||
+          inv.buyer_pin ||
+          inv.clientPincode ||
+          inv.client_pincode,
+      });
+      const partyPins = resolveInvoicePartyPincodes({
+        po,
+        billPinResolved: pinMeta.pin,
+        invoice: inv,
+      });
       return {
         ...inv,
         clientLegalName: po.legalName || inv.clientLegalName || inv.client_name,
-        clientAddress: po.billingAddress || inv.clientAddress || inv.client_address,
-        clientShippingAddress:
-          po.shippingAddress ||
-          po.shipping_address ||
-          inv.clientShippingAddress ||
-          inv.client_shipping_address,
+        clientAddress: parties.billToAddress || inv.clientAddress || inv.client_address,
+        clientShippingAddress: parties.clientShippingAddress,
+        shipToDiffers: parties.shipToDiffers,
+        clientPincode: String(partyPins.billToPin || pinMeta.pin || inv.clientPincode || inv.client_pincode || ''),
+        clientShipToPincode: partyPins.shipToPin || null,
+        client_ship_to_pincode: partyPins.billToShipToPinSame
+          ? null
+          : partyPins.shipToPin || inv.client_ship_to_pincode || null,
+        buyerPin: pinMeta.pin ?? inv.buyerPin ?? inv.buyer_pin,
+        buyerPincode: pinMeta.pin ?? inv.buyerPincode ?? inv.buyer_pincode,
         placeOfSupply: po.placeOfSupply || po.place_of_supply || inv.placeOfSupply || inv.place_of_supply,
         gstin: po.gstin || inv.gstin,
       };

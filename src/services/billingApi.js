@@ -16,6 +16,7 @@ import {
 } from '../constants/commercialModuleType';
 import { normalizeGstSupplyType } from '../utils/invoiceRound';
 import { isGeneratedWithoutPoWoNumber } from '../constants/poBasis';
+import { deriveApprovalActorsFromHistory } from '../utils/commercialPoApproval';
 
 const BILLING_SCHEMA = 'billing';
 const MODULE_CONTEXT = {
@@ -126,9 +127,14 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
   const billingTypeCanonical = billingTypeMerged
     ? canonicalManpowerPoTypeForPersist(billingTypeMerged) || billingTypeMerged
     : null;
+  const approvalActors = deriveApprovalActorsFromHistory(
+    Array.isArray(raw.update_history) ? raw.update_history : []
+  );
   return {
     ...UNIFIED_PO_CLIENT_DEFAULTS,
     ...c,
+    approvedByName: c.approvedByName ?? approvalActors.approvedByName ?? null,
+    rejectedByName: c.rejectedByName ?? approvalActors.rejectedByName ?? null,
     billingType: billingTypeCanonical ?? c.billingType ?? null,
     remarks: raw.remarks ?? null,
     paymentTerms:
@@ -137,6 +143,7 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
       (raw.billing_cycle != null ? `${Number(raw.billing_cycle) || 30} Days` : null),
     poDate: raw.po_date ?? null,
     pincode: raw.pincode ?? null,
+    shipToPincode: raw.ship_to_pincode ?? null,
     materialCodeRequired: !!raw.material_code_required,
     customPaymentTermsPercent: raw.custom_advance_percent ?? null,
     poReceivedDate: raw.po_received_date ?? null,
@@ -316,7 +323,12 @@ const OPTIONAL_INVOICE_BUYER_KEYS = ['buyer_pin', 'buyer_pincode', 'buyer_state_
 // Optional cancellation columns (may not exist in older DBs).
 const OPTIONAL_INVOICE_CANCEL_KEYS = ['is_cancelled', 'cancelled_at', 'cancel_reason'];
 const OPTIONAL_INVOICE_GEOMETRY_KEYS = ['monthly_duty_qty_mode', 'lump_sum_billing_mode'];
-const OPTIONAL_INVOICE_ENHANCEMENT_KEYS = ['po_date', 'pre_gst_deduction', 'pre_gst_addition'];
+const OPTIONAL_INVOICE_ENHANCEMENT_KEYS = [
+  'po_date',
+  'pre_gst_deduction',
+  'pre_gst_addition',
+  'pre_gst_supplementary_rows',
+];
 const OPTIONAL_LINE_ENHANCEMENT_KEYS = ['material_code', 'uom'];
 
 function stripOptionalBuyerInvoiceColumns(payload) {
@@ -346,7 +358,7 @@ function stripOptionalEnhancementInvoiceColumns(payload) {
 function isEnhancementInvoiceColumnsMissingError(err) {
   const s = supabaseErrBlob(err);
   if (!s) return false;
-  if (!/po_date|pre_gst_deduction|pre_gst_addition/i.test(s)) return false;
+  if (!/po_date|pre_gst_deduction|pre_gst_addition|pre_gst_supplementary_rows/i.test(s)) return false;
   return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
 }
 
@@ -549,6 +561,8 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     po_wo_number: po.poWoNumber || null,
     po_date: po.poDate && String(po.poDate).trim() ? po.poDate : null,
     pincode: po.pincode && String(po.pincode).trim() ? String(po.pincode).trim() : null,
+    ship_to_pincode:
+      po.shipToPincode && String(po.shipToPincode).trim() ? String(po.shipToPincode).trim() : null,
     material_code_required: !!po.materialCodeRequired,
     po_quantity: firstNumber(po, ['poQuantity', 'po_quantity', 'poQty', 'po_qty', 'quantity', 'qty'], 0),
     total_contract_value: totalContractValueVal,
@@ -787,7 +801,7 @@ export async function fetchInvoices() {
       poReferenceRate: l.po_reference_rate != null ? Number(l.po_reference_rate) : undefined,
       isTruckLine: !!l.is_truck_line,
       materialCode: l.material_code || '',
-      uom: l.uom || 'No.',
+      uom: l.uom != null ? String(l.uom).trim() : '',
     });
   });
   const attsByInv = {};
@@ -838,6 +852,7 @@ export async function fetchInvoices() {
     c.termsTemplateKey = inv.terms_template_key;
     c.termsCustomText = inv.terms_custom_text;
     c.clientShippingAddress = inv.client_shipping_address;
+    c.clientShipToPincode = inv.client_ship_to_pincode ?? null;
     c.placeOfSupply = inv.place_of_supply;
     c.buyerPin = inv.buyer_pin ?? null;
     c.buyerPincode = inv.buyer_pincode ?? null;
@@ -861,6 +876,10 @@ export async function fetchInvoices() {
     c.poDate = inv.po_date || null;
     c.preGstDeduction = inv.pre_gst_deduction != null ? Number(inv.pre_gst_deduction) : 0;
     c.preGstAddition = inv.pre_gst_addition != null ? Number(inv.pre_gst_addition) : 0;
+    c.preGstSupplementaryRows = Array.isArray(inv.pre_gst_supplementary_rows)
+      ? inv.pre_gst_supplementary_rows
+      : [];
+    c.pre_gst_supplementary_rows = c.preGstSupplementaryRows;
     c.created_at = inv.created_at;
     c.updated_at = inv.updated_at;
     c.items = linesByInv[inv.id] || [];
@@ -969,6 +988,7 @@ export async function saveInvoice(inv) {
     terms_template_key: inv.termsTemplateKey || null,
     terms_custom_text: inv.termsCustomText || inv.termsText || null,
     client_shipping_address: inv.clientShippingAddress || null,
+    client_ship_to_pincode: textColumnOrNull(inv.client_ship_to_pincode ?? inv.clientShipToPincode),
     place_of_supply: inv.placeOfSupply || null,
     buyer_pin: textColumnOrNull(inv.buyerPin ?? inv.buyer_pin ?? inv.clientPincode ?? inv.client_pincode),
     buyer_pincode: textColumnOrNull(inv.buyerPincode ?? inv.buyer_pincode ?? inv.clientPincode ?? inv.client_pincode),
@@ -992,6 +1012,11 @@ export async function saveInvoice(inv) {
     po_date: normalizePgDateOnly(inv.poDate ?? inv.po_date) || null,
     pre_gst_deduction: Number(inv.preGstDeduction ?? inv.pre_gst_deduction) || 0,
     pre_gst_addition: Number(inv.preGstAddition ?? inv.pre_gst_addition) || 0,
+    pre_gst_supplementary_rows: Array.isArray(inv.preGstSupplementaryRows)
+      ? inv.preGstSupplementaryRows
+      : Array.isArray(inv.pre_gst_supplementary_rows)
+        ? inv.pre_gst_supplementary_rows
+        : [],
   });
 
   /** New row: insert without id. Existing row: upsert with id in body (onConflict=id). Avoid PATCH/update — RLS/PostgREST often returns errors on PATCH for billing.invoice. */
@@ -1048,7 +1073,7 @@ export async function saveInvoice(inv) {
     po_reference_rate: it.poReferenceRate != null ? Number(it.poReferenceRate) : null,
     is_truck_line: !!it.isTruckLine,
     material_code: it.materialCode ? String(it.materialCode).trim() : null,
-    uom: it.uom ? String(it.uom).trim() : 'No.',
+    uom: it.uom != null && String(it.uom).trim() !== '' ? String(it.uom).trim() : null,
   }));
   if (lineRows.length) {
     let compatibleLineRows = lineRows;

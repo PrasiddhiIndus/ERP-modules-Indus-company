@@ -21,6 +21,8 @@ const REPORT_TABS = [
   { id: "gate", label: "Gate reports" },
 ];
 
+const PAGE_SIZES = [25, 50, 100, 200];
+
 const CATALOG_BY_TAB = {
   employee: [
     "Employee master export",
@@ -65,6 +67,7 @@ export default function AdminOpsReports() {
   const [activeTab, setActiveTab] = useState("employee");
   const [fromDate, setFromDate] = useState(today.slice(0, 8) + "01");
   const [toDate, setToDate] = useState(today);
+  const [reportDate, setReportDate] = useState(today);
   const [empCodeFilter, setEmpCodeFilter] = useState("");
   const [nameSearch, setNameSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
@@ -73,6 +76,8 @@ export default function AdminOpsReports() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hasRun, setHasRun] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const catalogItems = CATALOG_BY_TAB[activeTab] || [];
 
@@ -123,29 +128,28 @@ export default function AdminOpsReports() {
   }, [employeeRows, nameSearch, departmentFilter]);
 
   const runEmployeeReport = useCallback(async () => {
-    if (!fromDate || !toDate || fromDate > toDate) {
-      setError("Choose a valid date range.");
+    if (!reportDate) {
+      setError("Choose a valid date.");
       return;
     }
     setLoading(true);
     setError("");
+    setPage(1);
     try {
       const code = empCodeFilter.trim();
       const [punches, employees] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
-          fromDate,
-          toDate,
+          fromDate: reportDate,
+          toDate: reportDate,
           empCode: code || "ALL",
         }),
         fetchActiveEmployees(supabase),
       ]);
       const paired = pairPunchesToDailyRows(punches);
       const enriched = attachMasterFields(paired, employees);
-      const sorted = enriched.sort((a, b) => {
-        const dateCmp = String(a.punchDate).localeCompare(String(b.punchDate));
-        if (dateCmp !== 0) return dateCmp;
-        return String(a.empCode).localeCompare(String(b.empCode), undefined, { numeric: true });
-      });
+      const sorted = enriched.sort((a, b) =>
+        String(a.empCode).localeCompare(String(b.empCode), undefined, { numeric: true })
+      );
       setEmployeeRows(sorted);
       setHasRun(true);
     } catch (err) {
@@ -154,7 +158,20 @@ export default function AdminOpsReports() {
     } finally {
       setLoading(false);
     }
-  }, [empCodeFilter, fromDate, toDate]);
+  }, [empCodeFilter, reportDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEmployeeRows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = filteredEmployeeRows.length ? (currentPage - 1) * pageSize + 1 : 0;
+  const pageEnd = Math.min(currentPage * pageSize, filteredEmployeeRows.length);
+  const pagedEmployeeRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredEmployeeRows.slice(start, start + pageSize);
+  }, [currentPage, filteredEmployeeRows, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [nameSearch, departmentFilter, pageSize]);
 
   const handleRunReport = () => {
     if (activeTab === "employee") {
@@ -189,6 +206,7 @@ export default function AdminOpsReports() {
                 setError("");
                 setNameSearch("");
                 setDepartmentFilter("ALL");
+                setPage(1);
               }}
               className={`h-8 px-3 rounded-lg text-xs font-semibold transition ${
                 activeTab === tab.id
@@ -210,8 +228,19 @@ export default function AdminOpsReports() {
           <TinySelect className="min-w-[120px]">
             <option>All sites</option>
           </TinySelect>
-          <TinyInput type="date" className="w-[130px]" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          <TinyInput type="date" className="w-[130px]" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          {activeTab === "employee" ? (
+            <TinyInput
+              type="date"
+              className="w-[130px]"
+              value={reportDate}
+              onChange={(e) => setReportDate(e.target.value)}
+            />
+          ) : (
+            <>
+              <TinyInput type="date" className="w-[130px]" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              <TinyInput type="date" className="w-[130px]" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </>
+          )}
           {activeTab === "employee" && (
             <TinyInput
               value={empCodeFilter}
@@ -240,6 +269,15 @@ export default function AdminOpsReports() {
               ))}
             </TinySelect>
           )}
+          {activeTab === "employee" && (
+            <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size} / page
+                </option>
+              ))}
+            </TinySelect>
+          )}
           <button
             type="button"
             onClick={handleRunReport}
@@ -262,11 +300,17 @@ export default function AdminOpsReports() {
             </span>
             {hasRun && !loading && (
               <span>
+                {reportDate && (
+                  <>
+                    Attendance for <strong className="text-gray-800">{reportDate}</strong>
+                    {" · "}
+                  </>
+                )}
                 {filteredEmployeeRows.length}
                 {filteredEmployeeRows.length !== employeeRows.length
                   ? ` of ${employeeRows.length}`
                   : ""}{" "}
-                day row(s)
+                employee(s)
                 {shortCount > 0 ? ` · ${shortCount} short` : ""}
                 {longCount > 0 ? ` · ${longCount} long` : ""}
               </span>
@@ -279,56 +323,99 @@ export default function AdminOpsReports() {
         )}
 
         {activeTab === "employee" ? (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200">
+          <div className="mt-4 rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm">
             {!hasRun && !loading ? (
-              <div className="h-36 flex items-center justify-center text-xs text-gray-500 bg-gray-50">
-                Select dates and click Run report to load employee attendance rows.
+              <div className="h-40 flex flex-col items-center justify-center gap-1 text-xs text-gray-500 bg-gray-50/80">
+                <span>Select a date and click Run report to load employee attendance.</span>
               </div>
             ) : loading ? (
-              <div className="h-36 flex items-center justify-center text-xs text-gray-500 bg-gray-50">
+              <div className="h-40 flex items-center justify-center text-xs text-gray-500 bg-gray-50/80">
                 Loading attendance…
               </div>
             ) : employeeRows.length === 0 && !loading ? (
-              <div className="h-36 flex items-center justify-center text-xs text-gray-500 bg-gray-50">
-                No punch data for this range.
+              <div className="h-40 flex items-center justify-center text-xs text-gray-500 bg-gray-50/80">
+                No punch data for {reportDate}.
               </div>
             ) : filteredEmployeeRows.length === 0 ? (
-              <div className="h-36 flex items-center justify-center text-xs text-gray-500 bg-gray-50">
+              <div className="h-40 flex items-center justify-center text-xs text-gray-500 bg-gray-50/80">
                 No rows match the name or department filters.
               </div>
             ) : (
-              <table className="min-w-full text-xs">
-                <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
-                  <tr>
-                    <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Date</th>
-                    <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Emp code</th>
-                    <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee name</th>
-                    <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Department</th>
-                    <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Designation</th>
-                    <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Attendance</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {filteredEmployeeRows.map((row) => {
-                    const highlight = workingHoursRowClass(row.workedMinutes);
-                    return (
-                      <tr key={row.id} className={highlight || "hover:bg-gray-50/80"}>
-                        <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{row.punchDate}</td>
-                        <td className="px-2 py-1.5 font-medium tabular-nums">{row.empCode || "—"}</td>
-                        <td className="px-2 py-1.5 text-gray-800">{row.employeeName || "—"}</td>
-                        <td className="px-2 py-1.5 text-gray-700">{row.department || "—"}</td>
-                        <td className="px-2 py-1.5 text-gray-700">{row.designation || "—"}</td>
-                        <td className="px-2 py-1.5">
-                          <div className="text-gray-800 tabular-nums">{formatInOut(row)}</div>
-                          <div className="mt-0.5 font-semibold tabular-nums text-[11px]">
-                            {formatWorkedMinutes(row.workedMinutes)}
-                          </div>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs">
+                    <thead className="bg-[#1F3A8A]/5 text-gray-700 border-b border-gray-200">
+                      <tr>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap uppercase tracking-wide text-[10px]">
+                          Emp code
+                        </th>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap uppercase tracking-wide text-[10px]">
+                          Employee name
+                        </th>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap uppercase tracking-wide text-[10px]">
+                          Department
+                        </th>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap uppercase tracking-wide text-[10px]">
+                          Designation
+                        </th>
+                        <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap uppercase tracking-wide text-[10px]">
+                          In / Out
+                        </th>
+                        <th className="text-right font-semibold px-3 py-2.5 whitespace-nowrap uppercase tracking-wide text-[10px]">
+                          Hours
+                        </th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {pagedEmployeeRows.map((row, idx) => {
+                        const highlight = workingHoursRowClass(row.workedMinutes);
+                        return (
+                          <tr
+                            key={row.id}
+                            className={`${highlight || (idx % 2 === 0 ? "bg-white" : "bg-gray-50/50")} hover:bg-blue-50/40 transition-colors`}
+                          >
+                            <td className="px-3 py-2.5 font-semibold tabular-nums text-[#1F3A8A]">{row.empCode || "—"}</td>
+                            <td className="px-3 py-2.5 text-gray-900 font-medium">{row.employeeName || "—"}</td>
+                            <td className="px-3 py-2.5 text-gray-700">{row.department || "—"}</td>
+                            <td className="px-3 py-2.5 text-gray-700">{row.designation || "—"}</td>
+                            <td className="px-3 py-2.5 text-gray-800 tabular-nums">{formatInOut(row)}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">
+                              {formatWorkedMinutes(row.workedMinutes)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 bg-gray-50/80 px-3 py-2.5 text-[11px] text-gray-600">
+                  <span>
+                    Showing {pageStart}–{pageEnd} of {filteredEmployeeRows.length} employee(s)
+                    {filteredEmployeeRows.length !== employeeRows.length ? ` (filtered from ${employeeRows.length})` : ""}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage <= 1}
+                      className="h-7 px-3 rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <span className="min-w-[88px] text-center font-medium">
+                      Page {currentPage} / {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                      className="h-7 px-3 rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         ) : (

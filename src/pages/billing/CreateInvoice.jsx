@@ -16,13 +16,23 @@ import { INDUS_LOGO_SRC } from '../../constants/branding.js';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
+import { resolveInvoicePartyAddresses } from '../../utils/invoicePartyAddresses';
+import {
+  deriveBillToShipToPinSameFromPo,
+  normalizePoPincode,
+  resolveInvoicePartyPincodes,
+} from '../../utils/poPincodeFields';
 import { rollupMainPoBilling, pickInvoiceForEdit } from '../../utils/billingInvoiceRollup';
 import {
-  applyPreGstAdjustments,
+  applyPreGstSupplementaryRows,
+  createPreGstSupplementaryRow,
+  parsePreGstSupplementaryRows,
   poRequiresMaterialCode,
   resolveInvoiceDescriptionFromPo,
   resolvePoPaymentTerms,
   resolvePoDateRaw,
+  serializePreGstSupplementaryRows,
+  summarizePreGstLegacyTotals,
 } from '../../utils/billingPoInvoiceFields';
 
 const getFinancialYear = () => {
@@ -682,8 +692,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   /** Digits after INV-YYYY- for new tax invoices (full number built on preview/save). */
   const [manualTaxInvoiceSerial, setManualTaxInvoiceSerial] = useState('');
   const [invoiceLevelHsn, setInvoiceLevelHsn] = useState('');
-  const [preGstDeduction, setPreGstDeduction] = useState('');
-  const [preGstAddition, setPreGstAddition] = useState('');
+  const [preGstSupplementaryRows, setPreGstSupplementaryRows] = useState([]);
 
   const verticalNotSelected = !billingVerticalFilter;
   const billingPoBasisLabel =
@@ -897,6 +906,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
         poWoNumber: editingInvoice.poWoNumber,
         legalName: linkedPo?.legalName || editingInvoice.clientLegalName,
         billingAddress: linkedPo?.billingAddress || editingInvoice.clientAddress,
+        pincode:
+          normalizePoPincode(
+            linkedPo?.pincode || editingInvoice.clientPincode || editingInvoice.client_pincode
+          ) || '',
+        shipToPincode: linkedPo ? normalizePoPincode(linkedPo.shipToPincode ?? linkedPo.ship_to_pincode) : '',
+        billToShipToPinSame: linkedPo ? deriveBillToShipToPinSameFromPo(linkedPo) : true,
         shippingAddress:
           linkedPo?.shippingAddress ||
           linkedPo?.shipping_address ||
@@ -1144,7 +1159,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             description: i.description || i.designation || '',
             hsnSac: i.hsnSac || editingInvoice.hsnSac || '',
             materialCode: i.materialCode || i.material_code || '',
-            uom: i.uom || 'No.',
+            uom: i.uom ?? '',
             isTruckLine: isTruck,
             isLumpSumSupplementaryLine: isSavedSupplementary || false,
             geometryEnabled,
@@ -1179,8 +1194,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   useEffect(() => {
     if (!editingInvoice) return;
     setInvoiceLevelHsn(editingInvoice.hsnSac || '');
-    setPreGstDeduction(String(editingInvoice.preGstDeduction ?? editingInvoice.pre_gst_deduction ?? ''));
-    setPreGstAddition(String(editingInvoice.preGstAddition ?? editingInvoice.pre_gst_addition ?? ''));
+    setPreGstSupplementaryRows(parsePreGstSupplementaryRows(editingInvoice));
   }, [editingInvoice?.id]);
 
   useEffect(() => {
@@ -1202,7 +1216,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           description: desc,
           hsnSac: rowHsnSac,
           materialCode: '',
-          uom: 'No.',
+          uom: '',
           isTruckLine: false,
           geometryEnabled: true,
           poQty: qty,
@@ -1224,7 +1238,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 description: 'Other',
                 hsnSac,
                 materialCode: '',
-                uom: 'No.',
+                uom: '',
                 isTruckLine: false,
                 geometryEnabled: true,
                 poQty: getPoHeaderQty(selectedPO),
@@ -1417,7 +1431,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     description: '',
     hsnSac,
     materialCode: '',
-    uom: 'No.',
+    uom: '',
     isTruckLine: false,
     geometryEnabled: false,
     poQty: 0,
@@ -1503,7 +1517,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         description: '',
         hsnSac: hsn,
         materialCode: '',
-        uom: 'No.',
+        uom: '',
         isTruckLine: true,
         geometryEnabled: false,
         quantity: 0,
@@ -1536,7 +1550,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         description: '',
         hsnSac: hsn,
         materialCode: '',
-        uom: 'No.',
+        uom: '',
         isTruckLine: false,
         isLumpSumSupplementaryLine: true,
         geometryEnabled: false,
@@ -1701,10 +1715,29 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return round2(sourceRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0));
   }, [isLumpSumBilling, lumpSumInvoiceEntryLines, items]);
 
-  const taxableValue = useMemo(
-    () => applyPreGstAdjustments(lineSubtotal, preGstDeduction, preGstAddition),
-    [lineSubtotal, preGstDeduction, preGstAddition]
+  const preGstLegacyTotals = useMemo(
+    () => summarizePreGstLegacyTotals(preGstSupplementaryRows),
+    [preGstSupplementaryRows]
   );
+
+  const taxableValue = useMemo(
+    () => applyPreGstSupplementaryRows(lineSubtotal, preGstSupplementaryRows),
+    [lineSubtotal, preGstSupplementaryRows]
+  );
+
+  const addPreGstSupplementaryRow = () => {
+    setPreGstSupplementaryRows((prev) => [...prev, createPreGstSupplementaryRow()]);
+  };
+
+  const removePreGstSupplementaryRow = (idx) => {
+    setPreGstSupplementaryRows((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const updatePreGstSupplementaryRow = (idx, patch) => {
+    setPreGstSupplementaryRows((prev) =>
+      prev.map((row, i) => (i === idx ? { ...row, ...patch } : row))
+    );
+  };
 
   const materialCodeRequired = useMemo(
     () => poRequiresMaterialCode(displayPO),
@@ -1800,9 +1833,25 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const totalInWords = useMemo(() => formatInvoiceAmountInWords(totalValue), [totalValue]);
 
+  const invoicePartyAddresses = useMemo(() => {
+    if (!displayPO) {
+      return {
+        billToAddress: '',
+        shipToAddress: '',
+        shipToDiffers: false,
+        clientShippingAddress: null,
+      };
+    }
+    return resolveInvoicePartyAddresses(
+      displayPO.billingAddress || displayPO.billing_address,
+      displayPO.shippingAddress || displayPO.shipping_address
+    );
+  }, [displayPO]);
+
   const buyerPinMeta = useMemo(() => {
     if (!displayPO) return { pin: null, stateCode: '', stateName: '' };
     const existingPin =
+      displayPO.pincode ||
       editingInvoice?.buyerPin ||
       editingInvoice?.buyer_pin ||
       editingInvoice?.buyerPincode ||
@@ -1812,10 +1861,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return resolveBuyerStateAndPin({
       gstin: displayPO.gstin,
       placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply,
-      billingAddress: displayPO.billingAddress,
+      billingAddress: displayPO.billingAddress || displayPO.billing_address,
       existingPin,
     });
   }, [displayPO, editingInvoice]);
+
+  const partyPinMeta = useMemo(() => {
+    if (!displayPO) return { billToPin: '', shipToPin: '', billToShipToPinSame: true };
+    return resolveInvoicePartyPincodes({
+      po: displayPO,
+      billPinResolved: buyerPinMeta.pin,
+      invoice: editingInvoice,
+    });
+  }, [displayPO, buyerPinMeta.pin, editingInvoice]);
 
   const canSave = !!displayPO && items.length > 0;
   const documentKindLockedByIrn = useMemo(() => {
@@ -1939,9 +1997,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
         existing?.invoice_header_remarks ||
         resolveInvoiceDescriptionFromPo(displayPO),
       clientLegalName: displayPO.legalName,
-      clientAddress: displayPO.billingAddress,
-      clientPincode: String(buyerPinMeta.pin || ''),
-      client_pincode: String(buyerPinMeta.pin || ''),
+      clientAddress: invoicePartyAddresses.billToAddress || displayPO.billingAddress,
+      clientPincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
+      client_pincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
+      clientShipToPincode: partyPinMeta.shipToPin || null,
+      client_ship_to_pincode: partyPinMeta.billToShipToPinSame
+        ? null
+        : partyPinMeta.shipToPin || null,
       gstin: displayPO.gstin,
       buyerPin: buyerPinMeta.pin || null,
       buyer_pin: buyerPinMeta.pin || null,
@@ -1954,13 +2016,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
       paymentTerms: resolvePoPaymentTerms(displayPO),
       poDate: resolvePoDateRaw(displayPO),
       materialCodeRequired,
-      preGstDeduction: Number(preGstDeduction) || 0,
-      preGstAddition: Number(preGstAddition) || 0,
+      preGstDeduction: preGstLegacyTotals.deduction,
+      preGstAddition: preGstLegacyTotals.addition,
+      preGstSupplementaryRows: serializePreGstSupplementaryRows(preGstSupplementaryRows),
+      pre_gst_supplementary_rows: serializePreGstSupplementaryRows(preGstSupplementaryRows),
       items: (() => {
         let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
           description: i.description,
           hsnSac: i.hsnSac,
+          materialCode: i.materialCode || '',
+          uom: i.uom ?? '',
           quantity: isManpowerMonthly ? round3(i.quantity) : Number(i.quantity) || 0,
           rate: Number(i.rate) || 0,
           amount: round2(i.amount),
@@ -1989,7 +2055,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
         }));
         return lines;
       })(),
-      clientShippingAddress: displayPO.shippingAddress || displayPO.shipping_address || null,
+      clientShippingAddress: invoicePartyAddresses.clientShippingAddress,
+      shipToDiffers: invoicePartyAddresses.shipToDiffers,
       placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply || null,
       termsCustomText: displayPO.invoiceTermsText || null,
       sellerCin: displayPO.sellerCin || null,
@@ -2028,6 +2095,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const livePreviewInv = useMemo(() => buildInvoiceForPreview(), [
     // recompute when edit inputs change
     displayPO?.id,
+    displayPO?.pincode,
+    displayPO?.shipToPincode,
+    displayPO?.ship_to_pincode,
+    buyerPinMeta.pin,
     invoiceDraft?.mode,
     invoiceDraft?.invoiceId,
     invoiceDate,
@@ -2040,6 +2111,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     attendanceFiles,
     document2Files,
     taxableValue,
+    preGstSupplementaryRows,
     cgstAmt,
     sgstAmt,
     igstAmt,
@@ -2121,9 +2193,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
         existing?.invoice_header_remarks ||
         resolveInvoiceDescriptionFromPo(displayPO),
       clientLegalName: displayPO.legalName,
-      clientAddress: displayPO.billingAddress,
-      clientPincode: String(buyerPinMeta.pin || ''),
-      client_pincode: String(buyerPinMeta.pin || ''),
+      clientAddress: invoicePartyAddresses.billToAddress || displayPO.billingAddress,
+      clientPincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
+      client_pincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
+      clientShipToPincode: partyPinMeta.shipToPin || null,
+      client_ship_to_pincode: partyPinMeta.billToShipToPinSame
+        ? null
+        : partyPinMeta.shipToPin || null,
       gstin: displayPO.gstin,
       buyerPin: buyerPinMeta.pin || null,
       buyer_pin: buyerPinMeta.pin || null,
@@ -2136,15 +2212,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
       paymentTerms: resolvePoPaymentTerms(displayPO),
       poDate: resolvePoDateRaw(displayPO),
       materialCodeRequired,
-      preGstDeduction: Number(preGstDeduction) || 0,
-      preGstAddition: Number(preGstAddition) || 0,
+      preGstDeduction: preGstLegacyTotals.deduction,
+      preGstAddition: preGstLegacyTotals.addition,
+      preGstSupplementaryRows: serializePreGstSupplementaryRows(preGstSupplementaryRows),
+      pre_gst_supplementary_rows: serializePreGstSupplementaryRows(preGstSupplementaryRows),
       items: (() => {
         let lines = isLumpSumBilling ? finalInvoiceSourceLines : items;
         lines = lines.map((i) => ({
           description: i.description,
           hsnSac: invoiceLevelHsn || i.hsnSac,
           materialCode: i.materialCode || '',
-          uom: i.uom || 'No.',
+          uom: i.uom ?? '',
           quantity: isManpowerMonthly ? round3(i.quantity) : (Number(i.quantity) || 0),
           rate: Number(i.rate) || 0,
           amount: round2(i.amount),
@@ -2183,7 +2261,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return lines;
       })(),
       // Snapshots from PO (or existing invoice) — used by PDF + shared HTML preview
-      clientShippingAddress: displayPO.shippingAddress || displayPO.shipping_address || null,
+      clientShippingAddress: invoicePartyAddresses.clientShippingAddress,
+      shipToDiffers: invoicePartyAddresses.shipToDiffers,
       placeOfSupply: displayPO.placeOfSupply || displayPO.place_of_supply || null,
       termsCustomText: displayPO.invoiceTermsText || null,
       sellerCin: displayPO.sellerCin || null,
@@ -3537,7 +3616,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       {ii != null || isLumpConsolidatedRow ? (
                         <input
                           type="text"
-                          value={it.uom || 'No.'}
+                          value={it.uom ?? ''}
                           onChange={(e) => {
                             const nextUom = e.target.value;
                             if (isLumpConsolidatedRow) {
@@ -3551,10 +3630,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
                               : 'w-20 px-2 py-1 border border-gray-300 rounded-lg text-center text-xs'
                           }
-                          placeholder="No."
+                          placeholder=""
                         />
                       ) : (
-                        <span className="text-xs">{it.uom || 'No.'}</span>
+                        <span className="text-xs">{it.uom ? it.uom : '–'}</span>
                       )}
                     </td>
                     <td
@@ -3845,29 +3924,78 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <span>Line items subtotal</span>
                         <span className="tabular-nums">₹{lineSubtotal.toLocaleString('en-IN')}</span>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <label className="text-[11px] text-neutral-600">
-                          Less (before GST)
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={preGstDeduction}
-                            onChange={(e) => setPreGstDeduction(e.target.value)}
-                            className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-xs"
-                          />
-                        </label>
-                        <label className="text-[11px] text-neutral-600">
-                          Add (before GST)
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={preGstAddition}
-                            onChange={(e) => setPreGstAddition(e.target.value)}
-                            className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-xs"
-                          />
-                        </label>
+                      <div className="pt-2 space-y-2 border-t border-neutral-300">
+                        <p className="text-[11px] font-semibold text-neutral-700">
+                          Supplementary amounts (before GST)
+                        </p>
+                        {preGstSupplementaryRows.length === 0 ? (
+                          <p className="text-[11px] text-neutral-500">
+                            Add rows for extra charges or deductions applied before GST.
+                          </p>
+                        ) : null}
+                        {preGstSupplementaryRows.map((row, rowIdx) => (
+                          <div
+                            key={row.id}
+                            className="grid grid-cols-1 gap-2 rounded border border-neutral-300 bg-white p-2 sm:grid-cols-[1fr_auto_auto_auto]"
+                          >
+                            <label className="text-[11px] text-neutral-600">
+                              Description
+                              <input
+                                type="text"
+                                value={row.description}
+                                onChange={(e) =>
+                                  updatePreGstSupplementaryRow(rowIdx, { description: e.target.value })
+                                }
+                                placeholder="e.g. Freight, penalty adjustment"
+                                className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-xs"
+                              />
+                            </label>
+                            <label className="text-[11px] text-neutral-600">
+                              Type
+                              <select
+                                value={row.type}
+                                onChange={(e) =>
+                                  updatePreGstSupplementaryRow(rowIdx, { type: e.target.value })
+                                }
+                                className="mt-0.5 w-full min-w-[5.5rem] border border-gray-300 rounded px-2 py-1 text-xs bg-white"
+                              >
+                                <option value="add">Add</option>
+                                <option value="deduct">Less</option>
+                              </select>
+                            </label>
+                            <label className="text-[11px] text-neutral-600">
+                              Amount (₹)
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={row.amount}
+                                onChange={(e) =>
+                                  updatePreGstSupplementaryRow(rowIdx, { amount: e.target.value })
+                                }
+                                className="mt-0.5 w-full min-w-[6rem] border border-gray-300 rounded px-2 py-1 text-xs tabular-nums"
+                              />
+                            </label>
+                            <div className="flex items-end justify-end sm:pb-0.5">
+                              <button
+                                type="button"
+                                onClick={() => removePreGstSupplementaryRow(rowIdx)}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600 hover:text-red-700"
+                                title="Remove supplementary row"
+                              >
+                                <X className="h-3.5 w-3.5" aria-hidden />
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={addPreGstSupplementaryRow}
+                          className="text-[11px] font-medium text-blue-700 hover:text-blue-800 hover:underline"
+                        >
+                          + Add supplementary row
+                        </button>
                       </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-neutral-600">Taxable value</span>

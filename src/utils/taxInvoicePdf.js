@@ -12,7 +12,15 @@ import {
 } from './invoiceRound';
 import { getTermsForVertical } from './invoiceTermsTemplates';
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
-import { applyPreGstAdjustments, formatBillingDisplayDate } from './billingPoInvoiceFields.js';
+import {
+  activePreGstSupplementaryRows,
+  applyPreGstAdjustments,
+  applyPreGstSupplementaryRows,
+  formatBillingDisplayDate,
+  parsePreGstSupplementaryRows,
+  summarizePreGstLegacyTotals,
+} from './billingPoInvoiceFields.js';
+import { invoicePincodeDisplayLine, resolveInvoicePartyPincodes } from './poPincodeFields.js';
 
 let companyLogoDataUrlPromise = null;
 
@@ -266,14 +274,36 @@ export function getInvoiceTotals(inv) {
   let cgstAmt = Number(inv.cgstAmt);
   let sgstAmt = Number(inv.sgstAmt);
   let igstAmt = Number(inv.igstAmt);
-  const sumItems = round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0));
-  const preGstDeduction = Number(inv.preGstDeduction ?? inv.pre_gst_deduction) || 0;
-  const preGstAddition = Number(inv.preGstAddition ?? inv.pre_gst_addition) || 0;
+  const lineSubtotal = round2(items.reduce((s, i) => s + (Number(i.amount) || 0), 0));
+  const supplementaryRows = parsePreGstSupplementaryRows(inv);
+  const activeSupplementary = supplementaryRows.filter((r) => Math.abs(Number(r.amount) || 0) > 0);
+  const legacyTotals = summarizePreGstLegacyTotals(supplementaryRows);
+  const preGstDeduction =
+    activeSupplementary.length > 0
+      ? legacyTotals.deduction
+      : Number(inv.preGstDeduction ?? inv.pre_gst_deduction) || 0;
+  const preGstAddition =
+    activeSupplementary.length > 0
+      ? legacyTotals.addition
+      : Number(inv.preGstAddition ?? inv.pre_gst_addition) || 0;
 
-  if (forceItemTotals || !Number.isFinite(taxableValue) || taxableValue === 0) {
-    taxableValue = sumItems;
+  if (items.length > 0) {
+    taxableValue =
+      activeSupplementary.length > 0
+        ? applyPreGstSupplementaryRows(lineSubtotal, supplementaryRows)
+        : applyPreGstAdjustments(lineSubtotal, preGstDeduction, preGstAddition);
+  } else if (forceItemTotals || !Number.isFinite(taxableValue) || taxableValue === 0) {
+    taxableValue = lineSubtotal;
+    taxableValue =
+      activeSupplementary.length > 0
+        ? applyPreGstSupplementaryRows(taxableValue, supplementaryRows)
+        : applyPreGstAdjustments(taxableValue, preGstDeduction, preGstAddition);
+  } else {
+    taxableValue =
+      activeSupplementary.length > 0
+        ? applyPreGstSupplementaryRows(Number(taxableValue) || 0, supplementaryRows)
+        : applyPreGstAdjustments(taxableValue, preGstDeduction, preGstAddition);
   }
-  taxableValue = applyPreGstAdjustments(taxableValue, preGstDeduction, preGstAddition);
 
   if (gstMode === 'sez_zero') {
     cgstAmt = 0;
@@ -303,9 +333,10 @@ export function getInvoiceTotals(inv) {
   const totalAmount = roundInvoiceAmount(round2(taxableValue + cgstAmt + sgstAmt + igstAmt));
   return {
     taxableValue: round2(taxableValue),
-    lineSubtotal: round2(sumItems),
+    lineSubtotal,
     preGstDeduction: round2(preGstDeduction),
     preGstAddition: round2(preGstAddition),
+    preGstSupplementaryRows: activePreGstSupplementaryRows(inv),
     cgstRate,
     sgstRate,
     cgstAmt,
@@ -366,6 +397,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     lineSubtotal,
     preGstDeduction,
     preGstAddition,
+    preGstSupplementaryRows,
     cgstRate,
     sgstRate,
     cgstAmt,
@@ -390,8 +422,22 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const buyerAddress = inv.clientAddress || inv.billingAddress || '–';
   const shipToRaw = inv.clientShippingAddress || inv.client_shipping_address;
   const shipAddress =
-    shipToRaw && String(shipToRaw).trim() ? String(shipToRaw).trim() : buyerAddress;
+    shipToRaw && String(shipToRaw).trim() && inv.shipToDiffers !== false
+      ? String(shipToRaw).trim()
+      : buyerAddress;
   const buyerGstin = inv.gstin || '–';
+  const partyPins = resolveInvoicePartyPincodes({
+    invoice: inv,
+    billPinResolved:
+      inv.buyerPin ??
+      inv.buyer_pin ??
+      inv.buyerPincode ??
+      inv.buyer_pincode ??
+      inv.clientPincode ??
+      inv.client_pincode,
+  });
+  const billToPinLine = invoicePincodeDisplayLine(partyPins.billToPin);
+  const shipToPinLine = invoicePincodeDisplayLine(partyPins.shipToPin);
   const invoiceNo = inv.taxInvoiceNumber || inv.bill_number || '–';
   const invoiceDate = formatPdfDate(inv.invoiceDate || inv.created_at);
   const paymentTerms = inv.paymentTerms || inv.payment_terms || '30 Days';
@@ -717,11 +763,13 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const billHeight =
     LH(FONT.body) + // name
     buyerAddressLines.length * LH(FONT.body) +
+    LH(FONT.body) + // pincode
     LH(FONT.body) + // gstin
     LH(FONT.body); // state
   const shipHeight =
     LH(FONT.body) + // name
     shipAddressLines.length * LH(FONT.body) +
+    LH(FONT.body) + // pincode
     LH(FONT.body) + // gstin
     shipStatePosLines.length * LH(FONT.body); // state + place of supply (one block)
   const partyContentHeight = Math.max(billHeight, shipHeight);
@@ -753,6 +801,8 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   yBill += LH(FONT.body);
   doc.text(buyerAddressLines, partyColXLeft, yBill);
   yBill += buyerAddressLines.length * LH(FONT.body);
+  doc.text(billToPinLine, partyColXLeft, yBill);
+  yBill += LH(FONT.body);
   doc.text('GSTIN: ' + buyerGstin, partyColXLeft, yBill);
   yBill += LH(FONT.body);
   doc.text(`State Name: ${SELLER.state}, Code: ${SELLER.stateCode}`, partyColXLeft, yBill);
@@ -764,6 +814,8 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   yShip += LH(FONT.body);
   doc.text(shipAddressLines, partyColXRight, yShip);
   yShip += shipAddressLines.length * LH(FONT.body);
+  doc.text(shipToPinLine, partyColXRight, yShip);
+  yShip += LH(FONT.body);
   doc.text('GSTIN: ' + buyerGstin, partyColXRight, yShip);
   yShip += LH(FONT.body);
   doc.text(shipStatePosLines, partyColXRight, yShip);
@@ -825,7 +877,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
       : [{ description: 'Services as per PO', hsnSac: inv.hsnSac || '9983', quantity: 1, rate: taxableValue, amount: taxableValue }];
 
   const tableBody = rowItems.map((it, idx) => {
-    const uom = String(it.uom || 'No.').trim() || 'No.';
+    const uom = String(it.uom ?? '').trim() || '–';
     const base = [
       String(idx + 1),
       (it.description || it.designation || '–').substring(0, 120),
@@ -845,22 +897,42 @@ function buildTaxInvoiceDoc(inv, options = {}) {
 
   const subtotalColSpan = tableHeaders.length - 1;
   const subtotalRowStyle = { halign: 'right', fontStyle: 'bold', fillColor: [248, 250, 252] };
-  if (lineSubtotal != null && (preGstDeduction > 0 || preGstAddition > 0)) {
+  const showPreGstBreakdown =
+    lineSubtotal != null &&
+    (preGstSupplementaryRows.length > 0 || preGstDeduction > 0 || preGstAddition > 0);
+  if (showPreGstBreakdown) {
     tableBody.push([
       { content: 'Line items subtotal', colSpan: subtotalColSpan, styles: subtotalRowStyle },
       { content: formatMoney2(lineSubtotal), styles: subtotalRowStyle },
     ]);
-    if (preGstDeduction > 0) {
-      tableBody.push([
-        { content: 'Less: supplementary deduction', colSpan: subtotalColSpan, styles: subtotalRowStyle },
-        { content: formatMoney2(-preGstDeduction), styles: subtotalRowStyle },
-      ]);
-    }
-    if (preGstAddition > 0) {
-      tableBody.push([
-        { content: 'Add: supplementary addition', colSpan: subtotalColSpan, styles: subtotalRowStyle },
-        { content: formatMoney2(preGstAddition), styles: subtotalRowStyle },
-      ]);
+    if (preGstSupplementaryRows.length > 0) {
+      for (const row of preGstSupplementaryRows) {
+        const amt = Math.abs(Number(row.amount) || 0);
+        if (amt <= 0) continue;
+        const desc = String(row.description || '').trim();
+        const label =
+          row.type === 'deduct'
+            ? `Less: ${desc || 'Supplementary adjustment'}`
+            : `Add: ${desc || 'Supplementary adjustment'}`;
+        const signed = row.type === 'deduct' ? -amt : amt;
+        tableBody.push([
+          { content: label, colSpan: subtotalColSpan, styles: subtotalRowStyle },
+          { content: formatMoney2(signed), styles: subtotalRowStyle },
+        ]);
+      }
+    } else {
+      if (preGstDeduction > 0) {
+        tableBody.push([
+          { content: 'Less: supplementary deduction', colSpan: subtotalColSpan, styles: subtotalRowStyle },
+          { content: formatMoney2(-preGstDeduction), styles: subtotalRowStyle },
+        ]);
+      }
+      if (preGstAddition > 0) {
+        tableBody.push([
+          { content: 'Add: supplementary addition', colSpan: subtotalColSpan, styles: subtotalRowStyle },
+          { content: formatMoney2(preGstAddition), styles: subtotalRowStyle },
+        ]);
+      }
     }
     tableBody.push([
       { content: 'Taxable value (before GST)', colSpan: subtotalColSpan, styles: subtotalRowStyle },
