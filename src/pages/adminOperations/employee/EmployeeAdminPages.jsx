@@ -864,7 +864,8 @@ export function EmployeeCompliancePage() {
 
 export function EmployeeSalaryInputsPage() {
   return (
-    <SectionCard title="Salary inputs (admin layer)" right={<Badge tone="bg-gray-100 text-gray-700">Export-ready</Badge>}>
+    <div className="max-w-6xl">
+    <SectionCard title="Salary inputs" right={<Badge tone="bg-gray-100 text-gray-700">Export-ready</Badge>}>
       <FilterBar>
         <TinyInput type="month" className="w-[140px]" defaultValue="2025-03" />
         <TinySelect>
@@ -894,6 +895,7 @@ export function EmployeeSalaryInputsPage() {
         <LinkedChip label="Leave / LOP" toHint="Leaves" />
       </div>
     </SectionCard>
+    </div>
   );
 }
 

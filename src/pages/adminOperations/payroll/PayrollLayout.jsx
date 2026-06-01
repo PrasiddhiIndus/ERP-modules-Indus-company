@@ -38,7 +38,7 @@ function PayrollLayoutInner() {
   );
 }
 
-/** Admin Operations payroll shell. HR uses `src/pages/hr/payroll/HrPayrollLayout.jsx`. */
+/** Admin Operations payroll shell. */
 export default function PayrollLayout() {
   return (
     <PayrollScopeProvider scopeKey="admin">
