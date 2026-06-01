@@ -14,6 +14,7 @@ import {
 } from '../../../utils/taxInvoicePdf';
 import { formatAmountUpTo3Decimals, formatInvoiceTotalDisplay } from '../../../utils/invoiceRound';
 import { formatBillingDisplayDate } from '../../../utils/billingPoInvoiceFields';
+import { invoicePincodeDisplayLine, resolveInvoicePartyPincodes } from '../../../utils/poPincodeFields';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
 
 const PDF_RS = 'Rs.';
@@ -75,6 +76,7 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
     lineSubtotal: previewLineSubtotal,
     preGstDeduction: previewPreGstDeduction,
     preGstAddition: previewPreGstAddition,
+    preGstSupplementaryRows: previewPreGstSupplementaryRows,
   } = totals;
 
   const invoiceKind = inv.invoiceKind || 'tax';
@@ -87,9 +89,24 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
   const buyerAddress = inv.clientAddress || inv.billingAddress || '–';
   const shipToRaw = inv.clientShippingAddress || inv.client_shipping_address;
   const shipAddress =
-    shipToRaw && String(shipToRaw).trim() ? String(shipToRaw).trim() : buyerAddress;
+    shipToRaw && String(shipToRaw).trim() && inv.shipToDiffers !== false
+      ? String(shipToRaw).trim()
+      : buyerAddress;
   const buyerGstin = inv.gstin || '–';
   const buyerNameLine = 'M/s ' + (buyerName.startsWith('M/s') ? buyerName.slice(3).trim() : buyerName);
+
+  const partyPins = resolveInvoicePartyPincodes({
+    invoice: inv,
+    billPinResolved:
+      inv.buyerPin ??
+      inv.buyer_pin ??
+      inv.buyerPincode ??
+      inv.buyer_pincode ??
+      inv.clientPincode ??
+      inv.client_pincode,
+  });
+  const billToPinLine = invoicePincodeDisplayLine(partyPins.billToPin);
+  const shipToPinLine = invoicePincodeDisplayLine(partyPins.shipToPin);
 
   const placeOfSupply = inv.placeOfSupply || inv.place_of_supply || 'Gujarat';
 
@@ -199,7 +216,10 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
     ];
   }
   const invoiceSubtotal = round2(previewTaxable);
-  const showPreGstRows = previewPreGstDeduction > 0 || previewPreGstAddition > 0;
+  const showPreGstRows =
+    previewPreGstSupplementaryRows.length > 0 ||
+    previewPreGstDeduction > 0 ||
+    previewPreGstAddition > 0;
   const showEinvBlock = showEInvoiceMeta && isEInvoicePreview;
   const uiTitle = docTitle;
 
@@ -324,6 +344,7 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
                 <p className="font-bold uppercase text-[#1a3a6c] border-b border-[#bbb] pb-1 mb-1">BUYER (BILL TO)</p>
                 <p className="font-bold">{buyerNameLine}</p>
                 <p className="mt-0.5 whitespace-pre-wrap">{buyerAddress}</p>
+                <p className="mt-0.5">{billToPinLine}</p>
                 <p className="mt-0.5">GSTIN: {buyerGstin}</p>
                 <p>State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}</p>
               </div>
@@ -331,6 +352,7 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
                 <p className="font-bold uppercase text-[#1a3a6c] border-b border-[#bbb] pb-1 mb-1">CONSIGNEE (SHIP TO)</p>
                 <p className="font-bold">{buyerNameLine}</p>
                 <p className="mt-0.5 whitespace-pre-wrap">{shipAddress}</p>
+                <p className="mt-0.5">{shipToPinLine}</p>
                 <p className="mt-0.5">GSTIN: {buyerGstin}</p>
                 <p>
                   State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}, Place of Supply: {placeOfSupply}
@@ -380,7 +402,9 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
                   ) : null}
                   <td className="border border-[#bbb] px-1 py-1 text-right">{formatAmountUpTo3Decimals(it.quantity || 0)}</td>
                   <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.rate || 0)}</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-center">{String(it.uom || 'No.').trim() || 'No.'}</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-center">
+                    {String(it.uom ?? '').trim() || '–'}
+                  </td>
                   <td className="border border-[#bbb] px-1 py-1 text-center">—</td>
                   <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.amount || 0)}</td>
                 </tr>
@@ -391,18 +415,43 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
                     <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Line items subtotal</td>
                     <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewLineSubtotal)}</td>
                   </tr>
-                  {previewPreGstDeduction > 0 ? (
-                    <tr className="bg-[#f0f4fa]">
-                      <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Less: supplementary deduction</td>
-                      <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(-previewPreGstDeduction)}</td>
-                    </tr>
-                  ) : null}
-                  {previewPreGstAddition > 0 ? (
-                    <tr className="bg-[#f0f4fa]">
-                      <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Add: supplementary addition</td>
-                      <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewPreGstAddition)}</td>
-                    </tr>
-                  ) : null}
+                  {previewPreGstSupplementaryRows.length > 0
+                    ? previewPreGstSupplementaryRows.map((row, sIdx) => {
+                        const amt = Math.abs(Number(row.amount) || 0);
+                        if (amt <= 0) return null;
+                        const desc = String(row.description || '').trim();
+                        const label =
+                          row.type === 'deduct'
+                            ? `Less: ${desc || 'Supplementary adjustment'}`
+                            : `Add: ${desc || 'Supplementary adjustment'}`;
+                        const signed = row.type === 'deduct' ? -amt : amt;
+                        return (
+                          <tr key={`pgs-${sIdx}`} className="bg-[#f0f4fa]">
+                            <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">
+                              {label}
+                            </td>
+                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>
+                              {formatMoney2(signed)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    : (
+                      <>
+                        {previewPreGstDeduction > 0 ? (
+                          <tr className="bg-[#f0f4fa]">
+                            <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Less: supplementary deduction</td>
+                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(-previewPreGstDeduction)}</td>
+                          </tr>
+                        ) : null}
+                        {previewPreGstAddition > 0 ? (
+                          <tr className="bg-[#f0f4fa]">
+                            <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Add: supplementary addition</td>
+                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewPreGstAddition)}</td>
+                          </tr>
+                        ) : null}
+                      </>
+                    )}
                   <tr className="bg-[#f0f4fa]">
                     <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Taxable value (before GST)</td>
                     <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewTaxable)}</td>

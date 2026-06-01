@@ -4,6 +4,9 @@ import { FilePlus2, Eye, X } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
 import { resolveInvoiceDescriptionFromPo, resolvePoPaymentTerms } from '../../utils/billingPoInvoiceFields';
+import { resolveInvoicePartyAddresses } from '../../utils/invoicePartyAddresses';
+import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
+import { resolveInvoicePartyPincodes } from '../../utils/poPincodeFields';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 
@@ -121,8 +124,31 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       billingDurationTo: null,
       invoiceHeaderRemarks: resolveInvoiceDescriptionFromPo(selectedPO),
       clientLegalName: selectedPO.legalName,
-      clientAddress: selectedPO.billingAddress,
-      clientShippingAddress: selectedPO.shippingAddress || null,
+      ...(() => {
+        const parties = resolveInvoicePartyAddresses(
+          selectedPO.billingAddress,
+          selectedPO.shippingAddress || selectedPO.shipping_address
+        );
+        const pinMeta = resolveBuyerStateAndPin({
+          gstin: selectedPO.gstin,
+          placeOfSupply: selectedPO.placeOfSupply || selectedPO.place_of_supply,
+          billingAddress: parties.billToAddress,
+          existingPin: selectedPO.pincode,
+        });
+        const partyPins = resolveInvoicePartyPincodes({
+          po: selectedPO,
+          billPinResolved: pinMeta.pin,
+        });
+        return {
+          clientAddress: parties.billToAddress,
+          clientShippingAddress: parties.clientShippingAddress,
+          shipToDiffers: parties.shipToDiffers,
+          clientPincode: String(partyPins.billToPin || pinMeta.pin || ''),
+          clientShipToPincode: partyPins.shipToPin || null,
+          buyerPin: pinMeta.pin,
+          buyerPincode: pinMeta.pin,
+        };
+      })(),
       placeOfSupply: selectedPO.placeOfSupply || null,
       gstin: selectedPO.gstin,
       ocNumber: selectedPO.ocNumber,
@@ -293,8 +319,29 @@ const AddOnInvoices = ({ onNavigateTab }) => {
                         : 'tax',
                   taxInvoiceNumber: 'Preview',
                   clientLegalName: selectedPO.legalName,
-                  clientAddress: selectedPO.billingAddress,
-                  clientShippingAddress: selectedPO.shippingAddress || null,
+                  ...(() => {
+                    const parties = resolveInvoicePartyAddresses(
+                      selectedPO.billingAddress,
+                      selectedPO.shippingAddress || selectedPO.shipping_address
+                    );
+                    const pinMeta = resolveBuyerStateAndPin({
+                      gstin: selectedPO.gstin,
+                      placeOfSupply: selectedPO.placeOfSupply || selectedPO.place_of_supply,
+                      billingAddress: parties.billToAddress,
+                      existingPin: selectedPO.pincode,
+                    });
+                    const partyPins = resolveInvoicePartyPincodes({
+                      po: selectedPO,
+                      billPinResolved: pinMeta.pin,
+                    });
+                    return {
+                      clientAddress: parties.billToAddress,
+                      clientShippingAddress: parties.clientShippingAddress,
+                      shipToDiffers: parties.shipToDiffers,
+                      clientPincode: String(partyPins.billToPin || pinMeta.pin || ''),
+                      clientShipToPincode: partyPins.shipToPin || null,
+                    };
+                  })(),
                   placeOfSupply: selectedPO.placeOfSupply || null,
                   gstin: selectedPO.gstin,
                   ocNumber: selectedPO.ocNumber,
