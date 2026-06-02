@@ -7,11 +7,12 @@ import { listEmployeePayrollProfiles, listComponentsMaster, getActiveFormulaSetF
 import { fetchPresentDaysByEmployeeCode } from '../../../../services/attendancePayrollApi';
 import { computeEmployeePayroll } from '../../../../modules/payroll/calc/pipeline';
 import { listPtRules, listTdsRules } from '../../../../services/payrollApi';
+import { salaryAppPath } from './salaryNav';
 
 const TABS = ['Profile', 'Components', 'Summary', 'PF', 'ESIC', 'TDS', 'Attendance', 'Manual', 'Audit'];
 
 export default function EmployeePayrollProfile() {
-  const { employeeId } = useParams();
+  const { id: employeeId } = useParams();
   const [tab, setTab] = useState('Profile');
   const [employee, setEmployee] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -70,7 +71,7 @@ export default function EmployeePayrollProfile() {
   if (!employee) {
     return (
       <p className="text-sm text-gray-500">
-        <Link to="../employees" className="text-blue-700 underline">Back to list</Link> — employee not found.
+        <Link to={salaryAppPath('employees')} className="text-blue-700 underline">Back to list</Link> — employee not found.
       </p>
     );
   }
@@ -79,7 +80,7 @@ export default function EmployeePayrollProfile() {
 
   return (
     <div className="space-y-4">
-      <Link to="../employees" className="text-xs text-blue-700 underline">← Employee list</Link>
+      <Link to={salaryAppPath('employees')} className="text-xs text-blue-700 underline">← Employee list</Link>
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-4 items-start">
         <div className="w-12 h-12 rounded-full bg-[#1F3A8A]/10 flex items-center justify-center text-lg font-bold text-[#1F3A8A]">
           {(employee.full_name || '?')[0]}
@@ -180,7 +181,7 @@ export default function EmployeePayrollProfile() {
       {tab === 'Manual' && (
         <SectionCard title="Manual inputs">
           <p className="text-xs text-gray-500">Use Manual inputs screen for loans, arrears, incentives.</p>
-          <Link to="../../manual-inputs" className="text-blue-700 text-xs underline">Open manual inputs</Link>
+          <Link to={salaryAppPath('manual-inputs')} className="text-blue-700 text-xs underline">Open manual inputs</Link>
         </SectionCard>
       )}
       {tab === 'Audit' && (

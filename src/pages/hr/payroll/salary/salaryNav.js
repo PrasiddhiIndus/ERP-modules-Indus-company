@@ -1,5 +1,12 @@
 export const HR_SALARY_BASE = 'hr/payroll/salary';
+export const HR_SALARY_APP_BASE = `/app/${HR_SALARY_BASE}`;
 export const HR_SALARY_DASHBOARD = 'dashboard';
+
+/** Absolute /app/... path — use for Link/navigate from nested salary pages (avoids dashboard/run → login). */
+export function salaryAppPath(...segments) {
+  const tail = segments.filter((s) => s != null && s !== '').join('/');
+  return tail ? `${HR_SALARY_APP_BASE}/${tail}` : HR_SALARY_APP_BASE;
+}
 
 export const SALARY_NAV = [
   { to: HR_SALARY_DASHBOARD, label: 'Dashboard' },

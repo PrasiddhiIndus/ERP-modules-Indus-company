@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { SectionCard, DenseTable } from '../../../adminOperations/components/AdminUi';
 import { listPayrollRuns, listRegisterForRun } from '../../../../services/payrollApi';
 import { supabase } from '../../../../lib/supabase';
 import { EMPLOYEE_MASTER_TABLE } from '../../../../modules/payroll/integrations';
+import { salaryAppPath } from './salaryNav';
 
 export default function PayrollRegister() {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState([]);
   const [runId, setRunId] = useState('');
   const [rows, setRows] = useState([]);
@@ -84,7 +86,7 @@ export default function PayrollRegister() {
           rowKey="id"
           onRowClick={(row) => {
             const emp = [...empMap.values()].find((e) => e.employee_id === row.employee_id);
-            if (emp) window.location.href = `/app/hr/payroll/salary/employees/${emp.id}`;
+            if (emp) navigate(salaryAppPath(`employees/${emp.id}`));
           }}
         />
         {rows.length ? (
@@ -93,7 +95,7 @@ export default function PayrollRegister() {
           </p>
         ) : (
           <p className="text-xs text-gray-500 mt-2">
-            No register data. <Link to="../run" className="text-blue-700 underline">Run payroll</Link> with save.
+            No register data. <Link to={salaryAppPath('run')} className="text-blue-700 underline">Run payroll</Link> with save.
           </p>
         )}
       </SectionCard>

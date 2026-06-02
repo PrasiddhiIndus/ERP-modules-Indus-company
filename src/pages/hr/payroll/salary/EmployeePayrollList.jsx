@@ -5,6 +5,7 @@ import { fetchActiveEmployeesForPayroll } from '../../../../services/attendanceP
 import { listEmployeePayrollProfiles, listPayrollSites } from '../../../../services/payrollApi';
 import { fetchPresentDaysByEmployeeCode } from '../../../../services/attendancePayrollApi';
 import { supabase } from '../../../../lib/supabase';
+import { salaryAppPath } from './salaryNav';
 
 export default function EmployeePayrollList() {
   const navigate = useNavigate();
@@ -133,7 +134,7 @@ export default function EmployeePayrollList() {
           columns={columns}
           rows={tableRows}
           rowKey="id"
-          onRowClick={(row) => navigate(`employees/${row.id}`)}
+          onRowClick={(row) => navigate(salaryAppPath(`employees/${row.id}`))}
         />
       </SectionCard>
     </div>
