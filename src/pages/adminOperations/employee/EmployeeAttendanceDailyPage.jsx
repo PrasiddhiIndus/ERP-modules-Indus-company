@@ -14,7 +14,6 @@ import { supabase } from "../../../lib/supabase";
 import {
   REGISTER_BULK_BUTTON_CLASS,
   REGISTER_MARK_NHPH,
-  REGISTER_STATUS_OPTIONS,
   applyBulkRegisterMarks,
   attachRegisterRowSummaries,
   buildMonthlyRegisterGrid,
@@ -31,12 +30,11 @@ import {
   fetchAttendancePunchesInRange,
   isoMonthToday,
   loadRegisterMarksForMonth,
+  fetchRegisterMarksForYear,
   monthDateRange,
   registerDateFromDay,
   registerDayTableLabel,
-  REGISTER_MARK_SELECT_INNER,
   registerMarkCellWrapperClass,
-  registerMarkSelectTextClass,
   upsertRegisterMark,
   upsertRegisterMarksBatch,
   normalizeAttendanceEmpCode,
@@ -44,6 +42,19 @@ import {
   computeDayAttendanceBreakdown,
   registerMarkStatusLabel,
 } from "../../../lib/attendanceDaily";
+import { RegisterMarkPicker } from "./RegisterMarkPicker";
+import { BulkMarkEmployeePicker } from "./BulkMarkEmployeePicker";
+import {
+  REGISTER_LEAVE_ANNUAL_LIMITS,
+  aggregateLeaveUsageByEmployee,
+  collectRegisterHolidayDates,
+  dispatchLeaveLimitAlertsChanged,
+  findAllLeaveLimitExceeded,
+  formatLeaveUsage,
+  hasLeaveAnnualLimit,
+  projectLeaveUsageAfterMark,
+  validateCoMark,
+} from "../../../lib/attendanceLeaveLimits";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
@@ -61,7 +72,6 @@ const SUMMARY_COLUMNS = [
 
 const BULK_MARKS = [
   { mark: "P", label: "Mark P" },
-  { mark: "P(OD)", label: "Mark P(OD)" },
   { mark: "L", label: "Mark L" },
   { mark: "WO", label: "Mark WO" },
   { mark: REGISTER_MARK_NHPH, label: "Mark NH/PH" },
@@ -105,16 +115,20 @@ export function EmployeeAttendanceDailyPage() {
   const [tableDayAttendanceFilter, setTableDayAttendanceFilter] = useState(null);
   const [bulkDate, setBulkDate] = useState("");
   const [bulkOverwrite, setBulkOverwrite] = useState(false);
-  const [bulkPodComment, setBulkPodComment] = useState("");
-  const [bulkPodCommentOpen, setBulkPodCommentOpen] = useState(false);
+  const [bulkPickerMark, setBulkPickerMark] = useState(null);
+  const [bulkSelectedCodes, setBulkSelectedCodes] = useState([]);
+  const [bulkEmployeeSearch, setBulkEmployeeSearch] = useState("");
   const [exporting, setExporting] = useState(false);
   const [savingMark, setSavingMark] = useState(false);
   const [registerCodeWarning, setRegisterCodeWarning] = useState("");
+  const [yearRegisterRows, setYearRegisterRows] = useState([]);
+  const [leaveLimitWarning, setLeaveLimitWarning] = useState("");
   const [commentEditor, setCommentEditor] = useState({
     open: false,
     empCode: "",
     day: null,
     value: "",
+    mark: "",
   });
 
   const monthMeta = useMemo(() => monthDateRange(monthValue), [monthValue]);
@@ -144,12 +158,17 @@ export function EmployeeAttendanceDailyPage() {
         fromDate: monthMeta.fromDate,
         toDate: monthMeta.toDate,
       });
-      const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+      const [registerData, yearRows] = await Promise.all([
+        loadRegisterMarksForMonth(supabase, monthMeta),
+        fetchRegisterMarksForYear(supabase, monthMeta.year),
+      ]);
       const employeesWithCode = employees.filter((e) => e.empCode);
       setPunches(punchRows);
       setActiveEmployees(employeesWithCode);
       setManualMarks(registerData?.marks || {});
       setManualRemarks(registerData?.remarks || {});
+      setYearRegisterRows(yearRows);
+      setLeaveLimitWarning("");
       if (employees.length > employeesWithCode.length) {
         setRegisterCodeWarning(
           `${employees.length - employeesWithCode.length} active employee(s) hidden ? add employee_code in Employee Master to include them in the register.`
@@ -161,6 +180,7 @@ export function EmployeeAttendanceDailyPage() {
       setPunches([]);
       setManualMarks({});
       setManualRemarks({});
+      setYearRegisterRows([]);
       setRegisterCodeWarning("");
       setError(formatAttendanceSupabaseError(err));
     } finally {
@@ -182,35 +202,103 @@ export function EmployeeAttendanceDailyPage() {
     });
   }, [punches, activeEmployees, manualMarks, monthMeta]);
 
+  const calendarYear = monthMeta?.year ?? new Date().getFullYear();
+
+  const yearLeaveUsageByEmp = useMemo(
+    () => aggregateLeaveUsageByEmployee(yearRegisterRows),
+    [yearRegisterRows]
+  );
+
+  const holidayDatesInYear = useMemo(
+    () => collectRegisterHolidayDates(yearRegisterRows, calendarYear),
+    [yearRegisterRows, calendarYear]
+  );
+
   const handleMarkChange = useCallback(
     async (empCodeKey, day, value) => {
       if (!monthMeta?.monthKey) return;
       const registerDate = registerDateFromDay(monthMeta.monthKey, day);
+      const oldMark = manualMarks[empCodeKey]?.[day] || "";
+      const empYearRows = yearRegisterRows.filter(
+        (r) => normalizeAttendanceEmpCode(r.employee_code) === normalizeAttendanceEmpCode(empCodeKey)
+      );
+      const warnings = [];
+
+      if (value) {
+        const coCheck = validateCoMark(empYearRows, registerDate, value, {
+          dayMarkOnDate: value,
+          holidayDates: holidayDatesInYear,
+        });
+        if (!coCheck.ok) warnings.push(coCheck.message);
+
+        if (hasLeaveAnnualLimit(value)) {
+          const projected = projectLeaveUsageAfterMark(
+            yearRegisterRows,
+            empCodeKey,
+            registerDate,
+            value,
+            oldMark
+          );
+          const exceeded = findAllLeaveLimitExceeded(projected);
+          for (const hit of exceeded) {
+            warnings.push(
+              `${hit.leaveType} annual limit exceeded (${formatLeaveUsage(hit.used, hit.limit)} in ${calendarYear}).`
+            );
+          }
+        }
+      }
+
+      if (warnings.length) {
+        setLeaveLimitWarning(warnings.join(" "));
+        dispatchLeaveLimitAlertsChanged();
+      } else {
+        setLeaveLimitWarning("");
+      }
+
       const next = { ...manualMarks };
       const empMarks = { ...(next[empCodeKey] || {}) };
       const nextRemarks = { ...manualRemarks };
       const empRemarks = { ...(nextRemarks[empCodeKey] || {}) };
       if (!value) delete empMarks[day];
       else empMarks[day] = value;
-      if (value !== "P(OD)") delete empRemarks[day];
+      const isCommentMark = value === "P(OD)" || value === "T";
+      if (!isCommentMark) delete empRemarks[day];
       if (Object.keys(empMarks).length) next[empCodeKey] = empMarks;
       else delete next[empCodeKey];
       if (Object.keys(empRemarks).length) nextRemarks[empCodeKey] = empRemarks;
       else delete nextRemarks[empCodeKey];
       setManualMarks(next);
       setManualRemarks(nextRemarks);
-      if (value === "P(OD)") {
+      if (isCommentMark) {
         setCommentEditor({
           open: true,
           empCode: empCodeKey,
           day,
+          mark: value,
           value: empRemarks[day] || "",
         });
       }
 
       setSavingMark(true);
       try {
-        await upsertRegisterMark(supabase, empCodeKey, registerDate, value, value === "P(OD)" ? empRemarks[day] || "" : "");
+        await upsertRegisterMark(
+          supabase,
+          empCodeKey,
+          registerDate,
+          value,
+          isCommentMark ? empRemarks[day] || "" : ""
+        );
+        setYearRegisterRows((prev) => {
+          const code = normalizeAttendanceEmpCode(empCodeKey);
+          const filtered = prev.filter(
+            (r) =>
+              normalizeAttendanceEmpCode(r.employee_code) !== code ||
+              String(r.register_date || "").slice(0, 10) !== registerDate
+          );
+          if (value) filtered.push({ employee_code: code, register_date: registerDate, mark: value });
+          return filtered;
+        });
+        dispatchLeaveLimitAlertsChanged();
       } catch (err) {
         setError(formatAttendanceSupabaseError(err));
         try {
@@ -224,16 +312,24 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [manualMarks, manualRemarks, monthMeta]
+    [
+      calendarYear,
+      holidayDatesInYear,
+      manualMarks,
+      manualRemarks,
+      monthMeta,
+      yearRegisterRows,
+    ]
   );
 
   const openPodCommentEditor = useCallback(
-    (empCodeKey, day) => {
-      if (manualMarks[empCodeKey]?.[day] !== "P(OD)") return;
+    (empCodeKey, day, mark = "P(OD)") => {
+      if (manualMarks[empCodeKey]?.[day] !== mark) return;
       setCommentEditor({
         open: true,
         empCode: empCodeKey,
         day,
+        mark,
         value: manualRemarks[empCodeKey]?.[day] || "",
       });
     },
@@ -241,12 +337,12 @@ export function EmployeeAttendanceDailyPage() {
   );
 
   const closePodCommentEditor = useCallback(() => {
-    setCommentEditor({ open: false, empCode: "", day: null, value: "" });
+    setCommentEditor({ open: false, empCode: "", day: null, value: "", mark: "" });
   }, []);
 
   const savePodCommentEditor = useCallback(async () => {
     if (!monthMeta?.monthKey || !commentEditor.empCode || !commentEditor.day) return;
-    const { empCode: empCodeKey, day, value } = commentEditor;
+    const { empCode: empCodeKey, day, value, mark } = commentEditor;
     const trimmed = value.trim();
     const next = { ...manualRemarks };
     const empRemarks = { ...(next[empCodeKey] || {}) };
@@ -262,7 +358,7 @@ export function EmployeeAttendanceDailyPage() {
         supabase,
         empCodeKey,
         registerDateFromDay(monthMeta.monthKey, day),
-        "P(OD)",
+        mark || "P(OD)",
         trimmed
       );
       closePodCommentEditor();
@@ -354,18 +450,53 @@ export function EmployeeAttendanceDailyPage() {
     }
   };
 
+  const bulkPickerEmployees = useMemo(() => filteredRows, [filteredRows]);
+
+  const bulkDayMarkByCode = useMemo(() => {
+    if (!bulkDayNumber) return {};
+    const out = {};
+    for (const row of gridRows) {
+      const mark = row.dayMarks?.[bulkDayNumber] || "";
+      if (row.empCode && mark) out[row.empCode] = mark;
+    }
+    return out;
+  }, [bulkDayNumber, gridRows]);
+
+  const toggleBulkEmployeeSelect = useCallback((empCodeKey, add) => {
+    setBulkSelectedCodes((prev) => {
+      if (add) {
+        if (prev.includes(empCodeKey)) return prev;
+        return [...prev, empCodeKey];
+      }
+      return prev.filter((c) => c !== empCodeKey);
+    });
+  }, []);
+
+  const clearBulkSelected = useCallback(() => {
+    setBulkSelectedCodes([]);
+  }, []);
+
+  const openBulkPicker = useCallback((mark) => {
+    setBulkPickerMark(mark);
+    setBulkSelectedCodes([]);
+    setBulkEmployeeSearch("");
+  }, []);
+
+  const closeBulkPicker = useCallback(() => {
+    setBulkPickerMark(null);
+    setBulkSelectedCodes([]);
+    setBulkEmployeeSearch("");
+  }, []);
+
   const handleBulkMark = useCallback(
-    async (mark) => {
+    async (mark, empCodesOverride) => {
       if (!monthMeta?.monthKey) return;
       const day = dayOfMonthFromIsoDate(bulkDate);
       if (!day || !bulkDate.startsWith(monthMeta.monthKey)) return;
-      const empCodes = dayFilteredRows.map((r) => r.empCode);
+      const empCodes = empCodesOverride?.length
+        ? empCodesOverride
+        : dayFilteredRows.map((r) => r.empCode);
       if (!empCodes.length) return;
-
-      if (mark === "P(OD)") {
-        setBulkPodCommentOpen(true);
-        return;
-      }
 
       const next = applyBulkRegisterMarks(manualMarks, gridRows, {
         empCodes,
@@ -425,62 +556,11 @@ export function EmployeeAttendanceDailyPage() {
     [bulkDate, bulkOverwrite, dayFilteredRows, gridRows, manualMarks, manualRemarks, monthMeta]
   );
 
-  const handleBulkPodCommentApply = useCallback(async () => {
-    if (!monthMeta?.monthKey) return;
-    const day = dayOfMonthFromIsoDate(bulkDate);
-    if (!day || !bulkDate.startsWith(monthMeta.monthKey)) return;
-    const empCodes = dayFilteredRows.map((r) => r.empCode);
-    if (!empCodes.length) return;
-    const trimmed = bulkPodComment.trim();
-
-    const next = applyBulkRegisterMarks(manualMarks, gridRows, {
-      empCodes,
-      dayFrom: day,
-      dayTo: day,
-      mark: "P(OD)",
-      overwrite: bulkOverwrite,
-    });
-
-    const nextRemarks = { ...manualRemarks };
-    const upserts = [];
-    const deletes = [];
-    for (const code of empCodes) {
-      const prev = manualMarks[code]?.[day];
-      const updated = next[code]?.[day];
-      if (prev === updated && (updated !== "P(OD)" || (nextRemarks[code]?.[day] || "") === trimmed)) continue;
-      if (updated === "P(OD)") {
-        const empRemarks = { ...(nextRemarks[code] || {}) };
-        if (!trimmed) delete empRemarks[day];
-        else empRemarks[day] = trimmed;
-        if (Object.keys(empRemarks).length) nextRemarks[code] = empRemarks;
-        else delete nextRemarks[code];
-        upserts.push({
-          employee_code: code,
-          register_date: bulkDate,
-          month_key: monthMeta.monthKey,
-          mark: "P(OD)",
-          mark_remark: trimmed || null,
-          updated_at: new Date().toISOString(),
-        });
-      } else if (!updated && prev) {
-        deletes.push({ employee_code: code, register_date: bulkDate });
-      }
-    }
-
-    setManualMarks(next);
-    setManualRemarks(nextRemarks);
-    setSavingMark(true);
-    try {
-      if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts);
-      if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
-      setBulkPodCommentOpen(false);
-      setBulkPodComment("");
-    } catch (err) {
-      setError(formatAttendanceSupabaseError(err));
-    } finally {
-      setSavingMark(false);
-    }
-  }, [bulkDate, bulkOverwrite, bulkPodComment, dayFilteredRows, gridRows, manualMarks, manualRemarks, monthMeta]);
+  const applyBulkPickerMark = useCallback(async () => {
+    if (!bulkPickerMark || !bulkSelectedCodes.length) return;
+    await handleBulkMark(bulkPickerMark, bulkSelectedCodes);
+    closeBulkPicker();
+  }, [bulkPickerMark, bulkSelectedCodes, closeBulkPicker, handleBulkMark]);
 
   const handleClearSelectedDate = useCallback(async () => {
     if (!monthMeta?.monthKey) return;
@@ -574,49 +654,35 @@ export function EmployeeAttendanceDailyPage() {
         cellClassName: SCROLL_DAY_COL_CLASS,
         render: (row) => {
           const value = row.dayMarks[day] || "";
-          const comment = manualRemarks[row.empCode]?.[day] || "";
-          const isPod = value === "P(OD)";
+          const comment = String(manualRemarks[row.empCode]?.[day] || "").trim();
+          const isCommentMark = value === "P(OD)" || value === "T";
+          const commentMark = isCommentMark ? value : "";
+          const hasComment = isCommentMark && !!comment;
           return (
             <div
               onClick={(e) => {
                 e.stopPropagation();
-                if (!isPod) return;
-                if (e.target.closest("select")) return;
-                openPodCommentEditor(row.empCode, day);
+                if (!isCommentMark) return;
+                if (e.target.closest("[data-register-mark-picker]")) return;
+                openPodCommentEditor(row.empCode, day, commentMark);
               }}
-              title={
-                isPod
-                  ? comment
-                    ? `P(OD) ? ${comment} (click cell to edit comment)`
-                    : "P(OD) ? click cell to add comment"
-                  : undefined
-              }
             >
               <div
-                className={`${registerMarkCellWrapperClass(value)} relative group ${isPod ? "cursor-pointer" : ""}`}
+                className={`${registerMarkCellWrapperClass(value)} relative group ${isCommentMark ? "cursor-pointer" : ""}`}
               >
-                <select
+                <RegisterMarkPicker
                   value={value}
-                  onChange={(e) => handleMarkChange(row.empCode, day, e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className={`${REGISTER_MARK_SELECT_INNER} ${registerMarkSelectTextClass(value)}`}
-                  title={REGISTER_STATUS_OPTIONS.find((o) => o.value === value)?.label || "No mark"}
-                >
-                  {REGISTER_STATUS_OPTIONS.map((o) => (
-                    <option key={o.value || "blank"} value={o.value}>
-                      {o.value || o.label}
-                    </option>
-                  ))}
-                </select>
-                {isPod && !!comment && (
+                  onChange={(next) => handleMarkChange(row.empCode, day, next)}
+                />
+                {hasComment && (
                   <>
                     <span
                       className="absolute top-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-t-[8px] border-t-red-500 pointer-events-none"
                       aria-hidden
                     />
-                    <div className="pointer-events-none absolute z-20 right-0 top-full mt-1 hidden min-w-[180px] max-w-[260px] rounded border border-gray-300 bg-white p-2 text-[10px] text-gray-700 shadow-lg group-hover:block">
-                      {comment}
+                    <div className="pointer-events-none absolute z-30 right-0 top-full mt-1 hidden max-w-[260px] rounded-md bg-gray-900 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg group-hover:block">
+                      <div className="font-semibold text-[9px] text-gray-200">{commentMark} comment</div>
+                      <div>{comment}</div>
                     </div>
                   </>
                 )}
@@ -627,7 +693,15 @@ export function EmployeeAttendanceDailyPage() {
       };
     });
     return [...fixed, ...dayCols, ...summaryColumnDefs];
-  }, [daysInMonth, handleMarkChange, manualRemarks, monthMeta?.monthKey, openPodCommentEditor, summaryColumnDefs]);
+  }, [
+    daysInMonth,
+    handleMarkChange,
+    manualRemarks,
+    monthMeta?.monthKey,
+    openPodCommentEditor,
+    summaryColumnDefs,
+    yearLeaveUsageByEmp,
+  ]);
 
   const dayDrawerRows = useMemo(() => {
     if (dayAttendanceDrawer.mode === "present") return dayAttendanceStats.presentEmployees;
@@ -740,7 +814,7 @@ export function EmployeeAttendanceDailyPage() {
           <KpiTile
             label="Present employees"
             value={bulkDayNumber ? dayAttendanceStats.present : "—"}
-            sub={bulkDate ? `P / P(OD) on ${bulkDate}` : "Select a date below"}
+            sub={bulkDate ? `P / P(OD) / T on ${bulkDate}` : "Select a date below"}
             onClick={() => openDayAttendanceDrawer("present")}
             tone={
               tableDayAttendanceFilter === "present"
@@ -781,7 +855,9 @@ export function EmployeeAttendanceDailyPage() {
         )}
 
         <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2">
-          <p className="text-[11px] font-semibold text-gray-700 mb-2">Bulk mark (filtered employees: {dayFilteredRows.length})</p>
+          <p className="text-[11px] font-semibold text-gray-700 mb-2">
+            Bulk mark ({bulkPickerEmployees.length} employee{bulkPickerEmployees.length === 1 ? "" : "s"} in current filter)
+          </p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[11px] text-gray-600">
               Date
@@ -794,26 +870,42 @@ export function EmployeeAttendanceDailyPage() {
                 className="w-[140px] ml-1"
               />
             </label>
-            <label className="text-[11px] text-gray-600 flex items-center gap-1.5 h-8">
+            <label
+              className="text-[11px] text-gray-600 flex items-center gap-1.5 h-8"
+              title="When enabled, replaces existing marks on the selected date. When off, only empty cells are updated."
+            >
               <input
                 type="checkbox"
                 checked={bulkOverwrite}
                 onChange={(e) => setBulkOverwrite(e.target.checked)}
                 className="rounded"
               />
-              Overwrite existing marks
+              Override
             </label>
-            {BULK_MARKS.map((b) => (
-              <button
-                key={b.mark}
-                type="button"
-                onClick={() => handleBulkMark(b.mark)}
-                disabled={!dayFilteredRows.length}
-                className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 ${REGISTER_BULK_BUTTON_CLASS[b.mark] || ""}`}
-              >
-                {b.label}
-              </button>
-            ))}
+            {BULK_MARKS.map((b) => {
+              const usesPicker = b.mark === "P" || b.mark === "L";
+              const pickerActive = bulkPickerMark === b.mark;
+              return (
+                <button
+                  key={b.mark}
+                  type="button"
+                  onClick={() => {
+                    if (usesPicker) {
+                      if (pickerActive) closeBulkPicker();
+                      else openBulkPicker(b.mark);
+                    } else {
+                      handleBulkMark(b.mark);
+                    }
+                  }}
+                  disabled={!bulkPickerEmployees.length && !usesPicker}
+                  className={`h-8 px-3 rounded-lg text-xs font-semibold disabled:opacity-50 ${
+                    pickerActive ? "ring-2 ring-offset-1 ring-gray-900 " : ""
+                  }${REGISTER_BULK_BUTTON_CLASS[b.mark] || ""}`}
+                >
+                  {b.label}
+                </button>
+              );
+            })}
             <button
               type="button"
               onClick={handleClearSelectedDate}
@@ -823,6 +915,46 @@ export function EmployeeAttendanceDailyPage() {
               Clear date marks
             </button>
           </div>
+
+          {bulkPickerMark && (bulkPickerMark === "P" || bulkPickerMark === "L") && (
+            <div className="mt-2 rounded-lg border border-gray-300 bg-white px-3 py-2">
+              <BulkMarkEmployeePicker
+                employees={bulkPickerEmployees}
+                selectedCodes={bulkSelectedCodes}
+                onToggleSelect={toggleBulkEmployeeSelect}
+                onClearSelected={clearBulkSelected}
+                search={bulkEmployeeSearch}
+                onSearchChange={setBulkEmployeeSearch}
+                markLabel={bulkPickerMark === "P" ? "Present (P)" : "Leave (L)"}
+                bulkDate={bulkDate}
+                dayMarkByCode={bulkDayMarkByCode}
+              />
+              <p className="mt-2 text-[10px] text-gray-500">
+                {bulkOverwrite
+                  ? "Override is on — existing marks on this date will be replaced for selected employees."
+                  : "Override is off — only unmarked cells will be updated for selected employees."}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={applyBulkPickerMark}
+                  disabled={!bulkSelectedCodes.length || savingMark || !bulkDayNumber}
+                  className={`h-8 px-4 rounded-lg text-xs font-semibold text-white disabled:opacity-50 ${
+                    REGISTER_BULK_BUTTON_CLASS[bulkPickerMark] || "bg-gray-900"
+                  }`}
+                >
+                  Apply {bulkPickerMark} to {bulkSelectedCodes.length} selected
+                </button>
+                <button
+                  type="button"
+                  onClick={closeBulkPicker}
+                  className="h-8 px-3 rounded-lg text-xs font-semibold border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {gridRows.length === 0 && !loading && !error && (
@@ -832,6 +964,12 @@ export function EmployeeAttendanceDailyPage() {
               Raw Attendance Data
             </Link>{" "}
             — Present (P) is written to the register table and shown here when punches exist for that day.
+          </div>
+        )}
+
+        {leaveLimitWarning && (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
+            <strong>Leave alert:</strong> {leaveLimitWarning} Check the bell icon in the header for all exceeded limits.
           </div>
         )}
 
@@ -891,7 +1029,9 @@ export function EmployeeAttendanceDailyPage() {
       {commentEditor.open && (
         <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-lg border border-gray-300 bg-white p-4 shadow-xl">
-            <h3 className="text-sm font-semibold text-gray-800">P(OD) Comment</h3>
+            <h3 className="text-sm font-semibold text-gray-800">
+              {commentEditor.mark === "T" ? "T Comment" : "P(OD) Comment"}
+            </h3>
             <p className="mt-1 text-xs text-gray-600">Comment for selected employee/date (Excel-style cell note).</p>
             <textarea
               value={commentEditor.value}
@@ -914,38 +1054,6 @@ export function EmployeeAttendanceDailyPage() {
                 className="h-8 px-3 rounded bg-gray-900 text-white text-xs"
               >
                 Save comment
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {bulkPodCommentOpen && (
-        <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-lg border border-gray-300 bg-white p-4 shadow-xl">
-            <h3 className="text-sm font-semibold text-gray-800">Bulk P(OD) Comment</h3>
-            <p className="mt-1 text-xs text-gray-600">This comment will be applied to all filtered employees for selected date.</p>
-            <textarea
-              value={bulkPodComment}
-              onChange={(e) => setBulkPodComment(e.target.value)}
-              rows={4}
-              className="mt-3 w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
-              placeholder="Enter bulk P(OD) comment (optional)"
-            />
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setBulkPodCommentOpen(false)}
-                className="h-8 px-3 rounded border border-gray-300 text-xs"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleBulkPodCommentApply}
-                className="h-8 px-3 rounded bg-gray-900 text-white text-xs"
-              >
-                Apply P(OD)
               </button>
             </div>
           </div>
@@ -1002,7 +1110,7 @@ export function EmployeeAttendanceDailyPage() {
       >
         <p className="text-[11px] text-gray-500 mb-3">
           {dayAttendanceDrawer.mode === "present"
-            ? "Employees marked Present (P) or Present on Duty P(OD), including auto-present from punches."
+            ? "Employees marked Present (P) / P(OD) / T, including auto-present from punches."
             : dayAttendanceDrawer.mode === "absent"
               ? "Employees not marked present — unmarked, leave, weekoff, or NH/PH."
               : "Full employee list for the selected date with attendance status."}
@@ -1031,7 +1139,7 @@ export function EmployeeAttendanceDailyPage() {
                     <td className="px-2 py-1.5">
                       <StatusChip
                         label={registerMarkStatusLabel(row.dayMark)}
-                        severity={row.dayMark === "P" || row.dayMark === "P(OD)" ? "info" : "warning"}
+                        severity={row.dayMark === "P" || row.dayMark === "P(OD)" || row.dayMark === "T" ? "info" : "warning"}
                       />
                     </td>
                     <td className="px-2 py-1.5 tabular-nums text-gray-700">{row.dayMark || "—"}</td>

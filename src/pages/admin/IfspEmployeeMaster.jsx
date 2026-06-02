@@ -180,8 +180,30 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [formData, setFormData] = useState(emptyForm);
 
   const departments = [
-    'HR', 'Finance', 'Operations', 'Sales', 'Marketing', 'IT', 
-    'Administration', 'Production', 'Quality Control', 'Logistics', 'Other'
+    'Administration',
+    'Commercial',
+    'Finance',
+    'HR',
+    'Compliance',
+    'Dahej-HR',
+    'Operations',
+    'Information System',
+    'M&M',
+    'Management',
+    'Marketing',
+    'NFPA',
+    'Procurement',
+    'Production',
+    'Design',
+    'Projects',
+    'R&M',
+    'Technical',
+    'Other',
+    // Keep legacy values for old records / imports.
+    'Sales',
+    'IT',
+    'Quality Control',
+    'Logistics',
   ];
 
   const designations = [

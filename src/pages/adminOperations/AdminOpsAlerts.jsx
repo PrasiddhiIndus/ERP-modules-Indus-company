@@ -7,6 +7,8 @@ import {
   employeesWithBirthdayToday,
   employeesWithAnniversaryToday,
 } from "../../utils/employeeMasterReminders";
+import { fetchRegisterMarksForYear, fetchActiveEmployees } from "../../lib/attendanceDaily";
+import { buildLeaveLimitNotifications } from "../../lib/attendanceLeaveLimits";
 
 const base = "/app/admin";
 
@@ -24,6 +26,7 @@ export default function AdminOpsAlerts() {
   const navigate = useNavigate();
   const [empMaster, setEmpMaster] = useState([]);
   const [empLoadError, setEmpLoadError] = useState(null);
+  const [leaveLimitRows, setLeaveLimitRows] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +60,33 @@ export default function AdminOpsAlerts() {
     };
   }, [tab]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (tab !== "employee") return;
+      try {
+        const year = new Date().getFullYear();
+        const [registerRows, employees] = await Promise.all([
+          fetchRegisterMarksForYear(supabase, year),
+          fetchActiveEmployees(supabase),
+        ]);
+        if (cancelled) return;
+        const employeeNameByCode = {};
+        for (const e of employees || []) {
+          if (e.empCode) employeeNameByCode[e.empCode] = e.employeeName || e.empCode;
+        }
+        setLeaveLimitRows(
+          buildLeaveLimitNotifications({ registerRows, employeeNameByCode, year })
+        );
+      } catch {
+        if (!cancelled) setLeaveLimitRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
   const birthdaysToday = tab === "employee" ? employeesWithBirthdayToday(empMaster) : [];
   const anniversariesToday = tab === "employee" ? employeesWithAnniversaryToday(empMaster) : [];
 
@@ -80,6 +110,17 @@ export default function AdminOpsAlerts() {
         due: "Today",
         assign: "HR / Admin",
         link: "Employee Master",
+      });
+    });
+    leaveLimitRows.forEach((n) => {
+      celebrationRows.push({
+        id: n.key,
+        severity: "high",
+        title: n.title,
+        due: String(new Date().getFullYear()),
+        assign: "HR / Admin",
+        link: "Daily Attendance Register",
+        detail: n.message,
       });
     });
   }
@@ -140,7 +181,16 @@ export default function AdminOpsAlerts() {
                   />
                 ),
               },
-              { key: "title", label: "Alert" },
+              {
+                key: "title",
+                label: "Alert",
+                render: (r) => (
+                  <div>
+                    <div>{r.title}</div>
+                    {r.detail ? <div className="text-[10px] text-gray-500 mt-0.5">{r.detail}</div> : null}
+                  </div>
+                ),
+              },
               { key: "due", label: "Due" },
               { key: "assign", label: "Owner" },
               {
@@ -159,6 +209,7 @@ export default function AdminOpsAlerts() {
                         Events: "misc/events-coordination",
                         Transfer: "store/transfer-transit",
                         "Employee Master": "employee/master",
+                        "Daily Attendance Register": "employee/attendance-daily",
                       };
                       const p = map[r.link] || "dashboard";
                       navigate(`${base}/${p}`);

@@ -25,30 +25,80 @@ export const STORAGE_KEYS = {
 /** Stored mark code for national holiday / public holiday. */
 export const REGISTER_MARK_NHPH = "NH/PH";
 
-/** Daily register grid — dropdown options (clear + P, L, WO, NH/PH). */
-export const REGISTER_STATUS_OPTIONS = [
+/** Leave types shown under L in the register mark picker. */
+export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
+  { value: "PL", label: "PL" },
+  { value: "CL", label: "CL" },
+  { value: "SL", label: "SL" },
+  { value: "SPLA", label: "SPLA" },
+  { value: "SPLB", label: "SPLB" },
+  { value: "SPLM", label: "SPLM" },
+  { value: "SBEL", label: "SBEL" },
+  { value: "CO", label: "CO" },
+  { value: "PTL", label: "PTL" },
+  { value: "ML", label: "ML" },
+];
+
+/** Primary marks in the register picker (L opens leave submenu). */
+export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: "", label: "—" },
   { value: "P", label: "Present (P)" },
-  { value: "P(OD)", label: "Present On Duty (P(OD))" },
-  { value: "L", label: "Leave (L)" },
+  { value: "P(OD)", label: "Present Outdoor Duty (P(OD))" },
+  { value: "T", label: "Present (T)" },
+  { value: "L", label: "Leave (L)", hasSubmenu: true },
   { value: "WO", label: "Weekoff (WO)" },
   { value: REGISTER_MARK_NHPH, label: "NH/PH" },
+  { value: "HD", label: "Half Day (HD)" },
+  { value: "WFH", label: "Work From Home (WFH)" },
 ];
+
+/** @deprecated Flat list for legacy selects; prefer REGISTER_PRIMARY_MARK_OPTIONS + submenu. */
+export const REGISTER_STATUS_OPTIONS = [
+  ...REGISTER_PRIMARY_MARK_OPTIONS.filter((o) => !o.hasSubmenu),
+  { value: "L", label: "Leave (L)" },
+  ...REGISTER_LEAVE_SUBMENU_OPTIONS,
+];
+
+export function registerMarkOptionLabel(mark) {
+  const m = String(mark ?? "").trim();
+  if (!m) return "—";
+  const leave = REGISTER_LEAVE_SUBMENU_OPTIONS.find((o) => o.value === m);
+  if (leave) return leave.label;
+  const primary = REGISTER_PRIMARY_MARK_OPTIONS.find((o) => o.value === m);
+  if (primary) return primary.label;
+  return m;
+}
 
 export function isRegisterNhphMark(mark) {
   return mark === REGISTER_MARK_NHPH || mark === "NHPH";
 }
 
 export function isRegisterPresentMark(mark) {
-  return mark === "P" || mark === "P(OD)";
+  return mark === "P" || mark === "P(OD)" || mark === "T";
+}
+
+/** CO on a working day counts as present; HD counts as half present. */
+export function registerPresentDayCredit(mark) {
+  const m = String(mark ?? "").trim();
+  if (m === "P" || m === "P(OD)" || m === "T" || m === "CO") return 1;
+  if (m === "HD") return 0.5;
+  return 0;
+}
+
+export function isRegisterEffectivePresentMark(mark) {
+  return registerPresentDayCredit(mark) > 0;
 }
 
 /** Human-readable status for a single day cell (present / absent / leave / …). */
 export function registerMarkStatusLabel(mark) {
-  if (isRegisterPresentMark(mark)) return mark === "P(OD)" ? "Present (OD)" : "Present";
+  if (isRegisterPresentMark(mark)) {
+    if (mark === "P(OD)") return "Present (OD)";
+    if (mark === "T") return "Present (T)";
+    return "Present";
+  }
+  if (mark === "CO") return "Present (CO)";
   if (!mark) return "Absent";
-  const opt = REGISTER_STATUS_OPTIONS.find((o) => o.value === mark);
-  return opt?.label || mark;
+  return registerMarkOptionLabel(mark);
 }
 
 /**
@@ -63,7 +113,7 @@ export function computeDayAttendanceBreakdown(rows, day) {
     const dayMark = row.dayMarks?.[day] || "";
     const entry = { ...row, dayMark };
     allEmployees.push(entry);
-    if (isRegisterPresentMark(dayMark)) presentEmployees.push(entry);
+    if (isRegisterEffectivePresentMark(dayMark)) presentEmployees.push(entry);
     else absentEmployees.push(entry);
   }
   return {
@@ -77,7 +127,17 @@ export function computeDayAttendanceBreakdown(rows, day) {
 }
 
 /** Values allowed by admin_attendance_register_mark_check (Supabase). */
-export const REGISTER_MARKS_DB_ALLOWED = new Set(["P", "P(OD)", "L", "WO", REGISTER_MARK_NHPH]);
+export const REGISTER_MARKS_DB_ALLOWED = new Set([
+  "P",
+  "P(OD)",
+  "T",
+  "L",
+  "WO",
+  REGISTER_MARK_NHPH,
+  "HD",
+  "WFH",
+  ...REGISTER_LEAVE_SUBMENU_OPTIONS.map((o) => o.value),
+]);
 
 /**
  * Map UI / legacy marks to a value the DB check constraint accepts.
@@ -88,8 +148,9 @@ export function normalizeRegisterMarkForDb(mark) {
   if (!m) return null;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_NHPH;
   if (m === "P(OD)") return "P(OD)";
-  if (isRegisterLeaveMark(m) || m === "A") return "L";
+  if (m === "A") return "L";
   if (REGISTER_MARKS_DB_ALLOWED.has(m)) return m;
+  if (isRegisterLeaveMark(m)) return m;
   return "L";
 }
 
@@ -103,8 +164,12 @@ export const REGISTER_SUMMARY_ROWS = [
   { key: "blank", label: "Unmarked", tone: "text-gray-600" },
 ];
 
-/** L plus legacy leave codes still stored in older rows. */
-export const REGISTER_LEAVE_MARKS = new Set(["L", "A", "PL", "SL", "CL", "HD"]);
+/** L, generic leave, and granular leave codes (not HD/WFH). */
+export const REGISTER_LEAVE_MARKS = new Set([
+  "L",
+  "A",
+  ...REGISTER_LEAVE_SUBMENU_OPTIONS.map((o) => o.value),
+]);
 
 /** Shared palette — closed cell box + bulk Mark P/L/WO/NH/PH buttons. */
 export const REGISTER_MARK_PALETTE = {
@@ -135,7 +200,7 @@ export function isRegisterLeaveMark(mark) {
 
 /** Colored box behind the closed cell only (not the open dropdown list). */
 export function registerMarkCellWrapperClass(value) {
-  if (value === "P" || value === "P(OD)") {
+  if (value === "P" || value === "P(OD)" || value === "T") {
     return `${REGISTER_MARK_WRAPPER_BASE} border-[#006b51] bg-[#008D62]`;
   }
   if (value === "L" || isRegisterLeaveMark(value)) {
@@ -146,6 +211,12 @@ export function registerMarkCellWrapperClass(value) {
   }
   if (isRegisterNhphMark(value)) {
     return `${REGISTER_MARK_WRAPPER_BASE} border-[#d9741d] bg-[#F58220]`;
+  }
+  if (value === "HD") {
+    return `${REGISTER_MARK_WRAPPER_BASE} border-[#6d28d9] bg-[#7c3aed]`;
+  }
+  if (value === "WFH") {
+    return `${REGISTER_MARK_WRAPPER_BASE} border-[#1d4ed8] bg-[#2563eb]`;
   }
   return `${REGISTER_MARK_WRAPPER_BASE} border-gray-300 bg-gray-100`;
 }
@@ -416,7 +487,7 @@ export function dbRowsToManualRemarks(rows) {
     const day = dayOfMonthFromIsoDate(row.register_date);
     const mark = normalizeRegisterMarkForDb(row.mark);
     const remark = String(row.mark_remark || "").trim();
-    if (!code || !day || mark !== "P(OD)" || !remark) continue;
+    if (!code || !day || (mark !== "P(OD)" && mark !== "T") || !remark) continue;
     if (!remarks[code]) remarks[code] = {};
     remarks[code][day] = remark;
   }
@@ -458,13 +529,27 @@ export async function fetchRegisterMarksForMonth(supabase, { fromDate, toDate })
   };
 }
 
+/** All register rows for a calendar year (leave limit checks). */
+export async function fetchRegisterMarksForYear(supabase, year) {
+  const y = String(year || "").trim();
+  if (!/^\d{4}$/.test(y)) return [];
+  const { data, error } = await supabase
+    .from(ATTENDANCE_REGISTER_TABLE)
+    .select("employee_code,register_date,mark")
+    .gte("register_date", `${y}-01-01`)
+    .lte("register_date", `${y}-12-31`);
+  if (error) throw error;
+  return data || [];
+}
+
 export async function upsertRegisterMarksBatch(supabase, rows) {
   const normalized = (rows || [])
     .map((row) => {
       const employee_code = normalizeAttendanceEmpCode(row.employee_code);
       const mark = normalizeRegisterMarkForDb(row.mark);
       if (!employee_code || !mark) return null;
-      const mark_remark = mark === "P(OD)" ? String(row.mark_remark || "").trim() || null : null;
+      const mark_remark =
+        mark === "P(OD)" || mark === "T" ? String(row.mark_remark || "").trim() || null : null;
       return { ...row, employee_code, mark, mark_remark };
     })
     .filter(Boolean);
@@ -505,7 +590,8 @@ export async function upsertRegisterMark(supabase, empCode, registerDate, mark, 
       register_date: date,
       month_key: date.slice(0, 7),
       mark: canonical,
-      mark_remark: canonical === "P(OD)" ? String(markRemark || "").trim() || null : null,
+      mark_remark:
+        canonical === "P(OD)" || canonical === "T" ? String(markRemark || "").trim() || null : null,
       updated_at: new Date().toISOString(),
     },
   ]);
@@ -588,11 +674,27 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
 }
 
 export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, daysInMonth) {
-  const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
+  const summary = {
+    leave: 0,
+    weekoff: 0,
+    appliedWo: 0,
+    nhph: 0,
+    ot: 0,
+    totalPresent: 0,
+    leaveByType: {},
+  };
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
-    if (mark === "P" || mark === "P(OD)") summary.totalPresent += 1;
-    if (isRegisterLeaveMark(mark)) summary.leave += 1;
+    summary.totalPresent += registerPresentDayCredit(mark);
+    if (isRegisterLeaveMark(mark)) {
+      summary.leave += 1;
+      const code = String(mark || "").trim();
+      if (code && code !== "L" && code !== "A") {
+        const frac =
+          code === "SPLA" || code === "SPLB" ? 0.5 : 1;
+        summary.leaveByType[code] = (summary.leaveByType[code] || 0) + frac;
+      }
+    }
     if (mark === "WO") {
       summary.weekoff += 1;
       if (manualMarksForEmp[day] === "WO") summary.appliedWo += 1;
@@ -651,7 +753,7 @@ export function computeMonthlyRegisterKpis(rows, daysInMonth) {
   for (const row of rows) {
     for (let day = 1; day <= daysInMonth; day += 1) {
       const mark = row.dayMarks[day] || "";
-      if (mark === "P" || mark === "P(OD)") totals.P += 1;
+      if (registerPresentDayCredit(mark) > 0) totals.P += registerPresentDayCredit(mark);
       else if (mark === "WO") totals.WO += 1;
       else if (isRegisterNhphMark(mark)) totals[REGISTER_MARK_NHPH] += 1;
       else if (isRegisterLeaveMark(mark)) totals.L += 1;
@@ -736,11 +838,11 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
     for (let day = 1; day <= daysInMonth; day += 1) {
       const comment = String(dayRemarks[day] || "").trim();
       if (!comment) continue;
-      if (row.dayMarks?.[day] !== "P(OD)") continue;
+      if (row.dayMarks?.[day] !== "P(OD)" && row.dayMarks?.[day] !== "T") continue;
       const excelRowIndex = rowIdx + 1;
       const excelColIndex = 3 + (day - 1);
       const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: excelColIndex });
-      if (!ws[cellAddress]) ws[cellAddress] = { v: "P(OD)", t: "s" };
+      if (!ws[cellAddress]) ws[cellAddress] = { v: row.dayMarks?.[day], t: "s" };
       ws[cellAddress].c = [{ a: "INDUS OS", t: comment }];
     }
   });
@@ -750,13 +852,16 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
     ["Employee ID", "Employee code", "Employee Name", "Date", "Mark", "Comment"],
     ...rows.flatMap((row) =>
       Array.from({ length: daysInMonth }, (_, i) => i + 1)
-        .filter((day) => row.dayMarks[day] === "P(OD)" && row.dayRemarks?.[day])
+        .filter(
+          (day) =>
+            (row.dayMarks[day] === "P(OD)" || row.dayMarks[day] === "T") && row.dayRemarks?.[day]
+        )
         .map((day) => [
           row.employeeId || "",
           row.empCode || "",
           row.employeeName || "",
           registerDateFromDay(monthKey, day),
-          "P(OD)",
+          row.dayMarks[day],
           row.dayRemarks[day],
         ])
     ),
@@ -1282,7 +1387,7 @@ export function formatAttendanceSupabaseError(err) {
   }
 
   if (code === "23514" || /admin_attendance_register_mark_check/i.test(msg)) {
-    return "Invalid attendance mark. Allowed values: P, P(OD), L, WO, NH/PH.";
+    return "Invalid attendance mark. Allowed: P, P(OD), T, L, WO, NH/PH, HD, WFH, and leave codes (PL, CL, SL, …).";
   }
 
   if (code === "409" && /employee_code_fkey/i.test(msg)) {
