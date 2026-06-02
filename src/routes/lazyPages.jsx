@@ -56,6 +56,8 @@ export const Attendance = lazy(() => import("../pages/attendance/Attendance"));
 export const Salary = lazy(() => import("../pages/salary/Salary"));
 export const StoreInventory = lazy(() => import("../pages/store/StoreInventory"));
 export const HR = lazy(() => import("../pages/hr/HR"));
+export const HrEmployeeMaster = lazy(() => import("../pages/hr/HrEmployeeMaster"));
+export const HrSalaryInputs = lazy(() => import("../pages/hr/HrSalaryInputs"));
 export const Procurement = lazy(() => import("../pages/procurement/Procurement"));
 export const Operations = lazy(() => import("../pages/operations/Operations"));
 export const ProjectsBilling = lazy(() => import("../pages/projectsBilling/ProjectsBilling"));
@@ -98,16 +100,32 @@ export const HrPayrollLayout = lazy(() => import("../pages/hr/payroll/HrPayrollL
 export const HrPayrollFormulaPage = lazy(() => import("../pages/hr/payroll/HrPayrollFormulaPage"));
 export const HrPayrollDashboardPage = lazyNamed(
   () => import("../pages/hr/payroll/HrPayrollViews"),
-  "HrPayrollDashboardPage"
+  "PayrollDashboardPage"
 );
 export const HrPayrollMonthPage = lazyNamed(
   () => import("../pages/hr/payroll/HrPayrollViews"),
-  "HrPayrollMonthPage"
+  "PayrollMonthPage"
 );
 export const HrPayrollYearPage = lazyNamed(
   () => import("../pages/hr/payroll/HrPayrollViews"),
-  "HrPayrollYearPage"
+  "PayrollYearPage"
 );
+
+export const SalaryManagementLayout = lazy(() => import("../pages/hr/payroll/salary/SalaryLayout"));
+export const SalaryManagementDashboard = lazy(() => import("../pages/hr/payroll/salary/Dashboard"));
+export const EmployeePayrollList = lazy(() => import("../pages/hr/payroll/salary/EmployeePayrollList"));
+export const EmployeePayrollProfile = lazy(() => import("../pages/hr/payroll/salary/EmployeePayrollProfile"));
+export const PayrollRunPage = lazy(() => import("../pages/hr/payroll/salary/PayrollRun"));
+export const SiteFormulaSetup = lazy(() => import("../pages/hr/payroll/salary/SiteFormulaSetup"));
+export const PayrollManualInputs = lazy(() => import("../pages/hr/payroll/salary/ManualInputs"));
+export const StatutoryPF = lazy(() => import("../pages/hr/payroll/salary/statutory/PF"));
+export const StatutoryESIC = lazy(() => import("../pages/hr/payroll/salary/statutory/ESIC"));
+export const StatutoryPT = lazy(() => import("../pages/hr/payroll/salary/statutory/PT"));
+export const StatutoryTDS = lazy(() => import("../pages/hr/payroll/salary/statutory/TDS"));
+export const LoansRecoveries = lazy(() => import("../pages/hr/payroll/salary/LoansRecoveries"));
+export const PayrollRegister = lazy(() => import("../pages/hr/payroll/salary/Register"));
+export const PayrollOutputs = lazy(() => import("../pages/hr/payroll/salary/Outputs"));
+export const SalaryManagementSettings = lazy(() => import("../pages/hr/payroll/salary/Settings"));
 
 export const HrSalaryLayout = lazy(() => import("../pages/hr/payroll/salary/SalaryLayout"));
 export const HrSalaryDashboard = lazy(() => import("../pages/hr/payroll/salary/Dashboard"));

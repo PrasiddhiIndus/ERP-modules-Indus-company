@@ -85,7 +85,7 @@ function compareEmployeeSortField(a, b, field, direction) {
   return asc ? 1 : -1;
 }
 
-const IfspEmployeeMaster = () => {
+const IfspEmployeeMaster = ({ embedded = false }) => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -954,12 +954,20 @@ const IfspEmployeeMaster = () => {
   }
 
   return (
-    <div className="h-[calc(100vh-7rem)] w-full overflow-hidden overflow-x-hidden bg-gray-50">
-      <div className="p-4 md:p-6 h-full w-full flex flex-col gap-4 max-w-[1600px] mx-auto">
+    <div
+      className={
+        embedded
+          ? "h-[calc(100vh-14rem)] min-h-[480px] w-full overflow-hidden overflow-x-hidden bg-gray-50 rounded-lg border border-gray-200"
+          : "h-[calc(100vh-7rem)] w-full overflow-hidden overflow-x-hidden bg-gray-50"
+      }
+    >
+      <div className={`p-4 md:p-6 h-full w-full flex flex-col gap-4 ${embedded ? "" : "max-w-[1600px] mx-auto"}`}>
       {/* Header */}
       <div className="flex items-start justify-between shrink-0 min-w-0 gap-3 flex-wrap">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900">IFSPL Employee Master</h1>
+          <h1 className={`font-bold text-gray-900 ${embedded ? "text-lg" : "text-2xl"}`}>
+            {embedded ? "Employee Master" : "IFSPL Employee Master"}
+          </h1>
           <p className="text-sm text-gray-600 mt-1">Complete employee database with Excel-like functionality</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 max-w-full">

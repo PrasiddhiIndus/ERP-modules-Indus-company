@@ -37,9 +37,10 @@ import {
   CommercialRmInternalQuotation,
   FireTenderVehicleManagement,
   Attendance,
-  Salary,
   StoreInventory,
   HR,
+  HrEmployeeMaster,
+  HrSalaryInputs,
   Procurement,
   Operations,
   ProjectsBilling,
@@ -69,21 +70,21 @@ import {
   HrPayrollDashboardPage,
   HrPayrollMonthPage,
   HrPayrollYearPage,
-  HrSalaryLayout,
-  HrSalaryDashboard,
-  HrSalaryEmployeeList,
-  HrSalaryEmployeeProfile,
-  HrSalaryPayrollRun,
-  HrSalarySiteFormulas,
-  HrSalaryManualInputs,
-  HrSalaryPF,
-  HrSalaryESIC,
-  HrSalaryPT,
-  HrSalaryTDS,
-  HrSalaryLoans,
-  HrSalaryRegister,
-  HrSalaryOutputs,
-  HrSalarySettings,
+  SalaryManagementLayout,
+  SalaryManagementDashboard,
+  EmployeePayrollList,
+  EmployeePayrollProfile,
+  PayrollRunPage,
+  SiteFormulaSetup,
+  PayrollManualInputs,
+  StatutoryPF,
+  StatutoryESIC,
+  StatutoryPT,
+  StatutoryTDS,
+  LoansRecoveries,
+  PayrollRegister,
+  PayrollOutputs,
+  SalaryManagementSettings,
   EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
   EmployeeAttendanceSheetsPage,
@@ -344,7 +345,11 @@ function App() {
             {/* Reorganized Module Routes */}
             
             {/* HR & Admin */}
-            <Route path="hr" element={<HR />} />
+            <Route path="hr" element={<HR />}>
+              <Route index element={<Navigate to="employee-master" replace />} />
+              <Route path="employee-master" element={<HrEmployeeMaster />} />
+              <Route path="salary-inputs" element={<HrSalaryInputs />} />
+            </Route>
             <Route path="attendance" element={<Attendance />} />
             <Route path="salary" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
             <Route path="payroll" element={<Navigate to="/app/hr/payroll/dashboard" replace />} />
@@ -354,22 +359,22 @@ function App() {
               <Route path="entry" element={<HrPayrollMonthPage />} />
               <Route path="year" element={<HrPayrollYearPage />} />
               <Route path="formula" element={<HrPayrollFormulaPage />} />
-              <Route path="salary" element={<HrSalaryLayout />}>
+              <Route path="salary" element={<SalaryManagementLayout />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
-                <Route path="dashboard" element={<HrSalaryDashboard />} />
-                <Route path="employees" element={<HrSalaryEmployeeList />} />
-                <Route path="employees/:employeeId" element={<HrSalaryEmployeeProfile />} />
-                <Route path="run" element={<HrSalaryPayrollRun />} />
-                <Route path="site-formulas" element={<HrSalarySiteFormulas />} />
-                <Route path="manual-inputs" element={<HrSalaryManualInputs />} />
-                <Route path="pf" element={<HrSalaryPF />} />
-                <Route path="esic" element={<HrSalaryESIC />} />
-                <Route path="pt" element={<HrSalaryPT />} />
-                <Route path="tds" element={<HrSalaryTDS />} />
-                <Route path="loans" element={<HrSalaryLoans />} />
-                <Route path="register" element={<HrSalaryRegister />} />
-                <Route path="outputs" element={<HrSalaryOutputs />} />
-                <Route path="settings" element={<HrSalarySettings />} />
+                <Route path="dashboard" element={<SalaryManagementDashboard />} />
+                <Route path="employees" element={<EmployeePayrollList />} />
+                <Route path="employees/:id" element={<EmployeePayrollProfile />} />
+                <Route path="run" element={<PayrollRunPage />} />
+                <Route path="site-formulas" element={<SiteFormulaSetup />} />
+                <Route path="manual-inputs" element={<PayrollManualInputs />} />
+                <Route path="pf" element={<StatutoryPF />} />
+                <Route path="esic" element={<StatutoryESIC />} />
+                <Route path="pt" element={<StatutoryPT />} />
+                <Route path="tds" element={<StatutoryTDS />} />
+                <Route path="loans" element={<LoansRecoveries />} />
+                <Route path="register" element={<PayrollRegister />} />
+                <Route path="outputs" element={<PayrollOutputs />} />
+                <Route path="settings" element={<SalaryManagementSettings />} />
               </Route>
             </Route>
             <Route path="people-management" element={<PeopleManagement />} />
