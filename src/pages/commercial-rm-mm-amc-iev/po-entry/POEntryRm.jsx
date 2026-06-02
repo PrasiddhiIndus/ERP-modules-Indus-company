@@ -345,16 +345,6 @@ const POEntry = ({
   );
 
   const fyForOc = formData.ocFyEdit || getFinancialYear();
-  const vendorCodeError = useMemo(() => {
-    if (!showForm || editId || formData.poBasis === PO_BASIS_WITHOUT_PO) return '';
-    const manualOc = String(formData.ocNumber || '').trim();
-    if (!manualOc) return '';
-    const dup = commercialPOs.some(
-      (p) => String(p.ocNumber || '').trim().toLowerCase() === manualOc.toLowerCase()
-    );
-    if (dup) return 'This OC number is already in use.';
-    return '';
-  }, [showForm, editId, formData.poBasis, formData.ocNumber, commercialPOs]);
 
   const clientProfilesFromPOs = useMemo(
     () => buildCommercialClientProfiles(commercialPOs, moduleType, 'rm', { excludePoId: editId }),
@@ -886,14 +876,6 @@ const POEntry = ({
       const trimmedManualOc = (formData.ocNumber || '').trim();
       if (!trimmedManualOc) {
         setSaveError('Enter OC number.');
-        return;
-      }
-      const dupOc = commercialPOs.some((p) => {
-        if (editId && p.id === editId) return false;
-        return (p.ocNumber || '').trim().toLowerCase() === trimmedManualOc.toLowerCase();
-      });
-      if (dupOc) {
-        setSaveError('Duplicate OC Number is not allowed.');
         return;
       }
       ocNum = trimmedManualOc;
@@ -1716,7 +1698,7 @@ const POEntry = ({
                               vendorCodeDigits: e.target.value,
                             }))
                           }
-                          className={`w-full border rounded-lg px-3 py-2 bg-white font-mono text-sm ${vendorCodeError ? 'border-red-400 bg-red-50/40' : 'border-gray-300'}`}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white font-mono text-sm"
                           placeholder="Optional reference"
                           aria-label="Vendor code serial"
                         />
@@ -1725,9 +1707,9 @@ const POEntry = ({
                             ? `FY segment stays as saved (${fyForOc}). Vendor digits are optional.`
                             : 'Enter the full OC above. Vendor digits here are optional (for reference or non-standard OC).'}
                         </p>
-                        {vendorCodeError ? (
-                          <p className="text-xs text-red-600 font-medium mt-1">{vendorCodeError}</p>
-                        ) : null}
+                        <p className="text-xs text-gray-500 mt-1">
+                          Multiple POs may share the same OC number; PO/WO number must stay unique.
+                        </p>
                       </div>
                     </>
                   )}
@@ -2010,7 +1992,6 @@ const POEntry = ({
               <button
                 type="button"
                 onClick={savePO}
-                disabled={!editId && formData.poBasis === PO_BASIS_WITH_PO && !!vendorCodeError}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {editId ? 'Update' : 'Save'} PO/WO

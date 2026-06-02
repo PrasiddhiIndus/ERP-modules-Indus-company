@@ -1,5 +1,12 @@
 /** Daily attendance register — pair raw punches into per-employee per-day rows. */
 
+import {
+  filterPresentRegisterRowsRespectingMarks,
+  marksByEmpDayFromRegisterDbRows,
+  punchesToPresentRegisterRows,
+  registerDateRangeFromRows,
+} from "../../shared/attendanceRegisterSync.mjs";
+
 export const ATTENDANCE_PUNCH_TABLE = "erp_attendance_punches";
 export const ATTENDANCE_REGISTER_TABLE = "admin_attendance_register";
 export const EMPLOYEE_MASTER_TABLE = "admin_ifsp_employee_master";
@@ -239,12 +246,72 @@ export function resolveAttendanceEmpCodeFilter(empCode) {
 export function buildPresentKeysFromPunches(punches) {
   const keys = new Set();
   for (const punch of punches) {
-    const empCode = normalizeAttendanceEmpCode(punch.empCode);
-    const punchDate = normalizeDbDate(punch.punchDate);
+    const empCode = normalizeAttendanceEmpCode(punch.empCode ?? punch.employee_code);
+    const punchDate = normalizeDbDate(punch.punchDate ?? punch.punch_date);
     if (!empCode || !punchDate) continue;
     keys.add(`${empCode}|${punchDate}`);
   }
   return keys;
+}
+
+/**
+ * Include employees that have punches but are missing from master (orphan device codes).
+ */
+export function mergeActiveEmployeesWithPunches(activeEmployees, punches) {
+  const byCode = new Map();
+  for (const emp of activeEmployees || []) {
+    const code = normalizeAttendanceEmpCode(emp.empCode);
+    if (code) byCode.set(code, emp);
+  }
+  for (const punch of punches || []) {
+    const code = normalizeAttendanceEmpCode(punch.empCode ?? punch.employee_code);
+    if (!code || byCode.has(code)) continue;
+    byCode.set(code, {
+      empCode: code,
+      employeeId: "",
+      employeeName: String(punch.employeeName ?? punch.employee_name ?? "").trim() || code,
+      department: "",
+    });
+  }
+  return [...byCode.values()];
+}
+
+/**
+ * Upsert Present (P) into admin_attendance_register for each punched employee-day.
+ * Does not overwrite L, WO, P(OD), NH/PH, etc.
+ */
+export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
+  const { respectManualMarks = true, fromDate: fromOverride, toDate: toOverride } = options;
+  const candidateRows = punchesToPresentRegisterRows(punches);
+  if (!candidateRows.length) {
+    return { upserted: 0, skipped: 0, candidates: 0 };
+  }
+
+  const range = registerDateRangeFromRows(candidateRows);
+  const fromDate = fromOverride || range.fromDate;
+  const toDate = toOverride || range.toDate;
+
+  let toUpsert = candidateRows;
+  if (respectManualMarks && fromDate && toDate) {
+    const { data, error } = await supabase
+      .from(ATTENDANCE_REGISTER_TABLE)
+      .select("employee_code,register_date,mark")
+      .gte("register_date", fromDate)
+      .lte("register_date", toDate);
+    if (error) throw error;
+    const marksByEmpDay = marksByEmpDayFromRegisterDbRows(data, normalizeRegisterMarkForDb);
+    toUpsert = filterPresentRegisterRowsRespectingMarks(candidateRows, marksByEmpDay);
+  }
+
+  if (toUpsert.length) {
+    await upsertRegisterMarksBatch(supabase, toUpsert);
+  }
+
+  return {
+    upserted: toUpsert.length,
+    skipped: candidateRows.length - toUpsert.length,
+    candidates: candidateRows.length,
+  };
 }
 
 /**
@@ -498,7 +565,8 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
     emps = emps.filter((e) => e.empCode === codeFilter);
   }
 
-  const { rows, daysInMonth } = buildMonthlyRegisterGrid(punches, emps, {
+  const employeesForGrid = mergeActiveEmployeesWithPunches(emps, punches);
+  const { rows, daysInMonth } = buildMonthlyRegisterGrid(punches, employeesForGrid, {
     year: monthMeta.year,
     month: monthMeta.month,
     manualMarks: manualMarks.marks || {},
@@ -739,7 +807,7 @@ export function mapDbPunchToViewRow(row) {
     id: row.id || row.punch_key,
     empCode: normalizeAttendanceEmpCode(row.employee_code),
     employeeName: row.employee_name || "",
-    punchDate: row.punch_date || "",
+    punchDate: normalizeDbDate(row.punch_date) || "",
     punchTime: punchTime ? String(punchTime).slice(0, 5) : "",
     deviceName: row.device_name || "",
     direction: row.direction || "",

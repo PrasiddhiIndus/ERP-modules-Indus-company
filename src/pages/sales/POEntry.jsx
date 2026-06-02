@@ -39,7 +39,38 @@ const MANPOWER_BILLING_TYPE_FILTERS = [
 ];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const BILLING_CYCLES = ['30', '45', '60'];
+const MT_PAYMENT_TERMS_OPTIONS = ['Immediate', '15 Days', '30 Days', '45 Days', '60 Days'];
+const CUSTOM_MT_PAYMENT_TERM = 'Other (manual)';
 const PAGE_SIZE = 10;
+
+function resolveMtPaymentTermsForForm(savedTerms) {
+  const saved = String(savedTerms || '').trim();
+  if (!saved) return { paymentTerms: '30 Days', customPaymentTerms: '' };
+  if (MT_PAYMENT_TERMS_OPTIONS.includes(saved)) return { paymentTerms: saved, customPaymentTerms: '' };
+  return { paymentTerms: CUSTOM_MT_PAYMENT_TERM, customPaymentTerms: saved };
+}
+
+function deriveMtPaymentTermPayload(paymentTerms, customPaymentTerms) {
+  const selected = String(paymentTerms || '').trim();
+  const term =
+    selected === CUSTOM_MT_PAYMENT_TERM
+      ? String(customPaymentTerms || '').trim()
+      : selected;
+  if (!term) return { paymentTerms: '', paymentTermMode: null, paymentTermDays: null };
+  if (term.toLowerCase() === 'immediate') {
+    return { paymentTerms: 'Immediate', paymentTermMode: 'immediate', paymentTermDays: null };
+  }
+  const daysMatch = /^(\d+)\s*days?$/i.exec(term);
+  if (daysMatch) {
+    const days = Number(daysMatch[1]);
+    return {
+      paymentTerms: `${days} Days`,
+      paymentTermMode: 'days',
+      paymentTermDays: Number.isFinite(days) ? days : null,
+    };
+  }
+  return { paymentTerms: term, paymentTermMode: null, paymentTermDays: null };
+}
 const DEFAULT_SAC = '';
 function poRowDomId(id) {
   return `po-row-${String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
@@ -348,7 +379,7 @@ const initialForm = {
   ocFyEdit: null,
   vendorCode: '',
   poWoNumber: '', poDate: '', pincode: '', shipToPincode: '', billToShipToPinSame: true,
-  materialCodeRequired: false, paymentTerms: '',
+  materialCodeRequired: false, paymentTerms: '30 Days', customPaymentTerms: '',
   ratePerCategory: [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
@@ -384,16 +415,6 @@ const POEntry = () => {
   const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
 
   const fyForOc = formData.ocFyEdit || getFinancialYear();
-  const vendorCodeError = useMemo(() => {
-    if (!showForm || editId || formData.poBasis === PO_BASIS_WITHOUT_PO) return '';
-    const manualOc = String(formData.ocNumber || '').trim();
-    if (!manualOc) return '';
-    const dup = commercialPOs.some(
-      (p) => String(p.ocNumber || '').trim().toLowerCase() === manualOc.toLowerCase()
-    );
-    if (dup) return 'This OC number is already in use.';
-    return '';
-  }, [showForm, editId, formData.poBasis, formData.ocNumber, commercialPOs]);
 
   const canApproveCommercialPOs = userCanApproveInModules(
     userProfile,
@@ -709,7 +730,9 @@ const POEntry = () => {
       billingType: po.billingType || po.poType || 'Monthly',
       billingCycle: String(po.billingCycle || '30'),
       remarks: po.remarks || '',
-      paymentTerms: po.paymentTerms || (po.billingCycle ? `${po.billingCycle} Days` : ''),
+      ...resolveMtPaymentTermsForForm(
+        po.paymentTerms || (po.billingCycle ? `${po.billingCycle} Days` : '')
+      ),
       poDate: po.poDate || '',
       pincode: normalizePoPincode(po.pincode),
       shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
@@ -946,14 +969,6 @@ const POEntry = () => {
         setSaveError('Enter OC number.');
         return;
       }
-      const dupOc = commercialPOs.some((p) => {
-        if (editId && p.id === editId) return false;
-        return (p.ocNumber || '').trim().toLowerCase() === trimmedManualOc.toLowerCase();
-      });
-      if (dupOc) {
-        setSaveError('Duplicate OC Number is not allowed.');
-        return;
-      }
       ocNum = trimmedManualOc;
       paddedVendorForSave = String(formData.vendorCodeDigits ?? '').trim();
     } else {
@@ -977,6 +992,10 @@ const POEntry = () => {
     });
     if (hasDuplicatePO) {
       setSaveError('Duplicate PO/WO Number is not allowed.');
+      return;
+    }
+    if (formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM && !String(formData.customPaymentTerms || '').trim()) {
+      setSaveError('Enter payment terms or choose a preset.');
       return;
     }
     if (!isWithoutPo && !trimmedPoWoNumber) {
@@ -1015,6 +1034,7 @@ const POEntry = () => {
       totalContractMonthVal && totalContractMonthVal > 0
         ? Math.round(((Number(formData.newCycleTotalContractValue) || 0) / totalContractMonthVal) * 100) / 100
         : null;
+    const mtPayment = deriveMtPaymentTermPayload(formData.paymentTerms, formData.customPaymentTerms);
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
     const nowIso = new Date().toISOString();
@@ -1059,15 +1079,15 @@ const POEntry = () => {
       billingCycle: Number(formData.billingCycle) || 30,
       remarks: formData.remarks.trim(),
       paymentTerms:
-        String(formData.paymentTerms || '').trim() ||
+        mtPayment.paymentTerms ||
         `${Number(formData.billingCycle) || 30} Days`,
       poDate: formData.poDate || null,
       pincode: String(formData.pincode || '').trim() || null,
       shipToPincode: shipToPincodeForPoSave(formData),
       materialCodeRequired: !!formData.materialCodeRequired,
       poReceivedDate: null,
-      paymentTermMode: null,
-      paymentTermDays: null,
+      paymentTermMode: mtPayment.paymentTermMode,
+      paymentTermDays: mtPayment.paymentTermDays,
       advancePercent: null,
       monthlyDutyQtyMode: null,
       lumpSumBillingMode: null,
@@ -1799,18 +1819,15 @@ const POEntry = () => {
                               vendorCodeDigits: e.target.value,
                             }))
                           }
-                          className={`w-full border rounded-lg px-3 py-2 bg-white font-mono text-sm ${vendorCodeError ? 'border-red-400 bg-red-50/40' : 'border-gray-300'}`}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white font-mono text-sm"
                           placeholder="Optional reference"
                           aria-label="Vendor serial for OC line"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                           {editId
                             ? `FY segment stays as saved (${fyForOc}). Vendor digits are optional.`
-                            : 'Enter the full OC above. Vendor digits here are optional (for reference or non-standard OC).'}
+                            : 'Enter the full OC above. Multiple POs may share the same OC number; PO/WO number must stay unique.'}
                         </p>
-                        {vendorCodeError ? (
-                          <p className="text-red-600 text-xs mt-1 font-medium">{vendorCodeError}</p>
-                        ) : null}
                       </div>
                     </>
                   )}
@@ -2074,7 +2091,39 @@ const POEntry = () => {
                     </div>
                   ) : null}
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label><input type="text" value={formData.paymentTerms} onChange={(e) => setFormData((p) => ({ ...p, paymentTerms: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. 30 Days" /></div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
+                    <select
+                      value={formData.paymentTerms}
+                      onChange={(e) => {
+                        const selectedTerm = e.target.value;
+                        setFormData((p) => ({
+                          ...p,
+                          paymentTerms: selectedTerm,
+                          customPaymentTerms:
+                            selectedTerm === CUSTOM_MT_PAYMENT_TERM ? p.customPaymentTerms : '',
+                        }));
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      {MT_PAYMENT_TERMS_OPTIONS.map((term) => (
+                        <option key={term} value={term}>{term}</option>
+                      ))}
+                      <option value={CUSTOM_MT_PAYMENT_TERM}>{CUSTOM_MT_PAYMENT_TERM}</option>
+                    </select>
+                  </div>
+                  {formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Manual payment terms</label>
+                      <input
+                        type="text"
+                        value={formData.customPaymentTerms}
+                        onChange={(e) => setFormData((p) => ({ ...p, customPaymentTerms: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        placeholder="e.g. Net 7, 50% advance"
+                      />
+                    </div>
+                  ) : null}
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Internal only — not printed on tax invoice" /></div>
                   <div className="md:col-span-2 flex items-center gap-2 pt-5"><input type="checkbox" id="materialCodeRequired" checked={!!formData.materialCodeRequired} onChange={(e) => setFormData((p) => ({ ...p, materialCodeRequired: e.target.checked }))} className="rounded border-gray-300" /><label htmlFor="materialCodeRequired" className="text-sm text-gray-700">Material code required on invoice line items</label></div>
                   <p className="md:col-span-2 text-xs font-semibold text-gray-700">
@@ -2090,7 +2139,6 @@ const POEntry = () => {
               <button
                 type="button"
                 onClick={savePO}
-                disabled={!editId && formData.poBasis === PO_BASIS_WITH_PO && !!vendorCodeError}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {editId ? 'Update' : 'Save'} PO/WO

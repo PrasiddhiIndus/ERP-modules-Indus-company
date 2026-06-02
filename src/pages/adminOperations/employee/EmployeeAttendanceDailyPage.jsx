@@ -18,6 +18,8 @@ import {
   applyBulkRegisterMarks,
   attachRegisterRowSummaries,
   buildMonthlyRegisterGrid,
+  mergeActiveEmployeesWithPunches,
+  syncRegisterMarksFromPunches,
   computeRegisterSummaryFooter,
   ATTENDANCE_REGISTER_TABLE,
   dayOfMonthFromIsoDate,
@@ -130,15 +132,19 @@ export function EmployeeAttendanceDailyPage() {
     setLoading(true);
     setError("");
     try {
-      const [punchRows, employees, registerData] = await Promise.all([
+      const [punchRows, employees] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
           toDate: monthMeta.toDate,
           empCode: resolveAttendanceEmpCodeFilter(empCode),
         }),
         fetchActiveEmployees(supabase),
-        loadRegisterMarksForMonth(supabase, monthMeta),
       ]);
+      await syncRegisterMarksFromPunches(supabase, punchRows, {
+        fromDate: monthMeta.fromDate,
+        toDate: monthMeta.toDate,
+      });
+      const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
       const employeesWithCode = employees.filter((e) => e.empCode);
       setPunches(punchRows);
       setActiveEmployees(employeesWithCode);
@@ -168,7 +174,8 @@ export function EmployeeAttendanceDailyPage() {
 
   const { rows: gridRows, daysInMonth } = useMemo(() => {
     if (!monthMeta) return { rows: [], daysInMonth: 0 };
-    return buildMonthlyRegisterGrid(punches, activeEmployees, {
+    const employeesForGrid = mergeActiveEmployeesWithPunches(activeEmployees, punches);
+    return buildMonthlyRegisterGrid(punches, employeesForGrid, {
       year: monthMeta.year,
       month: monthMeta.month,
       manualMarks,
@@ -824,7 +831,7 @@ export function EmployeeAttendanceDailyPage() {
             <Link to="/app/admin/employee/attendance-inputs" className="font-medium underline">
               Raw Attendance Data
             </Link>{" "}
-            ? Present (P) is filled automatically when a punch exists for that day.
+            — Present (P) is written to the register table and shown here when punches exist for that day.
           </div>
         )}
 
