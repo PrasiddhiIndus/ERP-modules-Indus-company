@@ -23,7 +23,7 @@ const MODULE_CONTEXT = {
   MANPOWER_TRAINING: 'manpower_training',
   RM_MM_AMC_IEV: 'rm_mm_amc_iev',
 };
-const MANPOWER_PO_TYPES = new Set(['Per Day', 'Monthly', 'Lump Sum']);
+const MANPOWER_PO_TYPES = new Set(['Per Day', 'Monthly', 'Lump Sum', 'Custom']);
 const RM_PO_TYPES = new Set(['Supply', 'Service']);
 /** Default OC vertical segment for Manpower/Training PO rows in billing.po_wo (replaces legacy BILL). */
 const DEFAULT_PO_VERTICAL_DB = 'MANP';
@@ -67,6 +67,7 @@ function canonicalManpowerPoTypeForPersist(raw) {
   }
   if (lower === 'monthly') return 'Monthly';
   if (lower === 'lump sum') return 'Lump Sum';
+  if (lower === 'custom') return 'Custom';
   return null;
 }
 
@@ -455,7 +456,8 @@ export async function fetchCommercialPOs(options) {
   const seenRateKeys = new Set();
   sortedRates.forEach((r) => {
     const hsnSac = String(r.hsn_sac || r.sac_hsn || '').trim();
-    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${hsnSac.toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.category_penalty) || 0}::${Number(r.sort_order) || 0}`;
+    const materialCode = r.material_code != null ? String(r.material_code).trim() : '';
+    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${hsnSac.toLowerCase()}::${materialCode.toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.category_penalty) || 0}::${Number(r.sort_order) || 0}`;
     if (seenRateKeys.has(dedupeKey)) return;
     seenRateKeys.add(dedupeKey);
     if (!ratesByPo[r.po_id]) ratesByPo[r.po_id] = [];
@@ -464,6 +466,8 @@ export async function fetchCommercialPOs(options) {
       hsnSac,
       hsn_sac: hsnSac,
       sacHsn: hsnSac,
+      materialCode: r.material_code != null ? String(r.material_code).trim() : '',
+      material_code: r.material_code != null ? String(r.material_code).trim() : '',
       qty: firstNumber(r, ['qty', 'quantity', 'po_qty', 'poQuantity', 'po_quantity'], 0),
       rate: firstNumber(r, ['rate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
       penalty: r.category_penalty != null ? Number(r.category_penalty) : 0,
@@ -656,21 +660,84 @@ export async function saveCommercialPOs(list, options = {}) {
       po_id: savedPoId,
       description: r.description ?? r.designation ?? '',
       hsn_sac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim() || null,
+      material_code: String(r.materialCode ?? r.material_code ?? '').trim() || null,
       qty: firstNumber(r, ['qty', 'quantity', 'poQty', 'po_qty', 'poQuantity', 'po_quantity'], 0),
       rate: firstNumber(r, ['rate', 'poRate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
       category_penalty: firstNumber(r, ['penalty', 'category_penalty', 'poLinePenalty', 'po_line_penalty'], 0),
       sort_order: i,
     }));
     if (rateRows.length) {
-      let { error: rateErr } = await table('po_rate_category').upsert(rateRows, { onConflict: 'po_id,sort_order' });
-      if (rateErr && /hsn_sac|sac_hsn/i.test(String(rateErr?.message || ''))) {
-        const compatibleRateRows = rateRows.map((row) => {
-          const next = { ...row };
-          delete next.hsn_sac;
-          return next;
-        });
-        ({ error: rateErr } = await table('po_rate_category').upsert(compatibleRateRows, { onConflict: 'po_id,sort_order' }));
+      const tryUpsertRateRows = async (rows, useSortOrderConflict = true) =>
+        table('po_rate_category').upsert(
+          rows,
+          useSortOrderConflict ? { onConflict: 'po_id,sort_order' } : undefined
+        );
+
+      let currentRows = rateRows.map((row) => ({ ...row }));
+      let useSortOrderConflict = true;
+      let rateErr = null;
+
+      // Try a few compatibility passes for old schemas.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        ({ error: rateErr } = await tryUpsertRateRows(currentRows, useSortOrderConflict));
+        if (!rateErr) break;
+
+        const msg = String(rateErr?.message || '').toLowerCase();
+        let changed = false;
+
+        // Older DBs use sac_hsn instead of hsn_sac.
+        if (msg.includes('hsn_sac')) {
+          currentRows = currentRows.map((row) => {
+            const next = { ...row };
+            if ('hsn_sac' in next) {
+              next.sac_hsn = next.hsn_sac;
+              delete next.hsn_sac;
+            }
+            return next;
+          });
+          changed = true;
+        }
+
+        // Drop optional columns not present in old DBs.
+        if (msg.includes('material_code')) {
+          currentRows = currentRows.map((row) => {
+            const next = { ...row };
+            delete next.material_code;
+            return next;
+          });
+          changed = true;
+        }
+        if (msg.includes('category_penalty')) {
+          currentRows = currentRows.map((row) => {
+            const next = { ...row };
+            delete next.category_penalty;
+            return next;
+          });
+          changed = true;
+        }
+        if (msg.includes('sac_hsn')) {
+          currentRows = currentRows.map((row) => {
+            const next = { ...row };
+            delete next.sac_hsn;
+            return next;
+          });
+          changed = true;
+        }
+
+        // Some environments don't have sort_order or matching unique constraint.
+        if (msg.includes('sort_order') || msg.includes('on_conflict') || msg.includes('constraint') || msg.includes('unique')) {
+          currentRows = currentRows.map((row) => {
+            const next = { ...row };
+            delete next.sort_order;
+            return next;
+          });
+          useSortOrderConflict = false;
+          changed = true;
+        }
+
+        if (!changed) break;
       }
+
       if (rateErr) throw new Error(billingErrorMsg(rateErr, 'Rate category save'));
     }
 

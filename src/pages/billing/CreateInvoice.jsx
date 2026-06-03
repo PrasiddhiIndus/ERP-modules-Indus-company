@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useBilling } from '../../contexts/BillingContext';
@@ -160,6 +160,7 @@ const BILLING_TABS_MANPOWER = [
   { id: 'Per Day', label: 'Daily' },
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Lump Sum', label: 'Lump Sum' },
+  { id: 'Custom', label: 'Custom' },
 ];
 
 const BILLING_TABS_RM = [
@@ -183,6 +184,13 @@ function round3(n) {
 function safeNumber(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+const CUSTOM_LINE_BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
+
+function normalizeCustomLineBillingType(raw) {
+  const v = String(raw || '').trim();
+  return CUSTOM_LINE_BILLING_TYPES.includes(v) ? v : 'Per Day';
 }
 
 function readImageAsDataUrl(file) {
@@ -457,6 +465,11 @@ function getRateCategoryHsnSac(row, fallback = '') {
   return normalized || fallback;
 }
 
+function getRateCategoryMaterialCode(row) {
+  if (!row) return '';
+  return String(row.materialCode ?? row.material_code ?? '').trim();
+}
+
 function normalizeMonthlyDutyQtyMode(raw) {
   const m = String(raw || '').trim();
   if (m === 'po_geometry_by_months') return 'po_geometry_by_months';
@@ -491,10 +504,11 @@ function getUniqueRateRows(po) {
     const qty = getRateCategoryQty(r, po);
     const penalty = getRateCategoryPenalty(r);
     const hsnSac = getRateCategoryHsnSac(r);
-    const key = `${description.toLowerCase()}|${hsnSac.toLowerCase()}|${rate}|${qty}|${penalty}`;
+    const materialCode = getRateCategoryMaterialCode(r);
+    const key = `${description.toLowerCase()}|${hsnSac.toLowerCase()}|${materialCode.toLowerCase()}|${rate}|${qty}|${penalty}`;
     if (seen.has(key)) return;
     seen.add(key);
-    unique.push({ description, hsnSac, rate, qty, penalty });
+    unique.push({ description, hsnSac, materialCode, rate, qty, penalty });
   });
   return unique;
 }
@@ -984,6 +998,21 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return String(displayPO.billingType || '').toLowerCase() === 'lump sum';
   }, [displayPO]);
 
+  const isCustomBilling = useMemo(() => {
+    if (!displayPO) return false;
+    return String(displayPO.billingType || '').toLowerCase() === 'custom';
+  }, [displayPO]);
+
+  const resolveInvoiceLineBillingType = useCallback(
+    (line) => {
+      if (isCustomBilling) return normalizeCustomLineBillingType(line?.customBillingType);
+      if (isLumpSumBilling) return 'Lump Sum';
+      if (isMonthlyBilling) return 'Monthly';
+      return 'Per Day';
+    },
+    [isCustomBilling, isLumpSumBilling, isMonthlyBilling]
+  );
+
   const monthlyDutyQtyMode = useMemo(() => {
     if (!isMonthlyBilling) return 'po_geometry';
     return normalizeMonthlyDutyQtyMode(invoiceMonthlyDutyQtyMode);
@@ -1203,6 +1232,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (invoiceDraft?.mode === 'edit') return;
     const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
+    const isCustomPo = String(selectedPO.billingType || '').toLowerCase() === 'custom';
 
     if (isLump) {
       const rows = Array.isArray(selectedPO.ratePerCategory) ? selectedPO.ratePerCategory : [];
@@ -1212,11 +1242,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
         const qty = getRateCategoryQty(x, selectedPO);
         const pen = getRateCategoryPenalty(x);
         const rowHsnSac = getRateCategoryHsnSac(x, hsnSac);
+        const rowMaterialCode = getRateCategoryMaterialCode(x);
         return {
           description: desc,
-          hsnSac: rowHsnSac,
-          materialCode: '',
+          hsnSac: selectedPO.materialCodeRequired ? (selectedPO.hsnCode || selectedPO.sacCode || '') : rowHsnSac,
+          materialCode: rowMaterialCode,
           uom: '',
+          customBillingType: isCustomPo ? 'Per Day' : null,
           isTruckLine: false,
           geometryEnabled: true,
           poQty: qty,
@@ -1236,9 +1268,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
           : [
               {
                 description: 'Other',
-                hsnSac,
+                hsnSac: selectedPO.materialCodeRequired ? (selectedPO.hsnCode || selectedPO.sacCode || '') : hsnSac,
                 materialCode: '',
                 uom: '',
+                customBillingType: isCustomPo ? 'Per Day' : null,
                 isTruckLine: false,
                 geometryEnabled: true,
                 poQty: getPoHeaderQty(selectedPO),
@@ -1262,6 +1295,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         {
           description: '',
           hsnSac,
+          customBillingType: isCustomPo ? 'Per Day' : null,
           isTruckLine: false,
           geometryEnabled: false,
           poQty: 0,
@@ -1280,7 +1314,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
     setItems(
       uniqueRates.map((r) => ({
         description: r.description,
-        hsnSac: r.hsnSac || hsnSac,
+        hsnSac: selectedPO.materialCodeRequired ? (selectedPO.hsnCode || selectedPO.sacCode || '') : (r.hsnSac || hsnSac),
+        materialCode: selectedPO.materialCodeRequired ? getRateCategoryMaterialCode(r) : '',
+        customBillingType: isCustomPo ? 'Per Day' : null,
         isTruckLine: false,
         geometryEnabled: false,
         poQty: safeNumber(r.qty),
@@ -1328,6 +1364,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
             : safeNumber(next.authorizedDuty);
         const numberOfMonths = next.numberOfMonths != null ? safeNumber(next.numberOfMonths) : 1;
         const qtyRaw = safeNumber(next.quantity);
+        const lineBillingType = resolveInvoiceLineBillingType(next);
+        const lineIsMonthly = lineBillingType === 'Monthly';
+        const lineIsLumpSum = lineBillingType === 'Lump Sum';
 
         if (next.isTruckLine) {
           const qty = isManpowerMonthly ? round3(qtyRaw) : qtyRaw;
@@ -1337,7 +1376,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           return next;
         }
 
-        if (isMonthlyBilling && next.geometryEnabled) {
+        if (lineIsMonthly && next.geometryEnabled) {
           const qty =
             monthlyDutyQtyMode === 'duty_ratio'
               ? computeDutyRatioQty(actualDuty, authorizedDuty)
@@ -1350,7 +1389,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           return next;
         }
 
-        if (isLumpSumBilling && next.geometryEnabled) {
+        if (lineIsLumpSum && next.geometryEnabled) {
           const poRef = safeNumber(next.poReferenceRate);
           const pen = safeNumber(next.poLinePenalty);
           const effRate = computeLumpSumEffectiveRate(poRef, actualDuty, authorizedDuty, pen, lumpSumSubtractPenaltyInRate);
@@ -1364,7 +1403,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           return next;
         }
 
-        if (isLumpSumBilling && !next.geometryEnabled) {
+        if (lineIsLumpSum && !next.geometryEnabled) {
           const qty = isManpowerMonthly ? round3(qtyRaw) : qtyRaw;
           const rate = Number(next.rate) || 0;
           next.quantity = qty;
@@ -1382,10 +1421,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
   };
 
   useEffect(() => {
-    if (!isMonthlyBilling) return;
+    if (!isMonthlyBilling && !isCustomBilling) return;
     setItems((prev) =>
       prev.map((it) => {
         if (it.isTruckLine || !it.geometryEnabled) return it;
+        if (resolveInvoiceLineBillingType(it) !== 'Monthly') return it;
         const poQty =
           safeNumber(it.poQty) ||
           getRateCategoryQty(findRateCategoryRow(displayPO, it.description), displayPO);
@@ -1402,13 +1442,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return { ...it, poQty, quantity: qty, amount: round2(qty * rate) };
       })
     );
-  }, [isMonthlyBilling, monthlyDutyQtyMode, displayPO]);
+  }, [isMonthlyBilling, isCustomBilling, monthlyDutyQtyMode, displayPO, resolveInvoiceLineBillingType]);
 
   useEffect(() => {
-    if (!isLumpSumBilling) return;
+    if (!isLumpSumBilling && !isCustomBilling) return;
     setItems((prev) =>
       prev.map((it) => {
         if (it.isTruckLine || !it.geometryEnabled) return it;
+        if (resolveInvoiceLineBillingType(it) !== 'Lump Sum') return it;
         const poRef = safeNumber(it.poReferenceRate);
         const pen = safeNumber(it.poLinePenalty);
         const actualDuty = safeNumber(it.actualDuty);
@@ -1425,7 +1466,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return { ...it, poQty, rate: effRate, quantity: qty, amount: round2(qty * effRate) };
       })
     );
-  }, [lumpSumSubtractPenaltyInRate, isLumpSumBilling, lumpSumBillingMode, displayPO]);
+  }, [lumpSumSubtractPenaltyInRate, isLumpSumBilling, isCustomBilling, lumpSumBillingMode, displayPO, resolveInvoiceLineBillingType]);
 
   const createMmEmptyLine = (hsnSac = '') => ({
     description: '',
@@ -1460,6 +1501,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
       patch.poQty = poQty;
       patch.poReferenceRate = poRate;
       patch.poLinePenalty = pen;
+      if (poRequiresMaterialCode(po)) {
+        patch.materialCode = getRateCategoryMaterialCode(cat);
+      }
       if (!isLumpSumBilling) {
         patch.rate = poRate;
       }
@@ -2030,6 +2074,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           quantity: isManpowerMonthly ? round3(i.quantity) : Number(i.quantity) || 0,
           rate: Number(i.rate) || 0,
           amount: round2(i.amount),
+          customBillingType: isCustomBilling ? normalizeCustomLineBillingType(i.customBillingType) : null,
           isTruckLine: !!i.isTruckLine,
           isLumpSumSupplementaryLine: !!i.isLumpSumSupplementaryLine,
           poReferenceRate:
@@ -3309,15 +3354,18 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       : `item-${ii}`;
                   const isLumpSumSupplementaryRow =
                     ii != null && !!it && !it.isTruckLine && isLumpSumBilling && !it.geometryEnabled;
+                  const rowBillingType = resolveInvoiceLineBillingType(it);
+                  const rowIsMonthly = rowBillingType === 'Monthly';
+                  const rowIsLumpSum = rowBillingType === 'Lump Sum';
                   const canDutyRuler =
                     ii != null &&
                     !isLumpConsolidatedRow &&
                     !lumpSumSingleInvoiceTableMode &&
                     !it.isTruckLine &&
-                    (isMonthlyBilling || isLumpSumBilling);
+                    (isCustomBilling || rowIsMonthly || rowIsLumpSum);
                   const rateDerived =
-                    (isMonthlyBilling && it.geometryEnabled) ||
-                    (isLumpSumBilling && !it.isTruckLine && it.geometryEnabled);
+                    (rowIsMonthly && it.geometryEnabled) ||
+                    (rowIsLumpSum && !it.isTruckLine && it.geometryEnabled);
                   const mergedMmDescOpts =
                     isMmOnlyVertical && !it.isTruckLine && ii != null
                       ? (() => {
@@ -3452,7 +3500,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                 : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50',
                             ].join(' ')}
                             title={
-                              isLumpSumBilling
+                              isCustomBilling
+                                ? 'Select line billing type + logic'
+                                : rowIsLumpSum
                                 ? 'Duty-based rate (Lump sum)'
                                 : 'Geometry calculator (Monthly)'
                             }
@@ -3543,7 +3593,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         type="number"
                         min={0}
                         step={
-                          (isMonthlyBilling || (isLumpSumBilling && it.geometryEnabled)) && !it.isTruckLine
+                          (rowIsMonthly || (rowIsLumpSum && it.geometryEnabled)) && !it.isTruckLine
                             ? '0.001'
                             : undefined
                         }
@@ -3562,8 +3612,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             : 'w-24 px-2 py-1 border border-gray-300 rounded-lg text-center'
                         }
                         readOnly={
-                          (isMonthlyBilling && it.geometryEnabled) ||
-                          (isLumpSumBilling && it.geometryEnabled && !it.isTruckLine)
+                          (rowIsMonthly && it.geometryEnabled) ||
+                          (rowIsLumpSum && it.geometryEnabled && !it.isTruckLine)
                         }
                       />
                     </td>
@@ -3645,7 +3695,39 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       ₹{round2(it.amount).toLocaleString('en-IN')}
                     </td>
                   </tr>
-                  {isMonthlyBilling &&
+                  {isCustomBilling &&
+                  it.geometryEnabled &&
+                  ii != null ? (
+                    <tr className="bg-slate-50">
+                      <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                          <span className="font-semibold text-gray-700">Geometry (Custom line)</span>
+                          <label className="inline-flex items-center gap-2">
+                            <span className="text-gray-600">Billing type</span>
+                            <select
+                              id={`line-billing-type-${ii}`}
+                              value={normalizeCustomLineBillingType(it.customBillingType)}
+                              onChange={(e) => {
+                                const nextType = normalizeCustomLineBillingType(e.target.value);
+                                updateItem(ii, { customBillingType: nextType });
+                              }}
+                              className="min-w-[10rem] px-2 py-1 border border-gray-300 rounded-md bg-white text-gray-800"
+                            >
+                              <option value="Per Day">Daily</option>
+                              <option value="Monthly">Monthly</option>
+                              <option value="Lump Sum">Lump Sum</option>
+                            </select>
+                          </label>
+                          {rowBillingType === 'Per Day' ? (
+                            <span className="text-gray-500">
+                              Daily mode selected. Continue with Qty x Rate directly (no duty-geometry logic).
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {rowIsMonthly &&
                   !lumpSumSingleInvoiceTableMode &&
                   it.geometryEnabled &&
                   ii != null ? (
@@ -3724,7 +3806,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       </td>
                     </tr>
                   ) : null}
-                  {isLumpSumBilling &&
+                  {rowIsLumpSum &&
                   !lumpSumSingleInvoiceTableMode &&
                   !it.isTruckLine &&
                   it.geometryEnabled &&

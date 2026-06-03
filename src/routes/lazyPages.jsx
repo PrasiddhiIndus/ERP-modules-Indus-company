@@ -175,6 +175,10 @@ export const EmployeeAttendanceDailyPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeAttendanceDailyPage"),
   "EmployeeAttendanceDailyPage"
 );
+export const EmployeeLeaveManagementPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/EmployeeLeaveManagementPage"),
+  "EmployeeLeaveManagementPage"
+);
 
 export const StoreItemMasterPage = lazyNamed(
   () => import("../pages/adminOperations/store/StoreAdminPages"),
