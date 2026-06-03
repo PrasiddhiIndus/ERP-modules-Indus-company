@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import {
   SectionCard,
@@ -7,17 +7,27 @@ import {
   TinyInput,
   TinySelect,
   StatusChip,
+  Modal,
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import { fetchActiveEmployees, normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
+import {
+  downloadLeaveLedgerImportTemplate,
+  ledgerDisplayRowToEditForm,
+  parseLeaveLedgerImportFile,
+} from "../../../lib/leaveLedgerExcel";
 import {
   fetchLeaveBalancesForYear,
   fetchPlEncashPrefs,
   getLeaveCarryForwardRules,
   processLeaveBalancesYear,
+  upsertLeaveBalanceYearly,
+  upsertLeaveBalancesBatch,
   upsertLeaveCarryForwardRules,
   upsertPlEncashPrefs,
 } from "../../../lib/leaveManagement";
+import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
+import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 
 const YEAR_DEFAULT = new Date().getFullYear();
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -109,6 +119,84 @@ function Pager({
   );
 }
 
+const LEDGER_EDIT_FIELDS = [
+  { key: "opening_pl", label: "PL Open" },
+  { key: "used_pl", label: "PL Used" },
+  { key: "carried_pl", label: "PL Carried" },
+  { key: "encashed_pl", label: "PL Encashed" },
+  { key: "expired_pl", label: "PL Expired" },
+  { key: "opening_sl", label: "SL Open" },
+  { key: "used_sl", label: "SL Used" },
+  { key: "carried_sl", label: "SL Carried" },
+  { key: "expired_sl", label: "SL Expired" },
+  { key: "opening_cl", label: "CL Open" },
+  { key: "used_cl", label: "CL Used" },
+  { key: "expired_cl", label: "CL Expired" },
+];
+
+function LeaveLedgerEditModal({ open, row, year, saving, onClose, onSave }) {
+  const [form, setForm] = useState(() => ledgerDisplayRowToEditForm(row || {}));
+
+  useEffect(() => {
+    if (open && row) setForm(ledgerDisplayRowToEditForm(row));
+  }, [open, row]);
+
+  if (!open || !row) return null;
+
+  return (
+    <Modal
+      open={open}
+      title={`Edit leave ledger · ${row.empCode || ""} (${year})`}
+      onClose={onClose}
+      widthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="h-8 px-3 rounded border border-gray-300 bg-white text-xs disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(form)}
+            disabled={saving}
+            className="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-semibold disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+          <p>
+            <span className="font-semibold text-gray-900">{row.employeeName || "—"}</span>
+          </p>
+          <p className="mt-0.5 text-gray-500">Employee code: {row.empCode || "—"}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {LEDGER_EDIT_FIELDS.map((f) => (
+            <label key={f.key} className="block text-[11px] text-gray-600">
+              {f.label}
+              <TinyInput
+                type="number"
+                step="0.5"
+                value={form[f.key]}
+                onChange={(e) => setForm((p) => ({ ...p, [f.key]: Number(e.target.value) }))}
+                className="mt-1 w-full"
+                disabled={saving}
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function EmployeeLeaveManagementPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -134,6 +222,25 @@ export function EmployeeLeaveManagementPage() {
   const [balancesPageSize, setBalancesPageSize] = useState(25);
   const [ledgerSearch, setLedgerSearch] = useState("");
   const [ledgerSort, setLedgerSort] = useState({ key: "empCode", direction: "asc" });
+  const [ledgerEditRow, setLedgerEditRow] = useState(null);
+  const [ledgerEditSaving, setLedgerEditSaving] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const [realtimeLive, setRealtimeLive] = useState(false);
+  const importFileRef = useRef(null);
+
+  const reloadBalances = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const rows = await fetchLeaveBalancesForYear(supabase, year);
+      setBalances(rows || []);
+    } catch (e) {
+      setError(e?.message || "Failed to load balances");
+    } finally {
+      setLoading(false);
+    }
+  }, [year]);
 
   useEffect(() => {
     let cancelled = false;
@@ -165,22 +272,27 @@ export function EmployeeLeaveManagementPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        setLoading(true);
-        setError("");
-        const rows = await fetchLeaveBalancesForYear(supabase, year);
-        if (cancelled) return;
-        setBalances(rows || []);
-      } catch (e) {
-        if (!cancelled) setError(e?.message || "Failed to load balances");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      if (cancelled) return;
+      await reloadBalances();
     })();
     return () => {
       cancelled = true;
     };
-  }, [year]);
+  }, [reloadBalances]);
+
+  useEffect(() => {
+    let debounce = null;
+    const schedule = () => {
+      if (debounce) window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => reloadBalances(), 400);
+    };
+    const unsubscribe = subscribeLeaveWorkflowRealtime(schedule);
+    setRealtimeLive(isSupabaseRealtimeEnabled());
+    return () => {
+      if (debounce) window.clearTimeout(debounce);
+      unsubscribe();
+    };
+  }, [reloadBalances]);
 
   const saveRules = useCallback(async () => {
     setLoading(true);
@@ -387,6 +499,64 @@ export function EmployeeLeaveManagementPage() {
     [ledgerSort.direction, ledgerSort.key, toggleLedgerSort]
   );
 
+  const downloadImportTemplate = useCallback(() => {
+    const samples = filteredEmployees
+      .filter((e) => normalizeAttendanceEmpCode(e.empCode))
+      .slice(0, 50)
+      .map((e) => ({
+        empCode: normalizeAttendanceEmpCode(e.empCode),
+        employeeName: e.employeeName || "",
+      }));
+    downloadLeaveLedgerImportTemplate(year, samples);
+  }, [filteredEmployees, year]);
+
+  const handleBulkImport = useCallback(
+    async (file) => {
+      if (!file) return;
+      setImportBusy(true);
+      setError("");
+      setImportMessage("");
+      try {
+        const { rows: payloads, errors, skipped } = await parseLeaveLedgerImportFile(file, year);
+        if (!payloads.length) {
+          setError(errors.join(" ") || "No rows to import.");
+          return;
+        }
+        const { count } = await upsertLeaveBalancesBatch(supabase, payloads);
+        await reloadBalances();
+        const warn = errors.length ? ` Warnings: ${errors.slice(0, 5).join(" ")}` : "";
+        setImportMessage(
+          `Imported ${count} employee balance row(s).${skipped ? ` Skipped ${skipped}.` : ""}${warn}`
+        );
+      } catch (e) {
+        setError(e?.message || "Bulk import failed.");
+      } finally {
+        setImportBusy(false);
+        if (importFileRef.current) importFileRef.current.value = "";
+      }
+    },
+    [reloadBalances, year]
+  );
+
+  const saveLedgerEdit = useCallback(
+    async (form) => {
+      setLedgerEditSaving(true);
+      setError("");
+      try {
+        await upsertLeaveBalanceYearly(supabase, form, year);
+        await reloadBalances();
+        setLedgerEditRow(null);
+        setImportMessage("Ledger row saved.");
+        setTimeout(() => setImportMessage(""), 4000);
+      } catch (e) {
+        setError(e?.message || "Could not save ledger row.");
+      } finally {
+        setLedgerEditSaving(false);
+      }
+    },
+    [reloadBalances, year]
+  );
+
   const exportLedgerToExcel = useCallback(() => {
     const rows = ledgerRows.map((r) => ({
       "Employee Code": r.empCode || "",
@@ -447,6 +617,7 @@ export function EmployeeLeaveManagementPage() {
         title={`Leave Management · ${year}`}
         right={
           <div className="flex items-center gap-2">
+            {realtimeLive ? <StatusChip label="Live" severity="info" /> : null}
             <StatusChip
               label={
                 yearQualityState === "processed"
@@ -610,6 +781,31 @@ export function EmployeeLeaveManagementPage() {
                 </div>
                 <button
                   type="button"
+                  onClick={downloadImportTemplate}
+                  className="h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold hover:bg-gray-50"
+                >
+                  Download sample import sheet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => importFileRef.current?.click()}
+                  disabled={importBusy || loading}
+                  className="h-8 px-3 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-900 text-xs font-semibold hover:bg-indigo-100 disabled:opacity-60"
+                >
+                  {importBusy ? "Importing…" : "Bulk import"}
+                </button>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBulkImport(file);
+                  }}
+                />
+                <button
+                  type="button"
                   onClick={exportLedgerToExcel}
                   className="h-8 px-3 rounded-lg bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800"
                 >
@@ -619,6 +815,15 @@ export function EmployeeLeaveManagementPage() {
                   Sorted by {ledgerSort.key} ({ledgerSort.direction})
                 </span>
               </FilterBar>
+              {importMessage ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  {importMessage}
+                </div>
+              ) : null}
+              <p className="text-[11px] text-gray-500">
+                Use the sample sheet for column headers. Bulk import upserts balances for the selected year. Edit
+                updates one employee at a time.
+              </p>
               <Pager
                 totalRows={ledgerRows.length}
                 pageSize={balancesPageSize}
@@ -658,7 +863,31 @@ export function EmployeeLeaveManagementPage() {
                   { key: "opening_cl", label: sortLabel("CL (open)", "opening_cl"), render: (r) => fmtNum(r.opening_cl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
                   { key: "used_cl", label: sortLabel("CL (used)", "used_cl"), render: (r) => fmtNum(r.used_cl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
                   { key: "expired_cl", label: sortLabel("CL (expired)", "expired_cl"), render: (r) => fmtNum(r.expired_cl), headerClassName: "min-w-[105px]", cellClassName: "text-right tabular-nums min-w-[105px]" },
+                  {
+                    key: "actions",
+                    label: "Actions",
+                    headerClassName: "min-w-[88px]",
+                    cellClassName: "min-w-[88px]",
+                    render: (r) => (
+                      <button
+                        type="button"
+                        onClick={() => setLedgerEditRow(r)}
+                        disabled={!r.empCode || loading || importBusy}
+                        className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50"
+                      >
+                        Edit
+                      </button>
+                    ),
+                  },
                 ]}
+              />
+              <LeaveLedgerEditModal
+                open={!!ledgerEditRow}
+                row={ledgerEditRow}
+                year={year}
+                saving={ledgerEditSaving}
+                onClose={() => setLedgerEditRow(null)}
+                onSave={saveLedgerEdit}
               />
               <Pager
                 totalRows={ledgerRows.length}

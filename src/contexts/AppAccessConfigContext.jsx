@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { isSupabaseRealtimeEnabled } from "../lib/supabaseConfig";
 import { MODULES as FALLBACK_MODULES, TEAMS as FALLBACK_TEAMS, MODULE_PATH_PREFIXES as FALLBACK_PREFIXES } from "../config/roles";
 
 const Ctx = createContext(null);
@@ -45,19 +46,21 @@ export function AppAccessConfigProvider({ children }) {
 
     load();
 
-    // Realtime: reflect backend changes automatically
-    const channel = supabase
-      .channel("erp_app_access_config_default")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "erp_app_access_config", filter: "id=eq.default" },
-        () => load()
-      )
-      .subscribe();
+    let channel = null;
+    if (isSupabaseRealtimeEnabled()) {
+      channel = supabase
+        .channel("erp_app_access_config_default")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "erp_app_access_config", filter: "id=eq.default" },
+          () => load()
+        )
+        .subscribe();
+    }
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, []);
 

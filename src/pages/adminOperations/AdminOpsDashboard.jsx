@@ -1,19 +1,42 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { SectionCard, KpiTile, Badge, LinkedChip } from "./components/AdminUi";
 import { mockActivity, mockPriorities } from "./data/mockAdminData";
+import { countPendingLeaveRequests } from "../../lib/adminLeaveRequests";
 
 const base = "/app/admin";
 
 export default function AdminOpsDashboard() {
   const navigate = useNavigate();
+  const [pendingLeaveCount, setPendingLeaveCount] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const n = await countPendingLeaveRequests();
+        if (!cancelled) setPendingLeaveCount(n);
+      } catch {
+        if (!cancelled) setPendingLeaveCount(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-2">
         <KpiTile label="In-house employees" value="1,248" sub="IFSPL 982 · IEVPL 266" onClick={() => navigate(`${base}/employee/master`)} />
         <KpiTile label="Onboarding pending" value="14" sub="Docs / salary / activation" onClick={() => navigate(`${base}/employee/onboarding`)} tone="border-amber-100" />
-        <KpiTile label="Leave – admin queue" value="6" sub="Post manager approval" onClick={() => navigate(`${base}/employee/leaves-permissions`)} tone="border-amber-100" />
+        <KpiTile
+          label="Leave – admin queue"
+          value={pendingLeaveCount == null ? "—" : String(pendingLeaveCount)}
+          sub="Pending LMS / Indus One requests"
+          onClick={() => navigate(`${base}/employee/leaves-permissions`)}
+          tone="border-amber-100"
+        />
         <KpiTile label="Raw attendance data" value="Live" sub="eTimeOffice sync" onClick={() => navigate(`${base}/employee/attendance-inputs`)} />
         <KpiTile label="Daily register" value="In/Out" sub="Hours · late · absent" onClick={() => navigate(`${base}/employee/attendance-daily`)} tone="border-teal-100" />
         <KpiTile label="Compliance gaps" value="23" sub="ESIC / nominee / bank" onClick={() => navigate(`${base}/employee/compliance-documents`)} tone="border-orange-100" />

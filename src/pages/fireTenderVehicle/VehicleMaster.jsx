@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { withFleetVehicleCategoryFilter, isFleetCategoryAll } from './fleetLoadUtils';
 import { 
   Car, 
   Plus, 
@@ -37,7 +38,7 @@ const legacyPurchaseToMonthInput = (isoDate) => {
 };
 
 const createEmptyVehicleForm = (vehicleCategory) => ({
-  vehicle_category: vehicleCategory,
+  vehicle_category: isFleetCategoryAll(vehicleCategory) ? 'in-house' : vehicleCategory,
   vehicle_name: '',
   chassis_model: '',
   vehicle_type: '',
@@ -98,6 +99,9 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
     ]
   };
   const vehicleTypes = vehicleTypeByCategory[formData.vehicle_category] || [];
+  const filterVehicleTypes = isFleetCategoryAll(vehicleCategory)
+    ? [...vehicleTypeByCategory['in-house'], ...vehicleTypeByCategory['fire-tender']]
+    : (vehicleTypeByCategory[vehicleCategory] || []);
 
   const vehicleStatuses = [
     'Available',
@@ -121,15 +125,16 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('operations_fire_tender_vehicle_master')
-        .select(`
+      const { data, error } = await withFleetVehicleCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_master')
+          .select(`
           *,
           operations_fire_tender_vehicle_drivers(full_name, contact_number)
         `)
-        .eq('user_id', user.id)
-        .eq('vehicle_category', vehicleCategory)
-        .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false }),
+        vehicleCategory
+      );
 
       if (error) throw error;
       setVehicles(data || []);
@@ -148,7 +153,6 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
       const { data, error } = await supabase
         .from('operations_fire_tender_vehicle_drivers')
         .select('id, full_name, contact_number, license_number')
-        .eq('user_id', user.id)
         .eq('is_active', true)
         .order('full_name');
 
@@ -399,7 +403,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="All">All Types</option>
-            {vehicleTypes.map(type => (
+            {filterVehicleTypes.map(type => (
               <option key={type} value={type}>{type}</option>
             ))}
           </select>

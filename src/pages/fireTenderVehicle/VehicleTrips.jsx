@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
 import { 
   MapPin, 
   Plus, 
@@ -98,15 +99,16 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('operations_fire_tender_vehicle_trips')
-        .select(`
+      const { data, error } = await withFleetMasterCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_trips')
+          .select(`
           *,
           operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
-        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
-        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
-        .order('start_date_time', { ascending: false });
+          .order('start_date_time', { ascending: false }),
+        vehicleCategory
+      );
 
       if (error) throw error;
       setTrips(data || []);
@@ -122,13 +124,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('operations_fire_tender_vehicle_master')
-        .select('id, registration_number, vehicle_type, make, model, vehicle_status')
-        .eq('user_id', user.id)
-        .eq('vehicle_category', vehicleCategory)
-        .in('vehicle_status', ['Available', 'On Duty'])
-        .order('registration_number');
+      const { data, error } = await withFleetVehicleCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_master')
+          .select('id, registration_number, vehicle_type, make, model, vehicle_status')
+          .in('vehicle_status', ['Available', 'On Duty'])
+          .order('registration_number'),
+        vehicleCategory
+      );
 
       if (error) throw error;
       setVehicles(data || []);
@@ -145,7 +148,6 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       const { data, error } = await supabase
         .from('operations_fire_tender_vehicle_drivers')
         .select('id, full_name')
-        .eq('user_id', user.id)
         .eq('is_active', true)
         .order('full_name');
 

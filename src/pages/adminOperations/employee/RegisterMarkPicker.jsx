@@ -85,7 +85,7 @@ export function RegisterMarkPicker({ value, onChange }) {
                       </span>
                     </button>
                     {leaveSubmenuOpen && (
-                      <div className="absolute left-full top-0 z-[10000] ml-0.5 min-w-[4.5rem] rounded-md border border-gray-300 bg-white py-1 shadow-lg">
+                      <div className="absolute left-full top-0 z-[10000] ml-0.5 min-w-[11rem] rounded-md border border-gray-300 bg-white py-1 shadow-lg">
                         {REGISTER_LEAVE_SUBMENU_OPTIONS.map((leave) => (
                           <button
                             key={leave.value}
@@ -93,7 +93,7 @@ export function RegisterMarkPicker({ value, onChange }) {
                             className="block w-full px-2.5 py-1.5 text-left hover:bg-gray-100"
                             onClick={() => pick(leave.value)}
                           >
-                            {leave.value}
+                            {leave.label}
                           </button>
                         ))}
                       </div>
