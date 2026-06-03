@@ -11,6 +11,7 @@ export function salaryAppPath(...segments) {
 export const SALARY_NAV = [
   { to: HR_SALARY_DASHBOARD, label: 'Dashboard' },
   { to: 'employees', label: 'Employee payroll list' },
+  { to: 'employee-master', label: 'Employee master details' },
   { to: 'run', label: 'Payroll run' },
   { to: 'site-formulas', label: 'Site formulas' },
   { to: 'manual-inputs', label: 'Manual inputs' },
