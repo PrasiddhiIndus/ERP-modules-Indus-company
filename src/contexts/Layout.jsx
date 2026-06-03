@@ -317,7 +317,9 @@ const Layout = () => {
                           isActive={
                             item.to === "employees"
                               ? (_, { location }) => location.pathname.startsWith(`/app/${HR_SALARY_BASE}/employees`)
-                              : undefined
+                              : item.to === "employee-master"
+                                ? (_, { location }) => location.pathname.startsWith(`/app/${HR_SALARY_BASE}/employee-master`)
+                                : undefined
                           }
                         >
                           <span className="text-xs">{item.label}</span>

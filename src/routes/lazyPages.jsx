@@ -99,6 +99,8 @@ export const PayrollYearPage = lazyNamed(
 export const SalaryManagementLayout = lazy(() => import("../pages/hr/payroll/salary/SalaryLayout"));
 export const SalaryManagementDashboard = lazy(() => import("../pages/hr/payroll/salary/Dashboard"));
 export const EmployeePayrollList = lazy(() => import("../pages/hr/payroll/salary/EmployeePayrollList"));
+export const SalaryEmployeeMaster = lazy(() => import("../pages/hr/payroll/salary/EmployeeMaster"));
+export const SalaryEmployeeMasterProfile = lazy(() => import("../pages/hr/payroll/salary/EmployeeMasterProfile"));
 export const EmployeePayrollProfile = lazy(() => import("../pages/hr/payroll/salary/EmployeePayrollProfile"));
 export const PayrollRunPage = lazy(() => import("../pages/hr/payroll/salary/PayrollRun"));
 export const SiteFormulaSetup = lazy(() => import("../pages/hr/payroll/salary/SiteFormulaSetup"));

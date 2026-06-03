@@ -68,6 +68,8 @@ import {
   SalaryManagementLayout,
   SalaryManagementDashboard,
   EmployeePayrollList,
+  SalaryEmployeeMaster,
+  SalaryEmployeeMasterProfile,
   EmployeePayrollProfile,
   PayrollRunPage,
   SiteFormulaSetup,
@@ -358,6 +360,9 @@ function App() {
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<SalaryManagementDashboard />} />
               <Route path="employees" element={<EmployeePayrollList />} />
+              <Route path="employee-master" element={<SalaryEmployeeMaster />} />
+              <Route path="employee-master/new" element={<SalaryEmployeeMasterProfile />} />
+              <Route path="employee-master/:id" element={<SalaryEmployeeMasterProfile />} />
               <Route path="employees/:id" element={<EmployeePayrollProfile />} />
               <Route path="run" element={<PayrollRunPage />} />
               <Route path="site-formulas" element={<SiteFormulaSetup />} />
