@@ -62,7 +62,6 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
       const { data, error } = await supabase
         .from('operations_fire_tender_vehicle_drivers')
         .select('*')
-        .eq('user_id', user.id)
         .order('full_name');
 
       if (error) throw error;

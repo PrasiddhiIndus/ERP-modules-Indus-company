@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
 import { 
   Wrench, 
   Plus, 
@@ -56,15 +57,16 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('operations_fire_tender_vehicle_maintenance')
-        .select(`
+      const { data, error } = await withFleetMasterCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_maintenance')
+          .select(`
           *,
           operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
-        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
-        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
-        .order('service_date', { ascending: false });
+          .order('service_date', { ascending: false }),
+        vehicleCategory
+      );
 
       if (error) throw error;
       setMaintenance(data || []);
@@ -80,12 +82,13 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('operations_fire_tender_vehicle_master')
-        .select('id, registration_number, vehicle_type')
-        .eq('user_id', user.id)
-        .eq('vehicle_category', vehicleCategory)
-        .order('registration_number');
+      const { data, error } = await withFleetVehicleCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_master')
+          .select('id, registration_number, vehicle_type')
+          .order('registration_number'),
+        vehicleCategory
+      );
 
       if (error) throw error;
       setVehicles(data || []);

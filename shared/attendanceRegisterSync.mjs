@@ -29,6 +29,8 @@ export function punchesToPresentRegisterRows(punches) {
       register_date,
       month_key: register_date.slice(0, 7),
       mark: REGISTER_MARK_FROM_PUNCH,
+      mark_source: 'punch',
+      leave_request_id: null,
       updated_at: new Date().toISOString(),
     });
   }
@@ -46,18 +48,52 @@ export function registerDateRangeFromRows(rows) {
   return { fromDate, toDate };
 }
 
+const MANUAL_MARK_SOURCES = new Set(['manual', 'hr', 'admin', 'erp_manual', 'erp', 'm']);
+const PUNCH_MARK_SOURCES = new Set(['punch', 'biometric', 'device', 'auto', 'machine']);
+
+export function isManualMarkSource(markSource) {
+  return MANUAL_MARK_SOURCES.has(String(markSource ?? '').trim().toLowerCase());
+}
+
+export function isLeaveMarkSource(markSource, leaveRequestId) {
+  if (leaveRequestId) return true;
+  return String(markSource ?? '').trim().toLowerCase() === 'leave';
+}
+
+export function isPunchMarkSource(mark, markSource) {
+  const src = String(markSource ?? '').trim().toLowerCase();
+  if (PUNCH_MARK_SOURCES.has(src)) return true;
+  if (!markSource) {
+    const m = String(mark ?? '').trim().toUpperCase();
+    return m === 'P' || m === 'P(OD)';
+  }
+  return false;
+}
+
+/** Whether biometric punch sync may upsert Present for this existing register row. */
+export function canPunchSyncOverwriteExisting(existing) {
+  if (!existing) return true;
+  const mark = existing.mark ?? '';
+  const markSource = existing.mark_source ?? null;
+  const leaveRequestId = existing.leave_request_id ?? null;
+  if (!mark && !markSource) return true;
+  if (isManualMarkSource(markSource)) return false;
+  if (isLeaveMarkSource(markSource, leaveRequestId)) return false;
+  if (isPunchMarkSource(mark, markSource)) return true;
+  if (mark === REGISTER_MARK_FROM_PUNCH) return true;
+  return false;
+}
+
 /**
- * Do not overwrite explicit non-P marks (L, WO, P(OD), NH/PH).
- * @param {Record<string, Record<number, string>>} marksByEmpDay
+ * Do not overwrite manual, leave, or explicit non-P marks.
+ * @param {Record<string, Record<number, { mark?: string, mark_source?: string, leave_request_id?: string }>>} marksByEmpDay
  */
 export function filterPresentRegisterRowsRespectingMarks(candidateRows, marksByEmpDay) {
   return candidateRows.filter((row) => {
     const day = dayOfMonthFromIsoDate(row.register_date);
     if (!day) return false;
     const existing = marksByEmpDay[row.employee_code]?.[day];
-    if (existing == null || existing === '') return true;
-    if (existing === REGISTER_MARK_FROM_PUNCH) return true;
-    return false;
+    return canPunchSyncOverwriteExisting(existing);
   });
 }
 
@@ -66,10 +102,14 @@ export function marksByEmpDayFromRegisterDbRows(dbRows, normalizeMarkFn) {
   for (const row of dbRows || []) {
     const code = normalizeAttendanceEmpCode(row.employee_code);
     const day = dayOfMonthFromIsoDate(row.register_date);
+    if (!code || !day) continue;
     const mark = normalizeMarkFn ? normalizeMarkFn(row.mark) : String(row.mark || '').trim();
-    if (!code || !day || !mark) continue;
     if (!marks[code]) marks[code] = {};
-    marks[code][day] = mark;
+    marks[code][day] = {
+      mark: mark || '',
+      mark_source: row.mark_source ?? null,
+      leave_request_id: row.leave_request_id ?? null,
+    };
   }
   return marks;
 }

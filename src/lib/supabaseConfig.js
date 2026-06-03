@@ -62,3 +62,9 @@ export function supabaseUrlLooksValid(url) {
     return false;
   }
 }
+
+/** When false, skip postgres_changes subscriptions (avoids WebSocket noise on blocked networks). */
+export function isSupabaseRealtimeEnabled() {
+  const v = import.meta.env.VITE_DISABLE_SUPABASE_REALTIME;
+  return v !== 'true' && v !== true;
+}

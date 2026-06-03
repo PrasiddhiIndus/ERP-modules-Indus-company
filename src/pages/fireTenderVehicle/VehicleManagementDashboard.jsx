@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  fleetQueryErrorMessage,
+  withFleetVehicleCategoryFilter,
+  withFleetMasterCategoryFilter,
+} from './fleetLoadUtils';
 import { 
   Car, 
   Wrench, 
@@ -16,6 +22,8 @@ import {
 } from 'lucide-react';
 
 const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }) => {
+  const { user, loading: authLoading } = useAuth();
+  const [loadError, setLoadError] = useState(null);
   const [dashboardData, setDashboardData] = useState({
     totalVehicles: 0,
     availableVehicles: 0,
@@ -31,20 +39,23 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user?.id) {
+      setLoadError('Sign in to load fleet data.');
+      setLoading(false);
+      return;
+    }
     fetchDashboardData();
-  }, [vehicleCategory]);
+  }, [vehicleCategory, authLoading, user?.id]);
 
   const fetchDashboardData = async () => {
+    setLoadError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       // Fetch vehicle counts by status
-      const { data: vehicles, error: vehiclesError } = await supabase
-        .from('operations_fire_tender_vehicle_master')
-        .select('vehicle_status')
-        .eq('user_id', user.id)
-        .eq('vehicle_category', vehicleCategory);
+      const { data: vehicles, error: vehiclesError } = await withFleetVehicleCategoryFilter(
+        supabase.from('operations_fire_tender_vehicle_master').select('vehicle_status'),
+        vehicleCategory
+      );
 
       if (vehiclesError) throw vehiclesError;
 
@@ -55,16 +66,17 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
       }, {});
 
       // Fetch document expiries
-      const { data: expiries, error: expiriesError } = await supabase
-        .from('operations_fire_tender_vehicle_documents')
-        .select(`
+      const { data: expiries, error: expiriesError } = await withFleetMasterCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_documents')
+          .select(`
           expiry_date,
           alert_status,
           document_type,
           operations_fire_tender_vehicle_master!inner(registration_number)
-        `)
-        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
-        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory);
+        `),
+        vehicleCategory
+      );
 
       if (expiriesError) throw expiriesError;
 
@@ -72,20 +84,21 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
       const warningDocs = expiries.filter(doc => doc.alert_status === 'Warning').length;
 
       // Fetch active trips
-      const { data: trips, error: tripsError } = await supabase
-        .from('operations_fire_tender_vehicle_trips')
-        .select(`
+      const { data: trips, error: tripsError } = await withFleetMasterCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_trips')
+          .select(`
           id,
           trip_purpose,
           issued_to_name,
           start_date_time,
           operations_fire_tender_vehicle_master!inner(registration_number)
         `)
-        .eq('trip_status', 'Active')
-        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
-        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
-        .order('start_date_time', { ascending: false })
-        .limit(5);
+          .eq('trip_status', 'Active')
+          .order('start_date_time', { ascending: false })
+          .limit(5),
+        vehicleCategory
+      );
 
       if (tripsError) throw tripsError;
 
@@ -93,7 +106,6 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
       const { data: drivers, error: driversError } = await supabase
         .from('operations_fire_tender_vehicle_drivers')
         .select('id')
-        .eq('user_id', user.id)
         .eq('is_active', true);
 
       if (driversError) throw driversError;
@@ -114,6 +126,7 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      setLoadError(fleetQueryErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -149,6 +162,11 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
 
   return (
     <div className="p-6 space-y-6">
+      {loadError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {loadError}
+        </div>
+      ) : null}
       {/* Header */}
       <div>
         <div>

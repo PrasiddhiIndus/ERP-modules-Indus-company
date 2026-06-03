@@ -35,36 +35,44 @@ export const REGISTER_STATUS_OPTIONS = [
   { value: REGISTER_MARK_NHPH, label: "NH/PH" },
 ];
 
-/** Leave types in the register mark picker submenu. */
+/** Leave types under L in the register mark picker submenu. */
 export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
-  { value: "PL", label: "PL" },
-  { value: "CL", label: "CL" },
-  { value: "SL", label: "SL" },
+  { value: "PL", label: "PL — Paid Leave" },
+  { value: "CL", label: "CL — Casual Leave" },
+  { value: "SL", label: "SL — Sick Leave" },
   { value: "SPLA", label: "SPLA" },
   { value: "SPLB", label: "SPLB" },
-  { value: "SPLM", label: "SPLM" },
   { value: "SBEL", label: "SBEL" },
-  { value: "PTL", label: "PTL" },
-  { value: "ML", label: "ML" },
-  { value: "HD", label: "HD" },
-  { value: "WFH", label: "WFH" },
-  { value: "CO", label: "CO" },
-  { value: "L", label: "L" },
+  { value: "PTL", label: "PTL — Paternity Leave" },
+  { value: "ML", label: "ML — Maternity Leave" },
 ];
+
+/** Marks that use the red closed-cell box (L + leave submenu codes only). */
+export const REGISTER_LEAVE_RED_CELL_MARKS = new Set([
+  "L",
+  "PL",
+  "CL",
+  "SL",
+  "SPLA",
+  "SPLB",
+  "SPLM",
+  "SBEL",
+  "PTL",
+  "ML",
+]);
 
 /** Primary register mark picker rows (Leave opens submenu). */
 export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: "", label: "—" },
-  { value: "P", label: "P" },
-  { value: "P(OD)", label: "P(OD)" },
-  { value: "T", label: "T" },
-  { value: "L", label: "Leave", hasSubmenu: true },
-  { value: "WO", label: "WO" },
+  { value: "P", label: "P — Present" },
+  { value: "P(OD)", label: "P(OD) — Present on Duty" },
+  { value: "T", label: "T — Tour" },
+  { value: "L", label: "L — Leave", hasSubmenu: true },
+  { value: "WO", label: "WO — Weekly Off" },
   { value: REGISTER_MARK_NHPH, label: "NH/PH" },
-  { value: "CO", label: "CO" },
-  { value: "HD", label: "HD" },
-  { value: "WFH", label: "WFH" },
-  { value: "ML", label: "ML" },
+  { value: "CO", label: "CO — Compensatory Off" },
+  { value: "HD", label: "HD — Half Day" },
+  { value: "WFH", label: "WFH — Work From Home" },
 ];
 
 export function registerMarkOptionLabel(value) {
@@ -140,10 +148,30 @@ export function computeDayAttendanceBreakdown(rows, day) {
 }
 
 /** Values allowed by admin_attendance_register_mark_check (Supabase). */
-export const REGISTER_MARKS_DB_ALLOWED = new Set(["P", "P(OD)", "L", "WO", REGISTER_MARK_NHPH]);
+export const REGISTER_MARKS_DB_ALLOWED = new Set([
+  "P",
+  "P(OD)",
+  "T",
+  "L",
+  "WO",
+  REGISTER_MARK_NHPH,
+  "HD",
+  "WFH",
+  "PL",
+  "CL",
+  "SL",
+  "SPLA",
+  "SPLB",
+  "SPLM",
+  "SBEL",
+  "CO",
+  "PTL",
+  "ML",
+]);
 
 /**
  * Map UI / legacy marks to a value the DB check constraint accepts.
+ * Preserves specific leave codes (PL, CL, SL, …) for register display and limits.
  * @returns {string|null} canonical mark, or null to delete the cell
  */
 export function normalizeRegisterMarkForDb(mark) {
@@ -151,8 +179,8 @@ export function normalizeRegisterMarkForDb(mark) {
   if (!m) return null;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_NHPH;
   if (m === "P(OD)") return "P(OD)";
-  if (isRegisterLeaveMark(m) || m === "A") return "L";
   if (REGISTER_MARKS_DB_ALLOWED.has(m)) return m;
+  if (m === "A" || m === "LEAVE") return "L";
   return "L";
 }
 
@@ -201,7 +229,7 @@ export function registerMarkCellWrapperClass(value) {
   if (value === "P" || value === "P(OD)") {
     return `${REGISTER_MARK_WRAPPER_BASE} border-[#006b51] bg-[#008D62]`;
   }
-  if (value === "L" || isRegisterLeaveMark(value)) {
+  if (value === "L" || REGISTER_LEAVE_RED_CELL_MARKS.has(value)) {
     return `${REGISTER_MARK_WRAPPER_BASE} border-[#b82222] bg-[#D62828]`;
   }
   if (value === "WO") {
@@ -498,7 +526,7 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   if (respectManualMarks && fromDate && toDate) {
     const { data, error } = await supabase
       .from(ATTENDANCE_REGISTER_TABLE)
-      .select("employee_code,register_date,mark")
+      .select("employee_code,register_date,mark,mark_source,leave_request_id")
       .gte("register_date", fromDate)
       .lte("register_date", toDate);
     if (error) throw error;
@@ -590,6 +618,8 @@ export async function upsertRegisterMark(supabase, empCode, registerDate, mark, 
       month_key: date.slice(0, 7),
       mark: canonical,
       mark_remark: canonical === "P(OD)" ? String(markRemark || "").trim() || null : null,
+      mark_source: "manual",
+      leave_request_id: null,
       updated_at: new Date().toISOString(),
     },
   ]);

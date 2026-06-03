@@ -143,7 +143,7 @@ export const EmployeeAttendanceSheetsPage = lazyNamed(
   "EmployeeAttendanceSheetsPage"
 );
 export const EmployeeLeavesPage = lazyNamed(
-  () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
+  () => import("../pages/adminOperations/employee/EmployeeLeaveInboxPage"),
   "EmployeeLeavesPage"
 );
 export const EmployeeCompliancePage = lazyNamed(
