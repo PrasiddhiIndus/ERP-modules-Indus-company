@@ -24,6 +24,7 @@ import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import ManagePAModal from './ManagePAModal';
 import GenerateEInvoiceModal from './GenerateEInvoiceModal';
 import { netAfterCnDn } from '../../utils/cnDn';
+import { enrichInvoiceWithPo, findPoForInvoice } from '../../utils/billingPoInvoiceFields';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -176,14 +177,14 @@ const ManageInvoices = ({ onNavigateTab }) => {
   );
 
   const getPoByInvoice = React.useCallback(
-    (inv) => commercialPOs.find((p) => String(p.id) === String(inv.poId)),
+    (inv) => findPoForInvoice(inv, commercialPOs),
     [commercialPOs]
   );
 
   const withLatestBuyerDetails = React.useCallback(
     (inv) => {
       const po = getPoByInvoice(inv);
-      if (!po) return inv;
+      if (!po) return enrichInvoiceWithPo(inv, null);
       const parties = resolveInvoicePartyAddresses(
         po.billingAddress || po.billing_address || inv.clientAddress || inv.client_address,
         po.shippingAddress ||
@@ -207,22 +208,25 @@ const ManageInvoices = ({ onNavigateTab }) => {
         billPinResolved: pinMeta.pin,
         invoice: inv,
       });
-      return {
-        ...inv,
-        clientLegalName: po.legalName || inv.clientLegalName || inv.client_name,
-        clientAddress: parties.billToAddress || inv.clientAddress || inv.client_address,
-        clientShippingAddress: parties.clientShippingAddress,
-        shipToDiffers: parties.shipToDiffers,
-        clientPincode: String(partyPins.billToPin || pinMeta.pin || inv.clientPincode || inv.client_pincode || ''),
-        clientShipToPincode: partyPins.shipToPin || null,
-        client_ship_to_pincode: partyPins.billToShipToPinSame
-          ? null
-          : partyPins.shipToPin || inv.client_ship_to_pincode || null,
-        buyerPin: pinMeta.pin ?? inv.buyerPin ?? inv.buyer_pin,
-        buyerPincode: pinMeta.pin ?? inv.buyerPincode ?? inv.buyer_pincode,
-        placeOfSupply: po.placeOfSupply || po.place_of_supply || inv.placeOfSupply || inv.place_of_supply,
-        gstin: po.gstin || inv.gstin,
-      };
+      return enrichInvoiceWithPo(
+        {
+          ...inv,
+          clientLegalName: po.legalName || inv.clientLegalName || inv.client_name,
+          clientAddress: parties.billToAddress || inv.clientAddress || inv.client_address,
+          clientShippingAddress: parties.clientShippingAddress,
+          shipToDiffers: parties.shipToDiffers,
+          clientPincode: String(partyPins.billToPin || pinMeta.pin || inv.clientPincode || inv.client_pincode || ''),
+          clientShipToPincode: partyPins.shipToPin || null,
+          client_ship_to_pincode: partyPins.billToShipToPinSame
+            ? null
+            : partyPins.shipToPin || inv.client_ship_to_pincode || null,
+          buyerPin: pinMeta.pin ?? inv.buyerPin ?? inv.buyer_pin,
+          buyerPincode: pinMeta.pin ?? inv.buyerPincode ?? inv.buyer_pincode,
+          placeOfSupply: po.placeOfSupply || po.place_of_supply || inv.placeOfSupply || inv.place_of_supply,
+          gstin: po.gstin || inv.gstin,
+        },
+        po
+      );
     },
     [getPoByInvoice]
   );
@@ -813,7 +817,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void downloadTaxInvoicePdf(inv)}
+                                onClick={() => void downloadTaxInvoicePdf(inv, { po: getPoByInvoice(inv) })}
                                 title="Download Tax Invoice PDF"
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                               >
@@ -1115,7 +1119,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => void downloadTaxInvoicePdf(inv)}
+                                      onClick={() => void downloadTaxInvoicePdf(inv, { po: getPoByInvoice(inv) })}
                                       title="Download Tax Invoice PDF"
                                       className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                                     >
@@ -1310,7 +1314,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void downloadTaxInvoicePdf(inv)}
+                          onClick={() => void downloadTaxInvoicePdf(inv, { po: getPoByInvoice(inv) })}
                           title="Download Tax Invoice PDF"
                           className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                         >
@@ -1343,7 +1347,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 </div>
 
                 <div className="p-4 sm:p-6 bg-gray-100">
-                  <InvoiceHtmlPreview inv={inv} showEInvoiceMeta={false} />
+                  <InvoiceHtmlPreview inv={inv} po={getPoByInvoice(inv)} showEInvoiceMeta={false} />
                 </div>
               </div>
             </div>

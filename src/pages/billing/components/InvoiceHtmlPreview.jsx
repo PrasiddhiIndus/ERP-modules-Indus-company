@@ -13,7 +13,15 @@ import {
   DEFAULT_MSME_CLAUSE,
 } from '../../../utils/taxInvoicePdf';
 import { formatAmountUpTo3Decimals, formatInvoiceTotalDisplay } from '../../../utils/invoiceRound';
-import { formatBillingDisplayDate } from '../../../utils/billingPoInvoiceFields';
+import {
+  enrichInvoiceWithPo,
+  formatBillingDisplayDate,
+  poRequiresMaterialCode,
+  resolveHsnSacAboveLineItems,
+  resolveInvoiceLineHsnSac,
+  resolveInvoiceLineMaterialCode,
+  shouldShowHsnSacAboveLineItems,
+} from '../../../utils/billingPoInvoiceFields';
 import { invoicePincodeDisplayLine, resolveInvoicePartyPincodes } from '../../../utils/poPincodeFields';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
 
@@ -58,11 +66,12 @@ function docTitleForKind(kind) {
  * Static HTML invoice preview — shared by Create Invoice and Manage Invoices.
  * Field order and layout mirror buildTaxInvoiceDoc in taxInvoicePdf.js.
  */
-export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
+export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true }) {
   if (!inv) return null;
 
-  const previewItems = Array.isArray(inv.items) ? inv.items : [];
-  const totals = getInvoiceTotals(inv);
+  const viewInv = enrichInvoiceWithPo(inv, po);
+  const previewItems = Array.isArray(viewInv.items) ? viewInv.items : [];
+  const totals = getInvoiceTotals(viewInv);
   const {
     cgstRate: previewCgstRate,
     sgstRate: previewSgstRate,
@@ -79,51 +88,51 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
     preGstSupplementaryRows: previewPreGstSupplementaryRows,
   } = totals;
 
-  const invoiceKind = inv.invoiceKind || 'tax';
+  const invoiceKind = viewInv.invoiceKind || 'tax';
   const docTitle = docTitleForKind(invoiceKind);
 
-  const previewPaymentTerms = inv.paymentTerms || '30 Days';
-  const previewInvoiceDateStr = formatPdfDate(inv.invoiceDate || inv.created_at);
+  const previewPaymentTerms = viewInv.paymentTerms || '30 Days';
+  const previewInvoiceDateStr = formatPdfDate(viewInv.invoiceDate || viewInv.created_at);
 
-  const buyerName = inv.clientLegalName || inv.client_name || '–';
-  const buyerAddress = inv.clientAddress || inv.billingAddress || '–';
-  const shipToRaw = inv.clientShippingAddress || inv.client_shipping_address;
+  const buyerName = viewInv.clientLegalName || viewInv.client_name || '–';
+  const buyerAddress = viewInv.clientAddress || viewInv.billingAddress || '–';
+  const shipToRaw = viewInv.clientShippingAddress || viewInv.client_shipping_address;
   const shipAddress =
-    shipToRaw && String(shipToRaw).trim() && inv.shipToDiffers !== false
+    shipToRaw && String(shipToRaw).trim() && viewInv.shipToDiffers !== false
       ? String(shipToRaw).trim()
       : buyerAddress;
-  const buyerGstin = inv.gstin || '–';
+  const buyerGstin = viewInv.gstin || '–';
   const buyerNameLine = 'M/s ' + (buyerName.startsWith('M/s') ? buyerName.slice(3).trim() : buyerName);
 
   const partyPins = resolveInvoicePartyPincodes({
-    invoice: inv,
+    invoice: viewInv,
     billPinResolved:
-      inv.buyerPin ??
-      inv.buyer_pin ??
-      inv.buyerPincode ??
-      inv.buyer_pincode ??
-      inv.clientPincode ??
-      inv.client_pincode,
+      viewInv.buyerPin ??
+      viewInv.buyer_pin ??
+      viewInv.buyerPincode ??
+      viewInv.buyer_pincode ??
+      viewInv.clientPincode ??
+      viewInv.client_pincode,
   });
   const billToPinLine = invoicePincodeDisplayLine(partyPins.billToPin);
   const shipToPinLine = invoicePincodeDisplayLine(partyPins.shipToPin);
 
-  const placeOfSupply = inv.placeOfSupply || inv.place_of_supply || 'Gujarat';
+  const placeOfSupply = viewInv.placeOfSupply || viewInv.place_of_supply || 'Gujarat';
 
-  const cin = preferredTextValue(inv.sellerCin, inv.seller_cin, PDF_SELLER.cin, DEFAULT_SELLER_CIN);
-  const sellerGstin = preferredTextValue(inv.sellerGstin, inv.seller_gstin, PDF_SELLER.gstin);
-  const pan = inv.sellerPan || inv.seller_pan || PDF_SELLER.pan;
+  const cin = preferredTextValue(viewInv.sellerCin, viewInv.seller_cin, PDF_SELLER.cin, DEFAULT_SELLER_CIN);
+  const sellerGstin = preferredTextValue(viewInv.sellerGstin, viewInv.seller_gstin, PDF_SELLER.gstin);
+  const pan = viewInv.sellerPan || viewInv.seller_pan || PDF_SELLER.pan;
   const cinDisp = cin && cin !== '—' ? cin : '–';
   const panDisp = pan && pan !== '—' ? pan : '–';
-  const msmeNo = inv.msmeRegistrationNo || inv.msme_registration_no || PDF_SELLER.msmeUdyamNo;
-  const msmeClause = inv.msmeClause || inv.msme_clause || DEFAULT_MSME_CLAUSE;
+  const msmeNo = viewInv.msmeRegistrationNo || viewInv.msme_registration_no || PDF_SELLER.msmeUdyamNo;
+  const msmeClause = viewInv.msmeClause || viewInv.msme_clause || DEFAULT_MSME_CLAUSE;
   const udhyamNo = msmeNo || DEFAULT_UDHYAM_REG_NO;
   const msmeText = `MSME Udyam : ${msmeClause ? msmeClause : ''}`;
   const udhyamLine = `Udhyam Registration No. : ${udhyamNo}`;
 
-  const billMonth = inv.billingMonth || inv.billing_month || '–';
-  const durFrom = inv.billingDurationFrom || inv.billing_duration_from;
-  const durTo = inv.billingDurationTo || inv.billing_duration_to;
+  const billMonth = viewInv.billingMonth || viewInv.billing_month || '–';
+  const durFrom = viewInv.billingDurationFrom || viewInv.billing_duration_from;
+  const durTo = viewInv.billingDurationTo || viewInv.billing_duration_to;
   const billingDur =
     durFrom && durTo
       ? `${formatPdfDate(durFrom)} to ${formatPdfDate(durTo)}`
@@ -131,56 +140,59 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
         ? formatPdfDate(durFrom || durTo)
         : '–';
 
-  const hdrRemarks = inv.invoiceHeaderRemarks || inv.invoice_header_remarks;
+  const hdrRemarks = viewInv.invoiceHeaderRemarks || viewInv.invoice_header_remarks;
   const remarksText = hdrRemarks && String(hdrRemarks).trim() ? String(hdrRemarks).trim() : '–';
 
   const previewTotalQty = previewItems.length ? previewItems.reduce((s, i) => s + (Number(i.quantity) || 0), 0) : 0;
 
-  const termsLines = resolveTermsLines(inv);
-  const sig = inv.digitalSignatureDataUrl || inv.digital_signature_data_url;
+  const termsLines = resolveTermsLines(viewInv);
+  const sig = viewInv.digitalSignatureDataUrl || viewInv.digital_signature_data_url;
 
-  const invoiceNo = inv.taxInvoiceNumber || inv.billNumber || inv.bill_number || '–';
-  const irn = inv.e_invoice_irn || inv.eInvoiceIrn || '';
-  const ackNo = inv.e_invoice_ack_no || inv.eInvoiceAckNo || '';
-  const ackDt = inv.e_invoice_ack_dt || inv.eInvoiceAckDt || '';
-  const qrData = inv.e_invoice_signed_qr || inv.eInvoiceSignedQr || '';
+  const invoiceNo = viewInv.taxInvoiceNumber || viewInv.billNumber || viewInv.bill_number || '–';
+  const irn = viewInv.e_invoice_irn || viewInv.eInvoiceIrn || '';
+  const ackNo = viewInv.e_invoice_ack_no || viewInv.eInvoiceAckNo || '';
+  const ackDt = viewInv.e_invoice_ack_dt || viewInv.eInvoiceAckDt || '';
+  const qrData = viewInv.e_invoice_signed_qr || viewInv.eInvoiceSignedQr || '';
   const isEInvoicePreview = Boolean(irn);
 
   const origTaxNo =
-    inv.originalTaxInvoiceNumber ||
-    inv.original_tax_invoice_number ||
-    inv.parentTaxInvoiceNumber ||
-    inv.parent_tax_invoice_number;
+    viewInv.originalTaxInvoiceNumber ||
+    viewInv.original_tax_invoice_number ||
+    viewInv.parentTaxInvoiceNumber ||
+    viewInv.parent_tax_invoice_number;
   const origTaxNoRow =
     origTaxNo && (invoiceKind === 'credit_note' || invoiceKind === 'debit_note')
       ? [['Original Tax Invoice No.', String(origTaxNo)]]
       : [];
 
-  const invVertical = resolveInvoiceVerticalKey(inv);
+  const invVertical = resolveInvoiceVerticalKey(viewInv);
   const isManpowerInvoice = invVertical === 'manpower';
 
   const poNumberDisp =
-    preferredTextValue(inv.poWoNumber, inv.po_wo_number) ||
-    preferredTextValue(inv.ocNumber, inv.oc_number) ||
+    preferredTextValue(viewInv.poWoNumber, viewInv.po_wo_number) ||
+    preferredTextValue(viewInv.ocNumber, viewInv.oc_number) ||
     '–';
-  const poDateDisp = formatBillingDisplayDate(inv.poDate || inv.po_date) || '–';
-  const invoiceLevelHsn =
-    preferredTextValue(inv.hsnSac, inv.hsn_sac) || '–';
-  const showMaterialCode = !!(inv.materialCodeRequired || inv.material_code_required);
-  const tableColCount = showMaterialCode ? 8 : 7;
+  const poDateDisp = formatBillingDisplayDate(viewInv.poDate || viewInv.po_date) || '–';
+  const showMaterialCode = poRequiresMaterialCode(viewInv) || poRequiresMaterialCode(po);
+  const showHsnSacColumn = !showMaterialCode;
+  const tableColCount = 8;
   const summaryColSpan = tableColCount - 1;
 
-  const deliveryNote = inv.deliveryNote || inv.delivery_note || '–';
-  const otherReference = inv.otherReference || inv.other_reference || '–';
-  const dispatchDocNo = inv.dispatchDocNo || inv.dispatch_doc_no || '–';
-  const deliveryNoteDateRaw = inv.deliveryNoteDate || inv.delivery_note_date || '';
+  const deliveryNote = viewInv.deliveryNote || viewInv.delivery_note || '–';
+  const otherReference = viewInv.otherReference || viewInv.other_reference || '–';
+  const dispatchDocNo = viewInv.dispatchDocNo || viewInv.dispatch_doc_no || '–';
+  const deliveryNoteDateRaw = viewInv.deliveryNoteDate || viewInv.delivery_note_date || '';
   const deliveryNoteDate = deliveryNoteDateRaw ? formatPdfDate(deliveryNoteDateRaw) : '–';
-  const dispatchedThrough = inv.dispatchedThrough || inv.dispatched_through || '–';
-  const destination = inv.destination || '–';
-  const termsOfDelivery = inv.termsOfDelivery || inv.terms_of_delivery || '–';
+  const dispatchedThrough = viewInv.dispatchedThrough || viewInv.dispatched_through || '–';
+  const destination = viewInv.destination || '–';
+  const termsOfDelivery = viewInv.termsOfDelivery || viewInv.terms_of_delivery || '–';
 
   let metaRowsLeft;
   let metaRowsRight;
+  const hsnSacAboveTable = shouldShowHsnSacAboveLineItems(viewInv, po)
+    ? resolveHsnSacAboveLineItems(viewInv, po)
+    : null;
+
   if (isManpowerInvoice) {
     metaRowsLeft = [
       ['Invoice No.', invoiceNo],
@@ -369,10 +381,14 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
           </div>
         </div>
 
-        <div className="px-[28px] pt-2 pb-1 text-[8.5px]">
-          <span className="font-bold text-[#1a3a6c]">HSN / SAC:</span>{' '}
-          <span className="font-mono text-gray-700">{invoiceLevelHsn}</span>
-        </div>
+        {hsnSacAboveTable ? (
+          <div className="px-[28px] pt-2">
+            <div className="border border-[#bbb] bg-[#f8f9fc] px-2 py-1.5 text-[8.5px] flex flex-wrap items-baseline gap-x-2">
+              <span className="font-bold text-[#1a3a6c]">HSN / SAC</span>
+              <span className="font-mono text-gray-800">{hsnSacAboveTable}</span>
+            </div>
+          </div>
+        ) : null}
 
         <div className="px-[28px] pt-2 space-y-0">
           <table className="w-full border-collapse border border-[#bbb] text-[8.5px]">
@@ -382,6 +398,9 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-left font-bold text-white leading-tight w-[39%]" style={invoiceBlueHeaderTextStyle}>Description of Goods</th>
                 {showMaterialCode ? (
                   <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>Material Code</th>
+                ) : null}
+                {showHsnSacColumn ? (
+                  <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>HSN / SAC</th>
                 ) : null}
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Qty</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]" style={invoiceBlueHeaderTextStyle}>Rate ({PDF_RS})</th>
@@ -397,7 +416,12 @@ export default function InvoiceHtmlPreview({ inv, showEInvoiceMeta = true }) {
                   <td className="border border-[#bbb] px-1 py-1 font-bold">{(it.description || it.designation || '–').slice(0, 120)}</td>
                   {showMaterialCode ? (
                     <td className="border border-[#bbb] px-1 py-1 text-center font-mono text-gray-600">
-                      {(it.materialCode || it.material_code || '–').slice(0, 40)}
+                      {resolveInvoiceLineMaterialCode(it).slice(0, 40)}
+                    </td>
+                  ) : null}
+                  {showHsnSacColumn ? (
+                    <td className="border border-[#bbb] px-1 py-1 text-center font-mono text-gray-600">
+                      {resolveInvoiceLineHsnSac(it, viewInv, po).slice(0, 40)}
                     </td>
                   ) : null}
                   <td className="border border-[#bbb] px-1 py-1 text-right">{formatAmountUpTo3Decimals(it.quantity || 0)}</td>

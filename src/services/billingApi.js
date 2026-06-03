@@ -17,6 +17,7 @@ import {
 import { normalizeGstSupplyType } from '../utils/invoiceRound';
 import { isGeneratedWithoutPoWoNumber } from '../constants/poBasis';
 import { deriveApprovalActorsFromHistory } from '../utils/commercialPoApproval';
+import { resolvePoHsnSac } from '../utils/billingPoInvoiceFields';
 
 const BILLING_SCHEMA = 'billing';
 const MODULE_CONTEXT = {
@@ -131,7 +132,7 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
   const approvalActors = deriveApprovalActorsFromHistory(
     Array.isArray(raw.update_history) ? raw.update_history : []
   );
-  return {
+  const clientRow = {
     ...UNIFIED_PO_CLIENT_DEFAULTS,
     ...c,
     approvedByName: c.approvedByName ?? approvalActors.approvedByName ?? null,
@@ -182,6 +183,14 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
       raw.billing_without_po === true ||
       isGeneratedWithoutPoWoNumber(raw.po_wo_number),
   };
+  const poHsn = resolvePoHsnSac(clientRow);
+  if (poHsn) {
+    clientRow.hsnSac = poHsn;
+    clientRow.hsn_sac = poHsn;
+    if (!clientRow.hsnCode && !clientRow.hsn_code) clientRow.hsnCode = poHsn;
+    if (!clientRow.sacCode && !clientRow.sac_code) clientRow.sacCode = poHsn;
+  }
+  return clientRow;
 }
 
 function deriveRmPaymentTermFields(po = {}) {

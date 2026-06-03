@@ -16,8 +16,14 @@ import {
   activePreGstSupplementaryRows,
   applyPreGstAdjustments,
   applyPreGstSupplementaryRows,
+  enrichInvoiceWithPo,
   formatBillingDisplayDate,
   parsePreGstSupplementaryRows,
+  poRequiresMaterialCode,
+  resolveHsnSacAboveLineItems,
+  resolveInvoiceLineHsnSac,
+  resolveInvoiceLineMaterialCode,
+  shouldShowHsnSacAboveLineItems,
   summarizePreGstLegacyTotals,
 } from './billingPoInvoiceFields.js';
 import { invoicePincodeDisplayLine, resolveInvoicePartyPincodes } from './poPincodeFields.js';
@@ -380,6 +386,7 @@ function docTitleForKind(kind) {
  */
 function buildTaxInvoiceDoc(inv, options = {}) {
   if (!inv) return;
+  const viewInv = enrichInvoiceWithPo(inv, options.po);
   const { includeEinvoiceHeader = false, logoDataUrl = null } = options;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
@@ -407,7 +414,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     gstMode,
     totalAmount,
     items,
-  } = getInvoiceTotals(inv);
+  } = getInvoiceTotals(viewInv);
 
   const ensureSpace = (requiredHeight = 0) => {
     if (y + requiredHeight <= bottomSafeY) return;
@@ -418,16 +425,16 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     doc.setFont(undefined, 'normal');
   };
 
-  const buyerName = inv.clientLegalName || inv.client_name || '–';
-  const buyerAddress = inv.clientAddress || inv.billingAddress || '–';
-  const shipToRaw = inv.clientShippingAddress || inv.client_shipping_address;
+  const buyerName = viewInv.clientLegalName || viewInv.client_name || '–';
+  const buyerAddress = viewInv.clientAddress || viewInv.billingAddress || '–';
+  const shipToRaw = viewInv.clientShippingAddress || viewInv.client_shipping_address;
   const shipAddress =
-    shipToRaw && String(shipToRaw).trim() && inv.shipToDiffers !== false
+    shipToRaw && String(shipToRaw).trim() && viewInv.shipToDiffers !== false
       ? String(shipToRaw).trim()
       : buyerAddress;
-  const buyerGstin = inv.gstin || '–';
+  const buyerGstin = viewInv.gstin || '–';
   const partyPins = resolveInvoicePartyPincodes({
-    invoice: inv,
+    invoice: viewInv,
     billPinResolved:
       inv.buyerPin ??
       inv.buyer_pin ??
@@ -438,17 +445,17 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   });
   const billToPinLine = invoicePincodeDisplayLine(partyPins.billToPin);
   const shipToPinLine = invoicePincodeDisplayLine(partyPins.shipToPin);
-  const invoiceNo = inv.taxInvoiceNumber || inv.bill_number || '–';
-  const invoiceDate = formatPdfDate(inv.invoiceDate || inv.created_at);
-  const paymentTerms = inv.paymentTerms || inv.payment_terms || '30 Days';
-  const poDateDisp = formatBillingDisplayDate(inv.poDate || inv.po_date);
-  const invoiceLevelHsn = String(inv.hsnSac || inv.hsn_sac || '').trim() || '–';
-  const showMaterialCode = !!(inv.materialCodeRequired || inv.material_code_required);
-  const placeOfSupply = inv.placeOfSupply || inv.place_of_supply || 'Gujarat';
-  const irn = inv.e_invoice_irn || inv.eInvoiceIrn;
-  const ackNo = inv.e_invoice_ack_no || inv.eInvoiceAckNo;
-  const ackDt = inv.e_invoice_ack_dt || inv.eInvoiceAckDt;
-  const qrData = inv.e_invoice_signed_qr || inv.eInvoiceSignedQr;
+  const invoiceNo = viewInv.taxInvoiceNumber || viewInv.bill_number || '–';
+  const invoiceDate = formatPdfDate(viewInv.invoiceDate || viewInv.created_at);
+  const paymentTerms = viewInv.paymentTerms || viewInv.payment_terms || '30 Days';
+  const poDateDisp = formatBillingDisplayDate(viewInv.poDate || viewInv.po_date);
+  const showMaterialCode = poRequiresMaterialCode(viewInv) || poRequiresMaterialCode(options.po);
+  const showHsnSacColumn = !showMaterialCode;
+  const placeOfSupply = viewInv.placeOfSupply || viewInv.place_of_supply || 'Gujarat';
+  const irn = viewInv.e_invoice_irn || viewInv.eInvoiceIrn;
+  const ackNo = viewInv.e_invoice_ack_no || viewInv.eInvoiceAckNo;
+  const ackDt = viewInv.e_invoice_ack_dt || viewInv.eInvoiceAckDt;
+  const qrData = viewInv.e_invoice_signed_qr || viewInv.eInvoiceSignedQr;
 
   const buyerNameLine = 'M/s ' + (buyerName.startsWith('M/s') ? buyerName.slice(3).trim() : buyerName);
 
@@ -651,6 +658,10 @@ function buildTaxInvoiceDoc(inv, options = {}) {
 
   let leftMeta;
   let rightMeta;
+  const hsnSacAboveTable = shouldShowHsnSacAboveLineItems(viewInv, options.po)
+    ? resolveHsnSacAboveLineItems(viewInv, options.po)
+    : null;
+
   if (isManpowerInvoice) {
     leftMeta = [
       ['Invoice No.', invoiceNo],
@@ -842,39 +853,40 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   doc.setTextColor(0, 0, 0);
   y += boxH + BOX_GAP;
 
-  doc.setFontSize(FONT.small);
-  doc.setFont(undefined, 'bold');
-  doc.text('HSN / SAC:', MARGIN + 2, y + 3.5);
-  doc.setFont(undefined, 'normal');
-  doc.text(invoiceLevelHsn, MARGIN + 22, y + 3.5);
-  y += 6;
+  if (hsnSacAboveTable) {
+    ensureSpace(10);
+    doc.setDrawColor(187, 187, 187);
+    doc.setFillColor(248, 249, 252);
+    const hsnBandH = 7;
+    doc.rect(MARGIN, y, contentW, hsnBandH, 'FD');
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(FONT.small);
+    doc.setTextColor(26, 58, 108);
+    doc.text('HSN / SAC', MARGIN + 2, y + 4.5);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(0, 0, 0);
+    doc.text(String(hsnSacAboveTable), MARGIN + 22, y + 4.5);
+    y += hsnBandH + BOX_GAP;
+  }
+
   ensureSpace(28);
 
   // ----- Item table (widths sum to contentW)
-  const tableHeaders = showMaterialCode
-    ? [
-        'SR\nNo.',
-        'DESCRIPTION OF GOODS',
-        'MATERIAL\nCODE',
-        'Qty',
-        `RATE\n(${PDF_RS})`,
-        'UOM',
-        'DISC.\n%',
-        `AMOUNT\n(${PDF_RS})`,
-      ]
-    : [
-        'SR\nNo.',
-        'DESCRIPTION OF GOODS',
-        'Qty',
-        `RATE\n(${PDF_RS})`,
-        'UOM',
-        'DISC.\n%',
-        `AMOUNT\n(${PDF_RS})`,
-      ];
+  const tableHeaders = [
+    'SR\nNo.',
+    'DESCRIPTION OF GOODS',
+    ...(showMaterialCode ? ['MATERIAL\nCODE'] : []),
+    ...(showHsnSacColumn ? ['HSN /\nSAC'] : []),
+    'Qty',
+    `RATE\n(${PDF_RS})`,
+    'UOM',
+    'DISC.\n%',
+    `AMOUNT\n(${PDF_RS})`,
+  ];
   const rowItems =
     items.length > 0
       ? items
-      : [{ description: 'Services as per PO', hsnSac: inv.hsnSac || '9983', quantity: 1, rate: taxableValue, amount: taxableValue }];
+      : [{ description: 'Services as per PO', hsnSac: viewInv.hsnSac || '9983', quantity: 1, rate: taxableValue, amount: taxableValue }];
 
   const tableBody = rowItems.map((it, idx) => {
     const uom = String(it.uom ?? '').trim() || '–';
@@ -883,7 +895,9 @@ function buildTaxInvoiceDoc(inv, options = {}) {
       (it.description || it.designation || '–').substring(0, 120),
     ];
     if (showMaterialCode) {
-      base.push(String(it.materialCode || it.material_code || '–').substring(0, 40));
+      base.push(resolveInvoiceLineMaterialCode(it).substring(0, 40));
+    } else if (showHsnSacColumn) {
+      base.push(resolveInvoiceLineHsnSac(it, viewInv, options.po).substring(0, 40));
     }
     base.push(
       formatInrPdf(it.quantity || 0),
@@ -987,26 +1001,16 @@ function buildTaxInvoiceDoc(inv, options = {}) {
       valign: 'middle',
       minCellHeight: 9,
     },
-    columnStyles: showMaterialCode
-      ? {
-          0: { cellWidth: 11, halign: 'center' },
-          1: { cellWidth: 58, halign: 'left', overflow: 'linebreak' },
-          2: { cellWidth: 22, halign: 'center' },
-          3: { cellWidth: 14, halign: 'right' },
-          4: { cellWidth: 20, halign: 'right' },
-          5: { cellWidth: 12, halign: 'center' },
-          6: { cellWidth: 11, halign: 'center' },
-          7: { cellWidth: 24, halign: 'right' },
-        }
-      : {
-          0: { cellWidth: 13, halign: 'center' },
-          1: { cellWidth: 72, halign: 'left', overflow: 'linebreak' },
-          2: { cellWidth: 16, halign: 'right' },
-          3: { cellWidth: 22, halign: 'right' },
-          4: { cellWidth: 12, halign: 'center' },
-          5: { cellWidth: 12, halign: 'center' },
-          6: { cellWidth: 25, halign: 'right' },
-        },
+    columnStyles: {
+      0: { cellWidth: 11, halign: 'center' },
+      1: { cellWidth: 58, halign: 'left', overflow: 'linebreak' },
+      2: { cellWidth: 22, halign: 'center' },
+      3: { cellWidth: 14, halign: 'right' },
+      4: { cellWidth: 20, halign: 'right' },
+      5: { cellWidth: 12, halign: 'center' },
+      6: { cellWidth: 11, halign: 'center' },
+      7: { cellWidth: 24, halign: 'right' },
+    },
   });
   y = doc.lastAutoTable.finalY + 0.6;
   ensureSpace(48);
