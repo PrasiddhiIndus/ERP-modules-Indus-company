@@ -3,6 +3,7 @@ import { FileDigit, Search, Eye, Download } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { downloadTaxInvoicePdf, getTaxInvoicePdfBlobUrl } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
+import { findPoForInvoice } from '../../utils/billingPoInvoiceFields';
 
 const PAGE_SIZE = 10;
 
@@ -28,7 +29,12 @@ function getRealIrn(inv) {
 }
 
 const GeneratedEInvoice = () => {
-  const { invoices, billingVerticalFilter, billingPoBasisFilter } = useBilling();
+  const { invoices, commercialPOs, billingVerticalFilter, billingPoBasisFilter } = useBilling();
+
+  const getPoByInvoice = React.useCallback(
+    (inv) => findPoForInvoice(inv, commercialPOs),
+    [commercialPOs]
+  );
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [sortConfig, setSortConfig] = useState({ key: 'invoiceDate', direction: 'desc' });
@@ -133,7 +139,10 @@ const GeneratedEInvoice = () => {
       }
       setPdfLoading(true);
       try {
-        const nextUrl = await getTaxInvoicePdfBlobUrl(selectedInv, { includeEinvoiceHeader: true });
+        const nextUrl = await getTaxInvoicePdfBlobUrl(selectedInv, {
+          includeEinvoiceHeader: true,
+          po: getPoByInvoice(selectedInv),
+        });
         if (cancelled) {
           if (nextUrl) URL.revokeObjectURL(nextUrl);
           return;
@@ -153,7 +162,7 @@ const GeneratedEInvoice = () => {
       cancelled = true;
       if (currentUrl) URL.revokeObjectURL(currentUrl);
     };
-  }, [selectedInv]);
+  }, [selectedInv, getPoByInvoice]);
 
   return (
     <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
@@ -280,7 +289,7 @@ const GeneratedEInvoice = () => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void downloadTaxInvoicePdf(inv, { includeEinvoiceHeader: true })}
+                                onClick={() => void downloadTaxInvoicePdf(inv, { includeEinvoiceHeader: true, po: getPoByInvoice(inv) })}
                                 title="Download Tax Invoice PDF"
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                               >
@@ -370,7 +379,7 @@ const GeneratedEInvoice = () => {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => void downloadTaxInvoicePdf(selectedInv, { includeEinvoiceHeader: true })}
+                onClick={() => void downloadTaxInvoicePdf(selectedInv, { includeEinvoiceHeader: true, po: getPoByInvoice(selectedInv) })}
                 className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 <Download className="w-4 h-4" />
