@@ -65,11 +65,6 @@ import {
   PayrollDashboardPage,
   PayrollMonthPage,
   PayrollYearPage,
-  HrPayrollLayout,
-  HrPayrollFormulaPage,
-  HrPayrollDashboardPage,
-  HrPayrollMonthPage,
-  HrPayrollYearPage,
   SalaryManagementLayout,
   SalaryManagementDashboard,
   EmployeePayrollList,
@@ -353,30 +348,28 @@ function App() {
             </Route>
             <Route path="attendance" element={<Attendance />} />
             <Route path="salary" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
-            <Route path="payroll" element={<Navigate to="/app/hr/payroll/dashboard" replace />} />
-            <Route path="hr/payroll" element={<HrPayrollLayout />}>
+            <Route path="payroll" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
+            <Route path="hr/payroll" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
+            <Route path="hr/payroll/dashboard" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
+            <Route path="hr/payroll/entry" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
+            <Route path="hr/payroll/year" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
+            <Route path="hr/payroll/formula" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
+            <Route path="hr/payroll/salary" element={<SalaryManagementLayout />}>
               <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<HrPayrollDashboardPage />} />
-              <Route path="entry" element={<HrPayrollMonthPage />} />
-              <Route path="year" element={<HrPayrollYearPage />} />
-              <Route path="formula" element={<HrPayrollFormulaPage />} />
-              <Route path="salary" element={<SalaryManagementLayout />}>
-                <Route index element={<Navigate to="dashboard" replace />} />
-                <Route path="dashboard" element={<SalaryManagementDashboard />} />
-                <Route path="employees" element={<EmployeePayrollList />} />
-                <Route path="employees/:id" element={<EmployeePayrollProfile />} />
-                <Route path="run" element={<PayrollRunPage />} />
-                <Route path="site-formulas" element={<SiteFormulaSetup />} />
-                <Route path="manual-inputs" element={<PayrollManualInputs />} />
-                <Route path="pf" element={<StatutoryPF />} />
-                <Route path="esic" element={<StatutoryESIC />} />
-                <Route path="pt" element={<StatutoryPT />} />
-                <Route path="tds" element={<StatutoryTDS />} />
-                <Route path="loans" element={<LoansRecoveries />} />
-                <Route path="register" element={<PayrollRegister />} />
-                <Route path="outputs" element={<PayrollOutputs />} />
-                <Route path="settings" element={<SalaryManagementSettings />} />
-              </Route>
+              <Route path="dashboard" element={<SalaryManagementDashboard />} />
+              <Route path="employees" element={<EmployeePayrollList />} />
+              <Route path="employees/:id" element={<EmployeePayrollProfile />} />
+              <Route path="run" element={<PayrollRunPage />} />
+              <Route path="site-formulas" element={<SiteFormulaSetup />} />
+              <Route path="manual-inputs" element={<PayrollManualInputs />} />
+              <Route path="pf" element={<StatutoryPF />} />
+              <Route path="esic" element={<StatutoryESIC />} />
+              <Route path="pt" element={<StatutoryPT />} />
+              <Route path="tds" element={<StatutoryTDS />} />
+              <Route path="loans" element={<LoansRecoveries />} />
+              <Route path="register" element={<PayrollRegister />} />
+              <Route path="outputs" element={<PayrollOutputs />} />
+              <Route path="settings" element={<SalaryManagementSettings />} />
             </Route>
             <Route path="people-management" element={<PeopleManagement />} />
             

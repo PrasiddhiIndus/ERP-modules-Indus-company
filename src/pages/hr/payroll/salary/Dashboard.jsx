@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { SectionCard, KpiTile, Badge } from '../../../adminOperations/components/AdminUi';
 import { getDashboardStats, ensurePayrollProfilesForActiveEmployees } from '../../../../services/payrollApi';
+import { salaryAppPath } from './salaryNav';
 
 function monthInputDefault() {
   const d = new Date();
@@ -62,12 +63,12 @@ export default function SalaryDashboard() {
             />
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <SectionCard title="Quick actions" right={<Badge tone="bg-slate-100 text-slate-700">HR Payroll</Badge>}>
+            <SectionCard title="Quick actions" right={<Badge tone="bg-slate-100 text-slate-700">Salary</Badge>}>
               <div className="flex flex-wrap gap-2">
-                <Link to="run" className="px-3 py-2 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium">Start payroll run</Link>
-                <Link to="employees" className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Employee list</Link>
-                <Link to="manual-inputs" className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Manual inputs</Link>
-                <Link to="site-formulas" className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Site formulas</Link>
+                <Link to={salaryAppPath('run')} className="px-3 py-2 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium">Start payroll run</Link>
+                <Link to={salaryAppPath('employees')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Employee list</Link>
+                <Link to={salaryAppPath('manual-inputs')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Manual inputs</Link>
+                <Link to={salaryAppPath('site-formulas')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Site formulas</Link>
                 <button
                   type="button"
                   onClick={async () => {

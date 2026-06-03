@@ -2,7 +2,6 @@
  * eTimeOffice attendance fetch, normalization, overlap sync → erp_attendance_punches.
  */
 import { createClient } from '@supabase/supabase-js';
-import { syncRegisterMarksFromPunches } from './attendanceRegisterSync.js';
 import {
   ATTENDANCE_PUNCH_TABLE,
   ATTENDANCE_UPSERT_CHUNK,
@@ -478,21 +477,6 @@ export async function runAttendanceOverlapSync({
 
     const { upserted, inputCount, uniqueCount, collisionCount } = await upsertPunchRows(supabase, rowsWithDate);
 
-    const punchViewRows = rowsWithDate.map((r) => ({
-      empCode: r.employee_code,
-      punchDate: r.punch_date,
-      employeeName: r.employee_name,
-    }));
-    let registerSync = { upserted: 0, skipped: 0, candidates: 0 };
-    try {
-      registerSync = await syncRegisterMarksFromPunches(supabase, punchViewRows, {
-        fromDate: range.fromDate,
-        toDate: range.toDate,
-      });
-    } catch (regErr) {
-      log.warn?.('[attendance-sync] register mirror failed:', regErr?.message || regErr);
-    }
-
     const endedAt = new Date().toISOString();
     const summary = {
       ok: true,
@@ -507,8 +491,6 @@ export async function runAttendanceOverlapSync({
       dedupeUniqueCount: uniqueCount,
       dedupeCollisions: collisionCount,
       upserted,
-      registerUpserted: registerSync.upserted,
-      registerSkipped: registerSync.skipped,
       endpointsUsed: fetchResult.endpointsUsed,
       dateChunks: fetchResult.chunks,
     };

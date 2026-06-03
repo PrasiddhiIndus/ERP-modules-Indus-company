@@ -28,9 +28,12 @@ import {
   createPreGstSupplementaryRow,
   parsePreGstSupplementaryRows,
   poRequiresMaterialCode,
+  resolveInvoiceLineHsnSac,
+  resolveInvoiceLineMaterialCode,
   resolveInvoiceDescriptionFromPo,
   resolvePoPaymentTerms,
   resolvePoDateRaw,
+  resolvePoHsnSac,
   serializePreGstSupplementaryRows,
   summarizePreGstLegacyTotals,
 } from '../../utils/billingPoInvoiceFields';
@@ -1217,8 +1220,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   useEffect(() => {
     if (!selectedPO) return;
-    setInvoiceLevelHsn(selectedPO.hsnCode || selectedPO.sacCode || '');
-  }, [selectedPO?.id, selectedPO?.hsnCode, selectedPO?.sacCode]);
+    setInvoiceLevelHsn(resolvePoHsnSac(selectedPO));
+  }, [selectedPO?.id, selectedPO?.hsnCode, selectedPO?.sacCode, selectedPO?.ratePerCategory]);
 
   useEffect(() => {
     if (!editingInvoice) return;
@@ -1230,7 +1233,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!selectedPO) return;
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
-    const hsnSac = selectedPO.hsnCode || selectedPO.sacCode || '';
+    const hsnSac = resolvePoHsnSac(selectedPO);
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
     const isCustomPo = String(selectedPO.billingType || '').toLowerCase() === 'custom';
 
@@ -1541,7 +1544,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   /** M&M only: remove selected description row; rows below shift up. */
   const clearMmDescriptionRow = (idx) => {
     if (!isMmServiceDescriptionMode) return;
-    const hsn = displayPO?.hsnCode || '';
+    const hsn = resolvePoHsnSac(displayPO) || '';
     setItems((prev) => {
       const next = prev.filter((_, i) => i !== idx);
       const hasBlankSelectableRow = next.some(
@@ -1554,7 +1557,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   const addTruckLine = () => {
     if (!displayPO) return;
-    const hsn = displayPO.hsnCode || '';
+    const hsn = resolvePoHsnSac(displayPO) || '';
     setItems((prev) => [
       ...prev,
       {
@@ -1587,7 +1590,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   /** User-added lump sum rows: editable Qty × Rate; excluded from duty-geometry totals. */
   const addLumpSumSupplementaryLine = () => {
     if (!displayPO || !isLumpSumBilling) return;
-    const hsn = displayPO.hsnCode || '';
+    const hsn = resolvePoHsnSac(displayPO) || '';
     setItems((prev) => [
       ...prev,
       {
@@ -1676,7 +1679,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           : lumpSumConsolidatedLineDraft.description,
       hsnSac:
         lumpSumConsolidatedLineDraft.hsnSac == null
-          ? geometryRows[0]?.hsnSac || displayPO?.hsnCode || ''
+          ? geometryRows[0]?.hsnSac || resolvePoHsnSac(displayPO) || ''
           : lumpSumConsolidatedLineDraft.hsnSac,
       quantity: qty,
       rate,
@@ -1737,7 +1740,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return [
       {
         description: sourceRows[0]?.description ?? 'Lump Sum Billing (Invoice Consolidated)',
-        hsnSac: sourceRows[0]?.hsnSac || displayPO?.hsnCode || '',
+        hsnSac: sourceRows[0]?.hsnSac || resolvePoHsnSac(displayPO) || '',
         quantity: qty,
         rate,
         amount,
@@ -1788,7 +1791,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     [displayPO]
   );
   const lineTableColSpan =
-    6 + (materialCodeRequired ? 1 : 0) + (lumpSumShowPenaltyGeometryUi ? 1 : 0);
+    6 + 1 + (lumpSumShowPenaltyGeometryUi ? 1 : 0);
 
   const gstSupplyType = useMemo(
     () => normalizeGstSupplyType(displayPO?.gstSupplyType || displayPO?.gst_supply_type),
@@ -2056,7 +2059,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       buyerStateCode: buyerPinMeta.stateCode || null,
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
-      hsnSac: invoiceLevelHsn || displayPO.hsnCode || displayPO.sacCode || '',
+      hsnSac: invoiceLevelHsn || resolvePoHsnSac(displayPO) || '',
       paymentTerms: resolvePoPaymentTerms(displayPO),
       poDate: resolvePoDateRaw(displayPO),
       materialCodeRequired,
@@ -2140,7 +2143,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const livePreviewInv = useMemo(() => buildInvoiceForPreview(), [
     // recompute when edit inputs change
     displayPO?.id,
+    displayPO?.materialCodeRequired,
+    displayPO?.material_code_required,
     displayPO?.pincode,
+    invoiceLevelHsn,
+    materialCodeRequired,
     displayPO?.shipToPincode,
     displayPO?.ship_to_pincode,
     buyerPinMeta.pin,
@@ -2253,7 +2260,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       buyerStateCode: buyerPinMeta.stateCode || null,
       ocNumber: displayPO.ocNumber,
       poWoNumber: displayPO.poWoNumber,
-      hsnSac: invoiceLevelHsn || displayPO.hsnCode || displayPO.sacCode || '',
+      hsnSac: invoiceLevelHsn || resolvePoHsnSac(displayPO) || '',
       paymentTerms: resolvePoPaymentTerms(displayPO),
       poDate: resolvePoDateRaw(displayPO),
       materialCodeRequired,
@@ -2926,7 +2933,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             <div className="p-4 sm:p-6 bg-slate-100/90 space-y-5">
               {/* EXACT same invoice UI as Manage Invoices preview (live while editing) */}
               <div className="mx-auto max-w-5xl">
-                <InvoiceHtmlPreview inv={livePreviewInv} showEInvoiceMeta={false} />
+                <InvoiceHtmlPreview inv={livePreviewInv} po={displayPO} showEInvoiceMeta={false} />
               </div>
 
               {/* Editing controls (kept as form UI below the preview) */}
@@ -3238,7 +3245,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     ) : null}
                   </div>
                 ) : null}
-                {invoiceTableRows.length > 0 || !showLumpSumPenaltyBillingSummary ? (
+                {materialCodeRequired && (invoiceTableRows.length > 0 || !showLumpSumPenaltyBillingSummary) ? (
                 <div className="px-3 py-2 border-b border-neutral-200 bg-white">
                   <label className="block text-xs font-medium text-gray-700 mb-1">
                     HSN / SAC (invoice level)
@@ -3251,7 +3258,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     placeholder="e.g. 998314"
                   />
                   <p className="mt-1 text-[11px] text-gray-500">
-                    Applies to the whole invoice (not per line). PO description is shown separately on the tax invoice.
+                    Shown on the tax invoice above the line items table (not in each line) when the PO requires material code.
                   </p>
                 </div>
                 ) : null}
@@ -3290,7 +3297,16 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     >
                       Material code
                     </th>
-                  ) : null}
+                  ) : (
+                    <th
+                      className={[
+                        'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                        lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[12%] px-2 py-2',
+                      ].join(' ')}
+                    >
+                      HSN / SAC
+                    </th>
+                  )}
                   {null ? (
                     <>
                       <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">PO Qty</th>
@@ -3542,13 +3558,58 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                 ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
                                 : 'w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono'
                             }
-                            placeholder="Code"
+                            placeholder="Material code"
                           />
                         ) : (
-                          <span className="block break-all font-mono">{it.materialCode || '–'}</span>
+                          <span className="block break-all font-mono">
+                            {resolveInvoiceLineMaterialCode(it)}
+                          </span>
                         )}
                       </td>
-                    ) : null}
+                    ) : (
+                      <td
+                        className={[
+                          'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0',
+                          lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
+                        ].join(' ')}
+                      >
+                        {ii != null || isLumpConsolidatedRow ? (
+                          <input
+                            type="text"
+                            value={it.hsnSac || ''}
+                            onChange={(e) => {
+                              if (isLumpConsolidatedRow) {
+                                updateLumpSumConsolidatedLine({ hsnSac: e.target.value });
+                                return;
+                              }
+                              if (ii != null) updateItem(ii, { hsnSac: e.target.value });
+                            }}
+                            className={
+                              lumpSumDutyGeometryLineTable
+                                ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
+                                : 'w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono'
+                            }
+                            placeholder={
+                              it.hsnSac
+                                ? 'HSN/SAC'
+                                : resolveInvoiceLineHsnSac(
+                                    it,
+                                    { hsnSac: invoiceLevelHsn, materialCodeRequired },
+                                    displayPO
+                                  )
+                            }
+                          />
+                        ) : (
+                          <span className="block break-all font-mono">
+                            {resolveInvoiceLineHsnSac(
+                              it,
+                              { hsnSac: invoiceLevelHsn, materialCodeRequired },
+                              displayPO
+                            )}
+                          </span>
+                        )}
+                      </td>
+                    )}
                     {null ? (
                       <>
                         <td className="px-3 py-2 text-center">
@@ -4335,7 +4396,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-gray-100">
-              <InvoiceHtmlPreview inv={selectedViewInvoice} showEInvoiceMeta={false} />
+              <InvoiceHtmlPreview inv={selectedViewInvoice} po={displayPO} showEInvoiceMeta={false} />
             </div>
           </div>
         </div>

@@ -126,22 +126,12 @@ const Layout = () => {
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
   const [adminPayrollOpen, setAdminPayrollOpen] = useState(false);
   const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
-  const [hrPayrollOpen, setHrPayrollOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
   // Keep expandable section open when current path is under that section
   useEffect(() => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary")) setHrAdminOpen(true);
     if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
-    if (
-      pathname.startsWith("/app/hr/payroll/dashboard") ||
-      pathname.startsWith("/app/hr/payroll/entry") ||
-      pathname.startsWith("/app/hr/payroll/year") ||
-      pathname.startsWith("/app/hr/payroll/formula") ||
-      pathname === "/app/hr/payroll"
-    ) {
-      setHrPayrollOpen(true);
-    }
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/admin/payroll")) setAdminPayrollOpen(true);
@@ -333,37 +323,6 @@ const Layout = () => {
                           <span className="text-xs">{item.label}</span>
                         </NavLink>
                       ))}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setHrPayrollOpen(!hrPayrollOpen)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
-                  >
-                    <span className="flex items-start space-x-2">
-                      <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-600" />
-                      <span className="text-xs font-medium text-left leading-tight">HR Payroll & attendance sheets</span>
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${hrPayrollOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {hrPayrollOpen && (
-                    <div className="space-y-0.5 ml-2 border-l border-slate-200 pl-2">
-                      <NavLink to="hr/payroll/dashboard" className={subNavClass}>
-                        <LayoutDashboard className="h-4 w-4 shrink-0 text-emerald-700" />
-                        <span className="text-xs">Payroll dashboard</span>
-                      </NavLink>
-                      <NavLink to="hr/payroll/entry" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-teal-600" />
-                        <span className="text-xs">Entry sheet (Excel)</span>
-                      </NavLink>
-                      <NavLink to="hr/payroll/year" className={subNavClass}>
-                        <CalendarRange className="h-4 w-4 shrink-0 text-sky-600" />
-                        <span className="text-xs">Year view</span>
-                      </NavLink>
-                      <NavLink to="hr/payroll/formula" className={subNavClass}>
-                        <Calculator className="h-4 w-4 shrink-0 text-violet-600" />
-                        <span className="text-xs">Formula reference</span>
-                      </NavLink>
                     </div>
                   )}
                   <NavLink to="people-management" className={subNavClass}>

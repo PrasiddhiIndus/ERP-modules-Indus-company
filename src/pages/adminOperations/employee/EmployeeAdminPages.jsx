@@ -18,7 +18,6 @@ import {
   isoDateToday,
   mapDbPunchToViewRow,
   resolveAttendanceEmpCodeFilter,
-  syncRegisterMarksFromPunches,
 } from "../../../lib/attendanceDaily";
 import {
   ATTENDANCE_PUNCH_TABLE,
@@ -438,14 +437,6 @@ export function EmployeeAttendanceInputsPage() {
       const rowsToStore = dbRows.filter((row) => row.punch_date && row.employee_code);
       const skipped = dbRows.length - rowsToStore.length;
       const upsertResult = rowsToStore.length ? await upsertAttendanceRows(rowsToStore) : { stored: 0, apiRows: 0, collisions: 0 };
-      let registerSync = { upserted: 0, skipped: 0, candidates: 0 };
-      if (rowsToStore.length) {
-        const punchViewRows = rowsToStore.map((row) => mapDbPunchToViewRow(row));
-        registerSync = await syncRegisterMarksFromPunches(supabase, punchViewRows, {
-          fromDate: syncFromDate,
-          toDate: selectedDate,
-        });
-      }
       setSummary({
         ...data,
         source: "Supabase",
@@ -453,12 +444,10 @@ export function EmployeeAttendanceInputsPage() {
         syncToDate: selectedDate,
         apiCount: apiRecords.length,
         syncedCount: upsertResult.stored,
-        registerSyncedCount: registerSync.upserted,
-        registerSkippedCount: registerSync.skipped,
         skippedNoDateOrEmp: skipped,
         dedupeCollisions: upsertResult.collisions,
         message: upsertResult.stored
-          ? `${upsertResult.stored} punch row(s) stored; ${registerSync.upserted} Present mark(s) written to the daily register (${syncFromDate} → ${selectedDate}).`
+          ? `${upsertResult.stored} punch row(s) stored (${syncFromDate} → ${selectedDate}, overlap ${SYNC_OVERLAP_DAYS} day(s)).`
           : data?.message || "No punch rows with a valid date and employee code to store.",
       });
       const result = await fetchAttendancePunchesPage(supabase, {
@@ -574,7 +563,7 @@ export function EmployeeAttendanceInputsPage() {
         <span className="font-medium text-blue-900">Display is from Supabase</span> (table{" "}
         <code className="text-[10px]">erp_attendance_punches</code>). eTimeOffice data is{" "}
         <span className="font-medium">not loaded automatically</span> — click{" "}
-        <span className="font-medium">Sync eTimeOffice</span> to pull punches into Supabase and mirror Present (P) into the daily register for that date range, then the grid reloads.
+        <span className="font-medium">Sync eTimeOffice</span> to pull punches for the selected date into Supabase, then the grid reloads.
       </p>
 
       {apiConnection.checking ? (
