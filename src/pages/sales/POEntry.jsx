@@ -31,11 +31,12 @@ import {
 } from '../../utils/commercialPoApproval';
 
 const VERTICALS = ['Manpower', 'Training'];
-const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
+const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum', 'Custom'];
 const MANPOWER_BILLING_TYPE_FILTERS = [
   { value: 'Per Day', label: 'Daily' },
   { value: 'Monthly', label: 'Monthly' },
   { value: 'Lump Sum', label: 'Lump Sum' },
+  { value: 'Custom', label: 'Custom' },
 ];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const BILLING_CYCLES = ['30', '45', '60'];
@@ -380,7 +381,7 @@ const initialForm = {
   vendorCode: '',
   poWoNumber: '', poDate: '', pincode: '', shipToPincode: '', billToShipToPinSame: true,
   materialCodeRequired: false, paymentTerms: '30 Days', customPaymentTerms: '',
-  ratePerCategory: [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
+  ratePerCategory: [{ description: '', hsnSac: '', materialCode: '', qty: '', rate: '', penalty: '' }],
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
@@ -720,11 +721,12 @@ const POEntry = () => {
         ? po.ratePerCategory.map((r) => ({
             description: r.description || r.designation || '',
             hsnSac: r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '',
+            materialCode: r.materialCode ?? r.material_code ?? '',
             qty: r.qty ?? r.quantity ?? r.poQty ?? r.po_qty ?? '',
             rate: r.rate ?? '',
             penalty: r.penalty ?? r.category_penalty ?? '',
           }))
-        : [{ description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
+        : [{ description: '', hsnSac: '', materialCode: '', qty: '', rate: '', penalty: '' }],
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       billingType: po.billingType || po.poType || 'Monthly',
@@ -773,7 +775,7 @@ const POEntry = () => {
   const addRateRow = () =>
     setFormData((prev) => ({
       ...prev,
-      ratePerCategory: [...prev.ratePerCategory, { description: '', hsnSac: '', qty: '', rate: '', penalty: '' }],
+      ratePerCategory: [...prev.ratePerCategory, { description: '', hsnSac: '', materialCode: '', qty: '', rate: '', penalty: '' }],
     }));
   const updateRateRow = (idx, field, value) =>
     setFormData((prev) => ({ ...prev, ratePerCategory: prev.ratePerCategory.map((r, i) => (i === idx ? { ...r, [field]: value } : r)) }));
@@ -1014,6 +1016,7 @@ const POEntry = () => {
     const rates = formData.ratePerCategory.map((r) => ({
       description: (r.description || '').trim() || 'Other',
       hsnSac: String(r.hsnSac ?? r.hsn_sac ?? r.sacHsn ?? r.sac_hsn ?? '').trim(),
+      materialCode: String(r.materialCode ?? r.material_code ?? '').trim(),
       qty: Number(r.qty) || 0,
       rate: Number(r.rate) || 0,
       penalty:
@@ -1071,10 +1074,12 @@ const POEntry = () => {
         'Manpower',
       poWoNumber: trimmedPoWoNumber,
       renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
-      ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
+      ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', materialCode: '', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
       totalContractMonth: totalContractMonthVal,
       monthlyContractValue: monthlyContractValueVal,
-      sacCode: '', hsnCode: '', serviceDescription: formData.serviceDescription.trim(),
+      sacCode: String(formData.sacCode || formData.hsnCode || '').trim(),
+      hsnCode: String(formData.hsnCode || formData.sacCode || '').trim(),
+      serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: poType,
       billingCycle: Number(formData.billingCycle) || 30,
       remarks: formData.remarks.trim(),
@@ -1958,7 +1963,9 @@ const POEntry = () => {
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SAC/HSN</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
+                          {formData.materialCodeRequired ? 'Material code' : 'SAC/HSN'}
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
                         {isLumpSumPenaltyMode ? (
@@ -1982,8 +1989,14 @@ const POEntry = () => {
                           <td className="px-3 py-2">
                             <input
                               type="text"
-                              value={r.hsnSac || ''}
-                              onChange={(e) => updateRateRow(idx, 'hsnSac', e.target.value)}
+                              value={formData.materialCodeRequired ? (r.materialCode || '') : (r.hsnSac || '')}
+                              onChange={(e) =>
+                                updateRateRow(
+                                  idx,
+                                  formData.materialCodeRequired ? 'materialCode' : 'hsnSac',
+                                  e.target.value
+                                )
+                              }
                               className="border border-gray-300 rounded px-2 py-1 w-full"
                             />
                           </td>
@@ -2024,6 +2037,25 @@ const POEntry = () => {
                       ))}
                     </tbody>
                   </table>
+                  {formData.materialCodeRequired ? (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">SAC/HSN code (combined)</label>
+                      <input
+                        type="text"
+                        value={formData.hsnCode || formData.sacCode || ''}
+                        onChange={(e) =>
+                          setFormData((p) => ({
+                            ...p,
+                            // Keep both keys in sync for old/new readers.
+                            hsnCode: e.target.value,
+                            sacCode: e.target.value,
+                          }))
+                        }
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        placeholder="Enter SAC/HSN code"
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">

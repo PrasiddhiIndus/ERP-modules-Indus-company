@@ -8,6 +8,7 @@ import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD } from "../pages/hr/payroll/salary/salaryNav";
 import PoApprovalBell from "../components/PoApprovalBell";
+import AdminLeaveLimitBell from "../components/AdminLeaveLimitBell";
 import {
   LogOut,
   User,
@@ -21,6 +22,7 @@ import {
   FileText,
   DollarSign,
   Calendar,
+  CalendarDays,
   Package,
   ShoppingCart,
   MapPin,
@@ -428,6 +430,10 @@ const Layout = () => {
                       <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
                         <Calendar className="h-4 w-4 shrink-0 text-purple-600" />
                         <span className="text-xs">Leaves & Permissions</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/leave-management" className={subNavClass}>
+                        <CalendarDays className="h-4 w-4 shrink-0 text-indigo-600" />
+                        <span className="text-xs">Leave Management</span>
                       </NavLink>
                       <NavLink to="admin/employee/compliance-documents" className={subNavClass}>
                         <ClipboardCheck className="h-4 w-4 shrink-0 text-green-600" />
@@ -1103,6 +1109,7 @@ const Layout = () => {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <PoApprovalBell />
+            <AdminLeaveLimitBell />
             {canSeeActivityLog ? (
               <button
                 type="button"

@@ -12,13 +12,34 @@ import {
 const REGISTER_TABLE = 'admin_attendance_register';
 const UPSERT_CHUNK = 200;
 
+const REGISTER_MARKS_DB_ALLOWED = new Set([
+  'P',
+  'P(OD)',
+  'T',
+  'L',
+  'WO',
+  'NH/PH',
+  'HD',
+  'WFH',
+  'PL',
+  'CL',
+  'SL',
+  'SPLA',
+  'SPLB',
+  'SPLM',
+  'SBEL',
+  'CO',
+  'PTL',
+  'ML',
+]);
+
 function normalizeRegisterMarkForDb(mark) {
   const m = String(mark ?? '').trim();
   if (!m) return null;
   if (m === 'NHPH' || m === 'NH/PH') return 'NH/PH';
   if (m === 'P(OD)') return 'P(OD)';
-  if (m === 'P' || m === 'L' || m === 'WO') return m;
-  if (['A', 'PL', 'SL', 'CL', 'HD'].includes(m)) return 'L';
+  if (m === 'A') return 'L';
+  if (REGISTER_MARKS_DB_ALLOWED.has(m)) return m;
   return 'L';
 }
 
