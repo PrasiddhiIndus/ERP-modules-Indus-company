@@ -5,7 +5,6 @@ import { ADMIN_OPS_QUICK_ACTIONS } from "../../config/quickActionRoutes";
 import { ADMIN_OPS_NAV } from "./navConfig";
 import { FilterBar, TinyInput, TinySelect } from "./components/AdminUi";
 import { mockAlerts } from "./data/mockAdminData";
-import AdminLeaveLimitBell from "../../components/AdminLeaveLimitBell";
 
 const base = "/app/admin-operations";
 
@@ -66,7 +65,6 @@ export default function AdminOperationsLayout() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <AdminLeaveLimitBell />
           <NavLink
             to={`${base}/alerts`}
             className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-xs font-medium hover:bg-amber-100"

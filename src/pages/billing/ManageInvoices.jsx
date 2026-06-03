@@ -124,6 +124,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
     billingVerticalFilter,
     billingPoBasisFilter,
     useBillingDb,
+    refreshBilling,
   } = useBilling();
   const [billingTypeFilter, setBillingTypeFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
@@ -535,6 +536,11 @@ const ManageInvoices = ({ onNavigateTab }) => {
   };
 
   const selectedInv = viewId ? hydratedInvoices.find((i) => i.id === viewId) : null;
+
+  React.useEffect(() => {
+    if (verticalNotSelected) return;
+    void refreshBilling?.();
+  }, [verticalNotSelected, refreshBilling]);
 
   React.useEffect(() => {
     setPage(1);

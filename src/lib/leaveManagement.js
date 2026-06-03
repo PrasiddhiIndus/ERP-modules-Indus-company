@@ -1,6 +1,6 @@
 import { fetchActiveEmployees, fetchRegisterMarksForYear, normalizeAttendanceEmpCode } from "./attendanceDaily";
 
-const DEFAULT_ANNUAL_ENTITLEMENTS = {
+export const DEFAULT_ANNUAL_ENTITLEMENTS = {
   PL: 18,
   SL: 8,
   CL: 8,
@@ -235,5 +235,84 @@ export async function processLeaveBalancesYear(supabase, year) {
     .from("employee_leave_balances_yearly")
     .upsert(rowsToUpsert, { onConflict: "emp_code,year" });
   if (error) throw error;
+}
+
+/**
+ * Build a full yearly balance row for manual edit / bulk import.
+ * Recomputes unused_* from opening + entitlement − used.
+ */
+export function buildLeaveBalanceDbRow(input, year) {
+  const emp_code = normalizeAttendanceEmpCode(input.emp_code || input.empCode);
+  const y = Number(year);
+  if (!emp_code || !Number.isFinite(y) || y < 1900) return null;
+
+  const opening_pl = clampNonNegative(input.opening_pl);
+  const opening_sl = clampNonNegative(input.opening_sl);
+  const opening_cl = clampNonNegative(input.opening_cl);
+  const pl_entitlement = clampNonNegative(
+    input.pl_entitlement ?? DEFAULT_ANNUAL_ENTITLEMENTS.PL
+  );
+  const sl_entitlement = clampNonNegative(
+    input.sl_entitlement ?? DEFAULT_ANNUAL_ENTITLEMENTS.SL
+  );
+  const cl_entitlement = clampNonNegative(
+    input.cl_entitlement ?? DEFAULT_ANNUAL_ENTITLEMENTS.CL
+  );
+  const used_pl = clampNonNegative(input.used_pl);
+  const used_sl = clampNonNegative(input.used_sl);
+  const used_cl = clampNonNegative(input.used_cl);
+  const carried_pl = clampNonNegative(input.carried_pl);
+  const carried_sl = clampNonNegative(input.carried_sl);
+  const carried_cl = clampNonNegative(input.carried_cl);
+  const expired_pl = clampNonNegative(input.expired_pl);
+  const expired_sl = clampNonNegative(input.expired_sl);
+  const expired_cl = clampNonNegative(input.expired_cl);
+  const encashed_pl = clampNonNegative(input.encashed_pl);
+
+  const unused_pl = Math.max(0, opening_pl + pl_entitlement - used_pl);
+  const unused_sl = Math.max(0, opening_sl + sl_entitlement - used_sl);
+  const unused_cl = Math.max(0, opening_cl + cl_entitlement - used_cl);
+
+  return {
+    emp_code,
+    year: y,
+    opening_pl,
+    opening_sl,
+    opening_cl,
+    pl_entitlement,
+    sl_entitlement,
+    cl_entitlement,
+    used_pl,
+    used_sl,
+    used_cl,
+    unused_pl,
+    unused_sl,
+    unused_cl,
+    carried_pl,
+    carried_sl,
+    carried_cl,
+    expired_pl,
+    expired_sl,
+    expired_cl,
+    encashed_pl,
+    processed_at: new Date().toISOString(),
+  };
+}
+
+export async function upsertLeaveBalancesBatch(supabase, payloads) {
+  const rows = (payloads || []).filter(Boolean);
+  if (!rows.length) return { count: 0 };
+  const { error } = await supabase
+    .schema("indus_one")
+    .from("employee_leave_balances_yearly")
+    .upsert(rows, { onConflict: "emp_code,year" });
+  if (error) throw error;
+  return { count: rows.length };
+}
+
+export async function upsertLeaveBalanceYearly(supabase, input, year) {
+  const row = buildLeaveBalanceDbRow(input, year);
+  if (!row) throw new Error("Employee code and year are required.");
+  return upsertLeaveBalancesBatch(supabase, [row]);
 }
 
