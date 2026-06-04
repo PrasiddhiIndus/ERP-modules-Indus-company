@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { TinyInput } from "../components/AdminUi";
+import { TinyInput, TinySelect } from "../components/AdminUi";
 
 function employeeLabel(row) {
   const name = row.employeeName || row.empCode || "—";
@@ -13,6 +13,13 @@ function matchesSearch(row, needle) {
   return hay.includes(needle);
 }
 
+export const BULK_EMPLOYEE_MARK_FILTERS = [
+  { id: "all", label: "All employees" },
+  { id: "present", label: "Present (P) on any day in range" },
+  { id: "unmarked", label: "Unmarked on any day in range" },
+  { id: "marked", label: "Has a mark on any day in range" },
+];
+
 export function BulkMarkEmployeePicker({
   employees,
   selectedCodes,
@@ -21,26 +28,34 @@ export function BulkMarkEmployeePicker({
   search,
   onSearchChange,
   markLabel,
-  bulkDate,
+  bulkDateFrom,
+  bulkDateTo,
   dayMarkByCode = {},
+  markFilter = "all",
+  onMarkFilterChange,
 }) {
   const needle = search.trim().toLowerCase();
+  const rangeLabel =
+    bulkDateFrom && bulkDateTo && bulkDateFrom !== bulkDateTo
+      ? `${bulkDateFrom} → ${bulkDateTo}`
+      : bulkDateFrom || bulkDateTo || "";
 
   const selectedSet = useMemo(() => new Set(selectedCodes), [selectedCodes]);
 
+  const pool = useMemo(
+    () => employees.filter((row) => row.empCode && matchesSearch(row, needle)),
+    [employees, needle]
+  );
+
   const available = useMemo(
-    () =>
-      employees.filter((row) => row.empCode && !selectedSet.has(row.empCode) && matchesSearch(row, needle)),
-    [employees, needle, selectedSet]
+    () => pool.filter((row) => !selectedSet.has(row.empCode)),
+    [pool, selectedSet]
   );
 
   const selected = useMemo(() => {
-    const byCode = new Map(employees.filter((r) => r.empCode).map((r) => [r.empCode, r]));
-    return selectedCodes
-      .map((code) => byCode.get(code))
-      .filter(Boolean)
-      .filter((row) => matchesSearch(row, needle));
-  }, [employees, needle, selectedCodes]);
+    const byCode = new Map(pool.map((r) => [r.empCode, r]));
+    return selectedCodes.map((code) => byCode.get(code)).filter(Boolean);
+  }, [pool, selectedCodes]);
 
   const listClass =
     "h-48 overflow-y-auto rounded-md border border-gray-200 bg-white divide-y divide-gray-100";
@@ -53,22 +68,41 @@ export function BulkMarkEmployeePicker({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] text-gray-600">
           Select employees for bulk <strong>{markLabel}</strong>
-          {bulkDate ? ` on ${bulkDate}` : ""}. Click a name to move between lists.
+          {rangeLabel ? ` · ${rangeLabel}` : ""}. Marks apply horizontally across the date range for{" "}
+          <strong>selected employees only</strong>.
         </p>
         <span className="text-[10px] text-gray-500 tabular-nums">
           {selectedCodes.length} selected · {available.length} available
         </span>
       </div>
 
-      <label className="block text-[11px] text-gray-600">
-        Search employees
-        <TinyInput
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Name, code, ID, department…"
-          className="w-full mt-1 max-w-md"
-        />
-      </label>
+      <div className="flex flex-wrap gap-2 items-end">
+        <label className="block text-[11px] text-gray-600 min-w-[200px]">
+          Search employees
+          <TinyInput
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Name, code, ID, department…"
+            className="w-full mt-1 max-w-md"
+          />
+        </label>
+        {onMarkFilterChange ? (
+          <label className="block text-[11px] text-gray-600 min-w-[220px]">
+            Filter list
+            <TinySelect
+              value={markFilter}
+              onChange={(e) => onMarkFilterChange(e.target.value)}
+              className="w-full mt-1"
+            >
+              {BULK_EMPLOYEE_MARK_FILTERS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </TinySelect>
+          </label>
+        ) : null}
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
@@ -84,7 +118,7 @@ export function BulkMarkEmployeePicker({
                     key={row.empCode}
                     type="button"
                     className={itemClass}
-                    title={existing ? `Current mark: ${existing}` : "Click to select"}
+                    title={existing ? `Mark in range: ${existing}` : "Click to select"}
                     onClick={() => onToggleSelect(row.empCode, true)}
                   >
                     {employeeLabel(row)}

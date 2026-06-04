@@ -2541,9 +2541,20 @@ const CreateInvoice = ({ onNavigateTab }) => {
         <p className="text-xs text-gray-500 px-4 pb-2 -mt-1">
           After contract end, Commercial enables post-contract billing on the same OC — you still pick this row; buffer invoices are moved to the renewed PO/WO when renewal is approved.
         </p>
-        {billablePOs.length === 0 ? (
+        {!billingVerticalFilter ? (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg mx-4 mb-4 px-3 py-2">
+            Choose <strong>Business line (team)</strong> at the top of Billing (Manpower or Training) — the same line you used in Commercial → PO Entry.
+          </p>
+        ) : billablePOs.length === 0 ? (
           <p className="text-sm text-gray-500 px-4 pb-4">
-            No PO found for billing. In Commercial → PO Entry, click <span className="font-medium">Send to approval</span> for a PO.
+            No PO/WO for this team in Billing. Add one in Commercial → Manpower / Training → PO Entry, save it, then use{' '}
+            <span className="font-medium">Reload</span> on Billing or open this tab again. If you use a PO/without-PO filter above, try{' '}
+            <span className="font-medium">All jobs</span>.
+          </p>
+        ) : billablePOsByTab.length === 0 ? (
+          <p className="text-sm text-gray-500 px-4 pb-4">
+            {billablePOs.length} PO(s) exist for this team, but none match the <strong>{poBillingTab}</strong> billing type tab. Try{' '}
+            {billingTabs.map((t) => t.label).join(', ')}.
           </p>
         ) : (
           <div className="px-3 pb-3">

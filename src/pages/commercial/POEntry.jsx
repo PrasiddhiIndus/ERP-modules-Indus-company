@@ -15,7 +15,6 @@ const LEGACY_OC_LINE_TO_LABEL = {
   SERV: 'AMC',
 };
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
-const BILLING_CYCLES = ['30', '45', '60'];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const DEFAULT_SAC = '';
 const APPROVAL_STATUS = {
@@ -101,7 +100,6 @@ const initialForm = {
   startDate: '',
   endDate: '',
   billingType: 'Monthly',
-  billingCycle: '30',
   paymentTerms: '',
   revisedPO: false,
   renewalPending: false,
@@ -293,7 +291,6 @@ const POEntry = () => {
       startDate: po.startDate || '',
       endDate: po.endDate || '',
       billingType: po.billingType || 'Monthly',
-      billingCycle: String(po.billingCycle || '30'),
       paymentTerms: po.paymentTerms || '',
       revisedPO: !!po.revisedPO,
       renewalPending: !!po.renewalPending,
@@ -421,7 +418,7 @@ const POEntry = () => {
       startDate: formData.startDate || '',
       endDate: formData.endDate || '',
       billingType: poType,
-      billingCycle: Number(formData.billingCycle) || 30,
+      billingCycle: null,
       paymentTerms: formData.paymentTerms.trim(),
       poReceivedDate: null,
       paymentTermMode: null,
@@ -977,18 +974,6 @@ const POEntry = () => {
                     >
                       {BILLING_TYPES.map((t) => (
                         <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label>
-                    <select
-                      value={formData.billingCycle}
-                      onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    >
-                      {BILLING_CYCLES.map((c) => (
-                        <option key={c} value={c}>{c} days</option>
                       ))}
                     </select>
                   </div>

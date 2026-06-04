@@ -39,7 +39,6 @@ const MANPOWER_BILLING_TYPE_FILTERS = [
   { value: 'Custom', label: 'Custom' },
 ];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
-const BILLING_CYCLES = ['30', '45', '60'];
 const MT_PAYMENT_TERMS_OPTIONS = ['Immediate', '15 Days', '30 Days', '45 Days', '60 Days'];
 const CUSTOM_MT_PAYMENT_TERM = 'Other (manual)';
 const PAGE_SIZE = 10;
@@ -386,7 +385,7 @@ const initialForm = {
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
   totalContractMonth: '',
-  startDate: '', endDate: '', billingType: 'Per Day', billingCycle: '30', remarks: '',
+  startDate: '', endDate: '', billingType: 'Per Day', remarks: '',
   monthlyDutyQtyMode: '',
   lumpSumBillingMode: '',
   lumpSumTruckCumulateFinalInvoiceLines: false,
@@ -730,11 +729,8 @@ const POEntry = () => {
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       billingType: po.billingType || po.poType || 'Monthly',
-      billingCycle: String(po.billingCycle || '30'),
       remarks: po.remarks || '',
-      ...resolveMtPaymentTermsForForm(
-        po.paymentTerms || (po.billingCycle ? `${po.billingCycle} Days` : '')
-      ),
+      ...resolveMtPaymentTermsForForm(po.paymentTerms || ''),
       poDate: po.poDate || '',
       pincode: normalizePoPincode(po.pincode),
       shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
@@ -1081,11 +1077,9 @@ const POEntry = () => {
       hsnCode: String(formData.hsnCode || formData.sacCode || '').trim(),
       serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', billingType: poType,
-      billingCycle: Number(formData.billingCycle) || 30,
+      billingCycle: null,
       remarks: formData.remarks.trim(),
-      paymentTerms:
-        mtPayment.paymentTerms ||
-        `${Number(formData.billingCycle) || 30} Days`,
+      paymentTerms: mtPayment.paymentTerms || formData.paymentTerms.trim() || null,
       poDate: formData.poDate || null,
       pincode: String(formData.pincode || '').trim() || null,
       shipToPincode: shipToPincodeForPoSave(formData),
@@ -2122,7 +2116,6 @@ const POEntry = () => {
                       </select>
                     </div>
                   ) : null}
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Billing cycle (days)</label><select value={formData.billingCycle} onChange={(e) => setFormData((p) => ({ ...p, billingCycle: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2">{BILLING_CYCLES.map((c) => <option key={c} value={c}>{c} days</option>)}</select></div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
                     <select
