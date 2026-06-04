@@ -136,6 +136,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     gender: '',
     date_of_joining: '',
     designation: '',
+    designation_other: '',
     date_of_birth: '',
     date_of_anniversary: '',
     blood_group: '',
@@ -210,6 +211,21 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     'Manager', 'Senior Manager', 'Assistant Manager', 'Executive', 'Senior Executive',
     'Team Lead', 'Supervisor', 'Coordinator', 'Analyst', 'Specialist', 'Trainee', 'Other'
   ];
+
+  const resolveDesignationForSave = (designation, designationOther) => {
+    if (designation === 'Other') {
+      const custom = String(designationOther || '').trim();
+      return custom || null;
+    }
+    return designation || null;
+  };
+
+  const designationFieldsFromStored = (stored) => {
+    const value = String(stored || '').trim();
+    if (!value) return { designation: '', designation_other: '' };
+    if (designations.includes(value)) return { designation: value, designation_other: '' };
+    return { designation: 'Other', designation_other: value };
+  };
 
   const genders = ['Male', 'Female', 'Other'];
   const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -572,7 +588,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       full_name: formData.full_name || null,
       gender: formData.gender || null,
       date_of_joining: formData.date_of_joining || null,
-      designation: formData.designation || null,
+      designation: resolveDesignationForSave(formData.designation, formData.designation_other),
       date_of_birth: formData.date_of_birth || null,
       date_of_anniversary: formData.date_of_anniversary || null,
       blood_group: formData.blood_group || null,
@@ -620,6 +636,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (formData.designation === 'Other' && !String(formData.designation_other || '').trim()) {
+      alert('Please enter a designation when Other is selected.');
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -725,7 +745,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       full_name: employee.full_name || '',
       gender: employee.gender || '',
       date_of_joining: employee.date_of_joining || '',
-      designation: employee.designation || '',
+      ...designationFieldsFromStored(employee.designation),
       date_of_birth: employee.date_of_birth || '',
       date_of_anniversary: employee.date_of_anniversary || '',
       blood_group: employee.blood_group || '',
@@ -1405,7 +1425,14 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Designation *</label>
                     <select
                       value={formData.designation}
-                      onChange={(e) => setFormData({...formData, designation: e.target.value})}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setFormData((prev) => ({
+                          ...prev,
+                          designation: value,
+                          designation_other: value === 'Other' ? prev.designation_other : '',
+                        }));
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     >
@@ -1414,6 +1441,16 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                         <option key={designation} value={designation}>{designation}</option>
                       ))}
                     </select>
+                    {formData.designation === 'Other' ? (
+                      <input
+                        type="text"
+                        value={formData.designation_other}
+                        onChange={(e) => setFormData({ ...formData, designation_other: e.target.value })}
+                        placeholder="Enter designation"
+                        className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    ) : null}
                   </div>
 
                   <div>

@@ -665,6 +665,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     commercialPOs,
     invoices,
     setInvoices,
+    upsertInvoice,
     invoiceDraft,
     setInvoiceDraft,
     refreshBilling,
@@ -685,6 +686,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [digitalSignatureError, setDigitalSignatureError] = useState('');
   const signatureInputRef = useRef(null);
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
+  const [savingInvoice, setSavingInvoice] = useState(false);
   const [poPage, setPoPage] = useState(1);
   const [servicePeriodFrom, setServicePeriodFrom] = useState(() => getDefaultServicePeriodRange().from);
   const [servicePeriodTo, setServicePeriodTo] = useState(() => getDefaultServicePeriodRange().to);
@@ -2175,8 +2177,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
     finalInvoiceSourceLines,
   ]);
 
-  const handleSaveInvoice = () => {
-    if (!displayPO || !canSave) return;
+  const handleSaveInvoice = async () => {
+    if (!displayPO || !canSave || savingInvoice) return;
     const trimmedInvoiceDate = String(invoiceDate || '').trim();
     if (!trimmedInvoiceDate) {
       setInvoiceDateError('Invoice date is required. Please select a date.');
@@ -2349,12 +2351,21 @@ const CreateInvoice = ({ onNavigateTab }) => {
       lumpSumInvoicePreviewMode,
     };
 
-    setInvoices((prev) => {
-      if (existing) return prev.map((p) => (String(p.id) === String(existing.id) ? inv : p));
-      return [...prev, inv];
-    });
-    setInvoiceDraft(null);
-    onNavigateTab && onNavigateTab('manage-invoices');
+    setSavingInvoice(true);
+    try {
+      await upsertInvoice(inv);
+      setInvoiceDraft(null);
+      onNavigateTab && onNavigateTab('manage-invoices');
+    } catch (e) {
+      console.error('Save invoice failed:', e);
+      const msg =
+        e?.code === 'DUPLICATE_TAX_INVOICE_NUMBER'
+          ? e.message
+          : e?.message || 'Could not save invoice. Check your connection and try again.';
+      window.alert(msg);
+    } finally {
+      setSavingInvoice(false);
+    }
   };
 
   const handleExportGeometrySectionToExcel = () => {
@@ -4369,7 +4380,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             <button
               type="button"
               onClick={handleSaveInvoice}
-              disabled={!canSave || taxInvoiceBlocksSave}
+              disabled={!canSave || taxInvoiceBlocksSave || savingInvoice}
               title={
                 taxInvoiceBlocksSave && taxInvoiceSerialIssue
                   ? taxInvoiceSerialIssue
@@ -4377,7 +4388,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
               }
               className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {invoiceDraft?.mode === 'edit' ? 'Update Invoice' : 'Save Invoice'}
+              {savingInvoice
+                ? 'Saving…'
+                : invoiceDraft?.mode === 'edit'
+                  ? 'Update Invoice'
+                  : 'Save Invoice'}
             </button>
           </div>
             </div>

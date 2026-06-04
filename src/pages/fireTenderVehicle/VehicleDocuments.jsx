@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
 import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
 import FleetAttachmentUploader from './FleetAttachmentUploader';
 import { 
@@ -152,15 +153,16 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('operations_fire_tender_vehicle_documents')
-        .select(`
+      const { data, error } = await withFleetMasterCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_documents')
+          .select(`
           *,
           operations_fire_tender_vehicle_master!inner(registration_number, vehicle_type)
         `)
-        .eq('operations_fire_tender_vehicle_master.user_id', user.id)
-        .eq('operations_fire_tender_vehicle_master.vehicle_category', vehicleCategory)
-        .order('expiry_date', { ascending: true });
+          .order('expiry_date', { ascending: true }),
+        vehicleCategory
+      );
 
       if (error) throw error;
       setDocuments(data || []);
@@ -176,12 +178,13 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('operations_fire_tender_vehicle_master')
-        .select('id, registration_number, vehicle_type')
-        .eq('user_id', user.id)
-        .eq('vehicle_category', vehicleCategory)
-        .order('registration_number');
+      const { data, error } = await withFleetVehicleCategoryFilter(
+        supabase
+          .from('operations_fire_tender_vehicle_master')
+          .select('id, registration_number, vehicle_type')
+          .order('registration_number'),
+        vehicleCategory
+      );
 
       if (error) throw error;
       setVehicles(data || []);

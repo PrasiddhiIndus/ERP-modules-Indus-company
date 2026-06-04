@@ -328,8 +328,13 @@ function textColumnOrNull(v) {
   return String(v);
 }
 
-/** Invoice rows may predate migration adding buyer_* — PostgREST returns schema-cache errors. */
-const OPTIONAL_INVOICE_BUYER_KEYS = ['buyer_pin', 'buyer_pincode', 'buyer_state_code'];
+/** Invoice rows may predate migration adding buyer_* / ship-to pin — PostgREST schema-cache errors. */
+const OPTIONAL_INVOICE_BUYER_KEYS = [
+  'buyer_pin',
+  'buyer_pincode',
+  'buyer_state_code',
+  'client_ship_to_pincode',
+];
 // Optional cancellation columns (may not exist in older DBs).
 const OPTIONAL_INVOICE_CANCEL_KEYS = ['is_cancelled', 'cancelled_at', 'cancel_reason'];
 const OPTIONAL_INVOICE_GEOMETRY_KEYS = ['monthly_duty_qty_mode', 'lump_sum_billing_mode'];
@@ -387,7 +392,7 @@ function supabaseErrBlob(err) {
 function isBuyerInvoiceColumnsMissingError(err) {
   const s = supabaseErrBlob(err);
   if (!s) return false;
-  if (!/buyer_pin|buyer_pincode|buyer_state_code/i.test(s)) return false;
+  if (!/buyer_pin|buyer_pincode|buyer_state_code|client_ship_to_pincode/i.test(s)) return false;
   return /could not find|schema cache|column of 'invoice'|PGRST204|undefined column/i.test(s);
 }
 

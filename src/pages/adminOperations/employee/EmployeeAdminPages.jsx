@@ -29,7 +29,6 @@ import {
 import {
   mockEmployees,
   mockOnboarding,
-  mockLeaveRequests,
   mockPermissions,
   mockComplianceRows,
   mockSalaryInputs,
@@ -696,102 +695,7 @@ export function EmployeeAttendanceSheetsPage() {
   );
 }
 
-export function EmployeeLeavesPage() {
-  const [approve, setApprove] = useState(null);
-  const cols = [
-    { key: "emp", label: "Requested by" },
-    { key: "type", label: "Type" },
-    { key: "from", label: "From" },
-    { key: "to", label: "To" },
-    { key: "mgr", label: "Manager" },
-    { key: "admin", label: "Admin" },
-    { key: "attendanceImpact", label: "Attendance" },
-    {
-      key: "payrollImpact",
-      label: "Payroll",
-      render: (r) => (r.payrollImpact ? <Badge tone="bg-orange-100 text-orange-900">{r.payrollImpact}</Badge> : "—"),
-    },
-    {
-      key: "id",
-      label: "",
-      render: (r) => (
-        <button type="button" className="text-[11px] text-blue-700 font-medium" onClick={() => setApprove(r)}>
-          Validate
-        </button>
-      ),
-    },
-  ];
-  return (
-    <>
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-3">
-        <SectionCard title="Leave inbox" className="xl:col-span-3">
-          <FilterBar>
-            <TinySelect>
-              <option>All types</option>
-              <option>Casual</option>
-              <option>Sick</option>
-              <option>Earned</option>
-              <option>Unpaid</option>
-            </TinySelect>
-            <TinySelect>
-              <option>Admin queue</option>
-              <option>All</option>
-            </TinySelect>
-          </FilterBar>
-          <div className="mt-2">
-            <DenseTable columns={cols} rows={mockLeaveRequests} rowKey="id" />
-          </div>
-        </SectionCard>
-        <div className="space-y-3">
-          <SectionCard title="Balances (sample)">
-            <DenseTable
-              columns={[
-                { key: "t", label: "Type" },
-                { key: "b", label: "Bal" },
-              ]}
-              rows={[
-                { id: "1", t: "Casual", b: "6" },
-                { id: "2", t: "Sick", b: "8" },
-                { id: "3", t: "Earned", b: "14" },
-              ]}
-            />
-          </SectionCard>
-          <SectionCard title="Calendar">
-            <p className="text-xs text-gray-600">Month grid hooks to site holidays + blackout days (UI placeholder).</p>
-          </SectionCard>
-        </div>
-      </div>
-      <Modal
-        open={!!approve}
-        onClose={() => setApprove(null)}
-        title="Admin validation — leave"
-        footer={
-          <div className="flex justify-between gap-2 flex-wrap">
-            <span className="text-[11px] text-gray-500">Impacts attendance → salary inputs if unpaid/LOP</span>
-            <div className="flex gap-2">
-              <button type="button" className="h-8 px-3 rounded border text-xs" onClick={() => setApprove(null)}>
-                Reject
-              </button>
-              <button type="button" className="h-8 px-3 rounded bg-[#1F3A8A] text-white text-xs" onClick={() => setApprove(null)}>
-                Validate & post
-              </button>
-            </div>
-          </div>
-        }
-      >
-        {approve && (
-          <div className="text-xs space-y-2">
-            <p>
-              <strong>{approve.emp}</strong> · {approve.type} · {approve.from} → {approve.to}
-            </p>
-            <LinkedChip label="Attendance impact" toHint="marked absent / LOP" />
-            <LinkedChip label="Payroll" toHint={approve.payrollImpact || "No LOP"} />
-          </div>
-        )}
-      </Modal>
-    </>
-  );
-}
+export { EmployeeLeavesPage } from "./EmployeeLeaveInboxPage";
 
 export function EmployeePermissionsPage() {
   return (

@@ -61,6 +61,7 @@ const BillingContext = createContext({
   billingError: 'Billing context not ready.',
   clearBillingError: () => {},
   refreshBilling: async () => false,
+  upsertInvoice: async () => null,
   wopoList: [],
   setWopoList: () => {},
   bills: [],
@@ -298,22 +299,73 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     return () => { mounted = false; };
   }, [loadFromDb]);
 
-  /** When DB billing is active, refetch POs (and related data) on po_wo changes — e.g. approval_status after Commercial Manager approves. */
+  const billingRefreshSkipUntilRef = useRef(0);
+
+  /** Persist one invoice to DB (or local), then reload full billing snapshot so Manage Invoices stays in sync. */
+  const upsertInvoice = useCallback(
+    async (inv) => {
+      if (!inv) return null;
+      setBillingError(null);
+      billingRefreshSkipUntilRef.current = Date.now() + 1200;
+      if (useDb === true) {
+        const id = await saveInvoiceDb(inv);
+        const [pos, invs, notes, pa] = await Promise.all([
+          fetchCommercialPOs({
+            moduleType: commercialModuleScope || undefined,
+            moduleContext: toModuleContext(commercialModuleScope),
+          }),
+          fetchInvoices(),
+          fetchCreditDebitNotes(),
+          fetchPaymentAdvice(),
+        ]);
+        setCommercialPOsFull(pos);
+        setInvoicesState(invs);
+        setCreditDebitNotesState(notes);
+        setPaymentAdviceState(pa);
+        contactHistoryFromPOs(pos);
+        return id;
+      }
+      setInvoicesState((prev) => {
+        const id = String(inv.id || '');
+        const exists = (prev || []).some((p) => String(p.id) === id);
+        const next = exists
+          ? (prev || []).map((p) => (String(p.id) === id ? { ...p, ...inv } : p))
+          : [...(prev || []), inv];
+        saveInvoicesLocal(next);
+        return next;
+      });
+      return inv.id;
+    },
+    [commercialModuleScope, useDb]
+  );
+
+  /** When DB billing is active, refetch on po_wo / invoice changes (debounced). */
   const refreshDebounceRef = useRef(null);
   useEffect(() => {
     if (useDb !== true) return undefined;
     const scheduleRefresh = () => {
+      if (Date.now() < billingRefreshSkipUntilRef.current) return;
       if (refreshDebounceRef.current) clearTimeout(refreshDebounceRef.current);
       refreshDebounceRef.current = setTimeout(() => {
         refreshDebounceRef.current = null;
         loadFromDb();
-      }, 280);
+      }, 320);
     };
     const channel = supabase
-      .channel('billing-po-wo-realtime')
+      .channel('billing-workflow-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'billing', table: 'po_wo' },
+        () => scheduleRefresh()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'billing', table: 'invoice' },
+        () => scheduleRefresh()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'billing', table: 'invoice_line_item' },
         () => scheduleRefresh()
       )
       .subscribe();
@@ -322,7 +374,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         clearTimeout(refreshDebounceRef.current);
         refreshDebounceRef.current = null;
       }
-      channel.unsubscribe();
+      supabase.removeChannel(channel);
     };
   }, [useDb, loadFromDb]);
 
@@ -471,6 +523,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     billingError,
     clearBillingError: () => setBillingError(null),
     refreshBilling: loadFromDb,
+    upsertInvoice,
     wopoList: commercialPOsVisible,
     setWopoList: setCommercialPOs,
     bills: invoicesVisible,
