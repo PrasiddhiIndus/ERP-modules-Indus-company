@@ -530,11 +530,12 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
   const isRm = moduleContext === MODULE_CONTEXT.RM_MM_AMC_IEV;
   const totalContractValueVal = Number(po.totalContractValue) || 0;
 
-  const billingCycleVal = isMp ? Number(po.billingCycle) || 30 : null;
-  const paymentTermsVal = isMp
-    ? String(po.paymentTerms ?? '').trim() ||
-      (billingCycleVal ? `${billingCycleVal} Days` : null)
-    : null;
+  const billingCycleRaw = po.billingCycle ?? po.billing_cycle;
+  const billingCycleVal =
+    isMp && billingCycleRaw != null && billingCycleRaw !== ''
+      ? Number(billingCycleRaw) || null
+      : null;
+  const paymentTermsVal = isMp ? String(po.paymentTerms ?? po.payment_terms ?? '').trim() || null : null;
   const monthlyDutyVal =
     isMp && po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim()
       ? String(po.monthlyDutyQtyMode).trim()

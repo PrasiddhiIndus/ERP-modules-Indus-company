@@ -258,7 +258,11 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         fetchCreditDebitNotes(),
         fetchPaymentAdvice(),
       ]);
-      setCommercialPOsFull(pos);
+      setCommercialPOsFull((prevAll) => {
+        if (!commercialModuleScope) return pos;
+        const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== commercialModuleScope);
+        return [...others, ...pos];
+      });
       setInvoicesState(invs);
       setCreditDebitNotesState(notes);
       setPaymentAdviceState(pa);
@@ -410,6 +414,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
             // Persist deletes first so removed rows don't reappear after realtime refresh.
             if (removedIds.length) await deleteCommercialPOsDb(removedIds);
             await saveCommercialPOsDb(next, { moduleContext: toModuleContext(scoped) });
+            await loadFromDb();
           })
           .then(() => setUseDb(true))
           .catch((e) => {
@@ -429,7 +434,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         return next;
       });
     },
-    [commercialModuleScope]
+    [commercialModuleScope, loadFromDb]
   );
 
   const setContactHistory = useCallback((updater) => {

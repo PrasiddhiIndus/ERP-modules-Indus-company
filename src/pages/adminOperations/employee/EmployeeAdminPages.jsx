@@ -15,10 +15,16 @@ import {
 import { supabase } from "../../../lib/supabase";
 import {
   fetchAttendancePunchesPage,
+  fetchAttendancePunchesInRange,
   isoDateToday,
   mapDbPunchToViewRow,
   resolveAttendanceEmpCodeFilter,
 } from "../../../lib/attendanceDaily";
+import {
+  enrichRawPunchesWithDayInOut,
+  fetchRawPunchesDailySummaryPage,
+} from "../../../lib/attendanceReports";
+import { pairPunchesToDailyRows } from "../../../lib/attendanceDaily";
 import {
   ATTENDANCE_PUNCH_TABLE,
   ATTENDANCE_UPSERT_CHUNK,
@@ -308,6 +314,7 @@ export function EmployeeAttendanceInputsPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [viewMode, setViewMode] = useState("daily");
   const [sortKey, setSortKey] = useState("punchDateTime");
   const [sortDir, setSortDir] = useState("desc");
   const [pageSize, setPageSize] = useState(50);
@@ -377,25 +384,55 @@ export function EmployeeAttendanceInputsPage() {
     setLoading(true);
     setError("");
     try {
-      const result = await fetchAttendancePunchesPage(supabase, {
-        fromDate: selectedDate,
-        toDate: selectedDate,
-        empCode: resolveAttendanceEmpCodeFilter(empCode),
-        page,
-        pageSize,
-        search: searchDebounced,
-        sortKey,
-        sortDir,
-      });
-      setRows(result.rows);
-      setTotalCount(result.total);
-      setSummary((prev) => ({
-        ...(prev || {}),
-        source: "Supabase",
-        selectedDate,
-        count: result.total,
-        tablePage: result.page,
-      }));
+      const codeFilter = resolveAttendanceEmpCodeFilter(empCode);
+      if (viewMode === "daily") {
+        const result = await fetchRawPunchesDailySummaryPage(supabase, {
+          fromDate: selectedDate,
+          toDate: selectedDate,
+          empCode: codeFilter,
+          page,
+          pageSize,
+          search: searchDebounced,
+        });
+        setRows(result.rows);
+        setTotalCount(result.total);
+        setSummary((prev) => ({
+          ...(prev || {}),
+          source: "Supabase",
+          selectedDate,
+          count: result.total,
+          tablePage: result.page,
+          viewMode: "daily",
+        }));
+      } else {
+        const [result, allForDay] = await Promise.all([
+          fetchAttendancePunchesPage(supabase, {
+            fromDate: selectedDate,
+            toDate: selectedDate,
+            empCode: codeFilter,
+            page,
+            pageSize,
+            search: searchDebounced,
+            sortKey,
+            sortDir,
+          }),
+          fetchAttendancePunchesInRange(supabase, {
+            fromDate: selectedDate,
+            toDate: selectedDate,
+            empCode: codeFilter,
+          }),
+        ]);
+        setRows(enrichRawPunchesWithDayInOut(result.rows, pairPunchesToDailyRows(allForDay)));
+        setTotalCount(result.total);
+        setSummary((prev) => ({
+          ...(prev || {}),
+          source: "Supabase",
+          selectedDate,
+          count: result.total,
+          tablePage: result.page,
+          viewMode: "detail",
+        }));
+      }
     } catch (err) {
       setRows([]);
       setTotalCount(0);
@@ -408,7 +445,7 @@ export function EmployeeAttendanceInputsPage() {
     } finally {
       setLoading(false);
     }
-  }, [empCode, page, pageSize, searchDebounced, selectedDate, sortDir, sortKey]);
+  }, [empCode, page, pageSize, searchDebounced, selectedDate, sortDir, sortKey, viewMode]);
 
   const syncAttendanceFromApi = useCallback(async () => {
     const syncFromDate = addDaysToIsoDate(selectedDate, -SYNC_OVERLAP_DAYS);
@@ -490,7 +527,38 @@ export function EmployeeAttendanceInputsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [selectedDate, empCode, pageSize, searchDebounced, sortDir, sortKey]);
+  }, [selectedDate, empCode, pageSize, searchDebounced, sortDir, sortKey, viewMode]);
+
+  const tableColumns = useMemo(() => {
+    if (viewMode === "daily") {
+      return [
+        { key: "empCode", label: "Emp code" },
+        { key: "employeeName", label: "Employee" },
+        { key: "department", label: "Department" },
+        { key: "punchDate", label: "Punch date" },
+        { key: "punchIn", label: "Punch in" },
+        { key: "punchOut", label: "Punch out" },
+        {
+          key: "punchCount",
+          label: "Punches",
+          render: (r) => r.punchCount ?? "—",
+        },
+        {
+          key: "workedHours",
+          label: "Hours",
+          render: (r) => r.workedHours || "—",
+        },
+      ];
+    }
+    return [
+      { key: "empCode", label: "Emp code" },
+      { key: "employeeName", label: "Employee" },
+      { key: "punchDate", label: "Punch date" },
+      { key: "punchTime", label: "Punch time" },
+      { key: "dayPunchIn", label: "Punch in" },
+      { key: "dayPunchOut", label: "Punch out" },
+    ];
+  }, [viewMode]);
 
   return (
     <SectionCard
@@ -513,21 +581,34 @@ export function EmployeeAttendanceInputsPage() {
           />
         </label>
         <TinyInput value={empCode} onChange={(e) => setEmpCode(e.target.value)} placeholder="Emp code / ALL" className="w-[130px]" />
-        <TinyInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search punches" className="min-w-[160px]" />
-        <label className="text-[11px] text-gray-600">
-          Sort
-          <TinySelect value={sortKey} onChange={(e) => setSortKey(e.target.value)} className="min-w-[145px] ml-1">
-            {ATTENDANCE_SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </TinySelect>
-        </label>
-        <TinySelect value={sortDir} onChange={(e) => setSortDir(e.target.value)} className="w-[110px]">
-          <option value="desc">Descending</option>
-          <option value="asc">Ascending</option>
+        <TinyInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search" className="min-w-[160px]" />
+        <TinySelect
+          value={viewMode}
+          onChange={(e) => setViewMode(e.target.value)}
+          className="min-w-[150px]"
+          title="Daily: first/last punch per employee per day"
+        >
+          <option value="daily">Daily (in / out)</option>
+          <option value="detail">All punch rows</option>
         </TinySelect>
+        {viewMode === "detail" ? (
+          <>
+            <label className="text-[11px] text-gray-600">
+              Sort
+              <TinySelect value={sortKey} onChange={(e) => setSortKey(e.target.value)} className="min-w-[145px] ml-1">
+                {ATTENDANCE_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </TinySelect>
+            </label>
+            <TinySelect value={sortDir} onChange={(e) => setSortDir(e.target.value)} className="w-[110px]">
+              <option value="desc">Descending</option>
+              <option value="asc">Ascending</option>
+            </TinySelect>
+          </>
+        ) : null}
         <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">
           {ATTENDANCE_PAGE_SIZES.map((size) => (
             <option key={size} value={size}>
@@ -563,6 +644,8 @@ export function EmployeeAttendanceInputsPage() {
         <code className="text-[10px]">erp_attendance_punches</code>). eTimeOffice data is{" "}
         <span className="font-medium">not loaded automatically</span> — click{" "}
         <span className="font-medium">Sync eTimeOffice</span> to pull punches for the selected date into Supabase, then the grid reloads.
+        {" "}
+        <span className="font-medium">Daily view</span> shows first punch as Punch in and last as Punch out per employee per day.
       </p>
 
       {apiConnection.checking ? (
@@ -592,15 +675,7 @@ export function EmployeeAttendanceInputsPage() {
 
       <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2">
-          <DenseTable
-            columns={[
-              { key: "empCode", label: "Emp code" },
-              { key: "employeeName", label: "Employee" },
-              { key: "punchDate", label: "Punch date" },
-              { key: "punchTime", label: "Punch time" },
-            ]}
-            rows={rows}
-          />
+          <DenseTable columns={tableColumns} rows={rows} />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>
               Showing {pageStart}-{pageEnd} of {totalCount} record(s) for {selectedDate}

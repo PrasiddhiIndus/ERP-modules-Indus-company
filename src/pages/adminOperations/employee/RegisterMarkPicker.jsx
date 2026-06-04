@@ -53,7 +53,7 @@ export function RegisterMarkPicker({ value, onChange }) {
     setLeaveSubmenuOpen(false);
   };
 
-  const display = value || "—";
+  const display = value || "-";
 
   const menu =
     open && menuPos

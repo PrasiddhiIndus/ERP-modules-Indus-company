@@ -267,10 +267,17 @@ const BillingInner = () => {
     billingPoBasisFilter,
     setBillingPoBasisFilter,
     billingPoBasisOptions,
+    refreshBilling,
   } = useBilling();
   const location = useLocation();
   const navigate = useNavigate();
   const activeTab = getBillingPathTab(location.pathname);
+
+  useEffect(() => {
+    if (activeTab === 'create-invoice' || activeTab === 'add-on-invoices') {
+      void refreshBilling?.();
+    }
+  }, [activeTab, refreshBilling]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
