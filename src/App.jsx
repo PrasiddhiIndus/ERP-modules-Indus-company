@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
@@ -79,9 +79,16 @@ import {
   StatutoryPT,
   StatutoryTDS,
   LoansRecoveries,
-  PayrollRegister,
   PayrollOutputs,
   SalaryManagementSettings,
+  SalarySiteMaster,
+  SalaryPayrollPackageBuilder,
+  SalaryAttendanceIntegration,
+  SalaryComplianceManagement,
+  SalaryPayrollApproval,
+  SalaryReportsExports,
+  SalaryEmployeeExit,
+  SalaryFullFinalSettlement,
   EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
   EmployeeAttendanceSheetsPage,
@@ -216,6 +223,11 @@ function ConnectionGuard({ children }) {
     );
   }
   return children;
+}
+
+function RedirectEmployeeMasterId() {
+  const { id } = useParams();
+  return <Navigate to={`/app/hr/payroll/salary/people-master/${id}`} replace />;
 }
 
 function App() {
@@ -359,22 +371,42 @@ function App() {
             <Route path="hr/payroll/salary" element={<SalaryManagementLayout />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<SalaryManagementDashboard />} />
-              <Route path="employees" element={<EmployeePayrollList />} />
-              <Route path="employee-master" element={<SalaryEmployeeMaster />} />
-              <Route path="employee-master/new" element={<SalaryEmployeeMasterProfile />} />
-              <Route path="employee-master/:id" element={<SalaryEmployeeMasterProfile />} />
-              <Route path="employees/:id" element={<EmployeePayrollProfile />} />
-              <Route path="run" element={<PayrollRunPage />} />
-              <Route path="site-formulas" element={<SiteFormulaSetup />} />
-              <Route path="manual-inputs" element={<PayrollManualInputs />} />
-              <Route path="pf" element={<StatutoryPF />} />
-              <Route path="esic" element={<StatutoryESIC />} />
-              <Route path="pt" element={<StatutoryPT />} />
-              <Route path="tds" element={<StatutoryTDS />} />
-              <Route path="loans" element={<LoansRecoveries />} />
-              <Route path="register" element={<PayrollRegister />} />
-              <Route path="outputs" element={<PayrollOutputs />} />
+              <Route path="site-master" element={<SalarySiteMaster />} />
+              <Route path="formula-library" element={<SiteFormulaSetup />} />
+              <Route path="payroll-package-builder" element={<SalaryPayrollPackageBuilder />} />
+              <Route path="people-master" element={<SalaryEmployeeMaster />} />
+              <Route path="people-master/new" element={<SalaryEmployeeMasterProfile />} />
+              <Route path="people-master/:id" element={<SalaryEmployeeMasterProfile />} />
+              <Route path="attendance-integration" element={<SalaryAttendanceIntegration />} />
+              <Route path="compliance-management" element={<SalaryComplianceManagement />} />
+              <Route path="compliance/pf" element={<StatutoryPF />} />
+              <Route path="compliance/esic" element={<StatutoryESIC />} />
+              <Route path="compliance/pt" element={<StatutoryPT />} />
+              <Route path="compliance/tds" element={<StatutoryTDS />} />
+              <Route path="compliance/loans" element={<LoansRecoveries />} />
+              <Route path="payroll-processing" element={<PayrollRunPage />} />
+              <Route path="payroll-approval" element={<SalaryPayrollApproval />} />
+              <Route path="payslips" element={<PayrollOutputs />} />
+              <Route path="reports-exports" element={<SalaryReportsExports />} />
+              <Route path="employee-exit" element={<SalaryEmployeeExit />} />
+              <Route path="full-final-settlement" element={<SalaryFullFinalSettlement />} />
               <Route path="settings" element={<SalaryManagementSettings />} />
+              {/* Legacy redirects */}
+              <Route path="employee-master" element={<Navigate to="../people-master" replace />} />
+              <Route path="employee-master/new" element={<Navigate to="../people-master/new" replace />} />
+              <Route path="employee-master/:id" element={<RedirectEmployeeMasterId />} />
+              <Route path="run" element={<Navigate to="../payroll-processing" replace />} />
+              <Route path="site-formulas" element={<Navigate to="../formula-library" replace />} />
+              <Route path="outputs" element={<Navigate to="../payslips" replace />} />
+              <Route path="register" element={<Navigate to="../reports-exports" replace />} />
+              <Route path="employees" element={<EmployeePayrollList />} />
+              <Route path="employees/:id" element={<EmployeePayrollProfile />} />
+              <Route path="manual-inputs" element={<PayrollManualInputs />} />
+              <Route path="pf" element={<Navigate to="../compliance/pf" replace />} />
+              <Route path="esic" element={<Navigate to="../compliance/esic" replace />} />
+              <Route path="pt" element={<Navigate to="../compliance/pt" replace />} />
+              <Route path="tds" element={<Navigate to="../compliance/tds" replace />} />
+              <Route path="loans" element={<Navigate to="../compliance/loans" replace />} />
             </Route>
             <Route path="people-management" element={<PeopleManagement />} />
             

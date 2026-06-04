@@ -6,7 +6,7 @@ import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { ROLES, getLandingPathForUser, isPathAllowed } from "../config/roles";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
-import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD } from "../pages/hr/payroll/salary/salaryNav";
+import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import PoApprovalBell from "../components/PoApprovalBell";
 import AdminLeaveLimitBell from "../components/AdminLeaveLimitBell";
 import {
@@ -284,7 +284,7 @@ const Layout = () => {
                   </NavLink>
                   <div className="flex items-stretch w-full rounded-md hover:bg-gray-100 transition-colors">
                     <NavLink
-                      to={`${HR_SALARY_BASE}/${HR_SALARY_DASHBOARD}`}
+                      to={salaryNavPath(HR_SALARY_DASHBOARD)}
                       className={({ isActive }) =>
                         `${subLinkBase} flex-1 min-w-0 rounded-md ${isActive ? activeClass : "text-gray-700"}`
                       }
@@ -312,15 +312,9 @@ const Layout = () => {
                       {SALARY_SUB_NAV.map((item) => (
                         <NavLink
                           key={item.to}
-                          to={`${HR_SALARY_BASE}/${item.to}`}
+                          to={salaryNavPath(item.to)}
                           className={subNavClass}
-                          isActive={
-                            item.to === "employees"
-                              ? (_, { location }) => location.pathname.startsWith(`/app/${HR_SALARY_BASE}/employees`)
-                              : item.to === "employee-master"
-                                ? (_, { location }) => location.pathname.startsWith(`/app/${HR_SALARY_BASE}/employee-master`)
-                                : undefined
-                          }
+                          isActive={(_, { location }) => salaryNavIsActive(item, location)}
                         >
                           <span className="text-xs">{item.label}</span>
                         </NavLink>

@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
+import PageLoader from '../../../../components/PageLoader';
 
 export default function SalaryLayout() {
   const { pathname } = useLocation();
-  const hideHeader = pathname.includes('/employee-master');
+  const hideHeader = pathname.includes('/people-master');
 
   return (
     <div className="space-y-4 min-h-[60vh]">
@@ -15,7 +16,9 @@ export default function SalaryLayout() {
           </p>
         </div>
       ) : null}
-      <Outlet />
+      <Suspense fallback={<PageLoader />}>
+        <Outlet />
+      </Suspense>
     </div>
   );
 }

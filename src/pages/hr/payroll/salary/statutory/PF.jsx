@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { SectionCard } from '../../../../adminOperations/components/AdminUi';
+import CompliancePageHeader from '../components/CompliancePageHeader';
 import { listPayrollRuns } from '../../../../../services/payrollApi';
 import { supabase } from '../../../../../lib/supabase';
 import { PAYROLL_TABLES } from '../../../../../modules/payroll/integrations';
@@ -21,7 +22,7 @@ export default function StatutoryPF() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900">PF</h2>
+      <CompliancePageHeader title="Provident Fund (PF)" subtitle="PF wages, contributions, and challan preparation." />
       <SectionCard title="PF contributions (latest run)">
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">

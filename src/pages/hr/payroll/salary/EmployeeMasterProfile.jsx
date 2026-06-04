@@ -132,13 +132,13 @@ export default function EmployeeMasterProfile() {
       employeeCode: form.employeeCode.trim(),
       name: form.name.trim(),
     });
-    navigate(salaryAppPath('employee-master'));
+    navigate(salaryAppPath('people-master'));
   };
 
   return (
     <div className="space-y-4 min-h-[60vh]">
       <Link
-        to={salaryAppPath('employee-master')}
+        to={salaryAppPath('people-master')}
         className="inline-flex items-center gap-1.5 text-xs text-[#1F3A8A] hover:underline"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
