@@ -25,6 +25,7 @@ export function BulkMarkEmployeePicker({
   selectedCodes,
   onToggleSelect,
   onClearSelected,
+  onSelectAll,
   search,
   onSearchChange,
   markLabel,
@@ -53,9 +54,9 @@ export function BulkMarkEmployeePicker({
   );
 
   const selected = useMemo(() => {
-    const byCode = new Map(pool.map((r) => [r.empCode, r]));
+    const byCode = new Map(employees.map((r) => [r.empCode, r]));
     return selectedCodes.map((code) => byCode.get(code)).filter(Boolean);
-  }, [pool, selectedCodes]);
+  }, [employees, selectedCodes]);
 
   const listClass =
     "h-48 overflow-y-auto rounded-md border border-gray-200 bg-white divide-y divide-gray-100";
@@ -86,6 +87,16 @@ export function BulkMarkEmployeePicker({
             className="w-full mt-1 max-w-md"
           />
         </label>
+        {onSelectAll ? (
+          <button
+            type="button"
+            onClick={onSelectAll}
+            disabled={!employees.length}
+            className="h-8 px-3 rounded-lg border border-[#1F3A8A] bg-[#1F3A8A]/5 text-[#1F3A8A] text-xs font-semibold hover:bg-[#1F3A8A]/10 disabled:opacity-50"
+          >
+            Select all
+          </button>
+        ) : null}
         {onMarkFilterChange ? (
           <label className="block text-[11px] text-gray-600 min-w-[220px]">
             Filter list
@@ -138,30 +149,38 @@ export function BulkMarkEmployeePicker({
             {selected.length === 0 ? (
               <p className="px-2 py-3 text-[11px] text-gray-400 text-center">Click employees on the left to add</p>
             ) : (
-              selected.map((row) => (
-                <button
-                  key={row.empCode}
-                  type="button"
-                  className={`${itemClass} hover:bg-red-50`}
-                  title="Click to remove from selection"
-                  onClick={() => onToggleSelect(row.empCode, false)}
-                >
-                  {employeeLabel(row)}
-                </button>
-              ))
+              selected.map((row) => {
+                const existing = dayMarkByCode[row.empCode];
+                return (
+                  <button
+                    key={row.empCode}
+                    type="button"
+                    className={`${itemClass} hover:bg-red-50`}
+                    title={existing ? `Mark in range: ${existing}` : "Click to remove from selection"}
+                    onClick={() => onToggleSelect(row.empCode, false)}
+                  >
+                    {employeeLabel(row)}
+                    {existing ? (
+                      <span className="ml-1 text-[10px] text-amber-700">[{existing}]</span>
+                    ) : null}
+                  </button>
+                );
+              })
             )}
           </div>
 
-          {selected.length ? (
+          {selectedCodes.length > 0 ? (
             <button
               type="button"
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 if (onClearSelected) onClearSelected();
                 else selectedCodes.forEach((c) => onToggleSelect(c, false));
               }}
               className="mt-2 w-full h-8 px-3 rounded-lg text-xs font-semibold border border-gray-300 bg-white hover:bg-gray-50"
             >
-              Remove Selected
+              Clear selection
             </button>
           ) : null}
         </div>

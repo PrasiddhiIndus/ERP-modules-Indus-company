@@ -1103,7 +1103,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             />
             <input
               type="text"
-              placeholder="IFSPL system id"
+              placeholder="Machine ID"
               value={filterSystemId}
               onChange={(e) => setFilterSystemId(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1194,9 +1194,9 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             <table className="min-w-max divide-y divide-gray-200 border border-gray-200">
               <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
-                <th className={th}>id</th>
+                <th className={th}>Sr No</th>
                 <th className={`${th} cursor-pointer hover:bg-gray-100`} onClick={() => handleSort('employee_id')}>
-                  employee_id{sortField === 'employee_id' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
+                  Machine ID{sortField === 'employee_id' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
                 </th>
                 <th className={th}>employment_type</th>
                 <th className={th}>employee_code</th>
@@ -1351,7 +1351,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">System employee ID</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Machine ID</label>
                     <input
                       type="text"
                       value={formData.employee_id}
