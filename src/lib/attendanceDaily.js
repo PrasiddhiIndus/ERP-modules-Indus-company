@@ -114,37 +114,62 @@ export function isRegisterEffectivePresentMark(mark) {
   return registerPresentDayCredit(mark) > 0;
 }
 
-/** Human-readable status for a single day cell (present / absent / leave / …). */
+/** Human-readable status for a single day cell (present / unmarked / leave / …). */
 export function registerMarkStatusLabel(mark) {
   if (isRegisterPresentMark(mark)) return mark === "P(OD)" ? "Present (OD)" : "Present";
-  if (!mark) return "Absent";
+  if (!mark) return "Unmarked";
   const opt = REGISTER_STATUS_OPTIONS.find((o) => o.value === mark);
   return opt?.label || mark;
 }
 
 /**
- * Present vs absent counts for one calendar day across register rows.
- * Present = P or P(OD); absent = all other marks (including unmarked).
+ * Present vs marked-other vs unmarked for one calendar day across register rows.
+ * Unmarked = no punch and no stored mark (blank cell).
  */
 export function computeDayAttendanceBreakdown(rows, day) {
   const presentEmployees = [];
-  const absentEmployees = [];
+  const markedOtherEmployees = [];
+  const unmarkedEmployees = [];
   const allEmployees = [];
   for (const row of rows || []) {
     const dayMark = row.dayMarks?.[day] || "";
     const entry = { ...row, dayMark };
     allEmployees.push(entry);
     if (isRegisterEffectivePresentMark(dayMark)) presentEmployees.push(entry);
-    else absentEmployees.push(entry);
+    else if (!dayMark) unmarkedEmployees.push(entry);
+    else markedOtherEmployees.push(entry);
   }
   return {
     total: allEmployees.length,
     present: presentEmployees.length,
-    absent: absentEmployees.length,
+    absent: markedOtherEmployees.length,
+    unmarked: unmarkedEmployees.length,
     presentEmployees,
-    absentEmployees,
+    absentEmployees: markedOtherEmployees,
+    unmarkedEmployees,
     allEmployees,
   };
+}
+
+/** Resolve inclusive day-of-month range inside a month from ISO dates. */
+export function resolveBulkDayRange(monthKey, fromIso, toIso) {
+  if (!monthKey || !fromIso?.startsWith(monthKey) || !toIso?.startsWith(monthKey)) return null;
+  const dayFrom = dayOfMonthFromIsoDate(fromIso);
+  const dayTo = dayOfMonthFromIsoDate(toIso);
+  if (!dayFrom || !dayTo) return null;
+  return { dayFrom: Math.min(dayFrom, dayTo), dayTo: Math.max(dayFrom, dayTo) };
+}
+
+/** Filter employees for bulk picker (any day in range matching the filter). */
+export function employeeMatchesBulkMarkFilter(row, { dayFrom, dayTo, filter = "all" }) {
+  if (!filter || filter === "all") return true;
+  for (let day = dayFrom; day <= dayTo; day += 1) {
+    const mark = row.dayMarks?.[day] || "";
+    if (filter === "present" && isRegisterEffectivePresentMark(mark)) return true;
+    if (filter === "unmarked" && !mark) return true;
+    if (filter === "marked" && mark) return true;
+  }
+  return false;
 }
 
 /** Values allowed by admin_attendance_register_mark_check (Supabase). */
@@ -509,10 +534,11 @@ export async function fetchRegisterMarksForYear(supabase, year) {
 }
 
 /**
- * Upsert Present (P) from punches into the register without overwriting manual marks.
+ * Upsert Present (P) from punches into the register.
+ * When raw punch data exists for a day, it overwrites any existing mark (leave, manual, etc.).
  */
 export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
-  const { respectManualMarks = true, fromDate: fromOverride, toDate: toOverride } = options;
+  const { respectManualMarks = false, fromDate: fromOverride, toDate: toOverride } = options;
   const candidateRows = punchesToPresentRegisterRows(punches);
   if (!candidateRows.length) {
     return { upserted: 0, skipped: 0, candidates: 0 };
@@ -740,6 +766,7 @@ export function computeRegisterSummaryFooter(rows) {
 export function applyBulkRegisterMarks(manualMarks, gridRows, { empCodes, dayFrom, dayTo, mark, overwrite = false }) {
   const next = { ...manualMarks };
   const rowByCode = new Map(gridRows.map((r) => [r.empCode, r]));
+  const clearMark = mark == null || mark === "";
 
   for (const code of empCodes) {
     const row = rowByCode.get(code);
@@ -749,7 +776,11 @@ export function applyBulkRegisterMarks(manualMarks, gridRows, { empCodes, dayFro
     for (let day = dayFrom; day <= dayTo; day += 1) {
       const current = row.dayMarks[day] || "";
       if (!overwrite && current !== "") continue;
-      empMarks[day] = mark;
+      if (clearMark) {
+        delete empMarks[day];
+      } else {
+        empMarks[day] = mark;
+      }
     }
 
     if (Object.keys(empMarks).length) next[code] = empMarks;
@@ -1052,23 +1083,12 @@ function sortPunchesByTime(punches) {
 }
 
 function pickInOutTimes(sortedPunches) {
-  const withDir = sortedPunches.filter((p) => normalizeDirection(p.direction));
-  const ins = withDir.filter((p) => normalizeDirection(p.direction) === "in");
-  const outs = withDir.filter((p) => normalizeDirection(p.direction) === "out");
-
   let punchIn = "";
   let punchOut = "";
   let incomplete = false;
   const remarks = [];
 
-  if (ins.length || outs.length) {
-    punchIn = ins.length ? ins[0].punchTime : "";
-    punchOut = outs.length ? outs[outs.length - 1].punchTime : "";
-    if (ins.length > 1) remarks.push(`Multiple in (${ins.length})`);
-    if (outs.length > 1) remarks.push(`Multiple out (${outs.length})`);
-    if (!punchIn && outs.length) punchIn = sortedPunches[0]?.punchTime || "";
-    if (!punchOut && ins.length) punchOut = sortedPunches[sortedPunches.length - 1]?.punchTime || "";
-  } else if (sortedPunches.length === 1) {
+  if (sortedPunches.length === 1) {
     punchIn = sortedPunches[0].punchTime;
     incomplete = true;
     remarks.push("No punch out");
