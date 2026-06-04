@@ -56,7 +56,7 @@ export default function PayrollRun() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900">Payroll run</h2>
+      <h2 className="text-lg font-semibold text-gray-900">Payroll processing</h2>
       <div className="flex flex-wrap gap-2">
         {STEPS.map((label, i) => (
           <button

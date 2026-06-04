@@ -2,28 +2,45 @@ export const HR_SALARY_BASE = 'hr/payroll/salary';
 export const HR_SALARY_APP_BASE = `/app/${HR_SALARY_BASE}`;
 export const HR_SALARY_DASHBOARD = 'dashboard';
 
-/** Absolute /app/... path — use for Link/navigate from nested salary pages (avoids dashboard/run → login). */
+/** Absolute /app/... path — use for Link/navigate from nested salary pages. */
 export function salaryAppPath(...segments) {
   const tail = segments.filter((s) => s != null && s !== '').join('/');
   return tail ? `${HR_SALARY_APP_BASE}/${tail}` : HR_SALARY_APP_BASE;
 }
 
-export const SALARY_NAV = [
-  { to: HR_SALARY_DASHBOARD, label: 'Dashboard' },
-  { to: 'employees', label: 'Employee payroll list' },
-  { to: 'employee-master', label: 'Employee master details' },
-  { to: 'run', label: 'Payroll run' },
-  { to: 'site-formulas', label: 'Site formulas' },
-  { to: 'manual-inputs', label: 'Manual inputs' },
-  { to: 'pf', label: 'PF' },
-  { to: 'esic', label: 'ESIC' },
-  { to: 'pt', label: 'State tax (PT)' },
-  { to: 'tds', label: 'Income tax (TDS)' },
-  { to: 'loans', label: 'Loans & recoveries' },
-  { to: 'register', label: 'Payroll register' },
-  { to: 'outputs', label: 'Payslips / outputs' },
+/** Alias for sidebar NavLink (absolute /app/... paths). */
+export function salaryNavPath(...segments) {
+  return salaryAppPath(...segments);
+}
+
+/** Main header link — Salary Management opens dashboard. */
+export const SALARY_NAV = [{ to: HR_SALARY_DASHBOARD, label: 'Dashboard' }];
+
+/** Sidebar dropdown under Salary Management (no Component Master). */
+export const SALARY_SUB_NAV = [
+  { to: 'site-master', label: 'Site Master' },
+  { to: 'formula-library', label: 'Formula Library' },
+  { to: 'payroll-package-builder', label: 'Payroll Package Builder' },
+  { to: 'people-master', label: 'People Master', matchPrefix: 'people-master' },
+  { to: 'attendance-integration', label: 'Attendance Integration' },
+  { to: 'compliance-management', label: 'Compliance Management', matchPrefix: ['compliance-management', 'compliance'] },
+  { to: 'payroll-processing', label: 'Payroll Processing' },
+  { to: 'payroll-approval', label: 'Payroll Approval' },
+  { to: 'payslips', label: 'Payslips' },
+  { to: 'reports-exports', label: 'Reports & Exports' },
+  { to: 'employee-exit', label: 'Employee exit' },
+  { to: 'full-final-settlement', label: 'Full & Final Settlement' },
   { to: 'settings', label: 'Settings' },
 ];
 
-/** Sidebar submenu — dashboard opens from the Salary Management header link. */
-export const SALARY_SUB_NAV = SALARY_NAV.filter((item) => item.to !== HR_SALARY_DASHBOARD);
+export function salaryNavIsActive(item, location) {
+  const base = `/app/${HR_SALARY_BASE}`;
+  const path = location.pathname.replace(/\/$/, '');
+  const prefixes = Array.isArray(item.matchPrefix)
+    ? item.matchPrefix
+    : [item.matchPrefix || item.to];
+  if (prefixes.includes(HR_SALARY_DASHBOARD)) {
+    return path === `${base}/${HR_SALARY_DASHBOARD}` || path === base;
+  }
+  return prefixes.some((p) => path.startsWith(`${base}/${p}`));
+}

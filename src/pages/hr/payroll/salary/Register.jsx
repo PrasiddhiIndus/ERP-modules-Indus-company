@@ -6,7 +6,7 @@ import { supabase } from '../../../../lib/supabase';
 import { EMPLOYEE_MASTER_TABLE } from '../../../../modules/payroll/integrations';
 import { salaryAppPath } from './salaryNav';
 
-export default function PayrollRegister() {
+export default function PayrollRegister({ hideTitle = false }) {
   const navigate = useNavigate();
   const [runs, setRuns] = useState([]);
   const [runId, setRunId] = useState('');
@@ -59,7 +59,7 @@ export default function PayrollRegister() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900">Payroll register</h2>
+      {!hideTitle ? <h2 className="text-lg font-semibold text-gray-900">Payroll register</h2> : null}
       <label className="text-xs flex items-center gap-2">
         Run
         <select value={runId} onChange={(e) => setRunId(e.target.value)} className="h-8 border rounded px-2 text-xs">
@@ -95,7 +95,7 @@ export default function PayrollRegister() {
           </p>
         ) : (
           <p className="text-xs text-gray-500 mt-2">
-            No register data. <Link to={salaryAppPath('run')} className="text-blue-700 underline">Run payroll</Link> with save.
+            No register data. <Link to={salaryAppPath('payroll-processing')} className="text-blue-700 underline">Run payroll</Link> with save.
           </p>
         )}
       </SectionCard>

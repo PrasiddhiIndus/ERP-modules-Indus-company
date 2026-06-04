@@ -36,8 +36,8 @@ export default function SalaryDashboard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Payroll command center</h2>
-          <p className="text-xs text-gray-600">Site-driven formulas · Present days from attendance only</p>
+          <h2 className="text-lg font-semibold text-gray-900">Dashboard</h2>
+          <p className="text-xs text-gray-600">Payroll command center · Site-driven formulas · Present days from attendance only</p>
         </div>
         <label className="text-xs text-gray-600 flex items-center gap-2">
           Payroll month
@@ -65,10 +65,10 @@ export default function SalaryDashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <SectionCard title="Quick actions" right={<Badge tone="bg-slate-100 text-slate-700">Salary</Badge>}>
               <div className="flex flex-wrap gap-2">
-                <Link to={salaryAppPath('run')} className="px-3 py-2 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium">Start payroll run</Link>
-                <Link to={salaryAppPath('employees')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Employee list</Link>
-                <Link to={salaryAppPath('manual-inputs')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Manual inputs</Link>
-                <Link to={salaryAppPath('site-formulas')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Site formulas</Link>
+                <Link to={salaryAppPath('payroll-processing')} className="px-3 py-2 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium">Start payroll processing</Link>
+                <Link to={salaryAppPath('people-master')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">People Master</Link>
+                <Link to={salaryAppPath('attendance-integration')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Attendance</Link>
+                <Link to={salaryAppPath('formula-library')} className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-medium">Formula library</Link>
                 <button
                   type="button"
                   onClick={async () => {

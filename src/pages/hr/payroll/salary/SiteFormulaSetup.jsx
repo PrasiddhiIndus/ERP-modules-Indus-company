@@ -85,7 +85,7 @@ export default function SiteFormulaSetup() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900">Site payroll formula setup</h2>
+      <h2 className="text-lg font-semibold text-gray-900">Formula library</h2>
       <p className="text-xs text-gray-600">Each site defines component formulas. Employees mapped to a site in payroll profile use that logic.</p>
       <SectionCard title="Site" right={<Badge>Formula engine</Badge>}>
         <div className="flex flex-wrap gap-2 items-end mb-4">

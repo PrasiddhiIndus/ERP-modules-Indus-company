@@ -17,7 +17,7 @@ export default function PayrollOutputs() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-900">Payslips / outputs</h2>
+      <h2 className="text-lg font-semibold text-gray-900">Payslips</h2>
       <SectionCard title="Generated payslips">
         <p className="text-xs text-gray-600 mb-3">PDF export and bank file generation are phase-2; payload structure is stored per employee per run.</p>
         <ul className="text-xs space-y-2">
