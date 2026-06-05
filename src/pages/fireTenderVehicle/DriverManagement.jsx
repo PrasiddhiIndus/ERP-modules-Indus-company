@@ -1,3 +1,4 @@
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
@@ -509,6 +510,9 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  S.No
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Driver Details
                 </th>
@@ -533,10 +537,11 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredDrivers.map((driver) => {
+              {filteredDrivers.map((driver, idx) => {
                 const licenseExpiry = getLicenseExpiryStatus(driver.license_expiry_date);
                 return (
                   <tr key={driver.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-center tabular-nums">{idx + 1}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
@@ -577,7 +582,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
                         {driver.license_expiry_date && (
                           <div>
                             <div className="text-sm text-gray-500">
-                              Expires: {new Date(driver.license_expiry_date).toLocaleDateString()}
+                              Expires: {formatDateDdMmYyyy(driver.license_expiry_date)}
                             </div>
                             {licenseExpiry && (
                               <div className={`text-xs ${

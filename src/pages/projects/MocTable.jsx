@@ -137,6 +137,7 @@ const MocTable = ({ tenderId }) => {
       <table className="border-collapse border text-sm w-full mb-4">
         <thead className="bg-gray-100">
           <tr>
+            <th className="border px-2 py-1 text-center w-11">S.No</th>
             <th className="border px-2 py-1">MOC</th>
             <th className="border px-2 py-1">Unit</th>
             <th className="border px-2 py-1">Price of MOC</th>
@@ -145,6 +146,7 @@ const MocTable = ({ tenderId }) => {
         <tbody>
           {rows.map((row, index) => (
             <tr key={row.id || row.moc}>
+              <td className="border px-2 py-1 text-center tabular-nums text-gray-600">{index + 1}</td>
               <td className="border px-2 py-1">{row.moc}</td>
               <td className="border px-2 py-1">{row.unit}</td>
               <td className="border px-2 py-1">

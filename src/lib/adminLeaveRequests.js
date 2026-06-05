@@ -5,6 +5,7 @@
  */
 
 import { supabase } from "./supabase";
+import { formatDateDdMmYyyy } from "../utils/dateDisplay";
 import { isSupabaseRealtimeEnabled } from "./supabaseConfig";
 import {
   EMPLOYEE_MASTER_TABLE,
@@ -622,8 +623,8 @@ export function statusSeverity(status) {
 }
 
 export function formatLeaveDateRange(fromDate, toDate) {
-  const f = String(fromDate || "").slice(0, 10);
-  const t = String(toDate || "").slice(0, 10);
+  const f = formatDateDdMmYyyy(fromDate);
+  const t = formatDateDdMmYyyy(toDate);
   if (!f && !t) return "—";
   if (f === t) return f;
   return `${f} → ${t}`;

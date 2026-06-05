@@ -16,6 +16,7 @@ import {
   quickActions as quickActionsTpl,
   managementInsights as managementInsightsTpl,
 } from "./dashboard/data/mockCommandCenterData";
+import { formatDateDdMmYyyy } from "../utils/dateDisplay";
 import {
   SectionHeader,
   ExecutiveChip,
@@ -59,10 +60,6 @@ function toLocalDateStart(value) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function formatDate(value) {
-  return value.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-}
-
 function buildManpowerBidDeadlineAlerts(rows) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -85,7 +82,7 @@ function buildManpowerBidDeadlineAlerts(rows) {
         module: "Manpower",
         title: `Bid deadline in ${daysUntil} day${daysUntil === 1 ? "" : "s"} - ${row.client || "Client not set"}`,
         record: row.enquiry_number || `ENQ-${row.id}`,
-        age: `T-${daysUntil} (${formatDate(deadline)})`,
+        age: `T-${daysUntil} (${formatDateDdMmYyyy(deadline)})`,
       };
     })
     .filter(Boolean)
@@ -348,12 +345,7 @@ const Dashboard = () => {
   }, [fetchDashboard]);
 
   const headerMeta = useMemo(() => {
-    const today = new Date().toLocaleDateString("en-IN", {
-      weekday: "short",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
+    const today = formatDateDdMmYyyy(new Date());
     return {
       title: "ERP Command Center",
       businessPeriod: "Current period",

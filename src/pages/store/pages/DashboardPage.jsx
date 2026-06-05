@@ -50,16 +50,18 @@ export default function DashboardPage({ data }) {
             <table className="w-full text-xs">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="text-center p-2 border-b">S.No</th>
                   {["Site", "Active Personnel", "Store", "Total Qty"].map((h) => (
                     <th key={h} className="text-left p-2 border-b">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {sites.map((s) => {
+                {sites.map((s, idx) => {
                   const total = items.reduce((sum, it) => sum + Number(stockByStoreItem[`${s.storeId}:${it.id}`] || 0), 0);
                   return (
                     <tr key={s.id} className="border-b">
+                      <td className="text-center tabular-nums p-2">{idx + 1}</td>
                       <td className="p-2">{s.siteName}</td>
                       <td className="p-2">{s.activePersonnelCount}</td>
                       <td className="p-2">{stores.find((st) => st.id === s.storeId)?.storeName || "-"}</td>

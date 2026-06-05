@@ -40,6 +40,7 @@ const PenaltyLogs = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">OC / Client</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PA Received Date</th>
@@ -50,6 +51,7 @@ const PenaltyLogs = () => {
             <tbody className="divide-y divide-gray-200">
               {logs.map((log, idx) => (
                 <tr key={`${log.invoiceId}-${idx}`} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{log.taxInvoiceNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{log.ocNumber} – {log.client}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{log.paReceivedDate || '–'}</td>

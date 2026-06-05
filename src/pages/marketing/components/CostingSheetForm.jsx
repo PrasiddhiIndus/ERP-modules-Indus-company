@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Edit2, Eye, Trash2 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import ExcelCostingSheet from './ExcelCostingSheet';
+import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 
 const CostingSheetForm = ({ 
   isOpen, 
@@ -303,10 +304,10 @@ const CostingSheetForm = ({
                               {quotation?.marketing_enquiries?.enquiry_number || '-'}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">
-                              {new Date(sheet.created_at).toLocaleDateString()}
+                              {formatDateDdMmYyyy(sheet.created_at)}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600">
-                              {new Date(sheet.updated_at || sheet.created_at).toLocaleDateString()}
+                              {formatDateDdMmYyyy(sheet.updated_at || sheet.created_at)}
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-2">

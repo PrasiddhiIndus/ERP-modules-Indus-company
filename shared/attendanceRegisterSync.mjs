@@ -98,7 +98,8 @@ export function filterPresentRegisterRowsRespectingMarks(candidateRows, marksByE
   return candidateRows.filter((row) => {
     const day = dayOfMonthFromIsoDate(row.register_date);
     if (!day) return false;
-    const existing = marksByEmpDay[row.employee_code]?.[day];
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    const existing = marksByEmpDay[code]?.[day];
     return canPunchSyncOverwriteExisting(existing);
   });
 }

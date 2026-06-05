@@ -17,17 +17,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import FireTenderNavbar from "./FireTenderNavbar";
-
-const formatDate = (value) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-};
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 
 const statusClass = {
   Approved: "bg-green-100 text-green-700",
@@ -407,7 +397,7 @@ const FireTenderDashboard = () => {
                       >
                         <td className="px-4 py-3 font-medium text-gray-900">{tender.enquiry_number || "—"}</td>
                         <td className="px-4 py-3 text-gray-700 max-w-[200px] truncate">{tender.client || "—"}</td>
-                        <td className="px-4 py-3 text-gray-600">{formatDate(tender.due_date)}</td>
+                        <td className="px-4 py-3 text-gray-600">{formatDateDdMmYyyy(tender.due_date) || "-"}</td>
                         <td className="px-4 py-3">
                           <span
                             className={`text-xs font-semibold px-2.5 py-1 rounded-md ${

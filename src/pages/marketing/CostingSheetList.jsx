@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import QuotationTrackerNavbar from './QuotationTrackerNavbar';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const CostingSheetList = () => {
   const navigate = useNavigate();
@@ -61,6 +62,7 @@ const CostingSheetList = () => {
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b">
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-700 w-11">S.No</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Quotation #</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Date</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Client</th>
@@ -70,13 +72,14 @@ const CostingSheetList = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {quotations.map((quotation) => (
+                  {quotations.map((quotation, idx) => (
                     <tr key={quotation.id} className="border-b hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-center tabular-nums text-gray-600">{idx + 1}</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {quotation.quotation_number}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
-                        {new Date(quotation.quotation_date).toLocaleDateString()}
+                        {formatDateDdMmYyyy(quotation.quotation_date)}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
                         {quotation.marketing_clients?.client_name || '-'}

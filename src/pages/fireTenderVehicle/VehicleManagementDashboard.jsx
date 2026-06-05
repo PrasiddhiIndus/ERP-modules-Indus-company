@@ -1,3 +1,4 @@
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -288,7 +289,7 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-600">
-                        {new Date(trip.start_date_time).toLocaleDateString()}
+                        {formatDateDdMmYyyy(trip.start_date_time)}
                       </p>
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                         Active
@@ -325,7 +326,7 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-600">
-                        {new Date(expiry.expiry_date).toLocaleDateString()}
+                        {formatDateDdMmYyyy(expiry.expiry_date)}
                       </p>
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                         Warning

@@ -74,6 +74,7 @@ export default function ManualSubCategoryPage() {
       <table className="min-w-full border border-gray-200 rounded">
         <thead>
           <tr className="bg-gray-100">
+            <th className="px-3 py-2 border text-center w-11">S.No</th>
             <th className="px-3 py-2 border">
               <input
                 type="checkbox"
@@ -85,8 +86,9 @@ export default function ManualSubCategoryPage() {
           </tr>
         </thead>
         <tbody>
-          {categories.map((cat) => (
+          {categories.map((cat, idx) => (
             <tr key={cat.id} className="hover:bg-gray-50">
+              <td className="px-3 py-2 border text-center tabular-nums text-gray-600">{idx + 1}</td>
               <td className="px-3 py-2 border">
                 <input
                   type="checkbox"
@@ -100,7 +102,7 @@ export default function ManualSubCategoryPage() {
           {categories.length === 0 && (
             <tr>
               <td
-                colSpan={2}
+                colSpan={3}
                 className="text-center text-gray-500 py-4 border"
               >
                 No sub categories found.

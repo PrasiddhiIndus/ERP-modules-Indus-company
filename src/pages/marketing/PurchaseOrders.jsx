@@ -4,6 +4,7 @@ import { X, Plus, Edit2, Trash2, MoreVertical, Download, FileText, Upload } from
 import { exportToExcel } from './utils/excelExport';
 import NumberInput from './components/NumberInput';
 import { parseIndianNumber } from './utils/numberFormat';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const PurchaseOrders = () => {
   const [contracts, setContracts] = useState([]);
@@ -260,13 +261,13 @@ const PurchaseOrders = () => {
     const exportData = contracts.map(contract => ({
       'Contract Number': contract.contract_number,
       'PO Number': contract.po_number || '-',
-      'PO Date': contract.po_date ? new Date(contract.po_date).toLocaleDateString() : '-',
+      'PO Date': contract.po_date ? formatDateDdMmYyyy(contract.po_date) : '-',
       'PO Value (₹)': contract.po_value || 0,
       'Quotation Number': contract.marketing_quotations?.quotation_number || '-',
       'Client': contract.marketing_clients?.client_name || '-',
       'Status': contract.status,
-      'Awarded Date': contract.awarded_date ? new Date(contract.awarded_date).toLocaleDateString() : '-',
-      'Expected Delivery Date': contract.expected_delivery_date ? new Date(contract.expected_delivery_date).toLocaleDateString() : '-',
+      'Awarded Date': contract.awarded_date ? formatDateDdMmYyyy(contract.awarded_date) : '-',
+      'Expected Delivery Date': contract.expected_delivery_date ? formatDateDdMmYyyy(contract.expected_delivery_date) : '-',
     }));
     exportToExcel(exportData, 'Contracts_Export', 'Contracts');
   };
@@ -328,6 +329,7 @@ const PurchaseOrders = () => {
               <table className="w-full min-w-[1000px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-center text-xs font-medium text-gray-500 uppercase w-11">S.No</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">Contract #</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Number</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">PO Date</th>
@@ -340,14 +342,15 @@ const PurchaseOrders = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {contracts.map((contract) => (
+                  {contracts.map((contract, idx) => (
                     <tr key={contract.id} className="hover:bg-gray-50">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-center tabular-nums text-gray-600">{idx + 1}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm font-medium text-gray-900">
                         {contract.contract_number}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{contract.po_number || '-'}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden md:table-cell">
-                        {contract.po_date ? new Date(contract.po_date).toLocaleDateString() : '-'}
+                        {contract.po_date ? formatDateDdMmYyyy(contract.po_date) : '-'}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden lg:table-cell">
                         {contract.marketing_quotations?.quotation_number || '-'}
@@ -366,7 +369,7 @@ const PurchaseOrders = () => {
                         </span>
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden xl:table-cell">
-                        {contract.awarded_date ? new Date(contract.awarded_date).toLocaleDateString() : '-'}
+                        {contract.awarded_date ? formatDateDdMmYyyy(contract.awarded_date) : '-'}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-right text-sm font-medium relative">
                         <button

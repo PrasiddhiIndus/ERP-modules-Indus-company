@@ -50,14 +50,16 @@ export default function ItemMasterPage({ data }) {
           <table className="w-full text-xs">
             <thead className="bg-gray-50">
               <tr>
+                <th className="text-center p-2 border-b">S.No</th>
                 {["Code", "Name", "Category", "Issue Type", "Annual Qty", "Reorder", "Min", "Status"].map((h) => (
                   <th key={h} className="text-left p-2 border-b">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {items.map((it) => (
+              {items.map((it, idx) => (
                 <tr key={it.id} className="border-b">
+                  <td className="text-center tabular-nums p-2">{idx + 1}</td>
                   <td className="p-2">{it.itemCode}</td>
                   <td className="p-2">{it.itemName}</td>
                   <td className="p-2">{it.category}</td>

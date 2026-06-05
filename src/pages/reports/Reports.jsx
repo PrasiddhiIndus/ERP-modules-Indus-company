@@ -44,14 +44,16 @@ const OutstandingReport = () => {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Client / OC</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pending Amount (₹)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {outstandingDebtors.map((inv) => (
+            {outstandingDebtors.map((inv, idx) => (
               <tr key={inv.id}>
+                <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                 <td className="px-4 py-3 text-sm font-medium text-gray-900">{inv.taxInvoiceNumber || inv.bill_number}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{inv.clientLegalName || inv.client_name} · {inv.ocNumber}</td>
                 <td className="px-4 py-3 text-sm text-gray-900">₹{(inv.pendingAmount ?? 0).toLocaleString('en-IN')}</td>
@@ -94,6 +96,7 @@ const DeductionAnalysisReport = () => {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Site / Client</th>
               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Deduction (₹)</th>
@@ -103,6 +106,7 @@ const DeductionAnalysisReport = () => {
           <tbody className="divide-y divide-gray-200">
             {deductionAnalysis.map((d, idx) => (
               <tr key={idx}>
+                <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                 <td className="px-4 py-3 text-sm font-medium text-gray-900">{d.invoiceNumber}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{d.siteId} – {d.client}</td>
                 <td className="px-4 py-3 text-sm text-gray-900">₹{(d.amount || 0).toLocaleString('en-IN')}</td>

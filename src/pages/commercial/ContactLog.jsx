@@ -72,6 +72,9 @@ const ContactLog = () => {
               <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[8%]">
+                      S.No
+                    </th>
                     <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[18%]">
                       OC Number
                     </th>
@@ -90,8 +93,11 @@ const ContactLog = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {paginatedList.map((po) => (
+                  {paginatedList.map((po, idx) => (
                     <tr key={po.id} className="hover:bg-gray-50 align-top">
+                      <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-600 min-w-0 text-center tabular-nums">
+                        {start + idx + 1}
+                      </td>
                       <td className="px-1.5 sm:px-2 py-2 text-[10px] sm:text-xs text-gray-900 min-w-0 text-center">
                         <TextCell value={po.ocNumber} className="text-center font-semibold font-mono" />
                       </td>
@@ -172,6 +178,9 @@ const ContactLog = () => {
                   <table className="w-full table-fixed border-collapse text-sm">
                     <thead>
                       <tr>
+                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">
+                          S.No
+                        </th>
                         <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[22%]">
                           Name
                         </th>
@@ -189,6 +198,7 @@ const ContactLog = () => {
                     <tbody className="divide-y divide-gray-200 bg-white">
                       {(poForHistory.contactHistoryLog || []).map((h, i) => (
                         <tr key={i} className="hover:bg-gray-50">
+                          <td className="px-2 py-2 text-xs text-gray-600 text-center min-w-0 tabular-nums">{i + 1}</td>
                           <td className="px-2 py-2 text-xs text-gray-900 text-center min-w-0 truncate" title={h.name}>
                             {h.name || '–'}
                           </td>

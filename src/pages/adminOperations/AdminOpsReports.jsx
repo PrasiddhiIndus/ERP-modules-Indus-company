@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { SectionCard, FilterBar, TinySelect, TinyInput, Badge, DenseTable } from "./components/AdminUi";
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import { supabase } from "../../lib/supabase";
 import {
   attachMasterFields,
@@ -297,7 +298,11 @@ export default function AdminOpsReports() {
       { key: "empCode", label: "Emp code" },
       { key: "employeeName", label: "Employee" },
       { key: "department", label: "Department" },
-      { key: "punchDate", label: "Date" },
+      {
+        key: "punchDate",
+        label: "Date",
+        render: (r) => formatDateDdMmYyyy(r.punchDate) || r.punchDate || "—",
+      },
       { key: "punchIn", label: "Punch in" },
       { key: "punchOut", label: "Punch out" },
       {
@@ -546,6 +551,7 @@ export default function AdminOpsReports() {
             ) : (
               <>
                 <DenseTable
+                  serialOffset={(currentPage - 1) * pageSize}
                   rows={pagedEmployeeRows.map((r) => ({
                     ...r,
                     id: r.id,

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, BarChart3, Clock, FileText, MessageSquare, Search, TrendingDown, Users, X } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const BASE_REPORT_PATH = '/app/billing/reports';
 const DAY_MS = 1000 * 60 * 60 * 24;
@@ -72,9 +73,8 @@ function getServicePeriodTo(inv) {
 
 function formatDate(value) {
   if (!value) return '–';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString('en-IN');
+  const formatted = formatDateDdMmYyyy(value);
+  return formatted || String(value);
 }
 
 function formatServicePeriod(inv) {
@@ -504,6 +504,7 @@ const BillingReports = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice Date</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site / OC</th>
@@ -514,8 +515,9 @@ const BillingReports = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredOutstandingDebtors.map((inv) => (
+              {filteredOutstandingDebtors.map((inv, idx) => (
                 <tr key={inv.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{getInvoiceNumber(inv)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(getInvoiceDate(inv))}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{inv.siteId || '–'} · {inv.ocNumber || '–'}</td>
@@ -543,6 +545,7 @@ const BillingReports = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice Date</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site / OC</th>
@@ -552,8 +555,9 @@ const BillingReports = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredGapReport.map((inv) => (
+              {filteredGapReport.map((inv, idx) => (
                 <tr key={inv.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{getInvoiceNumber(inv)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(getInvoiceDate(inv))}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{inv.siteId || '–'} · {inv.ocNumber || '–'}</td>
@@ -580,6 +584,7 @@ const BillingReports = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice #</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PA Received</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site / OC</th>
@@ -591,6 +596,7 @@ const BillingReports = () => {
             <tbody className="divide-y divide-gray-200">
               {filteredDeductionAnalysis.map((d, idx) => (
                 <tr key={`${d.invoiceId}-${idx}`} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{d.invoiceNumber || '–'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{formatDate(d.paReceivedDate)}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{d.siteId || '–'} · {d.ocNumber || '–'}</td>
@@ -617,6 +623,7 @@ const BillingReports = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site / OC</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Invoices</th>
@@ -628,6 +635,7 @@ const BillingReports = () => {
             <tbody className="divide-y divide-gray-200">
               {filteredLessBilledSites.map((s, idx) => (
                 <tr key={`${s.siteId || s.ocNumber}-${idx}`} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{s.siteId || '–'} · {s.ocNumber || '–'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{s.client || '–'}</td>
                   <td className="px-4 py-3 text-right text-sm text-gray-600 tabular-nums">{s.invoiceCount}</td>
@@ -654,6 +662,7 @@ const BillingReports = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">OC Number</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Invoice No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client Name</th>
@@ -665,8 +674,9 @@ const BillingReports = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredBillingDelay.map((row) => (
+              {filteredBillingDelay.map((row, idx) => (
                 <tr key={row.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{row.ocNumber || '–'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{row.invoiceNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{row.client}</td>

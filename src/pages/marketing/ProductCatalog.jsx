@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { X, Edit2, Trash2, Download, Upload, Plus, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import * as XLSX from 'xlsx';
 
 const ProductCatalog = () => {
@@ -503,7 +504,7 @@ const ProductCatalog = () => {
         'Min Selling Price (₹)': product.min_selling_price || '',
         'Max Discount (%)': product.max_discount_percentage || '',
         'Active': product.is_active ? 'Yes' : 'No',
-        'Created At': product.created_at ? new Date(product.created_at).toLocaleDateString() : '',
+        'Created At': formatDateDdMmYyyy(product.created_at),
       };
     });
     exportToExcel(exportData, 'Products_Export', 'Products');
@@ -1064,6 +1065,7 @@ const ProductCatalog = () => {
               <table className="w-full border-collapse text-sm" style={{ border: '1px solid #000', minWidth: '1300px' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f3f4f6', borderBottom: '2px solid #000' }}>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '48px' }}>S.No</th>
                     <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '80px' }}>ID No.</th>
                     <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '180px' }}>Product Name</th>
                     <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '300px' }}>Specification</th>
@@ -1107,6 +1109,9 @@ const ProductCatalog = () => {
                     
                     return (
                       <tr key={product.id} style={{ borderBottom: '1px solid #000' }} className="hover:bg-gray-50">
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm border border-gray-400 align-top tabular-nums text-gray-600" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                          {startIndex + index + 1}
+                        </td>
                         <td className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm border border-gray-400 align-top font-semibold text-gray-900" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
                           {uniqueId}
                       </td>
