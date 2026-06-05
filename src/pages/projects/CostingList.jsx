@@ -1,17 +1,23 @@
 // src/pages/CostingList.jsx
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { Calculator, ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Calculator, ChevronLeft, ChevronRight, Copy, Loader2, Search } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import FireTenderNavbar from "./FireTenderNavbar";
+import { SortableHeader, useTableSort } from "../../components/SortableTableHeader";
+import DuplicateCostingSheetModal from "./DuplicateCostingSheetModal";
+import { FIRE_TENDER_TEMPLATES, normalizeTemplate } from "./fireTenderTemplates";
 
 const ITEMS_PER_PAGE = 5;
 
 const CostingList = ({ embeddedInHub = false }) => {
+  const navigate = useNavigate();
   const [tenders, setTenders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [templateFilter, setTemplateFilter] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
+  const [duplicateSource, setDuplicateSource] = useState(null);
 
   useEffect(() => {
     const fetchApprovedTenders = async () => {
@@ -19,7 +25,7 @@ const CostingList = ({ embeddedInHub = false }) => {
 
       const { data, error } = await supabase
         .from("tenders")
-        .select("id, tender_number, client, status")
+        .select("id, tender_number, client, status, costing_template")
         .eq("status", "Approved");
 
       if (error) {
@@ -35,15 +41,23 @@ const CostingList = ({ embeddedInHub = false }) => {
     fetchApprovedTenders();
   }, []);
 
-  const filteredTenders = tenders.filter(
-    (tender) =>
-      tender.tender_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tender.client?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTenders = tenders.filter((tender) => {
+    if (templateFilter !== "All" && normalizeTemplate(tender.costing_template) !== templateFilter) {
+      return false;
+    }
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
+    return [tender.tender_number, tender.client, tender.status]
+      .some((v) => String(v ?? "").toLowerCase().includes(q));
+  });
 
-  const totalPages = Math.max(1, Math.ceil(filteredTenders.length / ITEMS_PER_PAGE));
+  const { sortField, sortDirection, handleSort, sortedRows } = useTableSort(filteredTenders, {
+    onSortChange: () => setCurrentPage(1),
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / ITEMS_PER_PAGE));
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedTenders = filteredTenders.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const paginatedTenders = sortedRows.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
   const handleNext = () => {
     if (currentPage < totalPages) setCurrentPage((prev) => prev + 1);
@@ -71,18 +85,36 @@ const CostingList = ({ embeddedInHub = false }) => {
                 </p>
               </div>
             </div>
-            <div className="relative w-full min-w-0 xl:max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                placeholder="Search by tender no. or client…"
-                value={searchTerm}
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center xl:w-auto">
+              <select
+                value={templateFilter}
                 onChange={(e) => {
-                  setSearchTerm(e.target.value);
+                  setTemplateFilter(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/25"
-              />
+                className="w-full rounded-lg border border-slate-200 py-2.5 px-3 text-sm text-slate-900 shadow-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/25 sm:w-auto"
+                title="Filter by costing template"
+              >
+                <option value="All">All templates</option>
+                {FIRE_TENDER_TEMPLATES.map((tmpl) => (
+                  <option key={tmpl} value={tmpl}>
+                    {tmpl}
+                  </option>
+                ))}
+              </select>
+              <div className="relative w-full min-w-0 sm:max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  placeholder="Search tender no., client, status…"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/25"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -99,14 +131,32 @@ const CostingList = ({ embeddedInHub = false }) => {
                 <thead>
                   <tr className="border-b border-red-100 bg-gradient-to-r from-red-50 via-orange-50/80 to-amber-50">
                     <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-700 w-11">S.No</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">
-                      Tender number
-                    </th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">
-                      Client
-                    </th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">
-                      Status
+                    <SortableHeader
+                      field="tender_number"
+                      label="Tender number"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700"
+                    />
+                    <SortableHeader
+                      field="client"
+                      label="Client"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700"
+                    />
+                    <SortableHeader
+                      field="status"
+                      label="Status"
+                      sortField={sortField}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                      className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700"
+                    />
+                    <th className="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -131,13 +181,24 @@ const CostingList = ({ embeddedInHub = false }) => {
                             {tender.status}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setDuplicateSource(tender)}
+                            title="Duplicate this costing sheet for a new client"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                            Duplicate
+                          </button>
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">
-                        {searchTerm.trim()
-                          ? "No tenders match your search."
+                      <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">
+                        {searchTerm.trim() || templateFilter !== "All"
+                          ? "No tenders match your search/filter."
                           : "No approved tenders found. Approve a tender from New Tender first."}
                       </td>
                     </tr>
@@ -188,6 +249,17 @@ const CostingList = ({ embeddedInHub = false }) => {
           </div>
         )}
       </div>
+
+      <DuplicateCostingSheetModal
+        sourceTender={duplicateSource}
+        onClose={() => setDuplicateSource(null)}
+        onDuplicated={(newTender) => {
+          setDuplicateSource(null);
+          if (newTender?.id) {
+            navigate(`/app/fire-tender/costing/${newTender.id}`);
+          }
+        }}
+      />
     </div>
   );
 };

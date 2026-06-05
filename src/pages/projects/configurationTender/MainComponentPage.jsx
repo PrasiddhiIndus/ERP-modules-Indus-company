@@ -4,6 +4,11 @@ import * as XLSX from "xlsx";
 import { supabase } from "../../../lib/supabase";
 import { isRetiredFireTenderMainComponentLabel } from "../../../lib/retiredFireTenderMainComponents";
 import FireTenderNavbar from "../FireTenderNavbar";
+import {
+  FIRE_TENDER_TEMPLATES,
+  DEFAULT_FIRE_TENDER_TEMPLATE,
+  rowMatchesTemplate,
+} from "../fireTenderTemplates";
 
 const chunkArray = (arr, size) => {
   const result = [];
@@ -15,6 +20,7 @@ const chunkArray = (arr, size) => {
 
 const MainComponentPage = ({ onDataLoaded }) => {
   const [components, setComponents] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(DEFAULT_FIRE_TENDER_TEMPLATE);
   const [fileName, setFileName] = useState("");
   const [uploadDisabled, setUploadDisabled] = useState(false);
 
@@ -104,6 +110,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
             sub_category3: row["Sub Category 3"] || "",
             sub_category4: row["Sub Category 4"] || "",
             sub_category5: row["Sub Category 5"] || "",
+            template: selectedTemplate,
             user_id: userId, // important for RLS
           }))
           .filter((row) => !isRetiredFireTenderMainComponentLabel(row.main_component));
@@ -185,6 +192,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
       sub_category3: "",
       sub_category4: "",
       sub_category5: "",
+      template: selectedTemplate,
       user_id: userId,
     };
 
@@ -200,49 +208,66 @@ const MainComponentPage = ({ onDataLoaded }) => {
     }
   };
 
-  const handleDelete = async (index) => {
-    const row = components[index];
-    if (!row?.id) return;
+  const handleDelete = async (id) => {
+    if (!id) return;
     const { error } = await supabase
       .from("main_components")
       .delete()
-      .eq("id", row.id);
+      .eq("id", id);
     if (error) {
       console.error("Delete error:", error.message);
     } else {
-      const updated = [...components];
-      updated.splice(index, 1);
-      setComponents(updated);
+      setComponents(components.filter((c) => c.id !== id));
     }
   };
 
-  const handleEdit = async (index, field, value) => {
+  const handleEdit = async (id, field, value) => {
     if (field === "main_component" && isRetiredFireTenderMainComponentLabel(value)) {
       alert("This main-component name is retired and cannot be used.");
       return;
     }
-    const updated = [...components];
-    updated[index][field] = value;
-    setComponents(updated);
+    setComponents((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
 
-    const row = updated[index];
-    if (!row?.id) return;
+    if (!id) return;
 
     const { error } = await supabase
       .from("main_components")
       .update({ [field]: value })
-      .eq("id", row.id);
+      .eq("id", id);
 
     if (error) {
       console.error("Update error:", error.message);
     }
   };
 
+  const visibleComponents = components.filter((c) => rowMatchesTemplate(c, selectedTemplate));
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <FireTenderNavbar />
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">Main Components & Sub Categories</h2>
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-xl font-semibold">Main Components & Sub Categories</h2>
+          <div className="mt-2 flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-600">Template</label>
+            <select
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(e.target.value)}
+              className="border rounded px-3 py-1.5 text-sm"
+            >
+              {FIRE_TENDER_TEMPLATES.map((tmpl) => (
+                <option key={tmpl} value={tmpl}>
+                  {tmpl}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-gray-400">
+              Edits, uploads & new rows apply to this template only.
+            </span>
+          </div>
+        </div>
         <div className="flex gap-3">
           {!uploadDisabled && (
             <label className="px-4 py-2 bg-blue-600 text-white rounded cursor-pointer hover:bg-blue-700">
@@ -310,7 +335,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
             </tr>
           </thead>
           <tbody>
-            {components.map((comp, index) => (
+            {visibleComponents.map((comp, index) => (
               <tr key={comp.id || index} className="border-b">
                 <td className="px-4 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                 <td className="px-4 py-2">
@@ -318,7 +343,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
                     type="text"
                     value={comp.main_component || ""}
                     onChange={(e) =>
-                      handleEdit(index, "main_component", e.target.value)
+                      handleEdit(comp.id, "main_component", e.target.value)
                     }
                     className="w-full border rounded px-2 py-1"
                   />
@@ -328,7 +353,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
                     type="text"
                     value={comp.sub_category1 || ""}
                     onChange={(e) =>
-                      handleEdit(index, "sub_category1", e.target.value)
+                      handleEdit(comp.id, "sub_category1", e.target.value)
                     }
                     className="w-full border rounded px-2 py-1"
                   />
@@ -338,7 +363,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
                     type="text"
                     value={comp.sub_category2 || ""}
                     onChange={(e) =>
-                      handleEdit(index, "sub_category2", e.target.value)
+                      handleEdit(comp.id, "sub_category2", e.target.value)
                     }
                     className="w-full border rounded px-2 py-1"
                   />
@@ -348,7 +373,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
                     type="text"
                     value={comp.sub_category3 || ""}
                     onChange={(e) =>
-                      handleEdit(index, "sub_category3", e.target.value)
+                      handleEdit(comp.id, "sub_category3", e.target.value)
                     }
                     className="w-full border rounded px-2 py-1"
                   />
@@ -358,7 +383,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
                     type="text"
                     value={comp.sub_category4 || ""}
                     onChange={(e) =>
-                      handleEdit(index, "sub_category4", e.target.value)
+                      handleEdit(comp.id, "sub_category4", e.target.value)
                     }
                     className="w-full border rounded px-2 py-1"
                   />
@@ -368,14 +393,14 @@ const MainComponentPage = ({ onDataLoaded }) => {
                     type="text"
                     value={comp.sub_category5 || ""}
                     onChange={(e) =>
-                      handleEdit(index, "sub_category5", e.target.value)
+                      handleEdit(comp.id, "sub_category5", e.target.value)
                     }
                     className="w-full border rounded px-2 py-1"
                   />
                 </td>
                 <td className="px-4 py-2 text-center">
                   <button
-                    onClick={() => handleDelete(index)}
+                    onClick={() => handleDelete(comp.id)}
                     className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
                   >
                     Delete
@@ -384,10 +409,10 @@ const MainComponentPage = ({ onDataLoaded }) => {
               </tr>
             ))}
 
-            {components.length === 0 && (
+            {visibleComponents.length === 0 && (
               <tr>
-                <td colSpan="7" className="px-4 py-6 text-center text-gray-500">
-                  No sub categories added yet.
+                <td colSpan="8" className="px-4 py-6 text-center text-gray-500">
+                  No sub categories for {selectedTemplate} yet.
                 </td>
               </tr>
             )}

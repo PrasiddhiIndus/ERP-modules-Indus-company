@@ -1862,5 +1862,22 @@ COMMENT ON COLUMN public.admin_ifsp_employee_master.employment_type IS
   'permanent | consultant | voucher — drives auto employee_id format for new rows; legacy rows may infer from employee_id.';
 
 -- =============================================================================
+-- BEGIN: 20260610130000_billing_po_wo_custom_calculator_po_type.sql
+-- Allow "Custom Calculator" (and legacy "Custom") manpower billing types in billing.po_wo.
+-- =============================================================================
+ALTER TABLE billing.po_wo
+  DROP CONSTRAINT IF EXISTS billing_po_wo_po_type_check;
+
+ALTER TABLE billing.po_wo
+  ADD CONSTRAINT billing_po_wo_po_type_check
+  CHECK (
+    po_type IS NULL OR
+    po_type IN (
+      'Per Day', 'Monthly', 'Lump Sum', 'Custom', 'Custom Calculator',
+      'Supply', 'Service'
+    )
+  );
+
+-- =============================================================================
 -- END: Consolidated migrations
 -- =============================================================================

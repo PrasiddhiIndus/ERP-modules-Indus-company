@@ -23,6 +23,7 @@ import {
   parseCostingNumber,
 } from "./fireTenderCostingConfig";
 import { exportFireTenderCostingWorkbook } from "./fireTenderCostingExcelExport";
+import { rowMatchesTemplate } from "./fireTenderTemplates";
 
 // 🔹 Convert rows into nested tree structure (unchanged)
 const buildTree = (rows) => {
@@ -99,6 +100,7 @@ const CostingTable = ({
   tenderNumber,
   clientName,
   tenderSource,
+  template,
   accessoriesTotal: accessoriesTotalProp,
 }) => {
   const [componentTree, setComponentTree] = useState({});
@@ -221,10 +223,12 @@ const CostingTable = ({
       try {
         if (!tenderId) return;
 
-        // 1️⃣ Fetch main components tree
+        // 1️⃣ Fetch main components tree (scoped to this tender's costing template)
         const { data: mainData, error: mainError } = await supabase.from("main_components").select("*");
         if (mainError) throw mainError;
-        const mainRows = (mainData || []).filter((r) => !isRetiredFireTenderMainComponentLabel(r.main_component));
+        const mainRows = (mainData || [])
+          .filter((r) => rowMatchesTemplate(r, template))
+          .filter((r) => !isRetiredFireTenderMainComponentLabel(r.main_component));
         const tree = buildTree(mainRows);
 
         // 2️⃣ Fetch existing costing rows for tender
@@ -258,6 +262,7 @@ const CostingTable = ({
 
         const priceObj = {};
         priceData.forEach((row) => {
+          if (!rowMatchesTemplate(row, template)) return;
           if (isRetiredFireTenderMainComponentLabel(row.main_component)) return;
           // Create a unique key based on component and sub categories
           const key = `${row.main_component}|${row.sub_category1 || ''}|${row.sub_category2 || ''}|${row.sub_category3 || ''}|${row.sub_category4 || ''}|${row.sub_category5 || ''}`;
@@ -394,7 +399,7 @@ const CostingTable = ({
     };
 
     fetchData();
-  }, [tenderId]);
+  }, [tenderId, template]);
 
 
   const addRow = () => {
@@ -821,6 +826,7 @@ const CostingTable = ({
       await exportFireTenderCostingWorkbook({
         tenderNumber,
         client: clientName,
+        template,
         fixedRows,
         extraRows,
         componentTree,
