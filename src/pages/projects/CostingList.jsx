@@ -7,7 +7,7 @@ import FireTenderNavbar from "./FireTenderNavbar";
 
 const ITEMS_PER_PAGE = 5;
 
-const CostingList = () => {
+const CostingList = ({ embeddedInHub = false }) => {
   const [tenders, setTenders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -54,9 +54,9 @@ const CostingList = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto w-full max-w-[1600px] space-y-6 p-4 sm:p-6">
-        <FireTenderNavbar />
+    <div className={embeddedInHub ? "space-y-4" : "min-h-screen bg-slate-50"}>
+      <div className={embeddedInHub ? "space-y-4" : "mx-auto w-full max-w-[1600px] space-y-4 p-4 sm:p-6"}>
+        {!embeddedInHub && <FireTenderNavbar />}
 
         <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">

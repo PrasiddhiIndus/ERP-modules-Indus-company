@@ -6,6 +6,23 @@ import { FaTrash } from "react-icons/fa";
 import { supabase } from "../../lib/supabase";
 import auditLogger from "../../lib/auditLogger";
 import { isRetiredFireTenderMainComponentLabel } from "../../lib/retiredFireTenderMainComponents";
+import { NumericInput, parseNumericInput } from "../../components/NumericInput";
+import {
+  calculateCostingRowTotal,
+  computeMetaconeQty,
+  getComponentDisplayAliases,
+  getCostingRowFillStatus,
+  getGlobalOmittedComponents,
+  getOrderedMainComponents,
+  getSubOptions,
+  isLabourFieldEditable,
+  isMetaconeMounting,
+  isStructureOrPanelling,
+  isTankComponent,
+  isWeightFieldEditable,
+  parseCostingNumber,
+} from "./fireTenderCostingConfig";
+import { exportFireTenderCostingWorkbook } from "./fireTenderCostingExcelExport";
 
 // 🔹 Convert rows into nested tree structure (unchanged)
 const buildTree = (rows) => {
@@ -77,8 +94,17 @@ function trimCostingSheetToMaxLines(fixed, extra, maxLines) {
   return { fixedRows: t.slice(0, nFixed), extraRows: t.slice(nFixed) };
 }
 
-const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
+const CostingTable = ({
+  tenderId,
+  tenderNumber,
+  clientName,
+  tenderSource,
+  accessoriesTotal: accessoriesTotalProp,
+}) => {
   const [componentTree, setComponentTree] = useState({});
+  const [displayAliases, setDisplayAliases] = useState({});
+  const [globalOmittedComponents, setGlobalOmittedComponents] = useState(() => new Set());
+  const [orderedComponentList, setOrderedComponentList] = useState([]);
   const [fixedRows, setFixedRows] = useState([]);
   const [extraRows, setExtraRows] = useState([]);
   const [mocPrices, setMocPrices] = useState({}); // key: moc, value: price
@@ -246,12 +272,15 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
         const fixed = [];
         const extra = [];
 
-        const omittedMain = new Set(loadOmittedMainComponents(Number(tenderId)));
+        const orderedComponents = getOrderedMainComponents(mainRows);
+        const globalOmitted = getGlobalOmittedComponents(orderedComponents);
+        setOrderedComponentList(orderedComponents);
+        setDisplayAliases(getComponentDisplayAliases(orderedComponents));
+        setGlobalOmittedComponents(globalOmitted);
+        const omittedMain = new Set([...loadOmittedMainComponents(Number(tenderId)), ...globalOmitted]);
 
-        // Build fixed rows (only main components)
-        Object.keys(tree).forEach((comp) => {
-          // Skip "Tender Mode" as it should only be in CostingSummary
-          if (comp === "Tender Mode") return;
+        // Build fixed rows (catalog order by main_components.id)
+        orderedComponents.forEach((comp) => {
           if (omittedMain.has(comp)) return;
 
           const rowFromDB = existingRows.find((r) => r.main_component === comp);
@@ -501,111 +530,14 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
   };
 
 
-  // Replace isWaterTank with this
-  const isTankComponent = (component) => {
-    if (!component) return false;
-    const normalized = component.toString().toLowerCase().replace(/\s+/g, "");
-    // match variants: watertank, foamtank, or "foam" + "tank" anywhere
-    return (
-      normalized.includes("watertank") ||
-      normalized.includes("foamtank") ||
-      (normalized.includes("foam") && normalized.includes("tank"))
-    );
-  };
-
-  // --- NEW HELPERS for Metacone calculation ---
-  const normalize = (s) => (s || "").toString().toLowerCase().replace(/\s+/g, "");
-
-  const isMetaconeMounting = (component) => {
-    const n = normalize(component);
-    // matches 'metacone', 'metacone mounting', etc.
-    return n.includes("metacone");
-  };
-
-  const isWaterTank = (component) => {
-    const n = normalize(component);
-    // water + tank but not foam
-    return n.includes("watertank") || (n.includes("water") && n.includes("tank") && !n.includes("foam"));
-  };
-
-  const isFoamTank = (component) => {
-    const n = normalize(component);
-    return n.includes("foamtank") || (n.includes("foam") && n.includes("tank"));
-  };
-
-
-  const parseNumber = (v) => {
-    // parse numeric strings, fallback to 0
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const isStructureOrPanelling = (component) => {
-    if (!component) return false;
-    const n = component.toString().toLowerCase();
-    return n.includes("structure") || n.includes("panelling");
-  };
-
-  // --- END NEW HELPERS ---
+  const parseNumber = parseCostingNumber;
 
   const formatCurrency = (value) =>
     Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const allRows = [...fixedRows, ...extraRows];
 
-  // NEW: compute quantity for Metacone from existing water+foam rows
-  const computeMetaconeQty = (rows) => {
-    let waterWeightSum = 0;
-    let foamWeightSum = 0;
-    let waterSub2Sum = 0;
-    let foamSub2Sum = 0;
-
-    rows.forEach((r) => {
-      if (!r) return;
-      if (isWaterTank(r.component)) {
-        waterWeightSum += Number(r.weight) || 0;
-        waterSub2Sum += parseNumber(r.sub2);
-      }
-      if (isFoamTank(r.component)) {
-        foamWeightSum += Number(r.weight) || 0;
-        foamSub2Sum += parseNumber(r.sub2);
-      }
-    });
-
-    const total = waterWeightSum + foamWeightSum + waterSub2Sum + foamSub2Sum;
-    // ✅ Round UP to nearest integer
-    return total > 0 ? Math.ceil(total / 550) : 0;
-  };
-
-
-  // Updated calculateTotal to support Metacone special formula
-  const calculateTotal = (row) => {
-    const labour = row.labour === "" ? 0 : Number(row.labour) || 0;
-    const unitCost = row.unitCost === "" ? 0 : Number(row.unitCost) || 0;
-    const qty = row.qty === "" ? 1 : Number(row.qty) || 1;
-    const weight = row.weight === "" ? 0 : Number(row.weight) || 0;
-
-    // METACONE special case: total = unitCost * computedQuantity + labour
-    if (isMetaconeMounting(row.component)) {
-      const computedQty = computeMetaconeQty(allRows);
-      return unitCost * computedQty + labour;
-    }
-
-    // Tank weight-based formula preserved (unchanged)
-    if (isTankComponent(row.component)) {
-      // Weight-based tank formula: weight * (unitCost + labour) * qty
-      return weight * (unitCost + labour) * qty;
-    }
-
-    // ✅ Structure & Panelling special formula
-    if (isStructureOrPanelling(row.component)) {
-      return weight * unitCost; // weight * unit cost = total
-    }
-
-
-    // Default behaviour for non-tank rows: (labour + unitCost) * qty
-    return (labour + unitCost) * qty;
-  };
+  const calculateTotal = (row) => calculateCostingRowTotal(row, allRows);
 
   // Exclude chassis rows for total calculation
   const grandTotal = allRows
@@ -773,9 +705,12 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
       );
       const fixed = [];
       const extra = [];
-      const omittedMain = new Set(loadOmittedMainComponents(Number(tenderId)));
+      const omittedMain = new Set([
+        ...loadOmittedMainComponents(Number(tenderId)),
+        ...globalOmittedComponents,
+      ]);
 
-      Object.keys(componentTree).forEach((comp) => {
+      (orderedComponentList.length ? orderedComponentList : Object.keys(componentTree)).forEach((comp) => {
         if (comp === "Tender Mode") return;
         if (omittedMain.has(comp)) return;
         const rowFromDB = refreshedRows.find((r) => r.main_component === comp);
@@ -853,8 +788,55 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced snapshot save; persist reads latest state
   }, [fixedRows, extraRows, tenderId]);
 
+  const lockedSubClass =
+    "flex min-h-[1.75rem] w-full items-center justify-center rounded border border-gray-200 bg-gray-100 px-1 text-xs text-gray-400 select-none";
 
+  const renderSubColumn = (level, row, index, isFixed) => {
+    if (!isFixed) {
+      return <span className={lockedSubClass} title="Use Manual Sub Category">—</span>;
+    }
+    const options = getSubOptions(componentTree, row.component, level, row);
+    if (options.length > 0) {
+      const field = `sub${level}`;
+      return (
+        <select
+          value={row[field]}
+          onChange={(e) => handleChange(fixedRows, setFixedRows, index, field, e.target.value)}
+          className="w-full rounded border p-1"
+        >
+          <option value="">-- Select --</option>
+          {options.map((sub) => (
+            <option key={sub} value={sub}>
+              {sub}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    return <span className={lockedSubClass} title="Use Manual Sub Category">—</span>;
+  };
 
+  const handleExportExcel = async (netTotalRows, accessoriesRows, mocRows) => {
+    try {
+      await exportFireTenderCostingWorkbook({
+        tenderNumber,
+        client: clientName,
+        fixedRows,
+        extraRows,
+        componentTree,
+        displayAliases,
+        grandTotal,
+        chassisTotal,
+        accessoriesTotal,
+        netTotalRows,
+        accessoriesRows,
+        mocRows,
+      });
+    } catch (err) {
+      console.error("Excel export failed:", err);
+      alert("Could not export costing sheet: " + (err.message || err));
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -883,15 +865,23 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
           <tbody>
             {allRows.map((row, index) => {
               const metaconeQty = isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : null;
+              const isFixedRow = index < fixedRows.length;
+              const fillStatus = getCostingRowFillStatus(row, allRows, componentTree, isFixedRow);
+              const rowClass =
+                fillStatus === "complete"
+                  ? "bg-green-50"
+                  : fillStatus === "incomplete"
+                    ? "bg-red-50"
+                    : "hover:bg-gray-50";
 
               return (
-                <tr key={index} className="hover:bg-gray-50">
+                <tr key={index} className={rowClass}>
                   <td className="border px-2 py-1 text-center">{index + 1}</td>
 
                   {/* Main Component */}
                   <td className="border px-2 py-1">
-                    {index < fixedRows.length ? (
-                      <span className="font-semibold">{row.component}</span>
+                    {isFixedRow ? (
+                      <span className="font-semibold">{displayAliases[row.component] || row.component}</span>
                     ) : (
                       <input
                         type="text"
@@ -910,280 +900,11 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
                     )}
                   </td>
 
-                  {/* Sub Category 1 */}
-                  <td className="border px-2 py-1">
-                    {index < fixedRows.length ? (
-                      (() => {
-                        // ✅ compute available options safely
-                        const availableOptions = Object.keys(componentTree[row.component] || {});
-
-                        // ✅ if options exist -> show dropdown
-                        if (availableOptions && availableOptions.length > 0) {
-                          return (
-                            <select
-                              value={row.sub1}
-                              onChange={(e) =>
-                                handleChange(fixedRows, setFixedRows, index, "sub1", e.target.value)
-                              }
-                              className="w-full p-1 border rounded"
-                            >
-                              <option value="">-- Select --</option>
-                              {availableOptions.map((sub) => (
-                                <option key={sub} value={sub}>
-                                  {sub}
-                                </option>
-                              ))}
-                            </select>
-                          );
-                        }
-                        return (
-                          <input
-                            type="text"
-                            value={row.sub1}
-                            onChange={(e) =>
-                              handleChange(fixedRows, setFixedRows, index, "sub1", e.target.value)
-                            }
-                            className="w-full p-1 border rounded"
-                          />
-                        );
-                      })()
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.sub1}
-                        onChange={(e) =>
-                          handleChange(extraRows, setExtraRows, index - fixedRows.length, "sub1", e.target.value)
-                        }
-                        className="w-full p-1 border rounded"
-                      />
-                    )}
-                  </td>
-
-
-                  {/* Sub Category 2 */}
-                  <td className="border px-2 py-1">
-                    {index < fixedRows.length ? (
-                      (() => {
-                        // ✅ compute available options safely
-                        const availableOptions =
-                          row.sub1 &&
-                          Object.keys(componentTree[row.component]?.[row.sub1] || {});
-
-                        // ✅ if options exist -> show dropdown
-                        if (availableOptions && availableOptions.length > 0) {
-                          return (
-                            <select
-                              value={row.sub2}
-                              onChange={(e) =>
-                                handleChange(fixedRows, setFixedRows, index, "sub2", e.target.value)
-                              }
-                              className="w-full p-1 border rounded"
-                            >
-                              <option value="">-- Select --</option>
-                              {availableOptions.map((sub) => (
-                                <option key={sub} value={sub}>
-                                  {sub}
-                                </option>
-                              ))}
-                            </select>
-                          );
-                        }
-
-                        // ❌ if no options -> show plain input
-                        return (
-                          <input
-                            type="text"
-                            value={row.sub2}
-                            onChange={(e) =>
-                              handleChange(fixedRows, setFixedRows, index, "sub2", e.target.value)
-                            }
-                            className="w-full p-1 border rounded"
-                          />
-                        );
-                      })()
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.sub2}
-                        onChange={(e) =>
-                          handleChange(extraRows, setExtraRows, index - fixedRows.length, "sub2", e.target.value)
-                        }
-                        className="w-full p-1 border rounded"
-                      />
-                    )}
-                  </td>
-
-
-                  {/* Sub Category 3 */}
-                  <td className="border px-2 py-1">
-                    {index < fixedRows.length ? (
-                      (() => {
-                        // ✅ compute available options safely
-                        const availableOptions =
-                          row.sub1 &&
-                          row.sub2 &&
-                          Object.keys(componentTree[row.component]?.[row.sub1]?.[row.sub2] || {});
-
-                        // ✅ if options exist -> show dropdown
-                        if (availableOptions && availableOptions.length > 0) {
-                          return (
-                            <select
-                              value={row.sub3}
-                              onChange={(e) =>
-                                handleChange(fixedRows, setFixedRows, index, "sub3", e.target.value)
-                              }
-                              className="w-full p-1 border rounded"
-                            >
-                              <option value="">-- Select --</option>
-                              {availableOptions.map((sub) => (
-                                <option key={sub} value={sub}>
-                                  {sub}
-                                </option>
-                              ))}
-                            </select>
-                          );
-                        }
-
-                        // ❌ if no options -> show plain input
-                        return (
-                          <input
-                            type="text"
-                            value={row.sub3}
-                            onChange={(e) =>
-                              handleChange(fixedRows, setFixedRows, index, "sub3", e.target.value)
-                            }
-                            className="w-full p-1 border rounded"
-                          />
-                        );
-                      })()
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.sub3}
-                        onChange={(e) =>
-                          handleChange(extraRows, setExtraRows, index - fixedRows.length, "sub3", e.target.value)
-                        }
-                        className="w-full p-1 border rounded"
-                      />
-                    )}
-                  </td>
-
-
-                  {/* Sub Category 4 */}
-                  <td className="border px-2 py-1">
-                    {index < fixedRows.length ? (
-                      (() => {
-                        // ✅ compute available options safely
-                        const availableOptions =
-                          row.sub1 &&
-                          row.sub2 &&
-                          row.sub3 &&
-                          Object.keys(
-                            componentTree[row.component]?.[row.sub1]?.[row.sub2]?.[row.sub3] || {}
-                          );
-
-                        // ✅ if options exist -> show dropdown
-                        if (availableOptions && availableOptions.length > 0) {
-                          return (
-                            <select
-                              value={row.sub4}
-                              onChange={(e) =>
-                                handleChange(fixedRows, setFixedRows, index, "sub4", e.target.value)
-                              }
-                              className="w-full p-1 border rounded"
-                            >
-                              <option value="">-- Select --</option>
-                              {availableOptions.map((sub) => (
-                                <option key={sub} value={sub}>
-                                  {sub}
-                                </option>
-                              ))}
-                            </select>
-                          );
-                        }
-
-                        // ❌ if no options -> show plain input
-                        return (
-                          <input
-                            type="text"
-                            value={row.sub4}
-                            onChange={(e) =>
-                              handleChange(fixedRows, setFixedRows, index, "sub4", e.target.value)
-                            }
-                            className="w-full p-1 border rounded"
-                          />
-                        );
-                      })()
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.sub4}
-                        onChange={(e) =>
-                          handleChange(extraRows, setExtraRows, index - fixedRows.length, "sub4", e.target.value)
-                        }
-                        className="w-full p-1 border rounded"
-                      />
-                    )}
-                  </td>
-
-
-                  {/* Sub Category 5 */}
-                  <td className="border px-2 py-1">
-                    {index < fixedRows.length ? (
-                      (() => {
-                        // ✅ compute available options safely
-                        const availableOptions =
-                          row.sub1 &&
-                          row.sub2 &&
-                          row.sub3 &&
-                          row.sub4 &&
-                          Object.keys(
-                            componentTree[row.component]?.[row.sub1]?.[row.sub2]?.[row.sub3]?.[row.sub4] || {}
-                          );
-
-                        // ✅ if options exist -> show dropdown
-                        if (availableOptions && availableOptions.length > 0) {
-                          return (
-                            <select
-                              value={row.sub5}
-                              onChange={(e) =>
-                                handleChange(fixedRows, setFixedRows, index, "sub5", e.target.value)
-                              }
-                              className="w-full p-1 border rounded"
-                            >
-                              <option value="">-- Select --</option>
-                              {availableOptions.map((sub) => (
-                                <option key={sub} value={sub}>
-                                  {sub}
-                                </option>
-                              ))}
-                            </select>
-                          );
-                        }
-
-                        // ❌ if no options -> show plain input
-                        return (
-                          <input
-                            type="text"
-                            value={row.sub5}
-                            onChange={(e) =>
-                              handleChange(fixedRows, setFixedRows, index, "sub5", e.target.value)
-                            }
-                            className="w-full p-1 border rounded"
-                          />
-                        );
-                      })()
-                    ) : (
-                      <input
-                        type="text"
-                        value={row.sub5}
-                        onChange={(e) =>
-                          handleChange(extraRows, setExtraRows, index - fixedRows.length, "sub5", e.target.value)
-                        }
-                        className="w-full p-1 border rounded"
-                      />
-                    )}
-                  </td>
+                  <td className="border px-2 py-1">{renderSubColumn(1, row, index, isFixedRow)}</td>
+                  <td className="border px-2 py-1">{renderSubColumn(2, row, index, isFixedRow)}</td>
+                  <td className="border px-2 py-1">{renderSubColumn(3, row, index, isFixedRow)}</td>
+                  <td className="border px-2 py-1">{renderSubColumn(4, row, index, isFixedRow)}</td>
+                  <td className="border px-2 py-1">{renderSubColumn(5, row, index, isFixedRow)}</td>
 
 
                   {/* Manual Sub Category */}
@@ -1213,8 +934,7 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
                     if (field === "qty" && metaconeQty !== null) {
                       return (
                         <td key={field} className="border px-2 py-1">
-                          <input
-                            type="number"
+                          <NumericInput
                             value={isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : row.qty}
                             readOnly={isMetaconeMounting(row.component)}
                             className="w-full p-1 border rounded bg-gray-100"
@@ -1249,16 +969,22 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
                     // Check for price drift (orange highlighting)
                     const hasPriceDrift = field === "unitCost" && checkPriceDrift(row);
 
-                    // Otherwise render normal editable input
+                    const fieldEditable =
+                      field === "weight"
+                        ? isWeightFieldEditable(row.component)
+                        : field === "labour"
+                          ? isLabourFieldEditable(row.component)
+                          : true;
+
                     return (
                       <td key={field} className="border px-2 py-1 relative">
                         <div className="relative">
-                          <input
-                            type="number"
+                          <NumericInput
                             value={row[field]}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              const numeric = val === "" ? "" : Number(val);
+                            readOnly={!fieldEditable}
+                            onChange={(val) => {
+                              if (!fieldEditable) return;
+                              const numeric = val === "" ? "" : parseNumericInput(val, val);
 
                               if (index < fixedRows.length) {
                                 const updated = [...fixedRows];
@@ -1272,8 +998,13 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
                               }
                             }}
                             className={`w-full p-1 border rounded ${
-                              hasPriceDrift ? 'bg-orange-200 border-orange-400' : 
-                              isFromPriceMaster ? 'bg-blue-50 border-blue-200' : ''
+                              !fieldEditable
+                                ? "bg-gray-100 text-gray-500"
+                                : hasPriceDrift
+                                  ? "bg-orange-200 border-orange-400"
+                                  : isFromPriceMaster
+                                    ? "bg-blue-50 border-blue-200"
+                                    : ""
                             }`}
                           />
                           {hasPriceDrift && (
@@ -1369,16 +1100,21 @@ const CostingTable = ({ tenderId, accessoriesTotal: accessoriesTotalProp }) => {
         Total Fabrication Cost Without Margin (excluding chassis): ₹ {formatCurrency(grandTotal)}
       </div>
 
-      <CostingSummary grandTotal={grandTotal} chassisTotal={chassisTotal} accessoriesTotal={accessoriesTotal} tenderId={tenderId} />
+      <CostingSummary
+        grandTotal={grandTotal}
+        chassisTotal={chassisTotal}
+        accessoriesTotal={accessoriesTotal}
+        tenderId={tenderId}
+        tenderSource={tenderSource}
+        onExportExcel={handleExportExcel}
+      />
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        {autoSaveHint ? (
-          <span className="order-first w-full text-xs font-medium text-emerald-700 sm:order-none sm:w-auto" role="status">
-            {autoSaveHint}
-          </span>
-        ) : null}
+        <span className="order-first w-full text-xs font-medium text-emerald-700 sm:order-none sm:w-auto">
+          Auto-save on{autoSaveHint ? ` · ${autoSaveHint}` : ""}
+        </span>
         <Link
-          to="/app/fire-tender/costing"
+          to="/app/fire-tender/costing-hub/costing"
           className="px-5 py-2.5 bg-gray-600 text-white rounded-lg shadow hover:bg-gray-700 transition text-sm sm:text-base"
         >
           ⬅ Back to Costing List

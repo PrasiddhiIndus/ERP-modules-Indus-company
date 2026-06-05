@@ -1,6 +1,7 @@
 // src/pages/projects/configurationTender/FinalComponentsPage.jsx
 import React, { useState } from "react";
 import FireTenderNavbar from "../FireTenderNavbar";
+import { NumericInput } from "../../../components/NumericInput";
 
 const FinalComponentsPage = () => {
   const [components, setComponents] = useState([
@@ -117,12 +118,9 @@ const FinalComponentsPage = () => {
                 </td>
                 <td className="px-4 py-2 border">
                   {item.isNew ? (
-                    <input
-                      type="number"
+                    <NumericInput
                       value={item.unitCost}
-                      onChange={(e) =>
-                        handleChange(item.id, "unitCost", e.target.value)
-                      }
+                      onChange={(val) => handleChange(item.id, "unitCost", val)}
                       className="w-full border rounded px-2 py-1"
                     />
                   ) : (
@@ -131,12 +129,9 @@ const FinalComponentsPage = () => {
                 </td>
                 <td className="px-4 py-2 border">
                   {item.isNew ? (
-                    <input
-                      type="number"
+                    <NumericInput
                       value={item.unitRate}
-                      onChange={(e) =>
-                        handleChange(item.id, "unitRate", e.target.value)
-                      }
+                      onChange={(val) => handleChange(item.id, "unitRate", val)}
                       className="w-full border rounded px-2 py-1"
                     />
                   ) : (
@@ -145,12 +140,9 @@ const FinalComponentsPage = () => {
                 </td>
                 <td className="px-4 py-2 border">
                   {item.isNew ? (
-                    <input
-                      type="number"
+                    <NumericInput
                       value={item.quantity}
-                      onChange={(e) =>
-                        handleChange(item.id, "quantity", e.target.value)
-                      }
+                      onChange={(val) => handleChange(item.id, "quantity", val)}
                       className="w-full border rounded px-2 py-1"
                     />
                   ) : (

@@ -5,6 +5,7 @@ import auditLogger from "../../../lib/auditLogger";
 import { isRetiredFireTenderMainComponentLabel } from "../../../lib/retiredFireTenderMainComponents";
 import FireTenderNavbar from "../FireTenderNavbar";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
+import { NumericInput } from "../../../components/NumericInput";
 
 const PriceMasterPage = () => {
   const [priceList, setPriceList] = useState([]);
@@ -462,16 +463,11 @@ const PriceMasterPage = () => {
                 {/* Weight Column - Always Editable */}
                 <td className="px-4 py-2 border">
                   <div className="flex items-center">
-                    <input
-                      type="number"
+                    <NumericInput
                       value={item.weight || ""}
-                      onChange={(e) =>
-                        handleChange(item.id, "weight", e.target.value)
-                      }
+                      onChange={(val) => handleChange(item.id, "weight", val)}
                       className="w-full border rounded px-2 py-1"
                       placeholder="Enter weight"
-                      min="0"
-                      step="0.01"
                     />
                     <span className="ml-2 text-gray-500 text-sm">kg</span>
                   </div>
