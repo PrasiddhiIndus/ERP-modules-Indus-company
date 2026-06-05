@@ -6,6 +6,7 @@ import { exportToExcel } from './utils/excelExport';
 import DateRangeCalendar from './components/DateRangeCalendar';
 import { parseIndianNumber } from './utils/numberFormat';
 import NumberInput from './components/NumberInput';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const DOCUMENTS_BUCKET = 'marketing-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
@@ -609,7 +610,7 @@ const EnquiryMaster = () => {
         'Expected Closing Date': enquiry.expected_closing_date || '-',
         'Status': enquiry.status,
         'Converted to Quotation': enquiry.is_converted_to_quotation ? 'Yes' : 'No',
-        'Created At': new Date(enquiry.created_at).toLocaleDateString(),
+        'Created At': formatDateDdMmYyyy(enquiry.created_at),
       };
     });
     exportToExcel(exportData, 'Enquiries_Export', 'Enquiries');
@@ -648,9 +649,9 @@ const EnquiryMaster = () => {
                 <Calendar className="w-4 h-4" />
                 <span className="hidden sm:inline">
                   {dateRange.startDate && dateRange.endDate
-                    ? `${new Date(dateRange.startDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} - ${new Date(dateRange.endDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+                    ? `${formatDateDdMmYyyy(dateRange.startDate)} - ${formatDateDdMmYyyy(dateRange.endDate)}`
                     : dateRange.startDate
-                    ? `From ${new Date(dateRange.startDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`
+                    ? `From ${formatDateDdMmYyyy(dateRange.startDate)}`
                     : 'Select Date Range'}
                 </span>
                 <span className="sm:hidden">Date Range</span>
@@ -756,6 +757,7 @@ const EnquiryMaster = () => {
               <table className="w-full min-w-[1100px] text-xs">
                 <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                   <tr>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-11">S.No</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Enquiry ID</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Date</th>
@@ -790,6 +792,7 @@ const EnquiryMaster = () => {
                       const isLastRow = index === paginatedEnquiries.length - 1;
                       return (
                     <tr key={enquiry.id} className="hover:bg-purple-50/30 transition-colors" data-is-last-row={isLastRow}>
+                      <td className="px-3 py-2 text-center tabular-nums text-gray-600">{startIndex + index + 1}</td>
                       <td className="px-3 py-2">
                         <span className="text-xs font-semibold text-gray-900">{enquiry.enquiry_number}</span>
                       </td>
@@ -800,21 +803,13 @@ const EnquiryMaster = () => {
                       </td>
                       <td className="px-3 py-2">
                         <span className="text-xs text-gray-600">
-                          {new Date(enquiry.enquiry_date).toLocaleDateString('en-GB', { 
-                            day: '2-digit', 
-                            month: 'short', 
-                            year: 'numeric' 
-                          })}
+                          {formatDateDdMmYyyy(enquiry.enquiry_date)}
                         </span>
                       </td>
                       <td className="px-3 py-2">
                         <span className="text-xs text-gray-600">
                           {enquiry.expected_closing_date 
-                            ? new Date(enquiry.expected_closing_date).toLocaleDateString('en-GB', { 
-                                day: '2-digit', 
-                                month: 'short', 
-                                year: 'numeric' 
-                              })
+                            ? formatDateDdMmYyyy(enquiry.expected_closing_date)
                             : '-'}
                         </span>
                       </td>
@@ -1525,11 +1520,7 @@ const EnquiryMaster = () => {
                     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
                       <p className="text-sm text-gray-900">
                         {viewingEnquiry.enquiry_date 
-                          ? new Date(viewingEnquiry.enquiry_date).toLocaleDateString('en-GB', { 
-                              day: '2-digit', 
-                              month: 'short', 
-                              year: 'numeric' 
-                            })
+                          ? formatDateDdMmYyyy(viewingEnquiry.enquiry_date)
                           : <span className="text-gray-400 italic">Not provided</span>}
                       </p>
                     </div>
@@ -1577,11 +1568,7 @@ const EnquiryMaster = () => {
                     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
                       <p className="text-sm text-gray-900">
                         {viewingEnquiry.expected_closing_date 
-                          ? new Date(viewingEnquiry.expected_closing_date).toLocaleDateString('en-GB', { 
-                              day: '2-digit', 
-                              month: 'short', 
-                              year: 'numeric' 
-                            })
+                          ? formatDateDdMmYyyy(viewingEnquiry.expected_closing_date)
                           : <span className="text-gray-400 italic">Not provided</span>}
                       </p>
                     </div>

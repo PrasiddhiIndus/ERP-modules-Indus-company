@@ -40,7 +40,7 @@ const workflowCards = [
   },
 ];
 
-const upcomingColumns = ["Training", "Audience", "Owner", "Due date", "Status"];
+const upcomingColumns = ["S.No", "Training", "Audience", "Owner", "Due date", "Status"];
 
 const IndusLmsTrainings = () => {
   return (

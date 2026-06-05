@@ -299,6 +299,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
         <table className="min-w-full border-collapse">
           <thead className="bg-gray-100">
             <tr>
+              <th className="px-4 py-2 text-center w-11">S.No</th>
               <th className="px-4 py-2">Main Component</th>
               <th className="px-4 py-2">Sub Category 1</th>
               <th className="px-4 py-2">Sub Category 2</th>
@@ -311,6 +312,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
           <tbody>
             {components.map((comp, index) => (
               <tr key={comp.id || index} className="border-b">
+                <td className="px-4 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                 <td className="px-4 py-2">
                   <input
                     type="text"

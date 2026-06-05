@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { supabase } from "../../../lib/supabase";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const META_PREFIX = "__META__:";
 
@@ -22,16 +23,9 @@ function parseMeta(raw) {
   }
 }
 
-function formatDate(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
-
 function getConvertDate(enquiry) {
   const meta = parseMeta(enquiry.authorization_to);
-  return formatDate(meta.convertedAt || meta.approvedAt || enquiry.updated_at || enquiry.created_at);
+  return formatDateDdMmYyyy(meta.convertedAt || meta.approvedAt || enquiry.updated_at || enquiry.created_at) || "—";
 }
 
 function getPlantLocation(enquiry) {
@@ -117,6 +111,7 @@ const InternalQuotationList = () => {
           <table className="min-w-[980px] w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
+                <th className="px-4 py-3 text-center font-semibold text-slate-700 w-11">S.No</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Enquiry No</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Convert Date</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Quotation No.</th>
@@ -128,15 +123,16 @@ const InternalQuotationList = () => {
             <tbody className="divide-y divide-slate-100">
               {enquiries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
                     No approved enquiries available.
                   </td>
                 </tr>
               ) : (
-                enquiries.map((enquiry) => {
+                enquiries.map((enquiry, idx) => {
                   const qNo = quotationNumberByEnquiryId.get(String(enquiry.id)) || "—";
                   return (
                     <tr key={enquiry.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 text-center tabular-nums text-slate-600">{idx + 1}</td>
                       <td className="px-4 py-3">
                         <Link to={`/app/commercial/manpower-training/internal-quotation/${enquiry.id}`} className="font-semibold text-purple-700 hover:text-purple-800 hover:underline">
                           {enquiry.enquiry_number || "—"}

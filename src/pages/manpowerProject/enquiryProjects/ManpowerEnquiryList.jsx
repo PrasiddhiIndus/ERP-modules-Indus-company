@@ -3,6 +3,7 @@ import { supabase } from "../../../lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../../config/roles";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const ITEMS_PER_PAGE = 5;
 
@@ -116,7 +117,7 @@ const ManpowerEnquiryList = () => {
                   <p className="text-sm text-gray-600">
                     {e.email} | {e.phone}
                   </p>
-                  <p className="text-sm">Due: {e.due_date ? new Date(e.due_date).toLocaleDateString() : "N/A"}</p>
+                  <p className="text-sm">Due: {e.due_date ? formatDateDdMmYyyy(e.due_date) : "N/A"}</p>
                   <p className="text-sm">
                     Enquiry No:{" "}
                     <span className={`ml-1 font-semibold ${e.status === "Rejected" ? "text-red-600" : "text-blue-600"}`}>

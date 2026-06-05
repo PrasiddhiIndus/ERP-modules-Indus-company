@@ -98,6 +98,7 @@ const CostingList = () => {
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-red-100 bg-gradient-to-r from-red-50 via-orange-50/80 to-amber-50">
+                    <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-700 w-11">S.No</th>
                     <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">
                       Tender number
                     </th>
@@ -111,8 +112,9 @@ const CostingList = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {paginatedTenders.length > 0 ? (
-                    paginatedTenders.map((tender) => (
+                    paginatedTenders.map((tender, idx) => (
                       <tr key={tender.id} className="transition-colors hover:bg-red-50/25">
+                        <td className="px-4 py-3 text-center tabular-nums text-slate-600">{startIndex + idx + 1}</td>
                         <td className="px-4 py-3">
                           <Link
                             to={`/app/fire-tender/costing/${tender.id}`}
@@ -133,7 +135,7 @@ const CostingList = () => {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={3} className="px-4 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={4} className="px-4 py-12 text-center text-sm text-slate-500">
                         {searchTerm.trim()
                           ? "No tenders match your search."
                           : "No approved tenders found. Approve a tender from New Tender first."}

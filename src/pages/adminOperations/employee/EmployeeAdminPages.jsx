@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import {
   SectionCard,
   DenseTable,
@@ -535,7 +536,11 @@ export function EmployeeAttendanceInputsPage() {
         { key: "empCode", label: "Emp code" },
         { key: "employeeName", label: "Employee" },
         { key: "department", label: "Department" },
-        { key: "punchDate", label: "Punch date" },
+        {
+          key: "punchDate",
+          label: "Punch date",
+          render: (r) => formatDateDdMmYyyy(r.punchDate) || r.punchDate || "—",
+        },
         { key: "punchIn", label: "Punch in" },
         { key: "punchOut", label: "Punch out" },
         {
@@ -553,7 +558,11 @@ export function EmployeeAttendanceInputsPage() {
     return [
       { key: "empCode", label: "Emp code" },
       { key: "employeeName", label: "Employee" },
-      { key: "punchDate", label: "Punch date" },
+      {
+        key: "punchDate",
+        label: "Punch date",
+        render: (r) => formatDateDdMmYyyy(r.punchDate) || r.punchDate || "—",
+      },
       { key: "punchTime", label: "Punch time" },
       { key: "dayPunchIn", label: "Punch in" },
       { key: "dayPunchOut", label: "Punch out" },
@@ -675,7 +684,11 @@ export function EmployeeAttendanceInputsPage() {
 
       <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="lg:col-span-2">
-          <DenseTable columns={tableColumns} rows={rows} />
+          <DenseTable
+            columns={tableColumns}
+            rows={rows}
+            serialOffset={(currentPage - 1) * pageSize}
+          />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>
               Showing {pageStart}-{pageEnd} of {totalCount} record(s) for {selectedDate}

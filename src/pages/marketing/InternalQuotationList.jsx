@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import QuotationTrackerNavbar from './QuotationTrackerNavbar';
 import { Search, Eye, Edit, Trash2 } from 'lucide-react';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const InternalQuotationList = () => {
   const navigate = useNavigate();
@@ -152,6 +153,7 @@ const InternalQuotationList = () => {
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b">
+                    <th className="px-4 py-3 text-center text-sm font-medium text-gray-700 w-11">S.No</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Quotation Id</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Client Name</th>
                     <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Final Amount</th>
@@ -167,7 +169,7 @@ const InternalQuotationList = () => {
                     const quotationNumber = quotation.quotation_number?.toLowerCase() || '';
                     const clientName = quotation.marketing_clients?.client_name?.toLowerCase() || '';
                     return quotationNumber.includes(query) || clientName.includes(query);
-                  }).map((quotation) => {
+                  }).map((quotation, idx) => {
                     const hasInternalQuotation = quotation.subject_title || quotation.subject;
                     // Use updated_at if internal quotation exists, otherwise use created_at
                     const internalQuotationDate = hasInternalQuotation && quotation.updated_at 
@@ -175,6 +177,7 @@ const InternalQuotationList = () => {
                       : quotation.created_at;
                     return (
                       <tr key={quotation.id} className="border-b hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-center tabular-nums text-gray-600">{idx + 1}</td>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">
                           {quotation.quotation_number}
                         </td>
@@ -188,11 +191,7 @@ const InternalQuotationList = () => {
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {internalQuotationDate 
-                            ? new Date(internalQuotationDate).toLocaleDateString('en-GB', { 
-                                day: '2-digit', 
-                                month: 'short', 
-                                year: 'numeric' 
-                              })
+                            ? formatDateDdMmYyyy(internalQuotationDate)
                             : '-'}
                         </td>
                         <td className="px-4 py-3">

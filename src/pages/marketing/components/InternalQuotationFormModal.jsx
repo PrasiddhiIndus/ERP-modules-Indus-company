@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import { X, Download, Mail } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
@@ -687,11 +688,7 @@ const InternalQuotationFormModal = ({
       doc.setFontSize(8);
       doc.text(`Ref. No.: ${quotation.quotation_number}`, marginLeft, yPos);
       yPos += 4;
-      const currentDate = new Date(quotation.quotation_date || new Date()).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
+      const currentDate = formatDateDdMmYyyy(quotation.quotation_date || new Date());
       doc.text(`Date: ${currentDate}`, marginLeft, yPos);
       yPos += sectionGap + 4;
 
@@ -1117,11 +1114,7 @@ const InternalQuotationFormModal = ({
     doc.setFontSize(8);
     doc.text(`Ref. No.: ${quotation.quotation_number}`, marginLeft, yPos);
     yPos += 4;
-    const currentDate = new Date(quotation.quotation_date || new Date()).toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
+    const currentDate = formatDateDdMmYyyy(quotation.quotation_date || new Date());
     doc.text(`Date: ${currentDate}`, marginLeft, yPos);
     yPos += sectionGap + 4;
 

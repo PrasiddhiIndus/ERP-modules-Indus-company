@@ -14,6 +14,7 @@ import {
   X
 } from 'lucide-react';
 import DateRangeCalendar from './components/DateRangeCalendar';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 // Rupee Icon Component
 const RupeeIcon = ({ className = '' }) => {
@@ -155,12 +156,6 @@ const MarketingDashboard = () => {
     } else {
       navigate('/app/marketing/enquiry-master', { replace: false });
     }
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   const fetchRevisionNotifications = async () => {
@@ -591,7 +586,7 @@ const MarketingDashboard = () => {
                   <div className="space-y-2.5">
                     <div className="bg-gradient-to-r from-red-50 to-amber-50 border border-red-100 rounded-lg p-2.5 shadow-sm">
                       <p className="text-[10px] text-gray-600 mb-0.5">
-                        {formatDate(dateRange.startDate)} to {formatDate(dateRange.endDate)}
+                        {formatDateDdMmYyyy(dateRange.startDate)} to {formatDateDdMmYyyy(dateRange.endDate)}
                       </p>
                       <div className="flex items-baseline gap-1.5">
                         <p className="text-lg font-bold text-red-800">{enquiriesInRange.length}</p>
@@ -630,7 +625,7 @@ const MarketingDashboard = () => {
                                 {enquiry.marketing_clients?.client_name || 'No Client'}
                               </p>
                               <p className="text-[10px] text-gray-500">
-                                {formatDate(enquiry.enquiry_date)}
+                                {formatDateDdMmYyyy(enquiry.enquiry_date)}
                               </p>
                             </div>
                           </div>
@@ -648,7 +643,7 @@ const MarketingDashboard = () => {
                 ) : (
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                     <p className="text-xs text-gray-600 text-center">
-                      No enquiries found from {formatDate(dateRange.startDate)} to {formatDate(dateRange.endDate)}
+                      No enquiries found from {formatDateDdMmYyyy(dateRange.startDate)} to {formatDateDdMmYyyy(dateRange.endDate)}
                     </p>
                   </div>
                 )

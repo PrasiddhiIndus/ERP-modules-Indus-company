@@ -259,14 +259,15 @@ export function ApprovalTable({ rows }) {
       <table className="min-w-full text-xs">
         <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
           <tr>
-            {["Request", "Module", "Requester", "Department/Site", "Age", "Status", "Action"].map((h) => (
+            {["S.No", "Request", "Module", "Requester", "Department/Site", "Age", "Status", "Action"].map((h) => (
               <th key={h} className="text-left px-2 py-2 font-semibold">{h}</th>
             ))}
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-100">
-          {rows.map((r) => (
+          {rows.map((r, idx) => (
             <tr key={r.id}>
+              <td className="px-2 py-1.5 text-center text-gray-600 tabular-nums">{idx + 1}</td>
               <td className="px-2 py-1.5">{r.type}</td>
               <td className="px-2 py-1.5">{r.module}</td>
               <td className="px-2 py-1.5">{r.requester}</td>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import CostingSheet from './components/CostingSheet';
@@ -1000,9 +1001,9 @@ const QuotationTracker = () => {
       // Quotation details
       doc.setFontSize(10);
       doc.text(`Quotation No: ${quotation.quotation_number}`, 20, yPos);
-      doc.text(`Date: ${new Date(quotation.quotation_date).toLocaleDateString()}`, 20, yPos + 5);
+      doc.text(`Date: ${formatDateDdMmYyyy(quotation.quotation_date)}`, 20, yPos + 5);
       if (quotation.valid_until) {
-        doc.text(`Valid Until: ${new Date(quotation.valid_until).toLocaleDateString()}`, 20, yPos + 10);
+        doc.text(`Valid Until: ${formatDateDdMmYyyy(quotation.valid_until)}`, 20, yPos + 10);
       }
       yPos += 20;
 
@@ -1689,6 +1690,7 @@ Marketing Team`;
                 <table className="w-full min-w-[1000px] text-xs">
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
+                      <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-11">S.No</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation ID</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Enquiry ID</th>
@@ -1712,6 +1714,7 @@ Marketing Team`;
                       const isLastRow = index === quotations.length - 1;
                       return (
                         <tr key={quotation.id} className="hover:bg-purple-50/30 transition-colors" data-is-last-row={isLastRow}>
+                          <td className="px-3 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                           <td className="px-3 py-2">
                             <span className="text-xs font-semibold text-gray-900">{quotation.quotation_number}</span>
                           </td>
@@ -1732,11 +1735,7 @@ Marketing Team`;
                           </td>
                           <td className="px-3 py-2">
                             <span className="text-xs text-gray-600">
-                              {new Date(quotation.quotation_date).toLocaleDateString('en-GB', { 
-                                day: '2-digit', 
-                                month: 'short', 
-                                year: 'numeric' 
-                              })}
+                              {formatDateDdMmYyyy(quotation.quotation_date)}
                             </span>
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap">
@@ -1922,6 +1921,7 @@ Marketing Team`;
                 <table className="w-full border-collapse min-w-full">
                   <thead>
                       <tr className="bg-gradient-to-r from-green-500 to-green-600 text-white">
+                        <th className="px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wider w-11">S.No</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Quotation ID</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Enquiry ID</th>
                         <th className="px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider">Client Name</th>
@@ -1942,7 +1942,7 @@ Marketing Team`;
                         return quotationNumber.includes(query) || 
                                clientName.includes(query) || 
                                enquiryNumber.includes(query);
-                      }).map((sheet) => {
+                      }).map((sheet, idx) => {
                         const quotation = sheet.marketing_quotations;
                         // Calculate final amount from costing data
                         let finalAmount = 0;
@@ -1964,6 +1964,7 @@ Marketing Team`;
                         }
                         return (
                           <tr key={sheet.id} className="hover:bg-green-50/30 transition-colors border-b border-gray-200">
+                            <td className="px-2 py-2 whitespace-nowrap text-xs text-center tabular-nums text-gray-600">{idx + 1}</td>
                             <td className="px-2 py-2 whitespace-nowrap text-xs font-medium text-gray-900">
                               {quotation?.quotation_number || '-'}
                         </td>
@@ -1974,10 +1975,10 @@ Marketing Team`;
                               {quotation?.marketing_clients?.client_name || '-'}
                         </td>
                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-600">
-                              {sheet.created_at ? new Date(sheet.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
+                              {sheet.created_at ? formatDateDdMmYyyy(sheet.created_at) : '-'}
                         </td>
                             <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-600">
-                              {sheet.updated_at ? new Date(sheet.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : (sheet.created_at ? new Date(sheet.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-')}
+                              {sheet.updated_at ? formatDateDdMmYyyy(sheet.updated_at) : (sheet.created_at ? formatDateDdMmYyyy(sheet.created_at) : '-')}
                         </td>
                             <td className="px-2 py-2 whitespace-nowrap text-xs text-right font-semibold text-gray-900">
                               {finalAmount > 0 ? `₹${finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
@@ -2060,6 +2061,7 @@ Marketing Team`;
                 <table className="w-full min-w-[1000px] text-xs">
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
+                      <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-11">S.No</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation ID</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Final Amount</th>
@@ -2080,6 +2082,7 @@ Marketing Team`;
                       const isLastRow = index === filteredArray.length - 1;
                       return (
                         <tr key={quotation.id} className="hover:bg-purple-50/30 transition-colors" data-is-last-row={isLastRow}>
+                          <td className="px-3 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                           <td className="px-3 py-2">
                             <span className="text-xs font-semibold text-gray-900">{quotation.quotation_number}</span>
                           </td>
@@ -2098,17 +2101,9 @@ Marketing Team`;
                           <td className="px-3 py-2">
                             <span className="text-xs text-gray-600">
                               {quotation.internalQuotationCreatedDate 
-                                ? new Date(quotation.internalQuotationCreatedDate).toLocaleDateString('en-GB', { 
-                                    day: '2-digit', 
-                                    month: 'short', 
-                                    year: 'numeric' 
-                                  })
+                                ? formatDateDdMmYyyy(quotation.internalQuotationCreatedDate)
                                 : quotation.created_at
-                                ? new Date(quotation.created_at).toLocaleDateString('en-GB', { 
-                                    day: '2-digit', 
-                                    month: 'short', 
-                                    year: 'numeric' 
-                                  })
+                                ? formatDateDdMmYyyy(quotation.created_at)
                                 : '-'}
                             </span>
                           </td>
@@ -2460,21 +2455,13 @@ Marketing Team`;
                             <div>
                               <span className="font-medium text-gray-500">Date:</span>
                               <div className="text-gray-900 font-semibold mt-0.5">
-                                {new Date(revision.created_at).toLocaleDateString('en-GB', { 
-                                  day: '2-digit', 
-                                  month: 'short', 
-                                  year: 'numeric' 
-                                })}
+                                {formatDateDdMmYyyy(revision.created_at)}
                               </div>
                             </div>
                             <div>
                               <span className="font-medium text-gray-500">Upcoming Date:</span>
                               <div className="text-gray-900 font-semibold mt-0.5">
-                                {new Date(revision.revision_date).toLocaleDateString('en-GB', { 
-                                  day: '2-digit', 
-                                  month: 'short', 
-                                  year: 'numeric' 
-                                })}
+                                {formatDateDdMmYyyy(revision.revision_date)}
                               </div>
                             </div>
                             <div>
@@ -2540,20 +2527,12 @@ Marketing Team`;
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Date</p>
-                    <p className="font-medium text-gray-900">{new Date(viewingQuotation.quotation_date).toLocaleDateString('en-GB', { 
-                      day: '2-digit', 
-                      month: 'short', 
-                      year: 'numeric' 
-                    })}</p>
+                    <p className="font-medium text-gray-900">{formatDateDdMmYyyy(viewingQuotation.quotation_date)}</p>
                   </div>
                   {viewingQuotation.valid_until && (
                     <div>
                       <p className="text-sm text-gray-600 mb-1">Valid Until</p>
-                      <p className="font-medium text-gray-900">{new Date(viewingQuotation.valid_until).toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: 'short', 
-                        year: 'numeric' 
-                      })}</p>
+                      <p className="font-medium text-gray-900">{formatDateDdMmYyyy(viewingQuotation.valid_until)}</p>
                     </div>
                   )}
                   <div>
@@ -2586,11 +2565,7 @@ Marketing Team`;
                   {viewingQuotation.follow_up_date && (
                     <div>
                       <p className="text-sm text-gray-600 mb-1">Follow-up Date</p>
-                      <p className="font-medium text-gray-900">{new Date(viewingQuotation.follow_up_date).toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: 'short', 
-                        year: 'numeric' 
-                      })}</p>
+                      <p className="font-medium text-gray-900">{formatDateDdMmYyyy(viewingQuotation.follow_up_date)}</p>
                     </div>
                   )}
                 </div>

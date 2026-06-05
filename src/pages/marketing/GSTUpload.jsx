@@ -338,6 +338,7 @@ const GSTUpload = () => {
                   <table className="min-w-full border-collapse">
                     <thead className="bg-gray-100">
                       <tr>
+                        <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 whitespace-nowrap w-11">S.No</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 whitespace-nowrap">GST_Code</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 whitespace-nowrap">GST_Rate (%)</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 whitespace-nowrap">GST_Type</th>
@@ -348,7 +349,7 @@ const GSTUpload = () => {
                     <tbody className="bg-white">
                       {(!gstData.gstCodes || gstData.gstCodes.length === 0) && !showCreateForm && (
                         <tr>
-                          <td colSpan="5" className="border px-4 py-8 text-center text-gray-500">
+                          <td colSpan="6" className="border px-4 py-8 text-center text-gray-500">
                             No GST codes found. Click "+ Add GST Code" to create one.
                           </td>
                         </tr>
@@ -357,6 +358,7 @@ const GSTUpload = () => {
                         <tr key={index} className="hover:bg-gray-50">
                           {editingRow === index && editingTableType === 'gstCodes' ? (
                             <>
+                              <td className="border px-4 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                               <td className="border px-4 py-2">
                                 <input
                                   type="text"
@@ -408,6 +410,7 @@ const GSTUpload = () => {
                             </>
                           ) : (
                             <>
+                              <td className="border px-4 py-2 text-sm text-center tabular-nums text-gray-600">{index + 1}</td>
                               <td className="border px-4 py-2 text-sm font-medium text-gray-900 whitespace-nowrap">{item.gst_code || '-'}</td>
                               <td className="border px-4 py-2 text-sm text-gray-700 whitespace-nowrap">{item.gst_rate || '-'}</td>
                               <td className="border px-4 py-2 text-sm text-gray-700 whitespace-nowrap">{item.gst_type || '-'}</td>
@@ -465,6 +468,7 @@ const GSTUpload = () => {
                   <table className="min-w-full border-collapse">
                     <thead className="bg-gray-100">
                       <tr>
+                        <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 whitespace-nowrap w-11">S.No</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 whitespace-nowrap">GST_Rate (%)</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 whitespace-nowrap">CGST%</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 whitespace-nowrap">SGST%</th>
@@ -475,7 +479,7 @@ const GSTUpload = () => {
                     <tbody className="bg-white">
                       {(!gstData.gstStructure || gstData.gstStructure.length === 0) && !showCreateForm && (
                         <tr>
-                          <td colSpan="5" className="border px-4 py-8 text-center text-gray-500">
+                          <td colSpan="6" className="border px-4 py-8 text-center text-gray-500">
                             No GST structure found. Click "+ Add GST Structure" to create one.
                           </td>
                         </tr>
@@ -484,6 +488,7 @@ const GSTUpload = () => {
                         <tr key={index} className="hover:bg-gray-50">
                           {editingRow === index && editingTableType === 'gstStructure' ? (
                             <>
+                              <td className="border px-4 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                               <td className="border px-4 py-2">
                                 <input
                                   type="text"
@@ -535,6 +540,7 @@ const GSTUpload = () => {
                             </>
                           ) : (
                             <>
+                              <td className="border px-4 py-2 text-sm text-center tabular-nums text-gray-600">{index + 1}</td>
                               <td className="border px-4 py-2 text-sm font-medium text-gray-900 whitespace-nowrap">{item.gst_rate || '-'}</td>
                               <td className="border px-4 py-2 text-sm text-gray-700 whitespace-nowrap">{item.cgst || '-'}</td>
                               <td className="border px-4 py-2 text-sm text-gray-700 whitespace-nowrap">{item.sgst || '-'}</td>
@@ -592,6 +598,7 @@ const GSTUpload = () => {
                   <table className="min-w-full border-collapse">
                     <thead className="bg-gray-100">
                       <tr>
+                        <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 w-11">S.No</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700">Product / Service Type</th>
                         <th className="border px-4 py-2 text-left text-sm font-medium text-gray-700 whitespace-nowrap">Default GST Rate (%)</th>
                         <th className="border px-4 py-2 text-center text-sm font-medium text-gray-700 whitespace-nowrap">Actions</th>
@@ -600,7 +607,7 @@ const GSTUpload = () => {
                     <tbody className="bg-white">
                       {(!gstData.productServiceTypes || gstData.productServiceTypes.length === 0) && !showCreateForm && (
                         <tr>
-                          <td colSpan="3" className="border px-4 py-8 text-center text-gray-500">
+                          <td colSpan="4" className="border px-4 py-8 text-center text-gray-500">
                             No product/service types found. Click "+ Add Product/Service" to create one.
                           </td>
                         </tr>
@@ -609,6 +616,7 @@ const GSTUpload = () => {
                         <tr key={index} className="hover:bg-gray-50">
                           {editingRow === index && editingTableType === 'productServiceTypes' ? (
                             <>
+                              <td className="border px-4 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                               <td className="border px-4 py-2">
                                 <input
                                   type="text"
@@ -644,6 +652,7 @@ const GSTUpload = () => {
                             </>
                           ) : (
                             <>
+                              <td className="border px-4 py-2 text-sm text-center tabular-nums text-gray-600">{index + 1}</td>
                               <td className="border px-4 py-2 text-sm font-medium text-gray-900">{item.product_service_type || '-'}</td>
                               <td className="border px-4 py-2 text-sm text-gray-700 whitespace-nowrap">{item.default_gst_rate || '-'}</td>
                               <td className="border px-4 py-2 text-center">

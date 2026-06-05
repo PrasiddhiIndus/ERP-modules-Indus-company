@@ -1,3 +1,4 @@
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
@@ -765,6 +766,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  S.No
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Vehicle
                 </th>
@@ -789,8 +793,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredTrips.map((trip) => (
+              {filteredTrips.map((trip, idx) => (
                 <tr key={trip.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-center tabular-nums">{idx + 1}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm font-medium text-gray-900">
@@ -832,14 +837,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm text-gray-900">
-                        {new Date(trip.start_date_time).toLocaleDateString()}
+                        {formatDateDdMmYyyy(trip.start_date_time)}
                       </div>
                       <div className="text-sm text-gray-500">
                         {new Date(trip.start_date_time).toLocaleTimeString()}
                       </div>
                       {trip.end_date_time && (
                         <div className="text-xs text-gray-400">
-                          End: {new Date(trip.end_date_time).toLocaleDateString()}
+                          End: {formatDateDdMmYyyy(trip.end_date_time)}
                         </div>
                       )}
                     </div>

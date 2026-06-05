@@ -14,7 +14,13 @@ import {
   computeIfsplExperienceYears,
   computeTotalExperienceYears,
 } from '../../utils/employeeMasterReminders';
-import { formatDdMonYyyy } from '../../utils/dateFormat';
+import {
+  isActiveEmployeeRow,
+  suggestNextHierarchySortOrder,
+  validateEmployeeHierarchy,
+} from '../../lib/employeeHierarchy';
+import { ManagerSearchSelect } from '../../components/employee/ManagerSearchSelect';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import * as XLSX from 'xlsx';
 import { 
   Users, 
@@ -176,9 +182,26 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     ifsc_code: '',
     email_id: '',
     marital_status: '',
+    l1_manager_code: '',
+    l1_manager_name: '',
+    l2_manager_code: '',
+    l2_manager_name: '',
+    hierarchy_sort_order: '',
   });
 
   const [formData, setFormData] = useState(emptyForm);
+
+  const managerCandidates = useMemo(() => {
+    const excludeId = editingEmployee?.id;
+    return (employees || [])
+      .filter((row) => isActiveEmployeeRow(row))
+      .filter((row) => !excludeId || row.id !== excludeId)
+      .sort((a, b) =>
+        String(a.full_name || '').localeCompare(String(b.full_name || ''), undefined, {
+          sensitivity: 'base',
+        })
+      );
+  }, [employees, editingEmployee?.id]);
 
   const departments = [
     'Administration',
@@ -649,6 +672,18 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       const userEmail = user.email || '';
       const excludeDbId = editingEmployee?.id ?? null;
 
+      const hierarchyCheck = validateEmployeeHierarchy(employees, {
+        employee_code: formData.employee_code,
+        employee_id: formData.employee_id,
+        l1_manager_code: formData.l1_manager_code,
+        l2_manager_code: formData.l2_manager_code,
+        hierarchy_sort_order: formData.hierarchy_sort_order,
+      });
+      if (!hierarchyCheck.ok) {
+        alert(hierarchyCheck.message);
+        return;
+      }
+
       if (editingEmployee) {
         const employment_type = normalizeEmploymentType(formData.employment_type);
         const employee_id = resolveEmployeeIdForSave(
@@ -671,6 +706,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           ...buildPayload(userEmail),
           employment_type,
           employee_id,
+          ...hierarchyCheck.fields,
         };
         const { error } = await supabase
           .from('admin_ifsp_employee_master')
@@ -705,6 +741,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           ...buildPayload(userEmail),
           employment_type,
           employee_id,
+          ...hierarchyCheck.fields,
         };
         const { error } = await supabase
           .from('admin_ifsp_employee_master')
@@ -785,6 +822,14 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       ifsc_code: employee.ifsc_code || '',
       email_id: employee.email_id || '',
       marital_status: employee.marital_status || '',
+      l1_manager_code: employee.l1_manager_code || '',
+      l1_manager_name: employee.l1_manager_name || '',
+      l2_manager_code: employee.l2_manager_code || '',
+      l2_manager_name: employee.l2_manager_name || '',
+      hierarchy_sort_order:
+        employee.hierarchy_sort_order != null && employee.hierarchy_sort_order !== ''
+          ? String(employee.hierarchy_sort_order)
+          : '',
     });
     setShowForm(true);
   };
@@ -1251,12 +1296,12 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                     <td className={td} title={employee.timestamp || ''}>{employee.timestamp || '–'}</td>
                     <td className={td} title={employee.full_name || ''}>{employee.full_name || '–'}</td>
                     <td className={td} title={employee.gender || ''}>{employee.gender || '–'}</td>
-                    <td className={td}>{formatDdMonYyyy(employee.date_of_joining)}</td>
+                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_joining)}</td>
                     <td className={td} title={employee.designation || ''}>{employee.designation || '–'}</td>
                     <td className={td} title={employee.department || ''}>{employee.department || '–'}</td>
                     <td className={td} title={employee.location || ''}>{employee.location || '–'}</td>
-                    <td className={td}>{formatDdMonYyyy(employee.date_of_birth)}</td>
-                    <td className={td}>{formatDdMonYyyy(employee.date_of_anniversary)}</td>
+                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_birth)}</td>
+                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_anniversary)}</td>
                     <td className={td} title={employee.blood_group || ''}>{employee.blood_group || '–'}</td>
                     <td className={td}>{employee.aadhar_no || '–'}</td>
                     <td className={td}>{employee.pan_card_no || '–'}</td>
@@ -1275,7 +1320,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                     <td className={td}>{employee.other_experience != null ? employee.other_experience : '–'}</td>
                     <td className={td}>{ifsplExp != null ? ifsplExp : '–'}</td>
                     <td className={td} title="Previous experience + IFSPL experience">{totalExp != null ? totalExp : '–'}</td>
-                    <td className={td}>{formatDdMonYyyy(employee.date_of_leaving)}</td>
+                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_leaving)}</td>
                     <td className="px-2 py-2 whitespace-nowrap">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusColor(employee.status)}`}>
                         {getStatusIcon(employee.status)}
@@ -1817,6 +1862,75 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                       />
                       <span className="text-sm text-gray-700">Anniversary Reminder</span>
                     </label>
+                  </div>
+                </div>
+
+                <div className="md:col-span-3 border-t border-gray-200 pt-6 space-y-4">
+                  <h3 className="text-lg font-medium text-gray-900">Org hierarchy (Indus One)</h3>
+                  <p className="text-xs text-gray-500">
+                    L1 is the direct manager (org tree parent). L2 is skip-level (leave L2 approval). Set Hierarchy
+                    Sr.No. to include this employee on the Indus One org chart; leave blank to hide until assigned.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <ManagerSearchSelect
+                      label="L1 Manager (direct)"
+                      hint="Leave empty if not assigned. Uses employee code for routing."
+                      valueCode={formData.l1_manager_code}
+                      valueName={formData.l1_manager_name}
+                      candidates={managerCandidates}
+                      onChange={({ code, name }) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          l1_manager_code: code,
+                          l1_manager_name: name,
+                        }))
+                      }
+                    />
+                    <ManagerSearchSelect
+                      label="L2 Manager (skip-level)"
+                      hint="Used for L2 leave approval, not as org tree parent."
+                      valueCode={formData.l2_manager_code}
+                      valueName={formData.l2_manager_name}
+                      candidates={managerCandidates}
+                      onChange={({ code, name }) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          l2_manager_code: code,
+                          l2_manager_name: name,
+                        }))
+                      }
+                    />
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Hierarchy Sr.No. (org chart order)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={formData.hierarchy_sort_order}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, hierarchy_sort_order: e.target.value }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Optional — e.g. 10"
+                      />
+                      <button
+                        type="button"
+                        className="mt-2 text-xs font-medium text-blue-700 hover:text-blue-900"
+                        onClick={() =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            hierarchy_sort_order: String(suggestNextHierarchySortOrder(employees)),
+                          }))
+                        }
+                      >
+                        Use next available Sr.No. ({suggestNextHierarchySortOrder(employees)})
+                      </button>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        Indus One org chart only lists employees with a Sr.No. set.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>

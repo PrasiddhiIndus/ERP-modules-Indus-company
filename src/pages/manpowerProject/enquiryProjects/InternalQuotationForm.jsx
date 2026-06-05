@@ -5,6 +5,7 @@ import { Trash2 } from "lucide-react";
 
 import { supabase } from "../../../lib/supabase";
 import minWageFlowConfig from "../../../config/manpowerMinWageFlow.json";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const ROLE_COLUMNS = [
   { key: "sr_fire_supervisor", label: "Sr. Fire Supervisor (Highly skilled)" },
@@ -139,12 +140,6 @@ function parseMetaAuthorization(raw) {
   }
 }
 
-function formatDate(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
 
 function joinAddressParts(parts) {
   const text = (parts || []).map((part) => String(part || "").trim()).filter(Boolean);
@@ -956,7 +951,7 @@ const InternalQuotationForm = ({
     enquiryMeta.siteCountry || enquiry.country,
     enquiryMeta.siteZip || enquiry.zip,
   ]);
-  const convertDate = formatDate(enquiryMeta.convertedAt || enquiryMeta.approvedAt || enquiry.updated_at || enquiry.created_at);
+  const convertDate = formatDateDdMmYyyy(enquiryMeta.convertedAt || enquiryMeta.approvedAt || enquiry.updated_at || enquiry.created_at) || "—";
 
   return (
     <div className="p-6">

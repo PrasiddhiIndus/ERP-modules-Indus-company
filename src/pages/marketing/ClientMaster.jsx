@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const ClientMaster = () => {
   const [clients, setClients] = useState([]);
@@ -271,7 +272,7 @@ const ClientMaster = () => {
         'Primary Contact Person': client.primary_contact_person,
         'Contact Numbers': contactNumbers,
         'Contact Emails': contactEmails,
-        'Created At': new Date(client.created_at).toLocaleDateString(),
+        'Created At': formatDateDdMmYyyy(client.created_at),
       };
     });
     exportToExcel(exportData, 'Clients_Export', 'Clients');
@@ -340,6 +341,7 @@ const ClientMaster = () => {
               <table className="w-full min-w-[800px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-11">S.No</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client Name</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Industry</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">City</th>
@@ -351,8 +353,9 @@ const ClientMaster = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {clients.map((client) => (
+                  {clients.map((client, idx) => (
                     <tr key={client.id} className="hover:bg-gray-50">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-center tabular-nums text-gray-600">{(currentPage - 1) * itemsPerPage + idx + 1}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm font-medium text-gray-900">{client.client_name}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.industry || '-'}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{client.city || '-'}</td>

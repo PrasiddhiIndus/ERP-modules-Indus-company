@@ -6,6 +6,7 @@ import { useAuth } from "../../../contexts/AuthContext";
 import { COMMERCIAL_RM_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../../config/roles";
 import ManpowerNavbarRm from "./ManpowerNavbarRm";
 import ManpowerEnquiryFormPanelRm from "./components/ManpowerEnquiryFormPanelRm";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const RM_MANPOWER_BASE = "/app/commercial/rm-mm-amc-iev/manpower-management";
 
@@ -302,7 +303,7 @@ const ManpowerManagementRm = () => {
                         </td>
                         <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{e.source || "—"}</td>
                         <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">
-                          {e.due_date ? new Date(e.due_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                          {e.due_date ? formatDateDdMmYyyy(e.due_date) : "—"}
                         </td>
                         <td className="px-3 py-2.5 align-middle whitespace-nowrap">
                           <span className="text-xs font-semibold text-purple-700">{formatIfslDisplay(e)}</span>

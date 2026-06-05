@@ -212,6 +212,7 @@ const FireTenderMailTemplatePage = () => {
               <table className="min-w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-100 text-left">
+                    <th className="px-4 py-2 border text-center w-11">S.No</th>
                     <th className="px-4 py-2 border">Name</th>
                     <th className="px-4 py-2 border">Template Type</th>
                     <th className="px-4 py-2 border">Subject</th>
@@ -221,13 +222,14 @@ const FireTenderMailTemplatePage = () => {
                 <tbody>
                   {templates.length === 0 ? (
                     <tr>
-                      <td colSpan="4" className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan="5" className="px-4 py-8 text-center text-gray-500">
                         No templates found. Create your first template!
                       </td>
                     </tr>
                   ) : (
-                    templates.map((t) => (
+                    templates.map((t, idx) => (
                       <tr key={t.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 border text-center tabular-nums text-gray-600">{idx + 1}</td>
                         <td className="px-4 py-2 border">{t.name}</td>
                         <td className="px-4 py-2 border">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${

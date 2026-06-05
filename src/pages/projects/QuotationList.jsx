@@ -125,6 +125,7 @@ const QuotationList = () => {
               <table className="w-full min-w-[760px] text-sm">
                 <thead>
                   <tr className="border-b border-red-100 bg-gradient-to-r from-red-50 via-orange-50/80 to-amber-50">
+                    <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-700 w-11">S.No</th>
                     <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">Tender No.</th>
                     <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">Quotation No.</th>
                     <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">Client</th>
@@ -134,13 +135,14 @@ const QuotationList = () => {
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-12 text-center text-slate-500">
+                      <td colSpan={5} className="px-4 py-12 text-center text-slate-500">
                         {search.trim() ? "No matching quotations found." : "No approved quotations found."}
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((q) => (
+                    filtered.map((q, idx) => (
                       <tr key={q.id} className="transition-colors hover:bg-red-50/25">
+                        <td className="px-4 py-3 text-center tabular-nums text-slate-600">{idx + 1}</td>
                         <td className="px-4 py-3">
                           <Link
                             to={`/app/fire-tender/quotation/${q.id}`}

@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 
 const ITEMS_PER_PAGE = 10;
 const META_PREFIX = "__META__:";
@@ -39,16 +40,9 @@ function statusDisplay(status) {
   return status === "Rejected" ? "Regret" : status || "Pending";
 }
 
-function formatDate(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-}
-
 function formatEnquiryDate(row) {
   const { meta } = parseAuthorizationMeta(row.authorization_to);
-  return formatDate(meta.enquiryDate || row.created_at);
+  return formatDateDdMmYyyy(meta.enquiryDate || row.created_at) || "—";
 }
 
 function formatIfslDisplay(row) {
@@ -347,6 +341,7 @@ const ManpowerManagement = () => {
                 <table className="w-full min-w-[1160px] text-xs table-fixed">
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100 sticky top-0 z-10">
                     <tr>
+                      <th className="px-3 py-2.5 w-11 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">S.No</th>
                       <th className="px-3 py-2.5 w-[15%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Enquiry No.</th>
                       <th className="px-3 py-2.5 w-[13%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Enquiry Date</th>
                       <th className="px-3 py-2.5 w-[18%] text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle">Client</th>
@@ -358,10 +353,11 @@ const ManpowerManagement = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-100">
-                    {paginated.map((e) => {
+                    {paginated.map((e, idx) => {
                       const rejectionRemark = getRejectionRemark(e);
                       return (
                         <tr key={e.id} className="hover:bg-red-50/35 transition-colors">
+                          <td className="px-3 py-2.5 align-middle text-center tabular-nums text-gray-600">{(currentPage - 1) * ITEMS_PER_PAGE + idx + 1}</td>
                           <td className="px-3 py-2.5 align-middle whitespace-nowrap">
                             <span className="text-xs font-semibold text-gray-900">{e.enquiry_number || "—"}</span>
                           </td>
@@ -370,7 +366,7 @@ const ManpowerManagement = () => {
                             <span className="text-xs text-gray-800 font-medium line-clamp-2">{e.client || "—"}</span>
                           </td>
                           <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{e.source || "—"}</td>
-                          <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{formatDate(e.due_date)}</td>
+                          <td className="px-3 py-2.5 align-middle whitespace-nowrap text-xs text-gray-600">{formatDateDdMmYyyy(e.due_date) || "—"}</td>
                           <td className="px-3 py-2.5 align-middle whitespace-nowrap">
                             <span className="text-xs font-semibold text-purple-700">{formatIfslDisplay(e)}</span>
                           </td>

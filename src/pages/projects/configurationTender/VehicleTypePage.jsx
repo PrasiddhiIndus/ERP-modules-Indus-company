@@ -45,6 +45,7 @@ const VehicleTypePage = () => {
         <table className="min-w-full border-collapse">
           <thead className="bg-gray-100">
             <tr>
+              <th className="px-4 py-2 text-center w-11">S.No</th>
               <th className="px-4 py-2 text-left">Name</th>
               <th className="px-4 py-2"></th>
             </tr>
@@ -52,6 +53,7 @@ const VehicleTypePage = () => {
           <tbody>
             {vehicleTypes.map((type, index) => (
               <tr key={index} className="border-t">
+                <td className="px-4 py-2 text-center tabular-nums text-gray-600">{index + 1}</td>
                 <td className="px-4 py-2">{type}</td>
                 <td className="px-4 py-2 text-right">
                   <button
@@ -67,7 +69,7 @@ const VehicleTypePage = () => {
             {vehicleTypes.length === 0 && (
               <tr>
                 <td
-                  colSpan="2"
+                  colSpan="3"
                   className="px-4 py-2 text-center text-gray-500"
                 >
                   No vehicle types added yet

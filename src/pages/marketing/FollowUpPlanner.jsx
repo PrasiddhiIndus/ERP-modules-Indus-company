@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, Calendar, RefreshCw, Search, Users } from 'lucide-react';
@@ -636,7 +637,7 @@ const FollowUpPlanner = () => {
       'Client': followUp.marketing_enquiries?.marketing_clients?.client_name || '-',
       'Remarks': followUp.remarks || '-',
       'Status': followUp.status,
-      'Created At': new Date(followUp.created_at).toLocaleDateString(),
+      'Created At': formatDateDdMmYyyy(followUp.created_at),
     }));
     exportToExcel(exportData, 'FollowUps_Export', 'Follow-ups');
   };
@@ -813,6 +814,7 @@ const FollowUpPlanner = () => {
               <table className="w-full min-w-[900px]">
                 <thead className="bg-gray-50 border-b">
                   <tr>
+                    <th className="px-3 sm:px-6 py-2 sm:py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-11">S.No</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Enquiry/Quotation</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Follow-up Date</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Date</th>
@@ -832,22 +834,10 @@ const FollowUpPlanner = () => {
                                       followUp.marketing_quotations?.marketing_clients?.client_name || '').toLowerCase();
                     const remarks = (followUp.remarks || '').toLowerCase();
                     const status = (followUp.computed_status || followUp.status || '').toLowerCase();
-                    const followUpDate = new Date(followUp.follow_up_date).toLocaleDateString('en-GB', { 
-                      day: '2-digit', 
-                      month: 'short', 
-                      year: 'numeric' 
-                    }).toLowerCase();
+                    const followUpDate = formatDateDdMmYyyy(followUp.follow_up_date).toLowerCase();
                     const currentDate = followUp.revision_created_date 
-                      ? new Date(followUp.revision_created_date).toLocaleDateString('en-GB', { 
-                          day: '2-digit', 
-                          month: 'short', 
-                          year: 'numeric' 
-                        }).toLowerCase()
-                      : new Date(followUp.created_at).toLocaleDateString('en-GB', { 
-                          day: '2-digit', 
-                          month: 'short', 
-                          year: 'numeric' 
-                        }).toLowerCase();
+                      ? formatDateDdMmYyyy(followUp.revision_created_date).toLowerCase()
+                      : formatDateDdMmYyyy(followUp.created_at).toLowerCase();
                     
                     return enquiryNumber.includes(query) ||
                            quotationNumber.includes(query) ||
@@ -856,8 +846,9 @@ const FollowUpPlanner = () => {
                            status.includes(query) ||
                            followUpDate.includes(query) ||
                            currentDate.includes(query);
-                  }).map((followUp) => (
+                  }).map((followUp, idx) => (
                     <tr key={followUp.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-center tabular-nums text-gray-600">{idx + 1}</td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm">
                         <div className="flex flex-col">
                           <span className="font-medium text-gray-900">
@@ -871,24 +862,12 @@ const FollowUpPlanner = () => {
                         </div>
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-900 whitespace-nowrap">
-                        {new Date(followUp.follow_up_date).toLocaleDateString('en-GB', { 
-                          day: '2-digit', 
-                          month: 'short', 
-                          year: 'numeric' 
-                        })}
+                        {formatDateDdMmYyyy(followUp.follow_up_date)}
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-700 whitespace-nowrap">
                         {followUp.revision_created_date 
-                          ? new Date(followUp.revision_created_date).toLocaleDateString('en-GB', { 
-                              day: '2-digit', 
-                              month: 'short', 
-                              year: 'numeric' 
-                            })
-                          : new Date(followUp.created_at).toLocaleDateString('en-GB', { 
-                              day: '2-digit', 
-                              month: 'short', 
-                              year: 'numeric' 
-                            })
+                          ? formatDateDdMmYyyy(followUp.revision_created_date)
+                          : formatDateDdMmYyyy(followUp.created_at)
                         }
                       </td>
                       <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-600">
@@ -1111,6 +1090,7 @@ const FollowUpPlanner = () => {
                   <table className="w-full min-w-[900px]">
                     <thead className="bg-gray-50 border-b">
                       <tr>
+                        <th className="px-3 sm:px-6 py-2 sm:py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-11">S.No</th>
                         <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitor Name</th>
                         <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company Name</th>
                         <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client Name</th>
@@ -1133,7 +1113,7 @@ const FollowUpPlanner = () => {
                           (visit.visit_date || '').includes(query) ||
                           (visit.status || '').toLowerCase().includes(query)
                         );
-                      }).map((visit) => {
+                      }).map((visit, idx) => {
                         const visitDate = new Date(visit.visit_date);
                         const today = new Date();
                         today.setHours(0, 0, 0, 0);
@@ -1145,6 +1125,7 @@ const FollowUpPlanner = () => {
                             key={visit.id} 
                             className={`hover:bg-gray-50 transition-colors ${isToday ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}`}
                           >
+                            <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-center tabular-nums text-gray-600">{idx + 1}</td>
                             <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm font-medium text-gray-900">
                               {visit.visitor_name || '-'}
                             </td>
@@ -1158,11 +1139,7 @@ const FollowUpPlanner = () => {
                               {visit.site_location || '-'}
                             </td>
                             <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-900 whitespace-nowrap">
-                              {visit.visit_date ? new Date(visit.visit_date).toLocaleDateString('en-GB', { 
-                                day: '2-digit', 
-                                month: 'short', 
-                                year: 'numeric' 
-                              }) : '-'}
+                              {visit.visit_date ? formatDateDdMmYyyy(visit.visit_date) : '-'}
                               {isToday && (
                                 <span className="ml-2 px-2 py-0.5 bg-yellow-400 text-yellow-900 text-xs font-semibold rounded-full">
                                   Today
@@ -1533,19 +1510,13 @@ const FollowUpPlanner = () => {
                                 <div>
                                   <div className="text-xs text-gray-500">Date Created</div>
                                   <div className="font-semibold text-gray-900 mt-0.5">
-                                    {new Date(revision.created_at).toLocaleDateString('en-GB', { 
-                                    day: '2-digit', 
-                                    month: 'short', 
-                                    year: 'numeric' })}
+                                    {formatDateDdMmYyyy(revision.created_at)}
                                   </div>
                                 </div>
                                 <div>
                                   <div className="text-xs text-gray-500">Upcoming Date</div>
                                   <div className="font-semibold text-gray-900 mt-0.5">
-                                    {new Date(revision.revision_date).toLocaleDateString('en-GB', { 
-                                    day: '2-digit', 
-                                    month: 'short', 
-                                    year: 'numeric' })}
+                                    {formatDateDdMmYyyy(revision.revision_date)}
                                   </div>
                                 </div>
                                 <div>
@@ -1587,11 +1558,7 @@ const FollowUpPlanner = () => {
                           <div className="flex-1">
                             <div className="flex items-center space-x-2 mb-2">
                               <p className="font-medium text-gray-900">
-                                {new Date(item.follow_up_date).toLocaleDateString('en-GB', { 
-                                  day: '2-digit', 
-                                  month: 'short', 
-                                  year: 'numeric' 
-                                })}
+                                {formatDateDdMmYyyy(item.follow_up_date)}
                               </p>
                               <span className={`px-2 py-1 text-xs rounded-full ${
                                 item.status === 'Completed' ? 'bg-green-100 text-green-800' :
