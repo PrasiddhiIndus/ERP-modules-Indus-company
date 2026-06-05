@@ -1,5 +1,6 @@
 // src/pages/projects/FireTender.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
   Briefcase,
@@ -821,6 +822,7 @@ const FireTender = () => {
                 <table className="w-full min-w-[900px] text-sm">
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
+                      <th className="px-4 py-3 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-14">S.No</th>
                       <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client</th>
                       <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Enquiry No</th>
                       <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Due date</th>
@@ -830,7 +832,7 @@ const FireTender = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-100">
-                    {paginatedTenders.map((tender) => {
+                    {paginatedTenders.map((tender, idx) => {
                       const status = tender.status || "Pending";
                       const statusBadge =
                         status === "Approved"
@@ -846,6 +848,9 @@ const FireTender = () => {
                             : "text-amber-900 bg-amber-50/80 border-amber-200";
                       return (
                         <tr key={tender.id} className="hover:bg-red-50/30 transition-colors">
+                          <td className="px-4 py-3 text-center text-gray-600 tabular-nums text-xs">
+                            {startIndex + idx + 1}
+                          </td>
                           <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate" title={tender.client}>
                             {tender.client}
                           </td>
@@ -858,7 +863,7 @@ const FireTender = () => {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-gray-600 text-xs">
-                            {tender.due_date ? new Date(tender.due_date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                            {tender.due_date ? formatDateDdMmYyyy(tender.due_date) : "—"}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`inline-flex px-2.5 py-0.5 text-[10px] font-semibold rounded-full border ${statusBadge}`}>{status}</span>

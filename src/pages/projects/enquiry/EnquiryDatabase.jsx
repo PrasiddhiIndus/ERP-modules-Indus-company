@@ -325,6 +325,9 @@ export default function EnquiryDatabase() {
                 <table className="w-full min-w-0 text-xs border-collapse">
                   <thead>
                     <tr>
+                      <th className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap w-11">
+                        S.No
+                      </th>
                       {databaseFields.map((col) => (
                         <th
                           key={col.id}
@@ -346,7 +349,7 @@ export default function EnquiryDatabase() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedFiltered.map((row) => {
+                    {sortedFiltered.map((row, idx) => {
                       const bg = getStatusBg(getRowStatusValue(row));
                       return (
                         <tr
@@ -354,6 +357,12 @@ export default function EnquiryDatabase() {
                           style={{ backgroundColor: bg }}
                           className="border-b border-black/5 transition-colors"
                         >
+                          <td
+                            className="px-2 py-2 text-center align-top text-gray-600 tabular-nums border-r border-black/5"
+                            style={{ backgroundColor: 'inherit' }}
+                          >
+                            {idx + 1}
+                          </td>
                           {databaseFields.map((col) => (
                             <td
                               key={col.id}

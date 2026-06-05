@@ -32,6 +32,7 @@ import {
   deleteRegisterMarksBatch,
   resolveBulkDayRange,
   downloadMonthlyRegisterExcel,
+  sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
   fetchActiveEmployees,
   fetchAttendancePunchesInRange,
@@ -46,6 +47,7 @@ import {
   isRegisterCommentMark,
   upsertRegisterMark,
   upsertRegisterMarksBatch,
+  writeStoredRegisterMarks,
   normalizeAttendanceEmpCode,
   resolveAttendanceEmpCodeFilter,
   computeDayAttendanceBreakdown,
@@ -124,6 +126,7 @@ export function EmployeeAttendanceDailyPage() {
   const [loading, setLoading] = useState(false);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const [registerSort, setRegisterSort] = useState({ field: "empCode", direction: "asc" });
   const [summaryOverlayOpen, setSummaryOverlayOpen] = useState(false);
   const [dayAttendanceDrawer, setDayAttendanceDrawer] = useState({ open: false, mode: "total" });
   const [tableDayAttendanceFilter, setTableDayAttendanceFilter] = useState(null);
@@ -309,6 +312,7 @@ export function EmployeeAttendanceDailyPage() {
       else delete nextRemarks[empCodeKey];
       setManualMarks(next);
       setManualRemarks(nextRemarks);
+      if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       if (isCommentMark) {
         setCommentEditor({
           open: true,
@@ -329,6 +333,7 @@ export function EmployeeAttendanceDailyPage() {
           isCommentMark ? empRemarks[day] || "" : "",
           masterRegisterCodeMap
         );
+        if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
         setYearRegisterRows((prev) => {
           const code = normalizeAttendanceEmpCode(empCodeKey);
           const filtered = prev.filter(
@@ -449,13 +454,18 @@ export function EmployeeAttendanceDailyPage() {
     return computeDayAttendanceBreakdown(filteredRows, bulkDayNumber);
   }, [bulkDayNumber, filteredRows]);
 
-  const dayFilteredRows = useMemo(() => {
+  const dayFilteredRowsBase = useMemo(() => {
     if (!tableDayAttendanceFilter || !bulkDayNumber) return filteredRows;
     if (tableDayAttendanceFilter === "present") return dayAttendanceStats.presentEmployees;
     if (tableDayAttendanceFilter === "absent") return dayAttendanceStats.absentEmployees;
     if (tableDayAttendanceFilter === "unmarked") return dayAttendanceStats.unmarkedEmployees;
     return filteredRows;
   }, [bulkDayNumber, dayAttendanceStats, filteredRows, tableDayAttendanceFilter]);
+
+  const dayFilteredRows = useMemo(
+    () => sortRegisterEmployeeRows(dayFilteredRowsBase, registerSort.field, registerSort.direction),
+    [dayFilteredRowsBase, registerSort.field, registerSort.direction]
+  );
 
   const openDayAttendanceDrawer = useCallback((mode) => {
     setDayAttendanceDrawer({ open: true, mode });
@@ -481,7 +491,55 @@ export function EmployeeAttendanceDailyPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize, rowsWithSummary.length, search, monthValue, empCode, selectedDepartments, tableDayAttendanceFilter, bulkDateFrom]);
+  }, [
+    pageSize,
+    rowsWithSummary.length,
+    search,
+    monthValue,
+    empCode,
+    selectedDepartments,
+    tableDayAttendanceFilter,
+    bulkDateFrom,
+    registerSort.field,
+    registerSort.direction,
+  ]);
+
+  const renderRegisterSortIndicator = useCallback(
+    (key) => {
+      const active = registerSort.field === key;
+      const ascActive = active && registerSort.direction === "asc";
+      const descActive = active && registerSort.direction === "desc";
+      return (
+        <span className="inline-flex items-center gap-0.5 ml-0.5 text-[9px] align-middle leading-none">
+          <span className={ascActive ? "text-[#1F3A8A]" : "text-gray-300"}>▲</span>
+          <span className={descActive ? "text-[#1F3A8A]" : "text-gray-300"}>▼</span>
+        </span>
+      );
+    },
+    [registerSort.direction, registerSort.field]
+  );
+
+  const toggleRegisterSort = useCallback((key) => {
+    setRegisterSort((prev) =>
+      prev.field === key
+        ? { field: key, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { field: key, direction: "asc" }
+    );
+  }, []);
+
+  const registerSortableHeader = useCallback(
+    (key, label) => (
+      <button
+        type="button"
+        onClick={() => toggleRegisterSort(key)}
+        className="inline-flex items-center font-semibold text-left hover:text-[#1F3A8A] w-full"
+      >
+        {label}
+        {renderRegisterSortIndicator(key)}
+      </button>
+    ),
+    [renderRegisterSortIndicator, toggleRegisterSort]
+  );
 
   useEffect(() => {
     setTableDayAttendanceFilter(null);
@@ -654,10 +712,14 @@ export function EmployeeAttendanceDailyPage() {
 
       setManualMarks(next);
       setManualRemarks(nextRemarks);
+      if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       setSavingMark(true);
       try {
         if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts, { masterCodeMap: masterRegisterCodeMap });
-        if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
+        if (deletes.length) {
+          await deleteRegisterMarksBatch(supabase, deletes, masterRegisterCodeMap);
+        }
+        if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       } catch (err) {
         setError(formatAttendanceSupabaseError(err));
         try {
@@ -726,7 +788,10 @@ export function EmployeeAttendanceDailyPage() {
       if (upserts.length) {
         await upsertRegisterMarksBatch(supabase, upserts, { masterCodeMap: masterRegisterCodeMap });
       }
-      if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
+      if (deletes.length) {
+        await deleteRegisterMarksBatch(supabase, deletes, masterRegisterCodeMap);
+      }
+      if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
     } catch (err) {
       setError(formatAttendanceSupabaseError(err));
       try {
@@ -777,14 +842,29 @@ export function EmployeeAttendanceDailyPage() {
 
   const columns = useMemo(() => {
     const fixed = [
-      { key: "employeeId", label: "Machine ID", render: (row) => row.employeeId || "?" },
+      {
+        key: "employeeId",
+        label: "Machine ID",
+        headerRender: () => registerSortableHeader("employeeId", "Machine ID"),
+        render: (row) => row.employeeId || "?",
+      },
       {
         key: "empCode",
         label: "Employee code",
+        headerRender: () => registerSortableHeader("empCode", "Employee code"),
         render: (row) => row.empCode || "?",
       },
-      { key: "employeeName", label: "Employee Name" },
-      { key: "department", label: "Department", render: (row) => row.department || "?" },
+      {
+        key: "employeeName",
+        label: "Employee Name",
+        headerRender: () => registerSortableHeader("employeeName", "Employee Name"),
+      },
+      {
+        key: "department",
+        label: "Department",
+        headerRender: () => registerSortableHeader("department", "Department"),
+        render: (row) => row.department || "?",
+      },
     ];
     const monthKey = monthMeta?.monthKey || "";
     const dayCols = Array.from({ length: daysInMonth }, (_, i) => {
@@ -844,6 +924,7 @@ export function EmployeeAttendanceDailyPage() {
     manualRemarks,
     monthMeta?.monthKey,
     openPodCommentEditor,
+    registerSortableHeader,
     summaryColumnDefs,
     yearLeaveUsageByEmp,
   ]);
@@ -1191,6 +1272,7 @@ export function EmployeeAttendanceDailyPage() {
             rows={pagedRows}
             frozenColumnCount={4}
             frozenColumnWidths={[96, 116, 220, 140]}
+            serialOffset={(currentPage - 1) * pageSize}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>

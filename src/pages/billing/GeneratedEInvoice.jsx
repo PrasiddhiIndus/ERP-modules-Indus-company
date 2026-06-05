@@ -4,24 +4,9 @@ import { useBilling } from '../../contexts/BillingContext';
 import { downloadTaxInvoicePdf, getTaxInvoicePdfBlobUrl } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import { findPoForInvoice } from '../../utils/billingPoInvoiceFields';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const PAGE_SIZE = 10;
-
-function formatDate(d) {
-  if (!d) return '–';
-  try {
-    return new Date(d).toLocaleString('en-IN');
-  } catch {
-    return d;
-  }
-}
-
-function formatShortDate(d) {
-  if (!d) return '–';
-  const date = new Date(d);
-  if (Number.isNaN(date.getTime())) return String(d);
-  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 
 function getRealIrn(inv) {
   const irn = inv?.e_invoice_irn || inv?.eInvoiceIrn || '';
@@ -258,7 +243,7 @@ const GeneratedEInvoice = () => {
                             {inv.taxInvoiceNumber || inv.bill_number}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-700 text-center whitespace-nowrap">
-                            {formatShortDate(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt)}
+                            {formatDateDdMmYyyy(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt)}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-700 text-center truncate" title={`${inv.ocNumber || ''} / ${inv.siteId || '–'}`}>
                             {inv.ocNumber} / {inv.siteId || '–'}
@@ -275,7 +260,7 @@ const GeneratedEInvoice = () => {
                           <td className="px-3 py-2 text-xs text-gray-700 text-center">
                             <span className="font-mono">{inv.e_invoice_ack_no || '–'}</span>
                             <span className="text-gray-400"> / </span>
-                            <span className="whitespace-nowrap">{formatDate(inv.e_invoice_ack_dt)}</span>
+                            <span className="whitespace-nowrap">{formatDateDdMmYyyy(inv.e_invoice_ack_dt)}</span>
                           </td>
                           <td className="px-3 py-2 text-center">
                             <div className="flex items-center justify-center gap-1.5">
@@ -357,7 +342,7 @@ const GeneratedEInvoice = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs sm:text-sm mb-3">
                 <p><span className="text-gray-500">IRN:</span> <span className="font-mono text-green-700">{getRealIrn(selectedInv) || '–'}</span></p>
                 <p><span className="text-gray-500">Ack No:</span> {selectedInv.e_invoice_ack_no || '–'}</p>
-                <p><span className="text-gray-500">Ack Date:</span> {formatDate(selectedInv.e_invoice_ack_dt)}</p>
+                <p><span className="text-gray-500">Ack Date:</span> {formatDateDdMmYyyy(selectedInv.e_invoice_ack_dt)}</p>
               </div>
               {pdfLoading ? (
                 <div className="h-[70vh] rounded-lg border border-gray-200 bg-white grid place-items-center text-sm text-gray-500">

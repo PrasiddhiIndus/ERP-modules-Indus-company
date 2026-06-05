@@ -2,6 +2,8 @@
  * Admin attendance reports from erp_attendance_punches (raw data).
  */
 
+import { formatDateDdMmYyyy } from "../utils/dateDisplay";
+
 import {
   attachDepartments,
   attachMasterFields,
@@ -108,9 +110,13 @@ export function applyCustomReportFilters(rows, filters = {}) {
 
 export function buildReportCsv(rows, columnIds) {
   const cols = CUSTOM_REPORT_FIELDS.filter((c) => columnIds.includes(c.id));
-  const header = cols.map((c) => csvEscape(c.label)).join(",");
-  const lines = (rows || []).map((row) =>
-    cols.map((c) => csvEscape(row[c.id])).join(",")
+  const header = ["S.No", ...cols.map((c) => csvEscape(c.label))].join(",");
+  const lines = (rows || []).map((row, rowIdx) =>
+    [rowIdx + 1, ...cols.map((c) => {
+      const raw = row[c.id];
+      if (c.id === "punchDate") return csvEscape(formatDateDdMmYyyy(raw) || raw);
+      return csvEscape(raw);
+    })].join(",")
   );
   return [header, ...lines].join("\r\n");
 }

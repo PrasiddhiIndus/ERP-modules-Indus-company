@@ -248,14 +248,16 @@ const AccessoriesPage = () => {
         <table className="min-w-full border-collapse">
           <thead>
             <tr className="bg-gray-100 text-left">
+              <th className="px-4 py-2 border text-center w-11">S.No</th>
               <th className="px-4 py-2 border">Title</th>
               <th className="px-4 py-2 border">Description</th>
               <th className="px-4 py-2 border w-40">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
+            {items.map((item, idx) => (
               <tr key={item.id} className="hover:bg-gray-50">
+                <td className="px-4 py-2 border text-center tabular-nums text-gray-600">{idx + 1}</td>
                 {/* Title */}
                 <td className="px-4 py-2 border">
                   {item.editing ? (

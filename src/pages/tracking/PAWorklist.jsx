@@ -71,6 +71,7 @@ const PAWorklist = () => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">S.No</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax Invoice #</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Site / OC</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PA Status</th>
@@ -80,8 +81,9 @@ const PAWorklist = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {rows.map((inv) => (
+              {rows.map((inv, idx) => (
                 <tr key={inv.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-center tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{inv.taxInvoiceNumber || inv.bill_number}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{inv.siteId} / {inv.ocNumber}</td>
                   <td className="px-4 py-3 text-sm">

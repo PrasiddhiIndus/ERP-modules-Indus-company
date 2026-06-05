@@ -4,6 +4,7 @@ import { supabase } from "../../../lib/supabase";
 import auditLogger from "../../../lib/auditLogger";
 import { isRetiredFireTenderMainComponentLabel } from "../../../lib/retiredFireTenderMainComponents";
 import FireTenderNavbar from "../FireTenderNavbar";
+import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
 const PriceMasterPage = () => {
   const [priceList, setPriceList] = useState([]);
@@ -398,6 +399,7 @@ const PriceMasterPage = () => {
         <table className="min-w-full border-collapse">
           <thead>
             <tr className="bg-gray-100 text-left">
+              <th className="px-4 py-2 border text-center w-11">S.No</th>
               <th className="px-4 py-2 border">Main Cost Component Name</th>
               <th className="px-4 py-2 border">Sub Category 1</th>
               <th className="px-4 py-2 border">Sub Category 2</th>
@@ -412,8 +414,9 @@ const PriceMasterPage = () => {
             </tr>
           </thead>
           <tbody>
-            {priceList.map((item) => (
+            {priceList.map((item, idx) => (
               <tr key={item.id} className="hover:bg-gray-50">
+                <td className="px-4 py-2 border text-center tabular-nums text-gray-600">{idx + 1}</td>
                 {/* Main Component - Read Only */}
                 <td className="px-4 py-2 border bg-gray-50">
                   <span className="font-medium">{item.main_component}</span>
@@ -492,7 +495,7 @@ const PriceMasterPage = () => {
                 <td className="px-4 py-2 border text-sm text-gray-600">
                   {item.updated_at ? (
                     <div>
-                      <div>{new Date(item.updated_at).toLocaleDateString()}</div>
+                      <div>{formatDateDdMmYyyy(item.updated_at)}</div>
                       <div className="text-xs text-gray-400">
                         {new Date(item.updated_at).toLocaleTimeString()}
                       </div>

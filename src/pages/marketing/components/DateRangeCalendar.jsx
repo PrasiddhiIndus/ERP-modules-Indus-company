@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 
 const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = '' }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -188,19 +189,13 @@ const DateRangeCalendar = ({ startDate, endDate, onDateRangeChange, className = 
               <div className="flex items-center gap-1">
                 <span className="text-gray-500">From:</span>
                 <span className="font-semibold text-gray-900 bg-purple-50 px-1.5 py-0.5 rounded">
-                  {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
-                    day: '2-digit', 
-                    month: 'short'
-                  }) : '-'}
+                  {startDate ? formatDateDdMmYyyy(startDate) : '-'}
                 </span>
               </div>
               <div className="flex items-center gap-1">
                 <span className="text-gray-500">To:</span>
                 <span className="font-semibold text-gray-900 bg-purple-50 px-1.5 py-0.5 rounded">
-                  {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
-                    day: '2-digit', 
-                    month: 'short'
-                  }) : '-'}
+                  {endDate ? formatDateDdMmYyyy(endDate) : '-'}
                 </span>
               </div>
             </div>

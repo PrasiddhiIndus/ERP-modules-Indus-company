@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { rollupMainPoBilling, resolveContractForBillingParentPo } from '../../utils/billingInvoiceRollup';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
 const APPROVAL_SENT = 'sent_for_approval';
 const APPROVAL_APPROVED = 'approved';
@@ -152,9 +153,9 @@ function formatRangeLabel(range) {
   const from = startOfDay(range?.from);
   const to = startOfDay(range?.to);
   if (!from && !to) return 'All dates';
-  if (from && !to) return `From ${from.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
-  if (!from && to) return `Until ${to.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
-  return `${from.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} – ${to.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  if (from && !to) return `From ${formatDateDdMmYyyy(from)}`;
+  if (!from && to) return `Until ${formatDateDdMmYyyy(to)}`;
+  return `${formatDateDdMmYyyy(from)} – ${formatDateDdMmYyyy(to)}`;
 }
 
 function formatINR(n) {

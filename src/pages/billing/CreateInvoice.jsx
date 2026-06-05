@@ -13,6 +13,7 @@ import {
   INVOICE_SELLER_TEMPLATE,
 } from '../../utils/taxInvoicePdf';
 import { INDUS_LOGO_SRC } from '../../constants/branding.js';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
@@ -540,15 +541,6 @@ function formatINRWithSign(n) {
   return v < 0 ? `-₹${abs}` : `₹${abs}`;
 }
 
-function formatDate(d) {
-  if (!d) return '–';
-  try {
-    return new Date(d).toLocaleDateString('en-IN');
-  } catch {
-    return d;
-  }
-}
-
 /** Next billing date is today or earlier — cycle due. */
 function isBillingCycleDue(nextYmd) {
   if (!nextYmd) return false;
@@ -1019,14 +1011,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
   );
 
   const monthlyDutyQtyMode = useMemo(() => {
-    if (!isMonthlyBilling) return 'po_geometry';
+    if (!isMonthlyBilling && !isCustomBilling) return 'po_geometry';
     return normalizeMonthlyDutyQtyMode(invoiceMonthlyDutyQtyMode);
-  }, [isMonthlyBilling, invoiceMonthlyDutyQtyMode]);
+  }, [isMonthlyBilling, isCustomBilling, invoiceMonthlyDutyQtyMode]);
 
   const lumpSumBillingMode = useMemo(() => {
-    if (!isLumpSumBilling) return 'normal';
+    if (!isLumpSumBilling && !isCustomBilling) return 'normal';
     return normalizeLumpSumBillingMode(invoiceLumpSumBillingMode);
-  }, [isLumpSumBilling, invoiceLumpSumBillingMode]);
+  }, [isLumpSumBilling, isCustomBilling, invoiceLumpSumBillingMode]);
 
   const lumpSumPenaltyActive = lumpSumBillingMode === 'penalty';
   const lumpSumTruckActive = lumpSumBillingMode === 'truck';
@@ -1839,7 +1831,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
     const billingDurationStr =
       displayPO.startDate || displayPO.start_date
-        ? `${formatDate(displayPO.startDate || displayPO.start_date)} – ${formatDate(displayPO.endDate || displayPO.end_date)}`
+        ? `${formatDateDdMmYyyy(displayPO.startDate || displayPO.start_date)} – ${formatDateDdMmYyyy(displayPO.endDate || displayPO.end_date)}`
         : '–';
     const remarksLine = resolveInvoiceDescriptionFromPo(displayPO);
     return {
@@ -2030,10 +2022,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
       poId: canonicalPoId,
       siteId: displayPO.siteId,
       billingType: displayPO.billingType || 'Monthly',
-      monthlyDutyQtyMode: isMonthlyBilling ? monthlyDutyQtyMode : null,
-      monthly_duty_qty_mode: isMonthlyBilling ? monthlyDutyQtyMode : null,
-      lumpSumBillingMode: isLumpSumBilling ? lumpSumBillingMode : null,
-      lump_sum_billing_mode: isLumpSumBilling ? lumpSumBillingMode : null,
+      monthlyDutyQtyMode: isMonthlyBilling || isCustomBilling ? monthlyDutyQtyMode : null,
+      monthly_duty_qty_mode: isMonthlyBilling || isCustomBilling ? monthlyDutyQtyMode : null,
+      lumpSumBillingMode: isLumpSumBilling || isCustomBilling ? lumpSumBillingMode : null,
+      lump_sum_billing_mode: isLumpSumBilling || isCustomBilling ? lumpSumBillingMode : null,
       taxInvoiceNumber,
       invoiceDate,
       billNumber: existing?.billNumber || existing?.bill_number || taxInvoiceNumber,
@@ -2670,7 +2662,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             </td>
                             <td className="px-1 py-2 text-[11px] text-gray-700 text-center truncate" title={row.poWoNumber || ''}>{row.poWoNumber || '–'}</td>
                             <td className="px-1 py-2 text-[11px] text-center align-top text-gray-700 whitespace-nowrap">
-                              {formatDate(row._calc.lastInvoiceDate)}
+                              {formatDateDdMmYyyy(row._calc.lastInvoiceDate) || '–'}
                             </td>
                             <td className="px-1 py-2 text-[11px] text-center align-top">
                       {Number(row._calc?.contract) > 0 || Number(row._calc?.invoicedAmount) > 0 ? (
@@ -2698,7 +2690,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                       )}
                     </td>
                             <td className="px-1 py-2 text-[10px] text-center align-top leading-tight">
-                      <div className="text-gray-700">Last: {formatDate(row._calc.lastInvoiceDate)}</div>
+                      <div className="text-gray-700">Last: {formatDateDdMmYyyy(row._calc.lastInvoiceDate) || '–'}</div>
                       <div
                         className={
                           row._calc.nextBillingDate && isBillingCycleDue(row._calc.nextBillingDate)
@@ -2707,7 +2699,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         }
                       >
                         Next:{' '}
-                        {row._calc.nextBillingDate ? formatDate(row._calc.nextBillingDate) : '–'}
+                        {row._calc.nextBillingDate ? formatDateDdMmYyyy(row._calc.nextBillingDate) : '–'}
                       </div>
                     </td>
                             <td className="px-1 py-2 text-center">

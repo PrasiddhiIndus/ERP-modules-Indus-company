@@ -137,6 +137,7 @@ export default function PayrollApproval() {
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                <th className="text-center px-4 py-2.5 w-11">S.No</th>
                 <th className="text-left px-4 py-2.5">Site</th>
                 <th className="text-right px-4 py-2.5">Employees</th>
                 <th className="text-right px-4 py-2.5">Gross</th>
@@ -147,7 +148,7 @@ export default function PayrollApproval() {
             <tbody>
               {filteredSites.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
+                  <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
                     No sites match your search.
                   </td>
                 </tr>
@@ -157,6 +158,7 @@ export default function PayrollApproval() {
                     key={row.id}
                     className={`border-t border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}
                   >
+                    <td className="px-4 py-3 text-center tabular-nums text-gray-600">{idx + 1}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{row.site}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{row.employees}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatInr(row.gross)}</td>

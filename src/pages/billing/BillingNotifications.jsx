@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Bell, Clock, FileCheck, CalendarDays } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import {
   rollupMainPoBilling,
   resolveContractForBillingParentPo,
@@ -169,12 +170,12 @@ const BillingNotifications = () => {
                     . Send next bill by:{' '}
                     <strong>
                       {a.nextBillingDate
-                        ? new Date(a.nextBillingDate).toLocaleDateString('en-IN')
+                        ? formatDateDdMmYyyy(a.nextBillingDate)
                         : '–'}
                     </strong>{' '}
                     ({a.daysUntil <= 0 ? `${Math.abs(a.daysUntil)} day(s) late` : `in ${a.daysUntil} day(s)`}; every{' '}
                     {a.cycleDays} days
-                    {a.lastInvoiceDate ? ` · last bill ${new Date(a.lastInvoiceDate).toLocaleDateString('en-IN')}` : ''}
+                    {a.lastInvoiceDate ? ` · last bill ${formatDateDdMmYyyy(a.lastInvoiceDate)}` : ''}
                     ).
                   </span>
                 </li>

@@ -862,6 +862,9 @@ const SoftwareSubscriptions = () => {
           <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-100/95 shadow-sm backdrop-blur-sm">
               <tr>
+                <th className="whitespace-nowrap px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  S.No
+                </th>
                 <th className="whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-600">
                   Tool / Service
                 </th>
@@ -910,21 +913,22 @@ const SoftwareSubscriptions = () => {
             <tbody className="divide-y divide-slate-100 bg-white">
               {loading ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={16} className="px-4 py-10 text-center text-sm text-slate-500">
                     Loading subscriptions…
                   </td>
                 </tr>
               ) : subscriptions.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={16} className="px-4 py-10 text-center text-sm text-slate-500">
                     No software subscriptions entered yet.
                   </td>
                 </tr>
               ) : (
-                subscriptions.map((row) => {
+                subscriptions.map((row, idx) => {
                   const reminder = reminderState(row);
                   return (
                     <tr key={row.id} className="align-top transition-colors even:bg-slate-50/60 hover:bg-indigo-50/50">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-center tabular-nums">{idx + 1}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 font-semibold text-slate-900">{row.tool_service}</td>
                       <td
                         className="max-w-[11rem] px-3 py-2.5 text-slate-600"

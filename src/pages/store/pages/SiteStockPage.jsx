@@ -34,14 +34,16 @@ export default function SiteStockPage({ data }) {
                 <table className="w-full text-xs">
                   <thead className="bg-white">
                     <tr>
+                      <th className="text-center p-2 border-b">S.No</th>
                       {["Item", "Site Stock", "Annual Required", "Issued", "Balance", "Shortage / Excess"].map((h) => (
                         <th key={h} className="text-left p-2 border-b">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
+                    {rows.map((r, idx) => (
                       <tr key={`${site.id}-${r.itemId}`} className="border-b">
+                        <td className="text-center tabular-nums p-2">{idx + 1}</td>
                         <td className="p-2">{r.itemName}</td>
                         <td className="p-2">{stockByStoreItem[`${site.storeId}:${r.itemId}`] || 0}</td>
                         <td className="p-2">{r.required}</td>

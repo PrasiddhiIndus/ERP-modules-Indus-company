@@ -1,3 +1,4 @@
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
@@ -488,6 +489,9 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  S.No
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Vehicle
                 </th>
@@ -509,10 +513,11 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredMaintenance.map((record) => {
+              {filteredMaintenance.map((record, idx) => {
                 const upcomingService = getUpcomingServiceStatus(record.next_service_due);
                 return (
                   <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-center tabular-nums">{idx + 1}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
@@ -531,7 +536,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {new Date(record.service_date).toLocaleDateString()}
+                          {formatDateDdMmYyyy(record.service_date)}
                         </div>
                         <div className="text-sm text-gray-500">
                           {record.service_type || 'Service'}
@@ -556,7 +561,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
                         {record.next_service_due ? (
                           <>
                             <div className="text-sm text-gray-900">
-                              {new Date(record.next_service_due).toLocaleDateString()}
+                              {formatDateDdMmYyyy(record.next_service_due)}
                             </div>
                             {upcomingService && (
                               <div className={`text-xs ${

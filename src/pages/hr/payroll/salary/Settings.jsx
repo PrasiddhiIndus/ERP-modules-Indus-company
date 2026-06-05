@@ -17,6 +17,7 @@ export default function SalarySettings() {
         <table className="min-w-full text-xs">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-2 py-2 text-center w-11">S.No</th>
               <th className="px-2 py-2 text-left">Code</th>
               <th className="px-2 py-2 text-left">Name</th>
               <th className="px-2 py-2 text-left">Type</th>
@@ -25,8 +26,9 @@ export default function SalarySettings() {
             </tr>
           </thead>
           <tbody>
-            {components.map((c) => (
+            {components.map((c, idx) => (
               <tr key={c.id} className="border-t">
+                <td className="px-2 py-2 text-center tabular-nums text-gray-600">{idx + 1}</td>
                 <td className="px-2 py-2 font-mono">{c.component_code}</td>
                 <td className="px-2 py-2">{c.component_name}</td>
                 <td className="px-2 py-2">{c.component_type}</td>

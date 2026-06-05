@@ -1,5 +1,7 @@
 /** Shared PO → invoice field helpers (Billing + Commercial Manpower). */
 
+import { formatDateDdMmYyyy } from './dateDisplay';
+
 export function resolvePoPaymentTerms(po) {
   if (!po) return '30 Days';
   const explicit = String(po.paymentTerms ?? po.payment_terms ?? '').trim();
@@ -157,9 +159,8 @@ export function resolvePoDateRaw(po) {
 
 export function formatBillingDisplayDate(value) {
   if (!value) return '–';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const formatted = formatDateDdMmYyyy(value);
+  return formatted || String(value);
 }
 
 export function applyPreGstAdjustments(lineTotal, deduction = 0, addition = 0) {

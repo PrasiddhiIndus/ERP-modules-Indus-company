@@ -15,7 +15,13 @@ function ChevronIcon({ open }) {
   );
 }
 
-export function RegisterDepartmentFilter({ options = [], selected = [], onChange }) {
+export function RegisterDepartmentFilter({
+  options = [],
+  selected = [],
+  onChange,
+  listSort = "asc",
+  onListSortChange,
+}) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef(null);
@@ -110,7 +116,7 @@ export function RegisterDepartmentFilter({ options = [], selected = [], onChange
             </div>
           )}
 
-          <div className="flex items-center gap-1.5 px-2 py-2 border-b border-gray-100">
+          <div className="flex flex-wrap items-center gap-1.5 px-2 py-2 border-b border-gray-100">
             <button
               type="button"
               onClick={selectAll}
@@ -129,6 +135,18 @@ export function RegisterDepartmentFilter({ options = [], selected = [], onChange
             >
               Clear selection
             </button>
+            {onListSortChange ? (
+              <select
+                value={listSort}
+                onChange={(e) => onListSortChange(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="h-6 ml-auto rounded-md border border-gray-200 bg-white px-1.5 text-[10px] font-semibold text-gray-700"
+                title="Sort department list"
+              >
+                <option value="asc">Dept A–Z</option>
+                <option value="desc">Dept Z–A</option>
+              </select>
+            ) : null}
           </div>
 
           <ul className="max-h-44 overflow-y-auto py-1">

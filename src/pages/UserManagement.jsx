@@ -236,6 +236,7 @@ const UserManagement = () => {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
               <tr>
+                <th className="text-center py-3 px-4 font-semibold text-gray-700">S.No</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Username</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Email</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Team</th>
@@ -247,19 +248,20 @@ const UserManagement = () => {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-500">
+                  <td colSpan={7} className="py-8 text-center text-gray-500">
                     Loading users…
                   </td>
                 </tr>
               ) : list.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-500">
+                  <td colSpan={7} className="py-8 text-center text-gray-500">
                     No users found. Run the profiles migration if needed.
                   </td>
                 </tr>
               ) : (
-                list.map((row) => (
+                list.map((row, idx) => (
                   <tr key={row.id} className="hover:bg-gray-50">
+                    <td className="py-3 px-4 text-center tabular-nums">{idx + 1}</td>
                     <td className="py-3 px-4 font-medium text-gray-900">{row.username || "—"}</td>
                     <td className="py-3 px-4 text-gray-600">{row.email || "—"}</td>
                     <td className="py-3 px-4 text-gray-600">{teamLabel(row.team)}</td>

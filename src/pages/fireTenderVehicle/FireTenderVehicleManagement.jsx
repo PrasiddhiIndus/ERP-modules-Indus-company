@@ -1,3 +1,4 @@
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState } from 'react';
 import { 
   Car, 
@@ -57,7 +58,7 @@ const FireTenderVehicleManagement = () => {
                 </select>
               </div>
               <div className="text-sm text-gray-500">
-                Last updated: {new Date().toLocaleDateString()}
+                Last updated: {formatDateDdMmYyyy(new Date())}
               </div>
             </div>
           </div>

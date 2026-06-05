@@ -18,6 +18,7 @@ import { generateEInvoice } from '../../services/eInvoiceApi';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 import { resolveInvoicePartyAddresses } from '../../utils/invoicePartyAddresses';
 import { resolveInvoicePartyPincodes } from '../../utils/poPincodeFields';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { downloadTaxInvoicePdf, downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
@@ -78,13 +79,7 @@ function invoiceDateInputValue(inv) {
 
 function formatManageInvoiceDate(value) {
   if (!value) return '–';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDateDdMmYyyy(value) || String(value);
 }
 
 function sortInvoicesNewestFirst(list) {

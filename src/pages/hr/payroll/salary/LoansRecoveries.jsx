@@ -21,6 +21,7 @@ export default function LoansRecoveries() {
         <table className="min-w-full text-xs">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-2 py-2 text-center w-11">S.No</th>
               <th className="px-2 py-2 text-left">Employee</th>
               <th className="px-2 py-2 text-left">Type</th>
               <th className="px-2 py-2 text-right">Principal</th>
@@ -30,8 +31,9 @@ export default function LoansRecoveries() {
             </tr>
           </thead>
           <tbody>
-            {loans.map((l) => (
+            {loans.map((l, idx) => (
               <tr key={l.id} className="border-t">
+                <td className="px-2 py-2 text-center tabular-nums text-gray-600">{idx + 1}</td>
                 <td className="px-2 py-2">{l.employee_master_id}</td>
                 <td className="px-2 py-2">{l.loan_type}</td>
                 <td className="px-2 py-2 text-right">₹{Number(l.principal).toLocaleString('en-IN')}</td>

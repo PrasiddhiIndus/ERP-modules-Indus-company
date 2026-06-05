@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Calendar, Users, Eye, Upload, Image as ImageIcon, FileSpreadsheet } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
@@ -754,7 +755,7 @@ const ExpoSeminar = () => {
         'Location': expo.location,
         'Country': expo.country,
         'Organizer': expo.organizer_name || '-',
-        'Created At': new Date(expo.created_at).toLocaleDateString(),
+        'Created At': formatDateDdMmYyyy(expo.created_at),
       }));
       exportToExcel(exportData, 'Expo_Seminars_Export', 'Expo & Seminars');
     } else {
@@ -911,10 +912,10 @@ const ExpoSeminar = () => {
                         <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm font-medium text-gray-900">{expo.event_name}</td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500">{expo.event_type}</td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden md:table-cell">
-                          {new Date(expo.start_date).toLocaleDateString()}
+                          {formatDateDdMmYyyy(expo.start_date)}
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden md:table-cell">
-                          {new Date(expo.end_date).toLocaleDateString()}
+                          {formatDateDdMmYyyy(expo.end_date)}
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden lg:table-cell">{expo.location}</td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4 text-sm text-gray-500 hidden lg:table-cell">{expo.city || '-'}</td>
@@ -1049,7 +1050,7 @@ const ExpoSeminar = () => {
                       <div><span className="font-semibold text-gray-700">Client:</span> <span className="text-gray-900">{visit.client_name || '-'}</span></div>
                       <div><span className="font-semibold text-gray-700">Location:</span> <span className="text-gray-900">{visit.site_location || '-'}</span></div>
                       <div><span className="font-semibold text-gray-700">Designation:</span> <span className="text-gray-900">{visit.designation || '-'}</span></div>
-                      <div><span className="font-semibold text-gray-700">Date:</span> <span className="text-gray-900">{visit.visit_date ? new Date(visit.visit_date).toLocaleDateString() : '-'}</span></div>
+                      <div><span className="font-semibold text-gray-700">Date:</span> <span className="text-gray-900">{visit.visit_date ? formatDateDdMmYyyy(visit.visit_date) : '-'}</span></div>
                       <div className="pt-2 border-t">
                         <div className="flex justify-between items-center">
                           <span className="text-gray-600 font-semibold">Total:</span>
@@ -1124,7 +1125,7 @@ const ExpoSeminar = () => {
                             </div>
                           </td>
                           <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-700 border-r border-gray-200">
-                            {visit.visit_date ? new Date(visit.visit_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                            {visit.visit_date ? formatDateDdMmYyyy(visit.visit_date) : '-'}
                           </td>
                           <td className="px-2 py-2 whitespace-nowrap text-xs text-right font-bold text-purple-600 border-r border-gray-200 bg-purple-50">
                             {visit.total_expense ? `₹${parseFloat(visit.total_expense).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
@@ -2010,21 +2011,13 @@ const ExpoSeminar = () => {
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Start Date</p>
                     <p className="font-medium text-gray-900">
-                      {new Date(viewingExpo.start_date).toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: 'short', 
-                        year: 'numeric' 
-                      })}
+                      {formatDateDdMmYyyy(viewingExpo.start_date)}
                     </p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">End Date</p>
                     <p className="font-medium text-gray-900">
-                      {new Date(viewingExpo.end_date).toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: 'short', 
-                        year: 'numeric' 
-                      })}
+                      {formatDateDdMmYyyy(viewingExpo.end_date)}
                     </p>
                   </div>
                   {viewingExpo.city && (
@@ -2260,11 +2253,7 @@ const ExpoSeminar = () => {
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Visit Date</label>
                     <p className="text-sm font-medium text-gray-900">
-                      {viewingSiteVisit.visit_date ? new Date(viewingSiteVisit.visit_date).toLocaleDateString('en-IN', { 
-                        day: '2-digit', 
-                        month: 'short', 
-                        year: 'numeric' 
-                      }) : '-'}
+                      {viewingSiteVisit.visit_date ? formatDateDdMmYyyy(viewingSiteVisit.visit_date) : '-'}
                     </p>
                   </div>
                   <div>

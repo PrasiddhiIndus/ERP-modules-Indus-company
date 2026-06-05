@@ -1,4 +1,9 @@
-import React from "react";
+import React, { useMemo } from "react";
+import {
+  columnsHaveSerialNumber,
+  prependSerialColumn,
+  resolveSerialCellValue,
+} from "../../../utils/listTable";
 
 export const SectionCard = ({ title, right, children, className = "" }) => (
   <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>
@@ -64,11 +69,32 @@ export const FilterBar = ({ children }) => (
 );
 
 const DEFAULT_FROZEN_COLUMN_WIDTHS = [88, 104, 180, 132];
+const SERIAL_COLUMN_WIDTH = 44;
 
-function renderDenseCell(col, row) {
+function renderDenseCell(col, row, rowIndex) {
+  if (col.key === "__sn") return resolveSerialCellValue(col, rowIndex);
   if (col.render) return col.render(row);
   const value = row[col.key];
   return value == null || value === "" ? "" : value;
+}
+
+function resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }) {
+  const shouldShow =
+    showSerialNumber === false
+      ? false
+      : showSerialNumber === true
+        ? true
+        : !columnsHaveSerialNumber(columns);
+  return prependSerialColumn(columns, {
+    label: serialLabel,
+    offset: serialOffset,
+    enabled: shouldShow,
+  });
+}
+
+function renderDenseHeader(col) {
+  if (col.headerRender) return col.headerRender();
+  return col.label;
 }
 
 /** Excel-style freeze: first N columns stay fixed; only columns to the right scroll horizontally. */
@@ -79,10 +105,23 @@ function FreezePaneDenseTable({
   rowKey,
   frozenColumnCount,
   frozenColumnWidths,
+  showSerialNumber,
+  serialLabel,
+  serialOffset,
 }) {
-  const frozenCols = columns.slice(0, frozenColumnCount);
-  const scrollCols = columns.slice(frozenColumnCount);
-  const widths = frozenColumnWidths.slice(0, frozenColumnCount);
+  const tableColumns = useMemo(
+    () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
+    [columns, showSerialNumber, serialLabel, serialOffset]
+  );
+  const hasPrependedSerial =
+    tableColumns.length > (columns?.length || 0) && tableColumns[0]?.key === "__sn";
+  const effectiveFrozenCount = frozenColumnCount + (hasPrependedSerial ? 1 : 0);
+  const effectiveFrozenWidths = hasPrependedSerial
+    ? [SERIAL_COLUMN_WIDTH, ...frozenColumnWidths.slice(0, frozenColumnCount)]
+    : frozenColumnWidths.slice(0, frozenColumnCount);
+  const frozenCols = tableColumns.slice(0, effectiveFrozenCount);
+  const scrollCols = tableColumns.slice(effectiveFrozenCount);
+  const widths = effectiveFrozenWidths.slice(0, effectiveFrozenCount);
   const frozenBlockWidth = widths.reduce((sum, w) => sum + w, 0);
 
   if (rows.length === 0) {
@@ -108,7 +147,7 @@ function FreezePaneDenseTable({
                 className="box-border px-2 py-2 font-semibold text-left whitespace-nowrap overflow-hidden text-ellipsis shrink-0"
                 style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
               >
-                {c.label}
+                {renderDenseHeader(c)}
               </div>
             ))}
           </div>
@@ -119,12 +158,12 @@ function FreezePaneDenseTable({
                 title={c.headerTitle || undefined}
                 className={`box-border px-2 py-2 font-semibold text-left whitespace-nowrap shrink-0 ${c.headerClassName || ""}`}
               >
-                {c.label}
+                {renderDenseHeader(c)}
               </div>
             ))}
           </div>
         </div>
-        {rows.map((row) => (
+        {rows.map((row, rowIndex) => (
           <div
             key={row[rowKey]}
             className={`flex border-b border-gray-100 text-xs group ${onRowClick ? "cursor-pointer" : ""}`}
@@ -137,10 +176,10 @@ function FreezePaneDenseTable({
               {frozenCols.map((c, i) => (
                 <div
                   key={c.key}
-                  className="box-border px-2 py-1.5 text-gray-800 align-top shrink-0 overflow-hidden"
+                  className={`box-border px-2 py-1.5 text-gray-800 align-top shrink-0 overflow-hidden ${c.cellClassName || ""}`}
                   style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
                 >
-                  {renderDenseCell(c, row)}
+                  {renderDenseCell(c, row, rowIndex)}
                 </div>
               ))}
             </div>
@@ -150,7 +189,7 @@ function FreezePaneDenseTable({
                   key={c.key}
                   className={`box-border px-2 py-1.5 text-gray-800 align-top shrink-0 ${c.cellClassName || ""}`}
                 >
-                  {renderDenseCell(c, row)}
+                  {renderDenseCell(c, row, rowIndex)}
                 </div>
               ))}
             </div>
@@ -168,7 +207,15 @@ export const DenseTable = ({
   rowKey = "id",
   frozenColumnCount = 0,
   frozenColumnWidths = DEFAULT_FROZEN_COLUMN_WIDTHS,
+  showSerialNumber = "auto",
+  serialLabel = "S.No",
+  serialOffset = 0,
 }) => {
+  const tableColumns = useMemo(
+    () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
+    [columns, showSerialNumber, serialLabel, serialOffset]
+  );
+
   if (frozenColumnCount > 0) {
     return (
       <FreezePaneDenseTable
@@ -178,6 +225,9 @@ export const DenseTable = ({
         rowKey={rowKey}
         frozenColumnCount={frozenColumnCount}
         frozenColumnWidths={frozenColumnWidths}
+        showSerialNumber={showSerialNumber}
+        serialLabel={serialLabel}
+        serialOffset={serialOffset}
       />
     );
   }
@@ -187,13 +237,13 @@ export const DenseTable = ({
       <table className="w-max min-w-full text-xs border-separate border-spacing-0">
         <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
           <tr>
-            {columns.map((c) => (
+            {tableColumns.map((c) => (
               <th
                 key={c.key}
                 title={c.headerTitle || undefined}
                 className={`text-left font-semibold px-2 py-2 whitespace-nowrap bg-gray-50 ${c.headerClassName || ""}`}
               >
-                {c.label}
+                {renderDenseHeader(c)}
               </th>
             ))}
           </tr>
@@ -201,23 +251,23 @@ export const DenseTable = ({
         <tbody className="divide-y divide-gray-100 bg-white">
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className="px-3 py-6 text-center text-gray-500">
+              <td colSpan={tableColumns.length} className="px-3 py-6 text-center text-gray-500">
                 No records
               </td>
             </tr>
           ) : (
-            rows.map((row) => (
+            rows.map((row, rowIndex) => (
               <tr
                 key={row[rowKey]}
                 className={`group ${onRowClick ? "cursor-pointer" : ""}`}
                 onClick={() => onRowClick?.(row)}
               >
-                {columns.map((c) => (
+                {tableColumns.map((c) => (
                   <td
                     key={c.key}
                     className={`px-2 py-1.5 align-middle text-gray-800 whitespace-nowrap bg-white group-hover:bg-blue-50/40 ${c.cellClassName || ""}`}
                   >
-                    {renderDenseCell(c, row)}
+                    {renderDenseCell(c, row, rowIndex)}
                   </td>
                 ))}
               </tr>

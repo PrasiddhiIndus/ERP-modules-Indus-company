@@ -1,3 +1,4 @@
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, isFleetCategoryAll } from './fleetLoadUtils';
@@ -892,6 +893,9 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  S.No
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Vehicle Details
                 </th>
@@ -916,8 +920,9 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredVehicles.map((vehicle) => (
+              {filteredVehicles.map((vehicle, idx) => (
                 <tr key={vehicle.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-center tabular-nums">{idx + 1}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm font-medium text-gray-900">
@@ -953,7 +958,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                     {vehicle.current_odometer_reading?.toLocaleString()} km
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {vehicle.next_service_due ? new Date(vehicle.next_service_due).toLocaleDateString() : '-'}
+                    {vehicle.next_service_due ? formatDateDdMmYyyy(vehicle.next_service_due) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex space-x-2">

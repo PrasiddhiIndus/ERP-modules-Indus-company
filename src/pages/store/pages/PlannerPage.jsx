@@ -18,14 +18,16 @@ export default function PlannerPage({ data }) {
                 <table className="w-full text-xs">
                   <thead className="bg-white">
                     <tr>
+                      <th className="text-center p-2 border-b">S.No</th>
                       {["Item", "Per Person/Year", "Required", "Issued", "Site Stock", "Balance to Issue", "Recommended Dispatch", "Status", "Override"].map((h) => (
                         <th key={h} className="text-left p-2 border-b">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
+                    {rows.map((r, idx) => (
                       <tr key={`${site.id}-${r.itemId}`} className="border-b">
+                        <td className="text-center tabular-nums p-2">{idx + 1}</td>
                         <td className="p-2">{r.itemName}</td>
                         <td className="p-2">{r.perPerson}</td>
                         <td className="p-2">{r.required}</td>
@@ -63,6 +65,7 @@ export default function PlannerPage({ data }) {
           <table className="w-full text-xs">
             <thead className="bg-gray-50">
               <tr>
+                <th className="text-center p-2 border-b">S.No</th>
                 <th className="text-left p-2 border-b">Site</th>
                 {items.filter((i) => i.annualEntitlementApplicable).map((it) => (
                   <th key={it.id} className="text-left p-2 border-b">{it.itemName}</th>
@@ -70,8 +73,9 @@ export default function PlannerPage({ data }) {
               </tr>
             </thead>
             <tbody>
-              {planner.map((p) => (
+              {planner.map((p, idx) => (
                 <tr key={p.site.id} className="border-b">
+                  <td className="text-center tabular-nums p-2">{idx + 1}</td>
                   <td className="p-2">{p.site.siteName}</td>
                   {p.rows.map((r) => (
                     <td key={r.itemId} className="p-2">{r.required} / {r.issued}</td>

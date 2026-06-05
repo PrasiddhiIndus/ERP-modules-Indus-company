@@ -298,6 +298,9 @@ const WOPOManagement = () => {
               <table className="min-w-[1100px] w-full table-fixed border-collapse">
                 <thead>
                   <tr>
+                    <th className="px-3 py-2.5 text-center text-xs font-bold text-black border-b border-red-100/60 w-[52px]">
+                      S.No
+                    </th>
                     <th className="px-3 py-2.5 text-left text-xs font-bold text-black border-b border-red-100/60 w-[170px]">
                       OC Number
                     </th>
@@ -322,7 +325,7 @@ const WOPOManagement = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {paginatedList.map((row) => {
+                  {paginatedList.map((row, idx) => {
                     const ocNumber = row.oc_number || row.ocNumber || '';
                     const siteLocation =
                       row.location_name ||
@@ -341,6 +344,7 @@ const WOPOManagement = () => {
                           className="bg-white hover:bg-gray-50 cursor-pointer align-top"
                           onClick={() => setExpandedId((prev) => (prev === row.id ? null : row.id))}
                         >
+                          <td className="px-3 py-2 text-xs text-center tabular-nums">{startIndex + idx + 1}</td>
                           <td className="px-3 py-2 text-xs text-gray-900">
                             <TextCell value={ocNumber} className="font-semibold" />
                           </td>
@@ -517,7 +521,7 @@ const WOPOManagement = () => {
                         </tr>
                         {expandedId === row.id && (
                           <tr className="bg-gray-50">
-                            <td className="px-4 pb-4 pt-3" colSpan={7}>
+                            <td className="px-4 pb-4 pt-3" colSpan={8}>
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
                                 <div className={row.designation_rates?.length ? 'sm:col-span-2 lg:col-span-3' : ''}>
                                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Rates</p>

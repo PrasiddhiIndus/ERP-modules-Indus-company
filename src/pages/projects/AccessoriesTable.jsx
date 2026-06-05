@@ -594,6 +594,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       <table className="border-collapse border text-sm w-full mb-4">
         <thead className="bg-gray-100">
           <tr>
+            <th className="border px-2 py-1 text-center w-11">S.No</th>
             <th className="border px-2 py-1">Title</th>
             <th className="border px-2 py-1">Description</th>
             <th className="border px-2 py-1">Qty</th>
@@ -604,7 +605,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={5} className="border px-2 py-4 text-center text-gray-500">
+              <td colSpan={6} className="border px-2 py-4 text-center text-gray-500">
                 {loading ? (
                   "Loading accessories..."
                 ) : (
@@ -628,6 +629,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
           ) : (
             rows.map((row, index) => (
               <tr key={row.id || row.accessory_id || index} className="hover:bg-gray-50">
+                <td className="border px-2 py-1 text-center tabular-nums text-gray-600">{index + 1}</td>
                 <td className="border px-2 py-1 font-medium">{row.title || "N/A"}</td>
                 <td className="border px-2 py-1">{row.description || ""}</td>
                 <td className="border px-2 py-1">

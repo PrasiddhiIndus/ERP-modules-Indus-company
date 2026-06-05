@@ -187,6 +187,7 @@ export default function ManpowerConfiguration() {
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
+                    <th className="px-3 py-2 text-center font-semibold text-slate-700 whitespace-nowrap w-11">S.No</th>
                     {columns.map((c) => (
                       <th key={c} className="px-3 py-2 text-left font-semibold text-slate-700 whitespace-nowrap">
                         {c}
@@ -197,6 +198,7 @@ export default function ManpowerConfiguration() {
                 <tbody className="divide-y divide-slate-100">
                   {rows.slice(0, 100).map((r, idx) => (
                     <tr key={r.id || idx} className="hover:bg-slate-50">
+                      <td className="px-3 py-2 text-center tabular-nums text-slate-600">{idx + 1}</td>
                       {columns.map((c) => (
                         <td key={c} className="px-3 py-2 text-slate-700 whitespace-nowrap">
                           {r?.[c] == null ? "—" : String(r[c])}

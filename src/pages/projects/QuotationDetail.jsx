@@ -12,6 +12,7 @@ import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { INDUS_LOGO_SRC } from "../../constants/branding.js";
 import FireTenderNavbar from "./FireTenderNavbar";
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 
 const generateQuotationNumber = (index) => {
   const padded = String(index + 1).padStart(4, "0");
@@ -145,7 +146,7 @@ const QuotationDetail = () => {
           city: tender.city || "",
           zip: tender.zip || "",
           country: tender.country || "",
-          date: new Date(tender.created_at || Date.now()).toLocaleDateString('en-GB'), // DD/MM/YYYY
+          date: formatDateDdMmYyyy(tender.created_at || new Date()),
           subject: "",
           body: "",
           terms: "",
@@ -173,7 +174,7 @@ const QuotationDetail = () => {
             gst_percentage: savedQuotation.gst_percentage || null,
             // Include any other fields from quotations table
             client: savedQuotation.client || tender.client || "Unknown",
-            date: savedQuotation.date || new Date(tender.created_at || Date.now()).toLocaleDateString('en-GB'),
+            date: savedQuotation.date || formatDateDdMmYyyy(tender.created_at || new Date()),
           };
           initialQuotation = updatedQuotation;
           if (savedQuotation.signature_url) {

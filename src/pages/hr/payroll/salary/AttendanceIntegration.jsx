@@ -104,6 +104,7 @@ export default function AttendanceIntegration() {
           <table className="min-w-full text-xs">
             <thead>
               <tr className="bg-gray-50 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                <th className="text-center px-4 py-2.5 w-11">S.No</th>
                 <th className="text-left px-4 py-2.5">Employee</th>
                 <th className="text-left px-4 py-2.5">Site</th>
                 <th className="text-right px-4 py-2.5">Days present</th>
@@ -119,6 +120,7 @@ export default function AttendanceIntegration() {
                   key={row.id}
                   className={`border-t border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}`}
                 >
+                  <td className="px-4 py-3 text-center tabular-nums text-gray-600">{idx + 1}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{row.employee}</td>
                   <td className="px-4 py-3 text-gray-700">{row.site}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{row.present}</td>

@@ -46,14 +46,16 @@ export default function StoreMasterPage({ data }) {
           <table className="w-full text-xs">
             <thead className="bg-gray-50">
               <tr>
+                <th className="text-center p-2 border-b">S.No</th>
                 {["Code", "Name", "Type", "Linked Site", "Location", "Incharge", "Status"].map((h) => (
                   <th key={h} className="text-left p-2 border-b">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {stores.map((st) => (
+              {stores.map((st, idx) => (
                 <tr key={st.id} className="border-b">
+                  <td className="text-center tabular-nums p-2">{idx + 1}</td>
                   <td className="p-2">{st.storeCode}</td>
                   <td className="p-2">{st.storeName}</td>
                   <td className="p-2">{st.storeType}</td>

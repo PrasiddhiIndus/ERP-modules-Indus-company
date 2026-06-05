@@ -21,6 +21,7 @@ export default function ManpowerQuotationList() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="px-4 py-3 text-center font-semibold text-gray-700 w-11">S.No</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-700">Quotation No.</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-700">Client</th>
                 <th className="px-4 py-3 text-left font-semibold text-gray-700">Enquiry No.</th>
@@ -32,7 +33,7 @@ export default function ManpowerQuotationList() {
             <tbody className="divide-y divide-gray-100">
               {quotations.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
                     No quotations found.
                   </td>
                 </tr>
@@ -42,6 +43,7 @@ export default function ManpowerQuotationList() {
                   .reverse()
                   .map((q, idx) => (
                     <tr key={`${q.quotation_number || "Q"}-${q.enquiry_id || idx}-${idx}`} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-center tabular-nums text-gray-600">{idx + 1}</td>
                       <td className="px-4 py-3 font-semibold text-gray-900">{q.quotation_number || "—"}</td>
                       <td className="px-4 py-3 text-gray-800">{q.client || "—"}</td>
                       <td className="px-4 py-3 text-gray-700">{q.enquiry_number || "—"}</td>
