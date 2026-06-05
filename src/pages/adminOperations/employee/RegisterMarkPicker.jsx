@@ -3,9 +3,13 @@ import { createPortal } from "react-dom";
 import {
   REGISTER_LEAVE_SUBMENU_OPTIONS,
   REGISTER_PRIMARY_MARK_OPTIONS,
+  registerMarkCellInlineStyle,
   registerMarkOptionLabel,
   registerMarkSelectTextClass,
 } from "../../../lib/attendanceDaily";
+
+const MENU_ITEM_CLASS =
+  "w-full px-2.5 py-1.5 text-left text-gray-800 hover:bg-gray-100 focus:bg-gray-100 outline-none";
 
 export function RegisterMarkPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -76,7 +80,7 @@ export function RegisterMarkPicker({ value, onChange }) {
                   >
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left hover:bg-gray-100"
+                      className={`flex items-center justify-between gap-2 ${MENU_ITEM_CLASS}`}
                       onClick={() => pick("L")}
                     >
                       <span>{opt.label}</span>
@@ -90,7 +94,7 @@ export function RegisterMarkPicker({ value, onChange }) {
                           <button
                             key={leave.value}
                             type="button"
-                            className="block w-full px-2.5 py-1.5 text-left hover:bg-gray-100"
+                            className={`block ${MENU_ITEM_CLASS}`}
                             onClick={() => pick(leave.value)}
                           >
                             {leave.label}
@@ -105,7 +109,7 @@ export function RegisterMarkPicker({ value, onChange }) {
                 <button
                   key={opt.value || "blank"}
                   type="button"
-                  className="block w-full px-2.5 py-1.5 text-left hover:bg-gray-100"
+                  className={`block ${MENU_ITEM_CLASS}`}
                   onClick={() => pick(opt.value)}
                 >
                   {opt.label}
@@ -128,6 +132,7 @@ export function RegisterMarkPicker({ value, onChange }) {
           setOpen((v) => !v);
         }}
         onMouseDown={(e) => e.stopPropagation()}
+        style={registerMarkCellInlineStyle(value)}
         className={`${registerMarkSelectTextClass(value)} w-full h-8 px-1 text-[11px] font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
       >
         {display}

@@ -2,10 +2,15 @@
 
 import {
   filterPresentRegisterRowsRespectingMarks,
+  isLeaveMarkSource,
+  isManualMarkSource,
+  isPunchMarkSource,
   marksByEmpDayFromRegisterDbRows,
   punchesToPresentRegisterRows,
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
+
+export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
 
 export const ATTENDANCE_PUNCH_TABLE = "erp_attendance_punches";
 export const ATTENDANCE_REGISTER_TABLE = "admin_attendance_register";
@@ -90,6 +95,11 @@ export function isRegisterNhphMark(mark) {
 
 export function isRegisterPresentMark(mark) {
   return mark === "P" || mark === "P(OD)";
+}
+
+/** Marks that support an optional cell remark (P(OD), Tour). */
+export function isRegisterCommentMark(mark) {
+  return mark === "P(OD)" || mark === "T";
 }
 
 /** Marks that count toward monthly present-day totals (payroll / register summary). */
@@ -241,6 +251,29 @@ export const REGISTER_BULK_BUTTON_CLASS = {
 
 const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
 
+/** Per-mark colors for closed cells only (dropdown list stays neutral). */
+export const REGISTER_MARK_CELL_COLORS = {
+  P: { bg: "#008D62", border: "#006b51", text: "white" },
+  "P(OD)": { bg: "#0d9488", border: "#0f766e", text: "white" },
+  T: { bg: "#7c3aed", border: "#6d28d9", text: "white" },
+  L: { bg: "#D62828", border: "#b82222", text: "white" },
+  WO: { bg: "#EAB308", border: "#CA8A04", text: "dark" },
+  [REGISTER_MARK_NHPH]: { bg: "#F58220", border: "#d9741d", text: "white" },
+  NHPH: { bg: "#F58220", border: "#d9741d", text: "white" },
+  CO: { bg: "#059669", border: "#047857", text: "white" },
+  HD: { bg: "#d97706", border: "#b45309", text: "white" },
+  WFH: { bg: "#2563eb", border: "#1d4ed8", text: "white" },
+};
+
+export function resolveRegisterMarkCellColors(mark) {
+  const m = String(mark ?? "").trim();
+  if (!m) return null;
+  if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return REGISTER_MARK_CELL_COLORS.L;
+  if (isRegisterNhphMark(m)) return REGISTER_MARK_CELL_COLORS[REGISTER_MARK_NHPH];
+  if (REGISTER_MARK_CELL_COLORS[m]) return REGISTER_MARK_CELL_COLORS[m];
+  return null;
+}
+
 /** Inner select — transparent; color comes from wrapper only (open list stays neutral via CSS). */
 export const REGISTER_MARK_SELECT_INNER =
   "register-mark-select w-full h-8 px-1 text-[11px] font-semibold text-center appearance-none cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-0";
@@ -249,27 +282,27 @@ export function isRegisterLeaveMark(mark) {
   return REGISTER_LEAVE_MARKS.has(mark);
 }
 
-/** Colored box behind the closed cell only (not the open dropdown list). */
+/** Colored box behind the closed cell only (pair with registerMarkCellInlineStyle). */
 export function registerMarkCellWrapperClass(value) {
-  if (value === "P" || value === "P(OD)") {
-    return `${REGISTER_MARK_WRAPPER_BASE} border-[#006b51] bg-[#008D62]`;
+  if (!resolveRegisterMarkCellColors(value)) {
+    return `${REGISTER_MARK_WRAPPER_BASE} border-gray-300 bg-gray-100`;
   }
-  if (value === "L" || REGISTER_LEAVE_RED_CELL_MARKS.has(value)) {
-    return `${REGISTER_MARK_WRAPPER_BASE} border-[#b82222] bg-[#D62828]`;
-  }
-  if (value === "WO") {
-    return `${REGISTER_MARK_WRAPPER_BASE} border-[#CA8A04] bg-[#EAB308]`;
-  }
-  if (isRegisterNhphMark(value)) {
-    return `${REGISTER_MARK_WRAPPER_BASE} border-[#d9741d] bg-[#F58220]`;
-  }
-  return `${REGISTER_MARK_WRAPPER_BASE} border-gray-300 bg-gray-100`;
+  return REGISTER_MARK_WRAPPER_BASE;
 }
 
 export function registerMarkSelectTextClass(value) {
   if (!value) return "text-gray-600";
-  if (value === "WO") return "text-gray-900";
-  return "text-white";
+  const colors = resolveRegisterMarkCellColors(value);
+  if (colors?.text === "dark") return "text-gray-900";
+  if (colors) return "text-white";
+  return "text-gray-600";
+}
+
+/** Inline styles for mark cells (Tailwind arbitrary hex is unreliable for all marks). */
+export function registerMarkCellInlineStyle(value) {
+  const colors = resolveRegisterMarkCellColors(value);
+  if (!colors) return undefined;
+  return { backgroundColor: colors.bg, borderColor: colors.border };
 }
 
 /** @deprecated Use registerMarkCellWrapperClass + REGISTER_MARK_SELECT_INNER */
@@ -394,6 +427,8 @@ export function buildMonthlyRegisterGrid(punches, activeEmployees, { year, month
       const manual = overrides[day];
       if (manual != null && manual !== "") {
         dayMarks[day] = manual;
+      } else if (isAutoWeekoffDate(iso)) {
+        dayMarks[day] = "WO";
       } else if (presentKeys.has(`${code}|${iso}`)) {
         dayMarks[day] = "P";
       } else {
@@ -464,7 +499,7 @@ export function dbRowsToManualMarks(rows) {
   return marks;
 }
 
-/** DB rows -> manualRemarks[empCode][dayNumber] (for P(OD) comments). */
+/** DB rows -> manualRemarks[empCode][dayNumber] (P(OD) / T comments). */
 export function dbRowsToManualRemarks(rows) {
   const remarks = {};
   for (const row of rows || []) {
@@ -472,7 +507,7 @@ export function dbRowsToManualRemarks(rows) {
     const day = dayOfMonthFromIsoDate(row.register_date);
     const mark = normalizeRegisterMarkForDb(row.mark);
     const remark = String(row.mark_remark || "").trim();
-    if (!code || !day || mark !== "P(OD)" || !remark) continue;
+    if (!code || !day || !isRegisterCommentMark(mark) || !remark) continue;
     if (!remarks[code]) remarks[code] = {};
     remarks[code][day] = remark;
   }
@@ -533,9 +568,158 @@ export async function fetchRegisterMarksForYear(supabase, year) {
   }));
 }
 
+/** True when `day` is the 3rd Saturday of `year`/`month` (1-based). */
+export function isThirdSaturdayOfMonth(year, month, day) {
+  if (new Date(year, month - 1, day).getDay() !== 6) return false;
+  let saturdays = 0;
+  for (let d = 1; d <= day; d += 1) {
+    if (new Date(year, month - 1, d).getDay() === 6) saturdays += 1;
+  }
+  return saturdays === 3;
+}
+
+/** Sunday or 3rd Saturday of the month for an ISO date. */
+export function isAutoWeekoffDate(isoDate) {
+  const d = normalizeDbDate(isoDate);
+  if (!d) return false;
+  const year = Number(d.slice(0, 4));
+  const month = Number(d.slice(5, 7));
+  const day = Number(d.slice(8, 10));
+  const dow = new Date(year, month - 1, day).getDay();
+  if (dow === 0) return true;
+  if (dow === 6) return isThirdSaturdayOfMonth(year, month, day);
+  return false;
+}
+
+/** All auto-WO dates for the viewed month and the following month. */
+export function listAutoWeekoffDatesForMonthAndNext(monthMeta) {
+  if (!monthMeta?.year || !monthMeta?.month) return [];
+  const { year, month } = monthMeta;
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const dates = [];
+  for (const { y, m } of [
+    { y: year, m: month },
+    { y: nextYear, m: nextMonth },
+  ]) {
+    const monthKey = monthKeyFromParts(y, m);
+    const dim = daysInCalendarMonth(y, m);
+    for (let day = 1; day <= dim; day += 1) {
+      const iso = registerDateFromDay(monthKey, day);
+      if (isAutoWeekoffDate(iso)) dates.push(iso);
+    }
+  }
+  return dates;
+}
+
+/**
+ * Whether auto WO may be written on a scheduled weekoff date.
+ * Replaces punch-only Present; never overwrites leave or manual marks.
+ */
+export function canAutoWeekoffApplyToExisting(existing) {
+  if (!existing?.mark) return true;
+  if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return false;
+  const src = String(existing.mark_source ?? "").trim().toLowerCase();
+  if (isManualMarkSource(src)) return false;
+  const mark = String(existing.mark ?? "").trim();
+  if (mark === "WO" && (src === REGISTER_MARK_SOURCE_AUTO_WO || !src)) return true;
+  if (isPunchMarkSource(mark, existing.mark_source)) return true;
+  if (mark === "P" || mark === "P(OD)") return false;
+  return true;
+}
+
+/**
+ * Apply WO on all Sundays and 3rd Saturdays for every active employee on `weekoffDates`.
+ * Skips leave, manual marks, and present; punch sync may overwrite WO afterward.
+ */
+function indexRegisterRowByEmpDate(existingByKey, row) {
+  const date = normalizeDbDate(row.register_date);
+  if (!date) return;
+  const raw = String(row.employee_code ?? "").trim();
+  const norm = normalizeAttendanceEmpCode(raw);
+  if (norm) existingByKey.set(`${norm}|${date}`, row);
+  if (raw && raw !== norm) existingByKey.set(`${raw}|${date}`, row);
+}
+
+function lookupRegisterRow(existingByKey, normCode, dbCode, register_date) {
+  return (
+    existingByKey.get(`${normCode}|${register_date}`) ||
+    (dbCode !== normCode ? existingByKey.get(`${dbCode}|${register_date}`) : undefined)
+  );
+}
+
+export async function syncRegisterAutoWeekoffMarks(
+  supabase,
+  employeeCodes,
+  weekoffDates,
+  masterCodeMap = null
+) {
+  const codes = [...new Set((employeeCodes || []).map(normalizeAttendanceEmpCode).filter(Boolean))];
+  const dates = [...new Set((weekoffDates || []).map(normalizeDbDate).filter(Boolean))].sort();
+  if (!codes.length || !dates.length) return { upserted: 0, failed: 0 };
+
+  const fromDate = dates[0];
+  const toDate = dates[dates.length - 1];
+  const { data, error } = await supabase
+    .from(ATTENDANCE_REGISTER_TABLE)
+    .select("employee_code,register_date,mark,mark_source,leave_request_id")
+    .gte("register_date", fromDate)
+    .lte("register_date", toDate);
+  if (error) throw error;
+
+  const existingByKey = new Map();
+  for (const row of data || []) indexRegisterRowByEmpDate(existingByKey, row);
+
+  const upserts = [];
+  for (const normCode of codes) {
+    if (masterCodeMap?.size && !masterCodeMap.has(normCode)) {
+      failed += dates.length;
+      continue;
+    }
+    const dbCode = toRegisterDbEmployeeCode(normCode, masterCodeMap);
+    if (!dbCode) continue;
+    for (const register_date of dates) {
+      const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
+      if (!canAutoWeekoffApplyToExisting(existing)) continue;
+      upserts.push({
+        employee_code: dbCode,
+        register_date,
+        month_key: register_date.slice(0, 7),
+        mark: "WO",
+        mark_source: REGISTER_MARK_SOURCE_AUTO_WO,
+        mark_remark: null,
+        leave_request_id: null,
+        updated_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  if (!upserts.length) return { upserted: 0, failed: 0 };
+
+  let upserted = 0;
+  let failed = 0;
+  for (let i = 0; i < upserts.length; i += REGISTER_MARK_UPSERT_CHUNK) {
+    const chunk = upserts.slice(i, i + REGISTER_MARK_UPSERT_CHUNK);
+    try {
+      await upsertRegisterMarksBatch(supabase, chunk, { masterCodeMap });
+      upserted += chunk.length;
+    } catch {
+      for (const row of chunk) {
+        try {
+          await upsertRegisterMarksBatch(supabase, [row], { masterCodeMap });
+          upserted += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+    }
+  }
+  return { upserted, failed };
+}
+
 /**
  * Upsert Present (P) from punches into the register.
- * When raw punch data exists for a day, it overwrites any existing mark (leave, manual, etc.).
+ * With `respectManualMarks`, only overwrites blank, punch-sourced, and WO cells.
  */
 export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
   const { respectManualMarks = false, fromDate: fromOverride, toDate: toOverride } = options;
@@ -560,8 +744,9 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
     toUpsert = filterPresentRegisterRowsRespectingMarks(candidateRows, marksByEmpDay);
   }
 
+  const masterCodeMap = options.masterCodeMap ?? null;
   if (toUpsert.length) {
-    await upsertRegisterMarksBatch(supabase, toUpsert);
+    await upsertRegisterMarksBatch(supabase, toUpsert, { masterCodeMap });
   }
 
   return {
@@ -596,13 +781,16 @@ export function mergeActiveEmployeesWithPunches(activeEmployees, punches) {
   );
 }
 
-export async function upsertRegisterMarksBatch(supabase, rows) {
+export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
+  const { masterCodeMap = null } = options;
   const normalized = (rows || [])
     .map((row) => {
-      const employee_code = normalizeAttendanceEmpCode(row.employee_code);
+      const employee_code = toRegisterDbEmployeeCode(row.employee_code, masterCodeMap);
       const mark = normalizeRegisterMarkForDb(row.mark);
       if (!employee_code || !mark) return null;
-      const mark_remark = mark === "P(OD)" ? String(row.mark_remark || "").trim() || null : null;
+      const mark_remark = isRegisterCommentMark(mark)
+        ? String(row.mark_remark || "").trim() || null
+        : null;
       return { ...row, employee_code, mark, mark_remark };
     })
     .filter(Boolean);
@@ -628,8 +816,15 @@ export async function deleteRegisterMarksBatch(supabase, deletes) {
   }
 }
 
-export async function upsertRegisterMark(supabase, empCode, registerDate, mark, markRemark = "") {
-  const code = normalizeAttendanceEmpCode(empCode);
+export async function upsertRegisterMark(
+  supabase,
+  empCode,
+  registerDate,
+  mark,
+  markRemark = "",
+  masterCodeMap = null
+) {
+  const code = toRegisterDbEmployeeCode(empCode, masterCodeMap);
   const date = normalizeDbDate(registerDate);
   if (!code || !date) return;
   const canonical = normalizeRegisterMarkForDb(mark);
@@ -643,7 +838,7 @@ export async function upsertRegisterMark(supabase, empCode, registerDate, mark, 
       register_date: date,
       month_key: date.slice(0, 7),
       mark: canonical,
-      mark_remark: canonical === "P(OD)" ? String(markRemark || "").trim() || null : null,
+      mark_remark: isRegisterCommentMark(canonical) ? String(markRemark || "").trim() || null : null,
       mark_source: "manual",
       leave_request_id: null,
       updated_at: new Date().toISOString(),
@@ -765,17 +960,19 @@ export function computeRegisterSummaryFooter(rows) {
 
 export function applyBulkRegisterMarks(manualMarks, gridRows, { empCodes, dayFrom, dayTo, mark, overwrite = false }) {
   const next = { ...manualMarks };
-  const rowByCode = new Map(gridRows.map((r) => [r.empCode, r]));
+  const rowByCode = new Map(
+    gridRows.map((r) => [normalizeAttendanceEmpCode(r.empCode), r])
+  );
   const clearMark = mark == null || mark === "";
 
-  for (const code of empCodes) {
-    const row = rowByCode.get(code);
-    if (!row) continue;
+  for (const rawCode of empCodes) {
+    const code = normalizeAttendanceEmpCode(rawCode);
+    if (!code || !rowByCode.has(code)) continue;
     const empMarks = { ...(next[code] || {}) };
 
     for (let day = dayFrom; day <= dayTo; day += 1) {
-      const current = row.dayMarks[day] || "";
-      if (!overwrite && current !== "") continue;
+      const manualCurrent = empMarks[day] || "";
+      if (!overwrite && manualCurrent !== "") continue;
       if (clearMark) {
         delete empMarks[day];
       } else {
@@ -822,19 +1019,23 @@ function summaryCellsForRow(row) {
 export function buildMonthlyRegisterCsv(rows, daysInMonth, monthKey) {
   const dayHeaders = monthKey ? registerDayExportHeaders(monthKey, daysInMonth) : [];
   const header = [
-    "Employee ID",
+    "Machine ID",
     "Employee code",
     "Employee Name",
+    "Department",
     ...(dayHeaders.length ? dayHeaders : Array.from({ length: daysInMonth }, (_, i) => `d${i + 1}`)),
     ...REGISTER_SUMMARY_HEADERS,
   ];
   const lines = rows.map((row) => {
     const days = Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || "");
-    return [row.employeeId, row.empCode, row.employeeName, ...days, ...summaryCellsForRow(row)].map(csvEscape).join(",");
+    return [row.employeeId, row.empCode, row.employeeName, row.department || "", ...days, ...summaryCellsForRow(row)]
+      .map(csvEscape)
+      .join(",");
   });
   const footer = computeRegisterSummaryFooter(rows);
   const footerLine = [
     "Total",
+    "",
     "",
     "",
     ...Array(daysInMonth).fill(""),
@@ -853,17 +1054,26 @@ export function buildMonthlyRegisterCsv(rows, daysInMonth, monthKey) {
 export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) {
   const XLSX = await import("xlsx");
   const dayHeaders = registerDayExportHeaders(monthKey, daysInMonth);
-  const header = ["Employee ID", "Employee code", "Employee Name", ...dayHeaders, ...REGISTER_SUMMARY_HEADERS];
+  const header = [
+    "Machine ID",
+    "Employee code",
+    "Employee Name",
+    "Department",
+    ...dayHeaders,
+    ...REGISTER_SUMMARY_HEADERS,
+  ];
   const data = rows.map((row) => [
     row.employeeId,
     row.empCode,
     row.employeeName,
+    row.department || "",
     ...Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || ""),
     ...summaryCellsForRow(row),
   ]);
   const footer = computeRegisterSummaryFooter(rows);
   data.push([
     "Total",
+    "",
     "",
     "",
     ...Array(daysInMonth).fill(""),
@@ -880,33 +1090,35 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
     for (let day = 1; day <= daysInMonth; day += 1) {
       const comment = String(dayRemarks[day] || "").trim();
       if (!comment) continue;
-      if (row.dayMarks?.[day] !== "P(OD)") continue;
+      const dayMark = row.dayMarks?.[day];
+      if (!isRegisterCommentMark(dayMark)) continue;
       const excelRowIndex = rowIdx + 1;
-      const excelColIndex = 3 + (day - 1);
+      const excelColIndex = 4 + (day - 1);
       const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: excelColIndex });
-      if (!ws[cellAddress]) ws[cellAddress] = { v: "P(OD)", t: "s" };
+      if (!ws[cellAddress]) ws[cellAddress] = { v: dayMark, t: "s" };
       ws[cellAddress].c = [{ a: "INDUS OS", t: comment }];
     }
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Register");
-  const podComments = [
-    ["Employee ID", "Employee code", "Employee Name", "Date", "Mark", "Comment"],
+  const markComments = [
+    ["Machine ID", "Employee code", "Employee Name", "Department", "Date", "Mark", "Comment"],
     ...rows.flatMap((row) =>
       Array.from({ length: daysInMonth }, (_, i) => i + 1)
-        .filter((day) => row.dayMarks[day] === "P(OD)" && row.dayRemarks?.[day])
+        .filter((day) => isRegisterCommentMark(row.dayMarks[day]) && row.dayRemarks?.[day])
         .map((day) => [
           row.employeeId || "",
           row.empCode || "",
           row.employeeName || "",
+          row.department || "",
           registerDateFromDay(monthKey, day),
-          "P(OD)",
+          row.dayMarks[day],
           row.dayRemarks[day],
         ])
     ),
   ];
-  const commentsSheet = XLSX.utils.aoa_to_sheet(podComments);
-  XLSX.utils.book_append_sheet(wb, commentsSheet, "POD Comments");
+  const commentsSheet = XLSX.utils.aoa_to_sheet(markComments);
+  XLSX.utils.book_append_sheet(wb, commentsSheet, "Cell Comments");
   XLSX.writeFile(wb, `daily-attendance-register-${monthKey}.xlsx`);
 }
 
@@ -1183,13 +1395,71 @@ export function masterMatchCode(employee) {
 }
 
 export function mapMasterEmployee(row) {
+  const rawCode = String(row[EMPLOYEE_MASTER_CODE_COL] ?? "").trim();
+  const empCode = masterMatchCode(row);
   return {
-    empCode: masterMatchCode(row),
+    empCode,
+    /** Exact master employee_code for register FK upserts (preserves leading zeros). */
+    registerEmpCode: rawCode || empCode,
     employeeName: row.full_name || row.name || "",
     department: row.department || "",
     designation: row.designation || "",
     employeeId: row.employee_id || "",
   };
+}
+
+/** Register every lookup variant → exact master employee_code (FK-safe upserts). */
+export function addMasterCodeToMap(map, rawCode) {
+  const raw = String(rawCode ?? "").trim();
+  if (!raw) return;
+  for (const variant of attendanceEmpCodeLookupVariants(raw)) {
+    map.set(variant, raw);
+  }
+  map.set(normalizeAttendanceEmpCode(raw), raw);
+}
+
+/** normalized emp code → exact employee_code on Employee Master (for register FK). */
+export function buildMasterRegisterCodeMap(employees) {
+  const map = new Map();
+  for (const e of employees || []) {
+    const raw = String(e.registerEmpCode ?? e.empCode ?? "").trim();
+    if (raw) addMasterCodeToMap(map, raw);
+  }
+  return map;
+}
+
+/** Load all active master codes from Supabase (source of truth for register FK). */
+export async function fetchMasterRegisterCodeMap(supabase) {
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("employee_code")
+    .eq("status", "Active");
+  if (error) throw error;
+  const map = new Map();
+  for (const row of data || []) {
+    addMasterCodeToMap(map, row.employee_code);
+  }
+  return map;
+}
+
+/** All normalized codes that appear on the register grid. */
+export function collectRegisterEmployeeCodes(employees, punches) {
+  const codes = new Set();
+  for (const e of employees || []) {
+    const n = normalizeAttendanceEmpCode(e.empCode);
+    if (n) codes.add(n);
+  }
+  for (const p of punches || []) {
+    const n = normalizeAttendanceEmpCode(p.empCode ?? p.employee_code);
+    if (n) codes.add(n);
+  }
+  return [...codes];
+}
+
+export function toRegisterDbEmployeeCode(code, masterCodeMap) {
+  const norm = normalizeAttendanceEmpCode(code);
+  if (!norm) return "";
+  return masterCodeMap?.get(norm) || norm;
 }
 
 export function mergeAbsentRows(dailyRows, activeEmployees, fromDate, toDate) {
