@@ -6,10 +6,16 @@ import { isRetiredFireTenderMainComponentLabel } from "../../../lib/retiredFireT
 import FireTenderNavbar from "../FireTenderNavbar";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import { NumericInput } from "../../../components/NumericInput";
+import {
+  FIRE_TENDER_TEMPLATES,
+  DEFAULT_FIRE_TENDER_TEMPLATE,
+  rowMatchesTemplate,
+} from "../fireTenderTemplates";
 
 const PriceMasterPage = () => {
   const [priceList, setPriceList] = useState([]);
   const [mainComponents, setMainComponents] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(DEFAULT_FIRE_TENDER_TEMPLATE);
   const [userId, setUserId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -69,8 +75,14 @@ const PriceMasterPage = () => {
         (row) => !isRetiredFireTenderMainComponentLabel(row.main_component)
       );
 
-      if (priceData.length === 0 && mainFiltered.length > 0) {
-        const priceEntries = mainFiltered.map((comp) => ({
+      // Seed price rows for the default template if it has main components but
+      // no price rows yet (per-template scoped so other templates are untouched).
+      const tmpl = DEFAULT_FIRE_TENDER_TEMPLATE;
+      const mainForTmpl = mainFiltered.filter((r) => rowMatchesTemplate(r, tmpl));
+      const priceForTmpl = pricesFiltered.filter((r) => rowMatchesTemplate(r, tmpl));
+
+      if (priceForTmpl.length === 0 && mainForTmpl.length > 0) {
+        const priceEntries = mainForTmpl.map((comp) => ({
           main_component: comp.main_component,
           sub_category1: comp.sub_category1,
           sub_category2: comp.sub_category2,
@@ -81,6 +93,7 @@ const PriceMasterPage = () => {
           weight: 0,
           unit_cost: 0,
           is_new: false,
+          template: tmpl,
           user_id: uid,
         }));
 
@@ -89,6 +102,7 @@ const PriceMasterPage = () => {
         if (insertError) {
           console.error("Insert price master error:", insertError.message);
           setError("Failed to create price master entries: " + insertError.message);
+          setPriceList(pricesFiltered);
         } else {
           const { data: newPriceData } = await supabase
             .from("price_master")
@@ -98,13 +112,10 @@ const PriceMasterPage = () => {
             (row) => !isRetiredFireTenderMainComponentLabel(row.main_component)
           );
           setPriceList(newFiltered);
-          setSuccess(`Successfully created ${mainFiltered.length} price master entries from main components`);
+          setSuccess(`Successfully created ${mainForTmpl.length} ${tmpl} price master entries`);
         }
       } else {
         setPriceList(pricesFiltered);
-        if (mainFiltered.length > 0) {
-          setSuccess(`Loaded ${pricesFiltered.length} price master entries`);
-        }
       }
 
       setLoading(false);
@@ -126,6 +137,7 @@ const PriceMasterPage = () => {
       manual_sub_category: "",
       weight: "",
       unit_cost: "",
+      template: selectedTemplate,
       user_id: userId,
       is_new: true,
     };
@@ -139,6 +151,54 @@ const PriceMasterPage = () => {
       console.error("Insert error:", error.message);
     } else {
       setPriceList([...priceList, ...data]);
+    }
+  };
+
+  // Create price rows for any main component in the selected template that does
+  // not yet have a matching price_master row.
+  const handleSyncFromMainComponents = async () => {
+    const keyOf = (r) =>
+      [r.main_component, r.sub_category1, r.sub_category2, r.sub_category3, r.sub_category4, r.sub_category5]
+        .map((v) => v || "")
+        .join("|");
+
+    const existingKeys = new Set(
+      priceList.filter((r) => rowMatchesTemplate(r, selectedTemplate)).map(keyOf)
+    );
+
+    const missing = mainComponents
+      .filter((r) => rowMatchesTemplate(r, selectedTemplate))
+      .filter((r) => !existingKeys.has(keyOf(r)));
+
+    if (missing.length === 0) {
+      setSuccess(`No new components to add for ${selectedTemplate}.`);
+      setTimeout(() => setSuccess(null), 3000);
+      return;
+    }
+
+    const entries = missing.map((comp) => ({
+      main_component: comp.main_component,
+      sub_category1: comp.sub_category1,
+      sub_category2: comp.sub_category2,
+      sub_category3: comp.sub_category3,
+      sub_category4: comp.sub_category4,
+      sub_category5: comp.sub_category5,
+      manual_sub_category: "",
+      weight: 0,
+      unit_cost: 0,
+      is_new: false,
+      template: selectedTemplate,
+      user_id: userId,
+    }));
+
+    const { data, error } = await supabase.from("price_master").insert(entries).select();
+    if (error) {
+      console.error("Sync error:", error.message);
+      setError("Failed to sync from main components: " + error.message);
+    } else {
+      setPriceList([...priceList, ...(data || [])]);
+      setSuccess(`Added ${data?.length || 0} ${selectedTemplate} price rows from Main Components.`);
+      setTimeout(() => setSuccess(null), 3000);
     }
   };
 
@@ -309,6 +369,8 @@ const PriceMasterPage = () => {
     );
   }
 
+  const visiblePrices = priceList.filter((item) => rowMatchesTemplate(item, selectedTemplate));
+
   return (
     <div className="p-6">
       <FireTenderNavbar />
@@ -319,11 +381,32 @@ const PriceMasterPage = () => {
           <p className="text-gray-600 text-sm mt-1">
             Add weight and unit cost for each component from Main Components page
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-600">Template</label>
+            <select
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(e.target.value)}
+              className="border rounded px-3 py-1.5 text-sm"
+            >
+              {FIRE_TENDER_TEMPLATES.map((tmpl) => (
+                <option key={tmpl} value={tmpl}>
+                  {tmpl}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-sm text-gray-500">
-            {priceList.length} components loaded
+            {visiblePrices.length} components in {selectedTemplate}
           </div>
+          <button
+            onClick={handleSyncFromMainComponents}
+            className="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700"
+            title="Add price rows for any Main Components in this template that are missing here"
+          >
+            Sync from Main Components
+          </button>
           <button
             onClick={handleSaveAll}
             disabled={loading}
@@ -415,7 +498,7 @@ const PriceMasterPage = () => {
             </tr>
           </thead>
           <tbody>
-            {priceList.map((item, idx) => (
+            {visiblePrices.map((item, idx) => (
               <tr key={item.id} className="hover:bg-gray-50">
                 <td className="px-4 py-2 border text-center tabular-nums text-gray-600">{idx + 1}</td>
                 {/* Main Component - Read Only */}
@@ -512,9 +595,9 @@ const PriceMasterPage = () => {
               </tr>
             ))}
 
-            {priceList.length === 0 && !loading && (
+            {visiblePrices.length === 0 && !loading && (
               <tr>
-                <td colSpan="10" className="px-4 py-8 text-center text-gray-500">
+                <td colSpan="12" className="px-4 py-8 text-center text-gray-500">
                   <div className="flex flex-col items-center">
                     <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

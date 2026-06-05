@@ -29,6 +29,8 @@ import {
 } from "../../config/roles";
 import FireTenderNavbar from "./FireTenderNavbar";
 import { FIRE_TENDER_HUB_TENDER } from "./fireTenderRoutes";
+import { SortableHeader, useTableSort } from "../../components/SortableTableHeader";
+import { FIRE_TENDER_TEMPLATES, DEFAULT_FIRE_TENDER_TEMPLATE, normalizeTemplate } from "./fireTenderTemplates";
 
 /** Form controls — slate borders, red focus ring (Fire Tender) */
 const ftInput =
@@ -73,6 +75,7 @@ const initialFormData = {
   typeOfTender: "",
   modeOfTender: "",
   vehicleType: "",
+  costingTemplate: DEFAULT_FIRE_TENDER_TEMPLATE,
   tenderIdAvailable: false,
   publishDate: "",
   dueDate: "",
@@ -113,6 +116,7 @@ function mapTenderRecordToForm(data) {
     typeOfTender: data.type_of_tender ?? "",
     modeOfTender: data.mode_of_tender ?? "",
     vehicleType: data.vehicle_type ?? "",
+    costingTemplate: data.costing_template || DEFAULT_FIRE_TENDER_TEMPLATE,
     tenderIdAvailable: !!data.tender_id_available,
     publishDate: toDateInput(data.publish_date),
     dueDate: toDateInput(data.due_date),
@@ -227,6 +231,19 @@ function TenderFormFields({
                   ))}
                 </div>
               </div>
+            </div>
+            <div>
+              <label className={ftLabel}>
+                Costing template <span className="text-red-600">*</span>
+              </label>
+              <select name="costingTemplate" value={formData.costingTemplate} onChange={handleChange} className={ftInput}>
+                {FIRE_TENDER_TEMPLATES.map((tmpl) => (
+                  <option key={tmpl} value={tmpl}>
+                    {tmpl}
+                  </option>
+                ))}
+              </select>
+              <p className={ftHint}>Decides which main costing-sheet items appear for this tender.</p>
             </div>
             <div>
               <label className={ftLabel}>Vehicle type</label>
@@ -393,6 +410,7 @@ const FireTender = ({ embeddedInHub = false }) => {
   const [modalPrefillLoading, setModalPrefillLoading] = useState(false);
   const [formData, setFormData] = useState(initialFormData);
   const [searchQuery, setSearchQuery] = useState("");
+  const [templateFilter, setTemplateFilter] = useState("All");
   const [currentPage, setCurrentPage] = useState(1);
   const { userProfile, accessibleModules } = useAuth();
   const canApproveTenders = userCanApproveInModules(
@@ -407,19 +425,41 @@ const FireTender = ({ embeddedInHub = false }) => {
   );
 
   const filteredTenders = useMemo(() => {
-    if (!searchQuery.trim()) return tenders;
-    const q = searchQuery.toLowerCase();
-    return tenders.filter(
-      (t) =>
-        (t.client || "").toLowerCase().includes(q) ||
-        (t.enquiry_number || "").toLowerCase().includes(q) ||
-        (t.email || "").toLowerCase().includes(q) ||
-        String(t.phone || "").toLowerCase().includes(q)
-    );
-  }, [tenders, searchQuery]);
-  const totalPages = Math.max(1, Math.ceil(filteredTenders.length / TENDERS_PER_PAGE));
+    const q = searchQuery.trim().toLowerCase();
+    return tenders.filter((t) => {
+      if (
+        templateFilter !== "All" &&
+        normalizeTemplate(t.costing_template) !== templateFilter
+      ) {
+        return false;
+      }
+      if (!q) return true;
+      return [
+        t.client,
+        t.enquiry_number,
+        t.tender_number,
+        t.email,
+        t.phone,
+        t.status,
+        t.source,
+        t.type_of_tender,
+        t.mode_of_tender,
+        t.vehicle_type,
+        t.city,
+        t.state,
+        t.due_date,
+      ].some((v) => String(v ?? "").toLowerCase().includes(q));
+    });
+  }, [tenders, searchQuery, templateFilter]);
+
+  const { sortField, sortDirection, handleSort, sortedRows } = useTableSort(filteredTenders, {
+    columnTypes: { due_date: "date" },
+    onSortChange: () => setCurrentPage(1),
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / TENDERS_PER_PAGE));
   const startIndex = (currentPage - 1) * TENDERS_PER_PAGE;
-  const paginatedTenders = filteredTenders.slice(startIndex, startIndex + TENDERS_PER_PAGE);
+  const paginatedTenders = sortedRows.slice(startIndex, startIndex + TENDERS_PER_PAGE);
 
   const generateTenderNumber = (running, numberRunning) => {
     const now = new Date();
@@ -470,7 +510,7 @@ const FireTender = ({ embeddedInHub = false }) => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, templateFilter]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -572,6 +612,7 @@ const FireTender = ({ embeddedInHub = false }) => {
             type_of_tender: formData.typeOfTender,
             mode_of_tender: formData.modeOfTender,
             vehicle_type: formData.vehicleType,
+            costing_template: formData.costingTemplate || null,
             tender_id_available: formData.tenderIdAvailable,
             publish_date: formData.publishDate || null,
             due_date: formData.dueDate || null,
@@ -623,6 +664,7 @@ const FireTender = ({ embeddedInHub = false }) => {
               type_of_tender: formData.typeOfTender,
               mode_of_tender: formData.modeOfTender,
               vehicle_type: formData.vehicleType,
+              costing_template: formData.costingTemplate || null,
               tender_id_available: formData.tenderIdAvailable,
               publish_date: formData.publishDate || null,
               due_date: formData.dueDate || null,
@@ -777,6 +819,22 @@ const FireTender = ({ embeddedInHub = false }) => {
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full xl:w-auto">
+                <select
+                  value={templateFilter}
+                  onChange={(e) => {
+                    setTemplateFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full sm:w-auto px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  title="Filter by costing template"
+                >
+                  <option value="All">All templates</option>
+                  {FIRE_TENDER_TEMPLATES.map((tmpl) => (
+                    <option key={tmpl} value={tmpl}>
+                      {tmpl}
+                    </option>
+                  ))}
+                </select>
                 <div className="relative flex-1 sm:min-w-[260px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none" />
                   <input
@@ -786,7 +844,7 @@ const FireTender = ({ embeddedInHub = false }) => {
                       setSearchQuery(e.target.value);
                       setCurrentPage(1);
                     }}
-                    placeholder="Search by client, enquiry no., email…"
+                    placeholder="Search client, enquiry/tender no., status, source…"
                     className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
@@ -828,11 +886,11 @@ const FireTender = ({ embeddedInHub = false }) => {
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
                       <th className="px-4 py-3 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-14">S.No</th>
-                      <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client</th>
-                      <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Enquiry No</th>
-                      <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Due date</th>
-                      <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Tender No</th>
+                      <SortableHeader field="client" label="Client" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
+                      <SortableHeader field="enquiry_number" label="Enquiry No" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
+                      <SortableHeader field="due_date" label="Due date" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
+                      <SortableHeader field="status" label="Status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
+                      <SortableHeader field="tender_number" label="Tender No" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider" />
                       <th className="px-4 py-3 text-right text-[11px] font-bold text-gray-700 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>

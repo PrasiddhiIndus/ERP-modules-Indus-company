@@ -24,7 +24,7 @@ const MODULE_CONTEXT = {
   MANPOWER_TRAINING: 'manpower_training',
   RM_MM_AMC_IEV: 'rm_mm_amc_iev',
 };
-const MANPOWER_PO_TYPES = new Set(['Per Day', 'Monthly', 'Lump Sum', 'Custom']);
+const MANPOWER_PO_TYPES = new Set(['Per Day', 'Monthly', 'Lump Sum', 'Custom', 'Custom Calculator']);
 const RM_PO_TYPES = new Set(['Supply', 'Service']);
 /** Default OC vertical segment for Manpower/Training PO rows in billing.po_wo (replaces legacy BILL). */
 const DEFAULT_PO_VERTICAL_DB = 'MANP';
@@ -68,6 +68,7 @@ function canonicalManpowerPoTypeForPersist(raw) {
   }
   if (lower === 'monthly') return 'Monthly';
   if (lower === 'lump sum') return 'Lump Sum';
+  if (lower === 'custom calculator') return 'Custom Calculator';
   if (lower === 'custom') return 'Custom';
   return null;
 }

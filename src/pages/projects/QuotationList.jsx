@@ -3,17 +3,20 @@ import { Link } from "react-router-dom";
 import { FileText, Loader2, Search } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import FireTenderNavbar from "./FireTenderNavbar";
+import { SortableHeader, useTableSort } from "../../components/SortableTableHeader";
 import {
   fetchApprovedQuotationTenderIds,
   generateFireTenderQuotationNumber,
   quotationsByTenderId,
 } from "../../lib/fireTenderShared";
+import { FIRE_TENDER_TEMPLATES, normalizeTemplate } from "./fireTenderTemplates";
 
 const QuotationList = ({ embeddedInHub = false }) => {
   const [quotations, setQuotations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  const [templateFilter, setTemplateFilter] = useState("All");
 
   useEffect(() => {
     const fetchApprovedTenders = async () => {
@@ -31,7 +34,7 @@ const QuotationList = ({ embeddedInHub = false }) => {
 
         const { data: tenders, error: tendersError } = await supabase
           .from("tenders")
-          .select("id, tender_number, client, status")
+          .select("id, tender_number, client, status, costing_template")
           .in("id", tenderIds);
 
         if (tendersError) throw tendersError;
@@ -59,6 +62,7 @@ const QuotationList = ({ embeddedInHub = false }) => {
             quotationNumber,
             client: tender.client,
             status: tender.status || "Approved",
+            template: normalizeTemplate(tender.costing_template),
           };
         });
 
@@ -75,13 +79,14 @@ const QuotationList = ({ embeddedInHub = false }) => {
   }, []);
 
   const filtered = quotations.filter((q) => {
-    const k = search.toLowerCase();
-    return (
-      (q.tenderNumber || "").toLowerCase().includes(k) ||
-      (q.quotationNumber || "").toLowerCase().includes(k) ||
-      (q.client || "").toLowerCase().includes(k)
-    );
+    if (templateFilter !== "All" && q.template !== templateFilter) return false;
+    const k = search.trim().toLowerCase();
+    if (!k) return true;
+    return [q.tenderNumber, q.quotationNumber, q.client, q.status]
+      .some((v) => String(v ?? "").toLowerCase().includes(k));
   });
+
+  const { sortField, sortDirection, handleSort, sortedRows } = useTableSort(filtered);
 
   return (
     <div className={embeddedInHub ? "space-y-4" : "min-h-screen bg-slate-50"}>
@@ -99,15 +104,30 @@ const QuotationList = ({ embeddedInHub = false }) => {
                 <p className="mt-1 text-sm text-slate-600">Open tender quotations with consistent Fire Tender workflow.</p>
               </div>
             </div>
-            <div className="relative w-full min-w-0 xl:max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search tender, quotation no. or client..."
-                className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/25"
-              />
+            <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center xl:w-auto">
+              <select
+                value={templateFilter}
+                onChange={(e) => setTemplateFilter(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 py-2.5 px-3 text-sm text-slate-900 shadow-sm focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/25 sm:w-auto"
+                title="Filter by costing template"
+              >
+                <option value="All">All templates</option>
+                {FIRE_TENDER_TEMPLATES.map((tmpl) => (
+                  <option key={tmpl} value={tmpl}>
+                    {tmpl}
+                  </option>
+                ))}
+              </select>
+              <div className="relative w-full min-w-0 sm:max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search tender, quotation no., client, status..."
+                  className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-500/25"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -126,21 +146,21 @@ const QuotationList = ({ embeddedInHub = false }) => {
                 <thead>
                   <tr className="border-b border-red-100 bg-gradient-to-r from-red-50 via-orange-50/80 to-amber-50">
                     <th className="px-4 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-700 w-11">S.No</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">Tender No.</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">Quotation No.</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">Client</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">Status</th>
+                    <SortableHeader field="tenderNumber" label="Tender No." sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700" />
+                    <SortableHeader field="quotationNumber" label="Quotation No." sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700" />
+                    <SortableHeader field="client" label="Client" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700" />
+                    <SortableHeader field="status" label="Status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-slate-700" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {filtered.length === 0 ? (
+                  {sortedRows.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-4 py-12 text-center text-slate-500">
-                        {search.trim() ? "No matching quotations found." : "No approved quotations found."}
+                        {search.trim() || templateFilter !== "All" ? "No matching quotations found." : "No approved quotations found."}
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((q, idx) => (
+                    sortedRows.map((q, idx) => (
                       <tr key={q.id} className="transition-colors hover:bg-red-50/25">
                         <td className="px-4 py-3 text-center tabular-nums text-slate-600">{idx + 1}</td>
                         <td className="px-4 py-3">

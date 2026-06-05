@@ -215,7 +215,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     'Dahej-HR',
     'Operations',
     'Information System',
-    'M&M',
     'Management',
     'Marketing',
     'NFPA',
@@ -225,6 +224,11 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     'Projects',
     'R&M',
     'Technical',
+    'Projects-FTC',
+    'Production-FTC',
+    'Administration-FTC',
+    'Emergency Response Team-FTC',
+    'Maintenance-FTC',
     'Other',
   ];
 

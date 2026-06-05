@@ -14,7 +14,7 @@ const LEGACY_OC_LINE_TO_LABEL = {
   FIRE: 'AMC',
   SERV: 'AMC',
 };
-const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
+const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum', 'Custom Calculator'];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const DEFAULT_SAC = '';
 const APPROVAL_STATUS = {
