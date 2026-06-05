@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useLocation, Link } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import {
@@ -8,12 +8,12 @@ import {
   fetchQuotationByTenderId,
   generateFireTenderQuotationNumber,
 } from "../../lib/fireTenderShared";
-import jsPDF from "jspdf";
-import { autoTable } from "jspdf-autotable";
 import { INDUS_LOGO_SRC } from "../../constants/branding.js";
 import FireTenderNavbar from "./FireTenderNavbar";
 import { formatTenderAddress } from "./fireTenderRoutes";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
+import QuotationDocument from "./QuotationDocument";
+import { exportNodeToPdfBlob, downloadBlob } from "../../lib/exportNodeToPdf";
 
 const generateQuotationNumber = (index) => {
   const padded = String(index + 1).padStart(4, "0");
@@ -80,6 +80,9 @@ const QuotationDetail = () => {
   const [signatureFile, setSignatureFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [clientEmail, setClientEmail] = useState("");
+  const [logoBase64, setLogoBase64] = useState(null);
+  const [signatureBase64, setSignatureBase64] = useState(null);
+  const docRef = useRef(null);
 
   /* --------------------------------------------------------------
      FETCH QUOTATION + TENDER + APPROVED ITEMS + CLIENT EMAIL
@@ -105,7 +108,7 @@ const QuotationDetail = () => {
         const { data: tender, error: tenderErr } = await supabase
           .from("tenders")
           .select(
-            "id, tender_number, client, street, street2, city, state, zip, country, created_at, email"
+            "id, tender_number, client, street, street2, city, state, zip, country, created_at, email, costing_template"
           )
           .eq("id", id)
           .single();
@@ -142,9 +145,11 @@ const QuotationDetail = () => {
           base_quotation_no: baseNo,
           version,
           client: tender.client || "Unknown",
+          template: tender.costing_template || "Fire Tender",
           street: tender.street || "",
           street2: tender.street2 || "",
           city: tender.city || "",
+          state: tender.state || "",
           zip: tender.zip || "",
           country: tender.country || "",
           date: formatDateDdMmYyyy(tender.created_at || new Date()),
@@ -233,6 +238,32 @@ const QuotationDetail = () => {
     loadTermsTemplates();
   }, [id, quotationFromList]);
 
+  // Preload the company logo as base64 so the WYSIWYG preview + PDF always show it.
+  useEffect(() => {
+    let active = true;
+    getBase64Image(INDUS_LOGO_SRC)
+      .then((b64) => active && setLogoBase64(b64))
+      .catch(() => active && setLogoBase64(null));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Convert the signature (storage URL or local object URL) to base64 for the preview/PDF.
+  useEffect(() => {
+    let active = true;
+    if (!signatureSrc) {
+      setSignatureBase64(null);
+      return undefined;
+    }
+    getBase64Image(signatureSrc)
+      .then((b64) => active && setSignatureBase64(b64))
+      .catch(() => active && setSignatureBase64(null));
+    return () => {
+      active = false;
+    };
+  }, [signatureSrc]);
+
   // Upload a File/Blob to storage and return public url
   const uploadFile = async (bucket, path, file) => {
     const { error: uploadError } = await supabase.storage
@@ -247,110 +278,116 @@ const QuotationDetail = () => {
   /* --------------------------------------------------------------
      SAVE - ENHANCED WITH PROPER REVISION HANDLING
   -------------------------------------------------------------- */
+  // Persist the quotation. When `revise` is true we bump the revision number
+  // (R1, R2, …) so a new version is recorded; otherwise we save in place.
+  // Returns the saved snapshot so callers (e.g. e-mail) can use the latest data.
+  const persistQuotation = async ({ revise = false } = {}) => {
+    let sigUrl = quotation.signature_url;
+    let pdfUrl = quotation.pdf_url;
+
+    // ---- signature upload ----
+    if (signatureFile) {
+      const ext = signatureFile.name.split(".").pop();
+      const name = `signatures/${id}-${Date.now()}.${ext}`;
+      sigUrl = await uploadFile("signatures", name, signatureFile);
+      setSignatureSrc(sigUrl);
+      setSignatureFile(null);
+    }
+
+    // ---- versioning logic ----
+    // Save keeps the current version; Revise increments it by one.
+    const newBase = (quotation.base_quotation_no || quotation.quotation_number || "")
+      .toString()
+      .replace(/\/R\d+$/, "");
+    const newVer = revise ? (quotation.version || 0) + 1 : quotation.version || 0;
+    const displayQuotationNumber = formatQuotationWithRevision(newBase, newVer);
+
+    // ---- PDF (WYSIWYG) generation & upload ----
+    const pdfBlob = await generatePDFBlob();
+    const pdfName = `quotations/Quotation_${displayQuotationNumber.replace(/\//g, "_")}.pdf`;
+    pdfUrl = await uploadFile("quotations", pdfName, pdfBlob);
+
+    // ---- persist changes (update-first, insert-fallback) ----
+    const payload = {
+      quotation_number: displayQuotationNumber,
+      base_quotation_no: newBase,
+      version: newVer,
+      subject: quotation.subject,
+      body: quotation.body,
+      terms: quotation.terms,
+      signed_by: quotation.signedBy,
+      signature_url: sigUrl,
+      pdf_url: pdfUrl,
+      client: quotation.client,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) throw new Error("User not authenticated");
+
+    const existing = await fetchQuotationByTenderId(supabase, id);
+    if (existing) {
+      const { error: updateErr } = await supabase
+        .from("quotations")
+        .update(payload)
+        .eq("tender_id", parseInt(id));
+      if (updateErr) throw updateErr;
+    } else {
+      const { error: insertErr } = await supabase.from("quotations").insert([
+        { tender_id: parseInt(id), ...payload, user_id: user.id },
+      ]);
+      if (insertErr) throw insertErr;
+    }
+
+    const snapshot = {
+      ...quotation,
+      quotation_number: displayQuotationNumber,
+      base_quotation_no: newBase,
+      version: newVer,
+      signature_url: sigUrl,
+      pdf_url: pdfUrl,
+    };
+    setQuotation(snapshot);
+    return snapshot;
+  };
+
   const handleSave = async () => {
     if (!quotation || saving) return;
     setSaving(true);
     try {
-      let sigUrl = quotation.signature_url;
-      let pdfUrl = quotation.pdf_url;
-
-      // ---- signature upload ----
-      if (signatureFile) {
-        const ext = signatureFile.name.split(".").pop();
-        const name = `signatures/${id}-${Date.now()}.${ext}`;
-        sigUrl = await uploadFile("signatures", name, signatureFile);
-        setSignatureSrc(sigUrl);
-        setSignatureFile(null);
-      }
-
-      // ---- versioning logic ----
-      // First save: set base_quotation_no to the original quotation number (clean of any revision)
-      // Subsequent saves: increment version number only
-      let newBase = (
-        quotation.base_quotation_no || quotation.quotation_number || ''
-      ).toString().replace(/\/R\d+$/, '');
-      let newVer = quotation.version;
-      
-      if (quotation.pdf_url) {
-        // We already have a saved PDF, treat as revision
-        newVer += 1;
-      }
-      
-      // Format the display quotation number with revision (QN/IFSPL/FT/0002/R3)
-      const displayQuotationNumber = formatQuotationWithRevision(newBase, newVer);
-      
-      // ---- PDF generation & upload ----
-      const pdfBlob = await generatePDFBlob();
-      
-      // Include revision number in filename for better tracking
-      // Use the NEW version (after incrementing if needed) to match what's displayed
-      // Convert quotation number format to filename format for storage
-      // QN/IFSPL/FT/0007/R1 -> quotations/Quotation_QN_IFSPL_FT_0007_R1.pdf
-      const pdfName = `quotations/Quotation_${displayQuotationNumber.replace(/\//g, '_')}.pdf`;
-      pdfUrl = await uploadFile("quotations", pdfName, pdfBlob);
-
-      // ---- persist changes (update-first, insert-fallback) ----
-      const payload = {
-        quotation_number: displayQuotationNumber,
-        base_quotation_no: newBase,
-        version: newVer,
-        subject: quotation.subject,
-        body: quotation.body,
-        terms: quotation.terms,
-        signed_by: quotation.signedBy, // map UI field to DB column
-        signature_url: sigUrl,
-        pdf_url: pdfUrl,
-        client: quotation.client,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        throw new Error("User not authenticated");
-      }
-
-      const existing = await fetchQuotationByTenderId(supabase, id);
-      if (existing) {
-        const { error: updateErr } = await supabase
-          .from("quotations")
-          .update(payload)
-          .eq("tender_id", parseInt(id));
-        if (updateErr) throw updateErr;
-      } else {
-        const { error: insertErr } = await supabase.from("quotations").insert([
-          { tender_id: parseInt(id), ...payload, user_id: user.id },
-        ]);
-        if (insertErr) throw insertErr;
-      }
-
-      setQuotation((p) => ({
-        ...p,
-        quotation_number: displayQuotationNumber,
-        base_quotation_no: newBase,
-        version: newVer,
-        signature_url: sigUrl,
-        pdf_url: pdfUrl,
-      }));
-      
-      // Show revision information in alert
-      if (newVer > 0) {
-        alert(`Quotation saved successfully! ${displayQuotationNumber}`);
-      } else {
-        alert("Quotation saved successfully!");
-      }
-
-      // Auto-compose email with the latest saved data and open mail client
-      await handleSendEmail({
-        ...quotation,
-        quotation_number: displayQuotationNumber,
-        base_quotation_no: newBase,
-        version: newVer,
-        signature_url: sigUrl,
-        pdf_url: pdfUrl,
-      });
+      await persistQuotation({ revise: false });
+      alert("Quotation saved successfully!");
     } catch (e) {
       console.error(e);
       alert(`Save error: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRevise = async () => {
+    if (!quotation || saving) return;
+    const nextVer = (quotation.version || 0) + 1;
+    if (
+      !window.confirm(
+        `Create revision R${nextVer} of this quotation? The quotation number will become ` +
+          `${formatQuotationWithRevision(
+            (quotation.base_quotation_no || quotation.quotation_number || "")
+              .toString()
+              .replace(/\/R\d+$/, ""),
+            nextVer
+          )}.`
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const snap = await persistQuotation({ revise: true });
+      alert(`Revision saved: ${snap.quotation_number}`);
+    } catch (e) {
+      console.error(e);
+      alert(`Revise error: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -513,17 +550,12 @@ const QuotationDetail = () => {
       
       // Ensure we have a PDF to send - save first to generate PDF if needed
       if (!latestQ.pdf_url && !overrideQuotation) {
-        await handleSave(); // Save first to generate PDF and ensure latest data is saved
-        // After save, fetch again to get the updated PDF URL and all fields
-        const savedQuotation = await fetchQuotationByTenderId(supabase, id);
-
-        if (savedQuotation) {
-          latestQ = {
-            ...latestQ,
-            ...savedQuotation,
-            signedBy: savedQuotation.signed_by || latestQ.signedBy || "",
-          };
-        }
+        const snap = await persistQuotation({ revise: false }); // generate PDF + save current data
+        latestQ = {
+          ...latestQ,
+          ...snap,
+          signedBy: snap.signedBy || latestQ.signedBy || "",
+        };
       }
       
       // Debug: Log the quotation object being used (all data from database)
@@ -770,339 +802,29 @@ const QuotationDetail = () => {
     return lines.map((line, i) => `${String.fromCharCode(97 + i)}) ${line}`);
   };
 
-  // Add page numbers to PDF
-  const addPageNumbers = (doc) => {
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(100);
-      doc.text(
-        `Page ${i} of ${pageCount}`,
-        doc.internal.pageSize.width - 30,
-        doc.internal.pageSize.height - 10
-      );
-    }
-  };
-
-  // Check if we need a new page based on current Y position
-  const checkNewPage = (doc, yPos, minSpace = 20) => {
-    if (yPos > doc.internal.pageSize.height - minSpace) {
-      doc.addPage();
-      return 20; // Reset Y position to top of new page with margin
-    }
-    return yPos;
-  };
-
-  // Improved justified text function
-  const justifyText = (doc, text, x, y, maxWidth, lineHeight) => {
-    if (!text) return y;
-    
-    const words = text.replace(/\s+/g, ' ').trim().split(' ');
-    let line = '';
-    let currentY = y;
-    
-    for (let i = 0; i < words.length; i++) {
-      const word = words[i];
-      const testLine = line + word + ' ';
-      const testWidth = doc.getTextWidth(testLine);
-      
-      if (testWidth > maxWidth && line !== '') {
-        // Calculate spacing for justified text
-        const spaceWidth = (maxWidth - doc.getTextWidth(line.trim())) / (line.split(' ').length - 1);
-        
-        // Split the line into words
-        const lineWords = line.trim().split(' ');
-        let xPos = x;
-        
-        // Position each word with calculated spacing
-        for (let j = 0; j < lineWords.length; j++) {
-          doc.text(lineWords[j], xPos, currentY);
-          xPos += doc.getTextWidth(lineWords[j]) + spaceWidth;
-        }
-        
-        line = word + ' ';
-        currentY += lineHeight;
-        
-        // Check if we need a new page
-        currentY = checkNewPage(doc, currentY, lineHeight + 5);
-      } else {
-        line = testLine;
-      }
-    }
-    
-    // Handle the last line (not justified, left-aligned)
-    if (line.trim()) {
-      doc.text(line.trim(), x, currentY);
-      currentY += lineHeight;
-    }
-    
-    return currentY;
-  };
-
+  // Build the PDF straight from the on-screen A4 document node, so the exported
+  // PDF (and the e-mail attachment) look EXACTLY like the live preview.
   const generatePDFBlob = async () => {
-    const logoBase64 = await getBase64Image(INDUS_LOGO_SRC);
-    let signatureBase64 = null;
-    if (signatureSrc) signatureBase64 = await getBase64Image(signatureSrc);
-
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
-    // --- Logo ---
-    doc.addImage(logoBase64, "PNG", 155, 5, 35, 35);
-    let yPos = 15;
-
-    // --- Ref No. & Date ---
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.text(`Ref. No.: ${quotation.base_quotation_no || quotation.quotation_number}`, 20, yPos);
-    yPos += 3.5;
-    doc.text(`Date: ${quotation.date}`, 20, yPos);
-    yPos += 10;
-
-    // --- To Address ---
-    doc.setFontSize(10);
-    doc.text("To,", 20, yPos);
-    yPos += 4;
-    
-    // Client name with proper formatting
-    if (quotation.client) {
-      doc.setFont("helvetica", "bold");
-      doc.text(quotation.client, 20, yPos);
-      doc.setFont("helvetica", "normal");
-      yPos += 3.5;
-    }
-
-    // Format address with proper spacing and alignment
-    const addrParts = [
-      quotation.street,
-      quotation.street2,
-      [quotation.city, quotation.state, quotation.zip].filter(Boolean).join(", "),
-      quotation.country,
-    ].filter(Boolean);
-
-    addrParts.forEach((part) => {
-      doc.text(part, 20, yPos);
-      yPos += 3.5;
-    });
-    yPos += 6;
-
-    // --- Subject ---
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    const subjectWidth = 160;
-    doc.text(`Subject: ${quotation.subject}`, 20, yPos);
-    yPos += 6;
-    doc.setFont("helvetica", "normal");
-
-    // --- Greeting ---
-    doc.setFontSize(10);
-    doc.text("Dear Sir/Madam,", 20, yPos);
-    yPos += 7;
-
-    // --- Body ---
-    doc.setFontSize(9);
-    const bodyWidth = 160;
-    yPos = justifyText(doc, quotation.body, 20, yPos, bodyWidth, 3.5);
-    yPos += 4;
-    yPos = checkNewPage(doc, yPos);
-  
-
-    // --- Part 1: Commercial Offer ---
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Part-1: Commercial offer", 20, yPos);
-    doc.setFont("helvetica", "normal");
-    yPos += 7;
-
-    const formatNum = (num) =>
-      `INR ${Math.round(num).toLocaleString("en-IN", {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-      })}`;
-
-    const tableData = approvedItems.map((item) => [
-      item.description,
-      item.qty.toString(),
-      formatNum(item.rate),
-      formatNum(item.total),
-    ]);
-
-    const grandTotal = approvedItems.reduce(
-      (sum, item) => sum + parseFloat(item.total || 0),
-      0
-    );
-    tableData.push(["Grand Total", "", "", formatNum(grandTotal)]);
-
-    autoTable(doc, {
-      startY: yPos,
-      head: [["Cost Components", "Qty", "Rate", "Total Amount"]],
-      body: tableData,
-      theme: "grid",
-      styles: {
-        fontSize: 8.5,
-        cellPadding: 3,
-        lineWidth: 0.1,
-        lineColor: [200, 200, 200],
-        overflow: "linebreak",
-        minCellHeight: 12,
-        halign: "left",
-        valign: "middle",
-      },
-      headStyles: {
-        fillColor: [41, 128, 185],
-        textColor: [255, 255, 255],
-        fontStyle: "bold",
-        halign: "center",
-        lineWidth: 0.2,
-        lineColor: [41, 128, 185]
-      },
-      alternateRowStyles: {
-        fillColor: [248, 249, 250],
-      },
-      columnStyles: {
-        0: { cellWidth: 85, halign: "left", fontStyle: "normal" },
-        1: { cellWidth: 18, halign: "center" },
-        2: { cellWidth: 30, halign: "right" },
-        3: { cellWidth: 32, halign: "right" },
-      },
-      pageBreak: "auto",
-      rowPageBreak: "avoid",
-      didParseCell: (data) => {
-        if (data.row.index === tableData.length - 1) {
-          data.cell.styles.fontStyle = "bold";
-          data.cell.styles.fillColor = [230, 240, 255];
-          data.cell.styles.textColor = [0, 0, 0];
-          data.cell.styles.halign = "right";
-          // Merge cells for grand total row to span qty and rate
-          if (data.column.index === 0) {
-            data.cell.colSpan = 3;
-          } else if (data.column.index < 3) {
-            data.cell.rowSpan = 0; // Hide the spanned cells
-          }
-        }
-      },
-      didDrawCell: (data) => {
-        // Add underline for grand total
-        if (data.row.index === tableData.length - 1 && data.column.index === 3) {
-          const { x, y, width, height } = data.cell;
-          doc.setDrawColor(41, 128, 185);
-          doc.setLineWidth(0.5);
-          doc.line(x, y + height - 1, x + width, y + height - 1);
-        }
-      },
-      margin: { left: 20, right: 20, top: yPos },
-    });
-
-    yPos = doc.lastAutoTable.finalY + 10;
-    yPos = checkNewPage(doc, yPos);
-
-    // --- Part 2: Terms & Conditions ---
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Part-2: Terms & Conditions:", 20, yPos);
-    yPos += 6;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-
-    // Split and clean the lines
-    const termLines = quotation.terms
-      ? quotation.terms.replace(/\r\n/g, "\n").split("\n").filter((line) => line.trim() !== "")
-      : [];
-
-    // Layout settings - optimized for justified alignment
-    const leftMargin = 20;
-    const bulletGap = 2;
-    const textWidth = 160;
-    const lineHeight = 3.5; // Consistent with body
-    const sectionSpacing = 1; // Minimal extra space
-
-    termLines.forEach((line) => {
-      const cleanLine = line.trim();
-
-      // Detect bullet like a), b), 1., -
-      const match = cleanLine.match(/^([•\-\–]|\(?[a-zA-Z0-9]+\)|[0-9]+\.)\s*/);
-      let bullet = "";
-      let content = cleanLine;
-
-      if (match) {
-        bullet = match[1];
-        content = cleanLine.substring(match[0].length).trim();
-      }
-
-      const bulletX = leftMargin;
-      const contentX = bullet ? leftMargin + bulletGap + doc.getTextWidth(bullet) + 2 : leftMargin;
-      const contentWidth = textWidth - (contentX - leftMargin);
-
-      // Draw bullet if present
-      if (bullet) {
-        doc.text(bullet, bulletX, yPos);
-      }
-
-      // Justify the content (multi-line if needed)
-      if (content) {
-        const justifyY = yPos;
-        yPos = justifyText(doc, content, contentX, justifyY, contentWidth, lineHeight);
-      } else {
-        yPos += lineHeight;
-      }
-
-      yPos += sectionSpacing;
-
-      // Page overflow check
-      yPos = checkNewPage(doc, yPos);
-    });
-
-    yPos += 3; // Minimal transition to footer
-
-    doc.text("For Indus Fire Safety Pvt. Ltd.", 20, yPos);
-    yPos += 6;
-
-    // --- Signature ---
-    if (signatureBase64) {
-      doc.addImage(signatureBase64, "PNG", 20, yPos, 40, 15);
-    } else {
-      doc.setDrawColor(180);
-      doc.setLineWidth(0.5);
-      doc.rect(20, yPos, 40, 15, "S");
-    }
-    yPos += 18;
-
-    doc.setFont("helvetica", "bold");
-    doc.text(quotation.signedBy || "Authorized Signatory", 20, yPos);
-    yPos += 4;
-    doc.setFont("helvetica", "normal");
-    doc.text("Authorized Signatory", 20, yPos);
-
-    // Add page numbers to all pages
-    addPageNumbers(doc);
-    
-    // Return blob instead of saving
-    return doc.output('blob');
+    if (!docRef.current) throw new Error("Quotation preview is not ready yet.");
+    return exportNodeToPdfBlob(docRef.current, { marginMm: 10 });
   };
+
+  // Full quotation number with revision, e.g. QN/IFSPL/FT/0007/R1
+  const currentDisplayNumber = () =>
+    formatQuotationWithRevision(
+      (quotation.base_quotation_no || quotation.quotation_number || "")
+        .toString()
+        .replace(/\/R\d+$/, ""),
+      quotation.version || 0
+    );
+
+  const pdfFileNameFor = (displayNumber) =>
+    `Quotation_${(displayNumber || "quotation").replace(/\//g, "_")}.pdf`;
 
   const handleDownloadPDF = async () => {
     try {
       const blob = await generatePDFBlob();
-      
-      // Get the full quotation number with revision (as displayed in UI)
-      const currentRevisionNumber = formatQuotationWithRevision(
-        (
-          quotation.base_quotation_no || quotation.quotation_number || ''
-        ).toString().replace(/\/R\d+$/, ''),
-        quotation.version || 0
-      );
-      
-      // Convert quotation number format to filename format
-      // QN/IFSPL/FT/0007/R1 -> Quotation_QN_IFSPL_FT_0007_R1.pdf
-      const pdfFileName = `Quotation_${currentRevisionNumber.replace(/\//g, '_')}.pdf`;
-      
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = pdfFileName;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, pdfFileNameFor(currentDisplayNumber()));
     } catch (err) {
       console.error("Error generating PDF:", err);
       alert("Failed to generate PDF. Please check console.");
@@ -1144,13 +866,28 @@ const QuotationDetail = () => {
                 Quotation: {quotation.quotation_number}
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+              <Link
+                to={`/app/fire-tender/costing/${id}`}
+                title="Open the costing sheet to revise the figures behind this quotation"
+                className="px-3 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg hover:bg-slate-50 text-sm font-semibold"
+              >
+                Revise costing sheet
+              </Link>
               <button
-                onClick={handleSave}
+                onClick={() => handleSave()}
                 disabled={saving}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 text-sm font-semibold"
               >
-                {saving ? "Saving..." : quotation.version > 0 ? "Save & Revise" : "Save"}
+                {saving ? "Working…" : "Save"}
+              </button>
+              <button
+                onClick={handleRevise}
+                disabled={saving}
+                title="Save as a new revision (R1, R2, …)"
+                className="px-4 py-2 border border-amber-300 bg-amber-50 text-amber-800 rounded-lg hover:bg-amber-100 disabled:opacity-50 text-sm font-semibold"
+              >
+                Revise (R{(quotation.version || 0) + 1})
               </button>
               <button
                 onClick={handleDownloadPDF}
@@ -1159,7 +896,7 @@ const QuotationDetail = () => {
                 Download PDF
               </button>
               <button
-                onClick={handleSendEmail}
+                onClick={() => handleSendEmail()}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 text-sm"
                 disabled={!clientEmail}
               >
@@ -1389,10 +1126,31 @@ const QuotationDetail = () => {
                   disabled={saving}
                   className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-red-400 font-semibold"
                 >
-                  {saving ? "Saving..." : quotation.version > 0 ? "Save & Revise" : "Save"}
+                  {saving ? "Working…" : "Save"}
                 </button>
               </div>
             </form>
+
+            {/* Live A4 preview — this is exactly what gets exported to PDF and attached to e-mail */}
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-medium text-gray-700">
+                  Quotation preview (exact PDF &amp; e-mail layout)
+                </h3>
+                <span className="text-xs text-slate-500">{currentDisplayNumber()}</span>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-100 p-4">
+                <div className="shadow-lg">
+                  <QuotationDocument
+                    ref={docRef}
+                    quotation={quotation}
+                    items={approvedItems}
+                    logoSrc={logoBase64}
+                    signatureSrc={signatureBase64}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

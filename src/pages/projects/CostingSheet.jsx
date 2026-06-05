@@ -1,12 +1,13 @@
 // src/pages/CostingSheet.jsx
 import React, { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
-import { Building2, Calculator, Loader2, Package, ClipboardList } from "lucide-react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Building2, Calculator, Copy, Loader2, Package, ClipboardList } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import CostingTable from "./CostingTable";
 import AccessoriesTable from "./AccessoriesTable";
 import MocTable from "./MocTable";
 import FireTenderNavbar from "./FireTenderNavbar";
+import DuplicateCostingSheetModal from "./DuplicateCostingSheetModal";
 
 const tabs = [
   { id: "costing", label: "Costing sheet", icon: Calculator },
@@ -16,10 +17,12 @@ const tabs = [
 
 const CostingSheet = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [tender, setTender] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("costing");
   const [accessoriesTotal, setAccessoriesTotal] = useState(0);
+  const [showDuplicate, setShowDuplicate] = useState(false);
 
   useEffect(() => {
     const fetchTender = async () => {
@@ -84,12 +87,26 @@ const CostingSheet = () => {
               </div>
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-red-600/90">Costing</p>
-                <h1 className="mt-0.5 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                  {tender.tender_number || "Tender"}
-                </h1>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                    {tender.tender_number || "Tender"}
+                  </h1>
+                  <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-700 ring-1 ring-red-100">
+                    {tender.costing_template || "Fire Tender"}
+                  </span>
+                </div>
                 <p className="mt-1 text-sm text-slate-600">Approved tender — build costing, accessories, and MOC below.</p>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowDuplicate(true)}
+              title="Create a copy of this whole costing sheet for a new client"
+              className="inline-flex shrink-0 items-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+            >
+              <Copy className="h-4 w-4" strokeWidth={2} />
+              Duplicate for new client
+            </button>
           </div>
         </div>
 
@@ -159,6 +176,7 @@ const CostingSheet = () => {
                 tenderNumber={tender.tender_number}
                 clientName={tender.client}
                 tenderSource={tender.source}
+                template={tender.costing_template}
                 accessoriesTotal={accessoriesTotal}
               />
             </div>
@@ -171,6 +189,19 @@ const CostingSheet = () => {
           </div>
         </div>
       </div>
+
+      {showDuplicate && (
+        <DuplicateCostingSheetModal
+          sourceTender={tender}
+          onClose={() => setShowDuplicate(false)}
+          onDuplicated={(newTender) => {
+            setShowDuplicate(false);
+            if (newTender?.id) {
+              navigate(`/app/fire-tender/costing/${newTender.id}`);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

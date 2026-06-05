@@ -49,6 +49,7 @@ function num(cell, value) {
 export async function exportFireTenderCostingWorkbook({
   tenderNumber,
   client,
+  template,
   fixedRows,
   extraRows,
   componentTree,
@@ -70,11 +71,11 @@ export async function exportFireTenderCostingWorkbook({
   });
 
   ws.mergeCells("A1:O1");
-  ws.getCell("A1").value = `Fire Tender Costing — ${tenderNumber || "Tender"}`;
+  ws.getCell("A1").value = `${template || "Fire Tender"} Costing — ${tenderNumber || "Tender"}`;
   ws.getCell("A1").font = { bold: true, size: 14, color: { argb: "FFB91C1C" } };
 
   ws.mergeCells("A2:O2");
-  ws.getCell("A2").value = `Client: ${client || "—"} · Exported: ${formatDateDdMmYyyy(new Date())}`;
+  ws.getCell("A2").value = `Client: ${client || "—"} · Template: ${template || "Fire Tender"} · Exported: ${formatDateDdMmYyyy(new Date())}`;
 
   const headers = [
     "Sr. No.",

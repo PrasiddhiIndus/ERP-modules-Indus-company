@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler } from 'lucide-react';
+import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler, Calculator } from 'lucide-react';
+import CalculatorModal from '../../components/CalculatorModal';
 import * as XLSX from 'xlsx';
 import { useBilling } from '../../contexts/BillingContext';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
@@ -165,6 +166,7 @@ const BILLING_TABS_MANPOWER = [
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Lump Sum', label: 'Lump Sum' },
   { id: 'Custom', label: 'Custom' },
+  { id: 'Custom Calculator', label: 'Custom Calculator' },
 ];
 
 const BILLING_TABS_RM = [
@@ -195,6 +197,15 @@ const CUSTOM_LINE_BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum'];
 function normalizeCustomLineBillingType(raw) {
   const v = String(raw || '').trim();
   return CUSTOM_LINE_BILLING_TYPES.includes(v) ? v : 'Per Day';
+}
+
+// "Custom Calculator" PO: each line may behave like the three standard billing
+// types (with the same duty-geometry logic) or as a free calculator line.
+const CUSTOM_CALC_LINE_BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum', 'Custom Calculator'];
+
+function normalizeCustomCalcLineBillingType(raw) {
+  const v = String(raw || '').trim();
+  return CUSTOM_CALC_LINE_BILLING_TYPES.includes(v) ? v : 'Custom Calculator';
 }
 
 function readImageAsDataUrl(file) {
@@ -1000,25 +1011,53 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return String(displayPO.billingType || '').toLowerCase() === 'custom';
   }, [displayPO]);
 
+  // "Custom Calculator" billing: each line can use the three standard billing types
+  // (with duty geometry) or a free calculator line (Qty × Unit Price via calculator).
+  const isCustomCalculatorBilling = useMemo(() => {
+    if (!displayPO) return false;
+    return String(displayPO.billingType || '').toLowerCase() === 'custom calculator';
+  }, [displayPO]);
+
+  // Both Custom and Custom Calculator drive the same per-line geometry machinery.
+  const isCustomLike = isCustomBilling || isCustomCalculatorBilling;
+
+  // Which line/field currently has the calculator popup open: { idx, field, initial }.
+  const [calcTarget, setCalcTarget] = useState(null);
+  const openFieldCalculator = (idx, field, current) => {
+    setCalcTarget({ idx, field, initial: current === 0 || current ? String(current) : '' });
+  };
+  const closeFieldCalculator = () => setCalcTarget(null);
+  const applyFieldCalculator = (value) => {
+    if (!calcTarget) return;
+    const { idx, field } = calcTarget;
+    if (field === 'quantity') {
+      updateItem(idx, { quantity: value });
+    } else if (field === 'rate') {
+      updateItem(idx, { rate: value });
+    }
+    setCalcTarget(null);
+  };
+
   const resolveInvoiceLineBillingType = useCallback(
     (line) => {
+      if (isCustomCalculatorBilling) return normalizeCustomCalcLineBillingType(line?.customBillingType);
       if (isCustomBilling) return normalizeCustomLineBillingType(line?.customBillingType);
       if (isLumpSumBilling) return 'Lump Sum';
       if (isMonthlyBilling) return 'Monthly';
       return 'Per Day';
     },
-    [isCustomBilling, isLumpSumBilling, isMonthlyBilling]
+    [isCustomBilling, isCustomCalculatorBilling, isLumpSumBilling, isMonthlyBilling]
   );
 
   const monthlyDutyQtyMode = useMemo(() => {
-    if (!isMonthlyBilling && !isCustomBilling) return 'po_geometry';
+    if (!isMonthlyBilling && !isCustomLike) return 'po_geometry';
     return normalizeMonthlyDutyQtyMode(invoiceMonthlyDutyQtyMode);
-  }, [isMonthlyBilling, isCustomBilling, invoiceMonthlyDutyQtyMode]);
+  }, [isMonthlyBilling, isCustomLike, invoiceMonthlyDutyQtyMode]);
 
   const lumpSumBillingMode = useMemo(() => {
-    if (!isLumpSumBilling && !isCustomBilling) return 'normal';
+    if (!isLumpSumBilling && !isCustomLike) return 'normal';
     return normalizeLumpSumBillingMode(invoiceLumpSumBillingMode);
-  }, [isLumpSumBilling, isCustomBilling, invoiceLumpSumBillingMode]);
+  }, [isLumpSumBilling, isCustomLike, invoiceLumpSumBillingMode]);
 
   const lumpSumPenaltyActive = lumpSumBillingMode === 'penalty';
   const lumpSumTruckActive = lumpSumBillingMode === 'truck';
@@ -1135,6 +1174,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             /^lump sum billing \(geometry consolidated\)$/i.test(desc) &&
             i.actualDuty == null &&
             i.actual_duty == null;
+          const savedCustomBillingType = i.customBillingType ?? i.custom_billing_type ?? null;
           const geometryEnabled = isTruck
             ? false
             : isSavedSupplementary
@@ -1143,7 +1183,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 ? false
                 : editIsLump
                   ? true
-                  : !!(i.actualDuty != null || i.authorizedDuty != null || i.poQty != null);
+                  : savedCustomBillingType === 'Monthly' || savedCustomBillingType === 'Lump Sum'
+                    ? true
+                    : !!(i.actualDuty != null || i.authorizedDuty != null || i.poQty != null);
           const poRef =
             i.poReferenceRate != null
               ? Number(i.poReferenceRate)
@@ -1188,6 +1230,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             uom: i.uom ?? '',
             isTruckLine: isTruck,
             isLumpSumSupplementaryLine: isSavedSupplementary || false,
+            customBillingType: savedCustomBillingType,
             geometryEnabled,
             poQty: poQ,
             poReferenceRate: poRef,
@@ -1230,6 +1273,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
     const hsnSac = resolvePoHsnSac(selectedPO);
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
     const isCustomPo = String(selectedPO.billingType || '').toLowerCase() === 'custom';
+    const isCustomCalcPo = String(selectedPO.billingType || '').toLowerCase() === 'custom calculator';
+    const defaultLineBillingType = isCustomCalcPo ? 'Custom Calculator' : isCustomPo ? 'Per Day' : null;
 
     if (isLump) {
       const rows = Array.isArray(selectedPO.ratePerCategory) ? selectedPO.ratePerCategory : [];
@@ -1245,7 +1290,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           hsnSac: selectedPO.materialCodeRequired ? (selectedPO.hsnCode || selectedPO.sacCode || '') : rowHsnSac,
           materialCode: rowMaterialCode,
           uom: '',
-          customBillingType: isCustomPo ? 'Per Day' : null,
+          customBillingType: defaultLineBillingType,
           isTruckLine: false,
           geometryEnabled: true,
           poQty: qty,
@@ -1268,7 +1313,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 hsnSac: selectedPO.materialCodeRequired ? (selectedPO.hsnCode || selectedPO.sacCode || '') : hsnSac,
                 materialCode: '',
                 uom: '',
-                customBillingType: isCustomPo ? 'Per Day' : null,
+                customBillingType: defaultLineBillingType,
                 isTruckLine: false,
                 geometryEnabled: true,
                 poQty: getPoHeaderQty(selectedPO),
@@ -1292,7 +1337,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         {
           description: '',
           hsnSac,
-          customBillingType: isCustomPo ? 'Per Day' : null,
+          customBillingType: defaultLineBillingType,
           isTruckLine: false,
           geometryEnabled: false,
           poQty: 0,
@@ -1313,7 +1358,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         description: r.description,
         hsnSac: selectedPO.materialCodeRequired ? (selectedPO.hsnCode || selectedPO.sacCode || '') : (r.hsnSac || hsnSac),
         materialCode: selectedPO.materialCodeRequired ? getRateCategoryMaterialCode(r) : '',
-        customBillingType: isCustomPo ? 'Per Day' : null,
+        customBillingType: defaultLineBillingType,
         isTruckLine: false,
         geometryEnabled: false,
         poQty: safeNumber(r.qty),
@@ -1418,7 +1463,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   };
 
   useEffect(() => {
-    if (!isMonthlyBilling && !isCustomBilling) return;
+    if (!isMonthlyBilling && !isCustomLike) return;
     setItems((prev) =>
       prev.map((it) => {
         if (it.isTruckLine || !it.geometryEnabled) return it;
@@ -1439,10 +1484,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return { ...it, poQty, quantity: qty, amount: round2(qty * rate) };
       })
     );
-  }, [isMonthlyBilling, isCustomBilling, monthlyDutyQtyMode, displayPO, resolveInvoiceLineBillingType]);
+  }, [isMonthlyBilling, isCustomLike, monthlyDutyQtyMode, displayPO, resolveInvoiceLineBillingType]);
 
   useEffect(() => {
-    if (!isLumpSumBilling && !isCustomBilling) return;
+    if (!isLumpSumBilling && !isCustomLike) return;
     setItems((prev) =>
       prev.map((it) => {
         if (it.isTruckLine || !it.geometryEnabled) return it;
@@ -1463,7 +1508,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         return { ...it, poQty, rate: effRate, quantity: qty, amount: round2(qty * effRate) };
       })
     );
-  }, [lumpSumSubtractPenaltyInRate, isLumpSumBilling, isCustomBilling, lumpSumBillingMode, displayPO, resolveInvoiceLineBillingType]);
+  }, [lumpSumSubtractPenaltyInRate, isLumpSumBilling, isCustomLike, lumpSumBillingMode, displayPO, resolveInvoiceLineBillingType]);
 
   const createMmEmptyLine = (hsnSac = '') => ({
     description: '',
@@ -2022,10 +2067,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
       poId: canonicalPoId,
       siteId: displayPO.siteId,
       billingType: displayPO.billingType || 'Monthly',
-      monthlyDutyQtyMode: isMonthlyBilling || isCustomBilling ? monthlyDutyQtyMode : null,
-      monthly_duty_qty_mode: isMonthlyBilling || isCustomBilling ? monthlyDutyQtyMode : null,
-      lumpSumBillingMode: isLumpSumBilling || isCustomBilling ? lumpSumBillingMode : null,
-      lump_sum_billing_mode: isLumpSumBilling || isCustomBilling ? lumpSumBillingMode : null,
+      monthlyDutyQtyMode: isMonthlyBilling || isCustomLike ? monthlyDutyQtyMode : null,
+      monthly_duty_qty_mode: isMonthlyBilling || isCustomLike ? monthlyDutyQtyMode : null,
+      lumpSumBillingMode: isLumpSumBilling || isCustomLike ? lumpSumBillingMode : null,
+      lump_sum_billing_mode: isLumpSumBilling || isCustomLike ? lumpSumBillingMode : null,
       taxInvoiceNumber,
       invoiceDate,
       billNumber: existing?.billNumber || existing?.bill_number || taxInvoiceNumber,
@@ -2071,7 +2116,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
           quantity: isManpowerMonthly ? round3(i.quantity) : Number(i.quantity) || 0,
           rate: Number(i.rate) || 0,
           amount: round2(i.amount),
-          customBillingType: isCustomBilling ? normalizeCustomLineBillingType(i.customBillingType) : null,
+          customBillingType: isCustomCalculatorBilling
+            ? normalizeCustomCalcLineBillingType(i.customBillingType)
+            : isCustomBilling
+              ? normalizeCustomLineBillingType(i.customBillingType)
+              : null,
           isTruckLine: !!i.isTruckLine,
           isLumpSumSupplementaryLine: !!i.isLumpSumSupplementaryLine,
           poReferenceRate:
@@ -2544,10 +2593,32 @@ const CreateInvoice = ({ onNavigateTab }) => {
             <span className="font-medium">All jobs</span>.
           </p>
         ) : billablePOsByTab.length === 0 ? (
-          <p className="text-sm text-gray-500 px-4 pb-4">
-            {billablePOs.length} PO(s) exist for this team, but none match the <strong>{poBillingTab}</strong> billing type tab. Try{' '}
-            {billingTabs.map((t) => t.label).join(', ')}.
-          </p>
+          <div className="px-3 pb-3">
+            {!isRmVertical && !isTrainingVertical ? (
+              <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
+                {billingTabs.map((t) => {
+                  const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
+                  const active = poBillingTab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setPoBillingTab(t.id)}
+                      className={[
+                        'px-3 py-1.5 rounded-lg text-sm border',
+                        active ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
+                      ].join(' ')}
+                    >
+                      {t.label} <span className={active ? 'text-white/90' : 'text-gray-500'}>({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            <p className="text-sm text-gray-500 px-1 pb-2">
+              {billablePOs.length} PO(s) exist for this team, but none are tagged <strong>{poBillingTab}</strong>. Pick another tab above, or create a PO with this billing type in Commercial → PO Entry.
+            </p>
+          </div>
         ) : (
           <div className="px-3 pb-3">
             {!isRmVertical && !isTrainingVertical ? (
@@ -3387,6 +3458,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   const rowBillingType = resolveInvoiceLineBillingType(it);
                   const rowIsMonthly = rowBillingType === 'Monthly';
                   const rowIsLumpSum = rowBillingType === 'Lump Sum';
+                  // Custom Calculator PO + this line set to the free calculator option.
+                  const lineUsesCustomCalc =
+                    isCustomCalculatorBilling && rowBillingType === 'Custom Calculator';
                   const canDutyRuler =
                     ii != null &&
                     !isLumpConsolidatedRow &&
@@ -3664,33 +3738,47 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
                       ].join(' ')}
                     >
-                      <input
-                        type="number"
-                        min={0}
-                        step={
-                          (rowIsMonthly || (rowIsLumpSum && it.geometryEnabled)) && !it.isTruckLine
-                            ? '0.001'
-                            : undefined
-                        }
-                        value={it.quantity}
-                        onChange={(e) => {
-                          if (isLumpConsolidatedRow) {
-                            updateLumpSumConsolidatedLine({ quantity: e.target.value });
-                            return;
+                      <div className="flex items-center justify-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          step={
+                            (rowIsMonthly || (rowIsLumpSum && it.geometryEnabled)) && !it.isTruckLine
+                              ? '0.001'
+                              : undefined
                           }
-                          if (ii == null) return;
-                          updateItem(ii, { quantity: e.target.value });
-                        }}
-                        className={
-                          lumpSumDutyGeometryLineTable
-                            ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
-                            : 'w-24 px-2 py-1 border border-gray-300 rounded-lg text-center'
-                        }
-                        readOnly={
-                          (rowIsMonthly && it.geometryEnabled) ||
-                          (rowIsLumpSum && it.geometryEnabled && !it.isTruckLine)
-                        }
-                      />
+                          value={it.quantity}
+                          onChange={(e) => {
+                            if (isLumpConsolidatedRow) {
+                              updateLumpSumConsolidatedLine({ quantity: e.target.value });
+                              return;
+                            }
+                            if (ii == null) return;
+                            updateItem(ii, { quantity: e.target.value });
+                          }}
+                          className={
+                            lumpSumDutyGeometryLineTable
+                              ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
+                              : lineUsesCustomCalc
+                                ? 'w-24 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-center'
+                                : 'w-24 px-2 py-1 border border-gray-300 rounded-lg text-center'
+                          }
+                          readOnly={
+                            (rowIsMonthly && it.geometryEnabled) ||
+                            (rowIsLumpSum && it.geometryEnabled && !it.isTruckLine)
+                          }
+                        />
+                        {lineUsesCustomCalc && ii != null ? (
+                          <button
+                            type="button"
+                            title="Open calculator for Qty"
+                            onClick={() => openFieldCalculator(ii, 'quantity', it.quantity)}
+                            className="shrink-0 rounded-md border border-indigo-200 bg-indigo-50 p-1.5 text-indigo-600 hover:bg-indigo-100"
+                          >
+                            <Calculator className="h-4 w-4" />
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                     <td
                       className={[
@@ -3698,25 +3786,39 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
                       ].join(' ')}
                     >
-                      <input
-                        type="number"
-                        min={0}
-                        value={it.rate}
-                        onChange={(e) => {
-                          if (isLumpConsolidatedRow) {
-                            updateLumpSumConsolidatedLine({ rate: e.target.value });
-                            return;
+                      <div className="flex items-center justify-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          value={it.rate}
+                          onChange={(e) => {
+                            if (isLumpConsolidatedRow) {
+                              updateLumpSumConsolidatedLine({ rate: e.target.value });
+                              return;
+                            }
+                            if (ii == null) return;
+                            updateItem(ii, { rate: e.target.value });
+                          }}
+                          className={
+                            lumpSumDutyGeometryLineTable
+                              ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
+                              : lineUsesCustomCalc
+                                ? 'w-28 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-center'
+                                : 'w-28 px-2 py-1 border border-gray-300 rounded-lg text-center'
                           }
-                          if (ii == null) return;
-                          updateItem(ii, { rate: e.target.value });
-                        }}
-                        className={
-                          lumpSumDutyGeometryLineTable
-                            ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
-                            : 'w-28 px-2 py-1 border border-gray-300 rounded-lg text-center'
-                        }
-                        readOnly={isLumpConsolidatedRow || rateDerived}
-                      />
+                          readOnly={isLumpConsolidatedRow || rateDerived}
+                        />
+                        {lineUsesCustomCalc && ii != null ? (
+                          <button
+                            type="button"
+                            title="Open calculator for Unit Price"
+                            onClick={() => openFieldCalculator(ii, 'rate', it.rate)}
+                            className="shrink-0 rounded-md border border-indigo-200 bg-indigo-50 p-1.5 text-indigo-600 hover:bg-indigo-100"
+                          >
+                            <Calculator className="h-4 w-4" />
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                     {lumpSumShowPenaltyGeometryUi ? (
                       <td
@@ -3767,35 +3869,52 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
                       ].join(' ')}
                     >
-                      ₹{round2(it.amount).toLocaleString('en-IN')}
+                      <>₹{round2(it.amount).toLocaleString('en-IN')}</>
                     </td>
                   </tr>
-                  {isCustomBilling &&
-                  it.geometryEnabled &&
+                  {((isCustomBilling && it.geometryEnabled) ||
+                    (isCustomCalculatorBilling && !it.isTruckLine)) &&
                   ii != null ? (
                     <tr className="bg-slate-50">
                       <td colSpan={lineTableColSpan} className="border border-neutral-400 px-3 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-xs">
-                          <span className="font-semibold text-gray-700">Geometry (Custom line)</span>
+                          <span className="font-semibold text-gray-700">
+                            {isCustomCalculatorBilling ? 'Line billing type' : 'Geometry (Custom line)'}
+                          </span>
                           <label className="inline-flex items-center gap-2">
                             <span className="text-gray-600">Billing type</span>
                             <select
                               id={`line-billing-type-${ii}`}
-                              value={normalizeCustomLineBillingType(it.customBillingType)}
+                              value={rowBillingType}
                               onChange={(e) => {
-                                const nextType = normalizeCustomLineBillingType(e.target.value);
-                                updateItem(ii, { customBillingType: nextType });
+                                const nextType = isCustomCalculatorBilling
+                                  ? normalizeCustomCalcLineBillingType(e.target.value)
+                                  : normalizeCustomLineBillingType(e.target.value);
+                                const patch = { customBillingType: nextType };
+                                // Monthly / Lump Sum need the duty-geometry sub-row turned on.
+                                if (nextType === 'Monthly' || nextType === 'Lump Sum') {
+                                  patch.geometryEnabled = true;
+                                }
+                                updateItem(ii, patch);
                               }}
                               className="min-w-[10rem] px-2 py-1 border border-gray-300 rounded-md bg-white text-gray-800"
                             >
                               <option value="Per Day">Daily</option>
                               <option value="Monthly">Monthly</option>
                               <option value="Lump Sum">Lump Sum</option>
+                              {isCustomCalculatorBilling ? (
+                                <option value="Custom Calculator">Custom Calculator</option>
+                              ) : null}
                             </select>
                           </label>
                           {rowBillingType === 'Per Day' ? (
                             <span className="text-gray-500">
                               Daily mode selected. Continue with Qty x Rate directly (no duty-geometry logic).
+                            </span>
+                          ) : null}
+                          {rowBillingType === 'Custom Calculator' ? (
+                            <span className="text-gray-500">
+                              Calculator mode: use the calculator on Qty and Unit Price. Total = Qty × Unit Price.
                             </span>
                           ) : null}
                         </div>
@@ -4420,6 +4539,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
         </div>
       ) : null}
 
+      <CalculatorModal
+        open={!!calcTarget}
+        title={calcTarget?.field === 'rate' ? 'Calculator — Unit Price' : 'Calculator — Qty'}
+        initialValue={calcTarget?.initial ?? ''}
+        onApply={applyFieldCalculator}
+        onClose={closeFieldCalculator}
+      />
     </div>
   );
 };
