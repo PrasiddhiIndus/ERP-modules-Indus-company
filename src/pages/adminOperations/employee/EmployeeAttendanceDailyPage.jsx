@@ -16,9 +16,14 @@ import {
   REGISTER_MARK_NHPH,
   applyBulkRegisterMarks,
   attachRegisterRowSummaries,
+  buildPresentKeysFromPunches,
   buildMonthlyRegisterGrid,
   mergeActiveEmployeesWithPunches,
+  fetchMasterRegisterCodeMap,
+  collectRegisterEmployeeCodes,
   syncRegisterMarksFromPunches,
+  syncRegisterAutoWeekoffMarks,
+  listAutoWeekoffDatesForMonthAndNext,
   computeRegisterSummaryFooter,
   ATTENDANCE_REGISTER_TABLE,
   dayOfMonthFromIsoDate,
@@ -37,6 +42,8 @@ import {
   registerDateFromDay,
   registerDayTableLabel,
   registerMarkCellWrapperClass,
+  registerMarkCellInlineStyle,
+  isRegisterCommentMark,
   upsertRegisterMark,
   upsertRegisterMarksBatch,
   normalizeAttendanceEmpCode,
@@ -46,6 +53,7 @@ import {
 } from "../../../lib/attendanceDaily";
 import { RegisterMarkPicker } from "./RegisterMarkPicker";
 import { BulkMarkEmployeePicker } from "./BulkMarkEmployeePicker";
+import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
 import {
   REGISTER_LEAVE_ANNUAL_LIMITS,
   aggregateLeaveUsageByEmployee,
@@ -79,6 +87,9 @@ const BULK_MARKS = [
   { mark: REGISTER_MARK_NHPH, label: "Mark NH/PH" },
 ];
 
+/** Opens bulk employee picker for clear-range (not a register mark). */
+const BULK_CLEAR_MARK = "__CLEAR__";
+
 function formatSummaryValue(value, decimals) {
   if (decimals) return Number(value || 0).toFixed(2);
   return value ?? 0;
@@ -103,11 +114,12 @@ export function EmployeeAttendanceDailyPage() {
   const [monthValue, setMonthValue] = useState(isoMonthToday());
   const [empCode, setEmpCode] = useState("");
   const [search, setSearch] = useState("");
-  const [department, setDepartment] = useState("ALL");
+  const [selectedDepartments, setSelectedDepartments] = useState([]);
   const [punches, setPunches] = useState([]);
   const [manualMarks, setManualMarks] = useState({});
   const [manualRemarks, setManualRemarks] = useState({});
   const [activeEmployees, setActiveEmployees] = useState([]);
+  const [masterRegisterCodeMap, setMasterRegisterCodeMap] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [pageSize, setPageSize] = useState(50);
@@ -165,28 +177,45 @@ export function EmployeeAttendanceDailyPage() {
         }),
         fetchActiveEmployees(supabase),
       ]);
+      const masterCodeMap = await fetchMasterRegisterCodeMap(supabase);
+      setMasterRegisterCodeMap(masterCodeMap);
+      const employeesWithCode = employees.filter((e) => e.empCode);
+      const registerEmpCodes = collectRegisterEmployeeCodes(employeesWithCode, punchRows);
+      const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
       await syncRegisterMarksFromPunches(supabase, punchRows, {
         fromDate: monthMeta.fromDate,
         toDate: monthMeta.toDate,
+        respectManualMarks: true,
+        masterCodeMap,
       });
+      const woResult = await syncRegisterAutoWeekoffMarks(
+        supabase,
+        registerEmpCodes,
+        weekoffDates,
+        masterCodeMap
+      );
       const [registerData, yearRows] = await Promise.all([
         loadRegisterMarksForMonth(supabase, monthMeta),
         fetchRegisterMarksForYear(supabase, monthMeta.year),
       ]);
-      const employeesWithCode = employees.filter((e) => e.empCode);
       setPunches(punchRows);
       setActiveEmployees(employeesWithCode);
       setManualMarks(registerData?.marks || {});
       setManualRemarks(registerData?.remarks || {});
       setYearRegisterRows(yearRows);
       setLeaveLimitWarning("");
+      const warnings = [];
       if (employees.length > employeesWithCode.length) {
-        setRegisterCodeWarning(
-          `${employees.length - employeesWithCode.length} active employee(s) hidden ? add employee_code in Employee Master to include them in the register.`
+        warnings.push(
+          `${employees.length - employeesWithCode.length} active employee(s) hidden — add employee_code in Employee Master to include them in the register.`
         );
-      } else {
-        setRegisterCodeWarning("");
       }
+      if (woResult.failed > 0) {
+        warnings.push(
+          `${woResult.failed} auto weekoff cell(s) could not be saved — set employee_code on Employee Master (must match eTimeOffice / raw attendance).`
+        );
+      }
+      setRegisterCodeWarning(warnings.join(" "));
     } catch (err) {
       setPunches([]);
       setManualMarks({});
@@ -272,7 +301,7 @@ export function EmployeeAttendanceDailyPage() {
       const empRemarks = { ...(nextRemarks[empCodeKey] || {}) };
       if (!value) delete empMarks[day];
       else empMarks[day] = value;
-      const isCommentMark = value === "P(OD)" || value === "T";
+      const isCommentMark = isRegisterCommentMark(value);
       if (!isCommentMark) delete empRemarks[day];
       if (Object.keys(empMarks).length) next[empCodeKey] = empMarks;
       else delete next[empCodeKey];
@@ -297,7 +326,8 @@ export function EmployeeAttendanceDailyPage() {
           empCodeKey,
           registerDate,
           value,
-          isCommentMark ? empRemarks[day] || "" : ""
+          isCommentMark ? empRemarks[day] || "" : "",
+          masterRegisterCodeMap
         );
         setYearRegisterRows((prev) => {
           const code = normalizeAttendanceEmpCode(empCodeKey);
@@ -328,6 +358,7 @@ export function EmployeeAttendanceDailyPage() {
       holidayDatesInYear,
       manualMarks,
       manualRemarks,
+      masterRegisterCodeMap,
       monthMeta,
       yearRegisterRows,
     ]
@@ -370,7 +401,8 @@ export function EmployeeAttendanceDailyPage() {
         empCodeKey,
         registerDateFromDay(monthMeta.monthKey, day),
         mark || "P(OD)",
-        trimmed
+        trimmed,
+        masterRegisterCodeMap
       );
       closePodCommentEditor();
     } catch (err) {
@@ -378,18 +410,23 @@ export function EmployeeAttendanceDailyPage() {
     } finally {
       setSavingMark(false);
     }
-  }, [commentEditor, closePodCommentEditor, manualRemarks, monthMeta]);
+  }, [commentEditor, closePodCommentEditor, manualRemarks, masterRegisterCodeMap, monthMeta]);
 
   const filteredRows = useMemo(() => {
     const codeFilter = normalizeAttendanceEmpCode(empCode.trim());
     const needle = search.trim().toLowerCase();
     return gridRows.filter((row) => {
       if (codeFilter && row.empCode !== codeFilter) return false;
-      if (department !== "ALL" && (row.department || "") !== department) return false;
+      if (
+        selectedDepartments.length > 0 &&
+        !selectedDepartments.includes(row.department || "")
+      ) {
+        return false;
+      }
       if (!needle) return true;
       return [row.employeeId, row.empCode, row.employeeName, row.department].join(" ").toLowerCase().includes(needle);
     });
-  }, [gridRows, search, empCode, department]);
+  }, [gridRows, search, empCode, selectedDepartments]);
 
   const bulkDayNumber = useMemo(() => {
     if (!monthMeta?.monthKey || !bulkDateFrom?.startsWith(monthMeta.monthKey)) return null;
@@ -416,6 +453,7 @@ export function EmployeeAttendanceDailyPage() {
     if (!tableDayAttendanceFilter || !bulkDayNumber) return filteredRows;
     if (tableDayAttendanceFilter === "present") return dayAttendanceStats.presentEmployees;
     if (tableDayAttendanceFilter === "absent") return dayAttendanceStats.absentEmployees;
+    if (tableDayAttendanceFilter === "unmarked") return dayAttendanceStats.unmarkedEmployees;
     return filteredRows;
   }, [bulkDayNumber, dayAttendanceStats, filteredRows, tableDayAttendanceFilter]);
 
@@ -443,11 +481,11 @@ export function EmployeeAttendanceDailyPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize, rowsWithSummary.length, search, monthValue, empCode, department, tableDayAttendanceFilter, bulkDateFrom]);
+  }, [pageSize, rowsWithSummary.length, search, monthValue, empCode, selectedDepartments, tableDayAttendanceFilter, bulkDateFrom]);
 
   useEffect(() => {
     setTableDayAttendanceFilter(null);
-  }, [bulkDateFrom, bulkDateTo, monthValue, empCode, department, search]);
+  }, [bulkDateFrom, bulkDateTo, monthValue, empCode, selectedDepartments, search]);
 
   const handleExportExcel = async () => {
     if (!monthMeta || !rowsWithSummary.length) return;
@@ -505,12 +543,57 @@ export function EmployeeAttendanceDailyPage() {
     setBulkSelectedCodes([]);
   }, []);
 
-  const openBulkPicker = useCallback((mark) => {
-    setBulkPickerMark(mark);
-    setBulkSelectedCodes([]);
+  const openBulkPicker = useCallback(
+    (mark) => {
+      setBulkPickerMark(mark);
+      setBulkEmployeeSearch("");
+      setBulkEmployeeMarkFilter(mark === "P" ? "present" : "all");
+      if (!bulkDayRange) {
+        setBulkSelectedCodes([]);
+        return;
+      }
+      const { dayFrom, dayTo } = bulkDayRange;
+      const preSelected = [];
+      for (const row of filteredRows) {
+        if (!row.empCode) continue;
+        for (let day = dayFrom; day <= dayTo; day += 1) {
+          if ((row.dayMarks?.[day] || "") === mark) {
+            preSelected.push(row.empCode);
+            break;
+          }
+        }
+      }
+      setBulkSelectedCodes(preSelected);
+    },
+    [bulkDayRange, filteredRows]
+  );
+
+  const openBulkPickerForClear = useCallback(() => {
+    setBulkPickerMark(BULK_CLEAR_MARK);
     setBulkEmployeeSearch("");
-    setBulkEmployeeMarkFilter(mark === "P" ? "present" : "all");
-  }, []);
+    setBulkEmployeeMarkFilter("marked");
+    if (!bulkDayRange) {
+      setBulkSelectedCodes([]);
+      return;
+    }
+    const { dayFrom, dayTo } = bulkDayRange;
+    const preSelected = [];
+    for (const row of filteredRows) {
+      if (!row.empCode) continue;
+      for (let day = dayFrom; day <= dayTo; day += 1) {
+        if (row.dayMarks?.[day]) {
+          preSelected.push(row.empCode);
+          break;
+        }
+      }
+    }
+    setBulkSelectedCodes(preSelected);
+  }, [bulkDayRange, filteredRows]);
+
+  const selectAllBulkPickerEmployees = useCallback(() => {
+    const codes = filteredRows.map((row) => row.empCode).filter(Boolean);
+    setBulkSelectedCodes([...new Set(codes)]);
+  }, [filteredRows]);
 
   const closeBulkPicker = useCallback(() => {
     setBulkPickerMark(null);
@@ -521,7 +604,9 @@ export function EmployeeAttendanceDailyPage() {
   const handleBulkMark = useCallback(
     async (mark, empCodesOverride) => {
       if (!monthMeta?.monthKey || !bulkDayRange) return;
-      const empCodes = empCodesOverride?.length ? empCodesOverride : [];
+      const empCodes = [
+        ...new Set((empCodesOverride || []).map(normalizeAttendanceEmpCode).filter(Boolean)),
+      ];
       if (!empCodes.length) return;
 
       const { dayFrom, dayTo } = bulkDayRange;
@@ -540,9 +625,11 @@ export function EmployeeAttendanceDailyPage() {
         for (let day = dayFrom; day <= dayTo; day += 1) {
           const prev = manualMarks[code]?.[day];
           const updated = next[code]?.[day];
-          if (prev === updated) continue;
+          const unchanged = prev === updated;
+          if (unchanged && !updated) continue;
+          if (unchanged && updated && !mark) continue;
           const existingRemark = nextRemarks[code]?.[day] || "";
-          if (updated !== "P(OD)" && nextRemarks[code]?.[day]) {
+          if (!isRegisterCommentMark(updated) && nextRemarks[code]?.[day]) {
             const empRemarks = { ...(nextRemarks[code] || {}) };
             delete empRemarks[day];
             if (Object.keys(empRemarks).length) nextRemarks[code] = empRemarks;
@@ -555,7 +642,8 @@ export function EmployeeAttendanceDailyPage() {
               register_date,
               month_key: monthMeta.monthKey,
               mark: updated,
-              mark_remark: updated === "P(OD)" ? existingRemark : null,
+              mark_remark: isRegisterCommentMark(updated) ? existingRemark : null,
+              mark_source: "manual",
               updated_at: new Date().toISOString(),
             });
           } else {
@@ -568,7 +656,7 @@ export function EmployeeAttendanceDailyPage() {
       setManualRemarks(nextRemarks);
       setSavingMark(true);
       try {
-        if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts);
+        if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts, { masterCodeMap: masterRegisterCodeMap });
         if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
       } catch (err) {
         setError(formatAttendanceSupabaseError(err));
@@ -583,26 +671,92 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [bulkDayRange, bulkOverwrite, gridRows, manualMarks, manualRemarks, monthMeta]
+    [bulkDayRange, bulkOverwrite, gridRows, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta]
   );
+
+  const handleClearSelectedRange = useCallback(async () => {
+    if (!monthMeta?.monthKey || !bulkDayRange || !bulkSelectedCodes.length) return;
+
+    const { dayFrom, dayTo } = bulkDayRange;
+    const presentKeys = buildPresentKeysFromPunches(punches);
+    const next = { ...manualMarks };
+    const nextRemarks = { ...manualRemarks };
+    const upserts = [];
+    const deletes = [];
+
+    for (const code of bulkSelectedCodes) {
+      const empCodeKey = normalizeAttendanceEmpCode(code);
+      const empMarks = { ...(next[empCodeKey] || {}) };
+      const empRemarks = { ...(nextRemarks[empCodeKey] || {}) };
+
+      for (let day = dayFrom; day <= dayTo; day += 1) {
+        const register_date = registerDateFromDay(monthMeta.monthKey, day);
+        const punchKey = `${empCodeKey}|${register_date}`;
+        const hasPunch = presentKeys.has(punchKey);
+
+        if (hasPunch) {
+          empMarks[day] = "P";
+          delete empRemarks[day];
+          upserts.push({
+            employee_code: empCodeKey,
+            register_date,
+            month_key: monthMeta.monthKey,
+            mark: "P",
+            mark_remark: null,
+            mark_source: "punch",
+            updated_at: new Date().toISOString(),
+          });
+        } else {
+          delete empMarks[day];
+          delete empRemarks[day];
+          deletes.push({ employee_code: empCodeKey, register_date });
+        }
+      }
+
+      if (Object.keys(empMarks).length) next[empCodeKey] = empMarks;
+      else delete next[empCodeKey];
+      if (Object.keys(empRemarks).length) nextRemarks[empCodeKey] = empRemarks;
+      else delete nextRemarks[empCodeKey];
+    }
+
+    setManualMarks(next);
+    setManualRemarks(nextRemarks);
+    setSavingMark(true);
+    try {
+      if (upserts.length) {
+        await upsertRegisterMarksBatch(supabase, upserts, { masterCodeMap: masterRegisterCodeMap });
+      }
+      if (deletes.length) await deleteRegisterMarksBatch(supabase, deletes);
+    } catch (err) {
+      setError(formatAttendanceSupabaseError(err));
+      try {
+        const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+        setManualMarks(registerData?.marks || {});
+        setManualRemarks(registerData?.remarks || {});
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      setSavingMark(false);
+    }
+  }, [bulkDayRange, bulkSelectedCodes, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta, punches]);
 
   const applyBulkPickerMark = useCallback(async () => {
     if (!bulkPickerMark || !bulkSelectedCodes.length) return;
-    await handleBulkMark(bulkPickerMark, bulkSelectedCodes);
+    if (bulkPickerMark === BULK_CLEAR_MARK) {
+      await handleClearSelectedRange();
+    } else {
+      await handleBulkMark(bulkPickerMark, bulkSelectedCodes);
+    }
     closeBulkPicker();
-  }, [bulkPickerMark, bulkSelectedCodes, closeBulkPicker, handleBulkMark]);
-
-  const handleClearSelectedRange = useCallback(async () => {
-    if (!bulkSelectedCodes.length) return;
-    await handleBulkMark("", bulkSelectedCodes);
-  }, [bulkSelectedCodes, handleBulkMark]);
+  }, [bulkPickerMark, bulkSelectedCodes, closeBulkPicker, handleBulkMark, handleClearSelectedRange]);
 
   const departmentOptions = useMemo(() => {
     const values = new Set();
     for (const row of gridRows) {
       if (row.department) values.add(row.department);
     }
-    return ["ALL", ...Array.from(values).sort((a, b) => a.localeCompare(b))];
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [gridRows]);
 
   const summaryColumnDefs = useMemo(
@@ -623,7 +777,7 @@ export function EmployeeAttendanceDailyPage() {
 
   const columns = useMemo(() => {
     const fixed = [
-      { key: "employeeId", label: "Employee ID", render: (row) => row.employeeId || "?" },
+      { key: "employeeId", label: "Machine ID", render: (row) => row.employeeId || "?" },
       {
         key: "empCode",
         label: "Employee code",
@@ -645,7 +799,7 @@ export function EmployeeAttendanceDailyPage() {
         render: (row) => {
           const value = row.dayMarks[day] || "";
           const comment = String(manualRemarks[row.empCode]?.[day] || "").trim();
-          const isCommentMark = value === "P(OD)" || value === "T";
+          const isCommentMark = isRegisterCommentMark(value);
           const commentMark = isCommentMark ? value : "";
           const hasComment = isCommentMark && !!comment;
           return (
@@ -658,6 +812,7 @@ export function EmployeeAttendanceDailyPage() {
               }}
             >
               <div
+                style={registerMarkCellInlineStyle(value)}
                 className={`${registerMarkCellWrapperClass(value)} relative group ${isCommentMark ? "cursor-pointer" : ""}`}
               >
                 <RegisterMarkPicker
@@ -696,6 +851,7 @@ export function EmployeeAttendanceDailyPage() {
   const dayDrawerRows = useMemo(() => {
     if (dayAttendanceDrawer.mode === "present") return dayAttendanceStats.presentEmployees;
     if (dayAttendanceDrawer.mode === "absent") return dayAttendanceStats.absentEmployees;
+    if (dayAttendanceDrawer.mode === "unmarked") return dayAttendanceStats.unmarkedEmployees;
     return dayAttendanceStats.allEmployees;
   }, [dayAttendanceDrawer.mode, dayAttendanceStats]);
 
@@ -704,7 +860,9 @@ export function EmployeeAttendanceDailyPage() {
       ? "Present employees"
       : dayAttendanceDrawer.mode === "absent"
         ? "Marked (not present)"
-        : "All employees";
+        : dayAttendanceDrawer.mode === "unmarked"
+          ? "Not marked"
+          : "All employees";
 
   return (
     <div className="space-y-3 min-w-0 max-w-full">
@@ -742,13 +900,14 @@ export function EmployeeAttendanceDailyPage() {
             placeholder="Search name / code"
             className="min-w-[160px]"
           />
-          <TinySelect value={department} onChange={(e) => setDepartment(e.target.value)} className="w-[170px]">
-            {departmentOptions.map((dept) => (
-              <option key={dept} value={dept}>
-                {dept === "ALL" ? "All departments" : dept}
-              </option>
-            ))}
-          </TinySelect>
+          <label className="text-[11px] text-gray-600 inline-flex items-center">
+            Department
+            <RegisterDepartmentFilter
+              options={departmentOptions}
+              selected={selectedDepartments}
+              onChange={setSelectedDepartments}
+            />
+          </label>
           <TinySelect value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="w-[100px]">
             {PAGE_SIZES.map((s) => (
               <option key={s} value={s}>
@@ -785,7 +944,7 @@ export function EmployeeAttendanceDailyPage() {
           </button>
         </FilterBar>
 
-        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
           <KpiTile
             label="Total employees"
             value={bulkDayNumber ? dayAttendanceStats.total : "—"}
@@ -815,16 +974,23 @@ export function EmployeeAttendanceDailyPage() {
           <KpiTile
             label="Marked (not present)"
             value={bulkDayNumber ? dayAttendanceStats.absent : "—"}
-            sub={
-              bulkDateFrom
-                ? `Leave / WO / NH·PH on ${bulkDateFrom} · ${dayAttendanceStats.unmarked ?? 0} unmarked`
-                : "Select a date below"
-            }
+            sub={bulkDateFrom ? `Leave / WO / NH·PH on ${bulkDateFrom}` : "Select a date below"}
             onClick={() => openDayAttendanceDrawer("absent")}
             tone={
               tableDayAttendanceFilter === "absent"
                 ? "border-red-300 ring-2 ring-red-100"
                 : "border-red-100"
+            }
+          />
+          <KpiTile
+            label="Not marked"
+            value={bulkDayNumber ? dayAttendanceStats.unmarked : "—"}
+            sub={bulkDateFrom ? `No mark on ${bulkDateFrom}` : "Select a date below"}
+            onClick={() => openDayAttendanceDrawer("unmarked")}
+            tone={
+              tableDayAttendanceFilter === "unmarked"
+                ? "border-gray-400 ring-2 ring-gray-200"
+                : "border-gray-200"
             }
           />
         </div>
@@ -833,7 +999,14 @@ export function EmployeeAttendanceDailyPage() {
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-600">
             <span>
               Grid filtered to{" "}
-              <strong>{tableDayAttendanceFilter === "present" ? "present" : "marked (not present)"}</strong> employees on{" "}
+              <strong>
+                {tableDayAttendanceFilter === "present"
+                  ? "present"
+                  : tableDayAttendanceFilter === "unmarked"
+                    ? "not marked"
+                    : "marked (not present)"}
+              </strong>{" "}
+              employees on{" "}
               {bulkDateFrom}.
             </span>
             <button
@@ -915,9 +1088,14 @@ export function EmployeeAttendanceDailyPage() {
             })}
             <button
               type="button"
-              onClick={handleClearSelectedRange}
-              disabled={!bulkSelectedCodes.length || savingMark || !bulkDayRange}
-              className="h-8 px-3 rounded-lg text-xs font-semibold border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+              onClick={() => {
+                if (bulkPickerMark === BULK_CLEAR_MARK) closeBulkPicker();
+                else openBulkPickerForClear();
+              }}
+              disabled={savingMark || !bulkDayRange}
+              className={`h-8 px-3 rounded-lg text-xs font-semibold border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 ${
+                bulkPickerMark === BULK_CLEAR_MARK ? "ring-2 ring-offset-1 ring-gray-900" : ""
+              }`}
             >
               Clear range (selected)
             </button>
@@ -930,9 +1108,14 @@ export function EmployeeAttendanceDailyPage() {
                 selectedCodes={bulkSelectedCodes}
                 onToggleSelect={toggleBulkEmployeeSelect}
                 onClearSelected={clearBulkSelected}
+                onSelectAll={selectAllBulkPickerEmployees}
                 search={bulkEmployeeSearch}
                 onSearchChange={setBulkEmployeeSearch}
-                markLabel={BULK_MARKS.find((b) => b.mark === bulkPickerMark)?.label || bulkPickerMark}
+                markLabel={
+                  bulkPickerMark === BULK_CLEAR_MARK
+                    ? "Clear range"
+                    : BULK_MARKS.find((b) => b.mark === bulkPickerMark)?.label || bulkPickerMark
+                }
                 bulkDateFrom={bulkDateFrom}
                 bulkDateTo={bulkDateTo}
                 dayMarkByCode={bulkDayMarkByCode}
@@ -940,9 +1123,11 @@ export function EmployeeAttendanceDailyPage() {
                 onMarkFilterChange={setBulkEmployeeMarkFilter}
               />
               <p className="mt-2 text-[10px] text-gray-500">
-                {bulkOverwrite
-                  ? "Override is on — existing marks in the date range will be replaced for selected employees."
-                  : "Override is off — only blank cells in the range will be updated for selected employees."}
+                {bulkPickerMark === BULK_CLEAR_MARK
+                  ? "Clears marks in the date range for selected employees. If raw punch data exists for a day, that cell becomes Present (P); otherwise it is blank."
+                  : bulkOverwrite
+                    ? "Override is on — existing marks in the date range will be replaced for selected employees."
+                    : "Override is off — only blank cells in the range will be updated for selected employees."}
                 {bulkDayRange && bulkDayRange.dayFrom !== bulkDayRange.dayTo
                   ? ` Spanning ${bulkDayRange.dayTo - bulkDayRange.dayFrom + 1} day(s).`
                   : null}
@@ -953,10 +1138,14 @@ export function EmployeeAttendanceDailyPage() {
                   onClick={applyBulkPickerMark}
                   disabled={!bulkSelectedCodes.length || savingMark || !bulkDayRange}
                   className={`h-8 px-4 rounded-lg text-xs font-semibold text-white disabled:opacity-50 ${
-                    REGISTER_BULK_BUTTON_CLASS[bulkPickerMark] || "bg-gray-900"
+                    bulkPickerMark === BULK_CLEAR_MARK
+                      ? "bg-gray-700 hover:bg-gray-800"
+                      : REGISTER_BULK_BUTTON_CLASS[bulkPickerMark] || "bg-gray-900"
                   }`}
                 >
-                  Apply {bulkPickerMark} to {bulkSelectedCodes.length} selected
+                  {bulkPickerMark === BULK_CLEAR_MARK
+                    ? `Clear range for ${bulkSelectedCodes.length} selected`
+                    : `Apply ${bulkPickerMark} to ${bulkSelectedCodes.length} selected`}
                 </button>
                 <button
                   type="button"
@@ -1086,7 +1275,7 @@ export function EmployeeAttendanceDailyPage() {
           <table className="min-w-full text-xs">
             <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
               <tr>
-                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee ID</th>
+                <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Machine ID</th>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee code</th>
                 <th className="text-left font-semibold px-2 py-2 whitespace-nowrap">Employee Name</th>
                 {SUMMARY_COLUMNS.map((col) => (
@@ -1125,8 +1314,10 @@ export function EmployeeAttendanceDailyPage() {
           {dayAttendanceDrawer.mode === "present"
             ? "Employees marked Present (P) / P(OD) / T, including auto-present from punches."
             : dayAttendanceDrawer.mode === "absent"
-              ? "Employees with a mark other than present (leave, weekoff, NH/PH). Unmarked (blank) days are listed separately in the total view."
-              : "Full employee list for the selected date with attendance status."}
+              ? "Employees with a mark other than present (leave, weekoff, NH/PH, etc.)."
+              : dayAttendanceDrawer.mode === "unmarked"
+                ? "Employees with no mark and no present credit for the selected date (blank cell)."
+                : "Full employee list for the selected date with attendance status."}
           {tableDayAttendanceFilter
             ? " The register grid is filtered to match this list."
             : " Click Present or Absent to filter the grid."}
