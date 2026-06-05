@@ -26,6 +26,7 @@ export const Dashboard = lazy(() => import("../pages/Dashboard"));
 // Projects — Fire tender
 export const FireTender = lazy(() => import("../pages/projects/FireTender"));
 export const FireTenderDashboard = lazy(() => import("../pages/projects/FireTenderDashboard"));
+export const FireTenderCostingHub = lazy(() => import("../pages/projects/FireTenderCostingHub"));
 export const CostingList = lazy(() => import("../pages/projects/CostingList"));
 export const CostingSheet = lazy(() => import("../pages/projects/CostingSheet"));
 export const QuotationList = lazy(() => import("../pages/projects/QuotationList"));

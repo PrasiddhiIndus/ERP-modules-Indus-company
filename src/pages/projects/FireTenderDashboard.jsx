@@ -115,7 +115,7 @@ const FireTenderDashboard = () => {
     {
       icon: FilePlus2,
       label: "New Tender",
-      path: "/app/fire-tender/new",
+      path: "/app/fire-tender/costing-hub/tender",
       border: "border-red-200",
       bg: "bg-red-50/50 hover:bg-red-50",
       iconWrap: "bg-red-100 text-red-600",
@@ -123,7 +123,7 @@ const FireTenderDashboard = () => {
     {
       icon: ClipboardList,
       label: "Tender List",
-      path: "/app/fire-tender/new",
+      path: "/app/fire-tender/costing-hub/tender",
       border: "border-blue-200",
       bg: "bg-blue-50/50 hover:bg-blue-50",
       iconWrap: "bg-blue-100 text-blue-600",
@@ -131,7 +131,7 @@ const FireTenderDashboard = () => {
     {
       icon: Calculator,
       label: "Costing Sheet",
-      path: "/app/fire-tender/costing",
+      path: "/app/fire-tender/costing-hub/costing",
       border: "border-emerald-200",
       bg: "bg-emerald-50/50 hover:bg-emerald-50",
       iconWrap: "bg-emerald-100 text-emerald-600",
@@ -139,7 +139,7 @@ const FireTenderDashboard = () => {
     {
       icon: ReceiptText,
       label: "Quotation",
-      path: "/app/fire-tender/quotation",
+      path: "/app/fire-tender/costing-hub/quotation",
       border: "border-violet-200",
       bg: "bg-violet-50/50 hover:bg-violet-50",
       iconWrap: "bg-violet-100 text-violet-600",
@@ -164,7 +164,7 @@ const FireTenderDashboard = () => {
         { label: "Total tenders", value: metrics.totalTenders },
         { label: "New this month", value: metrics.newTenders },
       ],
-      path: "/app/fire-tender/new",
+      path: "/app/fire-tender/costing-hub/tender",
     },
     {
       title: "Approval status",
@@ -176,7 +176,7 @@ const FireTenderDashboard = () => {
         { label: "Pending review", value: metrics.pendingTenders },
         { label: "Rejected", value: metrics.rejectedTenders },
       ],
-      path: "/app/fire-tender/new",
+      path: "/app/fire-tender/costing-hub/tender",
     },
     {
       title: "Costing readiness",
@@ -190,7 +190,7 @@ const FireTenderDashboard = () => {
           value: `${metrics.totalTenders ? Math.round((metrics.costingSheets / metrics.totalTenders) * 100) : 0}%`,
         },
       ],
-      path: "/app/fire-tender/costing",
+      path: "/app/fire-tender/costing-hub/costing",
     },
     {
       title: "Quotation output",
@@ -204,7 +204,7 @@ const FireTenderDashboard = () => {
           value: `${metrics.totalTenders ? Math.round((metrics.quotations / metrics.totalTenders) * 100) : 0}%`,
         },
       ],
-      path: "/app/fire-tender/quotation",
+      path: "/app/fire-tender/costing-hub/quotation",
     },
     {
       title: "Pending queue",
@@ -215,7 +215,7 @@ const FireTenderDashboard = () => {
         { label: "Pending tenders", value: metrics.pendingTenders },
         { label: "Rejected", value: metrics.rejectedTenders },
       ],
-      path: "/app/fire-tender/new",
+      path: "/app/fire-tender/costing-hub/tender",
     },
     {
       title: "Manufacturing flow",
@@ -240,10 +240,11 @@ const FireTenderDashboard = () => {
   };
 
   return (
-    <div className="w-full min-h-screen overflow-y-auto px-4 sm:px-6 py-6 bg-gradient-to-b from-slate-50/70 to-white">
-      <FireTenderNavbar />
+    <div className="min-h-screen overflow-y-auto bg-slate-50 px-4 py-6 sm:px-6">
+      <div className="mx-auto w-full max-w-[1600px] space-y-4">
+      <FireTenderNavbar showWorkflowTabs={false} />
 
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-4 sm:p-5">
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 border border-red-100/80 shadow-sm">
@@ -361,7 +362,7 @@ const FireTenderDashboard = () => {
             </div>
             <button
               type="button"
-              onClick={() => navigate("/app/fire-tender/new")}
+              onClick={() => navigate("/app/fire-tender/costing-hub/tender")}
               className="text-sm text-blue-600 hover:text-blue-800 font-medium"
             >
               View all
@@ -443,7 +444,7 @@ const FireTenderDashboard = () => {
           </div>
           <button
             type="button"
-            onClick={() => navigate("/app/fire-tender/new")}
+            onClick={() => navigate("/app/fire-tender/costing-hub/tender")}
             className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >
             <Target className="w-4 h-4 text-orange-600" />
@@ -452,7 +453,7 @@ const FireTenderDashboard = () => {
           </button>
         </div>
       </div>
-
+      </div>
     </div>
   );
 };

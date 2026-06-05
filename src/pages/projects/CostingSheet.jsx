@@ -73,12 +73,10 @@ const CostingSheet = () => {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto w-full max-w-[1600px] space-y-6 p-4 sm:p-6">
+      <div className="mx-auto w-full max-w-[1600px] space-y-4 p-4 sm:p-6">
         <FireTenderNavbar />
 
-        <div className="h-1.5 shrink-0 rounded-full bg-gradient-to-r from-red-600 via-red-500 to-amber-400" aria-hidden />
-
-        <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-6">
+        <div className="rounded-xl border border-slate-200/90 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-red-50 to-orange-50 ring-1 ring-red-100">
@@ -153,12 +151,23 @@ const CostingSheet = () => {
             </nav>
           </div>
 
-          <div className="border-t border-slate-100 bg-slate-50/40 p-4 sm:p-6">
-            {activeTab === "costing" && <CostingTable tenderId={tender.id} accessoriesTotal={accessoriesTotal} />}
-            {activeTab === "accessories" && (
+          <div className="border-t border-slate-100 bg-slate-50/40 p-4 sm:p-5">
+            <p className="mb-3 text-xs text-emerald-700">Auto-save on — changes save automatically.</p>
+            <div className={activeTab === "costing" ? "" : "hidden"}>
+              <CostingTable
+                tenderId={tender.id}
+                tenderNumber={tender.tender_number}
+                clientName={tender.client}
+                tenderSource={tender.source}
+                accessoriesTotal={accessoriesTotal}
+              />
+            </div>
+            <div className={activeTab === "accessories" ? "" : "hidden"}>
               <AccessoriesTable tenderId={tender.id} onTotalChange={setAccessoriesTotal} />
-            )}
-            {activeTab === "moc" && <MocTable tenderId={tender.id} />}
+            </div>
+            <div className={activeTab === "moc" ? "" : "hidden"}>
+              <MocTable tenderId={tender.id} />
+            </div>
           </div>
         </div>
       </div>

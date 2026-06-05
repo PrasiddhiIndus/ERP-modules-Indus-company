@@ -203,7 +203,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       );
   }, [employees, editingEmployee?.id]);
 
-  const departments = [
+  // Curated fallback list (used in the form so standard departments can always be
+  // assigned even if no employee currently uses them). Live values from the
+  // database are merged in below so the dropdowns reflect actual data.
+  const BASE_DEPARTMENTS = [
     'Administration',
     'Commercial',
     'Finance',
@@ -223,12 +226,35 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     'R&M',
     'Technical',
     'Other',
-    // Keep legacy values for old records / imports.
-    'Sales',
-    'IT',
-    'Quality Control',
-    'Logistics',
   ];
+
+  // Distinct department values that actually exist in the employee records.
+  const departmentsFromData = useMemo(() => {
+    const seen = new Map();
+    (employees || []).forEach((row) => {
+      const value = String(row?.department || '').trim();
+      if (!value) return;
+      const key = value.toLowerCase();
+      if (!seen.has(key)) seen.set(key, value);
+    });
+    return Array.from(seen.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    );
+  }, [employees]);
+
+  // Form dropdown: real values + curated defaults, deduped (case-insensitive).
+  const departments = useMemo(() => {
+    const seen = new Map();
+    [...departmentsFromData, ...BASE_DEPARTMENTS].forEach((value) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) seen.set(key, trimmed);
+    });
+    return Array.from(seen.values()).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    );
+  }, [departmentsFromData]);
 
   const designations = [
     'Manager', 'Senior Manager', 'Assistant Manager', 'Executive', 'Senior Executive',
@@ -914,6 +940,25 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     setCurrentPage(1);
   };
 
+  const SortableTh = ({ field, label }) => {
+    const active = sortField === field;
+    return (
+      <th
+        className={`${th} cursor-pointer select-none hover:bg-gray-100`}
+        onClick={() => handleSort(field)}
+        title={`Sort by ${label}`}
+        aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          <span className={active ? 'text-gray-900' : 'text-gray-300'}>
+            {active ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}
+          </span>
+        </span>
+      </th>
+    );
+  };
+
   const exportCellValue = (employee, field) => {
     if (field === 'ifspl_experience') {
       return computeIfsplExperienceYears(employee.date_of_joining) ?? '';
@@ -1166,7 +1211,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="All">All Departments</option>
-              {departments.map((dept) => (
+              {departmentsFromData.map((dept) => (
                 <option key={dept} value={dept}>{dept}</option>
               ))}
             </select>
@@ -1240,44 +1285,38 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
                 <th className={th}>Sr No</th>
-                <th className={`${th} cursor-pointer hover:bg-gray-100`} onClick={() => handleSort('employee_id')}>
-                  Machine ID{sortField === 'employee_id' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
-                </th>
-                <th className={th}>employment_type</th>
-                <th className={th}>employee_code</th>
-                <th className={th}>timestamp</th>
-                <th className={`${th} cursor-pointer hover:bg-gray-100`} onClick={() => handleSort('full_name')}>
-                  full_name{sortField === 'full_name' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
-                </th>
-                <th className={th}>gender</th>
-                <th className={`${th} cursor-pointer hover:bg-gray-100`} onClick={() => handleSort('date_of_joining')}>
-                  date_of_joining{sortField === 'date_of_joining' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}
-                </th>
-                <th className={th}>designation</th>
-                <th className={th}>department</th>
-                <th className={th}>location</th>
-                <th className={th}>date_of_birth</th>
-                <th className={th}>date_of_anniversary</th>
-                <th className={th}>blood_group</th>
-                <th className={th}>aadhar_no</th>
-                <th className={th}>pan_card_no</th>
-                <th className={th}>religion</th>
-                <th className={th}>father_name</th>
-                <th className={th}>mother_name</th>
-                <th className={th}>spouse_name</th>
-                <th className={th}>son_details</th>
-                <th className={th}>daughter_details</th>
-                <th className={th}>address</th>
-                <th className={th}>full_address</th>
-                <th className={th}>personal_no</th>
-                <th className={th}>emergency_no</th>
-                <th className={th}>identification_mark</th>
-                <th className={th}>educational_qualification</th>
-                <th className={th}>other_experience</th>
-                <th className={th}>ifspl_experience</th>
-                <th className={th}>years_of_experience</th>
-                <th className={th}>date_of_leaving</th>
-                <th className={th}>status</th>
+                <SortableTh field="employee_id" label="Machine ID" />
+                <SortableTh field="employment_type" label="employment_type" />
+                <SortableTh field="employee_code" label="employee_code" />
+                <SortableTh field="timestamp" label="timestamp" />
+                <SortableTh field="full_name" label="full_name" />
+                <SortableTh field="gender" label="gender" />
+                <SortableTh field="date_of_joining" label="date_of_joining" />
+                <SortableTh field="designation" label="designation" />
+                <SortableTh field="department" label="department" />
+                <SortableTh field="location" label="location" />
+                <SortableTh field="date_of_birth" label="date_of_birth" />
+                <SortableTh field="date_of_anniversary" label="date_of_anniversary" />
+                <SortableTh field="blood_group" label="blood_group" />
+                <SortableTh field="aadhar_no" label="aadhar_no" />
+                <SortableTh field="pan_card_no" label="pan_card_no" />
+                <SortableTh field="religion" label="religion" />
+                <SortableTh field="father_name" label="father_name" />
+                <SortableTh field="mother_name" label="mother_name" />
+                <SortableTh field="spouse_name" label="spouse_name" />
+                <SortableTh field="son_details" label="son_details" />
+                <SortableTh field="daughter_details" label="daughter_details" />
+                <SortableTh field="address" label="address" />
+                <SortableTh field="full_address" label="full_address" />
+                <SortableTh field="personal_no" label="personal_no" />
+                <SortableTh field="emergency_no" label="emergency_no" />
+                <SortableTh field="identification_mark" label="identification_mark" />
+                <SortableTh field="educational_qualification" label="educational_qualification" />
+                <SortableTh field="other_experience" label="other_experience" />
+                <SortableTh field="ifspl_experience" label="ifspl_experience" />
+                <SortableTh field="years_of_experience" label="years_of_experience" />
+                <SortableTh field="date_of_leaving" label="date_of_leaving" />
+                <SortableTh field="status" label="status" />
                 <th className={th}>actions</th>
               </tr>
               </thead>

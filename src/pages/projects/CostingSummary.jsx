@@ -7,6 +7,11 @@ import {
   userCanEditInModules,
 } from "../../config/roles";
 import { fetchQuotationByTenderId } from "../../lib/fireTenderShared";
+import { NumericInput } from "../../components/NumericInput";
+import {
+  filterNetTotalRowsForSource,
+  isGemPortalSource,
+} from "./fireTenderCostingConfig";
 
 /** NET TOTAL row labels: A, B, … Z, then AA, AB, … (Excel-style). */
 function indexToNetTotalLetters(i) {
@@ -175,7 +180,15 @@ function getNetTotalFormulaText(row, rows, ctx) {
   return "—";
 }
 
-const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0, tenderId }) => {
+const CostingSummary = ({
+  grandTotal = 0,
+  chassisTotal = 0,
+  accessoriesTotal = 0,
+  tenderId,
+  tenderSource = "",
+  onExportExcel,
+}) => {
+  const showGemPortalRows = isGemPortalSource(tenderSource);
   console.log("CostingSummary component loaded with new checklist items");
   const { userProfile, accessibleModules } = useAuth();
   const canApproveQuotation = userCanApproveInModules(
@@ -188,24 +201,26 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
     accessibleModules,
     FIRE_TENDER_APPROVER_MODULE_KEYS
   );
-  const [rows, setRows] = useState([
-    { component: "Inflation Cost %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "Overhead cost %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "Financial cost%", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "Cost of negogiation %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "IEVPL Margin", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "BD cost ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: COMPONENT_TOTAL_PRICE_FABRICATION, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "CHASSIS PRICE", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "RTO charges ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "Insurance ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "ACCESSORIES", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "Total Price with chassis ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "Final Tender Cost (inc. GST)", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: "Tender Mode", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-    { component: COMPONENT_GEM_COST, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false },
-  ]);
+  const defaultNetTotalRows = () => [
+    { component: "Inflation Cost %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "Overhead cost %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "Financial cost%", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "Cost of negogiation %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "IEVPL Margin", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "BD cost ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: COMPONENT_TOTAL_PRICE_FABRICATION, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "CHASSIS PRICE", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "RTO charges ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "Insurance ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "ACCESSORIES", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "Total Price with chassis ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "Final Tender Cost (inc. GST)", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: "Tender Mode", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: COMPONENT_GEM_COST, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+  ];
+
+  const [rows, setRows] = useState(defaultNetTotalRows);
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -271,6 +286,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
             qty: Number(item.qty) || 1,
             total,
             include: NET_TOTAL_NO_CHECKBOX.has(component) ? true : item.include === true,
+            remark: item.remark || "",
           };
         });
         setRows(loadedRows);
@@ -306,7 +322,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
 
     await supabase.from("costing_summary").delete().eq("tender_id", Number(tenderId));
 
-    const payload = rows.map((row) => ({
+    const payload = filterNetTotalRowsForSource(rows, tenderSource).map((row) => ({
       tender_id: Number(tenderId),
       component: row.component,
       unit_cost: Number(row.unitCost) || 0,
@@ -314,6 +330,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
       qty: Number(row.qty) || 1,
       total: Number(row.total) || 0,
       include: NET_TOTAL_NO_CHECKBOX.has(row.component) ? true : row.include === true,
+      remark: row.remark || null,
       user_id: userId,
     }));
 
@@ -373,8 +390,9 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
       return;
     }
 
-    // Get only checked items
-    const checkedItems = rows.filter((row) => row.include !== false);
+    const checkedItems = filterNetTotalRowsForSource(rows, tenderSource).filter(
+      (row) => row.include !== false
+    );
 
     if (checkedItems.length === 0) {
       alert("Please select at least one item to approve for quotation.");
@@ -562,15 +580,17 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
         updated[finalTenderCostIndex].total = baseAmount * 1.18;
       }
 
-      const gemCostIndex = updated.findIndex((row) => row.component === COMPONENT_GEM_COST);
-      if (gemCostIndex !== -1) {
-        const finalT =
-          updated.find((row) => row.component === "Final Tender Cost (inc. GST)")?.total || 0;
-        const modePct = clampPercent0to100(
-          updated.find((row) => row.component === "Tender Mode")?.unitCost || 0
-        );
-        updated[gemCostIndex].total = (Number(finalT) || 0) * (modePct / 100);
-        updated[gemCostIndex].unitCost = 0;
+      if (showGemPortalRows) {
+        const gemCostIndex = updated.findIndex((row) => row.component === COMPONENT_GEM_COST);
+        if (gemCostIndex !== -1) {
+          const finalT =
+            updated.find((row) => row.component === "Final Tender Cost (inc. GST)")?.total || 0;
+          const modePct = clampPercent0to100(
+            updated.find((row) => row.component === "Tender Mode")?.unitCost || 0
+          );
+          updated[gemCostIndex].total = (Number(finalT) || 0) * (modePct / 100);
+          updated[gemCostIndex].unitCost = 0;
+        }
       }
 
       updated.forEach((r, i) => {
@@ -581,7 +601,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
 
       return updated;
     });
-  }, [grandTotal, chassisTotal, accessoriesTotal, loading]);
+  }, [grandTotal, chassisTotal, accessoriesTotal, loading, showGemPortalRows]);
 
   // Update row values
   const handleRowChange = (index, field, value) => {
@@ -589,6 +609,12 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
     const currentRow = updated[index];
 
     if (field === "include" && NET_TOTAL_NO_CHECKBOX.has(currentRow.component)) {
+      return;
+    }
+
+    if (field === "remark") {
+      updated[index].remark = value;
+      setRows(updated);
       return;
     }
 
@@ -736,22 +762,26 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
       updated[finalTenderCostIndex].total = baseAmount * 1.18;
     }
 
-    const gemCostIndex = updated.findIndex((row) => row.component === COMPONENT_GEM_COST);
-    if (gemCostIndex !== -1) {
-      const finalT =
-        updated.find((row) => row.component === "Final Tender Cost (inc. GST)")?.total || 0;
-      const modePct = clampPercent0to100(
-        updated.find((row) => row.component === "Tender Mode")?.unitCost || 0
-      );
-      updated[gemCostIndex].total = (Number(finalT) || 0) * (modePct / 100);
-      updated[gemCostIndex].unitCost = 0;
+    if (showGemPortalRows) {
+      const gemCostIndex = updated.findIndex((row) => row.component === COMPONENT_GEM_COST);
+      if (gemCostIndex !== -1) {
+        const finalT =
+          updated.find((row) => row.component === "Final Tender Cost (inc. GST)")?.total || 0;
+        const modePct = clampPercent0to100(
+          updated.find((row) => row.component === "Tender Mode")?.unitCost || 0
+        );
+        updated[gemCostIndex].total = (Number(finalT) || 0) * (modePct / 100);
+        updated[gemCostIndex].unitCost = 0;
+      }
     }
 
     setRows(updated);
   };
 
+  const visibleRows = filterNetTotalRowsForSource(rows, tenderSource);
+
   // Calculate net totals (fixed % rows always count)
-  const rowTotal = rows.reduce((sum, row) => {
+  const rowTotal = visibleRows.reduce((sum, row) => {
     const alwaysOn = NET_TOTAL_NO_CHECKBOX.has(row.component);
     if (alwaysOn || row.include !== false) return sum + (Number(row.total) || 0);
     return sum;
@@ -766,13 +796,17 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
       {/* Net Total Section */}
       <div className="bg-white p-6 shadow rounded-lg mt-6">
         <h3 className="text-lg font-bold mb-4">NET TOTAL</h3>
-        {/* Updated checklist items */}
+        {!showGemPortalRows ? (
+          <p className="mb-3 text-xs text-slate-500">
+            Tender Mode (O) and Gem Cost (P) are available only when the tender source is Gem Portal.
+          </p>
+        ) : null}
 
-        {/* Render the rows array with checkboxes */}
         <div className="mb-6">
           <h4 className="font-semibold mb-3">Cost Components</h4>
           <div className="space-y-2">
-            {rows.map((row, index) => {
+            {visibleRows.map((row, displayIndex) => {
+              const index = rows.findIndex((r) => r.component === row.component);
               const hidesUnitRateQty =
                 NET_TOTAL_PERCENT_OF_FABRICATION.has(row.component) ||
                 NET_TOTAL_RUPEE_ENTRY.has(row.component) ||
@@ -780,8 +814,6 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
               const isPercentOfFabric = NET_TOTAL_PERCENT_OF_FABRICATION.has(row.component);
               const isRupeeEntryField = NET_TOTAL_RUPEE_ENTRY.has(row.component);
               const isTenderModePercent = NET_TOTAL_TENDER_MODE_PERCENT.has(row.component);
-              const showRupeeFabHint =
-                isRupeeEntryField && grandTotal > 0 && Number(row.total) > 0;
               const isNoCheckbox = NET_TOTAL_NO_CHECKBOX.has(row.component);
               const isTotalFabrication = row.component === COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE;
               const isTotalPriceFabrication = row.component === COMPONENT_TOTAL_PRICE_FABRICATION;
@@ -801,7 +833,7 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
 
               return (
                 <div
-                  key={index}
+                  key={row.component}
                   className="flex flex-col gap-2 border-b border-slate-200 bg-gray-50 p-3 last:border-b-0 sm:flex-row sm:items-start sm:gap-4"
                 >
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
@@ -816,20 +848,16 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
                     />
                   )}
                   <span className="w-64 font-medium text-sm flex-shrink-0">
-                    {indexToNetTotalLetters(index)}. {row.component}:
+                    {indexToNetTotalLetters(displayIndex)}. {row.component}:
                   </span>
                   {isTenderModePercent ? (
                     <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        max="100"
+                      <NumericInput
                         value={row.unitCost}
-                        onChange={(e) => handleRowChange(index, "unitCost", e.target.value)}
+                        onChange={(val) => handleRowChange(index, "unitCost", val)}
                         className="w-24 p-2 border rounded text-sm"
                         placeholder="%"
-                        title="Tender percentage (0–100%)"
+                        aria-label="Tender percentage"
                       />
                       <span className="text-sm font-medium text-slate-600 shrink-0">%</span>
                     </div>
@@ -847,38 +875,30 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
                     !isTenderModePercent && (
                     isPercentOfFabric ? (
                       <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="100"
+                        <NumericInput
                           value={row.unitCost}
-                          onChange={(e) => handleRowChange(index, "unitCost", e.target.value)}
+                          onChange={(val) => handleRowChange(index, "unitCost", val)}
                           className="w-24 p-2 border rounded text-sm"
                           placeholder="%"
-                          title="Enter % of Total Fabrication Cost Without Margin (max 100%)"
+                          aria-label="Percent of fabrication cost"
                         />
                         <span className="text-sm font-medium text-slate-600 shrink-0">%</span>
                       </div>
                     ) : isRupeeEntryField ? (
                       <div className="flex items-center gap-1">
                         <span className="text-sm font-medium text-slate-600 shrink-0">₹</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                        <NumericInput
                           value={row.unitCost}
-                          onChange={(e) => handleRowChange(index, "unitCost", e.target.value)}
+                          onChange={(val) => handleRowChange(index, "unitCost", val)}
                           className="w-28 min-w-[7rem] p-2 border rounded text-sm"
                           placeholder="Amount"
-                          title="Enter amount in rupees (applied directly to this line total)"
+                          aria-label="Amount in rupees"
                         />
                       </div>
                     ) : (
-                      <input
-                        type="number"
+                      <NumericInput
                         value={row.unitCost}
-                        onChange={(e) => handleRowChange(index, "unitCost", e.target.value)}
+                        onChange={(val) => handleRowChange(index, "unitCost", val)}
                         className="w-24 p-2 border rounded text-sm"
                         placeholder="Unit Cost"
                         disabled={row.include === false}
@@ -894,18 +914,16 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
                     !isFinalTenderCost &&
                     !isGemCost && (
                     <>
-                      <input
-                        type="number"
+                      <NumericInput
                         value={row.unitRate}
-                        onChange={(e) => handleRowChange(index, 'unitRate', e.target.value)}
+                        onChange={(val) => handleRowChange(index, "unitRate", val)}
                         className="w-24 p-2 border rounded text-sm"
                         placeholder="Unit Rate"
                         disabled={row.include === false}
                       />
-                      <input
-                        type="number"
+                      <NumericInput
                         value={row.qty}
-                        onChange={(e) => handleRowChange(index, 'qty', e.target.value)}
+                        onChange={(val) => handleRowChange(index, "qty", val)}
                         className="w-20 p-2 border rounded text-sm"
                         placeholder="Qty"
                         disabled={row.include === false}
@@ -914,31 +932,20 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
                   )}
                   {!isReadOnlyItem && !isTenderModePercent && (
                     <span className="min-w-[10rem] flex-shrink-0 text-right font-medium text-sm">
-                      <span className="block">
-                        ₹
-                        {Number(row.total || 0).toLocaleString("en-IN", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </span>
-                      {isPercentOfFabric && (
-                        <span className="block text-xs font-normal text-slate-500">
-                          ({Number(row.unitCost || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}% of
-                          fabrication)
-                        </span>
-                      )}
-                      {showRupeeFabHint && (
-                        <span className="block text-xs font-normal text-slate-500">
-                          (
-                          {((Number(row.total) / grandTotal) * 100).toLocaleString("en-IN", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                          % of fabrication)
-                        </span>
-                      )}
+                      ₹
+                      {Number(row.total || 0).toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </span>
                   )}
+                  <input
+                    type="text"
+                    value={row.remark || ""}
+                    onChange={(e) => handleRowChange(index, "remark", e.target.value)}
+                    placeholder="Remarks"
+                    className="min-w-[10rem] flex-1 rounded border border-slate-200 p-2 text-sm"
+                  />
                   </div>
                   <div className="w-full shrink-0 rounded border border-slate-200 bg-white px-3 py-2 text-xs leading-snug text-slate-700 sm:max-w-md sm:flex-1 whitespace-pre-wrap sm:border-l-2 sm:border-t-0">
                     {getNetTotalFormulaText(row, rows, {
@@ -956,11 +963,9 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
 
         {/* Buttons */}
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          {summaryAutoHint ? (
-            <span className="w-full text-xs font-medium text-emerald-700 sm:w-auto" role="status">
-              {summaryAutoHint}
-            </span>
-          ) : null}
+          <span className="w-full text-xs font-medium text-emerald-700 sm:w-auto">
+            Auto-save on{summaryAutoHint ? ` · ${summaryAutoHint}` : ""}
+          </span>
           <button
             onClick={saveSummaryData}
             disabled={saving || loading || !canEditSummary}
@@ -972,7 +977,46 @@ const CostingSummary = ({ grandTotal = 0, chassisTotal = 0, accessoriesTotal = 0
           <button className="px-4 py-2 bg-purple-700 text-white rounded hover:bg-purple-800">
             Calculate
           </button>
-          <button className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-800">
+          <button
+            type="button"
+            onClick={async () => {
+              if (!onExportExcel) return;
+              try {
+                const { data: mocData } = await supabase
+                  .from("moc_prices")
+                  .select("moc, unit, price")
+                  .eq("tender_id", Number(tenderId));
+                const { data: accCosting } = await supabase
+                  .from("costing_accessories")
+                  .select("accessory_id, qty, price")
+                  .eq("tender_id", Number(tenderId));
+                const { data: accCatalog } = await supabase.from("accessories").select("id, name, description");
+                const accMap = new Map((accCatalog || []).map((a) => [String(a.id), a]));
+                const accessoriesRows = (accCosting || []).map((c) => {
+                  const cat = accMap.get(String(c.accessory_id)) || {};
+                  return {
+                    title: cat.name || "",
+                    description: cat.description || "",
+                    qty: c.qty,
+                    price: c.price,
+                  };
+                });
+                const netRows = filterNetTotalRowsForSource(rows, tenderSource).map((row) => ({
+                  ...row,
+                  formulaText: getNetTotalFormulaText(row, rows, {
+                    grandTotal,
+                    chassisTotal,
+                    accessoriesTotal,
+                  }),
+                }));
+                await onExportExcel(netRows, accessoriesRows, mocData || []);
+              } catch (err) {
+                console.error(err);
+                alert("Export failed: " + (err.message || err));
+              }
+            }}
+            className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-800"
+          >
             Export Costing Sheet XLSX Report
           </button>
 

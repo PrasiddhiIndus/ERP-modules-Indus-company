@@ -14,6 +14,7 @@ import {
   Dashboard,
   FireTender,
   FireTenderDashboard,
+  FireTenderCostingHub,
   CostingList,
   CostingSheet,
   QuotationList,
@@ -320,12 +321,14 @@ function App() {
             <Route index element={<Navigate to="/app/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="fire-tender" element={<FireTenderDashboard />} />
-            <Route path="fire-tender/new" element={<FireTender />} />
-            <Route path="fire-tender/list" element={<Navigate to="/app/fire-tender/new" replace />} />
-            <Route path="fire-tender/:id" element={<FireTender />} />
-            <Route path="fire-tender/costing" element={<CostingList tenders={demoTenders} />} />
+            <Route path="fire-tender/costing-hub" element={<Navigate to="/app/fire-tender/costing-hub/tender" replace />} />
+            <Route path="fire-tender/costing-hub/:tab" element={<FireTenderCostingHub />} />
+            <Route path="fire-tender/new" element={<Navigate to="/app/fire-tender/costing-hub/tender" replace />} />
+            <Route path="fire-tender/list" element={<Navigate to="/app/fire-tender/costing-hub/tender" replace />} />
+            <Route path="fire-tender/costing" element={<Navigate to="/app/fire-tender/costing-hub/costing" replace />} />
             <Route path="fire-tender/costing/:id" element={<CostingSheet tenders={demoTenders} />} />
-            <Route path="fire-tender/quotation" element={<QuotationList quotations={demoQuotations} />} />
+            <Route path="fire-tender/quotation" element={<Navigate to="/app/fire-tender/costing-hub/quotation" replace />} />
+            <Route path="fire-tender/:id" element={<FireTender />} />
             <Route path="fire-tender/quotation/:id" element={<QuotationDetail quotations={demoQuotations} />} />
             <Route path="fire-tender/configuration/main-component" element={<MainComponentPage />} />
             <Route path="fire-tender/configuration/manual-sub-category" element={<ManualSubCategoryPage />} />
