@@ -36,6 +36,49 @@ main.erp-app-shell table:not(.erp-table-exempt) tbody tr:hover {
   background-color: rgba(254, 242, 242, 0.55) !important;
 }
 
+/* Dynamic column/cell spacing — content-driven width, readable inputs */
+main.erp-app-shell table:not(.erp-table-exempt) th,
+main.erp-app-shell table:not(.erp-table-exempt) td {
+  padding: 0.5rem 0.75rem !important;
+  min-width: 4.5rem;
+  vertical-align: middle;
+}
+
+main.erp-app-shell table:not(.erp-table-exempt) td input:not([type="checkbox"]):not([type="radio"]),
+main.erp-app-shell table:not(.erp-table-exempt) td select,
+main.erp-app-shell table:not(.erp-table-exempt) td textarea {
+  min-width: 5rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+main.erp-app-shell .erp-numeric-input {
+  min-width: 5.5rem;
+}
+
+main.erp-app-shell .erp-hub-tab-panel > div.min-h-screen {
+  min-height: 0 !important;
+  background: transparent !important;
+}
+
+main.erp-app-shell .erp-hub-tab-panel > div.min-h-screen > div {
+  padding: 0 !important;
+  max-width: none !important;
+}
+
+/* Numeric fields: no spinner arrows; digits only via NumericInput */
+main.erp-app-shell input[type="number"]::-webkit-inner-spin-button,
+main.erp-app-shell input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+main.erp-app-shell input[type="number"],
+main.erp-app-shell .erp-numeric-input {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 main.erp-app-shell .overflow-x-auto {
   scrollbar-width: thin;
   scrollbar-color: rgba(220, 38, 38, 0.45) #f3f4f6;

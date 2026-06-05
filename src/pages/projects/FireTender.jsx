@@ -28,6 +28,7 @@ import {
   userCanEditInModules,
 } from "../../config/roles";
 import FireTenderNavbar from "./FireTenderNavbar";
+import { FIRE_TENDER_HUB_TENDER } from "./fireTenderRoutes";
 
 /** Form controls — slate borders, red focus ring (Fire Tender) */
 const ftInput =
@@ -371,12 +372,16 @@ function TenderFormFields({
   );
 }
 
-const FireTender = () => {
+const FireTender = ({ embeddedInHub = false }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const isEditMode = Boolean(id && id !== "new");
-  const isNewTenderPage = location.pathname.replace(/\/$/, "").endsWith("/fire-tender/new");
+  const pathNorm = location.pathname.replace(/\/$/, "");
+  const isNewTenderPage =
+    embeddedInHub ||
+    pathNorm.endsWith("/fire-tender/new") ||
+    pathNorm.endsWith("/fire-tender/costing-hub/tender");
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -647,7 +652,7 @@ const FireTender = () => {
         setEntryModalOpen(false);
         fetchTenders();
       } else if (isEditMode) {
-        navigate("/app/fire-tender/new");
+        navigate(FIRE_TENDER_HUB_TENDER);
       }
     } catch (err) {
       console.error("Error saving tender:", err.message);
@@ -756,9 +761,9 @@ const FireTender = () => {
 
   if (isNewTenderPage && !isEditMode) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="w-full max-w-[1600px] mx-auto p-4 sm:p-6 space-y-6">
-          <FireTenderNavbar />
+      <div className={embeddedInHub ? "space-y-6" : "min-h-screen bg-gray-50"}>
+        <div className={embeddedInHub ? "space-y-6" : "w-full max-w-[1600px] mx-auto p-4 sm:p-6 space-y-6"}>
+          {!embeddedInHub && <FireTenderNavbar />}
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-2">
@@ -1052,9 +1057,9 @@ const FireTender = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="w-full max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
-        <FireTenderNavbar />
+    <div className={embeddedInHub ? "space-y-6" : "min-h-screen bg-gray-50"}>
+      <div className={embeddedInHub ? "space-y-6" : "w-full max-w-6xl mx-auto p-4 sm:p-6 space-y-6"}>
+        {!embeddedInHub && <FireTenderNavbar />}
 
         <div className="flex items-start gap-3">
           <div className="bg-red-100 p-3 rounded-xl shrink-0">
@@ -1092,7 +1097,7 @@ const FireTender = () => {
               <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-white px-4 py-4 sm:flex-row sm:justify-end sm:gap-3 sm:px-6 sm:py-4">
                 <button
                   type="button"
-                  onClick={() => navigate("/app/fire-tender/new")}
+                  onClick={() => navigate(FIRE_TENDER_HUB_TENDER)}
                   disabled={saving}
                   className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
                 >

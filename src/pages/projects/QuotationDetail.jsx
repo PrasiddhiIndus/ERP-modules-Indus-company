@@ -12,6 +12,7 @@ import jsPDF from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { INDUS_LOGO_SRC } from "../../constants/branding.js";
 import FireTenderNavbar from "./FireTenderNavbar";
+import { formatTenderAddress } from "./fireTenderRoutes";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 
 const generateQuotationNumber = (index) => {
@@ -1126,14 +1127,13 @@ const QuotationDetail = () => {
   }
 
   const grandTotal = approvedItems.reduce((sum, item) => sum + parseFloat(item.total || 0), 0);
-  const fullAddress = `${quotation.street} ${quotation.street2 ? `${quotation.street2}, ` : ""}${quotation.city}, ${quotation.state} ${quotation.zip}, ${quotation.country}`.trim();
+  const fullAddress = formatTenderAddress(quotation);
 
   return (
     <div className="w-full min-h-screen bg-slate-50">
-      <div className="mx-auto w-full max-w-[1600px] p-4 sm:p-6 space-y-6">
+      <div className="mx-auto w-full max-w-[1600px] space-y-4 p-4 sm:p-6">
         <FireTenderNavbar />
-        <div className="h-1.5 shrink-0 rounded-full bg-gradient-to-r from-red-600 via-red-500 to-amber-400" aria-hidden />
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm max-w-6xl mx-auto overflow-hidden">
+        <div className="mx-auto max-w-6xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {/* Header */}
           <div className="p-4 sm:p-6 border-b border-slate-200 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white">
             <div>
@@ -1184,12 +1184,10 @@ const QuotationDetail = () => {
                     <p className="text-sm font-medium text-gray-900">{clientEmail}</p>
                   </div>
                 )}
-                {fullAddress && (
-                  <div className="md:col-span-2">
-                    <p className="text-xs text-gray-500 mb-1">Address</p>
-                    <p className="text-sm font-medium text-gray-900">{fullAddress}</p>
-                  </div>
-                )}
+                <div className="md:col-span-2">
+                  <p className="text-xs text-gray-500 mb-1">Address</p>
+                  <p className="text-sm font-medium text-gray-900">{fullAddress || "—"}</p>
+                </div>
               </div>
             </div>
 
@@ -1381,7 +1379,7 @@ const QuotationDetail = () => {
               {/* Action Buttons */}
               <div className="flex justify-end space-x-3 mt-6 pt-6 border-t border-gray-200">
                 <Link
-                  to="/app/fire-tender/quotation"
+                  to="/app/fire-tender/costing-hub/quotation"
                   className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
                 >
                   Cancel

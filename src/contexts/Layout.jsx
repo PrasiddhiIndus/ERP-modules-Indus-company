@@ -1014,21 +1014,23 @@ const Layout = () => {
 
               {fireTenderOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
-                  <NavLink to="fire-tender" className={subNavClass}>
+                  <NavLink to="fire-tender" end className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Fire Tender Dashboard</span>
                   </NavLink>
-                  <NavLink to="fire-tender/new" className={subNavClass}>
-                    <Truck className="w-4 h-4 shrink-0 text-orange-600" />
-                    <span className="text-xs">New Tender</span>
-                  </NavLink>
-                  <NavLink to="fire-tender/costing" className={subNavClass}>
-                    <Calculator className="w-4 h-4 shrink-0 text-green-600" />
-                    <span className="text-xs">Costing Sheet</span>
-                  </NavLink>
-                  <NavLink to="fire-tender/quotation" className={subNavClass}>
-                    <ReceiptIcon className="w-4 h-4 shrink-0 text-purple-600" />
-                    <span className="text-xs">Quotation</span>
+                  <NavLink
+                    to="fire-tender/costing-hub/tender"
+                    className={subNavClass}
+                    isActive={(_, loc) => {
+                      const p = loc.pathname.replace(/\/$/, "");
+                      if (p === "/app/fire-tender") return false;
+                      if (p.startsWith("/app/fire-tender/configuration")) return false;
+                      if (p.startsWith("/app/fire-tender-manufacturing")) return false;
+                      return p.startsWith("/app/fire-tender");
+                    }}
+                  >
+                    <Calculator className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Fire Tender Costing</span>
                   </NavLink>
                   <NavLink to="fire-tender-manufacturing" className={subNavClass}>
                     <Factory className="w-4 h-4 shrink-0 text-orange-600" />

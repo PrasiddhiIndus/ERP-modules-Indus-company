@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { managerOptionLabel } from '../../lib/employeeHierarchy';
 
 /**
@@ -14,7 +14,6 @@ export function ManagerSearchSelect({
   disabled = false,
   placeholder = 'Search name or employee code…',
 }) {
-  const listId = useId();
   const rootRef = useRef(null);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -79,12 +78,18 @@ export function ManagerSearchSelect({
       <div className="flex gap-2">
         <input
           type="text"
-          list={listId}
           value={open ? query : displayValue}
           onChange={(e) => {
-            setQuery(e.target.value);
+            const val = e.target.value;
+            setQuery(val);
             setOpen(true);
-            if (!e.target.value.trim()) clear();
+            if (!val.trim()) {
+              clear();
+              return;
+            }
+            // Resolve when the value exactly matches an option label (autofill/paste/native pick).
+            const exact = candidates.find((row) => managerOptionLabel(row) === val);
+            if (exact) pick(exact);
           }}
           onFocus={() => {
             setQuery(displayValue);
@@ -106,14 +111,6 @@ export function ManagerSearchSelect({
           </button>
         ) : null}
       </div>
-      <datalist id={listId}>
-        {candidates.map((row) => {
-          const key = row.id ?? `${row.employee_code}-${row.employee_id}`;
-          return (
-            <option key={key} value={managerOptionLabel(row)} />
-          );
-        })}
-      </datalist>
       {open && filtered.length > 0 ? (
         <ul className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg text-sm">
           {filtered.map((row) => {

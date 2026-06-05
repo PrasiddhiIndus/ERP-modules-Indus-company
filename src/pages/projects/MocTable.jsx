@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
+import { NumericInput } from "../../components/NumericInput";
 
 const MocTable = ({ tenderId }) => {
   const [rows, setRows] = useState([]);
@@ -150,10 +151,9 @@ const MocTable = ({ tenderId }) => {
               <td className="border px-2 py-1">{row.moc}</td>
               <td className="border px-2 py-1">{row.unit}</td>
               <td className="border px-2 py-1">
-                <input
-                  type="number"
+                <NumericInput
                   value={row.price ?? ""}
-                  onChange={(e) => updateRow(index, e.target.value)}
+                  onChange={(val) => updateRow(index, val)}
                   className="w-full p-1 border rounded"
                   placeholder="Enter price"
                 />
@@ -164,11 +164,9 @@ const MocTable = ({ tenderId }) => {
       </table>
 
       <div className="flex flex-wrap items-center gap-3">
-        {mocAutoHint ? (
-          <span className="w-full text-xs font-medium text-emerald-700 sm:w-auto" role="status">
-            {mocAutoHint}
-          </span>
-        ) : null}
+        <span className="w-full text-xs font-medium text-emerald-700 sm:w-auto">
+          Auto-save on{mocAutoHint ? ` · ${mocAutoHint}` : ""}
+        </span>
         <button
           type="button"
           onClick={saveAll}

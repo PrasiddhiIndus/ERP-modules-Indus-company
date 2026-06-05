@@ -272,6 +272,8 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { supabase } from "../../lib/supabase";
+import { NumericInput, parseNumericInput } from "../../components/NumericInput";
+import { ALUMINIUM_EXTENSION_LADDER } from "./fireTenderCostingConfig";
 
 const AccessoriesTable = ({ tenderId, onTotalChange }) => {
   const [rows, setRows] = useState([]);
@@ -346,10 +348,25 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
         console.log("User IDs in data:", [...new Set(accessories.map(d => d.user_id))]);
       }
       
-      // If no accessories found, show empty state (not an error - user might not have added any yet)
-      if (!accessories || accessories.length === 0) {
-        console.warn("⚠️ No accessories found in database.");
-        console.warn("User should add accessories in the configuration page first.");
+      let catalog = [...(accessories || [])];
+
+      const hasLadder = catalog.some((a) => a.name === ALUMINIUM_EXTENSION_LADDER.name);
+      if (!hasLadder) {
+        const { data: ladderRow, error: ladderErr } = await supabase
+          .from("accessories")
+          .insert({
+            name: ALUMINIUM_EXTENSION_LADDER.name,
+            description: ALUMINIUM_EXTENSION_LADDER.description,
+            user_id: null,
+          })
+          .select("id, name, description, user_id, created_at, updated_at")
+          .single();
+        if (!ladderErr && ladderRow) {
+          catalog = [ladderRow, ...catalog];
+        }
+      }
+
+      if (catalog.length === 0) {
         setRows([]);
         return;
       }
@@ -407,7 +424,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
 
       // ALWAYS show ALL accessories from configuration page
       // Use saved qty/price if they exist in costing data, otherwise use 0
-      const mergedRows = accessories.map((acc, index) => {
+      const mergedRows = catalog.map((acc, index) => {
         // Ensure accessory_id is a string (uuid) for proper matching
         const accessoryId = String(acc.id);
         const existingCost = costingMap.get(accessoryId);
@@ -544,6 +561,21 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     }
   };
 
+  const addAccessoryRow = async () => {
+    try {
+      const { error } = await supabase.from("accessories").insert({
+        name: "New accessory",
+        description: "",
+        user_id: null,
+      });
+      if (error) throw error;
+      await fetchAccessoriesCosting();
+    } catch (err) {
+      console.error(err);
+      alert("Could not add accessory line: " + (err.message || err));
+    }
+  };
+
   const saveAll = async () => {
     setSaving(true);
     try {
@@ -633,23 +665,17 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
                 <td className="border px-2 py-1 font-medium">{row.title || "N/A"}</td>
                 <td className="border px-2 py-1">{row.description || ""}</td>
                 <td className="border px-2 py-1">
-                  <input
-                    type="number"
+                  <NumericInput
                     value={row.qty}
-                    onChange={(e) => updateRow(index, "qty", parseFloat(e.target.value) || 0)}
+                    onChange={(val) => updateRow(index, "qty", parseNumericInput(val, 0))}
                     className="w-full p-1 border rounded"
-                    min="0"
-                    step="0.01"
                   />
                 </td>
                 <td className="border px-2 py-1">
-                  <input
-                    type="number"
+                  <NumericInput
                     value={row.price}
-                    onChange={(e) => updateRow(index, "price", parseFloat(e.target.value) || 0)}
+                    onChange={(val) => updateRow(index, "price", parseNumericInput(val, 0))}
                     className="w-full p-1 border rounded"
-                    min="0"
-                    step="0.01"
                   />
                 </td>
                 <td className="border px-2 py-1 text-right">
@@ -671,11 +697,19 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       </table>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={addAccessoryRow}
+          className="text-blue-600 hover:underline text-sm font-medium"
+        >
+          + Add accessory line
+        </button>
         {accessoriesAutoHint ? (
           <span className="w-full text-xs font-medium text-emerald-700 sm:w-auto" role="status">
             {accessoriesAutoHint}
           </span>
         ) : null}
+        <span className="text-xs text-emerald-700">Auto-save on</span>
         <button
           type="button"
           onClick={saveAll}
