@@ -18,7 +18,7 @@ import {
   attachRegisterRowSummaries,
   buildPresentKeysFromPunches,
   buildMonthlyRegisterGrid,
-  mergeActiveEmployeesWithPunches,
+  buildRegisterEmployeeList,
   fetchMasterRegisterCodeMap,
   collectRegisterEmployeeCodes,
   syncRegisterMarksFromPunches,
@@ -35,6 +35,7 @@ import {
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
   fetchActiveEmployees,
+  fetchInactiveEmployeesFromMaster,
   fetchAttendancePunchesInRange,
   isoMonthToday,
   loadRegisterMarksForMonth,
@@ -172,37 +173,52 @@ export function EmployeeAttendanceDailyPage() {
     setLoading(true);
     setError("");
     try {
-      const [punchRows, employees] = await Promise.all([
+      const [punchRows, employees, inactiveEmployees] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
           toDate: monthMeta.toDate,
           empCode: resolveAttendanceEmpCodeFilter(empCode),
         }),
         fetchActiveEmployees(supabase),
+        fetchInactiveEmployeesFromMaster(supabase),
       ]);
       const masterCodeMap = await fetchMasterRegisterCodeMap(supabase);
       setMasterRegisterCodeMap(masterCodeMap);
       const employeesWithCode = employees.filter((e) => e.empCode);
-      const registerEmpCodes = collectRegisterEmployeeCodes(employeesWithCode, punchRows);
-      const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
       await syncRegisterMarksFromPunches(supabase, punchRows, {
         fromDate: monthMeta.fromDate,
         toDate: monthMeta.toDate,
         respectManualMarks: true,
         masterCodeMap,
       });
+      const [registerData, yearRows] = await Promise.all([
+        loadRegisterMarksForMonth(supabase, monthMeta),
+        fetchRegisterMarksForYear(supabase, monthMeta.year),
+      ]);
+      const punchCodes = [
+        ...new Set(
+          punchRows
+            .map((p) => normalizeAttendanceEmpCode(p.empCode ?? p.employee_code))
+            .filter(Boolean)
+        ),
+      ];
+      const registerCodes = Object.keys(registerData?.marks || {})
+        .map((c) => normalizeAttendanceEmpCode(c))
+        .filter(Boolean);
+      const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveEmployees, {
+        punchCodes,
+        registerCodes,
+      });
+      const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
+      const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
       const woResult = await syncRegisterAutoWeekoffMarks(
         supabase,
         registerEmpCodes,
         weekoffDates,
         masterCodeMap
       );
-      const [registerData, yearRows] = await Promise.all([
-        loadRegisterMarksForMonth(supabase, monthMeta),
-        fetchRegisterMarksForYear(supabase, monthMeta.year),
-      ]);
       setPunches(punchRows);
-      setActiveEmployees(employeesWithCode);
+      setActiveEmployees(registerEmployees);
       setManualMarks(registerData?.marks || {});
       setManualRemarks(registerData?.remarks || {});
       setYearRegisterRows(yearRows);
@@ -237,8 +253,7 @@ export function EmployeeAttendanceDailyPage() {
 
   const { rows: gridRows, daysInMonth } = useMemo(() => {
     if (!monthMeta) return { rows: [], daysInMonth: 0 };
-    const employeesForGrid = mergeActiveEmployeesWithPunches(activeEmployees, punches);
-    return buildMonthlyRegisterGrid(punches, employeesForGrid, {
+    return buildMonthlyRegisterGrid(punches, activeEmployees, {
       year: monthMeta.year,
       month: monthMeta.month,
       manualMarks,
@@ -451,8 +466,11 @@ export function EmployeeAttendanceDailyPage() {
         allEmployees: [],
       };
     }
-    return computeDayAttendanceBreakdown(filteredRows, bulkDayNumber);
-  }, [bulkDayNumber, filteredRows]);
+    return computeDayAttendanceBreakdown(filteredRows, bulkDayNumber, {
+      year: monthMeta?.year,
+      month: monthMeta?.month,
+    });
+  }, [bulkDayNumber, filteredRows, monthMeta?.year, monthMeta?.month]);
 
   const dayFilteredRowsBase = useMemo(() => {
     if (!tableDayAttendanceFilter || !bulkDayNumber) return filteredRows;
@@ -474,8 +492,12 @@ export function EmployeeAttendanceDailyPage() {
   }, []);
 
   const rowsWithSummary = useMemo(
-    () => attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth),
-    [dayFilteredRows, manualMarks, daysInMonth]
+    () =>
+      attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth, {
+        year: monthMeta?.year,
+        month: monthMeta?.month,
+      }),
+    [dayFilteredRows, manualMarks, daysInMonth, monthMeta?.year, monthMeta?.month]
   );
 
   const summaryFooter = useMemo(() => computeRegisterSummaryFooter(rowsWithSummary), [rowsWithSummary]);
@@ -893,7 +915,7 @@ export function EmployeeAttendanceDailyPage() {
             >
               <div
                 style={registerMarkCellInlineStyle(value)}
-                className={`${registerMarkCellWrapperClass(value)} relative group ${isCommentMark ? "cursor-pointer" : ""}`}
+                className={`${registerMarkCellWrapperClass(value)} relative group/comment ${isCommentMark ? "cursor-pointer" : ""}`}
               >
                 <RegisterMarkPicker
                   value={value}
@@ -905,7 +927,7 @@ export function EmployeeAttendanceDailyPage() {
                       className="absolute top-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-t-[8px] border-t-red-500 pointer-events-none"
                       aria-hidden
                     />
-                    <div className="pointer-events-none absolute z-30 right-0 top-full mt-1 hidden max-w-[260px] rounded-md bg-gray-900 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg group-hover:block">
+                    <div className="pointer-events-none absolute z-30 right-0 top-full mt-1 hidden max-w-[260px] rounded-md bg-gray-900 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg group-hover/comment:block">
                       <div className="font-semibold text-[9px] text-gray-200">{commentMark} comment</div>
                       <div>{comment}</div>
                     </div>
