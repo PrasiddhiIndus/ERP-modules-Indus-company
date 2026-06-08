@@ -90,7 +90,9 @@ async function upsertRegisterBatch(supabase, rows) {
  * @param {Array<{ empCode?: string, employee_code?: string, punchDate?: string, punch_date?: string }>} punches
  */
 export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
-  const { respectManualMarks = false, fromDate: fromOverride, toDate: toOverride } = options;
+  // Always protect manual/leave/non-punch entries. Punch sync must only write 'P'
+  // where the cell is blank or already punch-sourced — never over a manual fill.
+  const { respectManualMarks = true, fromDate: fromOverride, toDate: toOverride } = options;
   const candidateRows = punchesToPresentRegisterRows(punches);
   if (!candidateRows.length) {
     return { upserted: 0, skipped: 0, candidates: 0 };

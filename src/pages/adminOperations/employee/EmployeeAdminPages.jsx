@@ -682,8 +682,8 @@ export function EmployeeAttendanceInputsPage() {
 
       {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 whitespace-pre-wrap">{error}</div>}
 
-      <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div className="lg:col-span-2">
+      <div className="mt-3 flex flex-col xl:flex-row gap-3 items-start">
+        <div className="min-w-0 flex-1 w-full">
           <DenseTable
             columns={tableColumns}
             rows={rows}
@@ -716,22 +716,42 @@ export function EmployeeAttendanceInputsPage() {
             </div>
           </div>
         </div>
-        <SectionCard title="eTimeOffice sync" className="!shadow-none">
-          <Timeline
-            items={[
-              {
-                title: "Source",
-                meta: apiConnection.etimeConfigured
-                  ? `Supabase · eTimeOffice (${apiConnection.punchEndpoint || "API"})`
-                  : "Supabase table · eTimeOffice sync",
-              },
-              { title: "Date", meta: summary?.selectedDate || selectedDate },
-              { title: "Records for date", meta: `${totalCount} total · page ${currentPage} (${rows.length} shown)` },
-              { title: "Last API sync", meta: summary?.syncedCount != null ? `${summary.syncedCount} stored` : "Not synced this session" },
-            ]}
-          />
-          {summary?.message && <p className="text-[11px] text-gray-500 mt-3">{summary.message}</p>}
-        </SectionCard>
+        <aside className="w-full sm:w-[11.5rem] shrink-0 rounded-lg border border-gray-200 bg-white">
+          <div className="px-2 py-1 border-b border-gray-100">
+            <h4 className="text-[10px] font-semibold text-gray-900 leading-tight">eTimeOffice sync</h4>
+          </div>
+          <dl className="px-2 py-1.5 space-y-1 text-[9px] leading-tight text-gray-600">
+            <div>
+              <dt className="font-medium text-gray-800">Source</dt>
+              <dd className="mt-px break-words text-gray-500">
+                {apiConnection.etimeConfigured
+                  ? `Supabase · ${apiConnection.punchEndpoint || "API"}`
+                  : "Supabase · eTimeOffice"}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-800">Date</dt>
+              <dd className="mt-px text-gray-500">{summary?.selectedDate || selectedDate}</dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-800">Records</dt>
+              <dd className="mt-px text-gray-500">
+                {totalCount} · p.{currentPage}/{totalPages}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium text-gray-800">Last sync</dt>
+              <dd className="mt-px text-gray-500">
+                {summary?.syncedCount != null ? `${summary.syncedCount} stored` : "Not this session"}
+              </dd>
+            </div>
+          </dl>
+          {summary?.message ? (
+            <p className="px-2 pb-1.5 text-[9px] text-gray-500 leading-tight border-t border-gray-100 pt-1">
+              {summary.message}
+            </p>
+          ) : null}
+        </aside>
       </div>
     </SectionCard>
   );
