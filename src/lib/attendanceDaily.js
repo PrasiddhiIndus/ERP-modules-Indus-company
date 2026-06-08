@@ -105,11 +105,11 @@ export function isRegisterCommentMark(mark) {
 }
 
 /** Marks that count toward monthly present-day totals (payroll / register summary). */
-const REGISTER_PRESENT_CREDIT_MARKS = new Set(["P", "P(OD)", "T", "CO"]);
+const REGISTER_PRESENT_CREDIT_MARKS = new Set(["P", "P(OD)", "T", "CO", "WFH"]);
 
 /**
  * Present-day credit for one register cell (0, 0.5, or 1).
- * CO counts as present; leave / WO / NH/PH do not.
+ * CO and WFH count as present; leave / WO / NH/PH do not.
  */
 export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
@@ -118,6 +118,17 @@ export function registerPresentDayCredit(mark) {
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
   if (canonical && REGISTER_PRESENT_CREDIT_MARKS.has(canonical)) return 1;
+  return 0;
+}
+
+/** Present credit for a day cell; 3rd Saturday counts as present when blank or WO. */
+export function registerPresentDayCreditForCell(mark, { year, month, day } = {}) {
+  const credit = registerPresentDayCredit(mark);
+  if (credit > 0) return credit;
+  if (year && month && day && isThirdSaturdayOfMonth(year, month, day)) {
+    const m = String(mark ?? "").trim();
+    if (!m || m === "WO") return 1;
+  }
   return 0;
 }
 
@@ -136,9 +147,9 @@ export function registerMarkStatusLabel(mark) {
 
 /**
  * Present vs marked-other vs unmarked for one calendar day across register rows.
- * Unmarked = no punch and no stored mark (blank cell).
+ * Unmarked = no punch and no stored mark (blank cell), except 3rd Saturday counts as present.
  */
-export function computeDayAttendanceBreakdown(rows, day) {
+export function computeDayAttendanceBreakdown(rows, day, { year, month } = {}) {
   const presentEmployees = [];
   const markedOtherEmployees = [];
   const unmarkedEmployees = [];
@@ -147,8 +158,9 @@ export function computeDayAttendanceBreakdown(rows, day) {
     const dayMark = row.dayMarks?.[day] || "";
     const entry = { ...row, dayMark };
     allEmployees.push(entry);
-    if (isRegisterEffectivePresentMark(dayMark)) presentEmployees.push(entry);
-    else if (!dayMark) unmarkedEmployees.push(entry);
+    if (registerPresentDayCreditForCell(dayMark, { year, month, day }) > 0) {
+      presentEmployees.push(entry);
+    } else if (!dayMark) unmarkedEmployees.push(entry);
     else markedOtherEmployees.push(entry);
   }
   return {
@@ -612,17 +624,14 @@ export function isThirdSaturdayOfMonth(year, month, day) {
   return saturdays === 3;
 }
 
-/** Sunday or 3rd Saturday of the month for an ISO date. */
+/** Sunday only — 3rd Saturday is a working day (counts as present in summaries). */
 export function isAutoWeekoffDate(isoDate) {
   const d = normalizeDbDate(isoDate);
   if (!d) return false;
   const year = Number(d.slice(0, 4));
   const month = Number(d.slice(5, 7));
   const day = Number(d.slice(8, 10));
-  const dow = new Date(year, month - 1, day).getDay();
-  if (dow === 0) return true;
-  if (dow === 6) return isThirdSaturdayOfMonth(year, month, day);
-  return false;
+  return new Date(year, month - 1, day).getDay() === 0;
 }
 
 /** All auto-WO dates for the viewed month and the following month. */
@@ -663,7 +672,7 @@ export function canAutoWeekoffApplyToExisting(existing) {
 }
 
 /**
- * Apply WO on all Sundays and 3rd Saturdays for every active employee on `weekoffDates`.
+ * Apply WO on all Sundays for every register employee on `weekoffDates`.
  * Skips leave, manual marks, and present; punch sync may overwrite WO afterward.
  */
 function indexRegisterRowByEmpDate(existingByKey, row) {
@@ -756,7 +765,8 @@ export async function syncRegisterAutoWeekoffMarks(
  * With `respectManualMarks`, only overwrites blank, punch-sourced, and WO cells.
  */
 export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
-  const { respectManualMarks = false, fromDate: fromOverride, toDate: toOverride } = options;
+  // Default true: punch sync must never overwrite manual/leave/non-punch entries.
+  const { respectManualMarks = true, fromDate: fromOverride, toDate: toOverride } = options;
   const masterCodeMap = options.masterCodeMap ?? null;
   const candidateRows = punchesToPresentRegisterRows(punches).map((row) => ({
     ...row,
@@ -793,29 +803,33 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   };
 }
 
-/** Include employees who punched but are missing from the active master list. */
-export function mergeActiveEmployeesWithPunches(activeEmployees, punches) {
+/** Include active master employees plus inactive (removed) master employees with month activity. */
+export function buildRegisterEmployeeList(activeEmployees, inactiveEmployees, { punchCodes = [], registerCodes = [] } = {}) {
   const byCode = new Map();
   for (const e of activeEmployees || []) {
     const code = normalizeAttendanceEmpCode(e.empCode);
-    if (code) byCode.set(code, e);
+    if (code) byCode.set(code, { ...e, masterStatus: "Active" });
   }
-  for (const punch of punches || []) {
-    const code = normalizeAttendanceEmpCode(punch.empCode ?? punch.employee_code);
+  const activityCodes = new Set(
+    [...(punchCodes || []), ...(registerCodes || [])].map(normalizeAttendanceEmpCode).filter(Boolean)
+  );
+  for (const e of inactiveEmployees || []) {
+    const code = normalizeAttendanceEmpCode(e.empCode);
     if (!code || byCode.has(code)) continue;
-    byCode.set(code, {
-      empCode: code,
-      employeeName: punch.employeeName || punch.employee_name || code,
-      employeeId: "",
-      department: "",
-      designation: "",
-    });
+    if (activityCodes.size > 0 && !activityCodes.has(code)) continue;
+    byCode.set(code, { ...e, masterStatus: "Inactive" });
   }
   return [...byCode.values()].sort((a, b) =>
-    String(a.employeeName || a.empCode).localeCompare(String(b.employeeName || b.empCode), undefined, {
-      sensitivity: "base",
-    })
+    String(a.empCode).localeCompare(String(b.empCode), undefined, { numeric: true })
   );
+}
+
+/** @deprecated Use buildRegisterEmployeeList — kept for callers that still merge punch orphans. */
+export function mergeActiveEmployeesWithPunches(activeEmployees, punches) {
+  const punchCodes = (punches || [])
+    .map((p) => normalizeAttendanceEmpCode(p.empCode ?? p.employee_code))
+    .filter(Boolean);
+  return buildRegisterEmployeeList(activeEmployees, [], { punchCodes, registerCodes: punchCodes });
 }
 
 export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
@@ -965,7 +979,10 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
     manualMarks: manualMarks.marks || {},
   });
 
-  const withSummary = attachRegisterRowSummaries(rows, manualMarks.marks || {}, daysInMonth);
+  const withSummary = attachRegisterRowSummaries(rows, manualMarks.marks || {}, daysInMonth, {
+    year: monthMeta.year,
+    month: monthMeta.month,
+  });
 
   return {
     monthMeta,
@@ -980,13 +997,14 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
   };
 }
 
-export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, daysInMonth) {
+export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, daysInMonth, { year, month } = {}) {
   const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
-    summary.totalPresent += registerPresentDayCredit(mark);
+    summary.totalPresent += registerPresentDayCreditForCell(mark, { year, month, day });
     if (isRegisterLeaveMark(mark)) summary.leave += 1;
-    if (mark === "WO") {
+    const isThirdSat = year && month && isThirdSaturdayOfMonth(year, month, day);
+    if (mark === "WO" && !isThirdSat) {
       summary.weekoff += 1;
       if (manualMarksForEmp[day] === "WO") summary.appliedWo += 1;
     }
@@ -995,10 +1013,10 @@ export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, days
   return summary;
 }
 
-export function attachRegisterRowSummaries(rows, manualMarks, daysInMonth) {
+export function attachRegisterRowSummaries(rows, manualMarks, daysInMonth, { year, month } = {}) {
   return rows.map((row) => ({
     ...row,
-    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth),
+    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth, { year, month }),
   }));
 }
 
@@ -1506,12 +1524,12 @@ export function buildMasterRegisterCodeMap(employees) {
   return map;
 }
 
-/** Load all active master codes from Supabase (source of truth for register FK). */
+/** Load active + inactive master codes (for register FK upserts). */
 export async function fetchMasterRegisterCodeMap(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
     .select("employee_code")
-    .eq("status", "Active");
+    .in("status", ["Active", "Inactive"]);
   if (error) throw error;
   const map = new Map();
   for (const row of data || []) {
@@ -1520,15 +1538,11 @@ export async function fetchMasterRegisterCodeMap(supabase) {
   return map;
 }
 
-/** All normalized codes that appear on the register grid. */
-export function collectRegisterEmployeeCodes(employees, punches) {
+/** All normalized codes for register sync (master employees only). */
+export function collectRegisterEmployeeCodes(employees) {
   const codes = new Set();
   for (const e of employees || []) {
     const n = normalizeAttendanceEmpCode(e.empCode);
-    if (n) codes.add(n);
-  }
-  for (const p of punches || []) {
-    const n = normalizeAttendanceEmpCode(p.empCode ?? p.employee_code);
     if (n) codes.add(n);
   }
   return [...codes];
@@ -1730,6 +1744,16 @@ export async function fetchActiveEmployees(supabase) {
     .eq("status", "Active");
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.employeeId || e.empCode);
+}
+
+/** Inactive (removed/deactivated) employees still on master — shown when they have month activity. */
+export async function fetchInactiveEmployeesFromMaster(supabase) {
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("employee_code,employee_id,full_name,department,designation,status")
+    .eq("status", "Inactive");
+  if (error) throw error;
+  return (data || []).map(mapMasterEmployee).filter((e) => e.empCode);
 }
 
 /** Active employees with a non-empty employee_code (required for register saves + FK). */
