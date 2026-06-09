@@ -150,6 +150,7 @@ const Layout = () => {
     }
     if (pathname.startsWith("/app/fire-tender") || pathname.startsWith("/app/fire-tender-manufacturing")) setFireTenderOpen(true);
     if (pathname.startsWith("/app/amc")) setAmcOpen(true);
+    if (pathname.startsWith("/app/accounts-finance")) setFinanceOpen(true);
   }, [pathname]);
 
   const handleSignOut = async () => {
@@ -979,12 +980,29 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Finance/Accounts */}
             {can("finance") && (
-            <NavLink to="accounts-finance" className={topNavClass}>
-              <RupeeIcon className="w-4 h-4 shrink-0" />
-              <span className="text-sm font-medium">Finance/Accounts</span>
-            </NavLink>
+            <div>
+              <button
+                type="button"
+                onClick={() => setFinanceOpen(!financeOpen)}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${
+                  pathname.startsWith("/app/accounts-finance") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"
+                }`}
+              >
+                <span className="flex items-center space-x-2.5 min-w-0">
+                  <RupeeIcon className="w-4 h-4 shrink-0" />
+                  <span className="text-sm font-medium">Finance/Accounts</span>
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${financeOpen ? "rotate-180" : ""}`} />
+              </button>
+              {financeOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
+                  <NavLink to="/app/accounts-finance/reports/site-ledger" className={subNavClass}>
+                    <span className="text-xs">P&amp;L</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
             )}
 
             {can("indusLms") && (

@@ -55,6 +55,18 @@ const ENTITY_LABELS = {
   tenders: 'Fire tender',
   costing_rows: 'Costing sheet row',
   software_subscriptions: 'Software subscription',
+  sites: 'Finance site',
+  revenue_heads: 'Revenue head',
+  expense_parent_heads: 'Expense parent head',
+  expense_child_heads: 'Expense child head',
+  budget_versions: 'Budget version',
+  revenue_entries: 'Revenue entry',
+  expense_entries: 'Expense entry',
+  budget_lines: 'Budget line',
+  cost_allocations: 'Cost allocation',
+  contract_periods: 'Contract period',
+  import_export_logs: 'Finance import/export',
+  data_backups: 'Finance backup',
 }
 
 const ACTIVITY_IGNORE_TABLES = new Set([
@@ -97,6 +109,7 @@ function screenHint(route) {
   if (r.includes('/indus-lms-trainings')) return 'Indus LMS / trainings'
   if (r.includes('/user-management')) return 'User management'
   if (r.includes('/software-subscriptions-reminders')) return 'Software subscriptions/reminders'
+  if (r.includes('/accounts-finance')) return 'Finance / P&L'
   return `App · ${r.replace(/^\/app\/?/, '').slice(0, 52)}`.trim()
 }
 
