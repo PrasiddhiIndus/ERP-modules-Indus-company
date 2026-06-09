@@ -560,6 +560,18 @@ function App() {
             
             {/* Finance/Accounts */}
             <Route path="accounts-finance" element={<AccountsFinance />} />
+            <Route path="accounts-finance/sites" element={<AccountsFinance />} />
+            <Route path="accounts-finance/revenue-heads" element={<AccountsFinance />} />
+            <Route path="accounts-finance/expense-heads" element={<AccountsFinance />} />
+            <Route path="accounts-finance/budget-versions" element={<AccountsFinance />} />
+            <Route path="accounts-finance/revenue" element={<AccountsFinance />} />
+            <Route path="accounts-finance/expenses" element={<AccountsFinance />} />
+            <Route path="accounts-finance/budget-vs-actual" element={<AccountsFinance />} />
+            <Route path="accounts-finance/cost-allocation" element={<AccountsFinance />} />
+            <Route path="accounts-finance/import-export" element={<AccountsFinance />} />
+            <Route path="accounts-finance/reports" element={<AccountsFinance />} />
+            <Route path="accounts-finance/reports/site-ledger" element={<AccountsFinance />} />
+            <Route path="accounts-finance/settings" element={<AccountsFinance />} />
 
             {/* Indus LMS / Trainings */}
             <Route path="indus-lms-trainings" element={<IndusLmsTrainings />} />

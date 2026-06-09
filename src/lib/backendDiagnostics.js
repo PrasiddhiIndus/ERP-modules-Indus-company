@@ -139,6 +139,9 @@ export async function runBackendDiagnostics(options = {}) {
     await safeTableCheck('billing.invoice', () => supabase.schema('billing').from('invoice').select('id').limit(1))
   )
   results.push(
+    await safeTableCheck('finance.sites', () => supabase.schema('finance').from('sites').select('id').limit(1))
+  )
+  results.push(
     await safeTableCheck('public.manpower_enquiries', () => supabase.from('manpower_enquiries').select('id').limit(1))
   )
   results.push(await safeTableCheck('public.tenders', () => supabase.from('tenders').select('id').limit(1)))

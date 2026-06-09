@@ -84,7 +84,9 @@ export const MODULE_PATH_PREFIXES = {
   ],
   procurement: ["/app/procurement"],
   amc: ["/app/amc"],
-  finance: ["/app/accounts-finance"],
+  finance: [
+    "/app/accounts-finance",
+  ],
   fireTender: ["/app/fire-tender", "/app/fire-tender-manufacturing"],
   indusLms: ["/app/indus-lms-trainings"],
   settings: ["/app/settings"],
@@ -278,6 +280,9 @@ export const PROJECTS_PO_APPROVER_MODULE_KEYS = ["projects", "sales"];
 
 /** Tender approve/reject and costing → quotation approval in Fire Tender. */
 export const FIRE_TENDER_APPROVER_MODULE_KEYS = ["fireTender"];
+
+/** Finance Admin workflows (budget approval, master changes). */
+export const FINANCE_ADMIN_MODULE_KEYS = ["finance"];
 
 /**
  * Universal approval gate: Super Admin tiers and Admin approve anywhere; Managers only within listed module keys.
