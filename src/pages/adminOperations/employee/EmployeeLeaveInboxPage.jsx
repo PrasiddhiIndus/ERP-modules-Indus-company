@@ -333,8 +333,8 @@ export function EmployeeLeavesPage() {
           id: r.id,
           raw: r,
           highlight: r.id === recentlyUpdatedId,
-          empDisplay: emp.full_name || r.emp_code || "—",
-          empCode: r.emp_code || emp.employee_code || "—",
+          empDisplay: emp.full_name || r.employee_code || "—",
+          empCode: r.employee_code || emp.employee_code || "—",
           department: emp.department || "—",
           leaveLabel: leaveTypeLabel(leaveTypes.byCode, r.leave_type_code),
           dateRange: formatLeaveDateRange(r.from_date, r.to_date),
@@ -726,7 +726,7 @@ export function EmployeeLeavesPage() {
           <div className="space-y-3 text-xs text-gray-700">
             <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 space-y-1">
               <p className="font-semibold text-gray-900">
-                {modal.row.employee?.full_name || modal.row.emp_code}
+                {modal.row.employee?.full_name || modal.row.employee_code}
               </p>
               <p className="text-gray-600">
                 {leaveTypeLabel(leaveTypes.byCode, modal.row.leave_type_code)} ·{" "}

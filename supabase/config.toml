@@ -1,3 +1,9 @@
 # Gateway JWT verification can fail for ES256 signing keys; validate inside the function instead.
 [functions.login-check]
 verify_jwt = false
+
+[functions.admin-update-profile]
+verify_jwt = false
+
+[functions.admin-create-user]
+verify_jwt = false

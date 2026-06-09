@@ -357,7 +357,7 @@ export function EmployeeLeaveManagementPage() {
   const balanceByCode = useMemo(() => {
     const out = {};
     for (const b of balances || []) {
-      const code = normalizeAttendanceEmpCode(b.emp_code);
+      const code = normalizeAttendanceEmpCode(b.employee_code);
       if (!code) continue;
       out[code] = b;
     }

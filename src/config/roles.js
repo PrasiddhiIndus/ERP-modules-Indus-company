@@ -46,8 +46,8 @@ export const MODULES = [
   { value: "sales", label: "Sales" },
   { value: "marketing", label: "Marketing" },
   // Commercial is split into two nav sub-modules
-  { value: "commercialMt", label: "Commercial ΓÇö Manpower / Training" },
-  { value: "commercialRm", label: "Commercial ΓÇö R&M / M&M / AMC / IEV" },
+  { value: "commercialMt", label: "Commercial \u2014 Manpower / Training" },
+  { value: "commercialRm", label: "Commercial \u2014 R&M / M&M / AMC / IEV" },
   { value: "billing", label: "Billing" },
   { value: "tracking", label: "Tracking" },
   { value: "operations", label: "Operations" },
@@ -69,9 +69,9 @@ export const MODULE_PATH_PREFIXES = {
   // Keep this broad so refresh/deep-links don't get redirected to /app/dashboard.
   sales: ["/app/manpower", "/app/commercial"],
   marketing: ["/app/marketing"],
-  /** Commercial ΓÇö Manpower / Training (includes legacy manpower module routes) */
+  /** Commercial — Manpower / Training (includes legacy manpower module routes) */
   commercialMt: ["/app/commercial/manpower-training", "/app/commercial/manpower", "/app/manpower"],
-  /** Commercial ΓÇö R&M / M&M / AMC / IEV */
+  /** Commercial — R&M / M&M / AMC / IEV */
   commercialRm: ["/app/commercial/rm-mm-amc-iev"],
   billing: ["/app/billing"],
   tracking: ["/app/billing/tracking"],
@@ -269,10 +269,10 @@ export function getLoginRedirectPath(userProfile, accessibleModules) {
   return getLandingPathForUser(userProfile, accessibleModules);
 }
 
-/** Manager needs one of these in `accessibleModules` to approve Commercial ΓÇö Manpower/Training PO workflows. */
+/** Manager needs one of these in `accessibleModules` to approve Commercial — Manpower/Training PO workflows. */
 export const COMMERCIAL_MT_APPROVER_MODULE_KEYS = ["commercialMt", "sales"];
 
-/** Manager needs one of these to approve Commercial ΓÇö R&M / M&M / AMC / IEV PO workflows. */
+/** Manager needs one of these to approve Commercial — R&M / M&M / AMC / IEV PO workflows. */
 export const COMMERCIAL_RM_APPROVER_MODULE_KEYS = ["commercialRm", "sales"];
 
 /** PO/WO approval in Projects → PO Entry (same workflow as Commercial R&M). */
@@ -357,7 +357,7 @@ export function getAccessibleModules(profile) {
     "settings",
     ...Object.keys(MODULE_PATH_PREFIXES).filter((k) => k !== "overview" && k !== "settings"),
   ]);
-  // ΓÇ£overviewΓÇ¥ (main dashboard) is restricted to Admin + Super Admin only.
+  // "overview" (main dashboard) is restricted to Admin + Super Admin only.
   // Everyone can still access Settings.
   const always = new Set(["settings"]);
   // Lock down: these modules are only for Super Admin. Even legacy "no role" should not see them.
