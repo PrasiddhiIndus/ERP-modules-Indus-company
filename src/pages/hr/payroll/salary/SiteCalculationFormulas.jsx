@@ -1,20 +1,39 @@
 import React, { useEffect, useState } from 'react';
 import { SectionCard, Badge, TinySelect } from '../../../adminOperations/components/AdminUi';
 import FormulaBuilder from './components/FormulaBuilder';
+import { FORMULA_VARIABLES } from '../../../../modules/payroll/formula/variables';
 import { listPayrollSites, listComponentsMaster, getActiveFormulaSetForSite, saveFormulaSet } from '../../../../services/payrollApi';
 
-const DEFAULT_FORMULAS = [
-  { component_code: 'GROSS', formula_text: 'Gross', is_enabled: true },
-  { component_code: 'BASIC', formula_text: 'Gross * 0.40', is_enabled: true },
-  { component_code: 'HRA', formula_text: 'Basic * 0.50', is_enabled: true },
-  { component_code: 'SPECIAL_ALLOWANCE', formula_text: 'Gross - Basic - HRA', is_enabled: true },
-];
+const VARIABLE_KEYS = new Set(FORMULA_VARIABLES.map((v) => v.key));
+
+function parseFormulaSet(set) {
+  const variableFormulas = {};
+  (set?.components || []).forEach((row) => {
+    const code = row.component_code?.trim();
+    if (code && VARIABLE_KEYS.has(code)) {
+      variableFormulas[code] = row.formula_text?.trim() || '';
+    }
+  });
+  return variableFormulas;
+}
+
+function toSaveComponents(variableFormulas) {
+  return Object.entries(variableFormulas)
+    .filter(([, text]) => text?.trim())
+    .map(([component_code, formula_text]) => ({
+      component_code,
+      formula_text: formula_text.trim(),
+      is_enabled: true,
+    }));
+}
 
 export default function SiteCalculationFormulas() {
   const [sites, setSites] = useState([]);
   const [siteId, setSiteId] = useState('');
   const [components, setComponents] = useState([]);
-  const [formulas, setFormulas] = useState(DEFAULT_FORMULAS);
+  const [variableFormulas, setVariableFormulas] = useState({});
+  const [formulaText, setFormulaText] = useState('');
+  const [activeVariable, setActiveVariable] = useState(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -31,39 +50,34 @@ export default function SiteCalculationFormulas() {
     if (!siteId) return;
     (async () => {
       const set = await getActiveFormulaSetForSite(siteId);
-      if (set?.components?.length) {
-        setFormulas(
-          set.components.map((row) => ({
-            component_code: row.component_code,
-            formula_text: row.formula_text,
-            is_enabled: row.is_enabled,
-          }))
-        );
-      } else {
-        setFormulas(DEFAULT_FORMULAS);
-      }
+      const loaded = parseFormulaSet(set);
+      setVariableFormulas(loaded);
+      setActiveVariable(null);
+      setFormulaText('');
     })();
   }, [siteId]);
 
-  const updateFormula = (code, text) => {
-    setFormulas((prev) => {
-      const idx = prev.findIndex((f) => f.component_code === code);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = { ...next[idx], formula_text: text };
-        return next;
-      }
-      return [...prev, { component_code: code, formula_text: text, is_enabled: true }];
-    });
-  };
-
   const save = async () => {
     if (!siteId) return;
+    const merged = { ...variableFormulas };
+    if (activeVariable && formulaText.trim()) {
+      merged[activeVariable] = formulaText.trim();
+    }
+    const rows = toSaveComponents(merged);
+    if (!rows.length) {
+      setMessage('Add at least one variable formula before saving.');
+      return;
+    }
     setSaving(true);
     setMessage('');
     try {
-      await saveFormulaSet(siteId, { notes: 'Saved from UI', components: formulas, status: 'active' });
-      setMessage('Formula set saved (new version).');
+      await saveFormulaSet(siteId, {
+        notes: 'Saved from UI',
+        components: rows,
+        status: 'active',
+      });
+      setVariableFormulas(merged);
+      setMessage('Variable formulas saved.');
     } catch (e) {
       setMessage(e.message || 'Save failed');
     } finally {
@@ -86,7 +100,7 @@ export default function SiteCalculationFormulas() {
   return (
     <div className="space-y-4">
       <p className="text-xs text-gray-600">
-        Build and test calculation expressions per payroll site. Save creates a new active formula version.
+        Build one formula per variable for each payroll site. Click a variable to edit, hover to preview, then save.
       </p>
       <SectionCard title="Payroll site" right={<Badge tone="bg-indigo-50 text-indigo-800">Formula engine</Badge>}>
         <div className="flex flex-wrap gap-3 items-end mb-4 pb-4 border-b border-gray-100">
@@ -100,23 +114,19 @@ export default function SiteCalculationFormulas() {
           </label>
           <button type="button" onClick={addSite} className="h-8 px-3 rounded-lg border text-xs">Add site</button>
           <button type="button" disabled={saving || !siteId} onClick={save} className="h-8 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save version'}
+            {saving ? 'Saving…' : 'Save'}
           </button>
           {message ? <span className="text-xs text-gray-600">{message}</span> : null}
         </div>
-        <div className="space-y-5">
-          {formulas.map((f) => (
-            <div key={f.component_code} className="border border-gray-100 rounded-xl p-4 bg-gray-50/40">
-              <p className="text-xs font-bold text-gray-800 mb-3 font-mono">{f.component_code}</p>
-              <FormulaBuilder
-                value={f.formula_text}
-                onChange={(v) => updateFormula(f.component_code, v)}
-                knownComponents={knownCodes}
-                sampleContext={{ Gross: 25000, PresentDays: 26, MonthDays: 30, Basic: 10000 }}
-              />
-            </div>
-          ))}
-        </div>
+        <FormulaBuilder
+          value={formulaText}
+          onChange={setFormulaText}
+          knownComponents={knownCodes}
+          variableFormulas={variableFormulas}
+          onVariableFormulasChange={setVariableFormulas}
+          activeVariable={activeVariable}
+          onActiveVariableChange={setActiveVariable}
+        />
       </SectionCard>
     </div>
   );
