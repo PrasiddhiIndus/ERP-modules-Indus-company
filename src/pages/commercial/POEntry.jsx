@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';
 
 /** OC middle segment (shown after IFSPL- … -OC-YY/YY). Legacy PO rows may still use MANP etc. */
 const OC_LINE_OPTIONS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV'];
@@ -65,14 +66,6 @@ function parseStructuredOc(ocNumber) {
 function validateGSTIN(value) {
   if (!value || value.length !== 15) return false;
   return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/.test(value.toUpperCase());
-}
-
-function isValidDateInput(value) {
-  const raw = String(value || '');
-  if (!raw) return true;
-  if (raw.length > 10) return false;
-  const [year = ''] = raw.split('-');
-  return year.length <= 4;
 }
 
 const initialForm = {
@@ -333,8 +326,8 @@ const POEntry = () => {
   };
 
   const handleDateInputChange = (field, value) => {
-    if (!isValidDateInput(value)) return;
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (!isValidDateInputValue(value)) return;
+    setFormData((prev) => ({ ...prev, [field]: normalizeDateInputValue(value) }));
   };
 
   const sendToApproval = (id) => {
@@ -949,8 +942,6 @@ const POEntry = () => {
                       type="date"
                       value={formData.startDate}
                       onChange={(e) => handleDateInputChange('startDate', e.target.value)}
-                      min="1900-01-01"
-                      max="9999-12-31"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>
@@ -960,8 +951,6 @@ const POEntry = () => {
                       type="date"
                       value={formData.endDate}
                       onChange={(e) => handleDateInputChange('endDate', e.target.value)}
-                      min="1900-01-01"
-                      max="9999-12-31"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>
