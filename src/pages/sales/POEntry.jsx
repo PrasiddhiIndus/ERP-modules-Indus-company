@@ -5,6 +5,7 @@ import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../config/roles';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';
 import {
   COMMERCIAL_MODULE_MANPOWER_TRAINING,
   isCommercialModuleMarker,
@@ -173,14 +174,6 @@ function isTrainingVertical(value) {
 
 function ymd(d) {
   return d && String(d).trim() ? String(d).trim() : '';
-}
-
-function isValidDateInput(value) {
-  const raw = String(value || '');
-  if (!raw) return true;
-  if (raw.length > 10) return false;
-  const [year = ''] = raw.split('-');
-  return year.length <= 4;
 }
 
 function normalizeContactNumber(value) {
@@ -781,8 +774,8 @@ const POEntry = () => {
     setFormData((prev) => ({ ...prev, ratePerCategory: prev.ratePerCategory.filter((_, i) => i !== idx) }));
   };
   const handleDateInputChange = (field, value) => {
-    if (!isValidDateInput(value)) return;
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (!isValidDateInputValue(value)) return;
+    setFormData((prev) => ({ ...prev, [field]: normalizeDateInputValue(value) }));
   };
 
   const sendToApproval = (id) => {
@@ -2088,8 +2081,8 @@ const POEntry = () => {
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-900 mb-4">5. Timelines & Rules</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleDateInputChange('startDate', e.target.value)} min="1900-01-01" max="9999-12-31" className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleDateInputChange('endDate', e.target.value)} min="1900-01-01" max="9999-12-31" className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleDateInputChange('startDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleDateInputChange('endDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   {String(formData.vertical || '').trim().toLowerCase() !== 'training' ? (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
