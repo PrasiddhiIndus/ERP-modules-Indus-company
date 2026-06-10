@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useMemo } from "react";
 import { supabase, parseEdgeFunctionError, invokeAuthenticatedFunction } from "../lib/supabase";
+import {
+  getEmpCodeColumnSupported,
+  isMissingProfileEmpCodeError,
+  setEmpCodeColumnSupported,
+  PROFILE_AUTH_SELECT,
+  PROFILE_AUTH_SELECT_WITH_EMP,
+} from "../lib/profileSelect";
 import { getAccessibleModules } from "../config/roles";
 
 const AuthContext = createContext();
@@ -102,11 +109,23 @@ export const AuthProvider = ({ children }) => {
   const useProfilesTable = true;
 
   const fetchProfileFromTable = async (userId) => {
-    const { data, error } = await supabase
+    const preferEmpCode = getEmpCodeColumnSupported() !== false;
+    const selectCols = preferEmpCode ? PROFILE_AUTH_SELECT_WITH_EMP : PROFILE_AUTH_SELECT;
+    let { data, error } = await supabase
       .from("profiles")
-      .select("id, email, username, team, role, allowed_modules")
+      .select(selectCols)
       .eq("id", userId)
       .maybeSingle();
+    if (error && preferEmpCode && isMissingProfileEmpCodeError(error)) {
+      setEmpCodeColumnSupported(false);
+      ({ data, error } = await supabase
+        .from("profiles")
+        .select(PROFILE_AUTH_SELECT)
+        .eq("id", userId)
+        .maybeSingle());
+    } else if (!error && preferEmpCode) {
+      setEmpCodeColumnSupported(true);
+    }
     if (error || !data?.id) return { ok: false };
     setProfileRow(data);
     return { ok: true, profile: data };

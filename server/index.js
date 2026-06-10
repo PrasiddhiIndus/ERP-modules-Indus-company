@@ -18,6 +18,8 @@ import {
   startAttendanceSyncCron,
   uniqueEtimePunchEndpoints,
 } from './attendanceEtime.js';
+import { adminUpdateProfile } from './adminProfileApi.js';
+import { adminCreateUser } from './adminCreateUserApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -683,6 +685,71 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'whitebooks-einvoice-proxy' });
 });
 
+/** User Management profile save — service role on server; avoids edge JWT / RLS issues in local dev. */
+app.post('/api/admin/update-profile', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+    if (!jwt) return res.status(401).json({ error: 'Missing Authorization Bearer token' });
+
+    const supabaseUrl = getSupabaseUrlForServer();
+    const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
+    const anonKey = getSupabaseAnonKeyForServer();
+    if (!supabaseUrl || !serviceRoleKey) {
+      return res.status(500).json({
+        error: 'Server missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (.env.server)',
+      });
+    }
+
+    const result = await adminUpdateProfile(req.body, jwt, supabaseUrl, serviceRoleKey, anonKey);
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[api/admin/update-profile]', err?.message || err);
+    }
+    return res.status(status).json({
+      error: err?.message || String(err),
+      hint: err?.hint ?? null,
+      version: err?.version ?? 'server-api-5',
+    });
+  }
+});
+
+/** User Management create user — service role on server; avoids edge JWT / RLS issues in local dev. */
+app.post('/api/admin/create-user', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+    if (!jwt) return res.status(401).json({ error: 'Missing Authorization Bearer token' });
+
+    const supabaseUrl = getSupabaseUrlForServer();
+    const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
+    const anonKey = getSupabaseAnonKeyForServer();
+    if (!supabaseUrl || !serviceRoleKey) {
+      return res.status(500).json({
+        error: 'Server missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (.env.server)',
+      });
+    }
+
+    const result = await adminCreateUser(req.body, jwt, supabaseUrl, serviceRoleKey, anonKey);
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[api/admin/create-user]', err?.message || err);
+    }
+    return res.status(status).json({
+      ok: false,
+      error: err?.message || String(err),
+      hint: err?.hint ?? null,
+      version: err?.version ?? 'server-create-2',
+    });
+  }
+});
+
 app.get('/api/debug/invoice/:id', (req, res) => {
   const id = String(req.params.id || '').trim();
   const snap = id ? debugInvoiceSnapshots.get(id) : null;
@@ -1178,6 +1245,13 @@ app.post('/api/fleet/r2/presign-get', async (req, res) => {
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(`Whitebooks proxy listening on port ${PORT}`);
+  const svcKey = getSupabaseServiceRoleKeyForServer();
+  // eslint-disable-next-line no-console
+  console.log(
+    `[server] Supabase URL: ${getSupabaseUrlForServer() ? 'set' : 'MISSING'}; service_role key: ${
+      isSupabaseServiceRoleKey(svcKey) ? 'ok' : 'MISSING or not service_role — profile save will fail'
+    }`
+  );
   startAttendanceSyncCron({
     getRequiredEnv,
     getSupabaseUrl: getSupabaseUrlForServer,

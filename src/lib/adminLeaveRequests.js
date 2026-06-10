@@ -158,7 +158,7 @@ function normalizeLmsLeaveRows(rows, employeeByUserId) {
     return {
       ...row,
       leave_type_code: leaveTypeCodeFromRow(row),
-      emp_code: empCode,
+      employee_code: empCode,
       employee_master_id: employee?.id ?? null,
       employee: employee
         ? {
@@ -241,7 +241,7 @@ async function ensureAdminLeaveRequestMirror(lmsRow) {
     const { error: insertErr } = await adminLeaveRequestsTable().insert({
       id: lmsRow.id,
       employee_master_id: employee.id,
-      emp_code: empCode,
+      employee_code: empCode,
       user_id: lmsRow.user_id,
       leave_type_code: leaveTypeCode,
       from_date: lmsRow.from_date,
@@ -262,7 +262,7 @@ async function ensureAdminLeaveRequestMirror(lmsRow) {
     const { error: syncErr } = await adminLeaveRequestsTable()
       .update({
         leave_type_code: leaveTypeCode,
-        emp_code: empCode,
+        employee_code: empCode,
         employee_master_id: employee.id,
       })
       .eq("id", lmsRow.id);
