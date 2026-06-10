@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -12,6 +12,8 @@ import {
   RefreshCw,
   Save,
   Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { ROLES } from "../config/roles";
@@ -169,6 +171,35 @@ function parseAttachments(value) {
   return [];
 }
 
+function attachmentKey(item) {
+  return String(item?.path || item?.name || "").trim();
+}
+
+function dedupeAttachments(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = attachmentKey(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function invoiceFileRowToAttachment(row) {
+  return {
+    name: row.file_name || row.file_path?.split("/").pop() || "Invoice attachment",
+    path: row.file_path,
+    storage: row.storage || "r2",
+    size: row.file_size,
+    type: row.file_type,
+    uploaded_at: row.created_at,
+  };
+}
+
+function pendingInvoiceFileKey(file) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
 const SoftwareSubscriptions = () => {
   const { user, userProfile } = useAuth();
   const [subscriptions, setSubscriptions] = useState([]);
@@ -178,8 +209,7 @@ const SoftwareSubscriptions = () => {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [invoiceFiles, setInvoiceFiles] = useState([]);
-  /** Increment to remount the file input so its value clears after save / edit. */
-  const [invoiceFileInputKey, setInvoiceFileInputKey] = useState(0);
+  const invoiceFileInputRef = useRef(null);
   const [usdInrRate, setUsdInrRate] = useState(FALLBACK_USD_INR_RATE);
   const [fxRates, setFxRates] = useState(FALLBACK_USD_RATES);
   const [fxUpdatedAt, setFxUpdatedAt] = useState("");
@@ -224,7 +254,35 @@ const SoftwareSubscriptions = () => {
         .order("created_at", { ascending: false });
 
       if (queryError) throw queryError;
-      setSubscriptions(data || []);
+
+      let rows = data || [];
+      if (rows.length > 0) {
+        const ids = rows.map((row) => row.id);
+        const { data: fileRows, error: filesError } = await supabase
+          .from(INVOICE_FILES_TABLE)
+          .select("software_subscription_id, file_path, file_name, file_type, file_size, storage, created_at")
+          .in("software_subscription_id", ids)
+          .order("created_at", { ascending: true });
+
+        if (filesError) throw filesError;
+
+        const filesBySubscription = {};
+        for (const fileRow of fileRows || []) {
+          const subId = fileRow.software_subscription_id;
+          if (!filesBySubscription[subId]) filesBySubscription[subId] = [];
+          filesBySubscription[subId].push(invoiceFileRowToAttachment(fileRow));
+        }
+
+        rows = rows.map((row) => ({
+          ...row,
+          invoice_attachments: dedupeAttachments([
+            ...parseAttachments(row.invoice_attachments),
+            ...(filesBySubscription[row.id] || []),
+          ]),
+        }));
+      }
+
+      setSubscriptions(rows);
     } catch (err) {
       setError(
         `${err?.message || "Unable to load software subscriptions."} ` +
@@ -296,9 +354,36 @@ const SoftwareSubscriptions = () => {
   const resetForm = () => {
     setForm(emptyForm);
     setInvoiceFiles([]);
-    setInvoiceFileInputKey((k) => k + 1);
+    if (invoiceFileInputRef.current) invoiceFileInputRef.current.value = "";
     setEditingId(null);
     setError("");
+  };
+
+  const addInvoiceFiles = (fileList) => {
+    const picked = Array.from(fileList || []);
+    if (!picked.length) return;
+
+    setInvoiceFiles((prev) => {
+      const existing = new Set(prev.map(pendingInvoiceFileKey));
+      const merged = [...prev];
+      for (const file of picked) {
+        const key = pendingInvoiceFileKey(file);
+        if (!existing.has(key)) {
+          existing.add(key);
+          merged.push(file);
+        }
+      }
+      return merged;
+    });
+  };
+
+  const removePendingInvoiceFile = (index) => {
+    setInvoiceFiles((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleInvoiceFilePick = (event) => {
+    addInvoiceFiles(event.target.files);
+    event.target.value = "";
   };
 
   const uploadInvoiceFiles = async (recordId) => {
@@ -485,8 +570,29 @@ const SoftwareSubscriptions = () => {
     }
   };
 
-  const editSubscription = (row) => {
+  const editSubscription = async (row) => {
     setEditingId(row.id);
+    setError("");
+
+    let attachments = parseAttachments(row.invoice_attachments);
+    try {
+      const { data: fileRows, error: filesError } = await supabase
+        .from(INVOICE_FILES_TABLE)
+        .select("file_path, file_name, file_type, file_size, storage, created_at")
+        .eq("software_subscription_id", row.id)
+        .order("created_at", { ascending: true });
+
+      if (filesError) throw filesError;
+      if (fileRows?.length) {
+        attachments = dedupeAttachments([
+          ...attachments,
+          ...fileRows.map(invoiceFileRowToAttachment),
+        ]);
+      }
+    } catch (err) {
+      setError(err?.message || "Unable to load saved invoice attachments.");
+    }
+
     setForm({
       tool_service: row.tool_service || "",
       description: row.description || "",
@@ -498,7 +604,7 @@ const SoftwareSubscriptions = () => {
       yearly_cost_inr: row.yearly_cost_inr ?? "",
       credit_card: row.credit_card || "",
       invoices: row.invoices || "",
-      invoice_attachments: parseAttachments(row.invoice_attachments),
+      invoice_attachments: attachments,
       billing_type: row.billing_type || "prepaid",
       payment_type: row.payment_type || "Recurring",
       next_payment_date: row.next_payment_date || "",
@@ -507,7 +613,7 @@ const SoftwareSubscriptions = () => {
       notes: row.notes || "",
     });
     setInvoiceFiles([]);
-    setInvoiceFileInputKey((k) => k + 1);
+    if (invoiceFileInputRef.current) invoiceFileInputRef.current.value = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -713,41 +819,73 @@ const SoftwareSubscriptions = () => {
             </Field>
             <Field label="Attach invoices">
               <input
-                key={invoiceFileInputKey}
+                ref={invoiceFileInputRef}
                 type="file"
                 multiple
                 accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.doc,.docx"
-                onChange={(e) => setInvoiceFiles(Array.from(e.target.files || []))}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1 file:text-sm file:font-semibold file:text-indigo-700 hover:file:bg-indigo-100"
+                onChange={handleInvoiceFilePick}
+                className="hidden"
               />
+              <button
+                type="button"
+                onClick={() => invoiceFileInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                <Upload className="h-4 w-4" />
+                Add files
+              </button>
               <span className="mt-1 block text-xs text-slate-500">
-                Upload PDF/image/Excel/Word invoice copies against this subscription.
+                Upload multiple PDF/image/Excel/Word invoice copies. Select several at once or add more in batches.
               </span>
-              {invoiceFiles.length ? (
-                <div className="mt-2 space-y-1">
-                  {invoiceFiles.map((file) => (
-                    <p key={`${file.name}-${file.size}`} className="truncate text-xs text-slate-600">
-                      New: {file.name}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
               {parseAttachments(form.invoice_attachments).length ? (
                 <div className="mt-2 space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {editingId ? "Currently uploaded" : "Saved attachments"}
+                  </p>
                   {parseAttachments(form.invoice_attachments).map((attachment) => (
-                    <div key={attachment.path || attachment.name} className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-2 py-1 text-xs">
+                    <div
+                      key={attachment.path || attachment.name}
+                      className="flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs"
+                    >
                       <button
                         type="button"
                         onClick={() => openInvoiceAttachment(attachment)}
-                        className="min-w-0 truncate font-medium text-indigo-700 hover:underline"
+                        className="inline-flex min-w-0 items-center gap-1.5 truncate font-medium text-indigo-700 hover:underline"
                       >
+                        <Paperclip className="h-3.5 w-3.5 shrink-0 opacity-80" />
                         {attachment.name || "Invoice attachment"}
                       </button>
                       <button
                         type="button"
                         onClick={() => removeFormAttachment(attachment.path)}
-                        className="shrink-0 text-red-600 hover:text-red-700"
+                        className="inline-flex shrink-0 items-center gap-1 text-red-600 hover:text-red-700"
+                        title="Remove attachment"
                       >
+                        <X className="h-3.5 w-3.5" />
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {invoiceFiles.length ? (
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">New uploads (not saved yet)</p>
+                  {invoiceFiles.map((file, index) => (
+                    <div
+                      key={pendingInvoiceFileKey(file)}
+                      className="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs"
+                    >
+                      <span className="min-w-0 truncate text-amber-900" title={file.name}>
+                        {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removePendingInvoiceFile(index)}
+                        className="inline-flex shrink-0 items-center gap-1 text-red-600 hover:text-red-700"
+                        title="Remove file"
+                      >
+                        <X className="h-3.5 w-3.5" />
                         Remove
                       </button>
                     </div>

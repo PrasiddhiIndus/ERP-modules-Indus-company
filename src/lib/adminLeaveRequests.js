@@ -1,7 +1,7 @@
 /**
- * Leave workflow — reads Indus One `indus_one.leave_requests` (LMS apply).
- * Approve/reject mirrors to `indus_one.admin_leave_requests` then updates status so
- * DB triggers apply attendance + balance; LMS row is updated in parallel.
+ * Leave workflow — reads `indus_one.admin_leave_requests` (ERP approval source of truth).
+ * Approve/reject updates admin_leave_requests (DB triggers apply attendance + balance),
+ * then syncs `indus_one.leave_requests` for the Indus One LMS UI.
  */
 
 import { supabase } from "./supabase";
@@ -151,6 +151,43 @@ async function fetchEmployeesByUserIds(userIds) {
   return byUserId;
 }
 
+async function fetchEmployeesByMasterIds(masterIds) {
+  const unique = [...new Set((masterIds || []).filter(Boolean))];
+  if (!unique.length) return {};
+
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("id, user_id, full_name, employee_id, employee_code, department, designation")
+    .in("id", unique);
+
+  if (error) throw error;
+
+  const byMasterId = {};
+  for (const row of data || []) {
+    if (row.id == null) continue;
+    byMasterId[row.id] = row;
+  }
+  return byMasterId;
+}
+
+function employeeSnapshot(employee) {
+  return employee
+    ? {
+        full_name: employee.full_name,
+        employee_id: employee.employee_id,
+        employee_code: employee.employee_code,
+        department: employee.department,
+        designation: employee.designation,
+      }
+    : {
+        full_name: null,
+        employee_id: null,
+        employee_code: null,
+        department: null,
+        designation: null,
+      };
+}
+
 function normalizeLmsLeaveRows(rows, employeeByUserId) {
   return (rows || []).map((row) => {
     const employee = employeeByUserId[row.user_id];
@@ -160,23 +197,37 @@ function normalizeLmsLeaveRows(rows, employeeByUserId) {
       leave_type_code: leaveTypeCodeFromRow(row),
       employee_code: empCode,
       employee_master_id: employee?.id ?? null,
-      employee: employee
-        ? {
-            full_name: employee.full_name,
-            employee_id: employee.employee_id,
-            employee_code: employee.employee_code,
-            department: employee.department,
-            designation: employee.designation,
-          }
-        : {
-            full_name: null,
-            employee_id: null,
-            employee_code: null,
-            department: null,
-            designation: null,
-          },
+      employee: employeeSnapshot(employee),
     };
   });
+}
+
+function normalizeAdminLeaveRows(rows, employeeByMasterId) {
+  return (rows || []).map((row) => {
+    const employee = employeeByMasterId[row.employee_master_id];
+    const empCode =
+      normalizeAttendanceEmpCode(row.employee_code || employee?.employee_code) || null;
+    return {
+      ...row,
+      leave_type_code: leaveTypeCodeFromRow(row),
+      employee_code: empCode,
+      employee: employeeSnapshot(employee),
+    };
+  });
+}
+
+async function fetchEmployeeMasterIdsForSearch(needle) {
+  const n = String(needle || "").trim();
+  if (!n) return [];
+
+  const pattern = `%${n.replace(/%/g, "\\%")}%`;
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("id")
+    .or(`full_name.ilike.${pattern},employee_code.ilike.${pattern},employee_id.ilike.${pattern}`);
+
+  if (error) throw error;
+  return [...new Set((data || []).map((r) => r.id).filter((id) => id != null))];
 }
 
 async function fetchUserIdsForEmployeeSearch(needle) {
@@ -366,7 +417,7 @@ function statusFilterForTab(tabStatus) {
   const s = normalizeWorkflowStatus(tabStatus);
   if (!s || s === "all") return null;
   if (s === "pending") {
-    return { column: "status", values: PENDING_LMS_STATUSES.map(normalizeWorkflowStatus) };
+    return { column: "status", values: ["pending"] };
   }
   return { column: "status", values: [s] };
 }
@@ -462,30 +513,29 @@ export async function fetchLeaveTypes() {
 }
 
 export async function countPendingLeaveRequests() {
-  const { count, error } = await lmsLeaveRequestsTable()
+  const { count, error } = await adminLeaveRequestsTable()
     .select("id", { count: "exact", head: true })
-    .in("status", PENDING_LMS_STATUSES.map(normalizeWorkflowStatus));
+    .eq("status", "pending");
   if (error) throw error;
   return count ?? 0;
 }
 
 /** Lightweight counts for inbox KPI row (parallel head requests). */
 export async function fetchLeaveStatusCounts() {
-  const pendingStatuses = PENDING_LMS_STATUSES.map(normalizeWorkflowStatus);
   const [pendingRes, approvedRes, rejectedRes, cancelledRes, allRes] = await Promise.all([
-    lmsLeaveRequestsTable()
+    adminLeaveRequestsTable()
       .select("id", { count: "exact", head: true })
-      .in("status", pendingStatuses),
-    lmsLeaveRequestsTable()
+      .eq("status", "pending"),
+    adminLeaveRequestsTable()
       .select("id", { count: "exact", head: true })
       .eq("status", "approved"),
-    lmsLeaveRequestsTable()
+    adminLeaveRequestsTable()
       .select("id", { count: "exact", head: true })
       .eq("status", "rejected"),
-    lmsLeaveRequestsTable()
+    adminLeaveRequestsTable()
       .select("id", { count: "exact", head: true })
       .eq("status", "cancelled"),
-    lmsLeaveRequestsTable().select("id", { count: "exact", head: true }),
+    adminLeaveRequestsTable().select("id", { count: "exact", head: true }),
   ]);
 
   const firstErr =
@@ -512,7 +562,7 @@ export async function fetchLeaveRequests(opts = {}) {
     pageSize = PAGE_SIZE_DEFAULT,
   } = opts;
 
-  let query = lmsLeaveRequestsTable()
+  let query = adminLeaveRequestsTable()
     .select("*", { count: "exact" })
     .order("submitted_at", { ascending: false });
 
@@ -520,15 +570,15 @@ export async function fetchLeaveRequests(opts = {}) {
   if (tabFilter) {
     query = query.in(tabFilter.column, tabFilter.values);
   }
-  if (leaveType) query = query.eq("leave_type", leaveType);
+  if (leaveType) query = query.eq("leave_type_code", leaveType);
   if (fromDate) query = query.gte("to_date", fromDate);
   if (toDate) query = query.lte("from_date", toDate);
 
   const needle = empSearch.trim();
   if (needle) {
-    const userIds = await fetchUserIdsForEmployeeSearch(needle);
-    if (userIds.length) {
-      query = query.in("user_id", userIds);
+    const masterIds = await fetchEmployeeMasterIdsForSearch(needle);
+    if (masterIds.length) {
+      query = query.in("employee_master_id", masterIds);
     } else {
       return { rows: [], total: 0, page, pageSize };
     }
@@ -544,9 +594,10 @@ export async function fetchLeaveRequests(opts = {}) {
     ...row,
     status: normalizeWorkflowStatus(row.status),
   }));
-  const employeeByUserId = await fetchEmployeesByUserIds(normalized.map((r) => r.user_id));
-  let rows = normalizeLmsLeaveRows(normalized, employeeByUserId);
-  rows = await enrichRowsWithAdminWorkflow(rows);
+  const employeeByMasterId = await fetchEmployeesByMasterIds(
+    normalized.map((r) => r.employee_master_id)
+  );
+  const rows = normalizeAdminLeaveRows(normalized, employeeByMasterId);
 
   return {
     rows,
