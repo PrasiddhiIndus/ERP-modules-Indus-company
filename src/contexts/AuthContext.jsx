@@ -140,6 +140,9 @@ export const AuthProvider = ({ children }) => {
     profileFetchInFlightRef.current = uid;
     setProfileLoading(true);
     try {
+      const tableFirst = await fetchProfileFromTable(uid);
+      if (tableFirst.ok) return tableFirst;
+
       const run = (token) =>
         invokeAuthenticatedFunction("login-check", { body: {} }, token || accessToken);
 
@@ -189,7 +192,10 @@ export const AuthProvider = ({ children }) => {
     profileSyncAttemptedRef.current = user.id;
     void (async () => {
       const { data: sess } = await supabase.auth.getSession();
-      await fetchProfileViaLoginCheck(sess?.session?.access_token, user.id);
+      const token = sess?.session?.access_token;
+      if (!token) return;
+      await new Promise((r) => setTimeout(r, 150));
+      await fetchProfileViaLoginCheck(token, user.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
