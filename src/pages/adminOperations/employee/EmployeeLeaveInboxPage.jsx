@@ -32,7 +32,7 @@ const PAGE_SIZES = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 400;
 const REALTIME_DEBOUNCE_MS = 450;
 
-const OPEN_LMS_STATUSES = new Set(["pending", "draft", "submitted", "pending_approval"]);
+const OPEN_PENDING_STATUSES = new Set(["pending"]);
 
 const STATUS_KPI = [
   { id: "pending", label: "Pending", tone: "border-amber-200 bg-amber-50/40" },
@@ -49,7 +49,7 @@ function statusFilterLabel(value) {
 function rowMatchesStatusFilter(rowStatus, filter) {
   const s = String(rowStatus || "").toLowerCase();
   if (filter === "all") return true;
-  if (filter === "pending") return OPEN_LMS_STATUSES.has(s);
+  if (filter === "pending") return OPEN_PENDING_STATUSES.has(s);
   return s === filter;
 }
 
@@ -358,7 +358,7 @@ export function EmployeeLeavesPage() {
         <div>
           <h1 className="text-lg font-bold text-gray-900">Leave request approval</h1>
           <p className="text-xs text-gray-600 mt-0.5">
-            Review Indus One applications · decisions sync to attendance automatically
+            Review leave workflow from admin_leave_requests · decisions sync to attendance automatically
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -494,9 +494,10 @@ export function EmployeeLeavesPage() {
         </button>
         {showHelp ? (
           <p className="mt-2 text-[11px] text-gray-600 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
-            Data from <strong>indus_one.leave_requests</strong>. Approve/reject updates{" "}
-            <strong>admin_leave_requests</strong> (triggers write attendance marks). Applicant must
-            exist in Employee Master with matching <strong>user_id</strong>.
+            Data from <strong>indus_one.admin_leave_requests</strong> (workflow source of truth).
+            Employee details from <strong>admin_ifsp_employee_master</strong>. Approve/reject updates
+            admin_leave_requests (triggers write attendance marks) and syncs{" "}
+            <strong>indus_one.leave_requests</strong> for Indus One LMS.
           </p>
         ) : null}
 
@@ -620,7 +621,7 @@ export function EmployeeLeavesPage() {
                   render: (r) => {
                     const row = r.raw;
                     const busy = acting && modal?.row?.id === row.id;
-                    if (OPEN_LMS_STATUSES.has(String(row.status || "").toLowerCase())) {
+                    if (OPEN_PENDING_STATUSES.has(String(row.status || "").toLowerCase())) {
                       return (
                         <div className="flex flex-wrap gap-1">
                           <ActionBtn tone="approve" disabled={busy} onClick={() => openModal("approve", row)}>

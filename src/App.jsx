@@ -138,16 +138,11 @@ import {
   GSTUpload,
 } from "./routes/lazyPages";
 
-const DATE_INPUT_MIN = "1900-01-01";
-const DATE_INPUT_MAX = "9999-12-31";
-
-function enforceDateInputRules(input) {
-  if (!(input instanceof HTMLInputElement) || input.type !== "date") return;
-  input.min = DATE_INPUT_MIN;
-  input.max = DATE_INPUT_MAX;
-  input.lang = "en-GB";
-  input.placeholder = "dd-mm-yyyy";
-}
+import {
+  enforceDateInputAttributes,
+  finalizeDateInputValue,
+  isCompleteIsoDate,
+} from "./utils/dateInput";
 
 
 const ProtectedRoute = ({ children }) => {
@@ -235,20 +230,50 @@ function App() {
   useEffect(() => {
     const applyRulesToAllDateInputs = () => {
       document.querySelectorAll('input[type="date"]').forEach((input) => {
-        enforceDateInputRules(input);
+        enforceDateInputAttributes(input);
       });
     };
 
-    const handleDateInputCapture = (event) => {
+    // Blur only: reject finished dates outside range. Never validate while typing segments.
+    const handleDateInputBlur = (event) => {
       const input = event.target;
       if (!(input instanceof HTMLInputElement) || input.type !== "date") return;
-      enforceDateInputRules(input);
+      enforceDateInputAttributes(input);
+
       const value = String(input.value || "");
-      if (!value) return;
-      const [year = ""] = value.split("-");
-      if (year.length > 4 || value > DATE_INPUT_MAX || value < DATE_INPUT_MIN) {
-        input.value = "";
+      if (!value || !isCompleteIsoDate(value)) return;
+
+      const finalized = finalizeDateInputValue(value);
+      if (finalized !== value) {
+        input.value = finalized;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
       }
+    };
+
+    const lastDateValue = new WeakMap();
+
+    const handleDateInputWhileTyping = (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || input.type !== "date") return;
+      enforceDateInputAttributes(input);
+
+      const value = String(input.value || "");
+      if (value) {
+        lastDateValue.set(input, value);
+        return;
+      }
+
+      if (document.activeElement !== input) return;
+      const previous = lastDateValue.get(input);
+      if (!previous) return;
+
+      queueMicrotask(() => {
+        if (document.activeElement !== input || input.value) return;
+        input.value = previous;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
     };
 
     applyRulesToAllDateInputs();
@@ -262,12 +287,16 @@ function App() {
     };
     const observer = new MutationObserver(scheduleApplyRules);
     observer.observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("input", handleDateInputCapture, true);
+    document.addEventListener("input", handleDateInputWhileTyping, true);
+    document.addEventListener("change", handleDateInputWhileTyping, true);
+    document.addEventListener("blur", handleDateInputBlur, true);
 
     return () => {
       if (debounceId != null) window.clearTimeout(debounceId);
       observer.disconnect();
-      document.removeEventListener("input", handleDateInputCapture, true);
+      document.removeEventListener("input", handleDateInputWhileTyping, true);
+      document.removeEventListener("change", handleDateInputWhileTyping, true);
+      document.removeEventListener("blur", handleDateInputBlur, true);
     };
   }, []);
 

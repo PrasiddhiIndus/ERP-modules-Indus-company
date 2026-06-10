@@ -2,6 +2,11 @@ import React from 'react';
 import { MapPin } from 'lucide-react';
 import { peInput } from './enquiryConstants';
 import { resolveDropdownKindKey } from '../../../services/projectsApi';
+import {
+  isValidDateInputValue,
+  normalizeDateInputValue,
+  resolveNativeDateInputChange,
+} from '../../../utils/dateInput';
 
 export default function EnquiryFieldInput({
   field,
@@ -43,7 +48,11 @@ export default function EnquiryFieldInput({
         type="date"
         className={className}
         value={value ? String(value).slice(0, 10) : ''}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          const next = resolveNativeDateInputChange(e, value);
+          if (!isValidDateInputValue(next)) return;
+          onChange(normalizeDateInputValue(next));
+        }}
         disabled={disabled || field.read_only}
       />
     );
