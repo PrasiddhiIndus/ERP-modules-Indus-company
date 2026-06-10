@@ -1,11 +1,9 @@
 import { supabase } from '../lib/supabase';
+import { normalizeEmployeeCode, EMPLOYEE_MASTER_TABLE_NAME, EMPLOYEE_CODE_COL } from '../lib/employeeCode';
 
 /**
  * Fetch active employees for dropdowns (Marketing/Operations).
- *
- * Some deployments previously queried a non-existent table `ifsp_employees`,
- * which causes noisy 404s from Supabase REST. The canonical source in this repo
- * is the shared `admin_ifsp_employee_master`.
+ * Value key is employee_code — use it for all cross-table joins.
  */
 export async function fetchActiveEmployeesForDropdown() {
   try {
@@ -15,21 +13,23 @@ export async function fetchActiveEmployeesForDropdown() {
     if (!user) return [];
 
     const { data, error } = await supabase
-      .from('admin_ifsp_employee_master')
-      .select('id, employee_id, full_name, status')
+      .from(EMPLOYEE_MASTER_TABLE_NAME)
+      .select(`id, employee_id, ${EMPLOYEE_CODE_COL}, full_name, status`)
       .eq('status', 'Active')
       .order('full_name', { ascending: true });
 
     if (error) {
-      // If the table/view isn't present in a given environment, return empty list (avoid breaking pages).
       return [];
     }
 
-    return (data || []).map((row) => ({
-      id: row.id,
-      employee_id: row.employee_id || null,
-      name: row.full_name || row.employee_id || 'Employee',
-    }));
+    return (data || [])
+      .filter((row) => normalizeEmployeeCode(row[EMPLOYEE_CODE_COL]))
+      .map((row) => ({
+        id: normalizeEmployeeCode(row[EMPLOYEE_CODE_COL]),
+        employee_code: normalizeEmployeeCode(row[EMPLOYEE_CODE_COL]),
+        employee_id: row.employee_id || null,
+        name: row.full_name || row.employee_id || row[EMPLOYEE_CODE_COL] || 'Employee',
+      }));
   } catch {
     return [];
   }

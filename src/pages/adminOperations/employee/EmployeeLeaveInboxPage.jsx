@@ -119,6 +119,15 @@ export function EmployeeLeavesPage() {
 
   const approverName = userProfile?.username || user?.email?.split("@")[0] || "Admin";
   const approverUserId = user?.id || null;
+  const isErpAdmin = useMemo(() => {
+    const role = String(userProfile?.role || "").toLowerCase();
+    if (["admin", "super_admin", "super_admin_pro"].includes(role)) return true;
+    if (userProfile?.team === "admin") return true;
+    const mods = userProfile?.allowed_modules;
+    if (Array.isArray(mods) && mods.includes("admin")) return true;
+    if (mods && typeof mods === "object" && mods.admin) return true;
+    return false;
+  }, [userProfile]);
 
   actingRef.current = acting;
 
@@ -277,12 +286,12 @@ export function EmployeeLeavesPage() {
     setError("");
     const id = modal.row.id;
     try {
-      const ctx = { approverUserId, approverName, remarks };
+      const ctx = { approverUserId, approverName, remarks, isErpAdmin };
       let updated = null;
       switch (modal.action) {
         case "approve":
           updated = await approveLeaveRequest(id, ctx);
-          setMessage("Leave approved — attendance register updated.");
+          setMessage("Leave approved — balance deducted and attendance register updated (punch P wins on same day).");
           break;
         case "reject":
           if (modal.row.status === "approved") {

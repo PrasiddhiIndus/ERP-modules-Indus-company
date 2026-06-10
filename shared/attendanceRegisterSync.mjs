@@ -70,7 +70,10 @@ export function isPunchMarkSource(mark, markSource) {
   return false;
 }
 
-/** Whether biometric punch sync may upsert Present for this existing register row. */
+/**
+ * Whether biometric punch sync may upsert Present for this existing register row.
+ * Punch (machine) data has priority over leave marks (L, PL, CL, …) but not manual HR marks.
+ */
 export function canPunchSyncOverwriteExisting(existing) {
   if (!existing) return true;
   const mark = existing.mark ?? '';
@@ -78,7 +81,7 @@ export function canPunchSyncOverwriteExisting(existing) {
   const leaveRequestId = existing.leave_request_id ?? null;
   if (!mark && !markSource) return true;
   if (isManualMarkSource(markSource)) return false;
-  if (isLeaveMarkSource(markSource, leaveRequestId)) return false;
+  if (isLeaveMarkSource(markSource, leaveRequestId)) return true;
   if (isPunchMarkSource(mark, markSource)) return true;
   if (mark === REGISTER_MARK_FROM_PUNCH) return true;
   if (mark === 'WO') {
@@ -91,7 +94,7 @@ export function canPunchSyncOverwriteExisting(existing) {
 }
 
 /**
- * Do not overwrite manual, leave, or explicit non-P marks.
+ * Skip only manual marks; punch sync may overwrite leave and other non-manual marks.
  * @param {Record<string, Record<number, { mark?: string, mark_source?: string, leave_request_id?: string }>>} marksByEmpDay
  */
 export function filterPresentRegisterRowsRespectingMarks(candidateRows, marksByEmpDay) {
