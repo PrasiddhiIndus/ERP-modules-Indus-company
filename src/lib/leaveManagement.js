@@ -74,11 +74,11 @@ export async function fetchPlEncashPrefs(supabase) {
   const { data, error } = await supabase
     .schema("indus_one")
     .from("employee_pl_encash_pref")
-    .select("emp_code, encash_pl_on_carry_forward");
+    .select("employee_code, encash_pl_on_carry_forward");
   if (error) throw error;
   const out = {};
   for (const r of data || []) {
-    const code = normalizeAttendanceEmpCode(r.emp_code);
+    const code = normalizeAttendanceEmpCode(r.employee_code);
     if (!code) continue;
     out[code] = !!r.encash_pl_on_carry_forward;
   }
@@ -86,19 +86,19 @@ export async function fetchPlEncashPrefs(supabase) {
 }
 
 export async function upsertPlEncashPrefs(supabase, prefs) {
-  // prefs: { [emp_code]: boolean }
+  // prefs: { [employee_code]: boolean }
   const rows = Object.entries(prefs || {})
-    .map(([emp_code, encash]) => ({
-      emp_code: normalizeAttendanceEmpCode(emp_code),
+    .map(([employee_code, encash]) => ({
+      employee_code: normalizeAttendanceEmpCode(employee_code),
       encash_pl_on_carry_forward: !!encash,
       updated_at: new Date().toISOString(),
     }))
-    .filter((r) => !!r.emp_code);
+    .filter((r) => !!r.employee_code);
   if (!rows.length) return;
   const { error } = await supabase
     .schema("indus_one")
     .from("employee_pl_encash_pref")
-    .upsert(rows, { onConflict: "emp_code" });
+    .upsert(rows, { onConflict: "employee_code" });
   if (error) throw error;
 }
 
@@ -132,13 +132,13 @@ export async function processLeaveBalancesYear(supabase, year) {
   const { data: prevBalances, error: prevErr } = await supabase
     .schema("indus_one")
     .from("employee_leave_balances_yearly")
-    .select("emp_code, carried_pl, carried_sl, carried_cl")
+    .select("employee_code, carried_pl, carried_sl, carried_cl")
     .eq("year", prevYear);
   if (prevErr) throw prevErr;
 
   const prevByEmp = {};
   for (const r of prevBalances || []) {
-    const code = normalizeAttendanceEmpCode(r.emp_code);
+    const code = normalizeAttendanceEmpCode(r.employee_code);
     if (!code) continue;
     prevByEmp[code] = r;
   }
@@ -203,7 +203,7 @@ export async function processLeaveBalancesYear(supabase, year) {
     const encashed_pl = encash ? plCarryAmount : 0;
 
     return {
-      emp_code,
+      employee_code: emp_code,
       year: y,
       opening_pl,
       opening_sl,
@@ -233,7 +233,7 @@ export async function processLeaveBalancesYear(supabase, year) {
   const { error } = await supabase
     .schema("indus_one")
     .from("employee_leave_balances_yearly")
-    .upsert(rowsToUpsert, { onConflict: "emp_code,year" });
+    .upsert(rowsToUpsert, { onConflict: "employee_code,year" });
   if (error) throw error;
 }
 
@@ -242,7 +242,9 @@ export async function processLeaveBalancesYear(supabase, year) {
  * Recomputes unused_* from opening + entitlement − used.
  */
 export function buildLeaveBalanceDbRow(input, year) {
-  const emp_code = normalizeAttendanceEmpCode(input.emp_code || input.empCode);
+  const emp_code = normalizeAttendanceEmpCode(
+    input.employee_code || input.emp_code || input.empCode
+  );
   const y = Number(year);
   if (!emp_code || !Number.isFinite(y) || y < 1900) return null;
 
@@ -274,7 +276,7 @@ export function buildLeaveBalanceDbRow(input, year) {
   const unused_cl = Math.max(0, opening_cl + cl_entitlement - used_cl);
 
   return {
-    emp_code,
+    employee_code: emp_code,
     year: y,
     opening_pl,
     opening_sl,
@@ -305,7 +307,7 @@ export async function upsertLeaveBalancesBatch(supabase, payloads) {
   const { error } = await supabase
     .schema("indus_one")
     .from("employee_leave_balances_yearly")
-    .upsert(rows, { onConflict: "emp_code,year" });
+    .upsert(rows, { onConflict: "employee_code,year" });
   if (error) throw error;
   return { count: rows.length };
 }

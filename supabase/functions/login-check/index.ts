@@ -9,6 +9,7 @@
 //
 // @ts-nocheck
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { resolveAuthUser } from '../_shared/resolveAuthUser.ts'
 import { syncAppUsers } from '../_shared/syncAppUsers.ts'
 
 function json(status: number, body: unknown) {
@@ -33,44 +34,6 @@ function normalizeRole(role: unknown) {
   return 'executive'
 }
 
-/** Resolve caller from access JWT (service-role getUser + Auth API fallback for ES256 keys). */
-async function resolveAuthUser(jwt: string, supabaseUrl: string, serviceRoleKey: string) {
-  const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
-  const { data, error } = await admin.auth.getUser(jwt)
-  if (!error && data?.user) return data.user
-
-  const base = supabaseUrl.replace(/\/+$/, '')
-  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-  const apiKey = anonKey || serviceRoleKey
-
-  try {
-    const res = await fetch(`${base}/auth/v1/user`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        apikey: apiKey,
-      },
-    })
-    if (res.ok) {
-      const body = await res.json()
-      if (body?.id) return body
-    }
-  } catch {
-    /* try anon client next */
-  }
-
-  if (anonKey) {
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: `Bearer ${jwt}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-    const { data: d2, error: e2 } = await userClient.auth.getUser()
-    if (!e2 && d2?.user) return d2.user
-  }
-
-  return null
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return json(200, { ok: true })
   if (req.method !== 'POST') return json(405, { ok: false, error: 'Method not allowed' })
@@ -93,11 +56,24 @@ Deno.serve(async (req) => {
   const email = u.email ?? null
 
   const readProfile = async () => {
-    return await admin
+    let res = await admin
       .from('profiles')
-      .select('id, email, username, team, role, allowed_modules')
+      .select('id, email, username, employee_code, team, role, allowed_modules')
       .eq('id', userId)
       .maybeSingle()
+    const msg = String(res.error?.message || '').toLowerCase()
+    if (
+      res.error &&
+      (msg.includes('employee_code') || msg.includes('emp_code')) &&
+      msg.includes('does not exist')
+    ) {
+      res = await admin
+        .from('profiles')
+        .select('id, email, username, team, role, allowed_modules')
+        .eq('id', userId)
+        .maybeSingle()
+    }
+    return res
   }
 
   const { data: existing, error: readErr } = await readProfile()
@@ -124,6 +100,10 @@ Deno.serve(async (req) => {
   const team = meta.team ?? null
   const role = normalizeRole(meta.role)
   const allowed = Array.isArray(meta.allowed_modules) ? meta.allowed_modules : []
+  const employeeCode =
+    (typeof meta.employee_code === 'string' && meta.employee_code.trim()) ||
+    (typeof meta.emp_code === 'string' && meta.emp_code.trim()) ||
+    null
 
   const profilePayload = {
     id: userId,
@@ -132,6 +112,7 @@ Deno.serve(async (req) => {
     team,
     role,
     allowed_modules: allowed,
+    ...(employeeCode ? { employee_code: employeeCode } : {}),
   }
 
   let { error: upsertErr } = await admin.from('profiles').upsert(profilePayload, { onConflict: 'id' })

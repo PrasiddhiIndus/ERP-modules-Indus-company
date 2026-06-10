@@ -1879,5 +1879,201 @@ ALTER TABLE billing.po_wo
   );
 
 -- =============================================================================
+-- BEGIN: 20260609140000_profiles_emp_code.sql
+-- =============================================================================
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS employee_code text;
+
+COMMENT ON COLUMN public.profiles.employee_code IS
+  'Unique employee code for this ERP user; matches admin_ifsp_employee_master.employee_code.';
+
+DROP INDEX IF EXISTS public.profiles_emp_code_unique_idx;
+DROP INDEX IF EXISTS public.profiles_employee_code_unique_idx;
+CREATE UNIQUE INDEX profiles_employee_code_unique_idx
+  ON public.profiles (lower(btrim(employee_code)))
+  WHERE employee_code IS NOT NULL AND btrim(employee_code) <> '';
+
+-- =============================================================================
+-- BEGIN: 20260609150000_standardize_employee_code_columns.sql
+-- =============================================================================
+-- Renames legacy emp_code → employee_code on profiles + indus_one leave tables.
+-- Run the full file: supabase/migrations/20260609150000_standardize_employee_code_columns.sql
+
+-- =============================================================================
+-- BEGIN: 20260608120000_employee_master_l1_l2_hierarchy.sql
+-- =============================================================================
+ALTER TABLE public.admin_ifsp_employee_master
+  ADD COLUMN IF NOT EXISTS l1_manager_code text,
+  ADD COLUMN IF NOT EXISTS l2_manager_code text,
+  ADD COLUMN IF NOT EXISTS l1_manager_name text,
+  ADD COLUMN IF NOT EXISTS l2_manager_name text,
+  ADD COLUMN IF NOT EXISTS hierarchy_sort_order integer;
+
+COMMENT ON COLUMN public.admin_ifsp_employee_master.l1_manager_code IS
+  'Direct manager employee code; org tree parent for get_employee_org_hierarchy().';
+COMMENT ON COLUMN public.admin_ifsp_employee_master.l2_manager_code IS
+  'Skip-level manager employee code; L2 leave approval routing.';
+
+-- =============================================================================
+-- BEGIN: 20260609160000_fix_profiles_update_rls.sql
+-- =============================================================================
+-- Fix profiles UPDATE RLS recursion (stack depth limit exceeded on PATCH from User Management).
+
+CREATE OR REPLACE FUNCTION public.is_current_user_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid()
+      AND role IN ('super_admin', 'super_admin_pro')
+  );
+$$;
+
+DROP POLICY IF EXISTS "Admins can read all profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can update any profile" ON public.profiles;
+
+CREATE POLICY "Admins can read all profiles"
+  ON public.profiles FOR SELECT
+  USING (public.is_current_user_admin());
+
+CREATE POLICY "Admins can update any profile"
+  ON public.profiles FOR UPDATE
+  USING (public.is_current_user_admin())
+  WITH CHECK (public.is_current_user_admin());
+
+-- =============================================================================
+-- BEGIN: 20260609170000_profiles_rls_row_security_off.sql
+-- =============================================================================
+-- Break profiles RLS recursion for admin checks and edge saves.
+
+CREATE OR REPLACE FUNCTION public.get_profile_role(p_id uuid)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+  SELECT role FROM public.profiles WHERE id = p_id;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_profile_role(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_profile_role(uuid) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.admin_save_profile(
+  p_id uuid,
+  p_team text,
+  p_role text,
+  p_allowed_modules jsonb,
+  p_employee_code text DEFAULT NULL,
+  p_set_employee_code boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  r public.profiles%ROWTYPE;
+  code text;
+  taken_email text;
+BEGIN
+  IF p_set_employee_code THEN
+    code := NULLIF(btrim(p_employee_code), '');
+    IF code IS NOT NULL THEN
+      SELECT email INTO taken_email
+      FROM public.profiles
+      WHERE lower(btrim(employee_code)) = lower(code)
+        AND id <> p_id
+      LIMIT 1;
+
+      IF FOUND THEN
+        RAISE EXCEPTION 'Employee code "%" is already assigned to %.', code, COALESCE(taken_email, p_id::text)
+          USING ERRCODE = '23505';
+      END IF;
+    END IF;
+  END IF;
+
+  UPDATE public.profiles
+  SET
+    team = p_team,
+    role = p_role,
+    allowed_modules = p_allowed_modules,
+    employee_code = CASE WHEN p_set_employee_code THEN code ELSE employee_code END
+  WHERE id = p_id
+  RETURNING * INTO r;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  RETURN to_jsonb(r);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_save_profile(uuid, text, text, jsonb, text, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_save_profile(uuid, text, text, jsonb, text, boolean) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.admin_upsert_profile(
+  p_id uuid,
+  p_email text,
+  p_username text,
+  p_team text,
+  p_role text,
+  p_allowed_modules jsonb,
+  p_employee_code text DEFAULT NULL,
+  p_set_employee_code boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  r public.profiles%ROWTYPE;
+  code text;
+BEGIN
+  IF p_set_employee_code THEN
+    code := NULLIF(btrim(p_employee_code), '');
+  END IF;
+
+  INSERT INTO public.profiles (id, email, username, team, role, allowed_modules, employee_code)
+  VALUES (
+    p_id,
+    p_email,
+    p_username,
+    p_team,
+    p_role,
+    p_allowed_modules,
+    CASE WHEN p_set_employee_code THEN code ELSE NULL END
+  )
+  ON CONFLICT (id) DO UPDATE
+  SET
+    email = EXCLUDED.email,
+    username = EXCLUDED.username,
+    team = EXCLUDED.team,
+    role = EXCLUDED.role,
+    allowed_modules = EXCLUDED.allowed_modules,
+    employee_code = CASE WHEN p_set_employee_code THEN EXCLUDED.employee_code ELSE public.profiles.employee_code END
+  RETURNING * INTO r;
+
+  RETURN to_jsonb(r);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_upsert_profile(uuid, text, text, text, text, jsonb, text, boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_profile(uuid, text, text, text, text, jsonb, text, boolean) TO service_role;
+
+NOTIFY pgrst, 'reload schema';
+
+-- =============================================================================
 -- END: Consolidated migrations
 -- =============================================================================

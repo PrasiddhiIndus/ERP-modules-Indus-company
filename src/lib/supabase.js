@@ -705,7 +705,10 @@ export async function invokeAuthenticatedFunction(name, options = {}, accessToke
  * @param {Record<string, unknown> | null} [data]
  */
 export async function parseEdgeFunctionError(fnError, data) {
-  if (data?.error && typeof data.error === 'string') return data.error
+  if (data?.error && typeof data.error === 'string') {
+    const hint = typeof data.hint === 'string' && data.hint.trim() ? data.hint.trim() : ''
+    return hint ? `${data.error} (${hint})` : data.error
+  }
   if (data?.message && typeof data.message === 'string') return data.message
   const ctx = fnError?.context
   if (ctx && typeof ctx.json === 'function') {
