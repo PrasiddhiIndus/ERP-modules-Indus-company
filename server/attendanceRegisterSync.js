@@ -13,16 +13,19 @@ function pickRegisterUpsertFields(row) {
   const employee_code = String(row.employee_code || '').trim();
   const mark = row.mark;
   if (!employee_code || !mark) return null;
-  return {
+  const payload = {
     employee_code,
     register_date: row.register_date,
     month_key: row.month_key || String(row.register_date || '').slice(0, 7),
     mark,
     mark_source: row.mark_source ?? 'punch',
     leave_request_id: row.leave_request_id ?? null,
-    mark_remark: row.mark_remark ?? null,
     updated_at: row.updated_at || new Date().toISOString(),
   };
+  if (Object.prototype.hasOwnProperty.call(row, 'mark_remark')) {
+    payload.mark_remark = row.mark_remark ?? null;
+  }
+  return payload;
 }
 
 const REGISTER_TABLE = 'admin_attendance_register';
@@ -69,7 +72,6 @@ async function upsertRegisterBatch(supabase, rows) {
         ...row,
         employee_code,
         mark,
-        mark_remark: row.mark_remark ?? null,
         updated_at: new Date().toISOString(),
       });
     })
@@ -106,7 +108,7 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   if (respectManualMarks && fromDate && toDate) {
     const { data, error } = await supabase
       .from(REGISTER_TABLE)
-      .select('employee_code,register_date,mark,mark_source,leave_request_id')
+      .select('employee_code,register_date,mark,mark_source,leave_request_id,mark_remark')
       .gte('register_date', fromDate)
       .lte('register_date', toDate);
     if (error) throw error;

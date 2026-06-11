@@ -77,6 +77,9 @@ export function isPunchMarkSource(mark, markSource) {
 export function canPunchSyncOverwriteExisting(existing) {
   if (!existing) return true;
   const mark = existing.mark ?? '';
+  const markNorm = String(mark ?? '').trim();
+  if (markNorm === 'P(OD)' || markNorm === 'T') return false;
+  if (String(existing.mark_remark ?? '').trim()) return false;
   const markSource = existing.mark_source ?? null;
   const leaveRequestId = existing.leave_request_id ?? null;
   if (!mark && !markSource) return true;
@@ -119,6 +122,7 @@ export function marksByEmpDayFromRegisterDbRows(dbRows, normalizeMarkFn) {
       mark: mark || '',
       mark_source: row.mark_source ?? null,
       leave_request_id: row.leave_request_id ?? null,
+      mark_remark: row.mark_remark ?? null,
     };
   }
   return marks;
