@@ -79,6 +79,16 @@ AS $$
   );
 $$;
 
+-- ── Canonical employee code normalizer (referenced by sync trigger + unique index) ─
+-- Do not DROP — idx_profiles_employee_code_unique depends on norm_emp_code(text).
+CREATE OR REPLACE FUNCTION public.norm_emp_code(p_code text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT public.normalize_attendance_employee_code(p_code);
+$$;
+
 -- ── profiles → auth.users metadata sync ─────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.sync_auth_user_employee_code()
 RETURNS trigger
