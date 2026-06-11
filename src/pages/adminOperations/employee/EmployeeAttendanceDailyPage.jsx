@@ -40,6 +40,8 @@ import {
   isoMonthToday,
   loadRegisterMarksForMonth,
   fetchRegisterMarksForYear,
+  fetchApprovedLeaveMarksForMonth,
+  mergeApprovedLeaveMarksIntoManualMarks,
   monthDateRange,
   registerDateFromDay,
   registerDayTableLabel,
@@ -191,10 +193,16 @@ export function EmployeeAttendanceDailyPage() {
         respectManualMarks: true,
         masterCodeMap,
       });
-      const [registerData, yearRows] = await Promise.all([
+      const [registerData, yearRows, approvedLeaveMarks] = await Promise.all([
         loadRegisterMarksForMonth(supabase, monthMeta),
         fetchRegisterMarksForYear(supabase, monthMeta.year),
+        fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
       ]);
+      const mergedMarks = mergeApprovedLeaveMarksIntoManualMarks(
+        registerData?.marks || {},
+        approvedLeaveMarks,
+        { punches: punchRows, monthKey: monthMeta.monthKey }
+      );
       const punchCodes = [
         ...new Set(
           punchRows
@@ -202,7 +210,10 @@ export function EmployeeAttendanceDailyPage() {
             .filter(Boolean)
         ),
       ];
-      const registerCodes = Object.keys(registerData?.marks || {})
+      const registerCodes = [
+        ...Object.keys(mergedMarks),
+        ...Object.keys(registerData?.marks || {}),
+      ]
         .map((c) => normalizeAttendanceEmpCode(c))
         .filter(Boolean);
       const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveEmployees, {
@@ -219,7 +230,7 @@ export function EmployeeAttendanceDailyPage() {
       );
       setPunches(punchRows);
       setActiveEmployees(registerEmployees);
-      setManualMarks(registerData?.marks || {});
+      setManualMarks(mergedMarks);
       setManualRemarks(registerData?.remarks || {});
       setYearRegisterRows(yearRows);
       setLeaveLimitWarning("");

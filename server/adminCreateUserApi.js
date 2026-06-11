@@ -276,6 +276,32 @@ async function readCallerRole(db, callerId) {
 
 async function findProfileByEmployeeCode(db, employeeCode, excludeId) {
 
+  const { data: rpcRows, error: rpcErr } = await db.client.rpc('profile_employee_code_taken', {
+
+    p_code: employeeCode,
+
+    p_exclude_id: excludeId ?? null,
+
+  });
+
+  if (!rpcErr) {
+
+    const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
+
+    if (row?.id) return { taken: row, error: null };
+
+    return { taken: null, error: null };
+
+  }
+
+  if (!isRpcMissingError(rpcErr, 'profile_employee_code_taken')) {
+
+    logError('profile_employee_code_taken RPC failed; using REST fallback', rpcErr.message);
+
+  }
+
+
+
   const url = new URL(`${db.base}/rest/v1/profiles`);
 
   url.searchParams.set('select', 'id,email');

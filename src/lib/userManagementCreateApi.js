@@ -14,8 +14,36 @@ async function getAccessToken(supabase) {
   return sess?.session?.access_token ?? null;
 }
 
+function isNetworkUnreachable(error, status) {
+  if (status === 404 || status === 0) return true;
+  const msg = String(error?.message || "");
+  return (
+    msg.includes("Failed to fetch") ||
+    msg.includes("ECONNRESET") ||
+    msg.includes("NetworkError") ||
+    msg.includes("Load failed")
+  );
+}
+
+function authUserAlreadyCreated(data, error) {
+  const text = String(data?.error || error?.message || "").toLowerCase();
+  return text.includes("auth user created but profile failed");
+}
+
+function formatApiError(data, error) {
+  const base =
+    (typeof data?.error === "string" && data.error) ||
+    (typeof error?.message === "string" && error.message) ||
+    "Could not create user.";
+  const hint =
+    typeof data?.hint === "string" && data.hint.trim() ? data.hint.trim() : "";
+  return hint ? `${base} (${hint})` : base;
+}
+
 /**
- * Create ERP user (auth + profiles) via local Node API, then edge function fallback.
+ * Create ERP user (auth + profiles).
+ * Production: Supabase edge function first (has service_role in Supabase secrets).
+ * Local dev: Node /api first (Vite proxy → port 8787), edge as fallback.
  */
 export async function createUserAccount(supabase, payload) {
   const body = {
@@ -44,66 +72,83 @@ export async function createUserAccount(supabase, payload) {
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) return { data, error: null };
+      if (res.ok) return { data, error: null, status: res.status };
       return {
         data,
+        status: res.status,
         error: {
           message: data?.error || `Request failed (${res.status})`,
           status: res.status,
         },
       };
     } catch (err) {
-      return { data: null, error: { message: err?.message || String(err) } };
+      return {
+        data: null,
+        status: 0,
+        error: { message: err?.message || String(err), status: 0 },
+      };
     }
   }
 
   async function callEdgeCreateUser() {
-    return invokeAuthenticatedFunction("admin-create-user", { body }, token);
+    const edge = await invokeAuthenticatedFunction("admin-create-user", { body }, token);
+    const status = edge.error?.context?.status ?? (edge.data?.ok === false ? 500 : 0);
+    return { ...edge, status };
   }
 
-  let { data, error } = await callLocalCreateUser();
+  async function finishFromEdge(edge) {
+    if (!edge.error && edge.data?.ok === true) {
+      return { ok: true, data: edge.data };
+    }
+    const message = await parseEdgeFunctionError(edge.error, edge.data);
+    return { ok: false, message };
+  }
 
-  const localStatus = error?.status;
-  const localHasMessage =
-    typeof data?.error === "string" && data.error.trim().length > 0;
-  const localUnreachable =
-    !localStatus ||
-    localStatus === 404 ||
-    String(error?.message || "").includes("Failed to fetch") ||
-    String(error?.message || "").includes("ECONNRESET");
+  async function finishFromLocal(local) {
+    const { data, error, status } = local;
+    if (!error) {
+      if (data?.error) return { ok: false, message: String(data.error) };
+      if (data?.ok === true) return { ok: true, data };
+      return { ok: false, message: data?.error || "Could not create user." };
+    }
+    return { ok: false, message: formatApiError(data, error) };
+  }
 
-  // Only fall back to edge when local API is unreachable — not when it returned a real error
-  // (e.g. profile save failed after auth user was created → edge would misleadingly return 400).
-  const tryEdge = error && localUnreachable && !localHasMessage;
+  const preferEdge = import.meta.env.PROD;
+
+  if (preferEdge) {
+    const edge = await callEdgeCreateUser();
+    const edgeStatus = edge.status || edge.error?.context?.status || 0;
+    if (!edge.error && edge.data?.ok === true) {
+      return finishFromEdge(edge);
+    }
+    if (!isNetworkUnreachable(edge.error, edgeStatus)) {
+      return finishFromEdge(edge);
+    }
+    const local = await callLocalCreateUser();
+    return finishFromLocal(local);
+  }
+
+  let local = await callLocalCreateUser();
+  if (!local.error) {
+    return finishFromLocal(local);
+  }
+
+  const localStatus = local.status ?? local.error?.status ?? 0;
+  const tryEdge =
+    !authUserAlreadyCreated(local.data, local.error) &&
+    (isNetworkUnreachable(local.error, localStatus) || localStatus >= 500);
 
   if (tryEdge) {
     const edge = await callEdgeCreateUser();
-    if (!edge.error) {
-      data = edge.data;
-      error = null;
-    } else {
-      data = edge.data ?? data;
-      error = edge.error;
+    if (!edge.error && edge.data?.ok === true) {
+      return finishFromEdge(edge);
+    }
+    const edgeStatus = edge.status || edge.error?.context?.status || 0;
+    if (!isNetworkUnreachable(edge.error, edgeStatus)) {
+      return finishFromEdge(edge);
     }
   }
 
-  if (error) {
-    const base =
-      (typeof data?.error === "string" && data.error) ||
-      (await parseEdgeFunctionError(error, data));
-    const hint =
-      typeof data?.hint === "string" && data.hint.trim() ? data.hint.trim() : "";
-    const msg = hint ? `${base} (${hint})` : base;
-    return { ok: false, message: msg };
-  }
-
-  if (data?.error) {
-    return { ok: false, message: String(data.error) };
-  }
-
-  if (data?.ok !== true) {
-    return { ok: false, message: data?.error || "Could not create user." };
-  }
-
-  return { ok: true, data };
+  return finishFromLocal(local);
 }
