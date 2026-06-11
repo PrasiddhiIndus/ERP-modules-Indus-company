@@ -40,6 +40,8 @@ import {
   isoMonthToday,
   loadRegisterMarksForMonth,
   fetchRegisterMarksForYear,
+  fetchApprovedLeaveMarksForMonth,
+  mergeApprovedLeaveMarksIntoManualMarks,
   monthDateRange,
   registerDateFromDay,
   registerDayTableLabel,
@@ -196,6 +198,11 @@ export function EmployeeAttendanceDailyPage() {
         fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap),
         fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
       ]);
+      const mergedMarks = mergeApprovedLeaveMarksIntoManualMarks(
+        registerData?.marks || {},
+        approvedLeaveMarks,
+        { punches: punchRows, monthKey: monthMeta.monthKey }
+      );
       const punchCodes = [
         ...new Set(
           punchRows
@@ -225,7 +232,7 @@ export function EmployeeAttendanceDailyPage() {
       );
       setPunches(punchRows);
       setActiveEmployees(registerEmployees);
-      setManualMarks(registerData?.marks || {});
+      setManualMarks(mergedMarks);
       setManualRemarks(registerData?.remarks || {});
       setYearRegisterRows(yearRows);
       setLeaveLimitWarning("");

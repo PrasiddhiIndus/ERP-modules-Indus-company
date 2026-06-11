@@ -642,6 +642,103 @@ export async function fetchRegisterMarksForMonth(
   };
 }
 
+function registerMarkFromApprovedLeaveType(leaveTypeCode) {
+  const upper = String(leaveTypeCode || "L").trim().toUpperCase();
+  return normalizeRegisterMarkForDb(upper) || "L";
+}
+
+function addLeaveMark(marks, employeeCode, registerDate, mark) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const day = dayOfMonthFromIsoDate(registerDate);
+  const canonical = normalizeRegisterMarkForDb(mark);
+  if (!code || !day || !canonical) return;
+  if (!marks[code]) marks[code] = {};
+  marks[code][day] = canonical;
+}
+
+/**
+ * Fetch approved leave marks for the daily register (read-only).
+ * Source: indus_one.admin_leave_attendance_marks, then approved admin_leave_requests.
+ * Punch priority is applied later via mergeApprovedLeaveMarksIntoManualMarks.
+ */
+export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate) {
+  const marks = {};
+  if (!fromDate || !toDate) return marks;
+
+  const { data: applied, error: appliedErr } = await supabase
+    .schema("indus_one")
+    .from("admin_leave_attendance_marks")
+    .select("employee_code, register_date, applied_mark")
+    .eq("reverted", false)
+    .gte("register_date", fromDate)
+    .lte("register_date", toDate);
+
+  if (!appliedErr && applied?.length) {
+    for (const row of applied) {
+      addLeaveMark(marks, row.employee_code, row.register_date, row.applied_mark);
+    }
+    return marks;
+  }
+
+  const { data: approved, error: approvedErr } = await supabase
+    .schema("indus_one")
+    .from("admin_leave_requests")
+    .select("employee_code, leave_type_code, from_date, to_date")
+    .eq("status", "approved")
+    .lte("from_date", toDate)
+    .gte("to_date", fromDate);
+
+  if (approvedErr) throw approvedErr;
+
+  for (const req of approved || []) {
+    const mark = registerMarkFromApprovedLeaveType(req.leave_type_code);
+    const reqFrom = normalizeDbDate(req.from_date);
+    const reqTo = normalizeDbDate(req.to_date);
+    if (!reqFrom || !reqTo) continue;
+    const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
+    const windowTo = reqTo > toDate ? toDate : reqTo;
+    for (const iso of enumerateDates(windowFrom, windowTo)) {
+      addLeaveMark(marks, req.employee_code, iso, mark);
+    }
+  }
+
+  return marks;
+}
+
+/**
+ * Merge approved leave into register marks. Machine punch (P) always wins over leave.
+ */
+export function mergeApprovedLeaveMarksIntoManualMarks(
+  manualMarks,
+  approvedLeaveMarks,
+  { punches = [], monthKey } = {}
+) {
+  const presentKeys = buildPresentKeysFromPunches(punches);
+  const next = {};
+  for (const [code, days] of Object.entries(manualMarks || {})) {
+    next[code] = { ...(days || {}) };
+  }
+
+  for (const [empCode, days] of Object.entries(approvedLeaveMarks || {})) {
+    const code = normalizeAttendanceEmpCode(empCode);
+    if (!code) continue;
+    if (!next[code]) next[code] = {};
+    for (const [dayKey, mark] of Object.entries(days || {})) {
+      const day = Number(dayKey);
+      const canonical = normalizeRegisterMarkForDb(mark);
+      if (!Number.isFinite(day) || !canonical) continue;
+      const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
+      if (iso && presentKeys.has(`${code}|${iso}`)) continue;
+      const existing = next[code][day];
+      if (existing === "P" || existing === "P(OD)") continue;
+      if (existing && !isRegisterLeaveMark(existing) && existing !== "") continue;
+      next[code][day] = canonical;
+    }
+  }
+
+  return next;
+}
+
 /** All register mark rows for a calendar year (leave limits, CO validation, alerts). */
 export async function fetchRegisterMarksForYear(supabase, year, masterCodeMap = null) {
   const y = Number(year) || new Date().getFullYear();
