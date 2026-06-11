@@ -194,8 +194,8 @@ export function EmployeeAttendanceDailyPage() {
         masterCodeMap,
       });
       const [registerData, yearRows, approvedLeaveMarks] = await Promise.all([
-        loadRegisterMarksForMonth(supabase, monthMeta),
-        fetchRegisterMarksForYear(supabase, monthMeta.year),
+        loadRegisterMarksForMonth(supabase, monthMeta, { masterCodeMap }),
+        fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap),
         fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
       ]);
       const mergedMarks = mergeApprovedLeaveMarksIntoManualMarks(
@@ -211,14 +211,16 @@ export function EmployeeAttendanceDailyPage() {
         ),
       ];
       const registerCodes = [
-        ...Object.keys(mergedMarks),
-        ...Object.keys(registerData?.marks || {}),
-      ]
-        .map((c) => normalizeAttendanceEmpCode(c))
-        .filter(Boolean);
+        ...new Set(
+          (registerData?.rows || [])
+            .map((row) => row.employee_code)
+            .filter(Boolean)
+        ),
+      ];
       const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveEmployees, {
         punchCodes,
         registerCodes,
+        masterCodeMap,
       });
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
@@ -374,7 +376,9 @@ export function EmployeeAttendanceDailyPage() {
       } catch (err) {
         setError(formatAttendanceSupabaseError(err));
         try {
-          const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+          const registerData = await loadRegisterMarksForMonth(supabase, monthMeta, {
+            masterCodeMap: masterRegisterCodeMap,
+          });
           setManualMarks(registerData?.marks || {});
           setManualRemarks(registerData?.remarks || {});
         } catch {
@@ -756,7 +760,9 @@ export function EmployeeAttendanceDailyPage() {
       } catch (err) {
         setError(formatAttendanceSupabaseError(err));
         try {
-          const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+          const registerData = await loadRegisterMarksForMonth(supabase, monthMeta, {
+            masterCodeMap: masterRegisterCodeMap,
+          });
           setManualMarks(registerData?.marks || {});
           setManualRemarks(registerData?.remarks || {});
         } catch {
@@ -828,7 +834,9 @@ export function EmployeeAttendanceDailyPage() {
     } catch (err) {
       setError(formatAttendanceSupabaseError(err));
       try {
-        const registerData = await loadRegisterMarksForMonth(supabase, monthMeta);
+        const registerData = await loadRegisterMarksForMonth(supabase, monthMeta, {
+          masterCodeMap: masterRegisterCodeMap,
+        });
         setManualMarks(registerData?.marks || {});
         setManualRemarks(registerData?.remarks || {});
       } catch {

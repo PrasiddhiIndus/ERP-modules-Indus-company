@@ -32,12 +32,11 @@ import {
 } from '../../utils/commercialPoApproval';
 
 const VERTICALS = ['Manpower', 'Training'];
-const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum', 'Custom', 'Custom Calculator'];
+const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum', 'Custom Calculator'];
 const MANPOWER_BILLING_TYPE_FILTERS = [
   { value: 'Per Day', label: 'Daily' },
   { value: 'Monthly', label: 'Monthly' },
   { value: 'Lump Sum', label: 'Lump Sum' },
-  { value: 'Custom', label: 'Custom' },
   { value: 'Custom Calculator', label: 'Custom Calculator' },
 ];
 const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
