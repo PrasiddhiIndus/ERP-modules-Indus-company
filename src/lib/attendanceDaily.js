@@ -21,6 +21,7 @@ export const EMPLOYEE_MASTER_TABLE = "admin_ifsp_employee_master";
 export const EMPLOYEE_MASTER_CODE_COL = "employee_code";
 export const REGISTER_MARK_UPSERT_CHUNK = 200;
 export const PUNCH_FETCH_CHUNK = 1000;
+export const REGISTER_FETCH_CHUNK = 1000;
 export const ABSENT_GRID_CAP = 5000;
 
 export const STORAGE_KEYS = {
@@ -399,6 +400,30 @@ export function attendanceEmpCodeLookupVariants(code) {
   return [...variants];
 }
 
+/**
+ * Canonical grid key for a register/punch employee code.
+ * Aligns legacy padded numeric codes and master-map aliases to one row key.
+ */
+export function resolveRegisterGridEmpCode(code, masterCodeMap = null) {
+  const raw = String(code ?? "").trim();
+  const norm = normalizeAttendanceEmpCode(raw);
+  if (!norm) return "";
+  if (masterCodeMap?.size) {
+    let mapped = masterCodeMap.get(norm) || masterCodeMap.get(raw);
+    if (!mapped) {
+      const lower = norm.toLowerCase();
+      for (const [key, value] of masterCodeMap.entries()) {
+        if (String(key).toLowerCase() === lower) {
+          mapped = value;
+          break;
+        }
+      }
+    }
+    if (mapped) return normalizeAttendanceEmpCode(mapped);
+  }
+  return norm;
+}
+
 /** Filter value for punch queries: ALL or canonical emp code. */
 export function resolveAttendanceEmpCodeFilter(empCode) {
   const trimmed = String(empCode ?? "").trim();
@@ -526,11 +551,11 @@ export function registerDayExportHeaders(monthKey, daysInMonth) {
 }
 
 /** DB rows → manualMarks[empCode][dayNumber]. */
-export function dbRowsToManualMarks(rows) {
+export function dbRowsToManualMarks(rows, masterCodeMap = null) {
   const marks = {};
   const priority = {};
   for (const row of rows || []) {
-    const code = normalizeAttendanceEmpCode(row.employee_code);
+    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
     const day = dayOfMonthFromIsoDate(row.register_date);
     const mark = normalizeRegisterMarkForDb(row.mark);
     if (!code || !day || !mark) continue;
@@ -546,10 +571,10 @@ export function dbRowsToManualMarks(rows) {
 }
 
 /** DB rows -> manualRemarks[empCode][dayNumber] (P(OD) / T comments). */
-export function dbRowsToManualRemarks(rows) {
+export function dbRowsToManualRemarks(rows, masterCodeMap = null) {
   const remarks = {};
   for (const row of rows || []) {
-    const code = normalizeAttendanceEmpCode(row.employee_code);
+    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
     const day = dayOfMonthFromIsoDate(row.register_date);
     const mark = normalizeRegisterMarkForDb(row.mark);
     const remark = String(row.mark_remark || "").trim();
@@ -582,33 +607,50 @@ export function manualMarksToDbRows(marksByEmp, monthKey) {
   return rows;
 }
 
-export async function fetchRegisterMarksForMonth(supabase, { fromDate, toDate }) {
-  const { data, error } = await supabase
-    .from(ATTENDANCE_REGISTER_TABLE)
-    .select("employee_code,register_date,mark,mark_remark,mark_source,leave_request_id")
-    .gte("register_date", fromDate)
-    .lte("register_date", toDate);
-  if (error) throw error;
+/** Paginated read — PostgREST defaults to 1000 rows; a full month can exceed that. */
+export async function fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }) {
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from(ATTENDANCE_REGISTER_TABLE)
+      .select("employee_code,register_date,mark,mark_remark,mark_source,leave_request_id")
+      .gte("register_date", fromDate)
+      .lte("register_date", toDate)
+      .order("register_date", { ascending: true })
+      .order("employee_code", { ascending: true })
+      .range(offset, offset + REGISTER_FETCH_CHUNK - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < REGISTER_FETCH_CHUNK) break;
+    offset += REGISTER_FETCH_CHUNK;
+  }
+  return all;
+}
+
+export async function fetchRegisterMarksForMonth(
+  supabase,
+  { fromDate, toDate },
+  { masterCodeMap = null, rows: prefetchedRows = null } = {}
+) {
+  const rows = prefetchedRows ?? (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
   return {
-    marks: dbRowsToManualMarks(data),
-    remarks: dbRowsToManualRemarks(data),
+    rows,
+    marks: dbRowsToManualMarks(rows, masterCodeMap),
+    remarks: dbRowsToManualRemarks(rows, masterCodeMap),
   };
 }
 
 /** All register mark rows for a calendar year (leave limits, CO validation, alerts). */
-export async function fetchRegisterMarksForYear(supabase, year) {
+export async function fetchRegisterMarksForYear(supabase, year, masterCodeMap = null) {
   const y = Number(year) || new Date().getFullYear();
   const fromDate = `${y}-01-01`;
   const toDate = `${y}-12-31`;
-  const { data, error } = await supabase
-    .from(ATTENDANCE_REGISTER_TABLE)
-    .select("employee_code,register_date,mark,mark_remark")
-    .gte("register_date", fromDate)
-    .lte("register_date", toDate);
-  if (error) throw error;
-  return (data || []).map((row) => ({
-    employee_code: normalizeAttendanceEmpCode(row.employee_code),
-    register_date: String(row.register_date || "").slice(0, 10),
+  const rows = await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate });
+  return rows.map((row) => ({
+    employee_code: resolveRegisterGridEmpCode(row.employee_code, masterCodeMap),
+    register_date: String(normalizeDbDate(row.register_date) || "").slice(0, 10),
     mark: row.mark,
     mark_remark: row.mark_remark ?? null,
   }));
@@ -661,13 +703,14 @@ export function listAutoWeekoffDatesForMonthAndNext(monthMeta) {
  */
 export function canAutoWeekoffApplyToExisting(existing) {
   if (!existing?.mark) return true;
+  if (String(existing.mark_remark ?? "").trim()) return false;
   if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return false;
   const src = String(existing.mark_source ?? "").trim().toLowerCase();
   if (isManualMarkSource(src)) return false;
   const mark = String(existing.mark ?? "").trim();
   if (mark === "WO" && (src === REGISTER_MARK_SOURCE_AUTO_WO || !src)) return true;
   if (isPunchMarkSource(mark, existing.mark_source)) return true;
-  if (mark === "P" || mark === "P(OD)") return false;
+  if (mark === "P" || mark === "P(OD)" || mark === "T") return false;
   return true;
 }
 
@@ -705,7 +748,7 @@ export async function syncRegisterAutoWeekoffMarks(
   const toDate = dates[dates.length - 1];
   const { data, error } = await supabase
     .from(ATTENDANCE_REGISTER_TABLE)
-    .select("employee_code,register_date,mark,mark_source,leave_request_id")
+    .select("employee_code,register_date,mark,mark_source,leave_request_id,mark_remark")
     .gte("register_date", fromDate)
     .lte("register_date", toDate);
   if (error) throw error;
@@ -731,7 +774,6 @@ export async function syncRegisterAutoWeekoffMarks(
         month_key: register_date.slice(0, 7),
         mark: "WO",
         mark_source: REGISTER_MARK_SOURCE_AUTO_WO,
-        mark_remark: null,
         leave_request_id: null,
         updated_at: new Date().toISOString(),
       });
@@ -784,7 +826,7 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   if (respectManualMarks && fromDate && toDate) {
     const { data, error } = await supabase
       .from(ATTENDANCE_REGISTER_TABLE)
-      .select("employee_code,register_date,mark,mark_source,leave_request_id")
+      .select("employee_code,register_date,mark,mark_source,leave_request_id,mark_remark")
       .gte("register_date", fromDate)
       .lte("register_date", toDate);
     if (error) throw error;
@@ -804,20 +846,39 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
 }
 
 /** Include active master employees plus inactive (removed) master employees with month activity. */
-export function buildRegisterEmployeeList(activeEmployees, inactiveEmployees, { punchCodes = [], registerCodes = [] } = {}) {
+export function buildRegisterEmployeeList(
+  activeEmployees,
+  inactiveEmployees,
+  { punchCodes = [], registerCodes = [], masterCodeMap = null } = {}
+) {
   const byCode = new Map();
   for (const e of activeEmployees || []) {
-    const code = normalizeAttendanceEmpCode(e.empCode);
-    if (code) byCode.set(code, { ...e, masterStatus: "Active" });
+    const code = resolveRegisterGridEmpCode(e.empCode, masterCodeMap);
+    if (code) byCode.set(code, { ...e, empCode: code, masterStatus: "Active" });
   }
   const activityCodes = new Set(
-    [...(punchCodes || []), ...(registerCodes || [])].map(normalizeAttendanceEmpCode).filter(Boolean)
+    [...(punchCodes || []), ...(registerCodes || [])]
+      .map((c) => resolveRegisterGridEmpCode(c, masterCodeMap))
+      .filter(Boolean)
   );
   for (const e of inactiveEmployees || []) {
-    const code = normalizeAttendanceEmpCode(e.empCode);
+    const code = resolveRegisterGridEmpCode(e.empCode, masterCodeMap);
     if (!code || byCode.has(code)) continue;
     if (activityCodes.size > 0 && !activityCodes.has(code)) continue;
-    byCode.set(code, { ...e, masterStatus: "Inactive" });
+    byCode.set(code, { ...e, empCode: code, masterStatus: "Inactive" });
+  }
+  for (const rawCode of registerCodes || []) {
+    const code = resolveRegisterGridEmpCode(rawCode, masterCodeMap);
+    if (!code || byCode.has(code)) continue;
+    byCode.set(code, {
+      empCode: code,
+      registerEmpCode: toRegisterDbEmployeeCode(code, masterCodeMap) || String(rawCode).trim(),
+      employeeName: "",
+      department: "",
+      designation: "",
+      employeeId: "",
+      masterStatus: "Register only",
+    });
   }
   return [...byCode.values()].sort((a, b) =>
     String(a.empCode).localeCompare(String(b.empCode), undefined, { numeric: true })
@@ -839,10 +900,15 @@ export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
       const employee_code = toRegisterDbEmployeeCode(row.employee_code, masterCodeMap);
       const mark = normalizeRegisterMarkForDb(row.mark);
       if (!employee_code || !mark) return null;
-      const mark_remark = isRegisterCommentMark(mark)
-        ? String(row.mark_remark || "").trim() || null
-        : null;
-      return { ...row, employee_code, mark, mark_remark };
+      const payload = { ...row, employee_code, mark };
+      if (isRegisterCommentMark(mark)) {
+        payload.mark_remark = String(row.mark_remark ?? "").trim() || null;
+      } else if (Object.prototype.hasOwnProperty.call(row, "mark_remark")) {
+        payload.mark_remark = String(row.mark_remark ?? "").trim() || null;
+      } else {
+        delete payload.mark_remark;
+      }
+      return payload;
     })
     .filter(Boolean);
   if (!normalized.length) return;
@@ -923,20 +989,19 @@ export async function migrateLocalRegisterMarksToDb(supabase, monthKey, fromDate
   return true;
 }
 
-export async function loadRegisterMarksForMonth(supabase, monthMeta) {
-  let data = await fetchRegisterMarksForMonth(supabase, {
+export async function loadRegisterMarksForMonth(supabase, monthMeta, options = {}) {
+  const { masterCodeMap = null } = options;
+  const range = {
     fromDate: monthMeta.fromDate,
     toDate: monthMeta.toDate,
-  });
-  const hasDb = Object.keys(data.marks || {}).length > 0;
+  };
+  let data = await fetchRegisterMarksForMonth(supabase, range, { masterCodeMap });
+  const hasDb = (data.rows || []).length > 0 || Object.keys(data.marks || {}).length > 0;
   const local = readStoredRegisterMarks(monthMeta.monthKey);
   const hasLocal = Object.keys(local).length > 0;
   if (!hasDb && hasLocal) {
     await migrateLocalRegisterMarksToDb(supabase, monthMeta.monthKey, monthMeta.fromDate, monthMeta.toDate);
-    data = await fetchRegisterMarksForMonth(supabase, {
-      fromDate: monthMeta.fromDate,
-      toDate: monthMeta.toDate,
-    });
+    data = await fetchRegisterMarksForMonth(supabase, range, { masterCodeMap });
   } else if (hasLocal) {
     data = {
       ...data,

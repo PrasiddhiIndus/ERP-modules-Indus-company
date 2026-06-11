@@ -96,7 +96,6 @@ const BILLING_TYPE_TABS_MANPOWER = [
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Per Day', label: 'Per Day' },
   { id: 'Lump Sum', label: 'Lump Sum' },
-  { id: 'Custom', label: 'Custom' },
   { id: 'Custom Calculator', label: 'Custom Calculator' },
 ];
 const BILLING_TYPE_TABS_RM = [

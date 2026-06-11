@@ -165,7 +165,6 @@ const BILLING_TABS_MANPOWER = [
   { id: 'Per Day', label: 'Daily' },
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Lump Sum', label: 'Lump Sum' },
-  { id: 'Custom', label: 'Custom' },
   { id: 'Custom Calculator', label: 'Custom Calculator' },
 ];
 
