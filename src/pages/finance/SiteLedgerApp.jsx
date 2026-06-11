@@ -523,6 +523,11 @@ export default function SiteLedgerApp({ embedded = true }) {
     scheduleSetupPersist({ scope: "full", deletedSiteCodes: [id] });
   }, [scheduleSetupPersist]);
   const saveRecord = useCallback((siteId, mk, rec) => setRecords((prev) => ({ ...prev, [`${siteId}__${mk}`]: rec })), []);
+  const renameLibraryHead = useCallback((key, label) => {
+    applySiteSetupChange(({ library }) => ({
+      library: library.map((h) => (h.key === key ? { ...h, label: (label && label.trim()) || h.label } : h)),
+    }), { scope: "masters", libraryChanged: true });
+  }, [applySiteSetupChange]);
   const removeLibraryHead = useCallback((key) => {
     applySiteSetupChange(({ sites, library, records }) => {
       const stripEst = (est) => {
@@ -675,8 +680,8 @@ export default function SiteLedgerApp({ embedded = true }) {
           )}
           {view === "sites" && <SitesTable rows={rows} query={query} setQuery={setQuery} openSite={(id) => { setActiveSite(id); setView("site"); }} onEdit={(id) => { setActiveSite(id); setView("entry"); }} onConfig={(id) => { setActiveSite(id); setView("config"); }} onDelete={removeSite} mLabel={mLabel} />}
           {view === "site" && activeSite && <SiteDetail site={sitesL.find((s) => s.id === activeSite)} records={records} month={month} mLabel={mLabel} back={() => setView("overview")} onEdit={() => setView("entry")} onConfig={() => setView("config")} />}
-          {view === "entry" && <EntryForm sites={sitesL} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
-          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onAddParent={addParent} onSetParentColor={setParentColor} onRemoveParent={removeParent} />}
+          {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
+          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onAddParent={addParent} onSetParentColor={setParentColor} onRemoveParent={removeParent} />}
           {view === "reports" && <Reports sites={sitesL} records={records} parents={parents} defaultMonth={month} />}
         </div>
       </main>
@@ -1138,7 +1143,7 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig }) {
 }
 
 /* ───────────────────────── SITE CONFIG (parent → child builder) ───────────────────────── */
-function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatchSite, onApplySetupChange, onRemoveHead, onAdd, onRenameParent, onAddParent, onSetParentColor, onRemoveParent }) {
+function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onAddParent, onSetParentColor, onRemoveParent }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
   const site = sites.find((s) => s.id === siteId);
@@ -1146,6 +1151,8 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatc
   const [newParent, setNewParent] = useState(PARENTS[0].key);
   const [editing, setEditing] = useState(null); // parent key being renamed
   const [editVal, setEditVal] = useState("");
+  const [editingChild, setEditingChild] = useState(null); // child key being renamed
+  const [editChildVal, setEditChildVal] = useState("");
   const [colorEdit, setColorEdit] = useState(null); // parent key whose colour swatches are open
   const [newPName, setNewPName] = useState("");
   const [newPColor, setNewPColor] = useState(PARENT_PALETTE[6]);
@@ -1204,6 +1211,17 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatc
   const onDropChild = (toParent, beforeKey) => { const d = drag.current; if (d) moveChild(d.childKey, d.fromParent, toParent, beforeKey); drag.current = null; };
   const onDropAvailable = () => { const d = drag.current; if (d && d.fromParent !== "__available__") removeChild(d.childKey); drag.current = null; };
 
+  const commitChildRename = (key) => {
+    onRenameHead(key, editChildVal);
+    setEditingChild(null);
+  };
+  const deleteHead = (key) => {
+    const h = libMap[key];
+    if (!h) return;
+    if (!h.custom && !confirm(`Delete "${h.label}" from the library? It will be removed from all sites.`)) return;
+    onRemoveHead(key);
+  };
+
   const addCustom = () => {
     if (!newLabel.trim()) return;
     let key = slug(newLabel); let n = 1;
@@ -1236,8 +1254,21 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatc
           {available.length === 0 && <div className="dnd-empty">Every cost line is assigned. Drag one back here to remove it from this site.</div>}
           {available.map((h) => (
             <div key={h.key} className="dnd-chip" draggable onDragStart={() => onDragStart(h.key, "__available__")}>
-              <GripVertical size={13} className="grip" /><span className="cat-dot" style={{ background: parentColor(h.parent) }} title={parentLabel(h.parent)} /><span>{h.label}</span>
-              {h.custom && <button className="chip-act danger" title="Delete custom line" onClick={() => onRemoveHead(h.key)}><Trash2 size={12} /></button>}
+              <GripVertical size={13} className="grip" />
+              <span className="cat-dot" style={{ background: parentColor(h.parent) }} title={parentLabel(h.parent)} />
+              {editingChild === h.key ? (
+                <input className="chip-edit" autoFocus value={editChildVal}
+                  onChange={(e) => setEditChildVal(e.target.value)}
+                  onBlur={() => commitChildRename(h.key)}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(h.key); if (e.key === "Escape") setEditingChild(null); }}
+                  onMouseDown={(e) => e.stopPropagation()} />
+              ) : (
+                <>
+                  <span>{h.label}</span>
+                  <button type="button" className="chip-act" title="Rename cost line" onMouseDown={(e) => e.stopPropagation()} onClick={() => { setEditingChild(h.key); setEditChildVal(h.label); }}><Pencil size={11} /></button>
+                  <button type="button" className="chip-act danger" title="Delete cost line" onMouseDown={(e) => e.stopPropagation()} onClick={() => deleteHead(h.key)}><X size={13} /></button>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -1279,8 +1310,20 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatc
               {g.children.length === 0 && <div className="dnd-empty sm">Drag cost lines here</div>}
               {g.children.map((k) => (
                 <div key={k} className="dnd-chip on" draggable onDragStart={() => onDragStart(k, g.parent)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.stopPropagation(); onDropChild(g.parent, k); }}>
-                  <GripVertical size={13} className="grip" /><span>{libMap[k]?.label || k}</span>
-                  <button className="chip-act danger" title="Remove from site" onClick={() => removeChild(k)}><X size={14} /></button>
+                  <GripVertical size={13} className="grip" />
+                  {editingChild === k ? (
+                    <input className="chip-edit" autoFocus value={editChildVal}
+                      onChange={(e) => setEditChildVal(e.target.value)}
+                      onBlur={() => commitChildRename(k)}
+                      onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(k); if (e.key === "Escape") setEditingChild(null); }}
+                      onMouseDown={(e) => e.stopPropagation()} />
+                  ) : (
+                    <>
+                      <span>{libMap[k]?.label || k}</span>
+                      <button type="button" className="chip-act" title="Rename cost line" onMouseDown={(e) => e.stopPropagation()} onClick={() => { setEditingChild(k); setEditChildVal(libMap[k]?.label || k); }}><Pencil size={11} /></button>
+                      <button type="button" className="chip-act danger" title="Remove from site" onMouseDown={(e) => e.stopPropagation()} onClick={() => removeChild(k)}><X size={14} /></button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -1345,48 +1388,104 @@ function ContractBudgetEditor({ site, library, onPatchSite }) {
   );
 }
 
-function SpreadEditor({ site, library, onPatchSite }) {
+const spreadIsActive = (sp, mk) => {
+  const si = monthIdx(sp.start), ci = monthIdx(mk), m = Number(sp.months) || 0;
+  return si >= 0 && m > 0 && ci >= si && ci < si + m;
+};
+
+function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
   const childKeys = siteChildKeys(site);
   const libMap = Object.fromEntries(library.map((h) => [h.key, h]));
   const [head, setHead] = useState(childKeys[0] || "");
   const [total, setTotal] = useState("");
-  const [start, setStart] = useState("2025-07");
+  const [start, setStart] = useState(entryMonth || "2025-07");
   const [months, setMonths] = useState("12");
   const [mode, setMode] = useState("remaining");
   const [note, setNote] = useState("");
+  const [editingId, setEditingId] = useState(null);
   useEffect(() => { if (!childKeys.includes(head)) setHead(childKeys[0] || ""); }, [site.id]); // eslint-disable-line
+  useEffect(() => { if (entryMonth && !editingId) setStart(entryMonth); }, [entryMonth, site.id, editingId]);
   const spreads = site.spreads || [];
   const hasContractEnd = !!site.contractEnd;
   const autoMonths = remainingMonths(site, start);
   const effMonths = mode === "remaining" && hasContractEnd ? autoMonths : Number(months) || 0;
-  const add = () => { if (!head || !Number(total) || !effMonths) return; const sp = { id: "sp" + Date.now(), head, total: Number(total), start, months: effMonths, mode, note: note.trim() }; onPatchSite(site.id, { spreads: [...spreads, sp] }); setTotal(""); setNote(""); };
-  const del = (id) => onPatchSite(site.id, { spreads: spreads.filter((s) => s.id !== id) });
-  // group child options by parent
   const grouped = displayStructure(site).filter((g) => g.children.length);
+  const resetForm = () => {
+    setEditingId(null);
+    setTotal("");
+    setNote("");
+    setMode("remaining");
+    setMonths("12");
+    if (entryMonth) setStart(entryMonth);
+  };
+  const save = () => {
+    if (!head || !Number(total) || !effMonths) return;
+    const sp = { id: editingId || "sp" + Date.now(), head, total: Number(total), start, months: effMonths, mode, note: note.trim() };
+    onPatchSite(site.id, { spreads: editingId ? spreads.map((s) => (s.id === editingId ? sp : s)) : [...spreads, sp] });
+    resetForm();
+  };
+  const beginEdit = (sp) => {
+    setEditingId(sp.id);
+    setHead(sp.head);
+    setTotal(String(sp.total));
+    setStart(sp.start);
+    setMonths(String(sp.months));
+    setMode(sp.mode === "fixed" ? "fixed" : "remaining");
+    setNote(sp.note || "");
+  };
+  const del = (id) => { if (editingId === id) resetForm(); onPatchSite(site.id, { spreads: spreads.filter((s) => s.id !== id) }); };
+  const perMonth = Number(total) && effMonths ? inr(Number(total) / effMonths) : "₹—";
   return (
     <div>
       {spreads.length > 0 && (
         <table className="tbl" style={{ marginBottom: 14 }}>
-          <thead><tr><th>Cost line</th><th>Note</th><th className="r">Total cost</th><th>From</th><th className="r">Months</th><th className="r">Per month</th><th></th></tr></thead>
-          <tbody>{spreads.map((sp) => (<tr key={sp.id}><td className="strong">{libMap[sp.head]?.label || sp.head}</td><td className="muted-s">{sp.note || "—"}</td><td className="r mono">{inr(sp.total)}</td><td className="mono">{monthLabelOf(sp.start)}</td><td className="r mono">{sp.months}</td><td className="r mono" style={{ color: "var(--green)" }}>{inr(sp.total / sp.months)}</td><td className="r"><button className="icon-btn danger" onClick={() => del(sp.id)}><Trash2 size={14} /></button></td></tr>))}</tbody>
+          <thead><tr><th>Cost line</th><th>Note</th><th className="r">Total cost</th><th>From</th><th className="r">Months</th><th className="r">Per month</th>{entryMonth && <th>Active now?</th>}<th></th></tr></thead>
+          <tbody>{spreads.map((sp) => {
+            const active = entryMonth ? spreadIsActive(sp, entryMonth) : false;
+            return (
+              <tr key={sp.id} className={editingId === sp.id ? "spread-row-editing" : ""}>
+                <td className="strong">{libMap[sp.head]?.label || sp.head}</td>
+                <td className="muted-s">{sp.note || "—"}</td>
+                <td className="r mono">{inr(sp.total)}</td>
+                <td className="mono">{monthLabelOf(sp.start)}</td>
+                <td className="r mono">{sp.months}</td>
+                <td className="r mono" style={{ color: "var(--green)" }}>{inr(sp.total / sp.months)}</td>
+                {entryMonth && <td className={active ? "spread-active-yes" : "spread-active-no"}>{active ? "yes" : "no"}</td>}
+                <td className="r nowrap"><button type="button" className="icon-btn" title="Edit spread" onClick={() => beginEdit(sp)}><Pencil size={13} /></button><button type="button" className="icon-btn danger" title="Delete spread" onClick={() => del(sp.id)}><Trash2 size={14} /></button></td>
+              </tr>
+            );
+          })}</tbody>
         </table>
       )}
       <div className="spread-form">
         <label className="sf"><span>Cost line</span><select value={head} onChange={(e) => setHead(e.target.value)}>{grouped.map((g) => <optgroup key={g.parent} label={parentLabel(g.parent)}>{g.children.map((k) => <option key={k} value={k}>{libMap[k]?.label || k}</option>)}</optgroup>)}</select></label>
-        <label className="sf"><span>Total cost (₹)</span><input type="number" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="240000" /></label>
-        <label className="sf"><span>Arrives / starts</span><select value={start} onChange={(e) => setStart(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
+        <label className="sf"><span>Total cost (₹)</span><input type="number" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="4000" /></label>
+        <label className="sf"><span>Arrives / starts</span><select value={start} onChange={(e) => setStart(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}{entryMonth && m.key === entryMonth ? " (this entry)" : ""}</option>)}</select></label>
         <label className="sf"><span>Spread over</span><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="remaining" disabled={!hasContractEnd}>Remaining contract{hasContractEnd ? ` (${autoMonths} mo)` : " — set end first"}</option><option value="fixed">Fixed no. of months</option></select></label>
         {mode === "fixed" && <label className="sf sm"><span>Months</span><input type="number" value={months} onChange={(e) => setMonths(e.target.value)} placeholder="12" /></label>}
-        <label className="sf"><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Equipment / mobilization" /></label>
-        <button className="primary sm" onClick={add}><Plus size={14} /> Add spread</button>
+        <label className="sf"><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Extra PPE — new batch" /></label>
+        {editingId ? (
+          <><button type="button" className="primary sm" onClick={save}>Save changes</button><button type="button" className="ghost-d" onClick={resetForm}>Cancel</button></>
+        ) : (
+          <button type="button" className="primary sm" onClick={save}><Plus size={14} /> Add spread</button>
+        )}
       </div>
-      <p className="m-note" style={{ marginTop: 10 }}>The full cost is logged against the month it arrives; <b>{Number(total) && effMonths ? inr(Number(total) / effMonths) : "₹—"}/month</b> {mode === "remaining" && hasContractEnd ? `is recognised across the remaining ${autoMonths} contract months (through ${monthLabelOf(site.contractEnd)})` : `is recognised across ${effMonths || "—"} months`} — and reflected in all dashboards, statements and trends.</p>
+      {!hasContractEnd && (
+        <p className="m-note warn" style={{ marginTop: 10 }}>Set a <b>contract end date</b> under Site Setup → Contract &amp; Estimate so &ldquo;Remaining contract&rdquo; can calculate months automatically.</p>
+      )}
+      <p className="m-note" style={{ marginTop: 10 }}>
+        The full cost is logged against the month it arrives; <b>{perMonth}/month</b>{" "}
+        {mode === "remaining" && hasContractEnd
+          ? `is recognised across the remaining ${autoMonths} contract months (through ${monthLabelOf(site.contractEnd)})`
+          : `is recognised across ${effMonths || "—"} months`}
+        {entryMonth ? " — multiple spreads on the same cost line stack for the monthly total." : " — and reflected in all dashboards, statements and trends."}
+      </p>
     </div>
   );
 }
 
 /* ───────────────────────── ENTRY FORM ───────────────────────── */
-function EntryForm({ sites, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onAdd, goConfig }) {
+function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onPatchSite, onAdd, goConfig }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   const [mk, setMk] = useState(month);
   const [form, setForm] = useState({});
@@ -1423,8 +1522,14 @@ function EntryForm({ sites, records, month, setMonth, activeSite, setActiveSite,
         </div>
       )}
       {c.ex && Object.values(c.ex.amort).some((v) => v > 0) && (
-        <div className="amort-note"><CalendarClock size={15} /> This period includes <b>{inr(Object.values(c.ex.amort).reduce((a, b) => a + b, 0))}</b> of spread costs (recognised automatically). Manage them under <button className="link" onClick={() => goConfig(siteId)}>Site Setup → Spread Costs</button>.</div>
+        <div className="amort-note"><CalendarClock size={15} /> This period includes <b>{inr(Object.values(c.ex.amort).reduce((a, b) => a + b, 0))}</b> of spread costs (recognised automatically below).</div>
       )}
+      <Card
+        title={`Deferred / Spread Costs · ${monthLabelOf(mk)}`}
+        right={site.contractEnd ? <span className="muted-s">contract through {monthLabelOf(site.contractEnd)}</span> : <span className="muted-s warn-s">no contract end set</span>}
+      >
+        <SpreadEditor site={site} library={library} onPatchSite={onPatchSite} entryMonth={mk} />
+      </Card>
       <div className="grid-2">
         <Card title="Revenue"><div className="fields">{REVENUE_ITEMS.map((it) => renderField(it.key, it.label))}</div></Card>
         <Card title="Expenses" right={<span className="muted-s">{siteChildKeys(site).length} lines · {structure.length} parents</span>}>
@@ -2128,8 +2233,9 @@ function Styles() {
     .dnd-chip .grip{color:var(--muted);flex-shrink:0;}
     .dnd-chip span:not(.cat-dot){flex:1;color:var(--ink);}
     .cat-dot{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
-    .chip-act{background:none;border:none;cursor:pointer;color:var(--muted);padding:2px;display:flex;border-radius:6px;}
+    .chip-act{background:none;border:none;cursor:pointer;color:var(--muted);padding:2px;display:flex;border-radius:6px;flex-shrink:0;}
     .chip-act:hover{color:var(--accent);background:var(--paper);}.chip-act.danger:hover{color:var(--loss);}
+    .chip-edit{flex:1;min-width:60px;font-size:12.5px;border:1px solid var(--accent-mid);border-radius:6px;padding:2px 6px;outline:none;background:var(--surface);color:var(--ink);font-family:var(--body);}
     .dnd-empty{color:var(--muted);font-size:12.5px;text-align:center;padding:14px 10px;}.dnd-empty.sm{padding:8px;font-size:12px;}
     .add-head{display:flex;gap:8px;margin-top:12px;}.add-head input{flex:1;}
     .spread-form{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
@@ -2141,6 +2247,11 @@ function Styles() {
     .spread-item svg{color:var(--gold);flex-shrink:0;}
     .spread-name{font-weight:600;font-size:13px;color:var(--ink);}.spread-meta{font-size:11.5px;color:var(--muted);font-family:var(--mono);}
     .spread-item>div{flex:1;}.spread-state{font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:600;}
+    .spread-active-yes{font-size:12px;font-weight:600;color:var(--profit);text-transform:lowercase;}
+    .spread-active-no{font-size:12px;color:var(--muted);text-transform:lowercase;}
+    .spread-row-editing td{background:rgba(31,111,78,.06);}
+    .m-note.warn{color:var(--gold);}
+    .warn-s{color:var(--gold);}
     .contract-row{display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;}
     .contract-note{flex:1;min-width:200px;font-size:12px;color:var(--muted);}
     .est-editor{border-top:1px solid var(--line);padding-top:14px;margin-top:4px;}

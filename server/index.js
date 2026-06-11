@@ -682,7 +682,16 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'whitebooks-einvoice-proxy' });
+  const supabaseUrl = getSupabaseUrlForServer();
+  const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
+  const anonKey = getSupabaseAnonKeyForServer();
+  res.json({
+    ok: true,
+    service: 'whitebooks-einvoice-proxy',
+    supabase_url: supabaseUrl ? 'set' : 'missing',
+    service_role_key: isSupabaseServiceRoleKey(serviceRoleKey) ? 'ok' : 'missing_or_invalid',
+    anon_key: anonKey ? 'set' : 'missing',
+  });
 });
 
 /** User Management profile save — service role on server; avoids edge JWT / RLS issues in local dev. */

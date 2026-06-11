@@ -12,6 +12,8 @@ import {
   normalizeAttendanceEmpCode,
   REGISTER_MARKS_DB_ALLOWED,
 } from "./attendanceDaily";
+import { normalizeManagerCode } from "./employeeHierarchy";
+import { employeeCodeForUserId } from "./employeeCode";
 
 export const INDUS_ONE_SCHEMA = "indus_one";
 
@@ -53,13 +55,50 @@ function adminLeaveRequestsTable() {
   return supabase.schema(INDUS_ONE).from(ADMIN_LEAVE_TABLE);
 }
 
-function decisionPayload({ approverUserId, approverName, remarks }) {
+function decisionPayload({ approverUserId, approverName, remarks, approverEmployeeCode, approvedByTier }) {
   return {
     remarks: remarks?.trim() ? remarks.trim() : null,
     approver_user_id: approverUserId || null,
     approver_name: approverName || null,
+    approver_employee_code: approverEmployeeCode || null,
+    approved_by_tier: approvedByTier || null,
     decided_at: new Date().toISOString(),
   };
+}
+
+/** L1, L2, or ERP admin may approve; records which tier approved. */
+async function resolveLeaveApprover(applicantMasterId, approverUserId, { isErpAdmin = false } = {}) {
+  const approverEmployeeCode = await employeeCodeForUserId(approverUserId);
+  if (isErpAdmin) {
+    return { approverEmployeeCode, approvedByTier: "admin" };
+  }
+
+  if (!applicantMasterId) {
+    throw new Error("Leave applicant is not linked to Employee Master.");
+  }
+
+  const { data: applicant, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("employee_code, l1_manager_code, l2_manager_code")
+    .eq("id", applicantMasterId)
+    .maybeSingle();
+  if (error) throw error;
+
+  const approverNorm = normalizeManagerCode(approverEmployeeCode);
+  const l1Norm = normalizeManagerCode(applicant?.l1_manager_code);
+  const l2Norm = normalizeManagerCode(applicant?.l2_manager_code);
+
+  if (l1Norm && approverNorm && approverNorm === l1Norm) {
+    return { approverEmployeeCode, approvedByTier: "l1" };
+  }
+  if (l2Norm && approverNorm && approverNorm === l2Norm) {
+    return { approverEmployeeCode, approvedByTier: "l2" };
+  }
+
+  throw new Error(
+    "Only the employee's L1 manager, L2 manager, or an ERP admin can approve this leave. " +
+      "Set L1/L2 on Employee Master or use an admin account."
+  );
 }
 
 function noRowsUpdatedError(detail) {
@@ -346,14 +385,22 @@ async function finishDecisionRow(lmsRow) {
  * Mirror → update admin_leave_requests (triggers) → update leave_requests (LMS UI).
  * Recovers when admin was updated but LMS row was left open after a failed partial save.
  */
-async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus, newStatus, decision }) {
+async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus, newStatus, decision, skipApproverCheck = false }) {
   const lmsRow = await fetchLmsLeaveRequestById(id);
   const lmsOpenStatuses = lmsExpectedStatuses.map(normalizeWorkflowStatus);
   const targetStatus = normalizeWorkflowStatus(newStatus);
 
+  let approverMeta = {};
+  if (targetStatus === "approved" && !skipApproverCheck) {
+    const employee = await resolveEmployeeByUserId(lmsRow.user_id);
+    approverMeta = await resolveLeaveApprover(employee?.id, decision.approverUserId, {
+      isErpAdmin: !!decision.isErpAdmin,
+    });
+  }
+
   const patch = {
     status: targetStatus,
-    ...decisionPayload(decision),
+    ...decisionPayload({ ...decision, ...approverMeta }),
   };
 
   if (lmsRow.status === targetStatus) {
@@ -613,6 +660,7 @@ export async function approveLeaveRequest(id, decision) {
     adminExpectedStatus: "pending",
     newStatus: "approved",
     decision,
+    skipApproverCheck: !!decision?.skipApproverCheck,
   });
 }
 

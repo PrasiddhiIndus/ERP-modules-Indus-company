@@ -120,11 +120,24 @@ async function readCallerRole(
 }
 
 async function findProfileByEmployeeCode(
+  db: SupabaseClient,
   supabaseUrl: string,
   serviceRoleKey: string,
   employeeCode: string,
   excludeId?: string,
 ): Promise<{ taken: { id: string; email?: string | null } | null; error: string | null }> {
+  const { data: rpcRows, error: rpcErr } = await db.rpc('profile_employee_code_taken', {
+    p_code: employeeCode,
+    p_exclude_id: excludeId ?? null,
+  })
+  if (!rpcErr) {
+    const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows
+    if (row?.id) return { taken: row, error: null }
+    return { taken: null, error: null }
+  }
+
+  logError('profile_employee_code_taken RPC failed; using REST fallback', rpcErr.message)
+
   const base = supabaseUrl.replace(/\/+$/, '')
   const res = await fetch(
     `${base}/rest/v1/profiles?select=id,email&employee_code=ilike.${encodeURIComponent(employeeCode)}&limit=1`,
@@ -301,7 +314,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       })
     }
 
-    const codeCheck = await findProfileByEmployeeCode(supabaseUrl, serviceRoleKey, employeeCode)
+    const codeCheck = await findProfileByEmployeeCode(db, supabaseUrl, serviceRoleKey, employeeCode)
     if (codeCheck.error) {
       logError('employee_code lookup failed', codeCheck.error)
       return json(500, { ok: false, error: codeCheck.error, version: FN_VERSION })
@@ -381,6 +394,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       }
 
       const codeRestore = await findProfileByEmployeeCode(
+        db,
         supabaseUrl,
         serviceRoleKey,
         employeeCode,

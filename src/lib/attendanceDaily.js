@@ -904,7 +904,7 @@ export async function syncRegisterAutoWeekoffMarks(
  * With `respectManualMarks`, only overwrites blank, punch-sourced, and WO cells.
  */
 export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
-  // Default true: punch sync must never overwrite manual/leave/non-punch entries.
+  // Default true: punch sync overwrites leave marks but never manual HR entries.
   const { respectManualMarks = true, fromDate: fromOverride, toDate: toOverride } = options;
   const masterCodeMap = options.masterCodeMap ?? null;
   const candidateRows = punchesToPresentRegisterRows(punches).map((row) => ({
