@@ -136,6 +136,7 @@ import {
   PurchaseOrders,
   ExpoSeminar,
   GSTUpload,
+  MarketingReports,
 } from "./routes/lazyPages";
 
 import {
@@ -561,6 +562,7 @@ function App() {
             <Route path="projects/po/po-entry" element={<ProjectsPoHub />} />
             <Route path="projects/po/contact-log" element={<ProjectsPoHub />} />
             <Route path="projects/enquiry" element={<ProjectsEnquiryHub />} />
+            <Route path="projects/enquiry/enquiry-dashboard" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-entry" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-database" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-dropdown" element={<ProjectsEnquiryHub />} />
@@ -620,6 +622,7 @@ function App() {
             <Route path="marketing/purchase-orders" element={<PurchaseOrders />} />
             <Route path="marketing/expo-seminar" element={<ExpoSeminar />} />
             <Route path="marketing/gst-upload" element={<GSTUpload />} />
+            <Route path="marketing/reports-analytics" element={<MarketingReports />} />
 
             {/* Super Admin-only modules */}
             <Route path="user-management" element={<UserManagement />} />

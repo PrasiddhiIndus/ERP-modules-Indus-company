@@ -269,3 +269,4 @@ export const ProductCatalog = lazy(() => import("../pages/marketing/ProductCatal
 export const PurchaseOrders = lazy(() => import("../pages/marketing/PurchaseOrders"));
 export const ExpoSeminar = lazy(() => import("../pages/marketing/ExpoSeminar"));
 export const GSTUpload = lazy(() => import("../pages/marketing/GSTUpload"));
+export const MarketingReports = lazy(() => import("../pages/marketing/MarketingReports"));

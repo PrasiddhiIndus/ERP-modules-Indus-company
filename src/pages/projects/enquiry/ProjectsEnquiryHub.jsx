@@ -1,28 +1,30 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import EnquiryDashboard from './EnquiryDashboard';
 import EnquiryEntry from './EnquiryEntry';
 import EnquiryDatabase from './EnquiryDatabase';
 import EnquiryDropdown from './EnquiryDropdown';
 
-const TAB_IDS = ['enquiry-entry', 'enquiry-database', 'enquiry-dropdown'];
+const TAB_IDS = ['enquiry-dashboard', 'enquiry-entry', 'enquiry-database', 'enquiry-dropdown'];
 const ENQUIRY_BASE = '/app/projects/enquiry';
 
 const ProjectsEnquiryHub = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const pathRest = location.pathname.startsWith(ENQUIRY_BASE)
-    ? location.pathname.slice(ENQUIRY_BASE.length).replace(/^\//, '') || 'enquiry-entry'
-    : 'enquiry-entry';
-  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(pathRest) ? pathRest : 'enquiry-entry');
+    ? location.pathname.slice(ENQUIRY_BASE.length).replace(/^\//, '') || 'enquiry-dashboard'
+    : 'enquiry-dashboard';
+  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(pathRest) ? pathRest : 'enquiry-dashboard');
 
   useEffect(() => {
     const rest = location.pathname.startsWith(ENQUIRY_BASE)
-      ? location.pathname.slice(ENQUIRY_BASE.length).replace(/^\//, '') || 'enquiry-entry'
-      : 'enquiry-entry';
+      ? location.pathname.slice(ENQUIRY_BASE.length).replace(/^\//, '') || 'enquiry-dashboard'
+      : 'enquiry-dashboard';
     if (TAB_IDS.includes(rest)) setActiveTab(rest);
   }, [location.pathname]);
 
   const tabs = [
+    { id: 'enquiry-dashboard', label: 'Dashboard', component: EnquiryDashboard },
     { id: 'enquiry-entry', label: 'Enquiry Entry', component: EnquiryEntry },
     { id: 'enquiry-database', label: 'Enquiry Database', component: EnquiryDatabase },
     { id: 'enquiry-dropdown', label: 'Enquiry Dropdown', component: EnquiryDropdown },
@@ -41,7 +43,7 @@ const ProjectsEnquiryHub = () => {
         <div className="px-6 py-4">
           <h1 className="text-2xl font-bold text-gray-900">Projects — Enquiry Master</h1>
           <p className="text-gray-600 mt-1">
-            Entry form, database register, and dropdown configuration for project enquiries.
+            Dashboard analytics, entry form, database register, and dropdown configuration.
           </p>
         </div>
         <div className="px-6 flex gap-2 border-t border-gray-100 overflow-x-auto">
