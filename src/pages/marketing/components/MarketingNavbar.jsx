@@ -9,7 +9,8 @@ import {
   Package, 
   ShoppingCart,
   MapPin,
-  Receipt
+  Receipt,
+  BarChart3,
 } from 'lucide-react';
 
 const MarketingNavbar = () => {
@@ -25,6 +26,7 @@ const MarketingNavbar = () => {
     { path: '/app/marketing/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders' },
     { path: '/app/marketing/expo-seminar', icon: MapPin, label: 'Expo & Seminar' },
     { path: '/app/marketing/gst-upload', icon: Receipt, label: 'GST Documents' },
+    { path: '/app/marketing/reports-analytics', icon: BarChart3, label: 'Reports & Analytics' },
   ];
 
   return (

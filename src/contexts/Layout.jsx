@@ -758,6 +758,10 @@ const Layout = () => {
                     <FileText className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Marketing Mail Template</span>
                   </NavLink>
+                  <NavLink to="/app/marketing/reports-analytics" className={subNavClass}>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Reports & Analytics</span>
+                  </NavLink>
                 </div>
               )}
             </div>
