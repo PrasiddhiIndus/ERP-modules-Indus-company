@@ -13,12 +13,6 @@ export function salaryNavPath(...segments) {
   return salaryAppPath(...segments);
 }
 
-<<<<<<< Updated upstream
-/** Main header link — Salary Management opens dashboard. */
-export const SALARY_NAV = [{ to: HR_SALARY_DASHBOARD, label: 'Dashboard' }];
-
-/** Sidebar dropdown under Salary Management (no Component Master). */
-=======
 export function salaryNavHref(itemOrSegment) {
   if (typeof itemOrSegment === 'string') return salaryAppPath(itemOrSegment);
   if (itemOrSegment?.to) return salaryAppPath(itemOrSegment.to);
@@ -32,7 +26,6 @@ export function salaryNavHref(itemOrSegment) {
 export const SALARY_NAV = [{ to: HR_SALARY_DASHBOARD, label: 'Dashboard' }];
 
 /** Sidebar dropdown under Salary Management — single source of truth for module list. */
->>>>>>> Stashed changes
 export const SALARY_SUB_NAV = [
   { to: 'site-master', label: 'Site Master' },
   { to: 'formula-library', label: 'Formula Library' },
@@ -49,14 +42,6 @@ export const SALARY_SUB_NAV = [
   { to: 'settings', label: 'Settings' },
 ];
 
-<<<<<<< Updated upstream
-export function salaryNavIsActive(item, location) {
-  const base = `/app/${HR_SALARY_BASE}`;
-  const path = location.pathname.replace(/\/$/, '');
-  const prefixes = Array.isArray(item.matchPrefix)
-    ? item.matchPrefix
-    : [item.matchPrefix || item.to];
-=======
 const DASHBOARD_HINTS = {
   'site-master': 'Payroll sites & locations',
   'formula-library': 'Components & formula packages',
@@ -117,16 +102,12 @@ export function salaryNavIsActive(item, location) {
   const base = `/app/${HR_SALARY_BASE}`;
   const path = (location.pathname || location).replace(/\/$/, '');
   const prefixes = Array.isArray(item.matchPrefix) ? item.matchPrefix : [item.matchPrefix || item.to];
->>>>>>> Stashed changes
   if (prefixes.includes(HR_SALARY_DASHBOARD)) {
     return path === `${base}/${HR_SALARY_DASHBOARD}` || path === base;
   }
   return prefixes.some((p) => path.startsWith(`${base}/${p}`));
 }
-<<<<<<< Updated upstream
-=======
 
 export function isSalaryNavActive(item, pathname) {
   return salaryNavIsActive(item, { pathname });
 }
->>>>>>> Stashed changes
