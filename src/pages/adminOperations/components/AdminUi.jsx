@@ -56,7 +56,7 @@ export const KpiTile = ({ label, value, sub, onClick, tone = "border-gray-100" }
   <button
     type="button"
     onClick={onClick}
-    className={`text-left w-full rounded-xl border ${tone} bg-white shadow-sm px-3 py-2.5 hover:border-[#1F3A8A]/40 hover:shadow transition`}
+    className={`text-left w-full rounded-xl border ${tone} bg-white shadow-sm px-3 py-2.5 transition ${onClick ? "cursor-pointer hover:border-[#1F3A8A]/40 hover:shadow" : ""}`}
   >
     <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
     <p className="text-xl font-bold text-gray-900 mt-0.5 tabular-nums">{value}</p>

@@ -74,6 +74,7 @@ import {
   EmployeePayrollProfile,
   PayrollRunPage,
   SiteFormulaSetup,
+  FormulaLibrary,
   PayrollManualInputs,
   StatutoryPF,
   StatutoryESIC,
@@ -139,12 +140,29 @@ import {
   MarketingReports,
 } from "./routes/lazyPages";
 
+<<<<<<< Updated upstream
 import {
   enforceDateInputAttributes,
   finalizeDateInputValue,
   isCompleteIsoDate,
 } from "./utils/dateInput";
+=======
+function RedirectEmployeeMasterId() {
+  const { id } = useParams();
+  return <Navigate to={`/app/hr/payroll/salary/people-master/${id}`} replace />;
+}
 
+const DATE_INPUT_MIN = "1900-01-01";
+const DATE_INPUT_MAX = "9999-12-31";
+
+function enforceDateInputRules(input) {
+  if (!(input instanceof HTMLInputElement) || input.type !== "date") return;
+  input.min = DATE_INPUT_MIN;
+  input.max = DATE_INPUT_MAX;
+  input.lang = "en-GB";
+  input.placeholder = "dd-mm-yyyy";
+}
+>>>>>>> Stashed changes
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -405,7 +423,11 @@ function App() {
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<SalaryManagementDashboard />} />
               <Route path="site-master" element={<SalarySiteMaster />} />
+<<<<<<< Updated upstream
               <Route path="formula-library" element={<SiteFormulaSetup />} />
+=======
+              <Route path="formula-library" element={<FormulaLibrary />} />
+>>>>>>> Stashed changes
               <Route path="payroll-package-builder" element={<SalaryPayrollPackageBuilder />} />
               <Route path="people-master" element={<SalaryEmployeeMaster />} />
               <Route path="people-master/new" element={<SalaryEmployeeMasterProfile />} />
@@ -430,16 +452,27 @@ function App() {
               <Route path="employee-master/:id" element={<RedirectEmployeeMasterId />} />
               <Route path="run" element={<Navigate to="../payroll-processing" replace />} />
               <Route path="site-formulas" element={<Navigate to="../formula-library" replace />} />
+<<<<<<< Updated upstream
               <Route path="outputs" element={<Navigate to="../payslips" replace />} />
               <Route path="register" element={<Navigate to="../reports-exports" replace />} />
               <Route path="employees" element={<EmployeePayrollList />} />
               <Route path="employees/:id" element={<EmployeePayrollProfile />} />
               <Route path="manual-inputs" element={<PayrollManualInputs />} />
+=======
+              <Route path="employees" element={<EmployeePayrollList />} />
+              <Route path="employees/:id" element={<EmployeePayrollProfile />} />
+              <Route path="manual-inputs" element={<Navigate to="../attendance-integration" replace />} />
+>>>>>>> Stashed changes
               <Route path="pf" element={<Navigate to="../compliance/pf" replace />} />
               <Route path="esic" element={<Navigate to="../compliance/esic" replace />} />
               <Route path="pt" element={<Navigate to="../compliance/pt" replace />} />
               <Route path="tds" element={<Navigate to="../compliance/tds" replace />} />
               <Route path="loans" element={<Navigate to="../compliance/loans" replace />} />
+<<<<<<< Updated upstream
+=======
+              <Route path="register" element={<Navigate to="../reports-exports" replace />} />
+              <Route path="outputs" element={<Navigate to="../payslips" replace />} />
+>>>>>>> Stashed changes
             </Route>
             <Route path="people-management" element={<PeopleManagement />} />
             

@@ -105,6 +105,7 @@ export const SalaryEmployeeMasterProfile = lazy(() => import("../pages/hr/payrol
 export const EmployeePayrollProfile = lazy(() => import("../pages/hr/payroll/salary/EmployeePayrollProfile"));
 export const PayrollRunPage = lazy(() => import("../pages/hr/payroll/salary/PayrollRun"));
 export const SiteFormulaSetup = lazy(() => import("../pages/hr/payroll/salary/SiteFormulaSetup"));
+export const FormulaLibrary = lazy(() => import("../pages/hr/payroll/salary/FormulaLibrary"));
 export const PayrollManualInputs = lazy(() => import("../pages/hr/payroll/salary/ManualInputs"));
 export const StatutoryPF = lazy(() => import("../pages/hr/payroll/salary/statutory/PF"));
 export const StatutoryESIC = lazy(() => import("../pages/hr/payroll/salary/statutory/ESIC"));
