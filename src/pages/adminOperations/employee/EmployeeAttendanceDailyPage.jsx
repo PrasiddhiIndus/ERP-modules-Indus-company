@@ -35,7 +35,6 @@ import {
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
   fetchActiveEmployees,
-  fetchInactiveEmployeesFromMaster,
   fetchAttendancePunchesInRange,
   isoMonthToday,
   loadRegisterMarksForMonth,
@@ -175,14 +174,13 @@ export function EmployeeAttendanceDailyPage() {
     setLoading(true);
     setError("");
     try {
-      const [punchRows, employees, inactiveEmployees] = await Promise.all([
+      const [punchRows, employees] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
           toDate: monthMeta.toDate,
           empCode: resolveAttendanceEmpCodeFilter(empCode),
         }),
         fetchActiveEmployees(supabase),
-        fetchInactiveEmployeesFromMaster(supabase),
       ]);
       const masterCodeMap = await fetchMasterRegisterCodeMap(supabase);
       setMasterRegisterCodeMap(masterCodeMap);
@@ -203,25 +201,7 @@ export function EmployeeAttendanceDailyPage() {
         approvedLeaveMarks,
         { punches: punchRows, monthKey: monthMeta.monthKey }
       );
-      const punchCodes = [
-        ...new Set(
-          punchRows
-            .map((p) => normalizeAttendanceEmpCode(p.empCode ?? p.employee_code))
-            .filter(Boolean)
-        ),
-      ];
-      const registerCodes = [
-        ...new Set(
-          (registerData?.rows || [])
-            .map((row) => row.employee_code)
-            .filter(Boolean)
-        ),
-      ];
-      const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveEmployees, {
-        punchCodes,
-        registerCodes,
-        masterCodeMap,
-      });
+      const registerEmployees = buildRegisterEmployeeList(employeesWithCode, [], { masterCodeMap });
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
       const woResult = await syncRegisterAutoWeekoffMarks(
