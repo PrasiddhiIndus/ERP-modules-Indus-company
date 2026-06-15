@@ -312,11 +312,7 @@ const Layout = () => {
                       {SALARY_SUB_NAV.map((item) => (
                         <NavLink
                           key={item.to}
-<<<<<<< Updated upstream
-                          to={salaryNavPath(item.to)}
-=======
                           to={salaryNavPath(item.to).replace(/^\/app\//, "")}
->>>>>>> Stashed changes
                           className={subNavClass}
                           isActive={(_, { location }) => salaryNavIsActive(item, location)}
                         >
