@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler, Calculator } from 'lucide-react';
+import { FileText, Upload, PlusCircle, X, Eye, Pencil, ChevronLeft, ChevronRight, Ruler, Calculator, Search } from 'lucide-react';
 import CalculatorModal from '../../components/CalculatorModal';
 import * as XLSX from 'xlsx';
 import { useBilling } from '../../contexts/BillingContext';
@@ -693,6 +693,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [servicePeriodFrom, setServicePeriodFrom] = useState(() => getDefaultServicePeriodRange().from);
   const [servicePeriodTo, setServicePeriodTo] = useState(() => getDefaultServicePeriodRange().to);
   const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
+  const [poMasterSearch, setPoMasterSearch] = useState('');
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
   const [invoiceMonthlyDutyQtyMode, setInvoiceMonthlyDutyQtyMode] = useState('po_geometry');
   const [invoiceLumpSumBillingMode, setInvoiceLumpSumBillingMode] = useState('normal');
@@ -822,9 +823,29 @@ const CreateInvoice = ({ onNavigateTab }) => {
     });
   }, [billablePOsByTab, billablePOs, commercialPOs, invoices]);
 
+  const filteredPoTableRows = useMemo(() => {
+    const q = poMasterSearch.trim().toLowerCase();
+    if (!q) return poTableRows;
+    return poTableRows.filter((row) => {
+      const hay = [
+        row.ocNumber,
+        row.poWoNumber,
+        row.legalName,
+        row.clientLegalName,
+        row.client_name,
+        row.siteId,
+        row.locationName,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [poMasterSearch, poTableRows]);
+
   const sortedPoTableRows = useMemo(() => {
     const dir = poSortConfig.direction === 'asc' ? 1 : -1;
-    return [...poTableRows].sort((a, b) => {
+    return [...filteredPoTableRows].sort((a, b) => {
       const valueFor = (row) => {
         switch (poSortConfig.key) {
           case 'modified': return new Date(row.updated_at || row.updatedAt || row.created_at || row.createdAt || row.startDate || 0).getTime() || 0;
@@ -856,7 +877,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       if (result === 0) result = String(a.id || '').localeCompare(String(b.id || ''), undefined, { numeric: true });
       return result * dir;
     });
-  }, [poTableRows, poSortConfig]);
+  }, [filteredPoTableRows, poSortConfig]);
 
   const renderSortIndicator = (key) => {
     const active = poSortConfig.key === key;
@@ -2650,6 +2671,20 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </div>
             ) : null}
             <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={poMasterSearch}
+                  onChange={(e) => {
+                    setPoMasterSearch(e.target.value);
+                    setPoPage(1);
+                  }}
+                  placeholder="Search master: OC, PO/WO, client, site..."
+                  className="w-full min-h-[36px] rounded-lg border border-slate-200 bg-white pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+                  aria-label="Search PO master"
+                />
+              </div>
               <select
                 value={poSortConfig.key}
                 onChange={(e) => setPoSortConfig((prev) => ({ ...prev, key: e.target.value }))}
