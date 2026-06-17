@@ -35,7 +35,9 @@ import {
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
   fetchActiveEmployees,
+  fetchInactiveEmployeesWithDateOfLeaving,
   fetchAttendancePunchesInRange,
+  isInactiveEmployeeRelevantForRegisterMonth,
   isoMonthToday,
   loadRegisterMarksForMonth,
   fetchRegisterMarksForYear,
@@ -47,6 +49,7 @@ import {
   registerMarkCellWrapperClass,
   registerMarkCellInlineStyle,
   isRegisterCommentMark,
+  isRegisterDayAfterLeaving,
   upsertRegisterMark,
   upsertRegisterMarksBatch,
   writeStoredRegisterMarks,
@@ -174,17 +177,21 @@ export function EmployeeAttendanceDailyPage() {
     setLoading(true);
     setError("");
     try {
-      const [punchRows, employees] = await Promise.all([
+      const [punchRows, employees, inactiveWithLeaving] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
           toDate: monthMeta.toDate,
           empCode: resolveAttendanceEmpCodeFilter(empCode),
         }),
         fetchActiveEmployees(supabase),
+        fetchInactiveEmployeesWithDateOfLeaving(supabase),
       ]);
       const masterCodeMap = await fetchMasterRegisterCodeMap(supabase);
       setMasterRegisterCodeMap(masterCodeMap);
       const employeesWithCode = employees.filter((e) => e.empCode);
+      const inactiveForMonth = (inactiveWithLeaving || []).filter((e) =>
+        isInactiveEmployeeRelevantForRegisterMonth(e.dateOfLeaving, monthMeta.fromDate, monthMeta.toDate)
+      );
       await syncRegisterMarksFromPunches(supabase, punchRows, {
         fromDate: monthMeta.fromDate,
         toDate: monthMeta.toDate,
@@ -201,7 +208,7 @@ export function EmployeeAttendanceDailyPage() {
         approvedLeaveMarks,
         { punches: punchRows, monthKey: monthMeta.monthKey }
       );
-      const registerEmployees = buildRegisterEmployeeList(employeesWithCode, [], { masterCodeMap });
+      const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveForMonth, { masterCodeMap });
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
       const woResult = await syncRegisterAutoWeekoffMarks(
@@ -250,8 +257,18 @@ export function EmployeeAttendanceDailyPage() {
       year: monthMeta.year,
       month: monthMeta.month,
       manualMarks,
+      applyLeavingDisplay: true,
     });
   }, [punches, activeEmployees, manualMarks, monthMeta]);
+
+  const dateOfLeavingByEmp = useMemo(() => {
+    const map = new Map();
+    for (const emp of activeEmployees) {
+      const code = normalizeAttendanceEmpCode(emp.empCode);
+      if (code && emp.dateOfLeaving) map.set(code, emp.dateOfLeaving);
+    }
+    return map;
+  }, [activeEmployees]);
 
   const calendarYear = monthMeta?.year ?? new Date().getFullYear();
 
@@ -269,6 +286,8 @@ export function EmployeeAttendanceDailyPage() {
     async (empCodeKey, day, value) => {
       if (!monthMeta?.monthKey) return;
       const registerDate = registerDateFromDay(monthMeta.monthKey, day);
+      const dateOfLeaving = dateOfLeavingByEmp.get(normalizeAttendanceEmpCode(empCodeKey));
+      if (isRegisterDayAfterLeaving(registerDate, dateOfLeaving)) return;
       const oldMark = manualMarks[empCodeKey]?.[day] || "";
       const empYearRows = yearRegisterRows.filter(
         (r) => normalizeAttendanceEmpCode(r.employee_code) === normalizeAttendanceEmpCode(empCodeKey)
@@ -370,6 +389,7 @@ export function EmployeeAttendanceDailyPage() {
     },
     [
       calendarYear,
+      dateOfLeavingByEmp,
       holidayDatesInYear,
       manualMarks,
       manualRemarks,
@@ -697,7 +717,10 @@ export function EmployeeAttendanceDailyPage() {
       const deletes = [];
       const nextRemarks = { ...manualRemarks };
       for (const code of empCodes) {
+        const dateOfLeaving = dateOfLeavingByEmp.get(code);
         for (let day = dayFrom; day <= dayTo; day += 1) {
+          const register_date = registerDateFromDay(monthMeta.monthKey, day);
+          if (isRegisterDayAfterLeaving(register_date, dateOfLeaving)) continue;
           const prev = manualMarks[code]?.[day];
           const updated = next[code]?.[day];
           const unchanged = prev === updated;
@@ -710,7 +733,6 @@ export function EmployeeAttendanceDailyPage() {
             if (Object.keys(empRemarks).length) nextRemarks[code] = empRemarks;
             else delete nextRemarks[code];
           }
-          const register_date = registerDateFromDay(monthMeta.monthKey, day);
           if (updated) {
             upserts.push({
               employee_code: code,
@@ -752,7 +774,7 @@ export function EmployeeAttendanceDailyPage() {
         setSavingMark(false);
       }
     },
-    [bulkDayRange, bulkOverwrite, gridRows, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta]
+    [bulkDayRange, bulkOverwrite, dateOfLeavingByEmp, gridRows, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta]
   );
 
   const handleClearSelectedRange = useCallback(async () => {
@@ -767,11 +789,13 @@ export function EmployeeAttendanceDailyPage() {
 
     for (const code of bulkSelectedCodes) {
       const empCodeKey = normalizeAttendanceEmpCode(code);
+      const dateOfLeaving = dateOfLeavingByEmp.get(empCodeKey);
       const empMarks = { ...(next[empCodeKey] || {}) };
       const empRemarks = { ...(nextRemarks[empCodeKey] || {}) };
 
       for (let day = dayFrom; day <= dayTo; day += 1) {
         const register_date = registerDateFromDay(monthMeta.monthKey, day);
+        if (isRegisterDayAfterLeaving(register_date, dateOfLeaving)) continue;
         const punchKey = `${empCodeKey}|${register_date}`;
         const hasPunch = presentKeys.has(punchKey);
 
@@ -825,7 +849,7 @@ export function EmployeeAttendanceDailyPage() {
     } finally {
       setSavingMark(false);
     }
-  }, [bulkDayRange, bulkSelectedCodes, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta, punches]);
+  }, [bulkDayRange, bulkSelectedCodes, dateOfLeavingByEmp, manualMarks, manualRemarks, masterRegisterCodeMap, monthMeta, punches]);
 
   const applyBulkPickerMark = useCallback(async () => {
     if (!bulkPickerMark || !bulkSelectedCodes.length) return;
@@ -899,6 +923,9 @@ export function EmployeeAttendanceDailyPage() {
         cellClassName: SCROLL_DAY_COL_CLASS,
         render: (row) => {
           const value = row.dayMarks[day] || "";
+          const cellDate = monthKey ? registerDateFromDay(monthKey, day) : "";
+          const leavingLocked =
+            !!row.dateOfLeaving && isRegisterDayAfterLeaving(cellDate, row.dateOfLeaving);
           const comment = String(manualRemarks[row.empCode]?.[day] || "").trim();
           const isCommentMark = isRegisterCommentMark(value);
           const commentMark = isCommentMark ? value : "";
@@ -918,6 +945,7 @@ export function EmployeeAttendanceDailyPage() {
               >
                 <RegisterMarkPicker
                   value={value}
+                  readOnly={leavingLocked}
                   onChange={(next) => handleMarkChange(row.empCode, day, next)}
                 />
                 {hasComment && (

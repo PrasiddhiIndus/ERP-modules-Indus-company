@@ -49,7 +49,7 @@ function computeMenuPosition(anchorEl, menuHeight = MENU_EST_HEIGHT) {
   return { top, left, minWidth };
 }
 
-export function RegisterMarkPicker({ value, onChange }) {
+export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
   const [open, setOpen] = useState(false);
   const [leaveSubmenuOpen, setLeaveSubmenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
@@ -193,19 +193,28 @@ export function RegisterMarkPicker({ value, onChange }) {
 
   return (
     <div ref={rootRef} className="relative w-full" data-register-mark-picker>
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-label={registerMarkOptionLabel(value)}
-        aria-expanded={open}
-        onClick={toggleOpen}
-        onMouseDown={(e) => e.stopPropagation()}
-        style={registerMarkCellInlineStyle(value)}
-        className={`${registerMarkSelectTextClass(value)} w-full h-8 px-1 text-[11px] font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
-      >
-        {display}
-      </button>
-      {menu}
+      {readOnly ? (
+        <span
+          aria-label={registerMarkOptionLabel(value)}
+          className={`${registerMarkSelectTextClass(value)} block w-full h-8 px-1 text-[11px] font-semibold text-center leading-8 cursor-default`}
+        >
+          {display}
+        </span>
+      ) : (
+        <button
+          ref={buttonRef}
+          type="button"
+          aria-label={registerMarkOptionLabel(value)}
+          aria-expanded={open}
+          onClick={toggleOpen}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={registerMarkCellInlineStyle(value)}
+          className={`${registerMarkSelectTextClass(value)} w-full h-8 px-1 text-[11px] font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
+        >
+          {display}
+        </button>
+      )}
+      {!readOnly && menu}
     </div>
   );
 }

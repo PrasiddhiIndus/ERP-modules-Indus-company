@@ -530,6 +530,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         const statusRaw = String(out.status || '').trim().toLowerCase();
         const normalizedStatus =
           statusRaw === 'inactive' || statusRaw === 'i' || statusRaw === '0' || statusRaw === 'false' ? 'Inactive' : 'Active';
+        const dateOfLeavingParsed = parseExcelDate(out.date_of_leaving);
+        if (normalizedStatus === 'Inactive' && !dateOfLeavingParsed) {
+          throw new Error(`Row ${idx + 2}: Date of Leaving is required when status is Inactive.`);
+        }
 
         return {
           employee_id: sysId,
@@ -567,7 +571,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           daughter_details: out.daughter_details ? String(out.daughter_details).trim() : null,
           educational_qualification: out.educational_qualification ? String(out.educational_qualification).trim() : null,
           qualification: out.educational_qualification ? String(out.educational_qualification).trim() : null,
-          date_of_leaving: parseExcelDate(out.date_of_leaving),
+          date_of_leaving: dateOfLeavingParsed,
           other_experience: Number.isFinite(prevExp) ? prevExp : null,
           years_of_experience: totalExp,
           ifspl_experience: ifsplExp,
@@ -691,6 +695,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     e.preventDefault();
     if (formData.designation === 'Other' && !String(formData.designation_other || '').trim()) {
       alert('Please enter a designation when Other is selected.');
+      return;
+    }
+    if (formData.status === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
+      alert('Date of Leaving is required when employee status is Inactive.');
       return;
     }
     try {
@@ -886,24 +894,57 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
   const handleStatusChange = async (id, newStatus, reason) => {
     try {
+      const employee = employees.find((emp) => emp.id === id);
+      if (!employee) return;
+
+      let dateOfLeaving = employee.date_of_leaving || '';
+      if (newStatus === 'Inactive') {
+        if (!String(dateOfLeaving).trim()) {
+          const input = window.prompt(
+            'Date of Leaving is required when deactivating an employee.\nEnter date (YYYY-MM-DD):'
+          );
+          if (!input?.trim()) {
+            alert('Date of Leaving is required to set employee as Inactive.');
+            return;
+          }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) {
+            alert('Please enter a valid date in YYYY-MM-DD format.');
+            return;
+          }
+          dateOfLeaving = input.trim();
+        }
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      const updatePayload = {
+        status: newStatus,
+        status_reason: reason || null,
+        status_changed_by: user.email,
+        status_changed_at: new Date().toISOString(),
+        updated_by: user.email,
+        updated_at: new Date().toISOString(),
+      };
+      if (newStatus === 'Inactive' && dateOfLeaving) {
+        updatePayload.date_of_leaving = dateOfLeaving;
+      }
+
       const { error } = await supabase
         .from('admin_ifsp_employee_master')
-        .update({
-          status: newStatus,
-          status_reason: reason || null,
-          status_changed_by: user.email,
-          status_changed_at: new Date().toISOString(),
-          updated_by: user.email,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', id);
 
       if (error) throw error;
       setEmployees(prev => prev.map(emp =>
-        emp.id === id ? { ...emp, status: newStatus, status_reason: reason } : emp
+        emp.id === id
+          ? {
+              ...emp,
+              status: newStatus,
+              status_reason: reason,
+              ...(newStatus === 'Inactive' && dateOfLeaving ? { date_of_leaving: dateOfLeaving } : {}),
+            }
+          : emp
       ));
       alert(`Employee status changed to ${newStatus} successfully!`);
     } catch (error) {
@@ -1864,9 +1905,13 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date of Leaving (DOL)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Date of Leaving (DOL)
+                      {formData.status === 'Inactive' ? <span className="text-red-600"> *</span> : null}
+                    </label>
                     <input
                       type="date"
+                      required={formData.status === 'Inactive'}
                       value={formData.date_of_leaving}
                       onChange={(e) => setFormData({...formData, date_of_leaving: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1877,7 +1922,14 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
                     <select
                       value={formData.status}
-                      onChange={(e) => setFormData({...formData, status: e.target.value})}
+                      onChange={(e) => {
+                        const nextStatus = e.target.value;
+                        if (nextStatus === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
+                          alert('Date of Leaving is required when employee status is Inactive.');
+                          return;
+                        }
+                        setFormData({ ...formData, status: nextStatus });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       {statusOptions.map(status => (
