@@ -32,6 +32,8 @@ export const STORAGE_KEYS = {
 
 /** Stored mark code for national holiday / public holiday. */
 export const REGISTER_MARK_NHPH = "NH/PH";
+/** Display-only mark for days after employee date of leaving (daily register). */
+export const REGISTER_MARK_LEFT = "Left";
 
 /** Daily register grid — dropdown options (clear + P, L, WO, NH/PH). */
 export const REGISTER_STATUS_OPTIONS = [
@@ -81,10 +83,12 @@ export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: "CO", label: "CO — Compensatory Off" },
   { value: "HD", label: "HD — Half Day" },
   { value: "WFH", label: "WFH — Work From Home" },
+  { value: REGISTER_MARK_LEFT, label: "Left — Left organization" },
 ];
 
 export function registerMarkOptionLabel(value) {
   if (!value) return "—";
+  if (isRegisterLeftMark(value)) return "Left";
   const primary = REGISTER_PRIMARY_MARK_OPTIONS.find((o) => o.value === value);
   if (primary) return primary.label;
   const leave = REGISTER_LEAVE_SUBMENU_OPTIONS.find((o) => o.value === value);
@@ -217,6 +221,7 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
   "CO",
   "PTL",
   "ML",
+  REGISTER_MARK_LEFT,
 ]);
 
 /**
@@ -228,6 +233,7 @@ export function normalizeRegisterMarkForDb(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_NHPH;
+  if (isRegisterLeftMark(m)) return REGISTER_MARK_LEFT;
   if (m === "P(OD)") return "P(OD)";
   if (REGISTER_MARKS_DB_ALLOWED.has(m)) return m;
   if (m === "A" || m === "LEAVE") return "L";
@@ -262,6 +268,7 @@ export const REGISTER_BULK_BUTTON_CLASS = {
   L: "bg-[#D62828] hover:bg-[#b82222] text-white",
   WO: "bg-[#EAB308] hover:bg-[#CA8A04] text-gray-900",
   [REGISTER_MARK_NHPH]: "bg-[#F58220] hover:bg-[#d9741d] text-white",
+  [REGISTER_MARK_LEFT]: "bg-gray-600 hover:bg-gray-700 text-white",
 };
 
 const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
@@ -278,6 +285,7 @@ export const REGISTER_MARK_CELL_COLORS = {
   CO: { bg: "#059669", border: "#047857", text: "white" },
   HD: { bg: "#d97706", border: "#b45309", text: "white" },
   WFH: { bg: "#2563eb", border: "#1d4ed8", text: "white" },
+  [REGISTER_MARK_LEFT]: { bg: "#6b7280", border: "#4b5563", text: "white" },
 };
 
 export function resolveRegisterMarkCellColors(mark) {
@@ -295,6 +303,18 @@ export const REGISTER_MARK_SELECT_INNER =
 
 export function isRegisterLeaveMark(mark) {
   return REGISTER_LEAVE_MARKS.has(mark);
+}
+
+export function isRegisterLeftMark(mark) {
+  return String(mark ?? "").trim() === REGISTER_MARK_LEFT;
+}
+
+/** True when register date is on or after the employee's date of leaving. */
+export function isRegisterDayAfterLeaving(registerDateIso, dateOfLeaving) {
+  const leaving = normalizeDbDate(dateOfLeaving);
+  const date = normalizeDbDate(registerDateIso);
+  if (!leaving || !date) return false;
+  return date >= leaving;
 }
 
 /** Colored box behind the closed cell only (pair with registerMarkCellInlineStyle). */
@@ -446,7 +466,11 @@ export function buildPresentKeysFromPunches(punches) {
  * One row per active employee; dayMarks[1..n] hold register codes (P, A, WO, …).
  * manualMarks[empCode][day] overrides auto Present from raw punches.
  */
-export function buildMonthlyRegisterGrid(punches, activeEmployees, { year, month, manualMarks = {} }) {
+export function buildMonthlyRegisterGrid(
+  punches,
+  activeEmployees,
+  { year, month, manualMarks = {}, applyLeavingDisplay = false } = {}
+) {
   const daysInMonth = daysInCalendarMonth(year, month);
   const presentKeys = buildPresentKeysFromPunches(punches);
   const pad = (n) => String(n).padStart(2, "0");
@@ -459,20 +483,24 @@ export function buildMonthlyRegisterGrid(punches, activeEmployees, { year, month
   const rows = employees.map((emp) => {
     const code = normalizeAttendanceEmpCode(emp.empCode);
     const overrides = manualMarks[code] || {};
+    const dateOfLeaving = normalizeDbDate(emp.dateOfLeaving) || "";
     const dayMarks = {};
 
     for (let day = 1; day <= daysInMonth; day += 1) {
       const iso = `${monthPrefix}-${pad(day)}`;
+      let mark = "";
       const manual = overrides[day];
       if (manual != null && manual !== "") {
-        dayMarks[day] = manual;
+        mark = manual;
       } else if (isAutoWeekoffDate(iso)) {
-        dayMarks[day] = "WO";
+        mark = "WO";
       } else if (presentKeys.has(`${code}|${iso}`)) {
-        dayMarks[day] = "P";
-      } else {
-        dayMarks[day] = "";
+        mark = "P";
       }
+      if (applyLeavingDisplay && dateOfLeaving && isRegisterDayAfterLeaving(iso, dateOfLeaving)) {
+        mark = REGISTER_MARK_LEFT;
+      }
+      dayMarks[day] = mark;
     }
 
     return {
@@ -481,6 +509,7 @@ export function buildMonthlyRegisterGrid(punches, activeEmployees, { year, month
       employeeId: emp.employeeId || "",
       employeeName: emp.employeeName,
       department: emp.department || "",
+      dateOfLeaving,
       dayMarks,
     };
   });
@@ -1662,6 +1691,7 @@ export function mapMasterEmployee(row) {
     employeeName: row.full_name || row.name || "",
     department: row.department || "",
     designation: row.designation || "",
+    dateOfLeaving: normalizeDbDate(row.date_of_leaving) || "",
     employeeId: row.employee_id || "",
   };
 }
@@ -1902,17 +1932,38 @@ export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate
 export async function fetchActiveEmployees(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status")
+    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving")
     .eq("status", "Active");
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.employeeId || e.empCode);
+}
+
+/** Inactive employees with date of leaving — for register when DOL falls in or after the viewed month. */
+export async function fetchInactiveEmployeesWithDateOfLeaving(supabase) {
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving")
+    .eq("status", "Inactive")
+    .not("date_of_leaving", "is", null);
+  if (error) throw error;
+  return (data || []).map(mapMasterEmployee).filter((e) => e.empCode && e.dateOfLeaving);
+}
+
+/** Inactive employee appears in a month register when DOL is on/after month start (incl. left after month end). */
+export function isInactiveEmployeeRelevantForRegisterMonth(dateOfLeaving, fromDate, toDate) {
+  const dol = normalizeDbDate(dateOfLeaving);
+  const from = normalizeDbDate(fromDate);
+  const to = normalizeDbDate(toDate);
+  if (!dol || !from || !to) return false;
+  if (dol < from) return false;
+  return true;
 }
 
 /** Inactive (removed/deactivated) employees still on master — shown when they have month activity. */
 export async function fetchInactiveEmployeesFromMaster(supabase) {
   const { data, error } = await supabase
     .from(EMPLOYEE_MASTER_TABLE)
-    .select("employee_code,employee_id,full_name,department,designation,status")
+    .select("employee_code,employee_id,full_name,department,designation,status,date_of_leaving")
     .eq("status", "Inactive");
   if (error) throw error;
   return (data || []).map(mapMasterEmployee).filter((e) => e.empCode);
