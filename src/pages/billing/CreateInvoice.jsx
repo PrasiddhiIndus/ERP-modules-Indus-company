@@ -3057,6 +3057,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   po={displayPO}
                   showEInvoiceMeta={false}
                   hideQtyRateColumns={isLumpSumBilling && lumpSumShowPenaltyGeometryUi}
+                  hideBillingMonth
                 />
               </div>
 
