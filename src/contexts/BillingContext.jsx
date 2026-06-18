@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { isSupabaseRealtimeEnabled } from '../lib/supabaseConfig';
 import {
   getCommercialPoModuleType,
   withCommercialModuleMarker,
@@ -355,30 +356,41 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         loadFromDb();
       }, 320);
     };
-    const channel = supabase
-      .channel('billing-workflow-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'billing', table: 'po_wo' },
-        () => scheduleRefresh()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'billing', table: 'invoice' },
-        () => scheduleRefresh()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'billing', table: 'invoice_line_item' },
-        () => scheduleRefresh()
-      )
-      .subscribe();
+    const handleFocus = () => {
+      if (navigator.onLine !== false) scheduleRefresh();
+    };
+    const handleOnline = () => scheduleRefresh();
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleOnline);
+    let channel = null;
+    if (isSupabaseRealtimeEnabled()) {
+      channel = supabase
+        .channel('billing-workflow-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'billing', table: 'po_wo' },
+          () => scheduleRefresh()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'billing', table: 'invoice' },
+          () => scheduleRefresh()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'billing', table: 'invoice_line_item' },
+          () => scheduleRefresh()
+        )
+        .subscribe();
+    }
     return () => {
       if (refreshDebounceRef.current) {
         clearTimeout(refreshDebounceRef.current);
         refreshDebounceRef.current = null;
       }
-      supabase.removeChannel(channel);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleOnline);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [useDb, loadFromDb]);
 
