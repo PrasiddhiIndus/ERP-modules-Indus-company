@@ -66,7 +66,7 @@ function docTitleForKind(kind) {
  * Static HTML invoice preview — shared by Create Invoice and Manage Invoices.
  * Field order and layout mirror buildTaxInvoiceDoc in taxInvoicePdf.js.
  */
-export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true }) {
+export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true, hideQtyRateColumns = false }) {
   if (!inv) return null;
 
   const viewInv = enrichInvoiceWithPo(inv, po);
@@ -175,7 +175,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
   const poDateDisp = formatBillingDisplayDate(viewInv.poDate || viewInv.po_date) || '–';
   const showMaterialCode = poRequiresMaterialCode(viewInv) || poRequiresMaterialCode(po);
   const showHsnSacColumn = !showMaterialCode;
-  const tableColCount = 8;
+  const tableColCount = hideQtyRateColumns ? 6 : 8;
   const summaryColSpan = tableColCount - 1;
 
   const deliveryNote = viewInv.deliveryNote || viewInv.delivery_note || '–';
@@ -402,8 +402,12 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                 {showHsnSacColumn ? (
                   <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[10%]" style={invoiceBlueHeaderTextStyle}>HSN / SAC</th>
                 ) : null}
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Qty</th>
-                <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]" style={invoiceBlueHeaderTextStyle}>Rate ({PDF_RS})</th>
+                {hideQtyRateColumns ? null : (
+                  <>
+                    <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Qty</th>
+                    <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[12%]" style={invoiceBlueHeaderTextStyle}>Rate ({PDF_RS})</th>
+                  </>
+                )}
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>UOM</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>Disc.%</th>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[15%]" style={invoiceBlueHeaderTextStyle}>Amount ({PDF_RS})</th>
@@ -424,8 +428,12 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                       {resolveInvoiceLineHsnSac(it, viewInv, po).slice(0, 40)}
                     </td>
                   ) : null}
-                  <td className="border border-[#bbb] px-1 py-1 text-right">{formatAmountUpTo3Decimals(it.quantity || 0)}</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.rate || 0)}</td>
+                  {hideQtyRateColumns ? null : (
+                    <>
+                      <td className="border border-[#bbb] px-1 py-1 text-right">{formatAmountUpTo3Decimals(it.quantity || 0)}</td>
+                      <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.rate || 0)}</td>
+                    </>
+                  )}
                   <td className="border border-[#bbb] px-1 py-1 text-center">
                     {String(it.uom ?? '').trim() || '–'}
                   </td>
