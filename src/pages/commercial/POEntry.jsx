@@ -57,7 +57,7 @@ function buildFullOcNumber(ocLine, fy, vendorSuffix) {
 
 function parseStructuredOc(ocNumber) {
   const s = String(ocNumber || '').trim();
-  const m = s.match(/^IFSPL-(.+)-OC-(\d{2}\/\d{2})-(\d{5})$/i);
+  const m = s.match(/^IFSPL-(.+)-OC-(\d{2}\/\d{2})-(.+)$/i);
   if (!m) return null;
   const ocLine = normalizeOcLineLabel(m[1]);
   return { ocLine, fy: m[2], vendorPadded: m[3] };
@@ -134,23 +134,6 @@ const POEntry = () => {
   const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
 
   const fyForOc = formData.ocFyEdit || getFinancialYear();
-  const ocBasePreview = useMemo(
-    () => buildOcBase(formData.ocLine || 'Manpower', fyForOc),
-    [formData.ocLine, fyForOc]
-  );
-  const vendorCodeError = useMemo(() => {
-    if (!showForm || editId) return '';
-    const raw = String(formData.vendorCodeDigits ?? '').trim();
-    if (!raw) return '';
-    const line = String(formData.ocLine || 'Manpower').trim() || 'Manpower';
-    const candidateOc = buildFullOcNumber(line, fyForOc, raw);
-    if (!candidateOc) return '';
-    const dup = commercialPOs.some(
-      (p) => String(p.ocNumber || '').trim().toLowerCase() === candidateOc.toLowerCase()
-    );
-    if (dup) return 'This OC number is already in use.';
-    return '';
-  }, [showForm, editId, formData.vendorCodeDigits, formData.ocLine, fyForOc, commercialPOs]);
 
   const TextCell = ({ value, className = '' }) => {
     const display = value ?? '';
@@ -243,7 +226,9 @@ const POEntry = () => {
     let ocFyEdit = fyLive;
     if (parsed) {
       ocLine = parsed.ocLine;
-      vendorDigits = parsed.vendorPadded;
+      vendorDigits =
+        String(po.vendorCode ?? po.vendor_code ?? po.ocSeries ?? '').trim() ||
+        parsed.vendorPadded;
       ocFyEdit = parsed.fy;
     } else {
       const seg = (po.ocNumber || '').split('-')[1];
@@ -349,28 +334,27 @@ const POEntry = () => {
       setGstinError('Fix GSTIN before saving');
       return;
     }
-    const fySave = formData.ocFyEdit || getFinancialYear();
-    const paddedVendor = String(formData.vendorCodeDigits ?? '').trim();
-    if (!formData.ocLine || !String(formData.ocLine).trim()) {
-      setSaveError('Select an OC line (Manpower, Training, …).');
-      return;
-    }
-    const ocNum = paddedVendor ? buildFullOcNumber(formData.ocLine.trim(), fySave, paddedVendor) : '';
-    if (paddedVendor && !ocNum) {
-      setSaveError('Could not build OC number — check OC line and vendor code.');
+    const ocNum = String(formData.ocNumber || '').trim();
+    if (!ocNum) {
+      setSaveError('Enter OC number.');
       return;
     }
     const trimmedPoWoNumber = (formData.poWoNumber || '').trim();
     const hasDuplicatePO = commercialPOs.some((p) => {
       if (editId && p.id === editId) return false;
-      const sameOc = ocNum && (p.ocNumber || '').trim().toLowerCase() === ocNum.toLowerCase();
-      const samePoWo = trimmedPoWoNumber && (p.poWoNumber || '').trim().toLowerCase() === trimmedPoWoNumber.toLowerCase();
-      return sameOc || samePoWo;
+      return (
+        trimmedPoWoNumber &&
+        (p.poWoNumber || '').trim().toLowerCase() === trimmedPoWoNumber.toLowerCase()
+      );
     });
     if (hasDuplicatePO) {
-      setSaveError('Duplicate OC Number or PO/WO Number found. Please use unique values.');
+      setSaveError('Duplicate PO/WO Number is not allowed.');
       return;
     }
+    const vendorRef = String(formData.vendorCodeDigits ?? formData.vendorCode ?? '').trim();
+    const ocLine =
+      parseStructuredOc(ocNum)?.ocLine ||
+      normalizeOcLineLabel(formData.ocLine || formData.vertical || 'Manpower');
     const poType = ALLOWED_MANPOWER_PO_TYPES.has(formData.billingType) ? formData.billingType : 'Monthly';
     const ratesMap = new Map();
     formData.ratePerCategory.forEach((r) => {
@@ -399,9 +383,9 @@ const POEntry = () => {
         ? (commercialPOs.find((p) => p.id === editId)?.contactHistoryLog || [])
         : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
       ocNumber: ocNum,
-      ocSeries: paddedVendor || '',
-      vendorCode: paddedVendor || '',
-      vertical: formData.ocLine || formData.vertical || 'Manpower',
+      ocSeries: vendorRef || '',
+      vendorCode: vendorRef,
+      vertical: ocLine,
       poWoNumber: formData.poWoNumber.trim(),
       ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', qty: 0, rate: 0 }],
       totalContractValue: totalVal,
@@ -772,12 +756,13 @@ const POEntry = () => {
                       </label>
                       <div className="flex gap-2 items-stretch">
                         <input
+                          id="commercial-po-oc-full"
                           type="text"
-                          readOnly
-                          tabIndex={-1}
-                          value={ocBasePreview}
-                          className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-900 font-mono text-sm cursor-default"
-                          aria-label="OC prefix for selected line"
+                          value={formData.ocNumber}
+                          onChange={(e) => setFormData((p) => ({ ...p, ocNumber: e.target.value }))}
+                          className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 bg-white text-gray-900 font-mono text-sm"
+                          placeholder={buildOcBase(formData.ocLine || 'Manpower', fyForOc)}
+                          aria-label="Full OC number"
                         />
                         <select
                           id="commercial-po-oc-line"
@@ -807,6 +792,9 @@ const POEntry = () => {
                           ))}
                         </select>
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Enter the full OC number. Multiple PO/WO rows may share the same OC; PO/WO number must stay unique.
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="commercial-po-vendor-serial">
@@ -823,18 +811,13 @@ const POEntry = () => {
                             vendorCodeDigits: e.target.value,
                           }))
                         }
-                        className={`w-full border rounded-lg px-3 py-2 bg-white font-mono text-sm ${vendorCodeError ? 'border-red-400 bg-red-50/40' : 'border-gray-300'}`}
-                        placeholder="Vendor / serial (optional)"
-                        aria-label="Vendor code serial"
+                        className="w-full border rounded-lg px-3 py-2 bg-white font-mono text-sm border-gray-300"
+                        placeholder="Optional reference"
+                        aria-label="Vendor code"
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        {editId
-                          ? `FY segment stays as saved (${fyForOc}). Vendor suffix is optional.`
-                          : 'Leave blank to save without an OC serial suffix; enter any vendor/serial when assigned.'}
+                        Optional vendor reference only — not prefixed or auto-padded into the OC number.
                       </p>
-                      {vendorCodeError ? (
-                        <p className="text-xs text-red-600 font-medium mt-1">{vendorCodeError}</p>
-                      ) : null}
                     </div>
                   </>
                   <div>
@@ -1007,8 +990,7 @@ const POEntry = () => {
               <button
                 type="button"
                 onClick={savePO}
-                disabled={!editId && !!vendorCodeError}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 {editId ? 'Update' : 'Save'} PO/WO
               </button>
