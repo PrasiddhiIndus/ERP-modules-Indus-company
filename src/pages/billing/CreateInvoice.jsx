@@ -3052,7 +3052,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
             <div className="p-4 sm:p-6 bg-slate-100/90 space-y-5">
               {/* EXACT same invoice UI as Manage Invoices preview (live while editing) */}
               <div className="mx-auto max-w-5xl">
-                <InvoiceHtmlPreview inv={livePreviewInv} po={displayPO} showEInvoiceMeta={false} />
+                <InvoiceHtmlPreview
+                  inv={livePreviewInv}
+                  po={displayPO}
+                  showEInvoiceMeta={false}
+                  hideQtyRateColumns={isLumpSumBilling && lumpSumShowPenaltyGeometryUi}
+                />
               </div>
 
               {/* Editing controls (kept as form UI below the preview) */}
@@ -3328,8 +3333,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             <tr>
                               <th className="w-12 border border-neutral-300 px-2 py-2 text-center">#</th>
                               <th className="border border-neutral-300 px-2 py-2 text-left">Description</th>
-                              <th className="w-20 border border-neutral-300 px-2 py-2 text-center">Qty</th>
-                              <th className="w-28 border border-neutral-300 px-2 py-2 text-center">Rate</th>
                               <th className="w-28 border border-neutral-300 px-2 py-2 text-right">Amount</th>
                             </tr>
                           </thead>
@@ -3344,12 +3347,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
                                   placeholder="Final invoice line description"
                                 />
-                              </td>
-                              <td className="border border-neutral-300 px-2 py-2 text-center tabular-nums">
-                                {safeNumber(consolidatedLumpSumLine.quantity).toLocaleString('en-IN')}
-                              </td>
-                              <td className="border border-neutral-300 px-2 py-2 text-center tabular-nums">
-                                ₹{round2(consolidatedLumpSumLine.rate).toLocaleString('en-IN')}
                               </td>
                               <td className="border border-neutral-300 px-2 py-2 text-right font-semibold tabular-nums">
                                 ₹{round2(consolidatedLumpSumLine.amount).toLocaleString('en-IN')}
