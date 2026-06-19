@@ -1,6 +1,7 @@
-import { INITIAL_PACKAGES } from './formulaLibraryData';
+import { FORMULA_GROUPS, INITIAL_PACKAGES } from './formulaLibraryData';
 
 const STORAGE_KEY = 'hr-salary-formula-packages';
+const GROUPS_STORAGE_KEY = 'hr-salary-formula-groups';
 
 function clonePackages(list) {
   return list.map((p) => ({
@@ -31,4 +32,34 @@ export function saveFormulaPackages(list) {
 
 export function newPackageId() {
   return `pkg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function newFormulaItemId() {
+  return `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function cloneGroups(list) {
+  return list.map((g) => ({
+    ...g,
+    items: (g.items || []).map((i) => ({ ...i })),
+  }));
+}
+
+export function defaultFormulaGroups() {
+  return cloneGroups(FORMULA_GROUPS);
+}
+
+export function loadFormulaGroups() {
+  try {
+    const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+    const list = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(list) || !list.length) return defaultFormulaGroups();
+    return cloneGroups(list);
+  } catch {
+    return defaultFormulaGroups();
+  }
+}
+
+export function saveFormulaGroups(list) {
+  localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(cloneGroups(list)));
 }
