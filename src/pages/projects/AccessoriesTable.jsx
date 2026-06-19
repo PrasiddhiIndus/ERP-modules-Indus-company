@@ -357,7 +357,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
           .insert({
             name: ALUMINIUM_EXTENSION_LADDER.name,
             description: ALUMINIUM_EXTENSION_LADDER.description,
-            user_id: null,
+            user_id: user.id,
           })
           .select("id, name, description, user_id, created_at, updated_at")
           .single();
@@ -563,10 +563,18 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
 
   const addAccessoryRow = async () => {
     try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error("User not authenticated");
+      }
+
       const { error } = await supabase.from("accessories").insert({
         name: "New accessory",
         description: "",
-        user_id: null,
+        user_id: user.id,
       });
       if (error) throw error;
       await fetchAccessoriesCosting();
