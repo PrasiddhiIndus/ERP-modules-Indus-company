@@ -265,14 +265,13 @@ const Layout = () => {
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
                   <NavLink
                     to="hr/employee-master"
-                    className={subNavClass}
-                    isActive={(_, { location }) => {
-                      const path = location.pathname;
-                      return (
+                    className={() => {
+                      const path = pathname;
+                      const active =
                         path.startsWith("/app/hr/employee-master") ||
                         path.startsWith("/app/hr/salary-inputs") ||
-                        path === "/app/hr"
-                      );
+                        path === "/app/hr";
+                      return subNavClass({ isActive: active });
                     }}
                   >
                     <User className="w-4 h-4 shrink-0 text-red-600" />
@@ -285,12 +284,12 @@ const Layout = () => {
                   <div className="flex items-stretch w-full rounded-md hover:bg-gray-100 transition-colors">
                     <NavLink
                       to={salaryNavPath(HR_SALARY_DASHBOARD)}
-                      className={({ isActive }) =>
-                        `${subLinkBase} flex-1 min-w-0 rounded-md ${isActive ? activeClass : "text-gray-700"}`
-                      }
-                      isActive={(_, { location }) => {
-                        const path = location.pathname.replace(/\/$/, "");
-                        return path === `/app/${HR_SALARY_BASE}/${HR_SALARY_DASHBOARD}` || path === `/app/${HR_SALARY_BASE}`;
+                      className={() => {
+                        const path = pathname.replace(/\/$/, "");
+                        const active =
+                          path === `/app/${HR_SALARY_BASE}/${HR_SALARY_DASHBOARD}` ||
+                          path === `/app/${HR_SALARY_BASE}`;
+                        return `${subLinkBase} flex-1 min-w-0 rounded-md ${active ? activeClass : "text-gray-700"}`;
                       }}
                       onClick={() => setHrSalaryOpen(true)}
                     >
@@ -313,8 +312,7 @@ const Layout = () => {
                         <NavLink
                           key={item.to}
                           to={salaryNavPath(item.to).replace(/^\/app\//, "")}
-                          className={subNavClass}
-                          isActive={(_, { location }) => salaryNavIsActive(item, location)}
+                          className={() => subNavClass({ isActive: salaryNavIsActive(item, location) })}
                         >
                           <span className="text-xs">{item.label}</span>
                         </NavLink>
@@ -1042,13 +1040,14 @@ const Layout = () => {
                   </NavLink>
                   <NavLink
                     to="fire-tender/costing-hub/tender"
-                    className={subNavClass}
-                    isActive={(_, loc) => {
-                      const p = loc.pathname.replace(/\/$/, "");
-                      if (p === "/app/fire-tender") return false;
-                      if (p.startsWith("/app/fire-tender/configuration")) return false;
-                      if (p.startsWith("/app/fire-tender-manufacturing")) return false;
-                      return p.startsWith("/app/fire-tender");
+                    className={() => {
+                      const p = pathname.replace(/\/$/, "");
+                      const active =
+                        p !== "/app/fire-tender" &&
+                        !p.startsWith("/app/fire-tender/configuration") &&
+                        !p.startsWith("/app/fire-tender-manufacturing") &&
+                        p.startsWith("/app/fire-tender");
+                      return subNavClass({ isActive: active });
                     }}
                   >
                     <Calculator className="w-4 h-4 shrink-0 text-red-600" />
