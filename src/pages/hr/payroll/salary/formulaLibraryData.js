@@ -17,9 +17,9 @@ export const FORMULAS = [
 ];
 
 export const TYPE_META = {
-  e: { label: 'Earning', badge: 'bg-emerald-100 text-emerald-800' },
-  s: { label: 'Statutory', badge: 'bg-amber-100 text-amber-800' },
-  d: { label: 'Deduction', badge: 'bg-red-100 text-red-800' },
+  e: { label: 'Earning', badge: 'bg-emerald-100 text-emerald-800', dot: '#059669', accent: '#059669' },
+  s: { label: 'Statutory', badge: 'bg-amber-100 text-amber-800', dot: '#d97706', accent: '#d97706' },
+  d: { label: 'Deduction', badge: 'bg-red-100 text-red-800', dot: '#dc2626', accent: '#dc2626' },
 };
 
 export const TYPE_GROUP_ORDER = [
@@ -27,6 +27,78 @@ export const TYPE_GROUP_ORDER = [
   { key: 's', title: 'Statutory' },
   { key: 'd', title: 'Deductions' },
 ];
+
+/** Site Setup–aligned groups for the All formulas tab (name-only rows). */
+export const FORMULA_GROUPS = [
+  {
+    key: 'salaryCost',
+    title: 'Salary Cost',
+    dot: '#64748b',
+    accent: '#64748b',
+    items: [
+      { id: 'salaries', name: 'Gross Salary' },
+      { id: 'salariesOT', name: 'Overtime Payment' },
+      { id: 'voucher', name: 'Voucher Payment' },
+      { id: 'bonus', name: 'Bonus' },
+      { id: 'gratuity', name: 'Gratuity' },
+    ],
+  },
+  {
+    key: 'empBenefit',
+    title: 'Employee Benefit',
+    dot: '#2F7D9E',
+    accent: '#2F7D9E',
+    items: [
+      { id: 'pf', name: 'Provident Fund (PF)' },
+      { id: 'esicEmp', name: 'ESI / WC' },
+      { id: 'insurance', name: 'Insurance / Mediclaim' },
+      { id: 'uniform', name: 'Uniform / PPE' },
+    ],
+  },
+  {
+    key: 'accommodation',
+    title: 'Accomodation and Transportation',
+    dot: '#C97A12',
+    accent: '#C97A12',
+    items: [
+      { id: 'houseRent', name: 'House Rent' },
+      { id: 'cook', name: 'Cook Salary' },
+      { id: 'housekeeping', name: 'Housekeeping salary & material' },
+      { id: 'vehicleRent', name: 'Vehicle Rent' },
+    ],
+  },
+  {
+    key: 'admin',
+    title: 'Admin, Statutory & Other',
+    dot: '#9A4A3A',
+    accent: '#9A4A3A',
+    items: [
+      { id: 'labourLicence', name: 'Labour Licence fees' },
+      { id: 'indirect', name: 'Indirect expenses' },
+      { id: 'bankCharges', name: 'Bank charges / BG' },
+      { id: 'medical', name: 'Medical Expense' },
+      { id: 'bizPromo', name: 'Business Promotion' },
+    ],
+  },
+  {
+    key: 'misc',
+    title: 'Miscellaneous Expenses',
+    dot: '#B08D2E',
+    accent: '#B08D2E',
+    items: [
+      { id: 'equipment', name: 'Equipment / Tools purchase' },
+      { id: 'miscCost', name: 'Miscellaneous cost' },
+    ],
+  },
+];
+
+export function formulaGroupItemCount(groups) {
+  return groups.reduce((n, g) => n + g.items.length, 0);
+}
+
+export function allFormulaGroupItemCount() {
+  return formulaGroupItemCount(FORMULA_GROUPS);
+}
 
 export const SYSTEM_COMPONENT_NAMES = [
   'Basic salary',
