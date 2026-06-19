@@ -44,7 +44,7 @@ export const SALARY_SUB_NAV = [
 
 const DASHBOARD_HINTS = {
   'site-master': 'Payroll sites & locations',
-  'formula-library': 'Components & formula packages',
+  'formula-library': 'Formulas & Datawizard report builder',
   'payroll-package-builder': 'Site-wise salary formulas',
   settings: 'Module preferences',
   'people-master': 'Employee payroll profiles',
