@@ -39,6 +39,15 @@ import {
   serializePreGstSupplementaryRows,
   summarizePreGstLegacyTotals,
 } from '../../utils/billingPoInvoiceFields';
+import {
+  BILLING_AUTOSAVE_KEYS,
+  BILLING_DRAFT_KEYS,
+  loadBillingFormDraftPayloadWithLegacy,
+} from '../../utils/billingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
+
+const TAX_INVOICE_PREFIX = 'IFSPL';
+const TAX_INVOICE_NUMBER_RE = /^(?:IFSPL|INV)-(\d{4})-(\d{4,})$/i;
 
 const getFinancialYear = () => {
   const d = new Date();
@@ -50,7 +59,7 @@ const getFinancialYear = () => {
 const generateTaxInvoiceNumber = (sequence) => {
   const y = getFinancialYear();
   const seq = String(sequence).padStart(4, '0');
-  return `INV-${y}-${seq}`;
+  return `${TAX_INVOICE_PREFIX}-${y}-${seq}`;
 };
 
 function generateDraftInvoiceNumber(invoices) {
@@ -67,7 +76,7 @@ function getNextTaxInvoiceSequence(invoices) {
   let maxSeq = 0;
   (Array.isArray(invoices) ? invoices : []).forEach((inv) => {
     const raw = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim();
-    const m = raw.match(/^INV-(\d{4})-(\d{4,})$/i);
+    const m = raw.match(TAX_INVOICE_NUMBER_RE);
     if (!m) return;
     const [, year, seqText] = m;
     if (year !== fy) return;
@@ -82,7 +91,7 @@ function getLastTaxInvoiceNumberInFy(invoices) {
   let maxSeq = 0;
   (Array.isArray(invoices) ? invoices : []).forEach((inv) => {
     const raw = String(inv?.taxInvoiceNumber || inv?.billNumber || inv?.bill_number || '').trim();
-    const m = raw.match(/^INV-(\d{4})-(\d{4,})$/i);
+    const m = raw.match(TAX_INVOICE_NUMBER_RE);
     if (!m) return;
     const [, year, seqText] = m;
     if (year !== fy) return;
@@ -92,7 +101,7 @@ function getLastTaxInvoiceNumberInFy(invoices) {
   return maxSeq > 0 ? generateTaxInvoiceNumber(maxSeq) : null;
 }
 
-/** Build full INV-YYYY-##### from digits-only serial (preserves width when typing leading zeros). */
+/** Build full IFSPL-YYYY-##### from digits-only serial (preserves width when typing leading zeros). */
 function buildFullTaxInvoiceNumberFromSerial(serialDigits) {
   const fy = String(getFinancialYear());
   const raw = String(serialDigits || '').replace(/\D/g, '').slice(0, 10);
@@ -101,7 +110,7 @@ function buildFullTaxInvoiceNumberFromSerial(serialDigits) {
   if (!Number.isFinite(n) || n < 1) return '';
   const width = Math.max(4, raw.length);
   const padded = String(n).padStart(width, '0');
-  return `INV-${fy}-${padded}`;
+  return `${TAX_INVOICE_PREFIX}-${fy}-${padded}`;
 }
 
 /**
@@ -110,8 +119,8 @@ function buildFullTaxInvoiceNumberFromSerial(serialDigits) {
  */
 function classifyNewTaxInvoice(trimmed, invoices) {
   const fy = String(getFinancialYear());
-  const m = String(trimmed || '').trim().match(/^INV-(\d{4})-(\d{4,})$/i);
-  if (!m) return { kind: 'hard', message: 'Enter a valid tax invoice number (e.g. INV-2026-0001).' };
+  const m = String(trimmed || '').trim().match(TAX_INVOICE_NUMBER_RE);
+  if (!m) return { kind: 'hard', message: `Enter a valid tax invoice number (e.g. ${TAX_INVOICE_PREFIX}-2026-0001).` };
   const year = m[1];
   const seq = parseInt(m[2], 10);
   if (!Number.isFinite(seq) || seq < 1) {
@@ -135,7 +144,7 @@ function classifyNewTaxInvoice(trimmed, invoices) {
   return { kind: 'ok' };
 }
 
-/** Proforma series — separate from INV-* tax invoice numbers (same financial year index). */
+/** Proforma series — separate from IFSPL-* tax invoice numbers (same financial year index). */
 function generateProformaInvoiceNumber(sequence) {
   const y = getFinancialYear();
   const seq = String(sequence).padStart(4, '0');
@@ -673,48 +682,98 @@ const CreateInvoice = ({ onNavigateTab }) => {
     refreshBilling,
     billingVerticalFilter,
     billingPoBasisFilter,
+    getCreateInvoiceFormDraft,
+    setCreateInvoiceFormDraft,
+    clearCreateInvoiceFormDraft,
   } = useBilling();
-  const [selectedPoId, setSelectedPoId] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState('');
+
+  const initDraftRef = useRef(null);
+  if (initDraftRef.current === null) {
+    const fromMemory = getCreateInvoiceFormDraft();
+    const fromStorage =
+      fromMemory ||
+      loadBillingFormDraftPayloadWithLegacy(
+        BILLING_DRAFT_KEYS.createInvoice,
+        'billing:form:create-invoice:'
+      );
+    initDraftRef.current = fromStorage || false;
+  }
+  const initDraft = initDraftRef.current === false ? null : initDraftRef.current;
+
+  const billingDraftRestoreGuardRef = useRef(!!initDraft);
+  const releaseDraftRestoreGuard = () => {
+    billingDraftRestoreGuardRef.current = false;
+    skipPoAutoSeedRef.current = false;
+  };
+
+  const [selectedPoId, setSelectedPoId] = useState(() =>
+    initDraft?.selectedPoId ? String(initDraft.selectedPoId) : ''
+  );
+  const [invoiceDate, setInvoiceDate] = useState(() => initDraft?.invoiceDate ?? '');
   const [invoiceDateError, setInvoiceDateError] = useState('');
-  const [items, setItems] = useState([]); // { description, hsnSac, quantity, rate, amount }
+  const [items, setItems] = useState(() =>
+    Array.isArray(initDraft?.items) ? initDraft.items : []
+  );
   const itemsRef = useRef(items);
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
-  const [attendanceFiles, setAttendanceFiles] = useState([]); // [{ name, url }]
-  const [document2Files, setDocument2Files] = useState([]); // [{ name, url }]
-  const [digitalSignatureDataUrl, setDigitalSignatureDataUrl] = useState('');
+  /** Skip PO template re-seed after restoring an autosaved create-invoice draft. */
+  const skipPoAutoSeedRef = useRef(!!initDraft);
+  const [attendanceFiles, setAttendanceFiles] = useState(() =>
+    Array.isArray(initDraft?.attendanceFiles) ? initDraft.attendanceFiles : []
+  );
+  const [document2Files, setDocument2Files] = useState(() =>
+    Array.isArray(initDraft?.document2Files) ? initDraft.document2Files : []
+  );
+  const [digitalSignatureDataUrl, setDigitalSignatureDataUrl] = useState(
+    () => initDraft?.digitalSignatureDataUrl ?? ''
+  );
   const [digitalSignatureError, setDigitalSignatureError] = useState('');
   const signatureInputRef = useRef(null);
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [poPage, setPoPage] = useState(1);
-  const [servicePeriodFrom, setServicePeriodFrom] = useState(() => getDefaultServicePeriodRange().from);
-  const [servicePeriodTo, setServicePeriodTo] = useState(() => getDefaultServicePeriodRange().to);
+  const [servicePeriodFrom, setServicePeriodFrom] = useState(
+    () => initDraft?.servicePeriodFrom ?? getDefaultServicePeriodRange().from
+  );
+  const [servicePeriodTo, setServicePeriodTo] = useState(
+    () => initDraft?.servicePeriodTo ?? getDefaultServicePeriodRange().to
+  );
   const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
   const [poMasterSearch, setPoMasterSearch] = useState('');
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
-  const [invoiceMonthlyDutyQtyMode, setInvoiceMonthlyDutyQtyMode] = useState('po_geometry');
-  const [invoiceLumpSumBillingMode, setInvoiceLumpSumBillingMode] = useState('normal');
+  const [invoiceMonthlyDutyQtyMode, setInvoiceMonthlyDutyQtyMode] = useState(
+    () => initDraft?.invoiceMonthlyDutyQtyMode ?? 'po_geometry'
+  );
+  const [invoiceLumpSumBillingMode, setInvoiceLumpSumBillingMode] = useState(
+    () => initDraft?.invoiceLumpSumBillingMode ?? 'normal'
+  );
   /** Lump sum: opt-in on this invoice to show PO Penalty column and use Rate = PO rate − Penalty (PO-level penalty mode forces this on). */
-  const [lumpSumInvoicePenaltyGeometry, setLumpSumInvoicePenaltyGeometry] = useState(false);
+  const [lumpSumInvoicePenaltyGeometry, setLumpSumInvoicePenaltyGeometry] = useState(
+    () => !!initDraft?.lumpSumInvoicePenaltyGeometry
+  );
   /** consolidated = final invoice shows one cumulative geometry line; detailed = final invoice shows every geometry line item. */
-  const [lumpSumInvoicePreviewMode, setLumpSumInvoicePreviewMode] = useState('consolidated');
-  const [lumpSumConsolidatedLineDraft, setLumpSumConsolidatedLineDraft] = useState({
-    description: null,
-    hsnSac: null,
-    quantity: '',
-    rate: '',
-  });
-  const [poBillingTab, setPoBillingTab] = useState('Monthly');
-  const [createMainTab, setCreateMainTab] = useState('select-po');
+  const [lumpSumInvoicePreviewMode, setLumpSumInvoicePreviewMode] = useState(
+    () => initDraft?.lumpSumInvoicePreviewMode ?? 'consolidated'
+  );
+  const [lumpSumConsolidatedLineDraft, setLumpSumConsolidatedLineDraft] = useState(() =>
+    initDraft?.lumpSumConsolidatedLineDraft
+      ? initDraft.lumpSumConsolidatedLineDraft
+      : { description: null, hsnSac: null, quantity: '', rate: '' }
+  );
+  const [poBillingTab, setPoBillingTab] = useState(() => initDraft?.poBillingTab ?? 'Monthly');
+  const [createMainTab, setCreateMainTab] = useState(() => initDraft?.createMainTab ?? 'select-po');
   /** tax | proforma — stored as billing.invoice.invoice_kind; all verticals (Manpower, Training, R&M, M&M, AMC, IEV, trucks / lump-sum, etc.) */
-  const [invoiceDocumentKind, setInvoiceDocumentKind] = useState('tax');
-  /** Digits after INV-YYYY- for new tax invoices (full number built on preview/save). */
-  const [manualTaxInvoiceSerial, setManualTaxInvoiceSerial] = useState('');
-  const [invoiceLevelHsn, setInvoiceLevelHsn] = useState('');
-  const [preGstSupplementaryRows, setPreGstSupplementaryRows] = useState([]);
+  const [invoiceDocumentKind, setInvoiceDocumentKind] = useState(() => initDraft?.invoiceDocumentKind ?? 'tax');
+  /** Digits after IFSPL-YYYY- for new tax invoices (full number built on preview/save). */
+  const [manualTaxInvoiceSerial, setManualTaxInvoiceSerial] = useState(
+    () => initDraft?.manualTaxInvoiceSerial ?? ''
+  );
+  const [invoiceLevelHsn, setInvoiceLevelHsn] = useState(() => initDraft?.invoiceLevelHsn ?? '');
+  const [preGstSupplementaryRows, setPreGstSupplementaryRows] = useState(() =>
+    Array.isArray(initDraft?.preGstSupplementaryRows) ? initDraft.preGstSupplementaryRows : []
+  );
 
   const verticalNotSelected = !billingVerticalFilter;
   const billingPoBasisLabel =
@@ -724,6 +783,98 @@ const CreateInvoice = ({ onNavigateTab }) => {
         ? 'Without PO only'
         : 'All — With PO & Without PO';
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const createInvoiceAutosaveKey = BILLING_AUTOSAVE_KEYS.createInvoice();
+
+  const createInvoiceAutosaveSnapshot = useMemo(
+    () => ({
+      selectedPoId,
+      invoiceDate,
+      items,
+      attendanceFiles,
+      document2Files,
+      digitalSignatureDataUrl,
+      servicePeriodFrom,
+      servicePeriodTo,
+      invoiceMonthlyDutyQtyMode,
+      invoiceLumpSumBillingMode,
+      lumpSumInvoicePenaltyGeometry,
+      lumpSumInvoicePreviewMode,
+      lumpSumConsolidatedLineDraft,
+      createMainTab,
+      invoiceDocumentKind,
+      manualTaxInvoiceSerial,
+      invoiceLevelHsn,
+      preGstSupplementaryRows,
+      poBillingTab,
+    }),
+    [
+      selectedPoId,
+      invoiceDate,
+      items,
+      attendanceFiles,
+      document2Files,
+      digitalSignatureDataUrl,
+      servicePeriodFrom,
+      servicePeriodTo,
+      invoiceMonthlyDutyQtyMode,
+      invoiceLumpSumBillingMode,
+      lumpSumInvoicePenaltyGeometry,
+      lumpSumInvoicePreviewMode,
+      lumpSumConsolidatedLineDraft,
+      createMainTab,
+      invoiceDocumentKind,
+      manualTaxInvoiceSerial,
+      invoiceLevelHsn,
+      preGstSupplementaryRows,
+      poBillingTab,
+    ]
+  );
+
+  const restoreCreateInvoiceDraft = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    billingDraftRestoreGuardRef.current = true;
+    skipPoAutoSeedRef.current = true;
+    if (payload.selectedPoId) setSelectedPoId(String(payload.selectedPoId));
+    if (payload.invoiceDate != null) setInvoiceDate(payload.invoiceDate);
+    if (Array.isArray(payload.items)) setItems(payload.items);
+    if (Array.isArray(payload.attendanceFiles)) setAttendanceFiles(payload.attendanceFiles);
+    if (Array.isArray(payload.document2Files)) setDocument2Files(payload.document2Files);
+    if (payload.digitalSignatureDataUrl != null) setDigitalSignatureDataUrl(payload.digitalSignatureDataUrl);
+    if (payload.servicePeriodFrom != null) setServicePeriodFrom(payload.servicePeriodFrom);
+    if (payload.servicePeriodTo != null) setServicePeriodTo(payload.servicePeriodTo);
+    if (payload.invoiceMonthlyDutyQtyMode) setInvoiceMonthlyDutyQtyMode(payload.invoiceMonthlyDutyQtyMode);
+    if (payload.invoiceLumpSumBillingMode) setInvoiceLumpSumBillingMode(payload.invoiceLumpSumBillingMode);
+    if (typeof payload.lumpSumInvoicePenaltyGeometry === 'boolean') {
+      setLumpSumInvoicePenaltyGeometry(payload.lumpSumInvoicePenaltyGeometry);
+    }
+    if (payload.lumpSumInvoicePreviewMode) setLumpSumInvoicePreviewMode(payload.lumpSumInvoicePreviewMode);
+    if (payload.lumpSumConsolidatedLineDraft) setLumpSumConsolidatedLineDraft(payload.lumpSumConsolidatedLineDraft);
+    if (payload.createMainTab) setCreateMainTab(payload.createMainTab);
+    if (payload.invoiceDocumentKind) setInvoiceDocumentKind(payload.invoiceDocumentKind);
+    if (payload.manualTaxInvoiceSerial != null) setManualTaxInvoiceSerial(payload.manualTaxInvoiceSerial);
+    if (payload.invoiceLevelHsn != null) setInvoiceLevelHsn(payload.invoiceLevelHsn);
+    if (Array.isArray(payload.preGstSupplementaryRows)) setPreGstSupplementaryRows(payload.preGstSupplementaryRows);
+    if (payload.poBillingTab) setPoBillingTab(payload.poBillingTab);
+  }, []);
+
+  const skipCreateInvoiceRestore = invoiceDraft?.mode === 'edit' && !!invoiceDraft?.invoiceId;
+
+  const { hint: createInvoiceAutoHint, clearDraft: clearCreateInvoiceDraft } = useBillingFormAutosave({
+    key: createInvoiceAutosaveKey,
+    snapshot: createInvoiceAutosaveSnapshot,
+    saveEnabled:
+      !skipCreateInvoiceRestore &&
+      (!!selectedPoId || (invoiceDraft?.mode === 'edit' && !!invoiceDraft?.invoiceId) || items.length > 0),
+    skipRestore: skipCreateInvoiceRestore,
+    onRestore: restoreCreateInvoiceDraft,
+  });
+
+  useEffect(() => {
+    if (skipCreateInvoiceRestore) return;
+    if (!selectedPoId && items.length === 0 && !invoiceDate) return;
+    setCreateInvoiceFormDraft(createInvoiceAutosaveSnapshot);
+  }, [createInvoiceAutosaveSnapshot, skipCreateInvoiceRestore, setCreateInvoiceFormDraft, selectedPoId, items.length, invoiceDate]);
 
   const isRmVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
@@ -743,6 +894,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const billingTabs = useMemo(() => (isRmVertical ? BILLING_TABS_RM : BILLING_TABS_MANPOWER), [isRmVertical]);
 
   useEffect(() => {
+    if (billingDraftRestoreGuardRef.current) return;
     // Keep tab defaults sensible per vertical.
     if (isRmVertical) {
       setPoBillingTab('Service');
@@ -989,6 +1141,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!displayPO) return;
     const isEdit = invoiceDraft?.mode === 'edit' && invoiceDraft?.invoiceId;
     if (isEdit) return;
+    if (billingDraftRestoreGuardRef.current) return;
     const next = getNextTaxInvoiceSequence(invoices);
     setManualTaxInvoiceSerial(String(next).padStart(4, '0'));
     // Seed when opening the create modal for a PO; avoid listing `invoices` so typing isn't reset on every list refresh.
@@ -1102,6 +1255,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   useEffect(() => {
     if (invoiceDraft?.mode === 'edit') return;
+    if (billingDraftRestoreGuardRef.current) return;
+    if (skipPoAutoSeedRef.current) return;
     setLumpSumInvoicePenaltyGeometry(false);
     setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, quantity: '', rate: '' });
     setInvoiceMonthlyDutyQtyMode(
@@ -1124,6 +1279,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
   useEffect(() => {
     if (!invoiceDraft) return;
     if (invoiceDraft.mode === 'edit' && editingInvoice) {
+      releaseDraftRestoreGuard();
+      clearCreateInvoiceDraft();
+      clearCreateInvoiceFormDraft();
       const ik = String(editingInvoice.invoiceKind || editingInvoice.invoice_kind || 'tax').toLowerCase();
       setInvoiceDocumentKind(ik === 'proforma' ? 'proforma' : 'tax');
       setSelectedPoId(String(editingInvoice.poId || ''));
@@ -1277,6 +1435,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
   useEffect(() => {
     if (!selectedPO) return;
+    if (billingDraftRestoreGuardRef.current) return;
     setInvoiceLevelHsn(resolvePoHsnSac(selectedPO));
   }, [selectedPO?.id, selectedPO?.hsnCode, selectedPO?.sacCode, selectedPO?.ratePerCategory]);
 
@@ -1290,6 +1449,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!selectedPO) return;
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
+    if (skipPoAutoSeedRef.current) return;
     const hsnSac = resolvePoHsnSac(selectedPO);
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
     const isCustomPo = String(selectedPO.billingType || '').toLowerCase() === 'custom';
@@ -2040,6 +2200,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       setServicePeriodTo(toDateInputValue(to));
       return;
     }
+    if (billingDraftRestoreGuardRef.current) return;
     const { from, to } = getDefaultServicePeriodRange();
     setServicePeriodFrom(from);
     setServicePeriodTo(to);
@@ -2415,6 +2576,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
     setSavingInvoice(true);
     try {
       await upsertInvoice(inv);
+      releaseDraftRestoreGuard();
+      clearCreateInvoiceDraft();
+      clearCreateInvoiceFormDraft();
       setInvoiceDraft(null);
       onNavigateTab && onNavigateTab('manage-invoices');
     } catch (e) {
@@ -2850,6 +3014,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         <button
                           type="button"
                           onClick={() => {
+                            releaseDraftRestoreGuard();
                             setInvoiceDocumentKind('tax');
                             setInvoiceDate('');
                             setInvoiceDateError('');
@@ -2928,6 +3093,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   {invoiceDraft?.mode === 'edit' ? 'Edit' : 'Create'} invoice — {displayPO.siteId || '–'}
                 </h3>
                 <p className="text-xs text-gray-500 truncate">{displayPO.locationName || displayPO.legalName || '–'}</p>
+                <p className="text-[11px] text-emerald-700 mt-0.5">
+                  Auto-save on{createInvoiceAutoHint ? ` · ${createInvoiceAutoHint}` : ''}
+                </p>
                 {invoiceDraft?.mode !== 'edit' && previewBillMeta?.lastInvoiceSeries ? (
                   <p className="text-[11px] text-gray-500 mt-0.5">
                     Last tax invoice in this FY: <span className="font-mono font-semibold text-gray-700">{previewBillMeta.lastInvoiceSeries}</span>
@@ -2989,7 +3157,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     title={
                       documentKindLockedByIrn
                         ? 'Document type is fixed after e-invoice (IRN) is generated'
-                        : 'Tax invoice uses INV-… numbers; proforma uses PFI-… numbers'
+                        : `Tax invoice uses ${TAX_INVOICE_PREFIX}-… numbers; proforma uses PFI-… numbers`
                     }
                     className="px-2 py-1.5 border border-gray-200 rounded-md bg-white text-gray-800 text-xs disabled:bg-gray-100 disabled:text-gray-500"
                   >
@@ -3005,7 +3173,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     </label>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="inline-flex items-center px-2 py-1.5 rounded-md border border-gray-200 bg-gray-50 text-gray-800 text-xs font-mono shrink-0">
-                        INV-{getFinancialYear()}-
+                        {TAX_INVOICE_PREFIX}-{getFinancialYear()}-
                       </span>
                       <input
                         id="create-inv-manual-tax-serial"
@@ -3029,6 +3197,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
               <button
                 type="button"
                 onClick={() => {
+                  releaseDraftRestoreGuard();
                   setSelectedPoId('');
                   setItems([]);
                   setAttendanceFiles([]);
@@ -3041,6 +3210,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   setInvoiceLumpSumBillingMode('normal');
                   setLumpSumInvoicePenaltyGeometry(false);
                   setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, quantity: '', rate: '' });
+                  clearCreateInvoiceDraft();
+                  clearCreateInvoiceFormDraft();
                   setInvoiceDraft(null);
                 }}
                 className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
@@ -4517,6 +4688,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             <button
               type="button"
               onClick={() => {
+                releaseDraftRestoreGuard();
                 setSelectedPoId('');
                 setItems([]);
                 setAttendanceFiles([]);
@@ -4525,6 +4697,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 setInvoiceDateError('');
                 setInvoiceDocumentKind('tax');
                 setManualTaxInvoiceSerial(String(getNextTaxInvoiceSequence(invoices)).padStart(4, '0'));
+                clearCreateInvoiceDraft();
+                clearCreateInvoiceFormDraft();
                 setInvoiceDraft(null);
               }}
               className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"

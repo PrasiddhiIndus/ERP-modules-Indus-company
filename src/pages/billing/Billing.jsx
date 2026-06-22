@@ -14,6 +14,7 @@ import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
 import BillingPlainEnglishGuide from './components/BillingPlainEnglishGuide';
 import BillingPoNotificationBar from './components/BillingPoNotificationBar';
+import BillingKeepAlivePanels from './components/BillingKeepAlivePanels';
 import { PO_BASIS_FILTER_ALL } from '../../constants/poBasis';
 import {
   COMMERCIAL_MODULE_PROJECTS,
@@ -299,8 +300,6 @@ const BillingInner = () => {
     { id: 'generated-e-invoice', component: GeneratedEInvoice },
   ];
 
-  const ActiveComponent = tabs.find((tab) => tab.id === activeTab)?.component || BillingDashboard;
-
   const handleTabChange = (tabId) => {
     if (tabId === 'dashboard') navigate('/app/billing');
     else if (tabId === 'tracking') navigate('/app/billing/tracking');
@@ -321,7 +320,12 @@ const BillingInner = () => {
         <BillingPlainEnglishGuide />
         <BillingPoNotificationBar />
         <BillingErrorBoundary>
-          <ActiveComponent onNavigateTab={handleTabChange} />
+          <BillingKeepAlivePanels
+            tabs={tabs}
+            activeId={activeTab}
+            panelProps={{ onNavigateTab: handleTabChange }}
+            wrapPanel={(panel) => <BillingErrorBoundary>{panel}</BillingErrorBoundary>}
+          />
         </BillingErrorBoundary>
         <BillingPoApprovalPopup />
       </div>

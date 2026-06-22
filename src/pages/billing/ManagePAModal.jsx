@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useBilling } from '../../contexts/BillingContext';
+import { BILLING_AUTOSAVE_KEYS } from '../../utils/billingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
 
 const ManagePAModal = ({ invoiceId, invoice, onClose }) => {
   const { paymentAdvice, setPaymentAdvice, setInvoices } = useBilling();
@@ -8,6 +10,26 @@ const ManagePAModal = ({ invoiceId, invoice, onClose }) => {
   const [paFile, setPaFile] = useState(pa.paFileUrl ? [pa.paFileUrl] : []);
   const [penaltyDeductionAmount, setPenaltyDeductionAmount] = useState(pa.penaltyDeductionAmount ?? '');
   const [deductionRemarks, setDeductionRemarks] = useState(pa.deductionRemarks || '');
+
+  const managePaSnapshot = useMemo(
+    () => ({ paReceivedDate, paFile, penaltyDeductionAmount, deductionRemarks }),
+    [paReceivedDate, paFile, penaltyDeductionAmount, deductionRemarks]
+  );
+
+  const restoreManagePaDraft = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.paReceivedDate != null) setPaReceivedDate(payload.paReceivedDate);
+    if (Array.isArray(payload.paFile)) setPaFile(payload.paFile);
+    if (payload.penaltyDeductionAmount != null) setPenaltyDeductionAmount(payload.penaltyDeductionAmount);
+    if (payload.deductionRemarks != null) setDeductionRemarks(payload.deductionRemarks);
+  }, []);
+
+  const { hint: managePaAutoHint, clearDraft: clearManagePaDraft } = useBillingFormAutosave({
+    key: BILLING_AUTOSAVE_KEYS.managePa(invoiceId),
+    snapshot: managePaSnapshot,
+    saveEnabled: !!invoiceId,
+    onRestore: restoreManagePaDraft,
+  });
 
   const handleSave = () => {
     const fileUrl = paFile[0] || (pa.paFileUrl || '');
@@ -33,6 +55,7 @@ const ManagePAModal = ({ invoiceId, invoice, onClose }) => {
           : inv
       )
     );
+    clearManagePaDraft();
     onClose();
   };
 
@@ -43,6 +66,9 @@ const ManagePAModal = ({ invoiceId, invoice, onClose }) => {
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-2">Manage PA – Deductions</h3>
         <p className="text-sm text-gray-500 mb-4">Invoice: <strong>{invoice.taxInvoiceNumber || invoice.bill_number}</strong>. Enter PA details and any penalty/deduction. Pending amount will be reduced by the deduction.</p>
+        <p className="text-xs text-emerald-700 mb-3">
+          Auto-save on{managePaAutoHint ? ` · ${managePaAutoHint}` : ''}
+        </p>
 
         <div className="space-y-4">
           <div>
@@ -86,7 +112,14 @@ const ManagePAModal = ({ invoiceId, invoice, onClose }) => {
         </div>
 
         <div className="mt-6 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+          <button
+            type="button"
+            onClick={() => {
+              clearManagePaDraft();
+              onClose();
+            }}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
             Cancel
           </button>
           <button type="button" onClick={handleSave} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 shadow-sm">

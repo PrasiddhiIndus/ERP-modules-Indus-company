@@ -1,18 +1,20 @@
 import { getInvoiceTotals } from './taxInvoicePdf';
 
-/** Build standalone CN/DN series: CN-INV-2026-0001, DN-INV-2026-0001, etc. */
+const NOTE_INVOICE_SERIES = 'IFSPL';
+
+/** Build standalone CN/DN series: CN-IFSPL-2026-0001, DN-IFSPL-2026-0001, etc. */
 export function cnDnDocumentNumber(noteType, existingNotes = [], noteDate) {
   const prefix = noteType === 'debit' ? 'DN' : 'CN';
   const d = noteDate ? new Date(noteDate) : new Date();
   const year = Number.isNaN(d.getTime()) ? new Date().getFullYear() : d.getFullYear();
   const notes = Array.isArray(existingNotes) ? existingNotes : [];
-  const re = new RegExp(`^${prefix}-INV-${year}-(\\d+)$`, 'i');
+  const re = new RegExp(`^${prefix}-(?:IFSPL|INV)-${year}-(\\d+)$`, 'i');
   const maxSeq = notes.reduce((max, note) => {
     const number = String(note?.noteTaxInvoiceNumber || note?.note_tax_invoice_number || '').trim();
     const match = number.match(re);
     return match ? Math.max(max, Number(match[1]) || 0) : max;
   }, 0);
-  return `${prefix}-INV-${year}-${String(maxSeq + 1).padStart(4, '0')}`;
+  return `${prefix}-${NOTE_INVOICE_SERIES}-${year}-${String(maxSeq + 1).padStart(4, '0')}`;
 }
 
 /** Net receivable for parent tax invoice after linked credit (reduces) and debit (increases) notes. */

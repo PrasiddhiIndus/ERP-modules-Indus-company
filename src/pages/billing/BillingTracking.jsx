@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PAWorklist from '../tracking/PAWorklist';
 import PenaltyLogs from '../tracking/PenaltyLogs';
+import BillingKeepAlivePanels from './components/BillingKeepAlivePanels';
 
 const TRACKING_TAB_IDS = ['pa-worklist', 'penalty-logs'];
 
@@ -21,8 +22,6 @@ const BillingTracking = () => {
     { id: 'pa-worklist', label: 'Payment proofs', component: PAWorklist },
     { id: 'penalty-logs', label: 'Penalty cuts', component: PenaltyLogs },
   ];
-
-  const ActiveComponent = tabs.find((t) => t.id === activeSubTab)?.component || PAWorklist;
 
   const handleSubTabChange = (tabId) => {
     setActiveSubTab(tabId);
@@ -53,7 +52,11 @@ const BillingTracking = () => {
           </button>
         ))}
       </div>
-      <ActiveComponent onNavigateTab={handleSubTabChange} />
+      <BillingKeepAlivePanels
+        tabs={tabs}
+        activeId={activeSubTab}
+        panelProps={{ onNavigateTab: handleSubTabChange }}
+      />
     </div>
   );
 };
