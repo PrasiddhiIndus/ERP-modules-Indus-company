@@ -11,6 +11,12 @@ import { NumericInput } from "../../components/NumericInput";
 import {
   filterNetTotalRowsForSource,
   isGemPortalSource,
+  parsePercentValue,
+  applyGstInclusive,
+  FIRE_TENDER_GST_RATE,
+  costingSummarySupportsRemarkColumn,
+  loadLocalNetTotalRemarks,
+  saveLocalNetTotalRemarks,
 } from "./fireTenderCostingConfig";
 
 /** NET TOTAL row labels: A, B, … Z, then AA, AB, … (Excel-style). */
@@ -52,16 +58,29 @@ const LEGACY_ROW_FINAL_CHASSIS_BASIC =
 const LEGACY_COMPONENT_TOTAL_FABRICATION_IEVPL =
   "Total fabrication cost without IEVPL  margin(without chassis and with considering Overahead and finance cost)";
 
+/** Legacy rupee-based IEVPL row — migrated to % on load. */
+const LEGACY_IEVPL_MARGIN = "IEVPL Margin";
+
+/** IEVPL margin as % of fabrication base (same as inflation / overhead rows). */
+const COMPONENT_IEVPL_MARGIN_PCT = "IEVPL Margin %";
+
+const COMPONENT_CHASSIS_MARGIN_PCT = "Chassis Margin %";
+const COMPONENT_ACCESSORIES_MARGIN_PCT = "Accessories Margin %";
+
+const COMPONENT_FINAL_TENDER_EX_GST = "Final Tender Cost (ex. GST)";
+
 /** No checkbox for these NET TOTAL rows. */
 const NET_TOTAL_NO_CHECKBOX = new Set([
   "Inflation Cost %",
   "Overhead cost %",
   "Financial cost%",
   "Cost of negogiation %",
+  COMPONENT_IEVPL_MARGIN_PCT,
   "BD cost ",
-  "IEVPL Margin",
+  COMPONENT_CHASSIS_MARGIN_PCT,
   "RTO charges ",
   "Insurance ",
+  COMPONENT_ACCESSORIES_MARGIN_PCT,
   "Tender Mode",
   COMPONENT_GEM_COST,
 ]);
@@ -72,23 +91,23 @@ const NET_TOTAL_PERCENT_OF_FABRICATION = new Set([
   "Overhead cost %",
   "Financial cost%",
   "Cost of negogiation %",
+  COMPONENT_IEVPL_MARGIN_PCT,
 ]);
 
+/** % of chassis base (from costing sheet chassis rows). */
+const NET_TOTAL_PERCENT_OF_CHASSIS = new Set([COMPONENT_CHASSIS_MARGIN_PCT]);
+
+/** % of accessories total (from accessories sheet). */
+const NET_TOTAL_PERCENT_OF_ACCESSORIES = new Set([COMPONENT_ACCESSORIES_MARGIN_PCT]);
+
 /** Enter amount in ₹; `unitCost` and `total` both = rupees (used directly in downstream sums). */
-const NET_TOTAL_RUPEE_ENTRY = new Set([
-  "BD cost ",
-  "IEVPL Margin",
-  "RTO charges ",
-  "Insurance ",
-]);
+const NET_TOTAL_RUPEE_ENTRY = new Set(["BD cost ", "RTO charges ", "Insurance "]);
 
 /** Tender Mode: enter a plain % (not % of fabrication); `total` is unused (kept 0). */
 const NET_TOTAL_TENDER_MODE_PERCENT = new Set(["Tender Mode"]);
 
 function clampPercent0to100(n) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return 0;
-  return Math.min(100, Math.max(0, x));
+  return parsePercentValue(n);
 }
 
 function percentOfBaseToRupees(percent, fabricationTotal) {
@@ -96,8 +115,168 @@ function percentOfBaseToRupees(percent, fabricationTotal) {
   return (base * clampPercent0to100(percent)) / 100;
 }
 
+function normalizeSummaryComponentName(component) {
+  if (component === LEGACY_IEVPL_MARGIN) return COMPONENT_IEVPL_MARGIN_PCT;
+  if (component === LEGACY_COMPONENT_TOTAL_FABRICATION_IEVPL) {
+    return COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE;
+  }
+  return component;
+}
+
+function migrateLegacyIevplRow(row, fabricationBase) {
+  if (!row || row.component !== LEGACY_IEVPL_MARGIN) return row;
+  const total = Number(row.total) || 0;
+  const uc = Number(row.unitCost) || 0;
+  const base = Number(fabricationBase) || 0;
+  let pct = uc;
+  if (total > 0 && base > 0 && (uc > 100 || total === uc)) {
+    pct = (total / base) * 100;
+  } else if (total > 0 && base > 0 && uc === 0) {
+    pct = (total / base) * 100;
+  }
+  return {
+    ...row,
+    component: COMPONENT_IEVPL_MARGIN_PCT,
+    unitCost: clampPercent0to100(pct),
+    total: percentOfBaseToRupees(pct, base),
+  };
+}
+
+function mergeSummaryRowsWithDefaults(defaultRows, loadedRows, fabricationBase) {
+  const byComponent = new Map();
+  loadedRows.forEach((row) => {
+    const key = normalizeSummaryComponentName(row.component);
+    const migrated =
+      row.component === LEGACY_IEVPL_MARGIN
+        ? migrateLegacyIevplRow(row, fabricationBase)
+        : { ...row, component: key };
+    byComponent.set(key, migrated);
+  });
+  return defaultRows.map((def) => {
+    const saved = byComponent.get(def.component);
+    return saved ? { ...def, ...saved, component: def.component } : { ...def };
+  });
+}
+
 function formatInrLine(n) {
   return Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function applyNetTotalDerivedTotals(updated, { grandTotal, chassisTotal, accessoriesTotal, showGemPortalRows }) {
+  updated.forEach((row, i) => {
+    if (NET_TOTAL_PERCENT_OF_FABRICATION.has(row.component)) {
+      const pct = clampPercent0to100(row.unitCost);
+      updated[i].unitCost = pct;
+      updated[i].total = percentOfBaseToRupees(pct, grandTotal);
+    } else if (NET_TOTAL_PERCENT_OF_CHASSIS.has(row.component)) {
+      const pct = clampPercent0to100(row.unitCost);
+      updated[i].unitCost = pct;
+      updated[i].total = percentOfBaseToRupees(pct, chassisTotal);
+    } else if (NET_TOTAL_PERCENT_OF_ACCESSORIES.has(row.component)) {
+      const pct = clampPercent0to100(row.unitCost);
+      updated[i].unitCost = pct;
+      updated[i].total = percentOfBaseToRupees(pct, accessoriesTotal);
+    } else if (NET_TOTAL_RUPEE_ENTRY.has(row.component)) {
+      const amt = Math.max(0, Number(row.unitCost) || 0);
+      updated[i].unitCost = amt;
+      updated[i].total = amt;
+    } else if (NET_TOTAL_TENDER_MODE_PERCENT.has(row.component)) {
+      const pct = clampPercent0to100(row.unitCost);
+      updated[i].unitCost = pct;
+      updated[i].total = 0;
+    }
+  });
+
+  const totalFabricationIndex = updated.findIndex(
+    (row) => row.component === COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE
+  );
+  if (totalFabricationIndex !== -1) {
+    const inflationCost = updated.find((row) => row.component === "Inflation Cost %")?.total || 0;
+    const financialCost = updated.find((row) => row.component === "Financial cost%")?.total || 0;
+    const overheadCost = updated.find((row) => row.component === "Overhead cost %")?.total || 0;
+    const negotiationCost = updated.find((row) => row.component === "Cost of negogiation %")?.total || 0;
+    updated[totalFabricationIndex].total =
+      inflationCost + financialCost + overheadCost + negotiationCost + grandTotal;
+  }
+
+  const totalPriceFabricationIndex = updated.findIndex(
+    (row) => row.component === COMPONENT_TOTAL_PRICE_FABRICATION
+  );
+  if (totalPriceFabricationIndex !== -1) {
+    const bdCost = updated.find((row) => row.component === "BD cost ")?.total || 0;
+    const ievplMargin =
+      updated.find((row) => row.component === COMPONENT_IEVPL_MARGIN_PCT)?.total || 0;
+    const totalFabricationCost =
+      updated.find((row) => row.component === COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE)?.total || 0;
+    updated[totalPriceFabricationIndex].total = bdCost + ievplMargin + totalFabricationCost;
+  }
+
+  const chassisMargin =
+    updated.find((row) => row.component === COMPONENT_CHASSIS_MARGIN_PCT)?.total || 0;
+  const chassisPriceIndex = updated.findIndex((row) => row.component === "CHASSIS PRICE");
+  if (chassisPriceIndex !== -1) {
+    updated[chassisPriceIndex].total = chassisTotal + chassisMargin;
+  }
+
+  const accessoriesMargin =
+    updated.find((row) => row.component === COMPONENT_ACCESSORIES_MARGIN_PCT)?.total || 0;
+  const accessoriesIndex = updated.findIndex((row) => row.component === "ACCESSORIES");
+  if (accessoriesIndex !== -1) {
+    updated[accessoriesIndex].total = accessoriesTotal + accessoriesMargin;
+  }
+
+  const totalPriceWithChassisIndex = updated.findIndex(
+    (row) => row.component === "Total Price with chassis "
+  );
+  if (totalPriceWithChassisIndex !== -1) {
+    const h =
+      updated.find((row) => row.component === COMPONENT_TOTAL_PRICE_FABRICATION)?.total || 0;
+    const i = updated.find((row) => row.component === "CHASSIS PRICE")?.total || 0;
+    const j = updated.find((row) => row.component === "RTO charges ")?.total || 0;
+    const k = updated.find((row) => row.component === "Insurance ")?.total || 0;
+    const l = updated.find((row) => row.component === "ACCESSORIES")?.total || 0;
+    updated[totalPriceWithChassisIndex].total = h + i + j + k + l;
+  }
+
+  const totalPriceWithChassis =
+    updated.find((row) => row.component === "Total Price with chassis ")?.total || 0;
+  const totalPriceWithoutChassis =
+    updated.find((row) => row.component === COMPONENT_TOTAL_PRICE_FABRICATION)?.total || 0;
+  const quoteBaseExGst =
+    totalPriceWithChassis === 0 ? totalPriceWithoutChassis : totalPriceWithChassis;
+
+  const finalExIndex = updated.findIndex((row) => row.component === COMPONENT_FINAL_TENDER_EX_GST);
+  if (finalExIndex !== -1) {
+    updated[finalExIndex].total = quoteBaseExGst;
+  }
+
+  const finalTenderCostIndex = updated.findIndex(
+    (row) => row.component === "Final Tender Cost (inc. GST)"
+  );
+  if (finalTenderCostIndex !== -1) {
+    updated[finalTenderCostIndex].total = applyGstInclusive(quoteBaseExGst);
+  }
+
+  if (showGemPortalRows) {
+    const gemCostIndex = updated.findIndex((row) => row.component === COMPONENT_GEM_COST);
+    if (gemCostIndex !== -1) {
+      const finalT =
+        updated.find((row) => row.component === "Final Tender Cost (inc. GST)")?.total || 0;
+      const modePct = clampPercent0to100(
+        updated.find((row) => row.component === "Tender Mode")?.unitCost || 0
+      );
+      updated[gemCostIndex].total = (Number(finalT) || 0) * (modePct / 100);
+      updated[gemCostIndex].unitCost = 0;
+    }
+  }
+
+  updated.forEach((r, i) => {
+    if (NET_TOTAL_NO_CHECKBOX.has(r.component)) {
+      updated[i].include = true;
+    }
+  });
+
+  return updated;
 }
 
 /**
@@ -129,8 +308,23 @@ function getNetTotalFormulaText(row, rows, ctx) {
     return `Formula: ${letter("Inflation Cost %")}+${letter("Overhead cost %")}+${letter("Financial cost%")}+${letter("Cost of negogiation %")} + fabrication base\n₹${f(a)} + ₹${f(b)} + ₹${f(c)} + ₹${f(d)} + ₹${f(grandTotal)} = ₹${f(row.total)}`;
   }
 
-  if (comp === "BD cost " || comp === "IEVPL Margin" || comp === "RTO charges " || comp === "Insurance ") {
+  if (comp === "BD cost " || comp === "RTO charges " || comp === "Insurance ") {
     return `Formula: amount entered (₹)\n₹${f(row.total)} on this line`;
+  }
+
+  if (comp === COMPONENT_IEVPL_MARGIN_PCT) {
+    const pct = clampPercent0to100(uc(comp));
+    return `Formula: fabrication base × IEVPL % ÷ 100\n₹${f(grandTotal)} × ${f(pct)}% ÷ 100 = ₹${f(row.total)}`;
+  }
+
+  if (comp === COMPONENT_CHASSIS_MARGIN_PCT) {
+    const pct = clampPercent0to100(uc(comp));
+    return `Formula: chassis base × Chassis margin % ÷ 100\n₹${f(chassisTotal)} × ${f(pct)}% ÷ 100 = ₹${f(row.total)}`;
+  }
+
+  if (comp === COMPONENT_ACCESSORIES_MARGIN_PCT) {
+    const pct = clampPercent0to100(uc(comp));
+    return `Formula: accessories total × Accessories margin % ÷ 100\n₹${f(accessoriesTotal)} × ${f(pct)}% ÷ 100 = ₹${f(row.total)}`;
   }
 
   if (comp === COMPONENT_GEM_COST) {
@@ -141,18 +335,20 @@ function getNetTotalFormulaText(row, rows, ctx) {
 
   if (comp === COMPONENT_TOTAL_PRICE_FABRICATION) {
     const bd = tot("BD cost ");
-    const ie = tot("IEVPL Margin");
+    const ie = tot(COMPONENT_IEVPL_MARGIN_PCT);
     const fab = tot(COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE);
     const le = letter(COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE);
-    return `Formula: BD + IEVPL + line ${le} (fabrication + overhead…)\n₹${f(bd)} + ₹${f(ie)} + ₹${f(fab)} = ₹${f(row.total)}`;
+    return `Formula: BD + IEVPL % + line ${le} (fabrication + overhead…)\n₹${f(bd)} + ₹${f(ie)} + ₹${f(fab)} = ₹${f(row.total)}`;
   }
 
   if (comp === "CHASSIS PRICE") {
-    return `Formula: sum of “chassis” rows on costing sheet\n→ ₹${f(chassisTotal)}`;
+    const margin = tot(COMPONENT_CHASSIS_MARGIN_PCT);
+    return `Formula: chassis rows on costing sheet + Chassis margin %\n₹${f(chassisTotal)} + ₹${f(margin)} = ₹${f(row.total)}`;
   }
 
   if (comp === "ACCESSORIES") {
-    return `Formula: Σ (qty × price) from accessories costing\n→ ₹${f(accessoriesTotal)}`;
+    const margin = tot(COMPONENT_ACCESSORIES_MARGIN_PCT);
+    return `Formula: Σ accessories + Accessories margin %\n₹${f(accessoriesTotal)} + ₹${f(margin)} = ₹${f(row.total)}`;
   }
 
   if (comp === "Total Price with chassis ") {
@@ -165,12 +361,18 @@ function getNetTotalFormulaText(row, rows, ctx) {
     return `Formula: H + I + J + K + L\n${letter(h)} ₹${f(hT)} + ${letter("CHASSIS PRICE")} ₹${f(iT)} + ${letter("RTO charges ")} ₹${f(jT)} + ${letter("Insurance ")} ₹${f(kT)} + ${letter("ACCESSORIES")} ₹${f(lT)} = ₹${f(row.total)}`;
   }
 
-  if (comp === "Final Tender Cost (inc. GST)") {
+  if (comp === COMPONENT_FINAL_TENDER_EX_GST) {
     const m = tot("Total Price with chassis ");
     const h = tot(COMPONENT_TOTAL_PRICE_FABRICATION);
     const base = m === 0 ? h : m;
     const which = m === 0 ? letter(COMPONENT_TOTAL_PRICE_FABRICATION) : letter("Total Price with chassis ");
-    return `Formula: (if M>0 use M else H) × 1.18 (GST)\nBase ${which}: ₹${f(base)}\n₹${f(base)} × 1.18 = ₹${f(row.total)}`;
+    return `Formula: quotation base (ex. GST)\nUses line ${which}: ₹${f(base)}`;
+  }
+
+  if (comp === "Final Tender Cost (inc. GST)") {
+    const ex = tot(COMPONENT_FINAL_TENDER_EX_GST);
+    const pct = Math.round(FIRE_TENDER_GST_RATE * 100);
+    return `Formula: Final Tender (ex. GST) × ${1 + FIRE_TENDER_GST_RATE} (${pct}% GST)\n₹${f(ex)} × ${1 + FIRE_TENDER_GST_RATE} = ₹${f(row.total)}`;
   }
 
   if (comp === "Tender Mode") {
@@ -207,14 +409,17 @@ const CostingSummary = ({
     { component: "Financial cost%", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "Cost of negogiation %", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
-    { component: "IEVPL Margin", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: COMPONENT_IEVPL_MARGIN_PCT, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "BD cost ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: COMPONENT_TOTAL_PRICE_FABRICATION, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: COMPONENT_CHASSIS_MARGIN_PCT, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "CHASSIS PRICE", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "RTO charges ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "Insurance ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: COMPONENT_ACCESSORIES_MARGIN_PCT, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "ACCESSORIES", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "Total Price with chassis ", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
+    { component: COMPONENT_FINAL_TENDER_EX_GST, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "Final Tender Cost (inc. GST)", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: "Tender Mode", unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
     { component: COMPONENT_GEM_COST, unitCost: 0, unitRate: 0, qty: 1, total: 0, include: false, remark: "" },
@@ -226,6 +431,7 @@ const CostingSummary = ({
   const [loading, setLoading] = useState(false);
   const [summaryAutoHint, setSummaryAutoHint] = useState("");
   const skipSummaryAutosaveRef = useRef(true);
+  const [remarkColumnSupported, setRemarkColumnSupported] = useState(true);
 
   useEffect(() => {
     skipSummaryAutosaveRef.current = true;
@@ -240,6 +446,10 @@ const CostingSummary = ({
   const loadSummaryData = async () => {
     setLoading(true);
     try {
+      const supportsRemark = await costingSummarySupportsRemarkColumn(supabase);
+      setRemarkColumnSupported(supportsRemark);
+      const localRemarks = supportsRemark ? {} : loadLocalNetTotalRemarks(tenderId);
+
       // Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
@@ -263,16 +473,11 @@ const CostingSummary = ({
             item.component !== LEGACY_ROW_IMAXX &&
             item.component !== LEGACY_ROW_FINAL_CHASSIS_BASIC
         );
-        // Load existing data
         const loadedRows = filtered.map((item) => {
-          let component = item.component;
-          if (component === LEGACY_COMPONENT_TOTAL_FABRICATION_IEVPL) {
-            component = COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE;
-          }
+          let component = normalizeSummaryComponentName(item.component);
           let unitCost = Number(item.unit_cost) || 0;
           let total = Number(item.total) || 0;
           if (component === "Tender Mode") {
-            // Legacy rows stored GEM/Non-GEM in `total` (0|1); new field is % in `unit_cost`.
             if (unitCost === 0 && (total === 0 || total === 1)) {
               unitCost = total === 1 ? 5 : 0;
             }
@@ -286,10 +491,17 @@ const CostingSummary = ({
             qty: Number(item.qty) || 1,
             total,
             include: NET_TOTAL_NO_CHECKBOX.has(component) ? true : item.include === true,
-            remark: item.remark || "",
+            remark: supportsRemark ? item.remark || "" : localRemarks[component] || "",
           };
         });
-        setRows(loadedRows);
+        setRows(mergeSummaryRowsWithDefaults(defaultNetTotalRows(), loadedRows, grandTotal));
+        skipSummaryAutosaveRef.current = true;
+      } else {
+        const defaults = defaultNetTotalRows().map((row) => ({
+          ...row,
+          remark: localRemarks[row.component] || "",
+        }));
+        setRows(defaults);
         skipSummaryAutosaveRef.current = true;
       }
     } catch (err) {
@@ -320,23 +532,61 @@ const CostingSummary = ({
 
     const userId = user.id;
 
-    await supabase.from("costing_summary").delete().eq("tender_id", Number(tenderId));
+    const supportsRemark = await costingSummarySupportsRemarkColumn(supabase);
+    setRemarkColumnSupported(supportsRemark);
 
-    const payload = filterNetTotalRowsForSource(rows, tenderSource).map((row) => ({
-      tender_id: Number(tenderId),
-      component: row.component,
-      unit_cost: Number(row.unitCost) || 0,
-      unit_rate: Number(row.unitRate) || 0,
-      qty: Number(row.qty) || 1,
-      total: Number(row.total) || 0,
-      include: NET_TOTAL_NO_CHECKBOX.has(row.component) ? true : row.include === true,
-      remark: row.remark || null,
-      user_id: userId,
-    }));
+    const { data: backupSummary, error: backupErr } = await supabase
+      .from("costing_summary")
+      .select("*")
+      .eq("tender_id", Number(tenderId));
+
+    if (backupErr) throw backupErr;
+
+    const { error: deleteError } = await supabase
+      .from("costing_summary")
+      .delete()
+      .eq("tender_id", Number(tenderId));
+
+    if (deleteError) throw deleteError;
+
+    const payload = filterNetTotalRowsForSource(rows, tenderSource).map((row) => {
+      const item = {
+        tender_id: Number(tenderId),
+        component: row.component,
+        unit_cost: Number(row.unitCost) || 0,
+        unit_rate: Number(row.unitRate) || 0,
+        qty: Number(row.qty) || 1,
+        total: Number(row.total) || 0,
+        include: NET_TOTAL_NO_CHECKBOX.has(row.component) ? true : row.include === true,
+        user_id: userId,
+      };
+      if (supportsRemark) {
+        item.remark = row.remark || null;
+      }
+      return item;
+    });
+
+    if (!supportsRemark) {
+      const remarksByComponent = {};
+      filterNetTotalRowsForSource(rows, tenderSource).forEach((row) => {
+        if (row.remark) remarksByComponent[row.component] = row.remark;
+      });
+      saveLocalNetTotalRemarks(tenderId, remarksByComponent);
+    }
 
     const { error } = await supabase.from("costing_summary").insert(payload);
 
-    if (error) throw error;
+    if (error) {
+      if (backupSummary?.length) {
+        const restorePayload = backupSummary.map((r) => {
+          const { id, created_at, updated_at, ...rest } = r;
+          if (!supportsRemark) delete rest.remark;
+          return rest;
+        });
+        await supabase.from("costing_summary").insert(restorePayload);
+      }
+      throw error;
+    }
 
     if (!silent) {
       alert("✅ Costing summary saved successfully!");
@@ -481,126 +731,14 @@ const CostingSummary = ({
   // `costing_summary` load does not leave CHASSIS PRICE / accessories stuck at DB values.
   useEffect(() => {
     if (loading) return;
-    setRows(prevRows => {
-      const updated = [...prevRows];
-
-      // Sync %‑of‑fabrication rows, rupee entry rows, and Tender Mode % before aggregations
-      updated.forEach((row, i) => {
-        if (NET_TOTAL_PERCENT_OF_FABRICATION.has(row.component)) {
-          const pct = clampPercent0to100(row.unitCost);
-          updated[i].unitCost = pct;
-          updated[i].total = percentOfBaseToRupees(pct, grandTotal);
-        } else if (NET_TOTAL_RUPEE_ENTRY.has(row.component)) {
-          const amt = Math.max(0, Number(row.unitCost) || 0);
-          updated[i].unitCost = amt;
-          updated[i].total = amt;
-        } else if (NET_TOTAL_TENDER_MODE_PERCENT.has(row.component)) {
-          const pct = clampPercent0to100(row.unitCost);
-          updated[i].unitCost = pct;
-          updated[i].total = 0;
-        }
-      });
-
-      // Update Total fabrication cost without IEVPL margin
-      const totalFabricationIndex = updated.findIndex(row =>
-        row.component === COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE
-      );
-
-      if (totalFabricationIndex !== -1) {
-        const inflationCost = updated.find(row => row.component === "Inflation Cost %")?.total || 0;
-        const financialCost = updated.find(row => row.component === "Financial cost%")?.total || 0;
-        const overheadCost = updated.find(row => row.component === "Overhead cost %")?.total || 0;
-        const negotiationCost = updated.find(row => row.component === "Cost of negogiation %")?.total || 0;
-
-        updated[totalFabricationIndex].total = inflationCost + financialCost + overheadCost + negotiationCost + grandTotal;
-      }
-
-      // Update Total Price of fabrication with overall cost and margin
-      const totalPriceFabricationIndex = updated.findIndex(row =>
-        row.component === COMPONENT_TOTAL_PRICE_FABRICATION
-      );
-
-      if (totalPriceFabricationIndex !== -1) {
-        const bdCost = updated.find(row => row.component === "BD cost ")?.total || 0;
-        const ievplMargin = updated.find(row => row.component === "IEVPL Margin")?.total || 0;
-        const totalFabricationCost = updated.find(row => row.component === COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE)?.total || 0;
-
-        updated[totalPriceFabricationIndex].total = bdCost + ievplMargin + totalFabricationCost;
-      }
-
-      // Update CHASSIS PRICE
-      const chassisPriceIndex = updated.findIndex(row =>
-        row.component === "CHASSIS PRICE"
-      );
-
-      if (chassisPriceIndex !== -1) {
-        updated[chassisPriceIndex].total = chassisTotal;
-      }
-
-      // Update ACCESSORIES
-      const accessoriesIndex = updated.findIndex(row =>
-        row.component === "ACCESSORIES"
-      );
-
-      if (accessoriesIndex !== -1) {
-        console.log("CostingSummary: Updating ACCESSORIES total to", accessoriesTotal);
-        updated[accessoriesIndex].total = accessoriesTotal;
-      } else {
-        console.warn("CostingSummary: ACCESSORIES row not found in rows array");
-      }
-
-      // Total Price with chassis = H + I + J + K + L (fabrication + chassis + RTO + insurance + accessories)
-      const totalPriceWithChassisIndex = updated.findIndex(row =>
-        row.component === "Total Price with chassis "
-      );
-
-      if (totalPriceWithChassisIndex !== -1) {
-        const h =
-          updated.find((row) => row.component === COMPONENT_TOTAL_PRICE_FABRICATION)?.total || 0;
-        const i = updated.find((row) => row.component === "CHASSIS PRICE")?.total || 0;
-        const j = updated.find((row) => row.component === "RTO charges ")?.total || 0;
-        const k = updated.find((row) => row.component === "Insurance ")?.total || 0;
-        const l = updated.find((row) => row.component === "ACCESSORIES")?.total || 0;
-
-        updated[totalPriceWithChassisIndex].total = h + i + j + k + l;
-      }
-
-      // Update Final Tender Cost (inc. GST)
-      const finalTenderCostIndex = updated.findIndex(row =>
-        row.component === "Final Tender Cost (inc. GST)"
-      );
-
-      if (finalTenderCostIndex !== -1) {
-        const totalPriceWithChassis = updated.find(row => row.component === "Total Price with chassis ")?.total || 0;
-        const totalPriceWithoutChassis =
-          updated.find((row) => row.component === COMPONENT_TOTAL_PRICE_FABRICATION)?.total || 0;
-
-        // Conditional logic: if Total Price with chassis = 0, use fabrication total * 1.18, otherwise use Total Price with chassis * 1.18
-        const baseAmount = totalPriceWithChassis === 0 ? totalPriceWithoutChassis : totalPriceWithChassis;
-        updated[finalTenderCostIndex].total = baseAmount * 1.18;
-      }
-
-      if (showGemPortalRows) {
-        const gemCostIndex = updated.findIndex((row) => row.component === COMPONENT_GEM_COST);
-        if (gemCostIndex !== -1) {
-          const finalT =
-            updated.find((row) => row.component === "Final Tender Cost (inc. GST)")?.total || 0;
-          const modePct = clampPercent0to100(
-            updated.find((row) => row.component === "Tender Mode")?.unitCost || 0
-          );
-          updated[gemCostIndex].total = (Number(finalT) || 0) * (modePct / 100);
-          updated[gemCostIndex].unitCost = 0;
-        }
-      }
-
-      updated.forEach((r, i) => {
-        if (NET_TOTAL_NO_CHECKBOX.has(r.component)) {
-          updated[i].include = true;
-        }
-      });
-
-      return updated;
-    });
+    setRows((prevRows) =>
+      applyNetTotalDerivedTotals([...prevRows], {
+        grandTotal,
+        chassisTotal,
+        accessoriesTotal,
+        showGemPortalRows,
+      })
+    );
   }, [grandTotal, chassisTotal, accessoriesTotal, loading, showGemPortalRows]);
 
   // Update row values
@@ -625,6 +763,7 @@ const CostingSummary = ({
       "CHASSIS PRICE",
       "ACCESSORIES",
       "Total Price with chassis ",
+      COMPONENT_FINAL_TENDER_EX_GST,
       "Final Tender Cost (inc. GST)",
       COMPONENT_GEM_COST,
     ];
@@ -637,15 +776,17 @@ const CostingSummary = ({
     }
 
     if (field === "unitCost" && NET_TOTAL_PERCENT_OF_FABRICATION.has(currentRow.component)) {
-      let parsed = parseFloat(String(value).replace(/%/g, "").trim());
-      if (!Number.isFinite(parsed)) parsed = 0;
-      if (parsed > 100) {
-        alert("Percentage cannot exceed 100.");
-        parsed = 100;
-      }
-      if (parsed < 0) parsed = 0;
+      const parsed = parsePercentValue(value);
       updated[index].unitCost = parsed;
       updated[index].total = percentOfBaseToRupees(parsed, grandTotal);
+    } else if (field === "unitCost" && NET_TOTAL_PERCENT_OF_CHASSIS.has(currentRow.component)) {
+      const parsed = parsePercentValue(value);
+      updated[index].unitCost = parsed;
+      updated[index].total = percentOfBaseToRupees(parsed, chassisTotal);
+    } else if (field === "unitCost" && NET_TOTAL_PERCENT_OF_ACCESSORIES.has(currentRow.component)) {
+      const parsed = parsePercentValue(value);
+      updated[index].unitCost = parsed;
+      updated[index].total = percentOfBaseToRupees(parsed, accessoriesTotal);
     } else if (field === "unitCost" && NET_TOTAL_RUPEE_ENTRY.has(currentRow.component)) {
       const parsed = Math.max(
         0,
@@ -654,13 +795,7 @@ const CostingSummary = ({
       updated[index].unitCost = parsed;
       updated[index].total = parsed;
     } else if (field === "unitCost" && NET_TOTAL_TENDER_MODE_PERCENT.has(currentRow.component)) {
-      let parsed = parseFloat(String(value).replace(/%/g, "").trim());
-      if (!Number.isFinite(parsed)) parsed = 0;
-      if (parsed > 100) {
-        alert("Percentage cannot exceed 100.");
-        parsed = 100;
-      }
-      if (parsed < 0) parsed = 0;
+      const parsed = parsePercentValue(value);
       updated[index].unitCost = parsed;
       updated[index].total = 0;
     } else {
@@ -672,13 +807,22 @@ const CostingSummary = ({
       // Skip total recalculation for read-only items
     } else if (
       NET_TOTAL_PERCENT_OF_FABRICATION.has(updated[index].component) ||
+      NET_TOTAL_PERCENT_OF_CHASSIS.has(updated[index].component) ||
+      NET_TOTAL_PERCENT_OF_ACCESSORIES.has(updated[index].component) ||
       NET_TOTAL_RUPEE_ENTRY.has(updated[index].component)
     ) {
-      // Totals already set when unitCost changed; keep in sync if another field changed
       if (NET_TOTAL_PERCENT_OF_FABRICATION.has(updated[index].component)) {
         const pct = clampPercent0to100(updated[index].unitCost);
         updated[index].unitCost = pct;
         updated[index].total = percentOfBaseToRupees(pct, grandTotal);
+      } else if (NET_TOTAL_PERCENT_OF_CHASSIS.has(updated[index].component)) {
+        const pct = clampPercent0to100(updated[index].unitCost);
+        updated[index].unitCost = pct;
+        updated[index].total = percentOfBaseToRupees(pct, chassisTotal);
+      } else if (NET_TOTAL_PERCENT_OF_ACCESSORIES.has(updated[index].component)) {
+        const pct = clampPercent0to100(updated[index].unitCost);
+        updated[index].unitCost = pct;
+        updated[index].total = percentOfBaseToRupees(pct, accessoriesTotal);
       } else if (NET_TOTAL_RUPEE_ENTRY.has(updated[index].component)) {
         const amt = Math.max(0, Number(updated[index].unitCost) || 0);
         updated[index].unitCost = amt;
@@ -694,88 +838,14 @@ const CostingSummary = ({
         (Number(updated[index].unitRate) * Number(updated[index].qty)) || 0;
     }
 
-    // Auto-calculate total fabrication cost
-    const totalFabricationIndex = updated.findIndex(row =>
-      row.component === COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE
+    setRows(
+      applyNetTotalDerivedTotals(updated, {
+        grandTotal,
+        chassisTotal,
+        accessoriesTotal,
+        showGemPortalRows,
+      })
     );
-
-    if (totalFabricationIndex !== -1) {
-      const inflationCost = updated.find(row => row.component === "Inflation Cost %")?.total || 0;
-      const financialCost = updated.find(row => row.component === "Financial cost%")?.total || 0;
-      const overheadCost = updated.find(row => row.component === "Overhead cost %")?.total || 0;
-      const negotiationCost = updated.find(row => row.component === "Cost of negogiation %")?.total || 0;
-
-      updated[totalFabricationIndex].total = inflationCost + financialCost + overheadCost + negotiationCost + grandTotal;
-    }
-
-    // Auto-calculate Total Price of fabrication with overall cost and margin
-    const totalPriceFabricationIndex = updated.findIndex(row =>
-      row.component === COMPONENT_TOTAL_PRICE_FABRICATION
-    );
-
-    if (totalPriceFabricationIndex !== -1) {
-      const bdCost = updated.find(row => row.component === "BD cost ")?.total || 0;
-      const ievplMargin = updated.find(row => row.component === "IEVPL Margin")?.total || 0;
-      const totalFabricationCost = updated.find(row => row.component === COMPONENT_TOTAL_FABRICATION_OVERHEAD_FINANCE)?.total || 0;
-
-      updated[totalPriceFabricationIndex].total = bdCost + ievplMargin + totalFabricationCost;
-    }
-
-    // Preserve CHASSIS PRICE and ACCESSORIES from props before H+I+J+K+L
-    const accessoriesIndexEarly = updated.findIndex(row => row.component === "ACCESSORIES");
-    if (accessoriesIndexEarly !== -1) {
-      updated[accessoriesIndexEarly].total = accessoriesTotal;
-    }
-    const chassisPriceIndexEarly = updated.findIndex(row => row.component === "CHASSIS PRICE");
-    if (chassisPriceIndexEarly !== -1) {
-      updated[chassisPriceIndexEarly].total = chassisTotal;
-    }
-
-    // Update Total Price with chassis
-    const totalPriceWithChassisIndex = updated.findIndex(row =>
-      row.component === "Total Price with chassis "
-    );
-
-    if (totalPriceWithChassisIndex !== -1) {
-      const h =
-        updated.find((row) => row.component === COMPONENT_TOTAL_PRICE_FABRICATION)?.total || 0;
-      const i = updated.find((row) => row.component === "CHASSIS PRICE")?.total || 0;
-      const j = updated.find((row) => row.component === "RTO charges ")?.total || 0;
-      const k = updated.find((row) => row.component === "Insurance ")?.total || 0;
-      const l = updated.find((row) => row.component === "ACCESSORIES")?.total || 0;
-
-      updated[totalPriceWithChassisIndex].total = h + i + j + k + l;
-    }
-
-    // Update Final Tender Cost (inc. GST)
-    const finalTenderCostIndex = updated.findIndex(row =>
-      row.component === "Final Tender Cost (inc. GST)"
-    );
-
-    if (finalTenderCostIndex !== -1) {
-      const totalPriceWithChassis = updated.find(row => row.component === "Total Price with chassis ")?.total || 0;
-      const totalPriceWithoutChassis =
-        updated.find((row) => row.component === COMPONENT_TOTAL_PRICE_FABRICATION)?.total || 0;
-
-      // Conditional logic: if Total Price with chassis = 0, use fabrication total * 1.18, otherwise use Total Price with chassis * 1.18
-      const baseAmount = totalPriceWithChassis === 0 ? totalPriceWithoutChassis : totalPriceWithChassis;
-      updated[finalTenderCostIndex].total = baseAmount * 1.18;
-    }
-
-    if (showGemPortalRows) {
-      const gemCostIndex = updated.findIndex((row) => row.component === COMPONENT_GEM_COST);
-      if (gemCostIndex !== -1) {
-        const finalT =
-          updated.find((row) => row.component === "Final Tender Cost (inc. GST)")?.total || 0;
-        const modePct = clampPercent0to100(
-          updated.find((row) => row.component === "Tender Mode")?.unitCost || 0
-        );
-        updated[gemCostIndex].total = (Number(finalT) || 0) * (modePct / 100);
-        updated[gemCostIndex].unitCost = 0;
-      }
-    }
-
-    setRows(updated);
   };
 
   const visibleRows = filterNetTotalRowsForSource(rows, tenderSource);
@@ -796,9 +866,19 @@ const CostingSummary = ({
       {/* Net Total Section */}
       <div className="bg-white p-6 shadow rounded-lg mt-6">
         <h3 className="text-lg font-bold mb-4">NET TOTAL</h3>
+        <p className="mb-3 text-xs text-slate-600">
+          Quotation values use <strong>Final Tender Cost (ex. GST)</strong> as the primary amount.
+          GST ({Math.round(FIRE_TENDER_GST_RATE * 100)}%) is shown separately on the inc-GST line.
+        </p>
         {!showGemPortalRows ? (
           <p className="mb-3 text-xs text-slate-500">
             Tender Mode (O) and Gem Cost (P) are available only when the tender source is Gem Portal.
+          </p>
+        ) : null}
+        {!remarkColumnSupported ? (
+          <p className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            NET TOTAL remarks are stored in this browser until the database migration for{" "}
+            <code className="text-[11px]">costing_summary.remark</code> is applied on Supabase.
           </p>
         ) : null}
 
@@ -809,9 +889,14 @@ const CostingSummary = ({
               const index = rows.findIndex((r) => r.component === row.component);
               const hidesUnitRateQty =
                 NET_TOTAL_PERCENT_OF_FABRICATION.has(row.component) ||
+                NET_TOTAL_PERCENT_OF_CHASSIS.has(row.component) ||
+                NET_TOTAL_PERCENT_OF_ACCESSORIES.has(row.component) ||
                 NET_TOTAL_RUPEE_ENTRY.has(row.component) ||
                 NET_TOTAL_TENDER_MODE_PERCENT.has(row.component);
               const isPercentOfFabric = NET_TOTAL_PERCENT_OF_FABRICATION.has(row.component);
+              const isPercentOfChassis = NET_TOTAL_PERCENT_OF_CHASSIS.has(row.component);
+              const isPercentOfAccessories = NET_TOTAL_PERCENT_OF_ACCESSORIES.has(row.component);
+              const isPercentEntry = isPercentOfFabric || isPercentOfChassis || isPercentOfAccessories;
               const isRupeeEntryField = NET_TOTAL_RUPEE_ENTRY.has(row.component);
               const isTenderModePercent = NET_TOTAL_TENDER_MODE_PERCENT.has(row.component);
               const isNoCheckbox = NET_TOTAL_NO_CHECKBOX.has(row.component);
@@ -820,6 +905,7 @@ const CostingSummary = ({
               const isChassisPrice = row.component === "CHASSIS PRICE";
               const isAccessories = row.component === "ACCESSORIES";
               const isTotalPriceWithChassis = row.component === "Total Price with chassis ";
+              const isFinalTenderEx = row.component === COMPONENT_FINAL_TENDER_EX_GST;
               const isFinalTenderCost = row.component === "Final Tender Cost (inc. GST)";
               const isGemCost = row.component === COMPONENT_GEM_COST;
               const isReadOnlyItem =
@@ -828,6 +914,7 @@ const CostingSummary = ({
                 isChassisPrice ||
                 isAccessories ||
                 isTotalPriceWithChassis ||
+                isFinalTenderEx ||
                 isFinalTenderCost ||
                 isGemCost;
 
@@ -862,25 +949,42 @@ const CostingSummary = ({
                       <span className="text-sm font-medium text-slate-600 shrink-0">%</span>
                     </div>
                   ) : isReadOnlyItem ? (
-                    <span className="w-32 p-2 bg-gray-100 border rounded text-right font-medium text-sm">
-                      ₹{row.total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span
+                      className={`min-w-[10rem] flex-shrink-0 p-2 bg-gray-100 border rounded text-right font-medium text-sm ${
+                        isFinalTenderEx ? "text-emerald-800 ring-1 ring-emerald-200" : ""
+                      }`}
+                    >
+                      ₹{row.total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {isFinalTenderEx ? (
+                        <span className="ml-1 text-[10px] font-semibold uppercase text-emerald-700">ex. GST</span>
+                      ) : null}
+                      {isFinalTenderCost ? (
+                        <span className="ml-1 text-[10px] font-normal text-slate-500">inc. GST</span>
+                      ) : null}
                     </span>
                   ) : !isTotalFabrication &&
                     !isTotalPriceFabrication &&
                     !isChassisPrice &&
                     !isAccessories &&
                     !isTotalPriceWithChassis &&
+                    !isFinalTenderEx &&
                     !isFinalTenderCost &&
                     !isGemCost &&
                     !isTenderModePercent && (
-                    isPercentOfFabric ? (
+                    isPercentEntry ? (
                       <div className="flex items-center gap-1">
                         <NumericInput
                           value={row.unitCost}
                           onChange={(val) => handleRowChange(index, "unitCost", val)}
                           className="w-24 p-2 border rounded text-sm"
-                          placeholder="%"
-                          aria-label="Percent of fabrication cost"
+                          placeholder="0.00"
+                          aria-label={
+                            isPercentOfChassis
+                              ? "Chassis margin percent"
+                              : isPercentOfAccessories
+                                ? "Accessories margin percent"
+                                : "Percent of fabrication cost"
+                          }
                         />
                         <span className="text-sm font-medium text-slate-600 shrink-0">%</span>
                       </div>
@@ -911,6 +1015,7 @@ const CostingSummary = ({
                     !isChassisPrice &&
                     !isAccessories &&
                     !isTotalPriceWithChassis &&
+                    !isFinalTenderEx &&
                     !isFinalTenderCost &&
                     !isGemCost && (
                     <>

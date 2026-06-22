@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { AuthProvider } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
+import PageLoader from "./components/PageLoader";
+import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import { checkSupabaseConnection } from "./lib/supabase";
@@ -145,25 +148,6 @@ import {
   finalizeDateInputValue,
   isCompleteIsoDate,
 } from "./utils/dateInput";
-
-const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-  
-  // Wait for auth to finish loading before redirecting
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <p>Loading...</p>
-      </div>
-    );
-  }
-  
-  if (!user) {
-    return <Navigate to="/" replace />;
-  }
-  return children;
-};
-
 
 function ConnectionGuard({ children }) {
   const [status, setStatus] = useState("checking"); // 'checking' | 'ok' | 'error'
@@ -334,7 +318,9 @@ function App() {
               v7_relativeSplatPath: true,
             }}
           >
-            <Routes>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageLoader fullScreen />}>
+                <Routes>
           {/* Public */}
           <Route path="/" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -524,24 +510,8 @@ function App() {
             <Route path="commercial/po-entry" element={<Navigate to="/app/commercial/manpower-training/po-entry" replace />} />
             <Route path="commercial/contact-log" element={<Navigate to="/app/commercial/manpower-training/contact-log" replace />} />
 
-            {/* Billing (includes Reports and Tracking as sub-tabs) */}
-            <Route path="billing" element={<Billing />} />
-            <Route path="billing/dashboard" element={<Billing />} />
-            <Route path="billing/create-invoice" element={<Billing />} />
-            <Route path="billing/add-on-invoices" element={<Billing />} />
-            <Route path="billing/manage-invoices" element={<Billing />} />
-            <Route path="billing/generated-e-invoice" element={<Billing />} />
-            <Route path="billing/credit-notes" element={<Billing />} />
-            <Route path="billing/reports" element={<Billing />} />
-            <Route path="billing/reports/outstanding-debtors" element={<Billing />} />
-            <Route path="billing/reports/gap-report" element={<Billing />} />
-            <Route path="billing/reports/deduction-analysis" element={<Billing />} />
-            <Route path="billing/reports/less-billed-sites" element={<Billing />} />
-            <Route path="billing/reports/billing-delay" element={<Billing />} />
-            <Route path="billing/tracking" element={<Billing />} />
-            <Route path="billing/tracking/pa-worklist" element={<Billing />} />
-            <Route path="billing/tracking/penalty-logs" element={<Billing />} />
-            <Route path="billing/notifications" element={<Billing />} />
+            {/* Billing (includes Reports and Tracking as sub-tabs) — single route keeps module mounted across tab URLs */}
+            <Route path="billing/*" element={<Billing />} />
 
             {/* Redirect old top-level routes to Billing sub-routes */}
             <Route path="tracking" element={<Navigate to="/app/billing/tracking" replace />} />
@@ -662,7 +632,9 @@ function App() {
 
           {/* Default redirect */}
           <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                </Routes>
+              </Suspense>
+            </RouteErrorBoundary>
           </Router>
         </AuditConsoleProvider>
       </AppAccessConfigProvider>

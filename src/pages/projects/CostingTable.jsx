@@ -13,8 +13,12 @@ import {
   getComponentDisplayAliases,
   getCostingRowFillStatus,
   getGlobalOmittedComponents,
+  getManualSubLabel,
+  getManualSubPlaceholder,
   getOrderedMainComponents,
   getSubOptions,
+  getWeightColumnLabel,
+  isDcpComponent,
   isLabourFieldEditable,
   isMetaconeMounting,
   isStructureOrPanelling,
@@ -289,11 +293,11 @@ const CostingTable = ({
           if (omittedMain.has(comp)) return;
 
           const rowFromDB = existingRows.find((r) => r.main_component === comp);
-          let unitCost = rowFromDB?.unit_cost || 0;
-          let weight = rowFromDB?.weight || 0;
+          let unitCost = rowFromDB?.unit_cost ?? 0;
+          let weight = rowFromDB?.weight ?? 0;
 
-          // If sub1 exists and matches MOC, overwrite unitCost
-          if (rowFromDB?.sub_category1) {
+          // MOC fills unit cost only when nothing was saved on the row
+          if (rowFromDB?.sub_category1 && (unitCost === 0 || unitCost == null)) {
             const mocPrice = mocObj[rowFromDB.sub_category1.toLowerCase()];
             if (mocPrice !== undefined) unitCost = mocPrice;
           }
@@ -342,7 +346,7 @@ const CostingTable = ({
             let unitCost = r.unit_cost || 0;
             let weight = r.weight || 0;
 
-            if (r.sub_category1) {
+            if (r.sub_category1 && (unitCost === 0 || unitCost == null)) {
               const mocPrice = mocObj[r.sub_category1.toLowerCase()];
               if (mocPrice !== undefined) unitCost = mocPrice;
             }
@@ -631,9 +635,29 @@ const CostingTable = ({
       setFixedRows(fSave);
       setExtraRows(eSave);
     }
-    const allToSave = [...fSave, ...eSave];
+    const allToSave = [...fSave, ...eSave].filter((row) => String(row.component || "").trim());
 
-    await supabase.from("costing_rows").delete().eq("tender_id", Number(tenderId));
+    const { data: backupRows, error: backupErr } = await supabase
+      .from("costing_rows")
+      .select("*")
+      .eq("tender_id", Number(tenderId));
+
+    if (backupErr) {
+      console.error("Backup read error:", backupErr);
+      if (!silent) alert("Could not read existing costing data before save.");
+      throw backupErr;
+    }
+
+    const { error: deleteError } = await supabase
+      .from("costing_rows")
+      .delete()
+      .eq("tender_id", Number(tenderId));
+
+    if (deleteError) {
+      console.error("Delete error:", deleteError);
+      if (!silent) alert("Error clearing old costing rows: " + deleteError.message);
+      throw deleteError;
+    }
 
     const rowsToInsert = allToSave
       .filter((row) => !isRetiredFireTenderMainComponentLabel(row.component))
@@ -653,7 +677,9 @@ const CostingTable = ({
       } else if (isTankComponent(row.component)) {
         total = weight * (unitCost + labour) * qty;
       } else if (isStructureOrPanelling(row.component)) {
-        total = weight * unitCost;
+        total = weight * unitCost + labour;
+      } else if (isDcpComponent(row.component) && weight > 0) {
+        total = weight * unitCost * qty + labour;
       } else {
         total = (labour + unitCost) * qty;
       }
@@ -684,6 +710,13 @@ const CostingTable = ({
 
     if (error) {
       console.error("Insert error:", error);
+      if (backupRows?.length) {
+        const restorePayload = backupRows.map((r) => {
+          const { id, created_at, updated_at, ...rest } = r;
+          return rest;
+        });
+        await supabase.from("costing_rows").insert(restorePayload);
+      }
       if (!silent) alert("Error saving tender ❌: " + error.message);
       else setAutoSaveHint("Save failed — " + (error.message || "error"));
       throw error;
@@ -866,8 +899,8 @@ const CostingTable = ({
               <th className={costingHeaderSticky}>Sub Category 3</th>
               <th className={costingHeaderSticky}>Sub Category 4</th>
               <th className={costingHeaderSticky}>Sub Category 5</th>
-              <th className={costingHeaderSticky}>Manual Sub Category</th>
-              <th className={costingHeaderSticky}>Weight</th>
+              <th className={costingHeaderSticky}>Manual Sub / Make / Brand</th>
+              <th className={costingHeaderSticky}>Weight / KG</th>
               <th className={costingHeaderSticky}>Labour Cost</th>
               <th className={costingHeaderSticky}>Unit Cost/Price of metal</th>
               <th className={costingHeaderSticky}>Quantity</th>
@@ -921,11 +954,13 @@ const CostingTable = ({
                   <td className="border bg-white px-2 py-1">{renderSubColumn(5, row, index, isFixedRow)}</td>
 
 
-                  {/* Manual Sub Category */}
+                  {/* Manual Sub Category — label driven by catalog component name */}
                   <td className="border bg-white px-2 py-1">
                     <input
                       type="text"
                       value={row.manualSub}
+                      title={getManualSubLabel(row.component)}
+                      placeholder={getManualSubPlaceholder(row.component) || getManualSubLabel(row.component)}
                       onChange={(e) => {
                         const val = e.target.value;
                         if (index < fixedRows.length) {
@@ -1001,6 +1036,13 @@ const CostingTable = ({
                           <NumericInput
                             value={row[field]}
                             readOnly={!fieldEditable}
+                            aria-label={
+                              field === "weight"
+                                ? getWeightColumnLabel(row.component)
+                                : field === "labour"
+                                  ? "Labour cost"
+                                  : field
+                            }
                             onChange={(val) => {
                               if (!fieldEditable) return;
                               const numeric = val === "" ? "" : parseNumericInput(val, val);

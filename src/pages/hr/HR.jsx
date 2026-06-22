@@ -1,5 +1,6 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import PageLoader from "../../components/PageLoader";
 import { Users, Wallet } from "lucide-react";
 
 const HR_TABS = [
@@ -39,7 +40,9 @@ export default function HRManagement() {
       </div>
 
       <div className="flex-1 min-h-0 min-w-0">
-        <Outlet />
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
       </div>
     </div>
   );

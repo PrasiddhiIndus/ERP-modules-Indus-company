@@ -20,6 +20,13 @@ import {
   setPaymentAdvice as savePaymentAdviceLocal,
 } from '../data/billingStore';
 import {
+  BILLING_DRAFT_KEYS,
+  BILLING_VERTICAL_STORAGE_KEY,
+  clearBillingFormDraft,
+  loadBillingFormDraftPayloadWithLegacy,
+  saveBillingFormDraft,
+} from '../utils/billingFormAutosave';
+import {
   isBillingDbAvailable,
   fetchCommercialPOs,
   billingErrorMsg,
@@ -51,6 +58,12 @@ const BillingContext = createContext({
   setPaymentAdvice: () => {},
   invoiceDraft: null,
   setInvoiceDraft: () => {},
+  getCreateInvoiceFormDraft: () => null,
+  setCreateInvoiceFormDraft: () => {},
+  clearCreateInvoiceFormDraft: () => {},
+  getAddOnInvoiceFormDraft: () => null,
+  setAddOnInvoiceFormDraft: () => {},
+  clearAddOnInvoiceFormDraft: () => {},
   billingVerticalFilter: '',
   setBillingVerticalFilter: () => {},
   billingVerticalOptions: [],
@@ -79,7 +92,6 @@ const toModuleContext = (moduleScope) =>
       : 'manpower_training'
     : null;
 
-const BILLING_VERTICAL_STORAGE_KEY = 'billing_vertical_filter';
 const BILLING_PO_BASIS_STORAGE_KEY = 'billing_po_basis_filter';
 
 // Must match the vertical dropdown lists used in PO Entry screens.
@@ -162,6 +174,36 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
   const [billingError, setBillingError] = useState(null);
   const [billingVerticalFilter, setBillingVerticalFilterState] = useState('');
   const [billingPoBasisFilter, setBillingPoBasisFilterState] = useState(PO_BASIS_FILTER_ALL);
+
+  const createInvoiceFormDraftRef = useRef(
+    loadBillingFormDraftPayloadWithLegacy(
+      BILLING_DRAFT_KEYS.createInvoice,
+      'billing:form:create-invoice:'
+    )
+  );
+  const addOnInvoiceFormDraftRef = useRef(
+    loadBillingFormDraftPayloadWithLegacy(BILLING_DRAFT_KEYS.addOnInvoice, 'billing:form:add-on:')
+  );
+
+  const getCreateInvoiceFormDraft = useCallback(() => createInvoiceFormDraftRef.current, []);
+  const setCreateInvoiceFormDraft = useCallback((payload) => {
+    createInvoiceFormDraftRef.current = payload ?? null;
+    if (payload) saveBillingFormDraft(BILLING_DRAFT_KEYS.createInvoice, { payload });
+  }, []);
+  const clearCreateInvoiceFormDraft = useCallback(() => {
+    createInvoiceFormDraftRef.current = null;
+    clearBillingFormDraft(BILLING_DRAFT_KEYS.createInvoice);
+  }, []);
+
+  const getAddOnInvoiceFormDraft = useCallback(() => addOnInvoiceFormDraftRef.current, []);
+  const setAddOnInvoiceFormDraft = useCallback((payload) => {
+    addOnInvoiceFormDraftRef.current = payload ?? null;
+    if (payload) saveBillingFormDraft(BILLING_DRAFT_KEYS.addOnInvoice, { payload });
+  }, []);
+  const clearAddOnInvoiceFormDraft = useCallback(() => {
+    addOnInvoiceFormDraftRef.current = null;
+    clearBillingFormDraft(BILLING_DRAFT_KEYS.addOnInvoice);
+  }, []);
 
   const commercialPOs = useMemo(() => {
     if (!commercialModuleScope) return commercialPOsFull;
@@ -529,6 +571,12 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     setPaymentAdvice,
     invoiceDraft,
     setInvoiceDraft,
+    getCreateInvoiceFormDraft,
+    setCreateInvoiceFormDraft,
+    clearCreateInvoiceFormDraft,
+    getAddOnInvoiceFormDraft,
+    setAddOnInvoiceFormDraft,
+    clearAddOnInvoiceFormDraft,
     billingVerticalFilter,
     setBillingVerticalFilter,
     billingVerticalOptions,
