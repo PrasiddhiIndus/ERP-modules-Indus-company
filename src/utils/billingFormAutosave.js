@@ -49,6 +49,87 @@ export function loadBillingFormDraftPayload(key) {
   return draft?.payload && typeof draft.payload === 'object' ? draft.payload : null;
 }
 
+function lineHasBillingEntryData(line) {
+  if (!line || typeof line !== 'object') return false;
+  if (String(line.description || line.designation || '').trim()) return true;
+  if (Number(line.quantity) > 0 || Number(line.rate) > 0 || Number(line.amount) > 0) return true;
+  if (Number(line.actualDuty) > 0 || Number(line.authorizedDuty) > 0) return true;
+  if (String(line.hsnSac || '').trim() || String(line.materialCode || '').trim()) return true;
+  return false;
+}
+
+/** True when a saved draft contains user-entered billing data (not just empty templates). */
+export function hasMeaningfulBillingDraftPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+
+  if (payload.selectedPoId) return true;
+  if (payload.invoiceDate) return true;
+  if (payload.noteDate && payload.noteDate !== new Date().toISOString().slice(0, 10)) return true;
+
+  if (Array.isArray(payload.items) && payload.items.some(lineHasBillingEntryData)) return true;
+
+  if (payload.addOnType || String(payload.manualAddOnType || '').trim()) return true;
+
+  if (payload.formData && typeof payload.formData === 'object') {
+    const f = payload.formData;
+    if (
+      String(f.category || '').trim() ||
+      String(f.rates || '').trim() ||
+      String(f.payment_terms || '').trim() ||
+      String(f.wo_number || '').trim() ||
+      String(f.client_name || '').trim() ||
+      String(f.client_address || '').trim() ||
+      String(f.hsn_sac || '').trim() ||
+      String(f.gst_config || '').trim() ||
+      String(f.billing_type || '').trim() ||
+      String(f.billing_template || '').trim() ||
+      String(f.start_date || '').trim() ||
+      String(f.end_date || '').trim() ||
+      (Array.isArray(f.designation_rates) && f.designation_rates.length > 0)
+    ) {
+      return true;
+    }
+  }
+
+  if (String(payload.extraRemark || '').trim()) return true;
+  if (String(payload.paReceivedDate || '').trim()) return true;
+  if (String(payload.deductionRemarks || '').trim()) return true;
+  if (Number(payload.penaltyDeductionAmount) > 0) return true;
+  if (Array.isArray(payload.paFile) && payload.paFile.length > 0) return true;
+  if (Array.isArray(payload.attendanceFiles) && payload.attendanceFiles.length > 0) return true;
+  if (Array.isArray(payload.document2Files) && payload.document2Files.length > 0) return true;
+  if (String(payload.digitalSignatureDataUrl || '').trim()) return true;
+  if (String(payload.manualTaxInvoiceSerial || '').trim()) return true;
+  if (String(payload.invoiceLevelHsn || '').trim()) return true;
+  if (Array.isArray(payload.preGstSupplementaryRows) && payload.preGstSupplementaryRows.length > 0) return true;
+
+  return false;
+}
+
+function billingDraftRichness(payload) {
+  if (!payload || typeof payload !== 'object') return 0;
+  let score = 0;
+  if (payload.selectedPoId) score += 1;
+  if (String(payload.invoiceDate || '').trim()) score += 1;
+  if (Array.isArray(payload.items)) {
+    payload.items.forEach((line) => {
+      if (Number(line.quantity) > 0) score += 3;
+      if (Number(line.amount) > 0) score += 3;
+      if (Number(line.actualDuty) > 0) score += 2;
+      if (Number(line.authorizedDuty) > 0) score += 1;
+      if (String(line.description || '').trim()) score += 1;
+    });
+  }
+  if (String(payload.addOnType || payload.manualAddOnType || '').trim()) score += 2;
+  if (Array.isArray(payload.attendanceFiles) && payload.attendanceFiles.length) score += 2;
+  if (Array.isArray(payload.document2Files) && payload.document2Files.length) score += 2;
+  if (String(payload.digitalSignatureDataUrl || '').trim()) score += 2;
+  if (String(payload.extraRemark || '').trim()) score += 1;
+  if (String(payload.paReceivedDate || '').trim()) score += 1;
+  if (Number(payload.penaltyDeductionAmount) > 0) score += 2;
+  return score;
+}
+
 /** Load newest draft for a stable key, falling back to legacy per-vertical keys. */
 export function loadBillingFormDraftPayloadWithLegacy(stableKey, legacyPrefix) {
   const direct = loadBillingFormDraftPayload(stableKey);
@@ -73,9 +154,24 @@ export function loadBillingFormDraftPayloadWithLegacy(stableKey, legacyPrefix) {
   return newest.payload;
 }
 
-export function saveBillingFormDraft(key, data) {
+export function saveBillingFormDraft(key, data, { allowRegression = false } = {}) {
   if (!key) return false;
   try {
+    const nextPayload = data?.payload;
+    if (!allowRegression && nextPayload && typeof nextPayload === 'object') {
+      const existing = loadBillingFormDraft(key);
+      const prevPayload = existing?.payload;
+      if (prevPayload && typeof prevPayload === 'object') {
+        const prevRich = billingDraftRichness(prevPayload);
+        const nextRich = billingDraftRichness(nextPayload);
+        if (
+          (hasMeaningfulBillingDraftPayload(prevPayload) && !hasMeaningfulBillingDraftPayload(nextPayload)) ||
+          (prevRich > 0 && nextRich < prevRich)
+        ) {
+          return false;
+        }
+      }
+    }
     window.localStorage.setItem(
       key,
       JSON.stringify({
