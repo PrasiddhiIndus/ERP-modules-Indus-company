@@ -393,7 +393,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
         ) : null}
 
         <div className="px-[28px] pt-2 space-y-0">
-          <table className="w-full border-collapse border border-[#bbb] text-[8.5px]">
+          <table className="erp-table-exempt w-full border-collapse border border-[#bbb] text-[8.5px]">
             <thead>
               <tr className="bg-[#1a3a6c] text-white" style={invoiceBlueHeaderTextStyle}>
                 <th className="border border-[#bbb] px-1.5 py-1.5 text-center font-bold text-white leading-tight w-[6%]" style={invoiceBlueHeaderTextStyle}>SR No.</th>
