@@ -7,6 +7,26 @@ import { financeErrorMsg, invalidateFinanceCache, isFinanceSchemaError } from ".
 import { removeChildHeadRow, removeParentHeadRow } from "./financeHeadSync";
 
 const SCHEMA = "finance";
+export const SITE_META_PREFIX = "@@siteMeta::";
+
+export function parseSiteMeta(remarks) {
+  if (!remarks || typeof remarks !== "string") return {};
+  const i = remarks.indexOf(SITE_META_PREFIX);
+  if (i === -1) return {};
+  try {
+    return JSON.parse(remarks.slice(i + SITE_META_PREFIX.length));
+  } catch {
+    return {};
+  }
+}
+
+export function serializeSiteMeta(site) {
+  const meta = {
+    siteGroup: site.siteGroup || site.id,
+    version: site.version || 1,
+  };
+  return `${SITE_META_PREFIX}${JSON.stringify(meta)}`;
+}
 
 export const REVENUE_ITEMS = [
   { key: "saleRevenue", label: "Sale Revenue", sign: 1 },
@@ -178,6 +198,7 @@ function buildSites(raw, parentById, childById) {
       parent,
       children,
     }));
+    const meta = parseSiteMeta(s.remarks);
     return {
       id: s.code,
       name: s.name,
@@ -185,6 +206,9 @@ function buildSites(raw, parentById, childById) {
       wo: s.work_order_no || "",
       contractStart: s.contract_start_period || periodFromDate(s.contract_start),
       contractEnd: s.contract_end_period || periodFromDate(s.contract_end),
+      status: s.status || "active",
+      siteGroup: meta.siteGroup || s.code,
+      version: meta.version || 1,
       structure,
       spreads: spreadsBySite[s.id] || [],
       estimates: budgetsBySite[s.id] || [],
@@ -383,7 +407,8 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
         contract_end_period: site.contractEnd || null,
         contract_start: site.contractStart ? `${site.contractStart}-01` : null,
         contract_end: site.contractEnd ? `${site.contractEnd}-01` : null,
-        status: "active",
+        status: site.status || "active",
+        remarks: serializeSiteMeta(site),
         sort_order: index,
       },
       { onConflict: "code" },

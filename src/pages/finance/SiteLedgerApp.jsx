@@ -12,7 +12,7 @@ import {
   TrendingUp, Wallet, Receipt, Percent, IndianRupee, ChevronLeft,
   ArrowUpRight, ArrowDownRight, Download, Upload, Copy, X, Pencil,
   Trash2, CircleDot, Sliders, GripVertical, CalendarClock, Plus,
-  Target, FileClock, ChevronRight, ChevronDown, RotateCcw, FileBarChart, AlertCircle, Settings,
+  Target, FileClock, ChevronRight, ChevronDown, RotateCcw, FileBarChart, AlertCircle, Settings, History,
 } from "lucide-react";
 
 /* ───────────────────────── DOMAIN MODEL ─────────────────────────
@@ -103,6 +103,86 @@ function inrShort(n) {
 }
 const pct = (n) => (n || 0).toFixed(1) + "%";
 const slug = (s) => (s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "head");
+
+/* ───────────────────────── SITE VERSIONING ───────────────────────── */
+function contractExpired(site, asOfMonth) {
+  if (!site?.contractEnd || !asOfMonth) return false;
+  return monthIdx(asOfMonth) > contractEndIdx(site);
+}
+function isSiteActive(site) {
+  return (site?.status || "active") === "active";
+}
+function versionLabel(site) {
+  return `v${site.version || 1}`;
+}
+function sitesInGroup(sites, siteGroup) {
+  return sites
+    .filter((s) => (s.siteGroup || s.id) === siteGroup)
+    .sort((a, b) => (b.version || 1) - (a.version || 1) || monthIdx(b.contractStart || "0000-00") - monthIdx(a.contractStart || "0000-00"));
+}
+function enrichSitesWithVersions(sites, asOfMonth) {
+  if (!sites.length) return sites;
+  const byName = {};
+  sites.forEach((s) => {
+    const nk = (s.name || "").trim().toLowerCase();
+    if (!byName[nk]) byName[nk] = [];
+    byName[nk].push(s);
+  });
+  const withMeta = sites.map((s) => {
+    const nk = (s.name || "").trim().toLowerCase();
+    const sameName = byName[nk] || [s];
+    const siteGroup = s.siteGroup || (sameName.length > 1 ? slug(s.name) : s.id);
+    return {
+      ...s,
+      siteGroup,
+      version: s.version || 1,
+      status: s.status || "active",
+    };
+  });
+  const groups = {};
+  withMeta.forEach((s) => {
+    if (!groups[s.siteGroup]) groups[s.siteGroup] = [];
+    groups[s.siteGroup].push(s);
+  });
+  const versioned = withMeta.map((s) => {
+    const g = groups[s.siteGroup] || [s];
+    if (g.length <= 1) return s;
+    const sorted = [...g].sort((a, b) => monthIdx(a.contractStart || "0000-00") - monthIdx(b.contractStart || "0000-00"));
+    const ver = sorted.findIndex((x) => x.id === s.id) + 1;
+    return { ...s, version: s.version > 1 ? s.version : ver };
+  });
+  if (!asOfMonth) return versioned;
+  return versioned.map((s) => (
+    isSiteActive(s) && contractExpired(s, asOfMonth) ? { ...s, status: "inactive" } : s
+  ));
+}
+function prepareNewSiteVersion(existingSites, newSite) {
+  const group = newSite.siteGroup || slug(newSite.name);
+  const siblings = existingSites.filter((s) => (s.siteGroup || s.id) === group || s.name.trim().toLowerCase() === newSite.name.trim().toLowerCase());
+  const resolvedGroup = siblings[0]?.siteGroup || group;
+  const maxVer = siblings.reduce((m, s) => Math.max(m, s.version || 1), 0);
+  let id = `${resolvedGroup}-v${maxVer + 1}`;
+  let n = maxVer + 1;
+  while (existingSites.some((s) => s.id === id)) id = `${resolvedGroup}-v${++n}`;
+  const deactivated = existingSites.map((s) => {
+    const inGroup = (s.siteGroup || s.id) === resolvedGroup
+      || s.name.trim().toLowerCase() === newSite.name.trim().toLowerCase();
+    return inGroup ? { ...s, siteGroup: resolvedGroup, status: "inactive" } : s;
+  });
+  return [
+    ...deactivated,
+    {
+      ...newSite,
+      id,
+      siteGroup: resolvedGroup,
+      version: maxVer + 1,
+      status: "active",
+    },
+  ];
+}
+function activeSitesOnly(sites) {
+  return sites.filter(isSiteActive);
+}
 
 /* ───────────────────────── STRUCTURE HELPERS ───────────────────────── */
 // Full structure incl. empty parents, in PARENTS order
@@ -231,9 +311,19 @@ function normalize(data) {
     }
     // ensure all referenced child keys exist in library
     structure.forEach((g) => g.children.forEach((k) => { if (!have.has(k)) { library.push({ key: k, label: k, parent: g.parent }); have.add(k); } }));
-    return { ...s, structure, spreads: s.spreads || [], estimates: s.estimates || [], contractStart: s.contractStart || null, contractEnd: s.contractEnd || null };
+    return {
+      ...s,
+      structure,
+      spreads: s.spreads || [],
+      estimates: s.estimates || [],
+      contractStart: s.contractStart || null,
+      contractEnd: s.contractEnd || null,
+      status: s.status || "active",
+      siteGroup: s.siteGroup || null,
+      version: s.version || 1,
+    };
   });
-  return { sites, records: data.records || {}, library };
+  return { sites: enrichSitesWithVersions(sites), records: data.records || {}, library };
 }
 
 async function loadStore() {
@@ -320,6 +410,8 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [showAdd, setShowAdd] = useState(false);
   const [ioOpen, setIoOpen] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [showHistorical, setShowHistorical] = useState(false);
+  const [historyGroup, setHistoryGroup] = useState(null);
   const saveTimer = useRef(null);
   const saveImmediate = useRef(false);
   const skipNextAutosave = useRef(false);
@@ -330,8 +422,15 @@ export default function SiteLedgerApp({ embedded = true }) {
   const SETUP_PERSIST_MS = 400;
 
   const libMap = useMemo(() => Object.fromEntries(library.map((h) => [h.key, h])), [library]);
+  const sitesEnriched = useMemo(() => enrichSitesWithVersions(sites, month), [sites, month]);
+  const operationalSites = useMemo(
+    () => (showHistorical ? sitesEnriched : activeSitesOnly(sitesEnriched)),
+    [sitesEnriched, showHistorical],
+  );
+  const activeSiteCount = useMemo(() => activeSitesOnly(sitesEnriched).length, [sitesEnriched]);
   // attach library to sites so childLabel resolves custom labels
-  const sitesL = useMemo(() => sites.map((s) => ({ ...s, _lib: library })), [sites, library]);
+  const sitesL = useMemo(() => operationalSites.map((s) => ({ ...s, _lib: library })), [operationalSites, library]);
+  const sitesAllL = useMemo(() => sitesEnriched.map((s) => ({ ...s, _lib: library })), [sitesEnriched, library]);
 
   const reloadLedger = useCallback(async () => {
     const { data, ok, error } = await loadStore();
@@ -347,6 +446,15 @@ export default function SiteLedgerApp({ embedded = true }) {
   }, []);
 
   useEffect(() => { reloadLedger(); }, [reloadLedger]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    setSites((prev) => {
+      const next = enrichSitesWithVersions(prev, month);
+      const changed = next.some((s, i) => s.status !== prev[i]?.status || s.version !== prev[i]?.version || s.siteGroup !== prev[i]?.siteGroup);
+      return changed ? next : prev;
+    });
+  }, [month, loaded]);
 
   useEffect(() => {
     return subscribeFinanceRefresh(() => {
@@ -503,7 +611,20 @@ export default function SiteLedgerApp({ embedded = true }) {
 
   const upsertSite = useCallback((site) => {
     saveImmediate.current = true;
-    setSites((prev) => { const i = prev.findIndex((s) => s.id === site.id); if (i === -1) return [...prev, site]; const cp = [...prev]; cp[i] = site; return cp; });
+    setSites((prev) => {
+      if (site.isRenewal) return prepareNewSiteVersion(prev, site);
+      const i = prev.findIndex((s) => s.id === site.id);
+      const nextSite = {
+        ...site,
+        siteGroup: site.siteGroup || slug(site.name),
+        version: site.version || 1,
+        status: site.status || "active",
+      };
+      if (i === -1) return [...prev, nextSite];
+      const cp = [...prev];
+      cp[i] = nextSite;
+      return cp;
+    });
   }, []);
   const patchSite = useCallback((id, patch) => {
     saveImmediate.current = true;
@@ -560,16 +681,16 @@ export default function SiteLedgerApp({ embedded = true }) {
   }, [applySiteSetupChange]);
 
   const mLabel = monthLabelOf(month);
-  const titles = { overview: "Portfolio Overview", sites: "All Sites", config: "Site Setup", entry: "Enter / Edit Figures", reports: "Reports", site: sitesL.find((s) => s.id === activeSite)?.name || "Site" };
+  const titles = { overview: "Portfolio Overview", sites: "All Sites", config: "Site Setup", entry: "Enter / Edit Figures", reports: "Reports", site: sitesAllL.find((s) => s.id === activeSite)?.name || "Site" };
   const pageTitle = titles[view] || "Portfolio Overview";
   const ledgerNavItems = useMemo(() => [
     { id: "overview", label: "Overview", icon: LayoutDashboard, section: "portfolio" },
-    { id: "sites", label: "All Sites", icon: Building2, section: "portfolio", badge: sites.length || undefined },
+    { id: "sites", label: "All Sites", icon: Building2, section: "portfolio", badge: activeSiteCount || undefined },
     { id: "config", label: "Site Setup", icon: Sliders, section: "setup" },
     { id: "add-site", label: "Add Site", icon: PlusCircle, section: "setup", onClick: () => setShowAdd(true) },
     { id: "entry", label: "Enter Figures", icon: Pencil, section: "data" },
     { id: "reports", label: "Reports", icon: FileBarChart, section: "reports" },
-  ], [sites.length]);
+  ], [activeSiteCount]);
 
   const handleLedgerNav = useCallback((id) => {
     if (id === "add-site") {
@@ -589,7 +710,7 @@ export default function SiteLedgerApp({ embedded = true }) {
           <div className="brand"><div className="brand-mark">P&L</div><div><div className="brand-name">SiteLedger</div><div className="brand-sub">Multi-site P&amp;L</div></div></div>
           <nav>
             <button className={view === "overview" ? "nav on" : "nav"} onClick={() => setView("overview")}><LayoutDashboard size={17} /> Overview</button>
-            <button className={view === "sites" ? "nav on" : "nav"} onClick={() => setView("sites")}><Building2 size={17} /> All Sites <span className="count">{sites.length}</span></button>
+            <button className={view === "sites" ? "nav on" : "nav"} onClick={() => setView("sites")}><Building2 size={17} /> All Sites <span className="count">{activeSiteCount}</span></button>
             <button className={view === "config" ? "nav on" : "nav"} onClick={() => setView("config")}><Sliders size={17} /> Site Setup</button>
             <button className={view === "entry" ? "nav on" : "nav"} onClick={() => setView("entry")}><Pencil size={17} /> Enter / Edit Figures</button>
             <button className={view === "reports" ? "nav on" : "nav"} onClick={() => setView("reports")}><FileBarChart size={17} /> Reports</button>
@@ -613,7 +734,7 @@ export default function SiteLedgerApp({ embedded = true }) {
           <div className="topbar-left">
             <div>
               <h1>{pageTitle}</h1>
-              <p>{embedded ? `Finance · ${sites.length} sites` : `Income–Expenditure monitoring · ${sites.length} sites`}</p>
+              <p>{embedded ? `Finance · ${activeSiteCount} active site${activeSiteCount === 1 ? "" : "s"}` : `Income–Expenditure monitoring · ${activeSiteCount} active site${activeSiteCount === 1 ? "" : "s"}`}</p>
             </div>
             {embedded && (
               <div className="sl-view-nav">
@@ -669,25 +790,99 @@ export default function SiteLedgerApp({ embedded = true }) {
             <Overview
               rows={rows}
               sitesL={sitesL}
+              sitesAll={sitesAllL}
               records={records}
               month={month}
               mLabel={mLabel}
               activeMonths={activeMonths}
-              siteCount={sites.length}
+              siteCount={activeSiteCount}
+              totalSiteCount={sitesEnriched.length}
+              showHistorical={showHistorical}
+              setShowHistorical={setShowHistorical}
               openSite={(id) => { setActiveSite(id); setView("site"); }}
               goEntry={(id) => { setActiveSite(id); setView("entry"); }}
+              onViewHistory={(group) => setHistoryGroup(group)}
             />
           )}
-          {view === "sites" && <SitesTable rows={rows} query={query} setQuery={setQuery} openSite={(id) => { setActiveSite(id); setView("site"); }} onEdit={(id) => { setActiveSite(id); setView("entry"); }} onConfig={(id) => { setActiveSite(id); setView("config"); }} onDelete={removeSite} mLabel={mLabel} />}
-          {view === "site" && activeSite && <SiteDetail site={sitesL.find((s) => s.id === activeSite)} records={records} month={month} mLabel={mLabel} back={() => setView("overview")} onEdit={() => setView("entry")} onConfig={() => setView("config")} />}
+          {view === "sites" && (
+            <SitesTable
+              rows={rows}
+              query={query}
+              setQuery={setQuery}
+              showHistorical={showHistorical}
+              setShowHistorical={setShowHistorical}
+              inactiveCount={sitesEnriched.length - activeSiteCount}
+              openSite={(id) => { setActiveSite(id); setView("site"); }}
+              onEdit={(id) => { setActiveSite(id); setView("entry"); }}
+              onConfig={(id) => { setActiveSite(id); setView("config"); }}
+              onDelete={removeSite}
+              onViewHistory={(group) => setHistoryGroup(group)}
+              mLabel={mLabel}
+            />
+          )}
+          {view === "site" && activeSite && (
+            <SiteDetail
+              site={sitesAllL.find((s) => s.id === activeSite)}
+              records={records}
+              month={month}
+              mLabel={mLabel}
+              back={() => setView("overview")}
+              onEdit={() => setView("entry")}
+              onConfig={() => setView("config")}
+              onViewHistory={(group) => setHistoryGroup(group)}
+            />
+          )}
           {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
           {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onAddParent={addParent} onSetParentColor={setParentColor} onRemoveParent={removeParent} />}
-          {view === "reports" && <Reports sites={sitesL} records={records} parents={parents} defaultMonth={month} />}
+          {view === "reports" && (
+            <Reports
+              sites={sitesL}
+              sitesAll={sitesAllL}
+              records={records}
+              parents={parents}
+              defaultMonth={month}
+              showHistorical={showHistorical}
+              setShowHistorical={setShowHistorical}
+              onViewSite={(id) => { setActiveSite(id); setView("site"); }}
+            />
+          )}
         </div>
       </main>
       </div>
 
-      {showAdd && <AddSiteModal existing={sites} onClose={() => setShowAdd(false)} onSave={(s) => { upsertSite(s); setShowAdd(false); setActiveSite(s.id); setView("config"); }} />}
+      {showAdd && (
+        <AddSiteModal
+          existing={sitesEnriched}
+          onClose={() => setShowAdd(false)}
+          onSave={(s) => {
+            if (s.isRenewal) {
+              saveImmediate.current = true;
+              const beforeIds = new Set(sites.map((x) => x.id));
+              const next = prepareNewSiteVersion(sites, s);
+              const newSite = next.find((x) => !beforeIds.has(x.id)) || next[next.length - 1];
+              setSites(next);
+              setShowAdd(false);
+              setActiveSite(newSite.id);
+              setView("config");
+            } else {
+              upsertSite(s);
+              setShowAdd(false);
+              setActiveSite(s.id);
+              setView("config");
+            }
+          }}
+        />
+      )}
+      {historyGroup && (
+        <SiteVersionHistoryModal
+          siteGroup={historyGroup}
+          sites={sitesAllL}
+          records={records}
+          month={month}
+          onClose={() => setHistoryGroup(null)}
+          onOpenSite={(id) => { setActiveSite(id); setView("site"); setHistoryGroup(null); }}
+        />
+      )}
       {ioOpen && <IoModal sites={sites} records={records} library={library} parents={parents} onClose={() => setIoOpen(false)} onImport={(d) => { const n = normalize(d); setSites(n.sites); setRecords(n.records); setLibrary(n.library); let ps = (d.parents && d.parents.length) ? d.parents : DEFAULT_PARENTS.map((p) => ({ ...p })); if (d.parentLabels) ps = ps.map((p) => d.parentLabels[p.key] ? { ...p, label: d.parentLabels[p.key] } : p); syncParents(ps); setParents(ps); setIoOpen(false); }} />}
     </div>
   );
@@ -725,7 +920,7 @@ function applyPortfolioFilters(rows, filters, month) {
   return list;
 }
 
-function Overview({ rows, sitesL, records, month, mLabel, activeMonths, siteCount, openSite, goEntry }) {
+function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths, siteCount, totalSiteCount, showHistorical, setShowHistorical, openSite, goEntry, onViewHistory }) {
   const [filters, setFilters] = useState(PORTFOLIO_FILTERS_INIT);
   const setF = (patch) => setFilters((prev) => ({ ...prev, ...patch }));
 
@@ -878,9 +1073,25 @@ function Overview({ rows, sitesL, records, month, mLabel, activeMonths, siteCoun
         {hasActiveFilters && (
           <button type="button" className="ghost-d ov-clear" onClick={() => setFilters(PORTFOLIO_FILTERS_INIT)}>Clear filters</button>
         )}
+        <label className="ov-filter hist-toggle">
+          <span>Data scope</span>
+          <button
+            type="button"
+            className={"hist-scope-btn" + (showHistorical ? " on" : "")}
+            onClick={() => setShowHistorical((v) => !v)}
+          >
+            <History size={13} />
+            {showHistorical ? "Including historical" : "Active sites only"}
+          </button>
+        </label>
       </div>
 
-      <p className="ov-meta">{filteredRows.length} of {siteCount} sites · {withData.length} reporting for {mLabel}</p>
+      <p className="ov-meta">
+        {filteredRows.length} of {showHistorical ? totalSiteCount : siteCount} site{showHistorical ? " versions" : "s"} · {withData.length} reporting for {mLabel}
+        {!showHistorical && totalSiteCount > siteCount && (
+          <span className="hist-hint"> · {totalSiteCount - siteCount} inactive version{(totalSiteCount - siteCount) === 1 ? "" : "s"} hidden</span>
+        )}
+      </p>
 
       <div className="kpi-row">
         <Kpi icon={IndianRupee} label={`Total Revenue · ${mLabel}`} value={inrShort(totals.revenue)} sub={revD ? `${revD.val >= 0 ? "+" : ""}${revD.val.toFixed(1)}% vs last period` : `${withData.length} sites reporting`} trend={revD?.dir} />
@@ -998,14 +1209,25 @@ function Overview({ rows, sitesL, records, month, mLabel, activeMonths, siteCoun
             </thead>
             <tbody>
               {attention.map((r) => (
-                <tr key={r.id}>
-                  <td className="strong">{r.name}</td>
+                <tr key={r.id} className={!isSiteActive(r) ? "row-inactive" : ""}>
+                  <td className="strong">
+                    {r.name}
+                    {!isSiteActive(r) && <span className="ver-pill inactive">Inactive · {versionLabel(r)}</span>}
+                    {isSiteActive(r) && (sitesAll.filter((s) => s.siteGroup === r.siteGroup).length > 1) && (
+                      <span className="ver-pill">{versionLabel(r)}</span>
+                    )}
+                  </td>
                   <td className="muted-s">{r.service || "—"}</td>
                   <td className="r mono">{inr(r.revenue)}</td>
                   <td className="r mono" style={{ color: r.profit < 0 ? "var(--loss)" : "var(--ink)" }}>{inr(r.profit)}</td>
                   <td className="r mono" style={{ color: r.margin < 0 ? "var(--loss)" : r.margin < WARN_MARGIN ? "var(--warn)" : "var(--ink)" }}>{pct(r.margin)}</td>
                   <td><StatusPill margin={r.margin} profit={r.profit} /></td>
-                  <td className="r"><button type="button" className="link" onClick={() => openSite(r.id)}>View →</button></td>
+                  <td className="r nowrap">
+                    {sitesAll.filter((s) => s.siteGroup === r.siteGroup).length > 1 && (
+                      <button type="button" className="link hist-link" onClick={() => onViewHistory(r.siteGroup)}>History</button>
+                    )}
+                    <button type="button" className="link" onClick={() => openSite(r.id)}>View →</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1018,19 +1240,34 @@ function Overview({ rows, sitesL, records, month, mLabel, activeMonths, siteCoun
 
 
 /* ───────────────────────── SITES TABLE ───────────────────────── */
-function SitesTable({ rows, query, setQuery, openSite, onEdit, onConfig, onDelete, mLabel }) {
+function SitesTable({ rows, query, setQuery, showHistorical, setShowHistorical, inactiveCount, openSite, onEdit, onConfig, onDelete, onViewHistory, mLabel }) {
   const [sort, setSort] = useState({ key: "profit", dir: "desc" });
   const filtered = rows.filter((r) => r.name.toLowerCase().includes(query.toLowerCase()) || (r.service || "").toLowerCase().includes(query.toLowerCase()));
   const sorted = [...filtered].sort((a, b) => { const m = sort.dir === "asc" ? 1 : -1; return sort.key === "name" ? m * a.name.localeCompare(b.name) : m * ((a[sort.key] || 0) - (b[sort.key] || 0)); });
   const setS = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
   const arr = (k) => sort.key === k ? (sort.dir === "desc" ? " ▾" : " ▴") : "";
   return (
-    <Card title={`All Sites · ${mLabel}`} right={<div className="search"><Search size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search sites…" /></div>}>
+    <Card
+      title={`All Sites · ${mLabel}`}
+      right={(
+        <div className="sites-head-actions">
+          <button type="button" className={"hist-scope-btn sm" + (showHistorical ? " on" : "")} onClick={() => setShowHistorical((v) => !v)}>
+            <History size={13} />
+            {showHistorical ? "Hide inactive" : `Show inactive${inactiveCount ? ` (${inactiveCount})` : ""}`}
+          </button>
+          <div className="search"><Search size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search sites…" /></div>
+        </div>
+      )}
+    >
       <table className="tbl">
-        <thead><tr><th className="click" onClick={() => setS("name")}>Site{arr("name")}</th><th>Service</th><th>Lines</th><th className="r click" onClick={() => setS("revenue")}>Revenue{arr("revenue")}</th><th className="r click" onClick={() => setS("expense")}>Expense{arr("expense")}</th><th className="r click" onClick={() => setS("profit")}>Profit{arr("profit")}</th><th className="r click" onClick={() => setS("margin")}>Margin{arr("margin")}</th><th className="r click" onClick={() => setS("profitVar")}>vs Est{arr("profitVar")}</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th className="click" onClick={() => setS("name")}>Site{arr("name")}</th><th>Contract</th><th>Service</th><th>Lines</th><th className="r click" onClick={() => setS("revenue")}>Revenue{arr("revenue")}</th><th className="r click" onClick={() => setS("expense")}>Expense{arr("expense")}</th><th className="r click" onClick={() => setS("profit")}>Profit{arr("profit")}</th><th className="r click" onClick={() => setS("margin")}>Margin{arr("margin")}</th><th className="r click" onClick={() => setS("profitVar")}>vs Est{arr("profitVar")}</th><th>Status</th><th></th></tr></thead>
         <tbody>{sorted.map((r) => (
-          <tr key={r.id} className={r.pending ? "row-pending" : ""}>
-            <td className="strong click" onClick={() => openSite(r.id)}>{r.name}</td>
+          <tr key={r.id} className={`${r.pending ? "row-pending" : ""}${!isSiteActive(r) ? " row-inactive" : ""}`}>
+            <td className="strong click" onClick={() => openSite(r.id)}>
+              {r.name}
+              <span className={"ver-pill" + (!isSiteActive(r) ? " inactive" : "")}>{versionLabel(r)}{!isSiteActive(r) ? " · Inactive" : ""}</span>
+            </td>
+            <td className="muted-s mono">{r.contractStart ? `${monthLabelOf(r.contractStart)}–${monthLabelOf(r.contractEnd)}` : "—"}{r.wo ? ` · ${r.wo}` : ""}</td>
             <td className="muted-s">{r.service || "—"}</td>
             <td className="muted-s mono">{siteChildKeys(r).length}{(r.spreads || []).length ? ` · ${r.spreads.length}⏳` : ""}</td>
             {r.hasData ? <>
@@ -1043,7 +1280,19 @@ function SitesTable({ rows, query, setQuery, openSite, onEdit, onConfig, onDelet
               <td className="r muted-s" colSpan={4} style={{ textAlign: "center" }}>{r.pending ? <span className="pend-inline"><AlertCircle size={12} /> awaiting {mLabel}{r.pendingCount > 1 ? ` · ${r.pendingCount} mo behind` : ""}</span> : `not in contract for ${mLabel}`}</td>
               <td>{r.pending ? <span className="pill pill-pending"><CircleDot size={9} /> Pending</span> : <span className="muted-s">—</span>}</td>
             </>}
-            <td className="r nowrap"><button className="icon-btn" title="Configure structure" onClick={() => onConfig(r.id)}><Sliders size={14} /></button><button className={"icon-btn" + (r.pending ? " accent" : "")} title="Enter figures" onClick={() => onEdit(r.id)}><Pencil size={14} /></button><button className="icon-btn danger" title="Delete" onClick={() => { if (confirm(`Delete "${r.name}" and all its data?`)) onDelete(r.id); }}><Trash2 size={14} /></button></td>
+            <td className="r nowrap">
+              <button className="icon-btn" title="View version history" onClick={() => onViewHistory(r.siteGroup)}><History size={14} /></button>
+              {isSiteActive(r) && (
+                <>
+                  <button className="icon-btn" title="Configure structure" onClick={() => onConfig(r.id)}><Sliders size={14} /></button>
+                  <button className={"icon-btn" + (r.pending ? " accent" : "")} title="Enter figures" onClick={() => onEdit(r.id)}><Pencil size={14} /></button>
+                </>
+              )}
+              <button className="icon-btn" title="View P&L" onClick={() => openSite(r.id)}><FileBarChart size={14} /></button>
+              {isSiteActive(r) && (
+                <button className="icon-btn danger" title="Delete" onClick={() => { if (confirm(`Delete "${r.name}" (${versionLabel(r)}) and all its data?`)) onDelete(r.id); }}><Trash2 size={14} /></button>
+              )}
+            </td>
           </tr>
         ))}</tbody>
       </table>
@@ -1052,9 +1301,10 @@ function SitesTable({ rows, query, setQuery, openSite, onEdit, onConfig, onDelet
 }
 
 /* ───────────────────────── SITE DETAIL (expandable parents) ───────────────────────── */
-function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig }) {
+function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onViewHistory }) {
   const [expanded, setExpanded] = useState(() => new Set());
   if (!site) return null;
+  const historical = !isSiteActive(site);
   const rec = records[`${site.id}__${month}`];
   const c = calcSite(site, month, records);
   const estVer = estimateFor(site, month);
@@ -1072,9 +1322,27 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig }) {
   return (
     <>
       <button className="back" onClick={back}><ChevronLeft size={16} /> Back to overview</button>
+      {historical && (
+        <div className="hist-banner">
+          <History size={16} />
+          <div>
+            <strong>Historical site version · {versionLabel(site)}</strong>
+            <p>Read-only archive. PO {site.wo || "—"} · contract {site.contractStart ? `${monthLabelOf(site.contractStart)}–${monthLabelOf(site.contractEnd)}` : "—"}</p>
+          </div>
+          <button type="button" className="ghost-d sm" onClick={() => onViewHistory(site.siteGroup)}>All versions</button>
+        </div>
+      )}
       <div className="site-head">
-        <div><h2>{site.name}</h2><p>{site.service || "—"}{site.wo ? ` · W.O. ${site.wo}` : ""}{site.contractStart ? ` · contract ${monthLabelOf(site.contractStart)}–${monthLabelOf(site.contractEnd)}` : ""} · {mLabel}</p></div>
-        <div className="site-head-right"><StatusPill margin={c.margin} profit={c.profit} /><button className="ghost-d" onClick={onConfig}><Sliders size={14} /> Setup</button><button className="primary" onClick={onEdit}><Pencil size={14} /> Edit figures</button></div>
+        <div>
+          <h2>{site.name} <span className="ver-pill inline">{versionLabel(site)}{historical ? " · Inactive" : " · Active"}</span></h2>
+          <p>{site.service || "—"}{site.wo ? ` · W.O. ${site.wo}` : ""}{site.contractStart ? ` · contract ${monthLabelOf(site.contractStart)}–${monthLabelOf(site.contractEnd)}` : ""} · {mLabel}</p>
+        </div>
+        <div className="site-head-right">
+          <StatusPill margin={c.margin} profit={c.profit} />
+          <button className="ghost-d" onClick={() => onViewHistory(site.siteGroup)}><History size={14} /> History</button>
+          {!historical && <button className="ghost-d" onClick={onConfig}><Sliders size={14} /> Setup</button>}
+          {!historical && <button className="primary" onClick={onEdit}><Pencil size={14} /> Edit figures</button>}
+        </div>
       </div>
       <div className="kpi-row">
         <Kpi icon={IndianRupee} label="Total Revenue (a)" value={inrShort(c.revenue)} sub={est ? `est ${inrShort(est.revenue)}` : null} />
@@ -1485,25 +1753,65 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
 }
 
 /* ───────────────────────── ENTRY FORM ───────────────────────── */
+function entryRecordClean(form) {
+  const clean = {};
+  Object.entries(form).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== 0 && !Number.isNaN(v)) clean[k] = Number(v);
+  });
+  return clean;
+}
+
 function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onPatchSite, onAdd, goConfig }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   const [mk, setMk] = useState(month);
   const [form, setForm] = useState({});
-  const [saved, setSaved] = useState(false);
+  const [saveUi, setSaveUi] = useState("idle");
+  const skipAutoSave = useRef(true);
+  const autoSaveTimer = useRef(null);
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
   useEffect(() => { setMk(month); }, [month]);
-  useEffect(() => { setForm(records[`${siteId}__${mk}`] ? { ...records[`${siteId}__${mk}`] } : {}); setSaved(false); }, [siteId, mk, records]);
+  useEffect(() => {
+    skipAutoSave.current = true;
+    setForm(records[`${siteId}__${mk}`] ? { ...records[`${siteId}__${mk}`] } : {});
+    setSaveUi("idle");
+  }, [siteId, mk, records]);
+  const saveUiTimer = useRef(null);
+  const persistForm = useCallback((data, { manual = false } = {}) => {
+    onSave(siteId, mk, entryRecordClean(data));
+    setMonth(mk);
+    setActiveSite(siteId);
+    setSaveUi(manual ? "saved" : "autosaved");
+    if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
+    saveUiTimer.current = setTimeout(() => setSaveUi("idle"), manual ? 2500 : 1800);
+  }, [siteId, mk, onSave, setMonth, setActiveSite]);
+  useEffect(() => {
+    if (skipAutoSave.current) {
+      skipAutoSave.current = false;
+      return undefined;
+    }
+    setSaveUi("pending");
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => persistForm(form), 700);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [form, persistForm]);
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add your first site to start recording figures.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
   const site = sites.find((s) => s.id === siteId);
   const structure = displayStructure(site).filter((g) => g.children.length);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v === "" ? undefined : Number(v) }));
   const c = calcSite(site, mk, records, form);
+  const parentSub = (g) => g.children.reduce((a, k) => a + (c.ex.total[k] || 0), 0);
   const copyPrev = () => { const idx = monthIdx(mk); for (let i = idx - 1; i >= 0; i--) { const r = records[`${siteId}__${MONTHS[i].key}`]; if (r) { setForm({ ...r }); return; } } alert("No earlier month found for this site."); };
-  const save = () => { const clean = {}; Object.entries(form).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== 0 && !Number.isNaN(v)) clean[k] = Number(v); }); onSave(siteId, mk, clean); setMonth(mk); setActiveSite(siteId); setSaved(true); setTimeout(() => setSaved(false), 2500); };
+  const save = () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    persistForm(form, { manual: true });
+  };
   const renderField = (key, label) => (<label className="field" key={key}><span>{label}</span><div className="field-in"><i>₹</i><input type="number" inputMode="numeric" value={form[key] ?? ""} placeholder="0" onChange={(e) => set(key, e.target.value)} /></div></label>);
-  const parentSub = (g) => g.children.reduce((a, k) => a + (Number(form[k]) || 0), 0);
+  const savedRec = records[`${siteId}__${mk}`];
+  const formClean = entryRecordClean(form);
+  const isDirty = JSON.stringify(formClean) !== JSON.stringify(savedRec || {});
   const pend = site ? pendingMonths(site, records, month) : [];
   const monthFilled = (k) => !!records[`${siteId}__${k}`];
+  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Auto-saved" : saveUi === "pending" ? "Saving…" : "Save figures";
 
   return (
     <div className="entry">
@@ -1513,7 +1821,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
         <button className="ghost-d" onClick={copyPrev}><Copy size={14} /> Copy previous</button>
         <button className="ghost-d" onClick={() => goConfig(siteId)}><Sliders size={14} /> Structure</button>
         <div className="entry-live"><span>Rev <b>{inrShort(c.revenue)}</b></span><span>Exp <b>{inrShort(c.expense)}</b></span><span style={{ color: c.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>Profit <b>{inrShort(c.profit)}</b> ({pct(c.margin)})</span></div>
-        <button className="primary" onClick={save}>{saved ? "✓ Saved" : "Save figures"}</button>
+        <button className="primary" onClick={save} disabled={saveUi === "pending"}>{saveLabel}</button>
       </div>
       {pend.length > 0 && (
         <div className="pend-strip">
@@ -1530,12 +1838,60 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       >
         <SpreadEditor site={site} library={library} onPatchSite={onPatchSite} entryMonth={mk} />
       </Card>
-      <div className="grid-2">
-        <Card title="Revenue"><div className="fields">{REVENUE_ITEMS.map((it) => renderField(it.key, it.label))}</div></Card>
-        <Card title="Expenses" right={<span className="muted-s">{siteChildKeys(site).length} lines · {structure.length} parents</span>}>
-          {structure.length === 0 ? <div className="dnd-empty">No cost lines configured. <button className="link" onClick={() => goConfig(siteId)}>Set up the structure →</button></div> :
-            structure.map((g) => <div key={g.parent} className="fgroup"><div className="fgroup-h" style={{ color: parentColor(g.parent), display: "flex", justifyContent: "space-between" }}><span><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</span><span className="mono" style={{ color: "var(--muted)", fontWeight: 500 }}>{inrShort(parentSub(g))}</span></div><div className="fields">{g.children.map((k) => renderField(k, libMap[k]?.label || k))}</div></div>)}
-        </Card>
+      <div className="grid-2 entry-cols">
+        <div className="entry-col">
+          <div className="entry-totals rev-totals">
+            <div className="entry-totals-h">
+              Revenue Totals
+              {isDirty && <span className="ect-draft">unsaved</span>}
+            </div>
+            <table className="entry-totals-tbl">
+              <tbody>
+                {REVENUE_ITEMS.map((it) => (
+                  <tr key={it.key}>
+                    <td>{it.label}</td>
+                    <td className="r mono">{inr(it.sign * (Number(form[it.key]) || 0))}</td>
+                  </tr>
+                ))}
+                <tr className="ect-grand">
+                  <td>Total Revenue</td>
+                  <td className="r mono">{inr(c.revenue)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <Card title="Revenue"><div className="fields">{REVENUE_ITEMS.map((it) => renderField(it.key, it.label))}</div></Card>
+        </div>
+        <div className="entry-col">
+          <div className="entry-totals exp-totals">
+            <div className="entry-totals-h">
+              Expense Totals
+              {isDirty && <span className="ect-draft">unsaved</span>}
+            </div>
+            {structure.length === 0 ? (
+              <p className="muted-s" style={{ margin: 0, fontSize: 12.5 }}>Configure cost lines to see section totals.</p>
+            ) : (
+              <table className="entry-totals-tbl">
+                <tbody>
+                  {structure.map((g) => (
+                    <tr key={g.parent}>
+                      <td className="ect-label"><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</td>
+                      <td className="r mono">{inr(parentSub(g))}</td>
+                    </tr>
+                  ))}
+                  <tr className="ect-grand">
+                    <td>Total Expenses</td>
+                    <td className="r mono">{inr(c.expense)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+          <Card title="Expenses" right={<span className="muted-s">{siteChildKeys(site).length} lines · {structure.length} parents</span>}>
+            {structure.length === 0 ? <div className="dnd-empty">No cost lines configured. <button className="link" onClick={() => goConfig(siteId)}>Set up the structure →</button></div> :
+              structure.map((g) => <div key={g.parent} className="fgroup"><div className="fgroup-h" style={{ color: parentColor(g.parent), display: "flex", justifyContent: "space-between" }}><span><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</span><span className="mono" style={{ color: "var(--muted)", fontWeight: 500 }}>{inr(parentSub(g))}</span></div><div className="fields">{g.children.map((k) => renderField(k, libMap[k]?.label || k))}</div></div>)}
+          </Card>
+        </div>
       </div>
     </div>
   );
@@ -1661,7 +2017,7 @@ function buildReport(cfg) {
   return { kind: "fin", columns, rows, totals };
 }
 
-function Reports({ sites, records, parents, defaultMonth }) {
+function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistorical, setShowHistorical, onViewSite }) {
   const activeMks = useMemo(() => {
     const have = new Set();
     Object.keys(records).forEach((k) => have.add(k.split("__")[1]));
@@ -1724,7 +2080,10 @@ function Reports({ sites, records, parents, defaultMonth }) {
     : (dim === "month" || periodMode === "range")
       ? `${monthLabelOf(from)} – ${monthLabelOf(to)}`
       : monthLabelOf(month);
-  const scopeText = scope === "all" ? `All ${sites.length} sites` : sites.find((s) => s.id === scope)?.name;
+  const scopeText = scope === "all"
+    ? (showHistorical ? `All ${sites.length} site versions` : `All ${sites.length} active sites`)
+    : sites.find((s) => s.id === scope)?.name;
+  const inactiveSites = useMemo(() => (sitesAll || sites).filter((s) => !isSiteActive(s)), [sitesAll, sites]);
   const showTotals = !(dim === "site" && periodMode === "single" && activePreset === "pnl");
 
   const grid = useMemo(() => {
@@ -1779,8 +2138,8 @@ function Reports({ sites, records, parents, defaultMonth }) {
       <label className="ov-filter">
         <span>Sites</span>
         <select value={scope} onChange={(e) => setScope(e.target.value)}>
-          <option value="all">All sites</option>
-          {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          <option value="all">{showHistorical ? "All site versions" : "All active sites"}</option>
+          {sites.map((s) => <option key={s.id} value={s.id}>{s.name} · {versionLabel(s)}{!isSiteActive(s) ? " (inactive)" : ""}</option>)}
         </select>
       </label>
       {activePreset === "under" && (
@@ -1815,6 +2174,15 @@ function Reports({ sites, records, parents, defaultMonth }) {
 
   return (
     <>
+      <div className="rep-hist-bar">
+        <button type="button" className={"hist-scope-btn" + (showHistorical ? " on" : "")} onClick={() => setShowHistorical((v) => !v)}>
+          <History size={13} />
+          {showHistorical ? "Including historical versions" : "Active sites only (default)"}
+        </button>
+        {!showHistorical && inactiveSites.length > 0 && (
+          <span className="muted-s">{inactiveSites.length} inactive version{inactiveSites.length === 1 ? "" : "s"} excluded from totals</span>
+        )}
+      </div>
       <div className="sl-view-nav rep-mode-nav">
         <button type="button" className={"sl-view-btn" + (tab === "standard" ? " on" : "")} onClick={() => setTab("standard")}>Standard reports</button>
         <button type="button" className={"sl-view-btn" + (tab === "custom" ? " on" : "")} onClick={() => setTab("custom")}>Custom builder</button>
@@ -1860,8 +2228,8 @@ function Reports({ sites, records, parents, defaultMonth }) {
               <label className="ov-filter">
                 <span>Sites</span>
                 <select value={scope} onChange={(e) => { setScope(e.target.value); setActivePreset(null); setTitle("Custom Report"); }}>
-                  <option value="all">All sites</option>
-                  {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  <option value="all">{showHistorical ? "All site versions" : "All active sites"}</option>
+                  {sites.map((s) => <option key={s.id} value={s.id}>{s.name} · {versionLabel(s)}{!isSiteActive(s) ? " (inactive)" : ""}</option>)}
                 </select>
               </label>
               {(dim === "spread" || dim === "pending") ? (
@@ -2023,28 +2391,138 @@ function ReportTable({ report, showTotals = true, dim }) {
 
 /* ───────────────────────── MODALS ───────────────────────── */
 function AddSiteModal({ onClose, onSave, existing }) {
-  const [name, setName] = useState(""); const [service, setService] = useState(""); const [wo, setWo] = useState("");
+  const [name, setName] = useState("");
+  const [service, setService] = useState("");
+  const [wo, setWo] = useState("");
   const [tmpl, setTmpl] = useState("default");
-  const [cStart, setCStart] = useState("2025-04"); const [cEnd, setCEnd] = useState("2026-03");
+  const [cStart, setCStart] = useState("2025-04");
+  const [cEnd, setCEnd] = useState("2026-03");
+  const [renewalMode, setRenewalMode] = useState(false);
   const templates = {
     default: DEFAULT_KEYS,
     security: ["salaries", "salariesOT", "holiday", "gratuity", "pf", "esicEmp", "uniform", "empBenefit", "houseRent", "fuel", "labourLicence", "indirect", "bankCharges", "bizPromo"],
     housekeeping: ["salaries", "salariesOT", "pf", "esicEmp", "empBenefit", "uniform", "cook", "housekeeping", "houseRent", "purchaseRepair", "indirect", "bankCharges", "bizPromo"],
     fire: ["salaries", "salariesOT", "holiday", "bonus", "gratuity", "pf", "esicEmp", "insurance", "empBenefit", "uniform", "houseRent", "fuel", "vehicleRepair", "equipment", "labourLicence", "indirect", "bankCharges", "bizPromo"],
   };
-  const submit = () => { if (!name.trim()) return; let id = slug(name), n = 1; while (existing.some((s) => s.id === id)) id = slug(name) + "-" + (++n); onSave({ id, name: name.trim(), service: service.trim(), wo: wo.trim(), structure: structureFromKeys(templates[tmpl]), spreads: [], estimates: [], contractStart: cStart, contractEnd: cEnd }); };
+  const nameMatches = useMemo(
+    () => existing.filter((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase()),
+    [existing, name],
+  );
+  const priorActive = useMemo(
+    () => nameMatches.find(isSiteActive) || nameMatches[0] || null,
+    [nameMatches],
+  );
+  const isRenewal = renewalMode && nameMatches.length > 0;
+  const submit = () => {
+    if (!name.trim()) return;
+    const trimmed = name.trim();
+    let id = slug(trimmed);
+    let n = 1;
+    while (existing.some((s) => s.id === id)) id = slug(trimmed) + "-" + (++n);
+    const base = {
+      id,
+      name: trimmed,
+      service: (service || priorActive?.service || "").trim(),
+      wo: wo.trim(),
+      structure: isRenewal && priorActive?.structure?.length
+        ? priorActive.structure.map((g) => ({ parent: g.parent, children: [...g.children] }))
+        : structureFromKeys(templates[tmpl]),
+      spreads: [],
+      estimates: [],
+      contractStart: cStart,
+      contractEnd: cEnd,
+      siteGroup: priorActive?.siteGroup || slug(trimmed),
+      version: 1,
+      status: "active",
+      isRenewal: !!isRenewal,
+    };
+    onSave(base);
+  };
   return (
-    <Modal onClose={onClose} title="Add Site">
+    <Modal onClose={onClose} title={isRenewal ? "New Contract / PO Version" : "Add Site"}>
       <label className="m-field"><span>Site / client name *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lalitpur Power Generation" autoFocus /></label>
+      {nameMatches.length > 0 && (
+        <div className="renewal-banner">
+          <History size={15} />
+          <div>
+            <strong>Existing site found — {nameMatches.length} version{nameMatches.length === 1 ? "" : "s"} on record</strong>
+            <p>Create a new contract version with the same site name. Previous version(s) will be marked inactive.</p>
+          </div>
+          <label className="renewal-check">
+            <input type="checkbox" checked={renewalMode} onChange={(e) => setRenewalMode(e.target.checked)} />
+            New PO / contract version
+          </label>
+        </div>
+      )}
       <label className="m-field"><span>Service type</span><input value={service} onChange={(e) => setService(e.target.value)} placeholder="Fire Fighting / Security / Housekeeping…" /></label>
-      <label className="m-field"><span>Work order no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="optional" /></label>
+      <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
       <div style={{ display: "flex", gap: 10 }}>
         <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><select value={cStart} onChange={(e) => setCStart(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
         <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><select value={cEnd} onChange={(e) => setCEnd(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
       </div>
-      <label className="m-field"><span>Start from a structure template</span><select value={tmpl} onChange={(e) => setTmpl(e.target.value)}><option value="default">All standard lines</option><option value="security">Security</option><option value="housekeeping">Housekeeping</option><option value="fire">Fire Fighting</option></select></label>
+      {!isRenewal && (
+        <label className="m-field"><span>Start from a structure template</span><select value={tmpl} onChange={(e) => setTmpl(e.target.value)}><option value="default">All standard lines</option><option value="security">Security</option><option value="housekeeping">Housekeeping</option><option value="fire">Fire Fighting</option></select></label>
+      )}
+      {isRenewal && priorActive && (
+        <p className="m-note">Structure will be copied from {versionLabel(priorActive)}. Adjust rates and heads in Site Setup after creating.</p>
+      )}
       <p className="m-note">Next, in Site Setup you can arrange parent → child lines (drag &amp; drop) and set the <b>estimate / budget</b>.</p>
-      <div className="m-actions"><button className="ghost-d" onClick={onClose}>Cancel</button><button className="primary" onClick={submit}>Add &amp; configure</button></div>
+      <div className="m-actions"><button className="ghost-d" onClick={onClose}>Cancel</button><button className="primary" onClick={submit}>{isRenewal ? "Create new version" : "Add & configure"}</button></div>
+    </Modal>
+  );
+}
+
+function SiteVersionHistoryModal({ siteGroup, sites, records, month, onClose, onOpenSite }) {
+  const versions = useMemo(() => sitesInGroup(sites, siteGroup), [sites, siteGroup]);
+  const siteName = versions[0]?.name || "Site";
+  const mLabel = monthLabelOf(month);
+  return (
+    <Modal onClose={onClose} title={`Version History · ${siteName}`} wide>
+      <p className="m-note">Complete audit trail of PO / contract versions. Historical versions are read-only and excluded from active portfolio totals by default.</p>
+      <table className="tbl hist-tbl">
+        <thead>
+          <tr>
+            <th>Version</th>
+            <th>PO / W.O.</th>
+            <th>Contract</th>
+            <th>Service</th>
+            <th>Status</th>
+            <th className="r">P&L · {mLabel}</th>
+            <th className="r">Estimates</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {versions.map((s) => {
+            const c = calcSite(s, month, records);
+            const hasData = !!records[`${s.id}__${month}`];
+            const estCount = (s.estimates || []).length;
+            return (
+              <tr key={s.id} className={!isSiteActive(s) ? "row-inactive" : ""}>
+                <td className="strong">{versionLabel(s)}</td>
+                <td className="mono">{s.wo || "—"}</td>
+                <td className="mono muted-s">{s.contractStart ? `${monthLabelOf(s.contractStart)}–${monthLabelOf(s.contractEnd)}` : "—"}</td>
+                <td className="muted-s">{s.service || "—"}</td>
+                <td>
+                  <span className={"pill " + (isSiteActive(s) ? "pill-ok" : "pill-inactive")}>
+                    <CircleDot size={9} /> {isSiteActive(s) ? "Active" : "Inactive"}
+                  </span>
+                </td>
+                <td className="r mono" style={{ color: hasData ? (c.profit < 0 ? "var(--loss)" : "var(--ink)") : "var(--muted)" }}>
+                  {hasData ? inr(c.profit) : "—"}
+                </td>
+                <td className="r mono muted-s">{estCount || "—"}</td>
+                <td className="r">
+                  <button type="button" className="link" onClick={() => onOpenSite(s.id)}>View P&L →</button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="m-actions">
+        <button className="ghost-d" onClick={onClose}>Close</button>
+      </div>
     </Modal>
   );
 }
@@ -2158,6 +2636,30 @@ function Styles() {
     .tbl th.r,.tbl td.r{text-align:right;}.tbl th.click{cursor:pointer;user-select:none;}.tbl th.click:hover{color:var(--ink);}
     .tbl td{padding:11px 12px;border-bottom:1px solid var(--line);}.tbl tr:last-child td{border-bottom:none;}
     .tbl tbody tr:hover td{background:#f9fafb;}
+    .tbl tbody tr.row-inactive td{background:#f3f4f6;color:#9ca3af;}
+    .tbl tbody tr.row-inactive td.strong,.tbl tbody tr.row-inactive .ver-pill{color:#6b7280;}
+    .tbl tbody tr.row-inactive:hover td{background:#eceff3;}
+    .ver-pill{display:inline-block;margin-left:8px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:#f3f4f6;border:1px solid var(--line);color:var(--muted);font-family:var(--mono);vertical-align:middle;}
+    .ver-pill.inactive,.ver-pill.inactive{background:#e5e7eb;color:#6b7280;}
+    .ver-pill.inline{margin-left:10px;font-size:11px;}
+    .hist-scope-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink-soft);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--body);white-space:nowrap;}
+    .hist-scope-btn.sm{padding:6px 10px;font-size:11.5px;}
+    .hist-scope-btn.on{background:var(--accent-soft);border-color:#fecaca;color:var(--accent);font-weight:600;}
+    .hist-scope-btn:hover{border-color:#d1d5db;color:var(--ink);}
+    .hist-hint{color:var(--muted);}
+    .hist-banner{display:flex;align-items:center;gap:12px;padding:12px 16px;margin-bottom:16px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:12px;color:var(--ink-soft);}
+    .hist-banner strong{display:block;color:var(--ink);font-size:13px;margin-bottom:2px;}
+    .hist-banner p{margin:0;font-size:12px;color:var(--muted);}
+    .hist-banner .ghost-d.sm{padding:6px 12px;font-size:12px;margin-left:auto;flex-shrink:0;}
+    .renewal-banner{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;padding:12px 14px;margin-bottom:12px;background:rgba(31,111,78,.08);border:1px solid rgba(31,111,78,.2);border-radius:10px;font-size:12.5px;color:var(--ink-soft);}
+    .renewal-banner strong{display:block;color:var(--ink);font-size:13px;}
+    .renewal-banner p{margin:4px 0 0;font-size:12px;color:var(--muted);}
+    .renewal-check{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap;}
+    .sites-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .rep-hist-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+    .pill-inactive{background:#e5e7eb;color:#6b7280;}
+    .hist-tbl{margin-top:8px;}
+    .hist-link{margin-right:10px;}
     .strong{font-weight:600;}.click{cursor:pointer;}td.click:hover{color:var(--accent);}
     .mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;}.nowrap{white-space:nowrap;}
     .link{background:none;border:none;color:var(--accent);font-weight:600;cursor:pointer;font-family:var(--body);font-size:inherit;padding:0;}
@@ -2196,6 +2698,18 @@ function Styles() {
     .entry-sel{display:flex;flex-direction:column;gap:4px;}
     .entry-sel label{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}
     .entry-live{margin-left:auto;display:flex;gap:16px;font-size:12.5px;color:var(--ink-soft);font-family:var(--mono);}.entry-live b{font-weight:600;}
+    .entry-cols{align-items:start;}
+    .entry-col{display:flex;flex-direction:column;gap:12px;}
+    .entry-totals{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:12px 14px;}
+    .entry-totals-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+    .ect-draft{font-size:10px;text-transform:none;letter-spacing:0;color:var(--warn);background:rgba(194,130,15,.12);padding:2px 7px;border-radius:20px;font-weight:600;}
+    .entry-totals-tbl{width:100%;border-collapse:collapse;font-size:13px;}
+    .entry-totals-tbl td{padding:5px 4px;border-bottom:1px solid var(--line);color:var(--ink-soft);vertical-align:middle;}
+    .entry-totals-tbl td.ect-label{display:flex;align-items:center;gap:7px;}
+    .entry-totals-tbl tr:last-child td{border-bottom:none;}
+    .entry-totals-tbl tr.ect-grand td{font-weight:700;color:var(--ink);border-top:2px solid var(--line);padding-top:8px;}
+    .entry-totals-tbl tr.ect-grand td:last-child{color:var(--loss);}
+    .rev-totals .entry-totals-tbl tr.ect-grand td:last-child{color:var(--profit);}
     .cfg-hint{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12.5px;flex:1;}
     .amort-note{display:flex;align-items:center;gap:9px;background:rgba(169,132,43,.1);border:1px solid rgba(169,132,43,.25);color:var(--gold);padding:11px 15px;border-radius:11px;margin-bottom:16px;font-size:13px;}.amort-note b{color:var(--ink);}
     .fgroup{margin-bottom:14px;}.fgroup-h{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:9px;display:flex;align-items:center;gap:7px;}
