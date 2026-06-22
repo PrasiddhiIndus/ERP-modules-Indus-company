@@ -844,28 +844,36 @@ const CostingTable = ({
     }
   };
 
+  const costingHeaderSticky =
+    "sticky top-0 z-20 border border-red-100 bg-gradient-to-r from-red-50 to-amber-50 px-2 py-1 shadow-[0_1px_0_0_#fecaca]";
+  const costingFreezeSrHeader = `${costingHeaderSticky} left-0 z-30 min-w-[3rem] w-12`;
+  const costingFreezeMainHeader = `${costingHeaderSticky} left-12 z-30 min-w-[11rem] w-44 erp-freeze-pane-edge`;
+  const costingFreezeSrBody = "sticky left-0 z-10 border bg-white px-2 py-1 text-center erp-freeze-pane-frozen";
+  const costingFreezeMainBody =
+    "sticky left-12 z-10 border bg-white px-2 py-1 erp-freeze-pane-frozen erp-freeze-pane-edge";
+
   return (
     <div className="space-y-4">
       <div className="bg-white p-4 sm:p-6 shadow rounded-lg w-full">
-        <div className="overflow-x-auto">
-        <table className="border-collapse border text-xs sm:text-sm min-w-full">
-          <thead className="bg-gray-100 sticky top-0 z-10">
+        <div className="erp-freeze-pane-scroll max-h-[calc(100dvh-16rem)] overflow-auto">
+        <table className="erp-table-exempt border-separate border-spacing-0 border text-xs sm:text-sm min-w-full">
+          <thead>
             <tr>
-              <th className="border px-2 py-1">Sr. No.</th>
-              <th className="border px-2 py-1">Main Cost Component</th>
-              <th className="border px-2 py-1">Sub Category 1</th>
-              <th className="border px-2 py-1">Sub Category 2</th>
-              <th className="border px-2 py-1">Sub Category 3</th>
-              <th className="border px-2 py-1">Sub Category 4</th>
-              <th className="border px-2 py-1">Sub Category 5</th>
-              <th className="border px-2 py-1">Manual Sub Category</th>
-              <th className="border px-2 py-1">Weight</th>
-              <th className="border px-2 py-1">Labour Cost</th>
-              <th className="border px-2 py-1">Unit Cost/Price of metal</th>
-              <th className="border px-2 py-1">Quantity</th>
-              <th className="border px-2 py-1">Total Price</th>
-              <th className="border px-2 py-1">Remark</th>
-              <th className="border px-2 py-1">Action</th>
+              <th className={costingFreezeSrHeader}>Sr. No.</th>
+              <th className={costingFreezeMainHeader}>Main Cost Component</th>
+              <th className={costingHeaderSticky}>Sub Category 1</th>
+              <th className={costingHeaderSticky}>Sub Category 2</th>
+              <th className={costingHeaderSticky}>Sub Category 3</th>
+              <th className={costingHeaderSticky}>Sub Category 4</th>
+              <th className={costingHeaderSticky}>Sub Category 5</th>
+              <th className={costingHeaderSticky}>Manual Sub Category</th>
+              <th className={costingHeaderSticky}>Weight</th>
+              <th className={costingHeaderSticky}>Labour Cost</th>
+              <th className={costingHeaderSticky}>Unit Cost/Price of metal</th>
+              <th className={costingHeaderSticky}>Quantity</th>
+              <th className={costingHeaderSticky}>Total Price</th>
+              <th className={costingHeaderSticky}>Remark</th>
+              <th className={costingHeaderSticky}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -873,19 +881,19 @@ const CostingTable = ({
               const metaconeQty = isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : null;
               const isFixedRow = index < fixedRows.length;
               const fillStatus = getCostingRowFillStatus(row, allRows, componentTree, isFixedRow);
-              const rowClass =
+              const fillHighlightClass =
                 fillStatus === "complete"
-                  ? "bg-green-50"
+                  ? "bg-green-100"
                   : fillStatus === "incomplete"
-                    ? "bg-red-50"
-                    : "hover:bg-gray-50";
+                    ? "bg-red-100"
+                    : "bg-white";
 
               return (
-                <tr key={index} className={rowClass}>
-                  <td className="border px-2 py-1 text-center">{index + 1}</td>
+                <tr key={index} className="bg-white">
+                  <td className={costingFreezeSrBody}>{index + 1}</td>
 
                   {/* Main Component */}
-                  <td className="border px-2 py-1">
+                  <td className={costingFreezeMainBody}>
                     {isFixedRow ? (
                       <span className="font-semibold">{displayAliases[row.component] || row.component}</span>
                     ) : (
@@ -906,15 +914,15 @@ const CostingTable = ({
                     )}
                   </td>
 
-                  <td className="border px-2 py-1">{renderSubColumn(1, row, index, isFixedRow)}</td>
-                  <td className="border px-2 py-1">{renderSubColumn(2, row, index, isFixedRow)}</td>
-                  <td className="border px-2 py-1">{renderSubColumn(3, row, index, isFixedRow)}</td>
-                  <td className="border px-2 py-1">{renderSubColumn(4, row, index, isFixedRow)}</td>
-                  <td className="border px-2 py-1">{renderSubColumn(5, row, index, isFixedRow)}</td>
+                  <td className="border bg-white px-2 py-1">{renderSubColumn(1, row, index, isFixedRow)}</td>
+                  <td className="border bg-white px-2 py-1">{renderSubColumn(2, row, index, isFixedRow)}</td>
+                  <td className="border bg-white px-2 py-1">{renderSubColumn(3, row, index, isFixedRow)}</td>
+                  <td className="border bg-white px-2 py-1">{renderSubColumn(4, row, index, isFixedRow)}</td>
+                  <td className="border bg-white px-2 py-1">{renderSubColumn(5, row, index, isFixedRow)}</td>
 
 
                   {/* Manual Sub Category */}
-                  <td className="border px-2 py-1">
+                  <td className="border bg-white px-2 py-1">
                     <input
                       type="text"
                       value={row.manualSub}
@@ -939,7 +947,7 @@ const CostingTable = ({
                     // If Metacone row and this is quantity field — show computed read-only qty
                     if (field === "qty" && metaconeQty !== null) {
                       return (
-                        <td key={field} className="border px-2 py-1">
+                        <td key={field} className={`border px-2 py-1 ${fillHighlightClass}`}>
                           <NumericInput
                             value={isMetaconeMounting(row.component) ? computeMetaconeQty(allRows) : row.qty}
                             readOnly={isMetaconeMounting(row.component)}
@@ -982,8 +990,13 @@ const CostingTable = ({
                           ? isLabourFieldEditable(row.component)
                           : true;
 
+                    const highlightField = field === "qty" || field === "unitCost";
+
                     return (
-                      <td key={field} className="border px-2 py-1 relative">
+                        <td
+                          key={field}
+                          className={`border px-2 py-1 relative ${highlightField ? fillHighlightClass : "bg-white"}`}
+                        >
                         <div className="relative">
                           <NumericInput
                             value={row[field]}
@@ -1037,9 +1050,7 @@ const CostingTable = ({
                   })}
 
                   {/* Total */}
-                  <td className={`border px-2 py-1 text-right relative ${
-                    checkTotalDrift(row) ? 'bg-red-200 border-red-400' : ''
-                  }`}>
+                  <td className={`border px-2 py-1 text-right relative ${fillHighlightClass}`}>
                     ₹ {formatCurrency(calculateTotal(row))}
                     {checkTotalDrift(row) && (
                       <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" title="Total needs recalculation due to price/weight changes in Price Master"></div>
@@ -1047,7 +1058,7 @@ const CostingTable = ({
                   </td>
 
                   {/* Remark */}
-                  <td className="border px-2 py-1">
+                  <td className="border bg-white px-2 py-1">
                     <input
                       type="text"
                       value={row.remark}
@@ -1069,7 +1080,7 @@ const CostingTable = ({
                   </td>
 
                   {/* Action: delete any line (fixed lines stay omitted for this tender in this browser) */}
-                  <td className="border px-2 text-center">
+                  <td className="border bg-white px-2 text-center">
                     <button
                       type="button"
                       onClick={() => removeCostingRowAt(index)}
