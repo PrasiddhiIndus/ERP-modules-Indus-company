@@ -30,9 +30,38 @@ export function serializeSiteMeta(site) {
 
 export const REVENUE_ITEMS = [
   { key: "saleRevenue", label: "Sale Revenue", sign: 1 },
-  { key: "esicBill", label: "ESIC bill (reimbursement)", sign: 1 },
+  { key: "esicBill", label: "Reimbursement", sign: 1 },
   { key: "creditNote", label: "less: Credit Note / deductions", sign: -1 },
 ];
+
+export const REIMBURSEMENT_TYPES = [
+  { key: "pf", label: "PF" },
+  { key: "esic", label: "ESIC" },
+  { key: "mwHike", label: "Impact of M.W Hike on salary" },
+  { key: "nhPh", label: "NH/PH" },
+  { key: "gratuity", label: "Gratuity" },
+  { key: "bonus", label: "Bonus" },
+  { key: "arrears", label: "Arrears" },
+];
+
+export function reimbursementLabel(typeKey) {
+  return REIMBURSEMENT_TYPES.find((t) => t.key === typeKey)?.label || "";
+}
+
+export function reimbursementRowLabel(rec) {
+  const type = rec?.reimbursementType;
+  return type ? `Reimbursement · ${reimbursementLabel(type)}` : "Reimbursement";
+}
+
+function parsePeriodMeta(notes) {
+  if (!notes) return {};
+  try {
+    const parsed = JSON.parse(notes);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 function t(name) {
   return supabase.schema(SCHEMA).from(name);
@@ -236,6 +265,8 @@ function buildRecords(raw, childById, revById) {
         const code = childById[l.child_head_id]?.code;
         if (code) records[key][code] = Number(l.amount);
       });
+    const meta = parsePeriodMeta(pe.notes);
+    if (meta.reimbursementType) records[key].reimbursementType = meta.reimbursementType;
   });
   return records;
 }
@@ -524,7 +555,14 @@ async function syncRecords(records, siteIdByCode, childIdByCode, revIdByCode) {
 
     const { data: pe, error } = await t("period_entries")
       .upsert(
-        { site_id: siteId, period_key: periodKey, status: "submitted" },
+        {
+          site_id: siteId,
+          period_key: periodKey,
+          status: "submitted",
+          notes: rec.reimbursementType
+            ? JSON.stringify({ reimbursementType: rec.reimbursementType })
+            : null,
+        },
         { onConflict: "site_id,period_key" },
       )
       .select("id")
@@ -535,6 +573,7 @@ async function syncRecords(records, siteIdByCode, childIdByCode, revIdByCode) {
     await t("expense_entry_lines").delete().eq("period_entry_id", pe.id);
 
     for (const [code, amount] of Object.entries(rec)) {
+      if (code === "reimbursementType" || typeof amount !== "number") continue;
       if (!Number(amount)) continue;
       if (revIdByCode[code]) {
         await t("revenue_entry_lines").insert({

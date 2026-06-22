@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadLedgerStore, saveLedgerPartial, saveLedgerStore } from "./api/siteLedgerStore";
+import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, REIMBURSEMENT_TYPES, reimbursementRowLabel } from "./api/siteLedgerStore";
 import { subscribeFinanceRefresh } from "../../services/financeApi";
 import { useNavigate } from "react-router-dom";
 import { financePath } from "./navConfig";
@@ -24,7 +24,7 @@ import {
 
 const REVENUE_ITEMS = [
   { key: "saleRevenue", label: "Sale Revenue", sign: 1 },
-  { key: "esicBill", label: "ESIC bill (reimbursement)", sign: 1 },
+  { key: "esicBill", label: "Reimbursement", sign: 1 },
   { key: "creditNote", label: "less: Credit Note / deductions", sign: -1 },
 ];
 
@@ -1309,7 +1309,12 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
   const c = calcSite(site, month, records);
   const estVer = estimateFor(site, month);
   const est = estTotals(estVer);
-  const revBreak = REVENUE_ITEMS.map((it) => ({ ...it, raw: Number(rec?.[it.key]) || 0, est: Number(estVer?.revenue?.[it.key]) || 0 }));
+  const revBreak = REVENUE_ITEMS.map((it) => ({
+    ...it,
+    label: revenueDisplayLabel(it, rec),
+    raw: Number(rec?.[it.key]) || 0,
+    est: Number(estVer?.revenue?.[it.key]) || 0,
+  }));
   const tree = expenseTree(site, month, records, estVer).filter((g) => g.actual !== 0 || g.est !== 0);
   const cats = parentTotalsSite(site, month, records);
   const catData = PARENTS.map((p) => ({ name: parentLabel(p.key), value: cats[p.key] || 0, color: p.color })).filter((d) => d.value > 0);
@@ -1756,9 +1761,18 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
 function entryRecordClean(form) {
   const clean = {};
   Object.entries(form).forEach(([k, v]) => {
+    if (k === "reimbursementType") {
+      if (v) clean[k] = String(v);
+      return;
+    }
     if (v !== undefined && v !== null && v !== 0 && !Number.isNaN(v)) clean[k] = Number(v);
   });
   return clean;
+}
+
+function revenueDisplayLabel(it, rec) {
+  if (it.key === "esicBill") return reimbursementRowLabel(rec);
+  return it.label;
 }
 
 function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onPatchSite, onAdd, goConfig }) {
@@ -1798,6 +1812,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   const site = sites.find((s) => s.id === siteId);
   const structure = displayStructure(site).filter((g) => g.children.length);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v === "" ? undefined : Number(v) }));
+  const setStr = (k, v) => setForm((f) => ({ ...f, [k]: v || undefined }));
   const c = calcSite(site, mk, records, form);
   const parentSub = (g) => g.children.reduce((a, k) => a + (c.ex.total[k] || 0), 0);
   const copyPrev = () => { const idx = monthIdx(mk); for (let i = idx - 1; i >= 0; i--) { const r = records[`${siteId}__${MONTHS[i].key}`]; if (r) { setForm({ ...r }); return; } } alert("No earlier month found for this site."); };
@@ -1806,6 +1821,31 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     persistForm(form, { manual: true });
   };
   const renderField = (key, label) => (<label className="field" key={key}><span>{label}</span><div className="field-in"><i>₹</i><input type="number" inputMode="numeric" value={form[key] ?? ""} placeholder="0" onChange={(e) => set(key, e.target.value)} /></div></label>);
+  const renderReimbursementField = () => (
+    <label className="field field-reimb" key="esicBill">
+      <span>Reimbursement</span>
+      <div className="reimb-row">
+        <select
+          className="reimb-sel"
+          value={form.reimbursementType || ""}
+          onChange={(e) => setStr("reimbursementType", e.target.value)}
+        >
+          <option value="">Select type…</option>
+          {REIMBURSEMENT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+        <div className="field-in reimb-amt">
+          <i>₹</i>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={form.esicBill ?? ""}
+            placeholder="0"
+            onChange={(e) => set("esicBill", e.target.value)}
+          />
+        </div>
+      </div>
+    </label>
+  );
   const savedRec = records[`${siteId}__${mk}`];
   const formClean = entryRecordClean(form);
   const isDirty = JSON.stringify(formClean) !== JSON.stringify(savedRec || {});
@@ -1849,7 +1889,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
               <tbody>
                 {REVENUE_ITEMS.map((it) => (
                   <tr key={it.key}>
-                    <td>{it.label}</td>
+                    <td>{revenueDisplayLabel(it, form)}</td>
                     <td className="r mono">{inr(it.sign * (Number(form[it.key]) || 0))}</td>
                   </tr>
                 ))}
@@ -1860,7 +1900,13 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
               </tbody>
             </table>
           </div>
-          <Card title="Revenue"><div className="fields">{REVENUE_ITEMS.map((it) => renderField(it.key, it.label))}</div></Card>
+          <Card title="Revenue">
+            <div className="fields">
+              {REVENUE_ITEMS.map((it) => (
+                it.key === "esicBill" ? renderReimbursementField() : renderField(it.key, it.label)
+              ))}
+            </div>
+          </Card>
         </div>
         <div className="entry-col">
           <div className="entry-totals exp-totals">
@@ -2719,6 +2765,11 @@ function Styles() {
     .field-in{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--paper);overflow:hidden;}
     .field-in:focus-within{border-color:var(--accent-mid);}.field-in i{padding:0 8px;color:var(--muted);font-style:normal;font-family:var(--mono);font-size:13px;}
     .field-in input{border:none;background:none;outline:none;padding:8px 10px 8px 0;width:100%;font-family:var(--mono);font-size:13px;text-align:right;color:var(--ink);}
+    .field-reimb{grid-column:1/-1;}
+    .reimb-row{display:flex;align-items:stretch;gap:10px;width:100%;}
+    .reimb-sel{flex:1;min-width:0;font-family:var(--body);font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);cursor:pointer;}
+    .reimb-sel:focus{outline:none;border-color:var(--accent-mid);}
+    .reimb-amt{flex:0 0 148px;}
     /* config builder */
     .tray{display:flex;flex-wrap:wrap;gap:7px;min-height:54px;padding:10px;border:1px dashed var(--line);border-radius:11px;background:var(--paper);}
     .parents-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px;}
