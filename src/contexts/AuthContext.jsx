@@ -8,6 +8,7 @@ import {
   PROFILE_AUTH_SELECT_WITH_EMP,
 } from "../lib/profileSelect";
 import { getAccessibleModules } from "../config/roles";
+import PageLoader from "../components/PageLoader";
 
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
@@ -415,13 +416,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
-      {loading ? (
-        <div className="flex items-center justify-center h-screen">
-          <p>Loading...</p>
-        </div>
-      ) : (
-        children
-      )}
+      {loading ? <PageLoader fullScreen label="Loading session…" /> : children}
     </AuthContext.Provider>
   );
 };

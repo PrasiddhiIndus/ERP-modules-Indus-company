@@ -1,5 +1,6 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import PageLoader from "../../../components/PageLoader";
 import { PayrollScopeProvider } from "./payrollScope";
 
 const tabClass = ({ isActive }) =>
@@ -33,7 +34,9 @@ function PayrollLayoutInner() {
           </NavLink>
         </nav>
       </div>
-      <Outlet />
+      <Suspense fallback={<PageLoader />}>
+        <Outlet />
+      </Suspense>
     </div>
   );
 }

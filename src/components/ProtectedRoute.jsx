@@ -1,11 +1,20 @@
-import React from 'react'
-import { Navigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import React from "react";
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
+import PageLoader from "./PageLoader";
 
 const ProtectedRoute = ({ children }) => {
-  const { user } = useAuth()
-  if (!user) return <Navigate to="/" replace />
-  return children
-}
+  const { user, loading } = useAuth();
 
-export default ProtectedRoute
+  if (loading) {
+    return <PageLoader fullScreen label="Checking session…" />;
+  }
+
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+};
+
+export default ProtectedRoute;

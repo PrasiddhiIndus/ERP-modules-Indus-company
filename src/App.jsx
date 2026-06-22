@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { AuthProvider } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
+import PageLoader from "./components/PageLoader";
+import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import { checkSupabaseConnection } from "./lib/supabase";
@@ -145,25 +148,6 @@ import {
   finalizeDateInputValue,
   isCompleteIsoDate,
 } from "./utils/dateInput";
-
-const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
-  
-  // Wait for auth to finish loading before redirecting
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <p>Loading...</p>
-      </div>
-    );
-  }
-  
-  if (!user) {
-    return <Navigate to="/" replace />;
-  }
-  return children;
-};
-
 
 function ConnectionGuard({ children }) {
   const [status, setStatus] = useState("checking"); // 'checking' | 'ok' | 'error'
@@ -334,7 +318,9 @@ function App() {
               v7_relativeSplatPath: true,
             }}
           >
-            <Routes>
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageLoader fullScreen />}>
+                <Routes>
           {/* Public */}
           <Route path="/" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -662,7 +648,9 @@ function App() {
 
           {/* Default redirect */}
           <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                </Routes>
+              </Suspense>
+            </RouteErrorBoundary>
           </Router>
         </AuditConsoleProvider>
       </AppAccessConfigProvider>
