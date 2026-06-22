@@ -553,6 +553,29 @@ function App() {
             
             {/* Operations */}
             <Route path="operations" element={<Operations />} />
+            <Route path="operations/expenses" element={<Operations />} />
+            <Route path="operations/expenses/summary" element={<Operations />} />
+            <Route path="operations/expenses/site-dashboard" element={<Operations />} />
+            <Route path="operations/advances" element={<Operations />} />
+            <Route path="operations/advances/approval" element={<Operations />} />
+            <Route path="operations/advances/settlement" element={<Operations />} />
+            <Route path="operations/advances/outstanding" element={<Operations />} />
+            <Route path="operations/medical" element={<Operations />} />
+            <Route path="operations/medical/due" element={<Operations />} />
+            <Route path="operations/medical/centers" element={<Operations />} />
+            <Route path="operations/medical/:id" element={<Operations />} />
+            <Route path="operations/accommodation" element={<Operations />} />
+            <Route path="operations/accommodation/rent-entry" element={<Operations />} />
+            <Route path="operations/accommodation/dashboard" element={<Operations />} />
+            <Route path="operations/accommodation/history" element={<Operations />} />
+            <Route path="operations/accommodation/:id" element={<Operations />} />
+            <Route path="operations/dahej-expenses" element={<Navigate to="/app/operations/dahej-expenses/register" replace />} />
+            <Route path="operations/dahej-expenses/register" element={<Operations />} />
+            <Route path="operations/dahej-expenses/dashboard" element={<Operations />} />
+            <Route path="operations/dahej-expenses/monthly-register" element={<Operations />} />
+            <Route path="operations/dahej-expenses/vehicle-master" element={<Operations />} />
+            <Route path="operations/dahej-expenses/booking-locations" element={<Operations />} />
+            <Route path="operations/dahej-expenses/reports" element={<Operations />} />
             <Route path="fire-tender-vehicle-management" element={<FireTenderVehicleManagement />} />
             
             {/* Projects */}

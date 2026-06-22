@@ -17,6 +17,8 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -44,9 +46,10 @@ import {
   sortInquiries,
 } from "./utils/manpowerInquiryList";
 import {
+  commitManpowerInquiryImport,
   downloadManpowerInquiryImportTemplate,
   exportManpowerInquiriesToExcel,
-  importManpowerInquiriesFromFile,
+  previewManpowerInquiryImport,
 } from "./utils/manpowerInquiryImportExport";
 import {
   fetchCommercialAssigneeOptions,
@@ -58,17 +61,170 @@ const DEFAULT_SORT = { key: "srNo", dir: "desc" };
 const ACTION_COL_WIDTH = 112;
 const tableMinWidth =
   INQUIRY_TABLE_COLUMNS.reduce((sum, col) => sum + col.width, 0) + ACTION_COL_WIDTH;
+const INQUIRY_MULTILINE_COLUMNS = new Set(["descriptionOfWork", "remarks", "furtherAction"]);
+const STICKY_ACTION_CELL =
+  "sticky right-0 z-[2] border-l border-gray-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-red-50/35";
+const STICKY_ACTION_HEAD =
+  "sticky right-0 top-0 z-[3] border-l border-red-100 bg-gradient-to-r from-red-50 to-amber-50 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
 
 function getRejectionRemark(row) {
   const { meta } = parseAuthorizationMeta(row.authorization_to);
   return String(meta.rejectionRemark || "").trim();
 }
 
+const IMPORT_PREVIEW_COLUMNS = [
+  { key: "srNo", label: "Sr. No.", width: "72px" },
+  { key: "clientName", label: "Client Name" },
+  { key: "modeOfSubmission", label: "Mode of Submission" },
+  { key: "vertical", label: "Vertical" },
+  { key: "location", label: "Location" },
+];
+
+function ImportPreviewDialog({ preview, confirming, onConfirm, onCancel }) {
+  const readyItems = (preview.items || []).filter((item) => item.status === "ready");
+  const invalidItems = (preview.items || []).filter((item) => item.status === "invalid");
+  const canImport = preview.readyCount > 0 && !preview.fileError;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-3 sm:p-4">
+      <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
+        <div className="flex items-start gap-3 border-b border-amber-100 bg-amber-50 px-4 py-4 sm:px-5">
+          <div className="rounded-lg bg-amber-100 p-2">
+            <AlertTriangle className="h-5 w-5 text-amber-600" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold text-slate-900">Confirm Inquiry Import</h2>
+            <p className="mt-0.5 text-xs text-slate-600">Review rows before adding them to Manpower Management.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={confirming}
+            className="rounded-lg p-2 text-slate-600 hover:bg-amber-100 disabled:opacity-50"
+            aria-label="Close import preview"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="text-slate-500">File</span>
+              <p className="font-medium text-slate-900 truncate" title={preview.fileName}>{preview.fileName}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="text-slate-500">Header row (Excel)</span>
+              <p className="font-medium text-slate-900">Row {preview.headerRowNumber}</p>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <span className="text-emerald-700">Ready to import</span>
+              <p className="font-semibold text-emerald-800">{preview.readyCount} row(s)</p>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <span className="text-amber-700">Will be skipped</span>
+              <p className="font-semibold text-amber-800">{preview.skipCount} row(s)</p>
+            </div>
+          </div>
+
+          {preview.fileError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800">
+              <p className="font-medium">File issue</p>
+              <p className="mt-1">{preview.fileError}</p>
+            </div>
+          ) : null}
+
+          {readyItems.length > 0 ? (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 mb-2">Rows to import</h3>
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      {IMPORT_PREVIEW_COLUMNS.map((col) => (
+                        <th key={col.key} className="px-2 py-2 text-left font-semibold text-slate-700" style={col.width ? { width: col.width } : undefined}>
+                          {col.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {readyItems.map((item, index) => (
+                      <tr key={`${item.rowNumber}-${index}`} className="bg-white">
+                        <td className="px-2 py-2 text-slate-600 tabular-nums">{index + 1}</td>
+                        <td className="px-2 py-2 font-medium text-slate-900">{item.row.clientName || "—"}</td>
+                        <td className="px-2 py-2 text-slate-700">{item.row.modeOfSubmission || "—"}</td>
+                        <td className="px-2 py-2 text-slate-700">{item.row.vertical || "—"}</td>
+                        <td className="px-2 py-2 text-slate-700">{item.row.location || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          {invalidItems.length > 0 ? (
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900 mb-2">Rows with errors (will be skipped)</h3>
+              <ul className="space-y-2 text-xs">
+                {invalidItems.map((item) => (
+                  <li key={item.rowNumber} className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-red-800">
+                    <span className="font-semibold">Excel row {item.rowNumber}</span>
+                    {item.row.clientName ? (
+                      <span className="text-red-700"> · {item.row.clientName}</span>
+                    ) : null}
+                    <ul className="mt-1 list-disc pl-4 text-red-700">
+                      {item.issues.map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {preview.emptyCount > 0 ? (
+            <p className="text-xs text-slate-500">{preview.emptyCount} empty row(s) ignored.</p>
+          ) : null}
+
+          <p className="text-xs text-slate-500">
+            {canImport
+              ? `This will create ${preview.readyCount} new pending inquiry record(s). Existing records are not changed.`
+              : "Fix the file errors above or use the Template download, then try again."}
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-4 py-4 sm:px-5">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={confirming}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={confirming || !canImport}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            {confirming ? "Importing…" : `Import ${preview.readyCount} row(s)`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ManpowerManagement = () => {
   const { id: routeId } = useParams();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { userProfile, accessibleModules } = useAuth();
+  const { user, userProfile, accessibleModules } = useAuth();
   const canApproveEnquiries = userCanApproveInModules(
     userProfile,
     accessibleModules,
@@ -85,6 +241,8 @@ const ManpowerManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showFilters, setShowFilters] = useState(true);
   const [importBusy, setImportBusy] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importConfirming, setImportConfirming] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const importFileRef = useRef(null);
@@ -197,27 +355,75 @@ const ManpowerManagement = () => {
     }
   };
 
+  const formatImportResultMessage = (result) => {
+    if (result.stage === "insert") {
+      const detail = result.errors?.[0]?.message || result.message || "Database insert failed.";
+      return `Import failed while saving to database: ${detail}`;
+    }
+    if (result.stage === "prepare") {
+      const detail = result.errors?.[0]?.message || result.message || "Could not prepare enquiry numbers.";
+      return `Import failed while preparing enquiry numbers: ${detail}`;
+    }
+    if (result.imported > 0) {
+      const skipParts = [];
+      if (result.skipped > 0) skipParts.push(`${result.skipped} row(s) skipped`);
+      const rowErrorText = (result.errors || [])
+        .map((e) => (e.rowNumber ? `Row ${e.rowNumber}: ${e.message}` : e.message))
+        .join("; ");
+      if (rowErrorText) skipParts.push(rowErrorText);
+      const suffix = skipParts.length ? ` (${skipParts.join(" — ")})` : "";
+      return `Imported ${result.imported} inquiry(s).${suffix}`;
+    }
+    const rowErrorText = (result.errors || [])
+      .map((e) => (e.rowNumber ? `Row ${e.rowNumber}: ${e.message}` : e.message))
+      .join("; ");
+    return result.message || rowErrorText || "No inquiries were imported.";
+  };
+
+  const closeImportPreview = () => {
+    if (importConfirming) return;
+    setImportPreview(null);
+    if (importFileRef.current) importFileRef.current.value = "";
+  };
+
   const handleImportFile = async (file) => {
     if (!file) return;
     setImportBusy(true);
     setImportMessage("");
     try {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-      if (userError) throw userError;
+      const preview = await previewManpowerInquiryImport(file);
+      setImportPreview(preview);
+    } catch (error) {
+      console.error(error);
+      setImportMessage(error?.message || "Could not read the import file.");
+      if (importFileRef.current) importFileRef.current.value = "";
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
-      const result = await importManpowerInquiriesFromFile(file, supabase, user?.id);
-      const errorText = result.errors?.length ? ` ${result.errors.length} row(s) skipped.` : "";
-      setImportMessage(`Imported ${result.imported} inquiry(s).${errorText}`);
-      await fetchEnquiries();
+  const handleConfirmImport = async () => {
+    if (!importPreview?.readyCount) return;
+    setImportConfirming(true);
+    setImportMessage("");
+    try {
+      const result = await commitManpowerInquiryImport(importPreview, supabase, user?.id);
+      setImportPreview(null);
+      if (importFileRef.current) importFileRef.current.value = "";
+
+      if (result.stage === "insert" || result.stage === "prepare") {
+        const stageLabel = result.stage === "insert" ? "database save" : "enquiry number preparation";
+        const detail = result.errors?.[0]?.message || result.message;
+        setImportMessage(`Import failed during ${stageLabel}: ${detail}`);
+      } else {
+        setImportMessage(formatImportResultMessage(result));
+        if (result.imported > 0) await fetchEnquiries();
+      }
     } catch (error) {
       console.error(error);
       setImportMessage(error?.message || "Import failed.");
     } finally {
-      setImportBusy(false);
-      if (importFileRef.current) importFileRef.current.value = "";
+      setImportConfirming(false);
     }
   };
 
@@ -409,7 +615,7 @@ const ManpowerManagement = () => {
                 className="inline-flex items-center justify-center gap-2 px-3 py-2 border border-blue-300 bg-blue-50 text-blue-800 rounded-lg hover:bg-blue-100 text-sm disabled:opacity-50"
               >
                 <Upload className="w-4 h-4" />
-                {importBusy ? "Importing…" : "Import"}
+                {importBusy ? "Reading…" : "Import"}
               </button>
               <input
                 ref={importFileRef}
@@ -548,7 +754,15 @@ const ManpowerManagement = () => {
             </div>
 
             {importMessage ? (
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">{importMessage}</div>
+              <div
+                className={`rounded-md border px-3 py-2 text-xs ${
+                  importMessage.toLowerCase().includes("failed") || importMessage.toLowerCase().includes("no inquiries")
+                    ? "border-red-200 bg-red-50 text-red-900"
+                    : "border-blue-200 bg-blue-50 text-blue-900"
+                }`}
+              >
+                {importMessage}
+              </div>
             ) : null}
           </div>
         </div>
@@ -577,15 +791,28 @@ const ManpowerManagement = () => {
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 4px; }
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.45); border-radius: 4px; }
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(220, 38, 38, 0.65); }
+                .manpower-inquiry-table { border-collapse: separate; border-spacing: 0; }
+                .manpower-inquiry-table th,
+                .manpower-inquiry-table td {
+                  overflow: hidden;
+                  vertical-align: middle;
+                  box-sizing: border-box;
+                }
+                .manpower-inquiry-table thead th {
+                  position: sticky;
+                  top: 0;
+                  z-index: 1;
+                  background: linear-gradient(to right, #fef2f2, #fffbeb);
+                }
               `}</style>
-                <table className="w-full text-xs" style={{ minWidth: tableMinWidth, tableLayout: "fixed" }}>
+                <table className="manpower-inquiry-table w-full text-xs" style={{ minWidth: tableMinWidth, tableLayout: "fixed" }}>
                   <colgroup>
                     {INQUIRY_TABLE_COLUMNS.map((col) => (
                       <col key={col.id} style={{ width: col.width }} />
                     ))}
                     <col style={{ width: ACTION_COL_WIDTH }} />
                   </colgroup>
-                  <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100 sticky top-0 z-10">
+                  <thead className="border-b border-red-100">
                     <tr>
                       {INQUIRY_TABLE_COLUMNS.map((col) => {
                         const isSorted = sortConfig.key === col.id;
@@ -593,25 +820,25 @@ const ManpowerManagement = () => {
                         return (
                           <th
                             key={col.id}
-                            className={`px-2 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle ${
+                            className={`max-w-0 px-2 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle ${
                               col.align === "center" ? "text-center" : col.align === "right" ? "text-right" : "text-left"
                             }`}
                           >
                             <button
                               type="button"
                               onClick={() => toggleSort(col.id)}
-                              className={`inline-flex items-center gap-1 hover:text-purple-700 ${
+                              className={`max-w-full inline-flex items-center gap-1 hover:text-purple-700 ${
                                 col.align === "center" ? "justify-center w-full" : col.align === "right" ? "justify-end w-full" : ""
                               }`}
                               title={`Sort by ${col.label}`}
                             >
-                              <span>{col.label}</span>
+                              <span className="truncate">{col.label}</span>
                               <SortIcon className={`w-3.5 h-3.5 shrink-0 ${isSorted ? "text-purple-600" : "text-gray-400"}`} />
                             </button>
                           </th>
                         );
                       })}
-                      <th className="px-2 py-2.5 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle sticky right-0 bg-gradient-to-r from-red-50 to-amber-50">
+                      <th className={`px-2 py-2.5 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle ${STICKY_ACTION_HEAD}`}>
                         Action
                       </th>
                     </tr>
@@ -621,7 +848,7 @@ const ManpowerManagement = () => {
                       const rejectionRemark = getRejectionRemark(e);
                       const fields = getExcelInquiryFields(e);
                       return (
-                        <tr key={e.id} className="hover:bg-red-50/35 transition-colors">
+                        <tr key={e.id} className="group hover:bg-red-50/35 transition-colors">
                           {INQUIRY_TABLE_COLUMNS.map((col) => {
                             const raw = fields[col.id];
                             const display = formatInquiryCellValue(raw, col.valueType, formatDateDdMmYyyy);
@@ -633,24 +860,35 @@ const ManpowerManagement = () => {
                                   : "text-left";
                             const typeClass =
                               col.valueType === "number" || col.valueType === "currency" ? "tabular-nums" : "";
+                            const cellTitle = display === "—" ? undefined : display;
+                            const isMultiline = INQUIRY_MULTILINE_COLUMNS.has(col.id);
+                            const spanAlignClass =
+                              col.align === "center"
+                                ? "text-center"
+                                : col.align === "right"
+                                  ? "text-right"
+                                  : "text-left";
                             return (
                               <td
                                 key={col.id}
-                                className={`px-2 py-2.5 align-middle text-xs text-gray-600 ${alignClass} ${typeClass} ${
-                                  col.wrap ? "whitespace-normal" : "whitespace-nowrap"
-                                }`}
+                                className={`max-w-0 px-2 py-2.5 align-middle text-xs text-gray-600 ${alignClass} ${typeClass}`}
                               >
-                                {col.wrap ? (
-                                  <span className="line-clamp-2 block" title={display === "—" ? undefined : display}>
+                                {isMultiline ? (
+                                  <span
+                                    className={`block whitespace-normal break-words line-clamp-2 leading-snug ${spanAlignClass}`}
+                                    title={cellTitle}
+                                  >
                                     {display}
                                   </span>
                                 ) : (
-                                  display
+                                  <span className={`block truncate leading-snug ${spanAlignClass}`} title={cellTitle}>
+                                    {display}
+                                  </span>
                                 )}
                               </td>
                             );
                           })}
-                          <td className="px-2 py-2.5 align-middle sticky right-0 bg-white">
+                          <td className={`px-2 py-2.5 align-middle ${STICKY_ACTION_CELL}`}>
                             <div className="flex justify-center items-center gap-1.5">
                               {canApproveEnquiries ? (
                                 <>
@@ -770,6 +1008,15 @@ const ManpowerManagement = () => {
           </div>
         )}
       </div>
+
+      {importPreview ? (
+        <ImportPreviewDialog
+          preview={importPreview}
+          confirming={importConfirming}
+          onConfirm={handleConfirmImport}
+          onCancel={closeImportPreview}
+        />
+      ) : null}
 
       {rejectDialog.open && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
