@@ -66,7 +66,7 @@ function docTitleForKind(kind) {
  * Static HTML invoice preview — shared by Create Invoice and Manage Invoices.
  * Field order and layout mirror buildTaxInvoiceDoc in taxInvoicePdf.js.
  */
-export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true, hideQtyRateColumns = false }) {
+export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true, hideQtyRateColumns = false, hideBillingMonth = false }) {
   if (!inv) return null;
 
   const viewInv = enrichInvoiceWithPo(inv, po);
@@ -193,10 +193,12 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
     ? resolveHsnSacAboveLineItems(viewInv, po)
     : null;
 
+  const billingMonthRow = hideBillingMonth ? [] : [['Billing Month', billMonth]];
+
   if (isManpowerInvoice) {
     metaRowsLeft = [
       ['Invoice No.', invoiceNo],
-      ['Billing Month', billMonth],
+      ...billingMonthRow,
       ['PO Number', poNumberDisp],
       ['PO Date', poDateDisp],
     ];
@@ -209,7 +211,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
   } else {
     metaRowsLeft = [
       ['Invoice No.', invoiceNo],
-      ['Billing Month', billMonth],
+      ...billingMonthRow,
       ['PO Number', poNumberDisp],
       ['PO Date', poDateDisp],
       ['Delivery Note', deliveryNote],

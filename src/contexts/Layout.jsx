@@ -7,6 +7,7 @@ import { ROLES, getLandingPathForUser, isPathAllowed } from "../config/roles";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
+import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import PoApprovalBell from "../components/PoApprovalBell";
 import {
   LogOut,
@@ -125,6 +126,7 @@ const Layout = () => {
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
   const [adminPayrollOpen, setAdminPayrollOpen] = useState(false);
   const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
+  const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
   // Keep expandable section open when current path is under that section
@@ -140,6 +142,7 @@ const Layout = () => {
     if (pathname.startsWith("/app/manpower/configuration")) setManpowerConfigOpen(true);
     if (pathname.startsWith("/app/billing")) setBillingOpen(true);
     if (pathname.startsWith("/app/fire-tender-vehicle") || pathname.startsWith("/app/operations")) setOperationsOpen(true);
+    if (pathname.startsWith("/app/operations")) setManpowerOperationsOpen(true);
     if (
       pathname.startsWith("/app/projects/po") ||
       pathname.startsWith("/app/projects/enquiry") ||
@@ -851,10 +854,73 @@ const Layout = () => {
                     <Car className="w-4 h-4 shrink-0 text-orange-600" />
                     <span className="text-xs">Fleet Management</span>
                   </NavLink>
-                  <NavLink to="operations" className={subNavClass}>
-                    <Cog className="w-4 h-4 shrink-0 text-gray-600" />
-                    <span className="text-xs">Operations</span>
-                  </NavLink>
+
+                  <div className="flex items-stretch w-full rounded-md hover:bg-gray-100 transition-colors">
+                    <NavLink
+                      to="operations"
+                      end
+                      className={({ isActive }) =>
+                        `${subLinkBase} flex-1 min-w-0 rounded-md ${isActive && pathname === "/app/operations" ? activeClass : pathname.startsWith("/app/operations") ? activeClass : "text-gray-700"}`
+                      }
+                      onClick={() => setManpowerOperationsOpen(true)}
+                    >
+                      <Users className="w-4 h-4 shrink-0 text-[#1F3A8A]" />
+                      <span className="text-xs font-medium text-left leading-tight">Manpower Operations</span>
+                    </NavLink>
+                    <button
+                      type="button"
+                      onClick={() => setManpowerOperationsOpen(!manpowerOperationsOpen)}
+                      className="flex items-center px-1.5 rounded-md hover:bg-gray-200/80 shrink-0 self-stretch"
+                      aria-expanded={manpowerOperationsOpen}
+                      aria-label="Toggle manpower operations menu"
+                    >
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
+                          manpowerOperationsOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {manpowerOperationsOpen && (
+                    <div className="space-y-0.5 ml-2 border-l border-slate-200 pl-2 max-h-[min(60vh,24rem)] overflow-y-auto">
+                      {OPERATIONS_NAV.map((entry) =>
+                        entry.section ? (
+                          <div key={entry.section}>
+                            <p className="px-2.5 pt-2 pb-0.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                              {entry.section}
+                            </p>
+                            {entry.items.map((item) => {
+                              const Icon = item.icon;
+                              return (
+                                <NavLink
+                                  key={item.id}
+                                  to={operationsNavHref(item.path)}
+                                  end={!item.path}
+                                  className={subNavClass}
+                                  isActive={(_, { location }) => operationsNavIsActive(item, location.pathname)}
+                                >
+                                  {Icon && <Icon className="w-4 h-4 shrink-0 text-[#1F3A8A]" />}
+                                  <span className="text-xs">{item.label}</span>
+                                </NavLink>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <NavLink
+                            key={entry.id}
+                            to={operationsNavHref(entry.path)}
+                            end={!entry.path}
+                            className={subNavClass}
+                            isActive={(_, { location }) => operationsNavIsActive(entry, location.pathname)}
+                          >
+                            {entry.icon && <entry.icon className="w-4 h-4 shrink-0 text-[#1F3A8A]" />}
+                            <span className="text-xs">{entry.label}</span>
+                          </NavLink>
+                        )
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
