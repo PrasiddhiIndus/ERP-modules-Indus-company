@@ -2914,7 +2914,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
               <div className="p-2">
                 <div className="bg-white rounded-lg overflow-hidden">
                   <div className="w-full max-w-full min-w-0 overflow-hidden">
-                    <table className="w-full table-fixed border-collapse">
+                    <table className="erp-table-exempt w-full table-fixed border-collapse">
                       <colgroup>
                         <col className="w-[4%]" />
                         <col className="w-[9%]" />
@@ -3587,8 +3587,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 <div className="w-full max-w-full min-w-0 overflow-x-auto">
                   <table
                     className={[
-                      'w-full min-w-0 max-w-full border-collapse border border-neutral-400 text-sm table-fixed',
-                      lumpSumDutyGeometryLineTable ? 'min-w-[820px]' : '',
+                      'erp-table-exempt w-full min-w-0 max-w-full border-collapse border border-neutral-400 text-sm table-fixed',
+                      lumpSumDutyGeometryLineTable ? 'min-w-[820px]' : isCustomCalculatorBilling ? 'min-w-[760px]' : 'min-w-[640px]',
                     ].join(' ')}
                   >
                     <thead>
@@ -3681,6 +3681,12 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     </thead>
                     <tbody className="bg-white">
                 {invoiceTableRows.map((tableRow, tableIdx) => {
+                  const lineTableInputFocus =
+                    'focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-400';
+                  const lineTableCellInputClass = lumpSumDutyGeometryLineTable
+                    ? `w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center ${lineTableInputFocus}`
+                    : `w-full min-w-0 max-w-full box-border px-2 py-1 border border-gray-300 rounded-lg text-center text-sm ${lineTableInputFocus}`;
+                  const lineTableDescInputClass = `w-full min-w-0 max-w-full box-border border border-gray-300 rounded px-2 py-1 text-sm font-normal ${lineTableInputFocus}`;
                   const isLumpConsolidatedRow = tableRow.kind === 'lumpConsolidated';
                   const ii = tableRow.kind === 'item' ? tableRow.itemIndex : null;
                   const it = isLumpConsolidatedRow ? consolidatedLumpSumLine : items[ii];
@@ -3748,18 +3754,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     </td>
                     <td
                       className={[
-                        'border border-neutral-400 align-middle text-xs font-medium text-neutral-900 min-w-0',
+                        'border border-neutral-400 align-middle text-xs font-medium text-neutral-900 min-w-0 overflow-hidden',
                         lumpSumDutyGeometryLineTable ? 'px-1.5 py-1' : 'px-2 py-2',
                       ].join(' ')}
                       title={it.description || ''}
                     >
-                      <div className="flex items-center justify-between gap-1.5 min-w-0">
+                      <div className="flex flex-col gap-1.5 min-w-0 w-full overflow-hidden">
+                        <div className="min-w-0 w-full">
                         {isLumpConsolidatedRow ? (
                           <input
                             type="text"
                             value={it.description}
                             onChange={(e) => updateLumpSumConsolidatedLine({ description: e.target.value })}
-                            className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
+                            className={lineTableDescInputClass}
                             placeholder="Consolidated line description"
                           />
                         ) : it.isTruckLine && ii != null ? (
@@ -3767,31 +3774,29 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             type="text"
                             value={it.description}
                             onChange={(e) => updateItem(ii, { description: e.target.value })}
-                            className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
+                            className={lineTableDescInputClass}
                             placeholder="Truck / transport line"
                           />
-                        ) : isLumpConsolidatedRow ? (
-                          <span
-                            className={
-                              lumpSumDutyGeometryLineTable
-                                ? 'min-w-0 text-[11px] leading-snug break-words'
-                                : 'truncate'
-                            }
-                          >
-                            {it.description}
-                          </span>
                         ) : isLumpSumSupplementaryRow && ii != null ? (
                           <input
                             type="text"
                             value={it.description}
                             onChange={(e) => updateItem(ii, { description: e.target.value })}
-                            className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal"
+                            className={lineTableDescInputClass}
                             placeholder="Supplementary line description"
+                          />
+                        ) : isCustomCalculatorBilling && ii != null && !it.isTruckLine ? (
+                          <input
+                            type="text"
+                            value={it.description}
+                            onChange={(e) => updateItem(ii, { description: e.target.value })}
+                            className={lineTableDescInputClass}
+                            placeholder="Line description"
                           />
                         ) : isMmServiceDescriptionMode && ii != null ? (
                           it.description ? (
                             <div className="flex items-center justify-between gap-2 min-w-0 w-full">
-                              <span className="truncate">{it.description}</span>
+                              <span className="truncate min-w-0">{it.description}</span>
                               <button
                                 type="button"
                                 onClick={() => clearMmDescriptionRow(ii)}
@@ -3804,7 +3809,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           ) : (
                             <select
                               id={`mm-invoice-desc-select-${ii}`}
-                              className="w-full min-w-0 border border-gray-300 rounded px-2 py-1 text-sm font-normal bg-white"
+                              className={`${lineTableDescInputClass} bg-white`}
                               aria-label={`Line ${ii + 1} description`}
                               value=""
                               onChange={(e) => handleMmDescriptionSelect(ii, e.target.value)}
@@ -3820,13 +3825,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         ) : (
                           <span
                             className={
-                              lumpSumDutyGeometryLineTable ? 'min-w-0 text-[11px] leading-snug break-words' : 'truncate'
+                              lumpSumDutyGeometryLineTable
+                                ? 'block min-w-0 text-[11px] leading-snug break-words'
+                                : 'block min-w-0 truncate'
                             }
                           >
                             {it.description}
                           </span>
                         )}
+                        </div>
                         {canDutyRuler && ii != null ? (
+                          <div className="flex justify-end shrink-0">
                           <button
                             type="button"
                             onClick={() => {
@@ -3834,7 +3843,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               updateItem(ii, { geometryEnabled: !it.geometryEnabled });
                             }}
                             className={[
-                              'shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md border',
+                              'inline-flex items-center justify-center w-7 h-7 rounded-md border',
                               it.geometryEnabled
                                 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
                                 : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50',
@@ -3850,6 +3859,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           >
                             <Ruler className="w-4 h-4" />
                           </button>
+                          </div>
                         ) : null}
                       </div>
                       {it.isTruckLine ? (
@@ -3862,7 +3872,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     {materialCodeRequired ? (
                       <td
                         className={[
-                          'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0',
+                          'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0 overflow-hidden',
                           lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
                         ].join(' ')}
                       >
@@ -3877,11 +3887,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               }
                               if (ii != null) updateItem(ii, { materialCode: e.target.value });
                             }}
-                            className={
-                              lumpSumDutyGeometryLineTable
-                                ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
-                                : 'w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono'
-                            }
+                            className={lineTableCellInputClass}
                             placeholder="Material code"
                           />
                         ) : (
@@ -3893,7 +3899,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     ) : (
                       <td
                         className={[
-                          'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0',
+                          'border border-neutral-400 text-center align-middle font-mono text-neutral-800 min-w-0 overflow-hidden',
                           lumpSumDutyGeometryLineTable ? 'px-1 py-1 text-[11px]' : 'px-2 py-2 text-xs',
                         ].join(' ')}
                       >
@@ -3908,11 +3914,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                               }
                               if (ii != null) updateItem(ii, { hsnSac: e.target.value });
                             }}
-                            className={
-                              lumpSumDutyGeometryLineTable
-                                ? 'w-full min-w-0 max-w-full box-border mx-auto border border-gray-300 rounded px-1 py-0.5 text-[11px] text-center font-mono h-7'
-                                : 'w-full max-w-[7rem] mx-auto border border-gray-300 rounded px-1 py-1 text-xs text-center font-mono'
-                            }
+                            className={lineTableCellInputClass}
                             placeholder={
                               it.hsnSac
                                 ? 'HSN/SAC'
@@ -3970,11 +3972,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     ) : null}
                     <td
                       className={[
-                        'border border-neutral-400 text-center align-middle min-w-0',
+                        'border border-neutral-400 text-center align-middle min-w-0 overflow-hidden',
                         lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
                       ].join(' ')}
                     >
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 min-w-0 w-full">
                         <input
                           type="number"
                           min={0}
@@ -3992,13 +3994,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             if (ii == null) return;
                             updateItem(ii, { quantity: e.target.value });
                           }}
-                          className={
-                            lumpSumDutyGeometryLineTable
-                              ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
-                              : lineUsesCustomCalc
-                                ? 'w-24 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-center'
-                                : 'w-24 px-2 py-1 border border-gray-300 rounded-lg text-center'
-                          }
+                          className={lineTableCellInputClass}
                           readOnly={
                             (rowIsMonthly && it.geometryEnabled) ||
                             (rowIsLumpSum && it.geometryEnabled && !it.isTruckLine)
@@ -4018,11 +4014,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     </td>
                     <td
                       className={[
-                        'border border-neutral-400 text-center align-middle min-w-0',
+                        'border border-neutral-400 text-center align-middle min-w-0 overflow-hidden',
                         lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
                       ].join(' ')}
                     >
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1 min-w-0 w-full">
                         <input
                           type="number"
                           min={0}
@@ -4035,13 +4031,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             if (ii == null) return;
                             updateItem(ii, { rate: e.target.value });
                           }}
-                          className={
-                            lumpSumDutyGeometryLineTable
-                              ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
-                              : lineUsesCustomCalc
-                                ? 'w-28 min-w-0 px-2 py-1.5 border border-gray-300 rounded-lg text-center'
-                                : 'w-28 px-2 py-1 border border-gray-300 rounded-lg text-center'
-                          }
+                          className={lineTableCellInputClass}
                           readOnly={isLumpConsolidatedRow || rateDerived}
                         />
                         {lineUsesCustomCalc && ii != null ? (
@@ -4072,7 +4062,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     ) : null}
                     <td
                       className={[
-                        'border border-neutral-400 text-center align-middle min-w-0',
+                        'border border-neutral-400 text-center align-middle min-w-0 overflow-hidden',
                         lumpSumDutyGeometryLineTable ? 'px-1 py-1' : 'px-2 py-2',
                       ].join(' ')}
                     >
@@ -4088,11 +4078,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                             }
                             if (ii != null) updateItem(ii, { uom: nextUom });
                           }}
-                          className={
-                            lumpSumDutyGeometryLineTable
-                              ? 'w-full min-w-0 max-w-full box-border h-7 text-[11px] px-1 py-0.5 border border-gray-300 rounded text-center'
-                              : 'w-20 px-2 py-1 border border-gray-300 rounded-lg text-center text-xs'
-                          }
+                          className={lineTableCellInputClass}
                           placeholder=""
                         />
                       ) : (
