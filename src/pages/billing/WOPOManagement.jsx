@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useBilling } from '../../contexts/BillingContext';
+import { BILLING_AUTOSAVE_KEYS } from '../../utils/billingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
 import {
   FileCheck,
   AlertTriangle,
@@ -66,6 +68,25 @@ const WOPOManagement = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [formData, setFormData] = useState(initialForm);
+
+  const wopoAutosaveSnapshot = useMemo(
+    () => ({ formData, editId, showAddForm }),
+    [formData, editId, showAddForm]
+  );
+
+  const restoreWopoDraft = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.formData) setFormData(payload.formData);
+    if (payload.editId != null) setEditId(payload.editId);
+    if (payload.showAddForm) setShowAddForm(true);
+  }, []);
+
+  const { hint: wopoAutoHint, clearDraft: clearWopoDraft } = useBillingFormAutosave({
+    key: BILLING_AUTOSAVE_KEYS.wopoForm(),
+    snapshot: wopoAutosaveSnapshot,
+    saveEnabled: showAddForm || !!editId,
+    onRestore: restoreWopoDraft,
+  });
 
   const TextCell = ({ value, className = '' }) => {
     const display = value ?? '';
@@ -644,6 +665,7 @@ const WOPOManagement = () => {
             setEditId(null);
             setShowAddForm(false);
             setFormData(initialForm);
+            clearWopoDraft();
           }}
         >
           <div
@@ -656,6 +678,9 @@ const WOPOManagement = () => {
               </h3>
               <p className="text-sm text-gray-500 mt-0.5">
                 {editId ? 'Update work order / purchase order details.' : 'Create a new work order or purchase order.'}
+              </p>
+              <p className="text-xs text-emerald-700 mt-1">
+                Auto-save on{wopoAutoHint ? ` · ${wopoAutoHint}` : ''}
               </p>
             </div>
 
@@ -911,6 +936,7 @@ const WOPOManagement = () => {
                   setEditId(null);
                   setShowAddForm(false);
                   setFormData(initialForm);
+                  clearWopoDraft();
                 }}
                 className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
@@ -961,6 +987,7 @@ const WOPOManagement = () => {
                     setShowAddForm(false);
                   }
                   setFormData(initialForm);
+                  clearWopoDraft();
                 }}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 shadow-sm"
               >

@@ -510,24 +510,8 @@ function App() {
             <Route path="commercial/po-entry" element={<Navigate to="/app/commercial/manpower-training/po-entry" replace />} />
             <Route path="commercial/contact-log" element={<Navigate to="/app/commercial/manpower-training/contact-log" replace />} />
 
-            {/* Billing (includes Reports and Tracking as sub-tabs) */}
-            <Route path="billing" element={<Billing />} />
-            <Route path="billing/dashboard" element={<Billing />} />
-            <Route path="billing/create-invoice" element={<Billing />} />
-            <Route path="billing/add-on-invoices" element={<Billing />} />
-            <Route path="billing/manage-invoices" element={<Billing />} />
-            <Route path="billing/generated-e-invoice" element={<Billing />} />
-            <Route path="billing/credit-notes" element={<Billing />} />
-            <Route path="billing/reports" element={<Billing />} />
-            <Route path="billing/reports/outstanding-debtors" element={<Billing />} />
-            <Route path="billing/reports/gap-report" element={<Billing />} />
-            <Route path="billing/reports/deduction-analysis" element={<Billing />} />
-            <Route path="billing/reports/less-billed-sites" element={<Billing />} />
-            <Route path="billing/reports/billing-delay" element={<Billing />} />
-            <Route path="billing/tracking" element={<Billing />} />
-            <Route path="billing/tracking/pa-worklist" element={<Billing />} />
-            <Route path="billing/tracking/penalty-logs" element={<Billing />} />
-            <Route path="billing/notifications" element={<Billing />} />
+            {/* Billing (includes Reports and Tracking as sub-tabs) — single route keeps module mounted across tab URLs */}
+            <Route path="billing/*" element={<Billing />} />
 
             {/* Redirect old top-level routes to Billing sub-routes */}
             <Route path="tracking" element={<Navigate to="/app/billing/tracking" replace />} />

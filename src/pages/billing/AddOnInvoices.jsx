@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { FilePlus2, Eye, X } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
@@ -9,6 +9,12 @@ import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 import { resolveInvoicePartyPincodes } from '../../utils/poPincodeFields';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import RequestCnDnApprovalSection from './components/RequestCnDnApprovalSection';
+import {
+  BILLING_AUTOSAVE_KEYS,
+  BILLING_DRAFT_KEYS,
+  loadBillingFormDraftPayloadWithLegacy,
+} from '../../utils/billingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
 
 const APPROVAL_STATUS_APPROVED = 'approved';
 
@@ -46,14 +52,75 @@ function makeAddOnInvoiceNumber(invoices, documentKind) {
 }
 
 const AddOnInvoices = ({ onNavigateTab }) => {
-  const { commercialPOs, invoices, setInvoices, billingVerticalFilter, billingPoBasisFilter } = useBilling();
-  const [addOnType, setAddOnType] = useState('');
-  const [manualAddOnType, setManualAddOnType] = useState('');
-  const [addOnDocumentKind, setAddOnDocumentKind] = useState('tax');
-  const [selectedPoId, setSelectedPoId] = useState('');
+  const {
+    commercialPOs,
+    invoices,
+    setInvoices,
+    billingVerticalFilter,
+    billingPoBasisFilter,
+    getAddOnInvoiceFormDraft,
+    setAddOnInvoiceFormDraft,
+    clearAddOnInvoiceFormDraft,
+  } = useBilling();
+
+  const initAddOnDraftRef = useRef(null);
+  if (initAddOnDraftRef.current === null) {
+    const fromMemory = getAddOnInvoiceFormDraft();
+    const fromStorage =
+      fromMemory ||
+      loadBillingFormDraftPayloadWithLegacy(BILLING_DRAFT_KEYS.addOnInvoice, 'billing:form:add-on:');
+    initAddOnDraftRef.current = fromStorage || false;
+  }
+  const initAddOnDraft = initAddOnDraftRef.current === false ? null : initAddOnDraftRef.current;
+
+  const [addOnType, setAddOnType] = useState(() => initAddOnDraft?.addOnType ?? '');
+  const [manualAddOnType, setManualAddOnType] = useState(() => initAddOnDraft?.manualAddOnType ?? '');
+  const [addOnDocumentKind, setAddOnDocumentKind] = useState(() => initAddOnDraft?.addOnDocumentKind ?? 'tax');
+  const [selectedPoId, setSelectedPoId] = useState(() =>
+    initAddOnDraft?.selectedPoId ? String(initAddOnDraft.selectedPoId) : ''
+  );
   const [invoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [items, setItems] = useState([{ description: '', hsnSac: '', quantity: 1, rate: 0, amount: 0 }]);
+  const [items, setItems] = useState(() =>
+    Array.isArray(initAddOnDraft?.items)
+      ? initAddOnDraft.items
+      : [{ description: '', hsnSac: '', quantity: 1, rate: 0, amount: 0 }]
+  );
   const [previewDraft, setPreviewDraft] = useState(null);
+
+  const addOnAutosaveSnapshot = useMemo(
+    () => ({
+      addOnType,
+      manualAddOnType,
+      addOnDocumentKind,
+      selectedPoId,
+      items,
+    }),
+    [addOnType, manualAddOnType, addOnDocumentKind, selectedPoId, items]
+  );
+
+  const restoreAddOnDraft = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.addOnType != null) setAddOnType(payload.addOnType);
+    if (payload.manualAddOnType != null) setManualAddOnType(payload.manualAddOnType);
+    if (payload.addOnDocumentKind) setAddOnDocumentKind(payload.addOnDocumentKind);
+    if (payload.selectedPoId) setSelectedPoId(String(payload.selectedPoId));
+    if (Array.isArray(payload.items)) setItems(payload.items);
+  }, []);
+
+  const { hint: addOnAutoHint, clearDraft: clearAddOnDraft } = useBillingFormAutosave({
+    key: BILLING_AUTOSAVE_KEYS.addOnInvoice(),
+    snapshot: addOnAutosaveSnapshot,
+    saveEnabled:
+      !!selectedPoId ||
+      !!addOnType ||
+      (Array.isArray(items) && items.some((i) => i.description || Number(i.rate) > 0)),
+    onRestore: restoreAddOnDraft,
+  });
+
+  useEffect(() => {
+    if (!selectedPoId && !addOnType && !items.some((i) => i.description || Number(i.rate) > 0)) return;
+    setAddOnInvoiceFormDraft(addOnAutosaveSnapshot);
+  }, [addOnAutosaveSnapshot, setAddOnInvoiceFormDraft, selectedPoId, addOnType, items]);
 
   const verticalNotSelected = !billingVerticalFilter;
   const billingPoBasisLabel =
@@ -183,6 +250,8 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       invoice_kind: resolvedKind,
     };
     setInvoices((prev) => [...prev, inv]);
+    clearAddOnDraft();
+    clearAddOnInvoiceFormDraft();
     onNavigateTab && onNavigateTab('manage-invoices');
   };
 
@@ -205,6 +274,11 @@ const AddOnInvoices = ({ onNavigateTab }) => {
           <p className="text-sm text-gray-600">
             Money <strong>not</strong> in the main contract — bonus, travel pay back, etc. Pick real tax bill or draft below.
           </p>
+          {!verticalNotSelected ? (
+            <p className="text-xs text-emerald-700 mt-1">
+              Auto-save on{addOnAutoHint ? ` · ${addOnAutoHint}` : ''}
+            </p>
+          ) : null}
           {!verticalNotSelected ? (
             <p className="text-xs text-slate-600 mt-1">
               Job-type filter (top): <strong>{billingPoBasisLabel}</strong>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Receipt, Search, Plus, Download, CheckCircle, XCircle, Eye, X } from 'lucide-react';
 import { downloadCreditDebitNotePdf, getInvoiceTotals } from '../../utils/taxInvoicePdf';
 import { useBilling } from '../../contexts/BillingContext';
@@ -8,6 +8,14 @@ import { generateEInvoice } from '../../services/eInvoiceApi';
 import { cnDnDocumentNumber, buildCnDnInvoiceSnapshot } from '../../utils/cnDn';
 import { roundInvoiceAmount, normalizeGstSupplyType } from '../../utils/invoiceRound';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
+import {
+  BILLING_AUTOSAVE_KEYS,
+  BILLING_DRAFT_KEYS,
+  loadBillingFormDraftPayloadWithLegacy,
+  saveBillingFormDraft,
+  clearBillingFormDraft,
+} from '../../utils/billingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
 
 const REQ_PENDING = 'pending';
 const REQ_APPROVED = 'approved';
@@ -34,6 +42,24 @@ function IssueCnDnModal({ parent, noteType, requestReason, existingNotes, onClos
   const [noteDate, setNoteDate] = useState(defaultDate || new Date().toISOString().slice(0, 10));
   const [extraRemark, setExtraRemark] = useState('');
   const [preview, setPreview] = useState(false);
+
+  const cnDnAutosaveSnapshot = useMemo(
+    () => ({ items, noteDate, extraRemark }),
+    [items, noteDate, extraRemark]
+  );
+
+  const restoreCnDnDraft = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return;
+    if (Array.isArray(payload.items)) setItems(payload.items);
+    if (payload.noteDate) setNoteDate(payload.noteDate);
+    if (payload.extraRemark != null) setExtraRemark(payload.extraRemark);
+  }, []);
+
+  const { hint: cnDnAutoHint, clearDraft: clearCnDnDraft } = useBillingFormAutosave({
+    key: BILLING_AUTOSAVE_KEYS.cnDnIssue(parent.id, noteType),
+    snapshot: cnDnAutosaveSnapshot,
+    onRestore: restoreCnDnDraft,
+  });
 
   const gstSupplyType = normalizeGstSupplyType(parent.gstSupplyType || parent.gst_supply_type);
   const noteTaxNo = useMemo(
@@ -83,6 +109,7 @@ function IssueCnDnModal({ parent, noteType, requestReason, existingNotes, onClos
       totalAmount: snap.totalAmount,
       reason,
     });
+    clearCnDnDraft();
   };
 
   return (
@@ -97,8 +124,18 @@ function IssueCnDnModal({ parent, noteType, requestReason, existingNotes, onClos
               Document no. <span className="font-mono font-medium text-gray-800">{noteTaxNo}</span> · Parent{' '}
               <span className="font-mono">{parent.taxInvoiceNumber || parent.bill_number}</span>
             </p>
+            <p className="text-xs text-emerald-700 mt-1">
+              Auto-save on{cnDnAutoHint ? ` · ${cnDnAutoHint}` : ''}
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100">
+          <button
+            type="button"
+            onClick={() => {
+              clearCnDnDraft();
+              onClose();
+            }}
+            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -229,9 +266,50 @@ const CreditNotes = () => {
   const { invoices, setInvoices, creditDebitNotes, setCreditDebitNotes, billingVerticalFilter, billingPoBasisFilter } =
     useBilling();
   const canApproveCnDn = userCanApproveInModules(userProfile, accessibleModules, CREDIT_NOTE_APPROVER_MODULES);
+
+  const issueContextInitRef = useRef(null);
+  if (issueContextInitRef.current === null) {
+    const saved =
+      loadBillingFormDraftPayloadWithLegacy(
+        BILLING_DRAFT_KEYS.creditNotesIssue,
+        'billing:form:credit-notes-issue:'
+      ) || false;
+    issueContextInitRef.current = saved;
+  }
+  const savedIssueContext = issueContextInitRef.current === false ? null : issueContextInitRef.current;
+
   const [searchTerm, setSearchTerm] = useState('');
   const [generatingEInvoiceId, setGeneratingEInvoiceId] = useState(null);
   const [issueContext, setIssueContext] = useState(null);
+
+  const issueContextAutosaveKey = BILLING_AUTOSAVE_KEYS.creditNotesIssue();
+
+  useEffect(() => {
+    if (!savedIssueContext?.parentId || issueContext) return;
+    const parent = invoices.find((i) => String(i.id) === String(savedIssueContext.parentId));
+    if (!parent) return;
+    setIssueContext({
+      parent,
+      noteType: savedIssueContext.noteType || 'credit',
+      requestReason: savedIssueContext.requestReason || '',
+    });
+  }, [invoices, issueContext, savedIssueContext]);
+
+  useEffect(() => {
+    if (!issueContext?.parent?.id) return;
+    saveBillingFormDraft(issueContextAutosaveKey, {
+      payload: {
+        parentId: issueContext.parent.id,
+        noteType: issueContext.noteType,
+        requestReason: issueContext.requestReason || '',
+      },
+    });
+  }, [issueContext, issueContextAutosaveKey]);
+
+  const clearIssueContextDraft = useCallback(() => {
+    clearBillingFormDraft(issueContextAutosaveKey);
+    setIssueContext(null);
+  }, [issueContextAutosaveKey]);
 
   const verticalNotSelected = !billingVerticalFilter;
   const billingPoBasisLabel =
@@ -314,7 +392,7 @@ const CreditNotes = () => {
     setInvoices((prev) =>
       prev.map((i) => (String(i.id) === String(parent.id) ? { ...i, ...clearRequestFields() } : i))
     );
-    setIssueContext(null);
+    clearIssueContextDraft();
   };
 
   const handleGenerateEInvoiceForNote = async (note) => {
@@ -454,7 +532,7 @@ const CreditNotes = () => {
       <div className="bg-white rounded-xl border border-emerald-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-emerald-100 bg-emerald-50/80">
           <h3 className="font-semibold text-emerald-900">Approved — issue note</h3>
-          <p className="text-sm text-emerald-800/90">Document number will follow its own note series, like CN-INV-2026-0001.</p>
+          <p className="text-sm text-emerald-800/90">Document number will follow its own note series, like CN-IFSPL-2026-0001.</p>
         </div>
         {approvedReady.length === 0 ? (
           <div className="px-4 py-5 text-sm text-gray-600">Nothing approved yet. Approve a row above, then issue the note here.</div>
@@ -591,7 +669,7 @@ const CreditNotes = () => {
           noteType={issueContext.noteType}
           requestReason={issueContext.requestReason}
           existingNotes={creditDebitNotes || []}
-          onClose={() => setIssueContext(null)}
+          onClose={clearIssueContextDraft}
           onIssue={(payload) => handleIssueComplete(issueContext.parent, issueContext.noteType, payload)}
         />
       ) : null}
