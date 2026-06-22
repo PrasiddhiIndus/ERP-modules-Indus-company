@@ -701,9 +701,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const initDraft = initDraftRef.current === false ? null : initDraftRef.current;
 
   const billingDraftRestoreGuardRef = useRef(!!initDraft);
+  const seededPoIdRef = useRef(initDraft?.selectedPoId ? String(initDraft.selectedPoId) : '');
+  const poConfigInitializedForRef = useRef(initDraft?.selectedPoId ? String(initDraft.selectedPoId) : '');
+  const invoiceHsnInitializedForRef = useRef(initDraft?.selectedPoId ? String(initDraft.selectedPoId) : '');
   const releaseDraftRestoreGuard = () => {
     billingDraftRestoreGuardRef.current = false;
     skipPoAutoSeedRef.current = false;
+    seededPoIdRef.current = '';
+    poConfigInitializedForRef.current = '';
+    invoiceHsnInitializedForRef.current = '';
   };
 
   const [selectedPoId, setSelectedPoId] = useState(() =>
@@ -835,7 +841,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!payload || typeof payload !== 'object') return;
     billingDraftRestoreGuardRef.current = true;
     skipPoAutoSeedRef.current = true;
-    if (payload.selectedPoId) setSelectedPoId(String(payload.selectedPoId));
+    if (payload.selectedPoId) {
+      const poId = String(payload.selectedPoId);
+      setSelectedPoId(poId);
+      seededPoIdRef.current = poId;
+      poConfigInitializedForRef.current = poId;
+      invoiceHsnInitializedForRef.current = poId;
+    }
     if (payload.invoiceDate != null) setInvoiceDate(payload.invoiceDate);
     if (Array.isArray(payload.items)) setItems(payload.items);
     if (Array.isArray(payload.attendanceFiles)) setAttendanceFiles(payload.attendanceFiles);
@@ -1257,6 +1269,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (invoiceDraft?.mode === 'edit') return;
     if (billingDraftRestoreGuardRef.current) return;
     if (skipPoAutoSeedRef.current) return;
+    if (!selectedPO) {
+      poConfigInitializedForRef.current = '';
+      return;
+    }
+    const poId = String(selectedPO.id);
+    if (poConfigInitializedForRef.current === poId) return;
+    poConfigInitializedForRef.current = poId;
     setLumpSumInvoicePenaltyGeometry(false);
     setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, quantity: '', rate: '' });
     setInvoiceMonthlyDutyQtyMode(
@@ -1434,10 +1453,18 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [invoiceDraft, editingInvoice, today, commercialPOs]);
 
   useEffect(() => {
-    if (!selectedPO) return;
+    if (!selectedPO) {
+      invoiceHsnInitializedForRef.current = '';
+      return;
+    }
     if (billingDraftRestoreGuardRef.current) return;
+    const poId = String(selectedPO.id);
+    if (invoiceHsnInitializedForRef.current === poId) return;
+    invoiceHsnInitializedForRef.current = poId;
     setInvoiceLevelHsn(resolvePoHsnSac(selectedPO));
-  }, [selectedPO?.id, selectedPO?.hsnCode, selectedPO?.sacCode, selectedPO?.ratePerCategory]);
+    // Re-run only when the selected PO identity changes — not when billing refresh replaces the PO object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPO?.id]);
 
   useEffect(() => {
     if (!editingInvoice) return;
@@ -1446,10 +1473,16 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [editingInvoice?.id]);
 
   useEffect(() => {
-    if (!selectedPO) return;
+    if (!selectedPO) {
+      seededPoIdRef.current = '';
+      return;
+    }
     // Only seed items when creating (not when editing with existing items)
     if (invoiceDraft?.mode === 'edit') return;
     if (skipPoAutoSeedRef.current) return;
+    const poId = String(selectedPO.id);
+    if (seededPoIdRef.current === poId) return;
+    seededPoIdRef.current = poId;
     const hsnSac = resolvePoHsnSac(selectedPO);
     const isLump = String(selectedPO.billingType || '').toLowerCase() === 'lump sum';
     const isCustomPo = String(selectedPO.billingType || '').toLowerCase() === 'custom';
@@ -1552,7 +1585,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         poLinePenalty: r.penalty || 0,
       }))
     );
-  }, [selectedPO, invoiceDraft, isMmServiceDescriptionMode]);
+  }, [selectedPO?.id, invoiceDraft?.mode, isMmServiceDescriptionMode]);
 
   // Single sync on mount only — avoid repeat refresh (focus / delayed) wiping in-memory fields
   // such as CN/DN request status before async invoice saves finish or if DB columns lag migrations.

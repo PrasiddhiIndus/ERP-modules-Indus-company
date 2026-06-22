@@ -83,12 +83,17 @@ export function useBillingFormAutosave({
     if (!key) return undefined;
     const onPageHide = () => flushSave();
     const onBeforeUnload = () => flushSave();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushSave();
+    };
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       flushSave();
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [key, flushSave]);
 
