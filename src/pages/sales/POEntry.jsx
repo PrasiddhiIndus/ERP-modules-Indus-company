@@ -973,18 +973,6 @@ const POEntry = () => {
     const trimmedPoWoNumber = effectivePoWo;
     const primaryTotalEmpty =
       formData.totalContractValue === '' || formData.totalContractValue == null;
-    const locNorm = (formData.locationName || '').trim().toLowerCase();
-    const siteNorm = (formData.siteId || '').trim().toLowerCase();
-    const hasDuplicatePO = commercialPOs.some((p) => {
-      if (editId && p.id === editId) return false;
-      const samePoWo = trimmedPoWoNumber && (p.poWoNumber || '').trim().toLowerCase() === trimmedPoWoNumber.toLowerCase();
-      if (!samePoWo) return false;
-      return true;
-    });
-    if (hasDuplicatePO) {
-      setSaveError('Duplicate PO/WO Number is not allowed.');
-      return;
-    }
     if (formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM && !String(formData.customPaymentTerms || '').trim()) {
       setSaveError('Enter payment terms or choose a preset.');
       return;
@@ -1817,7 +1805,7 @@ const POEntry = () => {
                         <p className="text-xs text-gray-500 mt-1">
                           {editId
                             ? `FY segment stays as saved (${fyForOc}). Vendor digits are optional.`
-                            : 'Enter the full OC above. Multiple POs may share the same OC number; PO/WO number must stay unique.'}
+                            : 'Enter the full OC above. Duplicate OC and PO/WO numbers are allowed for now.'}
                         </p>
                       </div>
                     </>

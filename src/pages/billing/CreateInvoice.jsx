@@ -777,6 +777,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
     () => initDraft?.manualTaxInvoiceSerial ?? ''
   );
   const [invoiceLevelHsn, setInvoiceLevelHsn] = useState(() => initDraft?.invoiceLevelHsn ?? '');
+  const [invoiceQuantityFooterNote, setInvoiceQuantityFooterNote] = useState(
+    () => initDraft?.invoiceQuantityFooterNote ?? ''
+  );
   const [preGstSupplementaryRows, setPreGstSupplementaryRows] = useState(() =>
     Array.isArray(initDraft?.preGstSupplementaryRows) ? initDraft.preGstSupplementaryRows : []
   );
@@ -811,6 +814,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       invoiceDocumentKind,
       manualTaxInvoiceSerial,
       invoiceLevelHsn,
+      invoiceQuantityFooterNote,
       preGstSupplementaryRows,
       poBillingTab,
     }),
@@ -832,6 +836,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       invoiceDocumentKind,
       manualTaxInvoiceSerial,
       invoiceLevelHsn,
+      invoiceQuantityFooterNote,
       preGstSupplementaryRows,
       poBillingTab,
     ]
@@ -866,6 +871,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (payload.invoiceDocumentKind) setInvoiceDocumentKind(payload.invoiceDocumentKind);
     if (payload.manualTaxInvoiceSerial != null) setManualTaxInvoiceSerial(payload.manualTaxInvoiceSerial);
     if (payload.invoiceLevelHsn != null) setInvoiceLevelHsn(payload.invoiceLevelHsn);
+    if (payload.invoiceQuantityFooterNote != null) setInvoiceQuantityFooterNote(payload.invoiceQuantityFooterNote);
     if (Array.isArray(payload.preGstSupplementaryRows)) setPreGstSupplementaryRows(payload.preGstSupplementaryRows);
     if (payload.poBillingTab) setPoBillingTab(payload.poBillingTab);
   }, []);
@@ -1469,6 +1475,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
   useEffect(() => {
     if (!editingInvoice) return;
     setInvoiceLevelHsn(editingInvoice.hsnSac || '');
+    setInvoiceQuantityFooterNote(
+      editingInvoice.invoiceQuantityFooterNote || editingInvoice.invoice_quantity_footer_note || ''
+    );
     setPreGstSupplementaryRows(parsePreGstSupplementaryRows(editingInvoice));
   }, [editingInvoice?.id]);
 
@@ -2296,6 +2305,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
         existing?.invoiceHeaderRemarks ||
         existing?.invoice_header_remarks ||
         resolveInvoiceDescriptionFromPo(displayPO),
+      invoiceQuantityFooterNote:
+        invoiceQuantityFooterNote.trim() ||
+        existing?.invoiceQuantityFooterNote ||
+        existing?.invoice_quantity_footer_note ||
+        null,
       clientLegalName: displayPO.legalName,
       clientAddress: invoicePartyAddresses.billToAddress || displayPO.billingAddress,
       clientPincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
@@ -2405,6 +2419,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     displayPO?.pincode,
     invoiceLevelHsn,
     materialCodeRequired,
+    invoiceQuantityFooterNote,
     displayPO?.shipToPincode,
     displayPO?.ship_to_pincode,
     buyerPinMeta.pin,
@@ -2501,6 +2516,11 @@ const CreateInvoice = ({ onNavigateTab }) => {
         existing?.invoiceHeaderRemarks ||
         existing?.invoice_header_remarks ||
         resolveInvoiceDescriptionFromPo(displayPO),
+      invoiceQuantityFooterNote:
+        invoiceQuantityFooterNote.trim() ||
+        existing?.invoiceQuantityFooterNote ||
+        existing?.invoice_quantity_footer_note ||
+        null,
       clientLegalName: displayPO.legalName,
       clientAddress: invoicePartyAddresses.billToAddress || displayPO.billingAddress,
       clientPincode: String(partyPinMeta.billToPin || buyerPinMeta.pin || ''),
@@ -4399,6 +4419,19 @@ const CreateInvoice = ({ onNavigateTab }) => {
               </div>
             </div>
           </div>
+
+                <div className="border-b border-neutral-800 bg-white px-3 sm:px-4 py-3">
+                  <label className="block text-[11px] font-bold uppercase text-neutral-600 mb-1.5">
+                    Footer note
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceQuantityFooterNote}
+                    onChange={(e) => setInvoiceQuantityFooterNote(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Shown below line items on invoice"
+                  />
+                </div>
 
                 <div className="grid grid-cols-1 border-b border-neutral-800 md:grid-cols-2 md:divide-x md:divide-neutral-800 bg-neutral-50/50">
                   <div className="p-3 sm:p-4 text-xs text-neutral-700 space-y-1.5">

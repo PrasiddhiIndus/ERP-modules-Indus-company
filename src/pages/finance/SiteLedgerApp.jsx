@@ -687,16 +687,11 @@ export default function SiteLedgerApp({ embedded = true }) {
     { id: "overview", label: "Overview", icon: LayoutDashboard, section: "portfolio" },
     { id: "sites", label: "All Sites", icon: Building2, section: "portfolio", badge: activeSiteCount || undefined },
     { id: "config", label: "Site Setup", icon: Sliders, section: "setup" },
-    { id: "add-site", label: "Add Site", icon: PlusCircle, section: "setup", onClick: () => setShowAdd(true) },
     { id: "entry", label: "Enter Figures", icon: Pencil, section: "data" },
     { id: "reports", label: "Reports", icon: FileBarChart, section: "reports" },
   ], [activeSiteCount]);
 
   const handleLedgerNav = useCallback((id) => {
-    if (id === "add-site") {
-      setShowAdd(true);
-      return;
-    }
     setView(id);
   }, []);
 
@@ -714,7 +709,6 @@ export default function SiteLedgerApp({ embedded = true }) {
             <button className={view === "config" ? "nav on" : "nav"} onClick={() => setView("config")}><Sliders size={17} /> Site Setup</button>
             <button className={view === "entry" ? "nav on" : "nav"} onClick={() => setView("entry")}><Pencil size={17} /> Enter / Edit Figures</button>
             <button className={view === "reports" ? "nav on" : "nav"} onClick={() => setView("reports")}><FileBarChart size={17} /> Reports</button>
-            <button className="nav" onClick={() => setShowAdd(true)}><PlusCircle size={17} /> Add Site</button>
           </nav>
           <div className="side-foot">
             <button className="ghost" onClick={() => setIoOpen(true)}><Download size={14} /> Backup / Import</button>
@@ -833,7 +827,7 @@ export default function SiteLedgerApp({ embedded = true }) {
             />
           )}
           {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
-          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onAddParent={addParent} onSetParentColor={setParentColor} onRemoveParent={removeParent} />}
+          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onAddParent={addParent} onSetParentColor={setParentColor} onRemoveParent={removeParent} />}
           {view === "reports" && (
             <Reports
               sites={sitesL}
@@ -1416,7 +1410,7 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
 }
 
 /* ───────────────────────── SITE CONFIG (parent → child builder) ───────────────────────── */
-function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onAddParent, onSetParentColor, onRemoveParent }) {
+function SiteConfig({ sites, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onAddParent, onSetParentColor, onRemoveParent }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
   const site = sites.find((s) => s.id === siteId);
@@ -1434,9 +1428,13 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatc
   if (!site) return null;
 
   const structure = displayStructure(site);
+  const structureWithChildren = structure.filter((g) => g.children.length);
   const used = new Set(siteChildKeys(site));
   const available = library.filter((h) => !used.has(h.key));
   const libMap = Object.fromEntries(library.map((h) => [h.key, h]));
+  const rec = records[`${siteId}__${month}`] || {};
+  const c = calcSite(site, month, records, rec);
+  const parentSub = (g) => g.children.reduce((a, k) => a + (c.ex.total[k] || 0), 0);
 
   const moveChild = (childKey, fromParent, toParent, beforeKey) => {
     const libraryChanged = (library.find((h) => h.key === childKey)?.parent !== toParent);
@@ -1605,9 +1603,50 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, onPatc
       </div>
 
       <ContractBudgetEditor site={site} library={library} onPatchSite={onPatchSite} />
-      <Card title="Spread / Deferred Costs" right={<span className="muted-s">recognised evenly across chosen months — incl. mid-contract arrivals</span>}>
-        <SpreadEditor site={site} library={library} onPatchSite={onPatchSite} />
-      </Card>
+      <div className="grid-2 entry-cols">
+        <div className="entry-col">
+          <div className="entry-totals rev-totals">
+            <div className="entry-totals-h">Revenue Totals</div>
+            <table className="entry-totals-tbl">
+              <tbody>
+                {REVENUE_ITEMS.map((it) => (
+                  <tr key={it.key}>
+                    <td>{revenueDisplayLabel(it, rec)}</td>
+                    <td className="r mono">{inr(it.sign * (Number(rec[it.key]) || 0))}</td>
+                  </tr>
+                ))}
+                <tr className="ect-grand">
+                  <td>Total Revenue</td>
+                  <td className="r mono">{inr(c.revenue)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="entry-col">
+          <div className="entry-totals exp-totals">
+            <div className="entry-totals-h">Expense Totals</div>
+            {structureWithChildren.length === 0 ? (
+              <p className="muted-s" style={{ margin: 0, fontSize: 12.5 }}>Configure cost lines to see section totals.</p>
+            ) : (
+              <table className="entry-totals-tbl">
+                <tbody>
+                  {structureWithChildren.map((g) => (
+                    <tr key={g.parent}>
+                      <td className="ect-label"><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</td>
+                      <td className="r mono">{inr(parentSub(g))}</td>
+                    </tr>
+                  ))}
+                  <tr className="ect-grand">
+                    <td>Total Expenses</td>
+                    <td className="r mono">{inr(c.expense)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
     </>
   );
 }
@@ -1846,9 +1885,6 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       </div>
     </label>
   );
-  const savedRec = records[`${siteId}__${mk}`];
-  const formClean = entryRecordClean(form);
-  const isDirty = JSON.stringify(formClean) !== JSON.stringify(savedRec || {});
   const pend = site ? pendingMonths(site, records, month) : [];
   const monthFilled = (k) => !!records[`${siteId}__${k}`];
   const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Auto-saved" : saveUi === "pending" ? "Saving…" : "Save figures";
@@ -1880,26 +1916,6 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       </Card>
       <div className="grid-2 entry-cols">
         <div className="entry-col">
-          <div className="entry-totals rev-totals">
-            <div className="entry-totals-h">
-              Revenue Totals
-              {isDirty && <span className="ect-draft">unsaved</span>}
-            </div>
-            <table className="entry-totals-tbl">
-              <tbody>
-                {REVENUE_ITEMS.map((it) => (
-                  <tr key={it.key}>
-                    <td>{revenueDisplayLabel(it, form)}</td>
-                    <td className="r mono">{inr(it.sign * (Number(form[it.key]) || 0))}</td>
-                  </tr>
-                ))}
-                <tr className="ect-grand">
-                  <td>Total Revenue</td>
-                  <td className="r mono">{inr(c.revenue)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
           <Card title="Revenue">
             <div className="fields">
               {REVENUE_ITEMS.map((it) => (
@@ -1909,30 +1925,6 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
           </Card>
         </div>
         <div className="entry-col">
-          <div className="entry-totals exp-totals">
-            <div className="entry-totals-h">
-              Expense Totals
-              {isDirty && <span className="ect-draft">unsaved</span>}
-            </div>
-            {structure.length === 0 ? (
-              <p className="muted-s" style={{ margin: 0, fontSize: 12.5 }}>Configure cost lines to see section totals.</p>
-            ) : (
-              <table className="entry-totals-tbl">
-                <tbody>
-                  {structure.map((g) => (
-                    <tr key={g.parent}>
-                      <td className="ect-label"><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</td>
-                      <td className="r mono">{inr(parentSub(g))}</td>
-                    </tr>
-                  ))}
-                  <tr className="ect-grand">
-                    <td>Total Expenses</td>
-                    <td className="r mono">{inr(c.expense)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
-          </div>
           <Card title="Expenses" right={<span className="muted-s">{siteChildKeys(site).length} lines · {structure.length} parents</span>}>
             {structure.length === 0 ? <div className="dnd-empty">No cost lines configured. <button className="link" onClick={() => goConfig(siteId)}>Set up the structure →</button></div> :
               structure.map((g) => <div key={g.parent} className="fgroup"><div className="fgroup-h" style={{ color: parentColor(g.parent), display: "flex", justifyContent: "space-between" }}><span><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</span><span className="mono" style={{ color: "var(--muted)", fontWeight: 500 }}>{inr(parentSub(g))}</span></div><div className="fields">{g.children.map((k) => renderField(k, libMap[k]?.label || k))}</div></div>)}
