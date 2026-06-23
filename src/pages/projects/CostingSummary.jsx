@@ -110,6 +110,21 @@ function clampPercent0to100(n) {
   return parsePercentValue(n);
 }
 
+/** Keep "4." / "." in the field while the user is typing a decimal. */
+function isPartialDecimalInput(value) {
+  const s = String(value ?? "").trim();
+  return s === "" || s === "." || /\.$/.test(s);
+}
+
+function parseRupeeEntryValue(raw) {
+  const cleaned = String(raw ?? "")
+    .replace(/[,₹\s]/g, "")
+    .trim();
+  if (cleaned === "" || cleaned === ".") return 0;
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
 function percentOfBaseToRupees(percent, fabricationTotal) {
   const base = Number(fabricationTotal) || 0;
   return (base * clampPercent0to100(percent)) / 100;
@@ -166,23 +181,23 @@ function applyNetTotalDerivedTotals(updated, { grandTotal, chassisTotal, accesso
   updated.forEach((row, i) => {
     if (NET_TOTAL_PERCENT_OF_FABRICATION.has(row.component)) {
       const pct = clampPercent0to100(row.unitCost);
-      updated[i].unitCost = pct;
+      if (!isPartialDecimalInput(row.unitCost)) updated[i].unitCost = pct;
       updated[i].total = percentOfBaseToRupees(pct, grandTotal);
     } else if (NET_TOTAL_PERCENT_OF_CHASSIS.has(row.component)) {
       const pct = clampPercent0to100(row.unitCost);
-      updated[i].unitCost = pct;
+      if (!isPartialDecimalInput(row.unitCost)) updated[i].unitCost = pct;
       updated[i].total = percentOfBaseToRupees(pct, chassisTotal);
     } else if (NET_TOTAL_PERCENT_OF_ACCESSORIES.has(row.component)) {
       const pct = clampPercent0to100(row.unitCost);
-      updated[i].unitCost = pct;
+      if (!isPartialDecimalInput(row.unitCost)) updated[i].unitCost = pct;
       updated[i].total = percentOfBaseToRupees(pct, accessoriesTotal);
     } else if (NET_TOTAL_RUPEE_ENTRY.has(row.component)) {
-      const amt = Math.max(0, Number(row.unitCost) || 0);
-      updated[i].unitCost = amt;
+      const amt = parseRupeeEntryValue(row.unitCost);
+      if (!isPartialDecimalInput(row.unitCost)) updated[i].unitCost = amt;
       updated[i].total = amt;
     } else if (NET_TOTAL_TENDER_MODE_PERCENT.has(row.component)) {
       const pct = clampPercent0to100(row.unitCost);
-      updated[i].unitCost = pct;
+      if (!isPartialDecimalInput(row.unitCost)) updated[i].unitCost = pct;
       updated[i].total = 0;
     }
   });
@@ -777,26 +792,23 @@ const CostingSummary = ({
 
     if (field === "unitCost" && NET_TOTAL_PERCENT_OF_FABRICATION.has(currentRow.component)) {
       const parsed = parsePercentValue(value);
-      updated[index].unitCost = parsed;
+      updated[index].unitCost = isPartialDecimalInput(value) ? value : parsed;
       updated[index].total = percentOfBaseToRupees(parsed, grandTotal);
     } else if (field === "unitCost" && NET_TOTAL_PERCENT_OF_CHASSIS.has(currentRow.component)) {
       const parsed = parsePercentValue(value);
-      updated[index].unitCost = parsed;
+      updated[index].unitCost = isPartialDecimalInput(value) ? value : parsed;
       updated[index].total = percentOfBaseToRupees(parsed, chassisTotal);
     } else if (field === "unitCost" && NET_TOTAL_PERCENT_OF_ACCESSORIES.has(currentRow.component)) {
       const parsed = parsePercentValue(value);
-      updated[index].unitCost = parsed;
+      updated[index].unitCost = isPartialDecimalInput(value) ? value : parsed;
       updated[index].total = percentOfBaseToRupees(parsed, accessoriesTotal);
     } else if (field === "unitCost" && NET_TOTAL_RUPEE_ENTRY.has(currentRow.component)) {
-      const parsed = Math.max(
-        0,
-        parseFloat(String(value).replace(/[,₹\s]/g, "").trim()) || 0
-      );
-      updated[index].unitCost = parsed;
+      const parsed = parseRupeeEntryValue(value);
+      updated[index].unitCost = isPartialDecimalInput(value) ? value : parsed;
       updated[index].total = parsed;
     } else if (field === "unitCost" && NET_TOTAL_TENDER_MODE_PERCENT.has(currentRow.component)) {
       const parsed = parsePercentValue(value);
-      updated[index].unitCost = parsed;
+      updated[index].unitCost = isPartialDecimalInput(value) ? value : parsed;
       updated[index].total = 0;
     } else {
       updated[index][field] = value;
@@ -806,33 +818,40 @@ const CostingSummary = ({
     if (readOnlyItems.includes(currentRow.component)) {
       // Skip total recalculation for read-only items
     } else if (
-      NET_TOTAL_PERCENT_OF_FABRICATION.has(updated[index].component) ||
-      NET_TOTAL_PERCENT_OF_CHASSIS.has(updated[index].component) ||
-      NET_TOTAL_PERCENT_OF_ACCESSORIES.has(updated[index].component) ||
-      NET_TOTAL_RUPEE_ENTRY.has(updated[index].component)
+      field !== "unitCost" &&
+      (NET_TOTAL_PERCENT_OF_FABRICATION.has(updated[index].component) ||
+        NET_TOTAL_PERCENT_OF_CHASSIS.has(updated[index].component) ||
+        NET_TOTAL_PERCENT_OF_ACCESSORIES.has(updated[index].component) ||
+        NET_TOTAL_RUPEE_ENTRY.has(updated[index].component))
     ) {
       if (NET_TOTAL_PERCENT_OF_FABRICATION.has(updated[index].component)) {
         const pct = clampPercent0to100(updated[index].unitCost);
-        updated[index].unitCost = pct;
+        if (!isPartialDecimalInput(updated[index].unitCost)) updated[index].unitCost = pct;
         updated[index].total = percentOfBaseToRupees(pct, grandTotal);
       } else if (NET_TOTAL_PERCENT_OF_CHASSIS.has(updated[index].component)) {
         const pct = clampPercent0to100(updated[index].unitCost);
-        updated[index].unitCost = pct;
+        if (!isPartialDecimalInput(updated[index].unitCost)) updated[index].unitCost = pct;
         updated[index].total = percentOfBaseToRupees(pct, chassisTotal);
       } else if (NET_TOTAL_PERCENT_OF_ACCESSORIES.has(updated[index].component)) {
         const pct = clampPercent0to100(updated[index].unitCost);
-        updated[index].unitCost = pct;
+        if (!isPartialDecimalInput(updated[index].unitCost)) updated[index].unitCost = pct;
         updated[index].total = percentOfBaseToRupees(pct, accessoriesTotal);
       } else if (NET_TOTAL_RUPEE_ENTRY.has(updated[index].component)) {
-        const amt = Math.max(0, Number(updated[index].unitCost) || 0);
-        updated[index].unitCost = amt;
+        const amt = parseRupeeEntryValue(updated[index].unitCost);
+        if (!isPartialDecimalInput(updated[index].unitCost)) updated[index].unitCost = amt;
         updated[index].total = amt;
       }
-    } else if (NET_TOTAL_TENDER_MODE_PERCENT.has(updated[index].component)) {
+    } else if (field !== "unitCost" && NET_TOTAL_TENDER_MODE_PERCENT.has(updated[index].component)) {
       const pct = clampPercent0to100(updated[index].unitCost);
-      updated[index].unitCost = pct;
+      if (!isPartialDecimalInput(updated[index].unitCost)) updated[index].unitCost = pct;
       updated[index].total = 0;
-    } else {
+    } else if (
+      !NET_TOTAL_PERCENT_OF_FABRICATION.has(updated[index].component) &&
+      !NET_TOTAL_PERCENT_OF_CHASSIS.has(updated[index].component) &&
+      !NET_TOTAL_PERCENT_OF_ACCESSORIES.has(updated[index].component) &&
+      !NET_TOTAL_RUPEE_ENTRY.has(updated[index].component) &&
+      !NET_TOTAL_TENDER_MODE_PERCENT.has(updated[index].component)
+    ) {
       // For other items, use normal calculation
       updated[index].total =
         (Number(updated[index].unitRate) * Number(updated[index].qty)) || 0;

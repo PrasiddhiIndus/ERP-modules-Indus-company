@@ -120,7 +120,8 @@ export async function duplicateCostingSheet(supabase, { sourceTenderId, newClien
     zip: newClient.zip?.trim() || null,
     country: newClient.country?.trim() || null,
     publish_date: null,
-    due_date: null,
+    // `due_date` is NOT NULL on tenders — copy from source or default to today.
+    due_date: src.due_date || new Date().toISOString().slice(0, 10),
     status: "Approved",
     user_id: userId,
   };
