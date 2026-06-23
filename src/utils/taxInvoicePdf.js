@@ -1015,18 +1015,32 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   y = doc.lastAutoTable.finalY + 0.6;
   ensureSpace(48);
 
-  // Totals under table — align split with item columns: SR…Rate (left) | UOM+Disc+Amount (blue bar)
+  // Totals under table — footer note (left), total qty under Qty column, invoice total bar (right)
   const totalQty = rowItems.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+  const quantityFooterNoteRaw =
+    inv.invoiceQuantityFooterNote || inv.invoice_quantity_footer_note || '';
+  const footerNoteText =
+    quantityFooterNoteRaw && String(quantityFooterNoteRaw).trim()
+      ? String(quantityFooterNoteRaw).trim()
+      : '–';
   const invoiceTotalBarH = 7;
-  const leftTotalColsW = ITEM_TABLE_COL_WIDTHS.slice(0, 5).reduce((a, b) => a + b, 0);
+  const srColW = ITEM_TABLE_COL_WIDTHS[0];
+  const noteColsW = ITEM_TABLE_COL_WIDTHS.slice(1, 3).reduce((a, b) => a + b, 0);
+  const noteColX = MARGIN + srColW;
+  const qtyColX = MARGIN + ITEM_TABLE_COL_WIDTHS.slice(0, 3).reduce((a, b) => a + b, 0);
+  const qtyColW = ITEM_TABLE_COL_WIDTHS[3];
   const rightBlueColsW = ITEM_TABLE_COL_WIDTHS.slice(5).reduce((a, b) => a + b, 0);
-  const totalBarSplitX = MARGIN + leftTotalColsW;
+  const totalBarSplitX = MARGIN + ITEM_TABLE_COL_WIDTHS.slice(0, 5).reduce((a, b) => a + b, 0);
   const invoiceBarW = rightBlueColsW;
 
   doc.setFontSize(FONT.body);
   doc.setFont(undefined, 'bold');
   doc.setTextColor(0, 0, 0);
-  doc.text('Total Quantity: ' + formatInrPdf(totalQty) + ' No.', MARGIN + 2, y + 4.7);
+  const footerNoteLines = doc.splitTextToSize(footerNoteText, noteColsW - 3);
+  doc.text(footerNoteLines, noteColX + 2, y + 4.7);
+
+  const totalQtyLabel = 'Total Quantity: ' + formatInrPdf(totalQty) + ' No.';
+  doc.text(totalQtyLabel, qtyColX + qtyColW - 1.5, y + 4.7, { align: 'right' });
 
   doc.setFillColor(18, 61, 124);
   doc.rect(totalBarSplitX, y, invoiceBarW, invoiceTotalBarH, 'F');
