@@ -143,6 +143,13 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
   const hdrRemarks = viewInv.invoiceHeaderRemarks || viewInv.invoice_header_remarks;
   const remarksText = hdrRemarks && String(hdrRemarks).trim() ? String(hdrRemarks).trim() : '–';
 
+  const quantityFooterNoteRaw =
+    viewInv.invoiceQuantityFooterNote ?? viewInv.invoice_quantity_footer_note ?? '';
+  const quantityFooterNoteText =
+    quantityFooterNoteRaw && String(quantityFooterNoteRaw).trim()
+      ? String(quantityFooterNoteRaw).trim()
+      : '–';
+
   const previewTotalQty = previewItems.length ? previewItems.reduce((s, i) => s + (Number(i.quantity) || 0), 0) : 0;
 
   const termsLines = resolveTermsLines(viewInv);
@@ -517,32 +524,46 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                 </tr>
               ) : null}
             </tbody>
+            <tfoot>
+              <tr className="bg-white">
+                <td className="border border-[#bbb] px-1 py-2 align-middle" />
+                <td colSpan={2} className="border border-[#bbb] px-2 py-2 align-middle min-w-0">
+                  <p className="text-[8px] font-bold text-black m-0 break-words">{quantityFooterNoteText}</p>
+                </td>
+                {hideQtyRateColumns ? (
+                  <td className="border border-[#bbb] px-1 py-2 align-middle text-[8px] font-bold text-black text-right whitespace-nowrap">
+                    Total Quantity: {formatAmountUpTo3Decimals(previewTotalQty)} No.
+                  </td>
+                ) : (
+                  <>
+                    <td className="border border-[#bbb] px-1 py-2 align-middle text-[8px] font-bold text-black text-right whitespace-nowrap">
+                      Total Quantity: {formatAmountUpTo3Decimals(previewTotalQty)} No.
+                    </td>
+                    <td className="border border-[#bbb] px-1 py-2 align-middle" />
+                  </>
+                )}
+                <td
+                  colSpan={hideQtyRateColumns ? 2 : 3}
+                  className="border border-[#bbb] p-0 align-middle"
+                >
+                  <div
+                    className="flex items-center justify-between gap-2 px-1.5 py-1.5 text-white min-h-[28px] min-w-0 h-full"
+                    style={{ backgroundColor: 'rgb(18, 61, 124)' }}
+                  >
+                    <span className="text-[7px] font-bold uppercase tracking-wide leading-tight shrink min-w-0">
+                      INVOICE TOTAL
+                    </span>
+                    <span
+                      className="text-[11px] font-bold tabular-nums text-right shrink-0 leading-none"
+                      style={{ fontFamily: "'Courier New', monospace" }}
+                    >
+                      {PDF_RS} {formatInvoiceTotalDisplay(previewTotal)}
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
           </table>
-
-          <div
-            className="border-x border-b border-[#bbb] grid items-stretch -mt-px"
-            style={{ gridTemplateColumns: 'minmax(0, 133fr) minmax(0, 49fr)' }}
-          >
-            <div className="px-2 py-2 flex items-center bg-white min-w-0 border-r border-[#bbb]">
-              <p className="text-[8px] font-bold text-black m-0">
-                Total Quantity: {formatAmountUpTo3Decimals(previewTotalQty)} No.
-              </p>
-            </div>
-            <div
-              className="flex items-center justify-between gap-2 px-1.5 py-1.5 text-white min-h-[28px] min-w-0"
-              style={{ backgroundColor: 'rgb(18, 61, 124)' }}
-            >
-              <span className="text-[7px] font-bold uppercase tracking-wide leading-tight shrink min-w-0">
-                INVOICE TOTAL
-              </span>
-              <span
-                className="text-[11px] font-bold tabular-nums text-right shrink-0 leading-none"
-                style={{ fontFamily: "'Courier New', monospace" }}
-              >
-                {PDF_RS} {formatInvoiceTotalDisplay(previewTotal)}
-              </span>
-            </div>
-          </div>
         </div>
 
         <div className="px-[28px] -mt-px">

@@ -932,6 +932,7 @@ export async function fetchInvoices() {
     c.billingDurationFrom = inv.billing_duration_from;
     c.billingDurationTo = inv.billing_duration_to;
     c.invoiceHeaderRemarks = inv.invoice_header_remarks;
+    c.invoiceQuantityFooterNote = inv.invoice_quantity_footer_note ?? null;
     c.termsTemplateKey = inv.terms_template_key;
     c.termsCustomText = inv.terms_custom_text;
     c.clientShippingAddress = inv.client_shipping_address;
@@ -1068,6 +1069,7 @@ export async function saveInvoice(inv) {
     billing_duration_from: normalizePgDateOnly(inv.billingDurationFrom ?? inv.billing_duration_from),
     billing_duration_to: normalizePgDateOnly(inv.billingDurationTo ?? inv.billing_duration_to),
     invoice_header_remarks: inv.invoiceHeaderRemarks || null,
+    invoice_quantity_footer_note: inv.invoiceQuantityFooterNote ?? inv.invoice_quantity_footer_note ?? null,
     terms_template_key: inv.termsTemplateKey || null,
     terms_custom_text: inv.termsCustomText || inv.termsText || null,
     client_shipping_address: inv.clientShippingAddress || null,
