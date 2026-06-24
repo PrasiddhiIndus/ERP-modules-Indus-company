@@ -5,6 +5,7 @@
  */
 
 import { supabase, clearAuthStorage } from './supabase';
+import { isInvalidRefreshTokenError } from './authSessionUtils';
 
 /**
  * Wraps a Supabase query/mutation to handle auth errors gracefully
@@ -18,14 +19,8 @@ export const handleSupabaseError = async (operation) => {
     // Check for refresh token errors in the result
     if (result.error) {
       const errorMessage = String(result.error.message || '');
-      const msg = errorMessage.toLowerCase();
-      
-      if (
-        msg.includes('invalid refresh token') ||
-        msg.includes('refresh token not found') ||
-        msg.includes('token_not_found') ||
-        msg.includes('refresh_token')
-      ) {
+
+      if (isInvalidRefreshTokenError(errorMessage)) {
         console.warn('Refresh token error detected, clearing session...');
         
         // Clear invalid session

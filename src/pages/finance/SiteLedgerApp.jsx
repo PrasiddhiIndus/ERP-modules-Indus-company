@@ -23,6 +23,7 @@ import {
   ArrowUpRight, ArrowDownRight, Download, Upload, Copy, X, Pencil,
   Trash2, CircleDot, Sliders, GripVertical, CalendarClock, Plus,
   Target, FileClock, ChevronRight, ChevronDown, RotateCcw, FileBarChart, AlertCircle, Settings, History,
+  Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock,
 } from "lucide-react";
 
 /* ───────────────────────── DOMAIN MODEL ─────────────────────────
@@ -405,10 +406,10 @@ const vcell = (actual, estimate, lowerIsBetter) => {
 function VarCells({ est, actual, lowerIsBetter, hasEst }) {
   const c = vcell(actual, est, lowerIsBetter);
   return (<>
-    <td className="r mono dim">{hasEst ? inr(est) : "—"}</td>
-    <td className="r mono">{inr(actual)}</td>
-    <td className="r mono" style={{ color: hasEst ? (c.fav ? "var(--profit)" : "var(--loss)") : "var(--muted)" }}>{hasEst ? `${c.v >= 0 ? "+" : ""}${inr(c.v)}` : "—"}</td>
-    <td className="r mono dim">{c.vp == null ? "—" : `${c.vp >= 0 ? "+" : ""}${c.vp.toFixed(0)}%`}</td>
+    <td className="r mono dim vtbl-num">{hasEst ? inr(est) : "—"}</td>
+    <td className="r mono vtbl-num">{inr(actual)}</td>
+    <td className="r mono vtbl-num" style={{ color: hasEst ? (c.fav ? "var(--profit)" : "var(--loss)") : "var(--muted)" }}>{hasEst ? `${c.v >= 0 ? "+" : ""}${inr(c.v)}` : "—"}</td>
+    <td className="r mono dim vtbl-num">{c.vp == null ? "—" : `${c.vp >= 0 ? "+" : ""}${c.vp.toFixed(0)}%`}</td>
   </>);
 }
 
@@ -881,6 +882,10 @@ export default function SiteLedgerApp({ embedded = true }) {
           {view === "sites" && (
             <SitesTable
               rows={rows}
+              records={records}
+              month={month}
+              sitesAll={sitesEnriched}
+              activeSiteCount={activeSiteCount}
               query={query}
               setQuery={setQuery}
               showHistorical={showHistorical}
@@ -891,6 +896,8 @@ export default function SiteLedgerApp({ embedded = true }) {
               onConfig={(id) => { setActiveSite(id); setView("config"); }}
               onDelete={removeSite}
               onViewHistory={(group) => setHistoryGroup(group)}
+              onAdd={() => setShowAdd(true)}
+              onExport={() => setIoOpen(true)}
               mLabel={mLabel}
             />
           )}
@@ -1314,63 +1321,339 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
 
 
 /* ───────────────────────── SITES TABLE ───────────────────────── */
-function SitesTable({ rows, query, setQuery, showHistorical, setShowHistorical, inactiveCount, openSite, onEdit, onConfig, onDelete, onViewHistory, mLabel }) {
-  const [sort, setSort] = useState({ key: "profit", dir: "desc" });
-  const filtered = rows.filter((r) => r.name.toLowerCase().includes(query.toLowerCase()) || (r.service || "").toLowerCase().includes(query.toLowerCase()));
-  const sorted = [...filtered].sort((a, b) => { const m = sort.dir === "asc" ? 1 : -1; return sort.key === "name" ? m * a.name.localeCompare(b.name) : m * ((a[sort.key] || 0) - (b[sort.key] || 0)); });
-  const setS = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
-  const arr = (k) => sort.key === k ? (sort.dir === "desc" ? " ▾" : " ▴") : "";
+const SITES_FILTERS_INIT = { status: "all", service: "all", financial: "all" };
+
+function pendingMonthsTone(count) {
+  if (count <= 0) return "ok";
+  if (count <= 3) return "low";
+  if (count <= 6) return "med";
+  return "high";
+}
+
+function PendingMonthsCell({ site, records, uptoMk }) {
+  const pending = pendingMonths(site, records, uptoMk);
+  const labels = pending.map(monthLabelOf);
+  const tone = pendingMonthsTone(pending.length);
+  if (!pending.length) {
+    return <span className="sm-pend sm-pend-ok">0 · All data completed</span>;
+  }
+  const preview = labels.slice(0, 3).join(", ");
+  const more = labels.length > 3 ? ` +${labels.length - 3} more` : "";
   return (
-    <Card
-      title={`All Sites · ${mLabel}`}
-      right={(
-        <div className="sites-head-actions">
-          <button type="button" className={"hist-scope-btn sm" + (showHistorical ? " on" : "")} onClick={() => setShowHistorical((v) => !v)}>
-            <History size={13} />
-            {showHistorical ? "Hide inactive" : `Show inactive${inactiveCount ? ` (${inactiveCount})` : ""}`}
-          </button>
-          <div className="search"><Search size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search sites…" /></div>
+    <span className={`sm-pend sm-pend-${tone}`} title={labels.join(", ")}>
+      {pending.length} Pending: {preview}{more}
+    </span>
+  );
+}
+
+function SitesTable({
+  rows, records, month, sitesAll, activeSiteCount, query, setQuery,
+  showHistorical, setShowHistorical, inactiveCount,
+  openSite, onEdit, onConfig, onDelete, onViewHistory, onAdd, onExport, mLabel,
+}) {
+  const [sort, setSort] = useState({ key: "name", dir: "asc" });
+  const [filters, setFilters] = useState(SITES_FILTERS_INIT);
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [menuOpen, setMenuOpen] = useState(null);
+
+  const services = useMemo(
+    () => [...new Set(rows.map((r) => r.service).filter(Boolean))].sort(),
+    [rows],
+  );
+
+  const totalSites = sitesAll.length;
+  const inactiveSites = totalSites - activeSiteCount;
+  const dataCompleted = rows.filter((r) => pendingMonths(r, records, month).length === 0).length;
+  const dataPending = rows.filter((r) => pendingMonths(r, records, month).length > 0).length;
+  const overdueLoss = rows.filter((r) => r.hasData && r.profit < 0).length;
+  const completedPct = rows.length ? Math.round((dataCompleted / rows.length) * 100) : 0;
+  const pendingPct = rows.length ? Math.round((dataPending / rows.length) * 100) : 0;
+
+  const filtered = useMemo(() => {
+    let list = rows.filter(
+      (r) =>
+        r.name.toLowerCase().includes(query.toLowerCase()) ||
+        (r.service || "").toLowerCase().includes(query.toLowerCase()),
+    );
+    if (filters.status === "active") list = list.filter((r) => isSiteActive(r));
+    if (filters.status === "inactive") list = list.filter((r) => !isSiteActive(r));
+    if (filters.service !== "all") list = list.filter((r) => r.service === filters.service);
+    if (filters.financial === "completed") list = list.filter((r) => pendingMonths(r, records, month).length === 0);
+    if (filters.financial === "pending") list = list.filter((r) => pendingMonths(r, records, month).length > 0);
+    if (filters.financial === "loss") list = list.filter((r) => r.hasData && r.profit < 0);
+    if (filters.financial === "thin") list = list.filter((r) => r.hasData && r.profit >= 0 && r.margin < WARN_MARGIN);
+    return list;
+  }, [rows, query, filters, records, month]);
+
+  const sorted = useMemo(() => {
+    const m = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      if (sort.key === "name") return m * a.name.localeCompare(b.name);
+      if (sort.key === "pendingCount") {
+        const pa = pendingMonths(a, records, month).length;
+        const pb = pendingMonths(b, records, month).length;
+        return m * (pa - pb);
+      }
+      return m * ((a[sort.key] || 0) - (b[sort.key] || 0));
+    });
+  }, [filtered, sort, records, month]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / rowsPerPage));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = sorted.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage);
+  const rangeStart = sorted.length ? (safePage - 1) * rowsPerPage + 1 : 0;
+  const rangeEnd = (safePage - 1) * rowsPerPage + pageRows.length;
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = () => setMenuOpen(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [menuOpen]);
+
+  const setF = (patch) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
+  const setS = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
+  const arr = (k) => (sort.key === k ? (sort.dir === "desc" ? " ▾" : " ▴") : "");
+  const hasActiveFilters = filters.status !== "all" || filters.service !== "all" || filters.financial !== "all";
+
+  const copySiteSummary = (r) => {
+    const pend = pendingMonths(r, records, month).map(monthLabelOf).join(", ");
+    const line = [
+      r.name,
+      r.service || "",
+      r.contractStart ? `${monthLabelOf(r.contractStart)} - ${monthLabelOf(r.contractEnd)}` : "",
+      inr(r.revenue),
+      inr(r.profit),
+      pend ? `Pending: ${pend}` : "Complete",
+    ].join("\t");
+    void navigator.clipboard?.writeText(line);
+  };
+
+  return (
+    <div className="sm-page">
+      <nav className="sm-crumb" aria-label="Breadcrumb">
+        <Home size={13} />
+        <ChevronRight size={12} />
+        <span>Masters</span>
+        <ChevronRight size={12} />
+        <span className="sm-crumb-on">Sites</span>
+      </nav>
+
+      <div className="sm-head">
+        <div>
+          <h2 className="sm-title">Sites Master</h2>
+          <p className="sm-sub">Master list of all sites and their financial data status</p>
         </div>
-      )}
-    >
-      <table className="tbl">
-        <thead><tr><th className="click" onClick={() => setS("name")}>Site{arr("name")}</th><th>Contract</th><th>Service</th><th>Lines</th><th className="r click" onClick={() => setS("revenue")}>Revenue{arr("revenue")}</th><th className="r click" onClick={() => setS("expense")}>Expense{arr("expense")}</th><th className="r click" onClick={() => setS("profit")}>Profit{arr("profit")}</th><th className="r click" onClick={() => setS("margin")}>Margin{arr("margin")}</th><th className="r click" onClick={() => setS("profitVar")}>vs Est{arr("profitVar")}</th><th>Status</th><th></th></tr></thead>
-        <tbody>{sorted.map((r) => (
-          <tr key={r.id} className={`${r.pending ? "row-pending" : ""}${!isSiteActive(r) ? " row-inactive" : ""}`}>
-            <td className="strong click" onClick={() => openSite(r.id)}>
-              {r.name}
-              <span className={"ver-pill" + (!isSiteActive(r) ? " inactive" : "")}>{versionLabel(r)}{!isSiteActive(r) ? " · Inactive" : ""}</span>
-            </td>
-            <td className="muted-s mono">{r.contractStart ? `${monthLabelOf(r.contractStart)}–${monthLabelOf(r.contractEnd)}` : "—"}{r.wo ? ` · ${r.wo}` : ""}</td>
-            <td className="muted-s">{r.service || "—"}</td>
-            <td className="muted-s mono">{siteChildKeys(r).length}{(r.spreads || []).length ? ` · ${r.spreads.length}⏳` : ""}</td>
-            {r.hasData ? <>
-              <td className="r mono">{inr(r.revenue)}</td><td className="r mono">{inr(r.expense)}</td>
-              <td className="r mono" style={{ color: r.profit < 0 ? "var(--loss)" : "var(--profit)" }}>{inr(r.profit)}</td>
-              <td className="r mono" style={{ color: r.margin < 0 ? "var(--loss)" : r.margin < WARN_MARGIN ? "var(--warn)" : "var(--ink)" }}>{pct(r.margin)}</td>
-              <td className="r mono" style={{ color: r.profitVar == null ? "var(--muted)" : r.profitVar >= 0 ? "var(--profit)" : "var(--loss)" }}>{r.profitVar == null ? "—" : `${r.profitVar >= 0 ? "+" : ""}${inrShort(r.profitVar)}`}</td>
-              <td><StatusPill margin={r.margin} profit={r.profit} /></td>
-            </> : <>
-              <td className="r muted-s" colSpan={4} style={{ textAlign: "center" }}>{r.pending ? <span className="pend-inline"><AlertCircle size={12} /> awaiting {mLabel}{r.pendingCount > 1 ? ` · ${r.pendingCount} mo behind` : ""}</span> : `not in contract for ${mLabel}`}</td>
-              <td>{r.pending ? <span className="pill pill-pending"><CircleDot size={9} /> Pending</span> : <span className="muted-s">—</span>}</td>
-            </>}
-            <td className="r nowrap">
-              <button className="icon-btn" title="View version history" onClick={() => onViewHistory(r.siteGroup)}><History size={14} /></button>
-              {isSiteActive(r) && (
-                <>
-                  <button className="icon-btn" title="Configure structure" onClick={() => onConfig(r.id)}><Sliders size={14} /></button>
-                  <button className={"icon-btn" + (r.pending ? " accent" : "")} title="Enter figures" onClick={() => onEdit(r.id)}><Pencil size={14} /></button>
-                </>
-              )}
-              <button className="icon-btn" title="View P&L" onClick={() => openSite(r.id)}><FileBarChart size={14} /></button>
-              {isSiteActive(r) && (
-                <button className="icon-btn danger" title="Delete" onClick={() => { if (confirm(`Delete "${r.name}" (${versionLabel(r)}) and all its data?`)) onDelete(r.id); }}><Trash2 size={14} /></button>
-              )}
-            </td>
-          </tr>
-        ))}</tbody>
-      </table>
-    </Card>
+        <div className="sm-head-actions">
+          <button type="button" className="ghost-d sm-btn-outline" onClick={onExport}>
+            <Download size={14} /> Export
+          </button>
+          <button type="button" className="primary sm-btn-add" onClick={onAdd}>
+            <Plus size={14} /> Add Site
+          </button>
+        </div>
+      </div>
+
+      <div className="sm-kpi-row">
+        <div className="sm-kpi">
+          <div className="sm-kpi-top"><Building2 size={16} /><span>Total Sites</span></div>
+          <div className="sm-kpi-val">{totalSites}</div>
+          <div className="sm-kpi-sub">All locations</div>
+        </div>
+        <div className="sm-kpi">
+          <div className="sm-kpi-top"><CheckCircle size={16} className="sm-ico-profit" /><span>Active Sites</span></div>
+          <div className="sm-kpi-val">{activeSiteCount}</div>
+          <div className="sm-kpi-sub">Active locations</div>
+        </div>
+        <div className="sm-kpi">
+          <div className="sm-kpi-top"><XCircle size={16} className="sm-ico-muted" /><span>Inactive Sites</span></div>
+          <div className="sm-kpi-val">{inactiveSites}</div>
+          <div className="sm-kpi-sub">Inactive locations</div>
+        </div>
+        <div className="sm-kpi">
+          <div className="sm-kpi-top"><FileCheck size={16} className="sm-ico-profit" /><span>Data Completed</span></div>
+          <div className="sm-kpi-val">{dataCompleted}</div>
+          <div className="sm-kpi-sub">{completedPct}% of total</div>
+        </div>
+        <div className="sm-kpi">
+          <div className="sm-kpi-top"><Clock size={16} className="sm-ico-warn" /><span>Data Pending</span></div>
+          <div className="sm-kpi-val">{dataPending}</div>
+          <div className="sm-kpi-sub">{pendingPct}% of total</div>
+        </div>
+        <div className="sm-kpi sm-kpi-alert">
+          <div className="sm-kpi-top"><AlertTriangle size={16} className="sm-ico-loss" /><span>Overdue (Loss)</span></div>
+          <div className="sm-kpi-val sm-kpi-loss">{overdueLoss}</div>
+          <div className="sm-kpi-sub">Require attention</div>
+        </div>
+      </div>
+
+      <div className="sm-filters">
+        <label className="sm-filter sm-filter-search">
+          <span>Search</span>
+          <div className="sm-search">
+            <Search size={14} />
+            <input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search sites…" />
+          </div>
+        </label>
+        <label className="sm-filter">
+          <span>Status</span>
+          <select value={filters.status} onChange={(e) => setF({ status: e.target.value })}>
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+        <label className="sm-filter">
+          <span>Service</span>
+          <select value={filters.service} onChange={(e) => setF({ service: e.target.value })}>
+            <option value="all">All</option>
+            {services.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label className="sm-filter">
+          <span>Financial Status</span>
+          <select value={filters.financial} onChange={(e) => setF({ financial: e.target.value })}>
+            <option value="all">All</option>
+            <option value="completed">Data completed</option>
+            <option value="pending">Data pending</option>
+            <option value="loss">Loss-making</option>
+            <option value="thin">Thin margin</option>
+          </select>
+        </label>
+        {hasActiveFilters && (
+          <button type="button" className="ghost-d sm-clear" onClick={() => { setFilters(SITES_FILTERS_INIT); setPage(1); }}>
+            Clear Filters
+          </button>
+        )}
+        <button
+          type="button"
+          className={"hist-scope-btn sm-hist" + (showHistorical ? " on" : "")}
+          onClick={() => setShowHistorical((v) => !v)}
+        >
+          <History size={13} />
+          {showHistorical ? "Hide inactive" : `Show inactive${inactiveCount ? ` (${inactiveCount})` : ""}`}
+        </button>
+      </div>
+
+      <div className="sm-table-card">
+        <table className="tbl sm-tbl">
+          <thead>
+            <tr>
+              <th className="click" onClick={() => setS("name")}>Site Name{arr("name")}</th>
+              <th>Contract</th>
+              <th>Service</th>
+              <th className="r click" onClick={() => setS("revenue")}>Revenue (₹){arr("revenue")}</th>
+              <th className="r click" onClick={() => setS("expense")}>Expense (₹){arr("expense")}</th>
+              <th className="r click" onClick={() => setS("profit")}>Profit (₹){arr("profit")}</th>
+              <th className="r click" onClick={() => setS("margin")}>Margin (%){arr("margin")}</th>
+              <th>VS EST</th>
+              <th className="click" onClick={() => setS("pendingCount")}>Pending Months{arr("pendingCount")}</th>
+              <th className="r">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((r) => (
+              <tr key={r.id} className={!isSiteActive(r) ? "row-inactive" : ""}>
+                <td className="strong">
+                  <button type="button" className="sm-site-link" onClick={() => openSite(r.id)}>{r.name}</button>
+                  <span className="sm-ver">{versionLabel(r)}</span>
+                </td>
+                <td className="muted-s mono">
+                  {r.contractStart ? `${monthLabelOf(r.contractStart)} - ${monthLabelOf(r.contractEnd)}` : "—"}
+                </td>
+                <td className="muted-s">{r.service || "—"}</td>
+                <td className="r mono">{inr(r.revenue)}</td>
+                <td className="r mono">{inr(r.expense)}</td>
+                <td className="r mono" style={{ color: r.profit < 0 ? "var(--loss)" : "var(--ink)" }}>{inr(r.profit)}</td>
+                <td className="r mono" style={{ color: r.margin < 0 ? "var(--loss)" : r.margin < WARN_MARGIN ? "var(--warn)" : "var(--ink)" }}>{pct(r.margin)}</td>
+                <td>
+                  {r.hasData ? <StatusPill margin={r.margin} profit={r.profit} /> : <span className="muted-s">—</span>}
+                </td>
+                <td><PendingMonthsCell site={r} records={records} uptoMk={month} /></td>
+                <td className="r nowrap sm-actions">
+                  <button type="button" className="sm-act" title="View" onClick={() => openSite(r.id)}><Eye size={15} /></button>
+                  {isSiteActive(r) && (
+                    <button type="button" className="sm-act" title="Edit figures" onClick={() => onEdit(r.id)}><Pencil size={15} /></button>
+                  )}
+                  <button type="button" className="sm-act" title="Copy summary" onClick={() => copySiteSummary(r)}><Copy size={15} /></button>
+                  <div className="sm-more-wrap">
+                    <button
+                      type="button"
+                      className="sm-act"
+                      title="More"
+                      onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === r.id ? null : r.id); }}
+                    >
+                      <MoreVertical size={15} />
+                    </button>
+                    {menuOpen === r.id && (
+                      <div className="sm-more-menu" onClick={(e) => e.stopPropagation()}>
+                        <button type="button" onClick={() => { onViewHistory(r.siteGroup); setMenuOpen(null); }}>Version history</button>
+                        {isSiteActive(r) && (
+                          <>
+                            <button type="button" onClick={() => { onConfig(r.id); setMenuOpen(null); }}>Site setup</button>
+                            <button type="button" className="danger" onClick={() => { if (confirm(`Delete "${r.name}" (${versionLabel(r)}) and all its data?`)) onDelete(r.id); setMenuOpen(null); }}>Delete site</button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!pageRows.length && (
+              <tr>
+                <td colSpan={10} className="sm-empty">No sites match your filters.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+
+        <div className="sm-foot">
+          <span className="sm-foot-meta">
+            Showing {rangeStart} to {rangeEnd} of {sorted.length} sites
+          </span>
+          <div className="sm-foot-right">
+            <label className="sm-rpp">
+              Rows per page
+              <select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(1); }}>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
+            <div className="sm-pager">
+              <button type="button" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Previous</button>
+              <span>{safePage} / {totalPages}</span>
+              <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="sm-legend-grid">
+        <div className="sm-legend-card">
+          <h4>Pending Months Legend</h4>
+          <ul>
+            <li><span className="sm-pend sm-pend-ok">0</span> All Data Completed</li>
+            <li><span className="sm-pend sm-pend-low">1–3</span> Low Pending</li>
+            <li><span className="sm-pend sm-pend-med">4–6</span> Medium Pending</li>
+            <li><span className="sm-pend sm-pend-high">7+</span> High Pending</li>
+          </ul>
+        </div>
+        <div className="sm-legend-card sm-about">
+          <h4>About Pending Months</h4>
+          <p>
+            This column shows the number of months for which financial data is not yet entered for each site,
+            up to the selected period (<b>{mLabel}</b>). For example, &ldquo;Jul-25&rdquo; means July 2025 data is pending.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1410,8 +1693,8 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(tree.map((g) => g.parent)));
 
   return (
-    <>
-      <button className="back" onClick={back}><ChevronLeft size={16} /> Back to overview</button>
+    <div className="site-detail">
+      <button type="button" className="back" onClick={back}><ChevronLeft size={16} /> Back</button>
       {historical && (
         <div className="hist-banner">
           <History size={16} />
@@ -1423,18 +1706,28 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
         </div>
       )}
       <div className="site-head">
-        <div>
-          <h2>{site.name} <span className="ver-pill inline">{versionLabel(site)}{historical ? " · Inactive" : " · Active"}</span></h2>
-          <p>{site.service || "—"}{site.wo ? ` · W.O. ${site.wo}` : ""}{site.contractStart ? ` · contract ${monthLabelOf(site.contractStart)}–${monthLabelOf(site.contractEnd)}` : ""} · {mLabel}</p>
+        <div className="site-head-info">
+          <h2>
+            <span className="site-head-name">{site.name}</span>
+            <span className="ver-pill inline">{versionLabel(site)}{historical ? " · Inactive" : " · Active"}</span>
+          </h2>
+          <div className="site-head-meta">
+            {site.service && <span>Service: <b>{site.service}</b></span>}
+            {site.wo && <span>W.O.: <b>{site.wo}</b></span>}
+            {site.contractStart && (
+              <span>Contract: <b>{monthLabelOf(site.contractStart)} – {monthLabelOf(site.contractEnd)}</b></span>
+            )}
+            <span>Period: <b>{mLabel}</b></span>
+          </div>
         </div>
         <div className="site-head-right">
           <StatusPill margin={c.margin} profit={c.profit} />
-          <button className="ghost-d" onClick={() => onViewHistory(site.siteGroup)}><History size={14} /> History</button>
-          {!historical && <button className="ghost-d" onClick={onConfig}><Sliders size={14} /> Setup</button>}
-          {!historical && <button className="primary" onClick={onEdit}><Pencil size={14} /> Edit figures</button>}
+          <button type="button" className="ghost-d" onClick={() => onViewHistory(site.siteGroup)}><History size={14} /> History</button>
+          {!historical && <button type="button" className="ghost-d" onClick={onConfig}><Sliders size={14} /> Setup</button>}
+          {!historical && <button type="button" className="primary" onClick={onEdit}><Pencil size={14} /> Edit figures</button>}
         </div>
       </div>
-      <div className="kpi-row">
+      <div className="kpi-row site-detail-kpis">
         <Kpi icon={IndianRupee} label="Total Revenue (a)" value={inrShort(c.revenue)} sub={est ? `est ${inrShort(est.revenue)}` : null} />
         <Kpi icon={Receipt} label="Sub-total Expenses (b)" value={inrShort(c.expense)} sub={est ? `est ${inrShort(est.expense)}` : (c.revenue ? `${pct((c.expense / c.revenue) * 100)} of revenue` : null)} />
         <Kpi icon={Wallet} label="Profit (a − b)" value={inrShort(c.profit)} tone={c.profit >= 0 ? "profit" : "loss"} sub={est ? `est ${inrShort(est.profit)}` : null} />
@@ -1443,32 +1736,93 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
       </div>
       {!rec && tree.length === 0 ? <div className="empty"><Receipt size={30} /><h3>No figures for {mLabel}</h3><p>Click <b>Edit figures</b> to add this period.</p></div> : (
         <>
-          <Card title="Income – Expenditure · Actual vs Estimate" pad={false} right={<span className="muted-s" style={{ display: "flex", gap: 12, alignItems: "center" }}><button className="link" onClick={toggleAll}>{allExpanded ? "Collapse all" : "Expand all"}</button>{estVer ? <span><FileClock size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />budget {monthLabelOf(estVer.effectiveFrom)}{estVer.note ? ` · ${estVer.note}` : ""}</span> : "no estimate"}</span>}>
+          <Card
+            title="Income – Expenditure · Actual vs Estimate"
+            pad={false}
+            className="site-ie-card"
+            right={(
+              <div className="site-ie-card-tools">
+                <button type="button" className="link" onClick={toggleAll}>{allExpanded ? "Collapse all" : "Expand all"}</button>
+                {estVer ? (
+                  <span className="site-ie-budget">
+                    <FileClock size={12} />
+                    budget {monthLabelOf(estVer.effectiveFrom)}
+                    {estVer.note ? ` · ${estVer.note}` : ""}
+                  </span>
+                ) : (
+                  <span className="muted-s">no estimate</span>
+                )}
+              </div>
+            )}
+          >
+            <div className="vtbl-wrap">
             <table className="tbl vtbl">
-              <thead><tr><th>Particulars</th><th className="r">Estimate</th><th className="r">Actual</th><th className="r">Variance</th><th className="r">Var %</th></tr></thead>
+              <colgroup>
+                <col className="vtbl-col-part" />
+                <col className="vtbl-col-num" />
+                <col className="vtbl-col-num" />
+                <col className="vtbl-col-num" />
+                <col className="vtbl-col-num" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Particulars</th>
+                  <th className="r">Estimate</th>
+                  <th className="r">Actual</th>
+                  <th className="r">Variance</th>
+                  <th className="r">Var %</th>
+                </tr>
+              </thead>
               <tbody>
                 <tr className="vsec"><td colSpan={5}>Revenue</td></tr>
-                {revBreak.map((it) => (<tr key={it.key}><td>{it.label}</td><VarCells est={it.sign * it.est} actual={it.sign * it.raw} lowerIsBetter={false} hasEst={!!it.est} /></tr>))}
-                <tr className="vtot green"><td>Total Revenue (a)</td><VarCells est={est?.revenue || 0} actual={c.revenue} lowerIsBetter={false} hasEst={!!est} /></tr>
+                {revBreak.map((it) => (
+                  <tr key={it.key}>
+                    <td className="vtbl-part">{it.label}</td>
+                    <VarCells est={it.sign * it.est} actual={it.sign * it.raw} lowerIsBetter={false} hasEst={!!it.est} />
+                  </tr>
+                ))}
+                <tr className="vtot green"><td className="vtbl-part">Total Revenue (a)</td><VarCells est={est?.revenue || 0} actual={c.revenue} lowerIsBetter={false} hasEst={!!est} /></tr>
                 <tr className="vsec"><td colSpan={5}>Expenses <span className="vhint">— click a head to expand its components</span></td></tr>
                 {tree.map((g) => (
                   <React.Fragment key={g.parent}>
                     <tr className="vparent" onClick={() => toggle(g.parent)} onDoubleClick={() => toggle(g.parent)}>
-                      <td><span className="pchev">{expanded.has(g.parent) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span><span className="pdot" style={{ background: g.color }} /><b>{g.label}</b>{g.amort > 0 && <em className="amort-tag">⏳ {inr(g.amort)} spread</em>}<span className="pcount">{g.children.length}</span></td>
+                      <td className="vtbl-part">
+                        <div className="vparent-label">
+                          <span className="pchev">{expanded.has(g.parent) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                          <span className="pdot" style={{ background: g.color }} />
+                          <b className="vparent-name">{g.label}</b>
+                          <span className="pcount">{g.children.length}</span>
+                          {g.amort > 0 && <em className="amort-tag">⏳ {inr(g.amort)} spread</em>}
+                        </div>
+                      </td>
                       <VarCells est={g.est} actual={g.actual} lowerIsBetter={true} hasEst={g.est > 0} />
                     </tr>
                     {expanded.has(g.parent) && g.children.filter((ch) => ch.actual !== 0 || ch.est !== 0).map((ch) => (
-                      <tr className="vchild" key={ch.key}><td><span className="cbranch" />{ch.label}{ch.amort > 0 && <em className="amort-tag">⏳ {inr(ch.amort)}</em>}</td><VarCells est={ch.est} actual={ch.actual} lowerIsBetter={true} hasEst={ch.est > 0} /></tr>
+                      <tr className="vchild" key={ch.key}>
+                        <td className="vtbl-part vtbl-part-child">
+                          <span className="cbranch" />
+                          <span className="vchild-name">{ch.label}</span>
+                          {ch.amort > 0 && <em className="amort-tag">⏳ {inr(ch.amort)}</em>}
+                        </td>
+                        <VarCells est={ch.est} actual={ch.actual} lowerIsBetter={true} hasEst={ch.est > 0} />
+                      </tr>
                     ))}
                   </React.Fragment>
                 ))}
-                <tr className="vtot green"><td>Sub-total (b)</td><VarCells est={est?.expense || 0} actual={c.expense} lowerIsBetter={true} hasEst={!!est} /></tr>
-                <tr className={"vtot " + (c.profit >= 0 ? "profit" : "loss")}><td>Profit (a − b)</td><VarCells est={est?.profit || 0} actual={c.profit} lowerIsBetter={false} hasEst={!!est} /></tr>
-                <tr className="vmargin"><td>Margin %</td><td className="r mono dim">{est ? pct(est.margin) : "—"}</td><td className="r mono">{pct(c.margin)}</td><td className="r mono" style={{ color: est ? (c.margin >= est.margin ? "var(--profit)" : "var(--loss)") : "var(--muted)" }}>{est ? `${c.margin - est.margin >= 0 ? "+" : ""}${(c.margin - est.margin).toFixed(1)} pp` : "—"}</td><td className="r mono dim">—</td></tr>
+                <tr className="vtot green"><td className="vtbl-part">Sub-total (b)</td><VarCells est={est?.expense || 0} actual={c.expense} lowerIsBetter={true} hasEst={!!est} /></tr>
+                <tr className={"vtot " + (c.profit >= 0 ? "profit" : "loss")}><td className="vtbl-part">Profit (a − b)</td><VarCells est={est?.profit || 0} actual={c.profit} lowerIsBetter={false} hasEst={!!est} /></tr>
+                <tr className="vmargin">
+                  <td className="vtbl-part">Margin %</td>
+                  <td className="r mono dim vtbl-num">{est ? pct(est.margin) : "—"}</td>
+                  <td className="r mono vtbl-num">{pct(c.margin)}</td>
+                  <td className="r mono vtbl-num" style={{ color: est ? (c.margin >= est.margin ? "var(--profit)" : "var(--loss)") : "var(--muted)" }}>{est ? `${c.margin - est.margin >= 0 ? "+" : ""}${(c.margin - est.margin).toFixed(1)} pp` : "—"}</td>
+                  <td className="r mono dim vtbl-num">—</td>
+                </tr>
               </tbody>
             </table>
+            </div>
           </Card>
-          <div className="grid-2">
+          <div className="grid-2 site-detail-charts">
             <Card title="Expense Mix · by parent">
               <div className="donut-wrap">
                 <ResponsiveContainer width="100%" height={200}><PieChart><Pie data={catData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={52} outerRadius={78} paddingAngle={2} stroke="none">{catData.map((d, i) => <Cell key={i} fill={d.color} />)}</Pie><Tooltip content={<TipBox fmt={inr} />} /></PieChart></ResponsiveContainer>
@@ -1496,7 +1850,7 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
           </div>
         </>
       )}
-    </>
+    </div>
   );
 }
 
@@ -2940,23 +3294,55 @@ function Styles() {
     .pill-ok{background:rgba(22,119,78,.12);color:var(--profit);}.pill-watch{background:rgba(169,132,43,.14);color:var(--gold);}.pill-warn{background:rgba(194,130,15,.15);color:var(--warn);}.pill-loss{background:rgba(178,63,42,.13);color:var(--loss);}
     .search{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;padding:6px 11px;color:var(--muted);background:var(--paper);}
     .search input{border:none;background:none;outline:none;font-family:var(--body);font-size:13px;width:160px;color:var(--ink);}
-    /* variance table */
-    .vtbl td:first-child{color:var(--ink-soft);}
-    .vtbl tr.vsec td{background:var(--paper);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;padding:8px 12px;}
-    .vhint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted);}
-    .vtbl tr.vparent{cursor:pointer;}.vtbl tr.vparent td:first-child{color:var(--ink);display:flex;align-items:center;gap:7px;}
-    .vtbl tr.vparent:hover td{background:#f9fafb;}
-    .pchev{display:inline-flex;color:var(--muted);}
-    .pdot{width:9px;height:9px;border-radius:3px;display:inline-block;flex-shrink:0;}
-    .pcount{margin-left:6px;font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:0 7px;}
-    .vtbl tr.vchild td:first-child{color:var(--ink-soft);padding-left:34px;font-size:12.5px;}
-    .vtbl tr.vchild td{background:rgba(0,0,0,.012);border-bottom:1px solid var(--line);}
-    .cbranch{display:inline-block;width:10px;border-left:2px solid var(--line);border-bottom:2px solid var(--line);height:8px;margin-right:8px;vertical-align:middle;}
-    .vtbl tr.vtot td{font-weight:700;}.vtbl tr.vtot td:first-child{color:var(--ink);}
-    .vtbl tr.vtot.green td{background:#f3f4f6;}
-    .vtbl tr.vtot.profit td{background:rgba(22,119,78,.13);color:var(--profit);}.vtbl tr.vtot.loss td{background:rgba(178,63,42,.11);color:var(--loss);}
-    .vtbl tr.vmargin td{font-weight:600;border-top:2px solid var(--line);}
-    .amort-tag{display:inline-block;margin-left:8px;font-style:normal;font-size:10.5px;color:var(--gold);background:rgba(169,132,43,.12);padding:1px 7px;border-radius:20px;font-family:var(--mono);}
+    /* variance table (site detail · Income – Expenditure) */
+    .site-ie-card .vtbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-top:1px solid var(--line);}
+    .site-ie-card .vtbl{table-layout:fixed;width:100%;min-width:520px;border-collapse:separate;border-spacing:0;}
+    .site-ie-card .vtbl col.vtbl-col-part{width:26%;}
+    .site-ie-card .vtbl col.vtbl-col-num{width:18.5%;}
+    .site-ie-card .vtbl thead th{background:#f8fafc;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;padding:10px 12px;border-bottom:2px solid var(--line);white-space:nowrap;}
+    .site-ie-card .vtbl thead th:first-child{padding-left:14px;text-align:left;}
+    .site-ie-card .vtbl th.r,.site-ie-card .vtbl td.r{text-align:right;}
+    .site-ie-card .vtbl tbody td{padding:9px 12px;vertical-align:middle;border-bottom:1px solid #f0f1f3;}
+    .site-ie-card .vtbl .vtbl-part{padding-left:14px;padding-right:10px;max-width:0;color:var(--ink-soft);font-size:12.5px;line-height:1.4;word-break:break-word;overflow-wrap:anywhere;}
+    .site-ie-card .vtbl-num{white-space:nowrap;font-size:12.5px;padding-right:14px!important;}
+    .site-ie-card .vtbl tr.vsec td{background:#f3f4f6;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;padding:7px 14px;border-bottom:1px solid var(--line);}
+    .site-ie-card .vhint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted);font-size:10px;}
+    .site-ie-card .vtbl tr.vparent{cursor:pointer;}
+    .site-ie-card .vtbl tr.vparent td.vtbl-part{color:var(--ink);}
+    .site-ie-card .vtbl tr.vparent:hover td,.site-ie-card .vtbl tbody tr:not(.vsec):not(.vtot):hover td{background:#fafbfc;}
+    .site-ie-card .vparent-label{display:grid;grid-template-columns:auto auto 1fr auto;grid-template-rows:auto auto;gap:2px 6px;align-items:start;min-width:0;width:100%;}
+    .site-ie-card .vparent-name{grid-column:3;grid-row:1;font-weight:600;line-height:1.35;font-size:12.5px;min-width:0;word-break:break-word;}
+    .site-ie-card .pcount{grid-column:4;grid-row:1;justify-self:end;font-family:var(--mono);font-size:9.5px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:20px;padding:0 5px;line-height:1.5;}
+    .site-ie-card .vparent-label .amort-tag{grid-column:3 / -1;grid-row:2;}
+    .site-ie-card .pchev{display:inline-flex;flex-shrink:0;color:var(--muted);margin-top:2px;grid-column:1;grid-row:1;}
+    .site-ie-card .pdot{width:8px;height:8px;border-radius:3px;display:inline-block;flex-shrink:0;margin-top:5px;grid-column:2;grid-row:1;}
+    .site-ie-card .vchild-name{flex:1;min-width:0;line-height:1.35;font-size:12px;}
+    .site-ie-card .vtbl tr.vchild td{background:#fafbfc;}
+    .site-ie-card .cbranch{display:inline-block;flex-shrink:0;width:8px;border-left:2px solid var(--line);border-bottom:2px solid var(--line);height:8px;margin-top:4px;}
+    .site-ie-card .vtbl tr.vtot td{font-weight:700;border-bottom:1px solid var(--line);}
+    .site-ie-card .vtbl tr.vtot td.vtbl-part{color:var(--ink);font-size:12.5px;}
+    .site-ie-card .vtbl tr.vtot.green td{background:#f3f4f6;}
+    .site-ie-card .vtbl tr.vtot.profit td{background:rgba(22,119,78,.1);color:var(--profit);}
+    .site-ie-card .vtbl tr.vtot.loss td{background:rgba(178,63,42,.09);color:var(--loss);}
+    .site-ie-card .vtbl tr.vmargin td{font-weight:600;border-top:2px solid var(--line);border-bottom:none;background:#fff;}
+    .site-ie-card .amort-tag{display:inline-flex;align-items:center;flex-shrink:1;max-width:100%;margin-top:2px;font-style:normal;font-size:9.5px;color:var(--gold);background:rgba(169,132,43,.1);padding:1px 5px;border-radius:4px;font-family:var(--mono);white-space:normal;line-height:1.3;word-break:break-word;}
+    .site-ie-card .vtbl-part-child{display:flex;align-items:flex-start;gap:6px;padding-left:22px!important;}
+    /* site detail view */
+    .site-detail{display:flex;flex-direction:column;gap:0;}
+    .site-detail .back{align-self:flex-start;margin-bottom:12px;}
+    .site-detail .site-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line);}
+    .site-detail .site-head-info{flex:1;min-width:min(100%,280px);}
+    .site-detail .site-head h2{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-family:var(--display);font-size:26px;font-weight:700;margin:0;letter-spacing:-.02em;line-height:1.25;}
+    .site-detail .site-head-name{word-break:break-word;}
+    .site-detail .site-head-meta{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:10px;font-size:13px;color:var(--muted);line-height:1.45;}
+    .site-detail .site-head-meta b{color:var(--ink);font-weight:600;}
+    .site-detail .site-head-right{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:8px;flex-shrink:0;}
+    .site-detail-kpis{margin-bottom:18px;}
+    .site-detail .site-ie-card{margin-bottom:18px;}
+    .site-detail .site-ie-card .card-head{display:flex;align-items:center;justify-content:space-between;}
+    .site-ie-card-tools{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px 14px;margin-left:auto;}
+    .site-ie-budget{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);white-space:nowrap;}
+    .site-detail-charts{align-items:start;}
     .back{background:none;border:none;color:var(--accent);display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--body);font-size:13px;font-weight:600;margin-bottom:14px;padding:0;}
     .site-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px;}
     .site-head h2{font-family:var(--display);font-size:26px;font-weight:700;margin:0;letter-spacing:-.02em;}
@@ -3109,6 +3495,70 @@ function Styles() {
     .m-note{font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.5;}
     .m-divider{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;margin:18px 0 10px;border-top:1px solid var(--line);padding-top:14px;}
     .m-text{width:100%;height:120px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--mono);font-size:12px;resize:vertical;outline:none;background:var(--paper);color:var(--ink);}.m-text:focus{border-color:var(--green);}
+    /* Sites Master (All Sites) */
+    .sm-page{display:flex;flex-direction:column;gap:16px;}
+    .sm-crumb{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
+    .sm-crumb-on{color:var(--ink);font-weight:600;}
+    .sm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+    .sm-title{font-family:var(--display);font-size:24px;font-weight:700;margin:0;letter-spacing:-.02em;color:var(--ink);}
+    .sm-sub{margin:4px 0 0;font-size:13px;color:var(--muted);}
+    .sm-head-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .sm-btn-outline{padding:8px 14px;font-size:13px;}
+    .sm-btn-add{padding:8px 16px;font-size:13px;background:#2563eb;border-radius:8px;}
+    .sm-btn-add:hover{background:#1d4ed8;}
+    .sm-kpi-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;}
+    @media(max-width:1200px){.sm-kpi-row{grid-template-columns:repeat(3,minmax(0,1fr));}}
+    @media(max-width:640px){.sm-kpi-row{grid-template-columns:repeat(2,minmax(0,1fr));}}
+    .sm-kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;}
+    .sm-kpi-alert{border-color:#fecaca;background:#fffbfb;}
+    .sm-kpi-top{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft);font-weight:500;margin-bottom:8px;}
+    .sm-kpi-val{font-family:var(--display);font-size:28px;font-weight:700;line-height:1;color:var(--ink);}
+    .sm-kpi-loss{color:var(--loss);}
+    .sm-kpi-sub{margin-top:6px;font-size:11.5px;color:var(--muted);}
+    .sm-ico-profit{color:var(--profit);}.sm-ico-loss{color:var(--loss);}.sm-ico-warn{color:var(--warn);}.sm-ico-muted{color:var(--muted);}
+    .sm-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;}
+    .sm-filter{display:flex;flex-direction:column;gap:4px;min-width:0;}
+    .sm-filter>span{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}
+    .sm-filter select{font-family:var(--body);font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);min-width:130px;}
+    .sm-filter-search{flex:1;min-width:180px;max-width:260px;}
+    .sm-search{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--paper);color:var(--muted);}
+    .sm-search input{border:none;background:none;outline:none;font-size:13px;width:100%;color:var(--ink);}
+    .sm-clear{align-self:flex-end;font-size:12px;padding:8px 12px;}
+    .sm-hist{align-self:flex-end;margin-left:auto;}
+    .sm-table-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+    .sm-tbl thead th{background:#f9fafb;}
+    .sm-site-link{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--ink);cursor:pointer;text-align:left;display:block;}
+    .sm-site-link:hover{color:#2563eb;}
+    .sm-ver{display:inline-block;margin-top:4px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:6px;background:#eff6ff;border:1px solid #bfdbfe;color:#2563eb;font-family:var(--mono);}
+    .sm-pend{display:inline-block;font-size:11px;font-weight:600;padding:4px 10px;border-radius:8px;line-height:1.35;max-width:220px;}
+    .sm-pend-ok{background:rgba(22,119,78,.12);color:var(--profit);}
+    .sm-pend-low{background:rgba(194,130,15,.15);color:#b45309;}
+    .sm-pend-med{background:rgba(234,88,12,.14);color:#c2410c;}
+    .sm-pend-high{background:rgba(178,63,42,.13);color:var(--loss);}
+    .sm-actions{display:flex;align-items:center;justify-content:flex-end;gap:2px;}
+    .sm-act{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:none;border-radius:8px;background:transparent;color:var(--ink-soft);cursor:pointer;}
+    .sm-act:hover{background:#f3f4f6;color:var(--ink);}
+    .sm-more-wrap{position:relative;display:inline-flex;}
+    .sm-more-menu{position:absolute;right:0;top:100%;z-index:20;min-width:160px;margin-top:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.1);padding:4px;}
+    .sm-more-menu button{display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;}
+    .sm-more-menu button:hover{background:#f3f4f6;}
+    .sm-more-menu button.danger{color:var(--loss);}
+    .sm-empty{text-align:center;padding:32px;color:var(--muted);}
+    .sm-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);background:#fafafa;font-size:12.5px;color:var(--muted);}
+    .sm-foot-right{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+    .sm-rpp{display:flex;align-items:center;gap:8px;font-size:12px;}
+    .sm-rpp select{padding:4px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff;}
+    .sm-pager{display:flex;align-items:center;gap:8px;}
+    .sm-pager button{padding:5px 10px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:12px;cursor:pointer;color:var(--ink-soft);}
+    .sm-pager button:disabled{opacity:.45;cursor:not-allowed;}
+    .sm-pager button:not(:disabled):hover{border-color:#d1d5db;color:var(--ink);}
+    .sm-legend-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:14px;}
+    @media(max-width:900px){.sm-legend-grid{grid-template-columns:1fr;}}
+    .sm-legend-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;}
+    .sm-legend-card h4{margin:0 0 10px;font-size:13px;font-weight:700;color:var(--ink);}
+    .sm-legend-card ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:12.5px;color:var(--ink-soft);}
+    .sm-legend-card li{display:flex;align-items:center;gap:10px;}
+    .sm-about p{margin:0;font-size:12.5px;line-height:1.55;color:var(--ink-soft);}
     `}</style>
   );
 }

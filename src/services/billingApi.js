@@ -515,6 +515,9 @@ export function billingErrorMsg(error, context = 'Save') {
   if (code === 'PGRST301' || /schema|relation.*does not exist|exposed/i.test(msg)) {
     return `${context} failed: Billing schema not exposed. In Supabase Dashboard → Settings → API → Exposed schemas, add "billing".`;
   }
+  if (/permission denied for schema billing/i.test(msg)) {
+    return `${context} failed: Billing schema not granted. Run migration 20260624120000_billing_schema_grants_ensure.sql and expose schema "billing" in Supabase API settings.`;
+  }
   if (/row-level security|RLS|policy/i.test(msg)) {
     return `${context} failed: Permission denied (RLS). Run the billing access migration (supabase/migrations/20260506173000_billing_access_roles.sql) or update billing.current_user_has_billing_access() to include your role.`;
   }
@@ -619,7 +622,9 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     msme_clause: po.msmeClause || null,
     place_of_supply: po.placeOfSupply || null,
     is_supplementary: !!po.isSupplementary,
-    supplementary_parent_po_id: po.supplementaryParentPoId || null,
+    supplementary_parent_po_id: uuidOrNullForFk(
+      po.supplementaryParentPoId ?? po.supplementary_parent_po_id
+    ),
     supplementary_request_status: po.supplementaryRequestStatus || null,
     supplementary_reason: po.supplementaryReason || null,
     supplementary_requested_at: po.supplementaryRequestedAt || null,
@@ -634,6 +639,73 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     lump_sum_billing_mode: lumpSumModeVal,
     billing_without_po: !!po.billingWithoutPo,
   });
+}
+
+function isMissingPoWoColumnError(err) {
+  const msg = supabaseErrBlob(err);
+  if (!msg) return false;
+  return /column|schema cache|PGRST204|could not find/i.test(msg);
+}
+
+function columnNameFromPoWoError(err) {
+  const msg = String(err?.message || '');
+  const m =
+    msg.match(/column ['"]?([\w_]+)['"]?/i) ||
+    msg.match(/'([\w_]+)' column/i) ||
+    msg.match(/Could not find the ['"]([\w_]+)['"] column/i);
+  return m?.[1] || null;
+}
+
+/** Insert/upsert billing.po_wo with iterative stripping of columns absent in older DBs. */
+async function persistPoWoRow(payload, poIdInput) {
+  const persist = (p) =>
+    poIdInput
+      ? table('po_wo').upsert(p, { onConflict: 'id' }).select('id').single()
+      : table('po_wo').insert(p).select('id').single();
+
+  let current = { ...payload };
+  const strippedPoTypeBundle = new Set();
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    let { data: saved, error: poError } = await persist(current);
+    if (!poError) return { data: saved, error: null };
+
+    const msg = String(poError?.message || '');
+    if (
+      !strippedPoTypeBundle.has('bundle') &&
+      /po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value|billing_without_po/i.test(
+        msg
+      )
+    ) {
+      strippedPoTypeBundle.add('bundle');
+      const {
+        po_type,
+        payment_term_mode,
+        payment_term_days,
+        advance_percent,
+        total_contract_month,
+        monthly_contract_value,
+        billing_without_po,
+        ...fallbackPayload
+      } = current;
+      current = fallbackPayload;
+      continue;
+    }
+
+    if (!isMissingPoWoColumnError(poError)) {
+      return { data: null, error: poError };
+    }
+
+    const col = columnNameFromPoWoError(poError);
+    if (!col || !(col in current)) {
+      return { data: null, error: poError };
+    }
+    const next = { ...current };
+    delete next[col];
+    current = next;
+  }
+
+  return { data: null, error: new Error('PO/WO save failed after column compatibility retries') };
 }
 
 /** Save full list of POs (upsert), rate categories and contact log. */
@@ -652,26 +724,7 @@ export async function saveCommercialPOs(list, options = {}) {
     const poIdInput = isUuidString(po.id) ? String(po.id).trim() : undefined;
     const payload = buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped);
 
-    const persistPoWo = (p) =>
-      poIdInput
-        ? table('po_wo').upsert(p, { onConflict: 'id' }).select('id').single()
-        : table('po_wo').insert(p).select('id').single();
-
-    let { data: saved, error: poError } = await persistPoWo(payload);
-    // DB compatibility fallback for environments where some optional columns are absent.
-    if (poError && /column .*po_type|po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value|billing_without_po/i.test(String(poError?.message || ''))) {
-      const {
-        po_type,
-        payment_term_mode,
-        payment_term_days,
-        advance_percent,
-        total_contract_month,
-        monthly_contract_value,
-        billing_without_po,
-        ...fallbackPayload
-      } = payload;
-      ({ data: saved, error: poError } = await persistPoWo(fallbackPayload));
-    }
+    const { data: saved, error: poError } = await persistPoWoRow(payload, poIdInput);
     if (poError) throw new Error(billingErrorMsg(poError, 'PO/WO save'));
     const savedPoId = saved?.id ?? po.id;
 

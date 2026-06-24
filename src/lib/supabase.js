@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { SUPABASE_AUTH_STORAGE_KEY } from './authSessionUtils'
 import {
   assertBrowserSafeSupabaseKey,
   getSupabaseAnonKey,
@@ -458,10 +459,14 @@ function isTimeoutError(err) {
 /**
  * When `options.signal` is absent, apply a timeout. When present, use Supabase’s signal as-is
  * (do not merge — merging caused flaky PATCH/POST to rest/v1).
+ * Auth endpoints are excluded — cutting off token refresh causes spurious sign-outs.
  */
-function resolveFetchSignal(options) {
+function resolveFetchSignal(options, url) {
   if (options.signal) {
     return { signal: options.signal, clearTimer: () => {} }
+  }
+  if (String(url).includes('/auth/v1/')) {
+    return { signal: undefined, clearTimer: () => {} }
   }
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), clearTimer: () => {} }
@@ -476,10 +481,12 @@ function resolveFetchSignal(options) {
 
 const customFetch = async (url, options = {}) => {
   const pathLog = shortUrlForLog(url)
-  const { signal, clearTimer } = resolveFetchSignal(options)
+  const { signal, clearTimer } = resolveFetchSignal(options, url)
+  const fetchOptions = { ...options }
+  if (signal !== undefined) fetchOptions.signal = signal
 
   try {
-    const res = await baseFetch(url, { ...options, signal })
+    const res = await baseFetch(url, fetchOptions)
     clearTimer()
 
     // Activity log for mutations (batched). Keep payload minimal to avoid load/PII.
@@ -577,7 +584,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     detectSessionInUrl: true,
     storage: window.localStorage,
-    storageKey: 'supabase.auth.token',
+    storageKey: SUPABASE_AUTH_STORAGE_KEY,
   },
 })
 

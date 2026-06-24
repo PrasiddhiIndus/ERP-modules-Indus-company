@@ -7,6 +7,13 @@ import {
   PROFILE_AUTH_SELECT,
   PROFILE_AUTH_SELECT_WITH_EMP,
 } from "../lib/profileSelect";
+import {
+  clearSupabaseAuthStorage,
+  isAuthCredentialError,
+  isInvalidRefreshTokenError,
+  isTransientAuthError,
+  readCachedSessionUser,
+} from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
 import PageLoader from "../components/PageLoader";
 
@@ -24,56 +31,70 @@ export const AuthProvider = ({ children }) => {
   const profileFetchInFlightRef = useRef(null);
 
   useEffect(() => {
+    const applySessionUser = (sessionUser) => {
+      const newUser = sessionUser ?? null;
+      const newUserId = newUser?.id ?? null;
+      userRef.current = newUserId;
+      setUser(newUser);
+      setProfileRow(null);
+      profileSyncAttemptedRef.current = null;
+      if (newUserId && useProfilesTable) setProfileLoading(true);
+    };
+
     const getSession = async () => {
       try {
         const {
           data: { session },
           error,
         } = await supabase.auth.getSession();
-        
-        // Handle refresh token errors
+
         if (error) {
-          // Check if it's a refresh token error
-          if (error.message?.includes('Refresh Token') || error.message?.includes('JWT') || error.message?.includes('Invalid Refresh Token')) {
+          if (isInvalidRefreshTokenError(error.message)) {
             console.warn('Invalid refresh token detected, clearing session...');
-            // Clear the invalid session
             try {
               await supabase.auth.signOut();
-            } catch (e) {
-              // Ignore signOut errors
+            } catch {
+              /* ignore */
             }
-            // Clear all Supabase-related localStorage items
-            Object.keys(localStorage).forEach(key => {
-              if (key.includes('supabase') || key.includes('sb-')) {
-                localStorage.removeItem(key);
-              }
-            });
+            clearSupabaseAuthStorage();
             userRef.current = null;
             setUser(null);
+          } else if (isTransientAuthError(error.message)) {
+            console.warn('Transient error reading session, keeping cached session:', error.message);
+            applySessionUser(session?.user ?? readCachedSessionUser());
           } else {
             console.error('Error getting session:', error);
-            userRef.current = null;
-            setUser(null);
+            const cachedUser = session?.user ?? readCachedSessionUser();
+            if (cachedUser) {
+              applySessionUser(cachedUser);
+            } else {
+              userRef.current = null;
+              setUser(null);
+            }
           }
         } else {
-          const newUser = session?.user ?? null;
-          userRef.current = newUser?.id ?? null;
-          setUser(newUser);
-          setProfileRow(null);
-          profileSyncAttemptedRef.current = null;
-          if (newUser?.id && useProfilesTable) setProfileLoading(true);
+          applySessionUser(session?.user ?? null);
         }
       } catch (error) {
         console.error('Error getting session:', error);
-        // If it's a network error or backend not accessible, clear session
-        if (error.message?.includes('Failed to fetch') || error.message?.includes('Network')) {
-          console.warn('Supabase backend not accessible, clearing local session...');
-          await supabase.auth.signOut();
+        if (isInvalidRefreshTokenError(error.message)) {
+          try {
+            await supabase.auth.signOut();
+          } catch {
+            /* ignore */
+          }
+          clearSupabaseAuthStorage();
           userRef.current = null;
           setUser(null);
         } else {
-          userRef.current = null;
-          setUser(null);
+          const cachedUser = readCachedSessionUser();
+          if (cachedUser) {
+            console.warn('Using cached session after session read failure:', error.message);
+            applySessionUser(cachedUser);
+          } else {
+            userRef.current = null;
+            setUser(null);
+          }
         }
       } finally {
         setLoading(false);
@@ -83,20 +104,25 @@ export const AuthProvider = ({ children }) => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      // Only update if user state actually changed
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        userRef.current = null;
+        setUser(null);
+        setProfileRow(null);
+        profileSyncAttemptedRef.current = null;
+        return;
+      }
+
       const newUser = session?.user ?? null;
-      const newUserId = newUser?.id ?? null;
-      
-      // Prevent unnecessary updates if user hasn't changed
+      if (!newUser) return;
+
+      const newUserId = newUser.id;
       if (userRef.current !== newUserId) {
         userRef.current = newUserId;
         setUser(newUser);
         setProfileRow(null);
-        if (!newUserId) {
-          profileSyncAttemptedRef.current = null;
-        }
-        if (newUserId && useProfilesTable && !signInProfileSyncRef.current) {
+        profileSyncAttemptedRef.current = null;
+        if (useProfilesTable && !signInProfileSyncRef.current) {
           setProfileLoading(true);
         }
       }
@@ -279,11 +305,17 @@ export const AuthProvider = ({ children }) => {
           authUser.id
         );
         if (!checked.ok) {
-          // Do not keep half-authenticated sessions.
-          await clearInvalidSession();
+          const profileMsg = checked.message || "Could not load your access profile. Contact admin.";
+          if (isAuthCredentialError(profileMsg) && !isTransientAuthError(profileMsg)) {
+            await clearInvalidSession();
+            return {
+              data: { session: null, user: null },
+              error: { message: profileMsg },
+            };
+          }
           return {
-            data: { session: null, user: null },
-            error: { message: checked.message || "Could not load your access profile. Contact admin." },
+            ...result,
+            error: { message: profileMsg },
           };
         }
         return { ...result, profile: checked.profile };
@@ -309,24 +341,12 @@ export const AuthProvider = ({ children }) => {
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
-      // legacy cleanup (profiles_skip no longer used)
-      // Clear all Supabase-related localStorage items
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('supabase') || key.includes('sb-')) {
-          localStorage.removeItem(key);
-        }
-      });
+      clearSupabaseAuthStorage();
       userRef.current = null;
       setUser(null);
       return { error: null };
     } catch (err) {
-      // legacy cleanup (profiles_skip no longer used)
-      // Even if signOut fails, clear local state and storage
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('supabase') || key.includes('sb-')) {
-          localStorage.removeItem(key);
-        }
-      });
+      clearSupabaseAuthStorage();
       userRef.current = null;
       setUser(null);
       return { error: err };
@@ -336,23 +356,12 @@ export const AuthProvider = ({ children }) => {
   const clearInvalidSession = async () => {
     try {
       await supabase.auth.signOut();
-      // legacy cleanup (profiles_skip no longer used)
-      // Clear all Supabase-related localStorage items
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('supabase') || key.includes('sb-')) {
-          localStorage.removeItem(key);
-        }
-      });
+      clearSupabaseAuthStorage();
       userRef.current = null;
       setUser(null);
       return { error: null };
     } catch (err) {
-      // Force clear local state even if signOut fails
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('supabase') || key.includes('sb-')) {
-          localStorage.removeItem(key);
-        }
-      });
+      clearSupabaseAuthStorage();
       userRef.current = null;
       setUser(null);
       return { error: err };

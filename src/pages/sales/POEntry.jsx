@@ -1094,6 +1094,7 @@ const POEntry = () => {
       supplementaryRequestedAt: prevPo?.supplementaryRequestedAt || null,
       supplementaryApprovedAt: prevPo?.supplementaryApprovedAt || null,
       billingWithoutPo: isWithoutPo,
+      moduleType: COMMERCIAL_MODULE_MANPOWER_TRAINING,
     };
 
     // Renewal cycle row: only when editing an existing PO and contract has ended (same as R&M / AM&C PO Entry).
