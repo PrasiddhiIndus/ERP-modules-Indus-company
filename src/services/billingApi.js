@@ -643,7 +643,11 @@ export async function saveCommercialPOs(list, options = {}) {
 
   for (const po of list) {
     const moduleType = getCommercialPoModuleType(po);
-    const moduleContext = forcedModuleContext || toModuleContext(moduleType);
+    const poModuleContext = toModuleContext(moduleType);
+    const moduleContext =
+      forcedModuleContext && forcedModuleContext === poModuleContext
+        ? forcedModuleContext
+        : poModuleContext;
     const updateHistoryStamped = withCommercialModuleMarker(po.updateHistory, moduleType);
     const poIdInput = isUuidString(po.id) ? String(po.id).trim() : undefined;
     const payload = buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped);
@@ -781,7 +785,7 @@ export async function deleteCommercialPOs(ids) {
   const poIds = Array.isArray(ids) ? ids : [ids];
   const cleanPoIds = poIds
     .map((id) => (id == null ? '' : String(id).trim()))
-    .filter(Boolean);
+    .filter(isUuidString);
   if (cleanPoIds.length === 0) return;
 
   const { data: invoices, error: invoiceFetchErr } = await table('invoice')
