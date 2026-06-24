@@ -336,7 +336,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
       const ok = await loadFromDb();
       if (!mounted) return;
       if (!ok) {
-        setCommercialPOsFull(getCommercialPOs());
+        setCommercialPOsFull(commercialModuleScope ? [] : getCommercialPOs());
         setContactHistoryState(getContactHistory());
         setInvoicesState(getInvoices());
         setCreditDebitNotesState(getCreditDebitNotes());
@@ -466,18 +466,41 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         }
         setBillingError(null);
         billingRefreshSkipUntilRef.current = Date.now() + 1200;
+        const toPersist = stampedSlice.filter((po) => {
+          const id = String(po?.id ?? '');
+          const prev = (sliceForUpdater || []).find((p) => String(p.id) === id);
+          if (!prev) return true;
+          try {
+            return JSON.stringify(prev) !== JSON.stringify(po);
+          } catch {
+            return true;
+          }
+        });
         Promise.resolve()
           .then(async () => {
             // Persist deletes first so removed rows don't reappear after realtime refresh.
             if (removedIds.length) await deleteCommercialPOsDb(removedIds);
-            // Only upsert POs in the active commercial scope — never re-save other modules' rows.
-            if (stampedSlice.length) {
+            // Only upsert POs that changed in the active commercial scope.
+            if (toPersist.length) {
               await saveCommercialPOsDb(
-                stampedSlice,
+                toPersist,
                 scoped ? { moduleContext: toModuleContext(scoped) } : {}
               );
             }
-            await loadFromDb();
+            const reloadOk = await loadFromDb();
+            // If fetch/filter lagged, keep freshly saved rows visible in the scoped module.
+            if (reloadOk && scoped && toPersist.length) {
+              setCommercialPOsFull((prevAll) => {
+                const scopedRows = prevAll.filter(
+                  (p) => getCommercialPoModuleType(p) === scoped
+                );
+                const scopedIds = new Set(scopedRows.map((p) => String(p.id)));
+                const missing = toPersist.filter((p) => !scopedIds.has(String(p.id)));
+                if (!missing.length) return prevAll;
+                const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== scoped);
+                return [...others, ...scopedRows, ...missing];
+              });
+            }
           })
           .then(() => setUseDb(true))
           .catch((e) => {
