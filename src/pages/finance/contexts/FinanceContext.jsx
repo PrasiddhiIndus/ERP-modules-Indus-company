@@ -34,7 +34,7 @@ export function FinanceProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const months = useMemo(() => buildMonthOptions({ count: 36 }), []);
+  const months = useMemo(() => buildMonthOptions(), []);
 
   const load = useCallback(async (force = false) => {
     setLoading(true);

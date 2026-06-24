@@ -6,6 +6,7 @@ import {
   packEnquiryUpdate,
   projectsTable,
 } from '../../../services/projectsApi';
+import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { formatDisplayDate } from './enquiryConstants';
 import EnquiryImportPanel from './EnquiryImportPanel';
 import { getRowStatusValue, getStatusBg, STATUS_LEGEND } from './enquiryStatusStyles';
@@ -102,14 +103,32 @@ export default function EnquiryDatabase() {
         av = a.created_at ?? '';
         bv = b.created_at ?? '';
       } else {
-        av = String(getEnquiryFieldValue(a, sortConfig.key) ?? '').toLowerCase();
-        bv = String(getEnquiryFieldValue(b, sortConfig.key) ?? '').toLowerCase();
+        const col = databaseFields.find((f) => f.field_key === sortConfig.key);
+        const rawA = getEnquiryFieldValue(a, sortConfig.key);
+        const rawB = getEnquiryFieldValue(b, sortConfig.key);
+        if (col?.field_type === 'date') {
+          av = normalizeToIsoDate(rawA) || '';
+          bv = normalizeToIsoDate(rawB) || '';
+        } else {
+          av = String(rawA ?? '').toLowerCase();
+          bv = String(rawB ?? '').toLowerCase();
+        }
       }
       return av < bv ? -dir : av > bv ? dir : 0;
     });
-  }, [rows, search, statusFilter, sortConfig]);
+  }, [rows, search, statusFilter, sortConfig, databaseFields]);
 
-  const startEdit = (row) => { setEditingId(row.id); setEditDraft(flattenEnquiryRow(row)); };
+  const startEdit = (row) => {
+    const flat = flattenEnquiryRow(row);
+    for (const f of databaseFields) {
+      if (f.field_type === 'date' && flat[f.field_key]) {
+        const iso = normalizeToIsoDate(flat[f.field_key]);
+        if (iso) flat[f.field_key] = iso;
+      }
+    }
+    setEditingId(row.id);
+    setEditDraft(flat);
+  };
   const cancelEdit = () => { setEditingId(null); setEditDraft(null); };
 
   const saveEdit = async () => {
@@ -155,7 +174,7 @@ export default function EnquiryDatabase() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `projects-enquiry-database-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `projects-enquiry-database-${formatDateDdMmYyyy(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

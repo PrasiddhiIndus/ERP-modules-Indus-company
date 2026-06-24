@@ -11,6 +11,7 @@ import {
 } from "../../adminOperations/components/AdminUi";
 
 export { SectionCard, KpiTile, Badge, Modal, TinyInput, TinySelect, StatusChip };
+export { PeriodMonthSelect } from "./PeriodMonthSelect";
 
 export function PageHeader({ title, subtitle, onRefresh, onExport, primaryAction, children }) {
   return (

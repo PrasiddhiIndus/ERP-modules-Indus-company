@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, REIMBURSEMENT_TYPES, reimbursementRowLabel } from "./api/siteLedgerStore";
+import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, savePeriodRecord, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
+import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
+import {
+  buildMonthOptions,
+  monthLabelOf as periodMonthLabelOf,
+  periodAbsoluteIndex as monthIdx,
+  periodKeysBetween,
+  indexToPeriodKey,
+  prevPeriodKey,
+  PERIOD_END_YEAR,
+} from "./lib/periods";
 import { subscribeFinanceRefresh } from "../../services/financeApi";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { financePath } from "./navConfig";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -77,20 +87,21 @@ const DEFAULT_KEYS = CHILD_HEADS.map((c) => c.key);
 const TARGET_MARGIN = 12;
 const WARN_MARGIN = 8;
 
-/* ───────────────────────── MONTHS ───────────────────────── */
-function buildMonths() {
-  const out = [];
-  for (let i = 0; i < 24; i++) {
-    const d = new Date(2024, 3 + i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleString("en-US", { month: "short" }) + "-" + String(d.getFullYear()).slice(2);
-    out.push({ key, label });
-  }
-  return out;
+const SL_VALID_VIEWS = new Set(["overview", "sites", "site", "config", "entry", "reports"]);
+
+function readSlStateFromUrl(searchParams) {
+  const v = searchParams.get("slView");
+  return {
+    view: SL_VALID_VIEWS.has(v) ? v : "overview",
+    activeSite: searchParams.get("slSite") || null,
+    month: searchParams.get("slMonth") || "2025-09",
+    showHistorical: searchParams.get("slHist") === "1",
+  };
 }
-const MONTHS = buildMonths();
-const monthIdx = (k) => MONTHS.findIndex((m) => m.key === k);
-const monthLabelOf = (k) => MONTHS.find((m) => m.key === k)?.label || k;
+
+/* ───────────────────────── MONTHS ───────────────────────── */
+const MONTHS = buildMonthOptions();
+const monthLabelOf = (k) => periodMonthLabelOf(k, MONTHS);
 
 /* ───────────────────────── FORMATTERS ───────────────────────── */
 const inr = (n) => "₹" + Math.round(n || 0).toLocaleString("en-IN");
@@ -224,7 +235,10 @@ function recognizedExpenses(site, mk, records, directOverride) {
 }
 function calcSite(site, mk, records, directOverride) {
   const rec = directOverride || records[`${site.id}__${mk}`] || {};
-  const revenue = REVENUE_ITEMS.reduce((s, it) => s + it.sign * (Number(rec[it.key]) || 0), 0);
+  const revenue = REVENUE_ITEMS.reduce((s, it) => {
+    if (it.key === "esicBill") return s + it.sign * reimbursementTotal(rec);
+    return s + it.sign * (Number(rec[it.key]) || 0);
+  }, 0);
   const ex = recognizedExpenses(site, mk, records, directOverride);
   const expense = Object.values(ex.total).reduce((a, b) => a + b, 0);
   const profit = revenue - expense;
@@ -271,15 +285,19 @@ function estTotals(est) {
   return { revenue, expense, profit, margin, byHead };
 }
 // contract window
-const contractEndIdx = (site) => site.contractEnd ? monthIdx(site.contractEnd) : MONTHS.length - 1;
+const contractEndIdx = (site) =>
+  site.contractEnd ? monthIdx(site.contractEnd) : monthIdx(`${PERIOD_END_YEAR}-12`);
 const remainingMonths = (site, startMk) => Math.max(1, contractEndIdx(site) - monthIdx(startMk) + 1);
-const inContract = (site, mk) => { const i = monthIdx(mk); const s = site.contractStart ? monthIdx(site.contractStart) : 0; return i >= s && i <= contractEndIdx(site); };
-// months a site is expected to have reported, up to (and incl.) a cut-off month
+const inContract = (site, mk) => {
+  const i = monthIdx(mk);
+  const s = site.contractStart ? monthIdx(site.contractStart) : monthIdx(MONTHS[0]?.key);
+  return i >= s && i <= contractEndIdx(site);
+};
 function expectedMonths(site, uptoMk) {
-  const s = site.contractStart ? monthIdx(site.contractStart) : 0;
-  const e = Math.min(contractEndIdx(site), monthIdx(uptoMk));
-  const out = []; for (let i = s; i <= e; i++) if (i >= 0) out.push(MONTHS[i].key);
-  return out;
+  const start = site.contractStart || MONTHS[0]?.key;
+  const end = site.contractEnd || uptoMk;
+  const endCapped = monthIdx(end) > monthIdx(uptoMk) ? uptoMk : end;
+  return periodKeysBetween(start, endCapped);
 }
 const pendingMonths = (site, records, uptoMk) => expectedMonths(site, uptoMk).filter((mk) => !records[`${site.id}__${mk}`]);
 const isPending = (site, records, mk) => inContract(site, mk) && !records[`${site.id}__${mk}`];
@@ -397,20 +415,22 @@ function VarCells({ est, actual, lowerIsBetter, hasEst }) {
 /* ───────────────────────── MAIN ───────────────────────── */
 export default function SiteLedgerApp({ embedded = true }) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlInit = useMemo(() => readSlStateFromUrl(searchParams), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [sites, setSites] = useState([]);
   const [records, setRecords] = useState({});
   const [library, setLibrary] = useState(CHILD_HEADS);
   const [parents, setParents] = useState(() => DEFAULT_PARENTS.map((p) => ({ ...p })));
-  const [view, setView] = useState("overview");
-  const [activeSite, setActiveSite] = useState(null);
-  const [month, setMonth] = useState("2025-09");
+  const [view, setView] = useState(urlInit.view);
+  const [activeSite, setActiveSite] = useState(urlInit.activeSite);
+  const [month, setMonth] = useState(urlInit.month);
   const [query, setQuery] = useState("");
   const [saveState, setSaveState] = useState("idle");
   const [loaded, setLoaded] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [ioOpen, setIoOpen] = useState(false);
   const [loadError, setLoadError] = useState(null);
-  const [showHistorical, setShowHistorical] = useState(false);
+  const [showHistorical, setShowHistorical] = useState(urlInit.showHistorical);
   const [historyGroup, setHistoryGroup] = useState(null);
   const saveTimer = useRef(null);
   const saveImmediate = useRef(false);
@@ -446,6 +466,40 @@ export default function SiteLedgerApp({ embedded = true }) {
   }, []);
 
   useEffect(() => { reloadLedger(); }, [reloadLedger]);
+
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (view && view !== "overview") next.set("slView", view);
+      else next.delete("slView");
+      if (activeSite) next.set("slSite", activeSite);
+      else next.delete("slSite");
+      if (month && month !== "2025-09") next.set("slMonth", month);
+      else next.delete("slMonth");
+      if (showHistorical) next.set("slHist", "1");
+      else next.delete("slHist");
+      if (next.toString() === prev.toString()) return prev;
+      return next;
+    }, { replace: true });
+  }, [view, activeSite, month, showHistorical, setSearchParams]);
+
+  useEffect(() => {
+    if (!loaded) return undefined;
+    const flushToDb = () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      const data = stateRef.current;
+      saveLedgerPartial({ scope: "records", records: data.records }).catch(() => {});
+    };
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushToDb();
+    };
+    window.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flushToDb);
+    return () => {
+      window.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flushToDb);
+    };
+  }, [loaded]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -587,12 +641,21 @@ export default function SiteLedgerApp({ embedded = true }) {
   const needsPortfolio = view !== "config" && view !== "entry";
 
   const activeMonths = useMemo(() => {
-    if (!needsPortfolio) return MONTHS.slice(15, 18);
+    if (!needsPortfolio) return MONTHS.slice(-6);
     const have = new Set();
     Object.keys(records).forEach((k) => have.add(k.split("__")[1]));
-    sites.forEach((s) => (s.spreads || []).forEach((sp) => { const si = monthIdx(sp.start), m = Number(sp.months) || 0; for (let i = si; i < si + m && i < MONTHS.length; i++) if (i >= 0) have.add(MONTHS[i].key); }));
+    sites.forEach((s) =>
+      (s.spreads || []).forEach((sp) => {
+        const si = monthIdx(sp.start);
+        const m = Number(sp.months) || 0;
+        for (let i = 0; i < m; i++) {
+          const key = indexToPeriodKey(si + i);
+          if (key) have.add(key);
+        }
+      }),
+    );
     const list = MONTHS.filter((m) => have.has(m.key));
-    return list.length ? list : MONTHS.slice(15, 18);
+    return list.length ? list : MONTHS.slice(-6);
   }, [records, sites, needsPortfolio]);
 
   const rows = useMemo(() => {
@@ -607,7 +670,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   });
   }, [sitesL, records, month, needsPortfolio]);
 
-  const prevKey = useMemo(() => { const i = monthIdx(month); return i > 0 ? MONTHS[i - 1].key : null; }, [month]);
+  const prevKey = useMemo(() => prevPeriodKey(month, MONTHS), [month]);
 
   const upsertSite = useCallback((site) => {
     saveImmediate.current = true;
@@ -643,7 +706,21 @@ export default function SiteLedgerApp({ embedded = true }) {
     });
     scheduleSetupPersist({ scope: "full", deletedSiteCodes: [id] });
   }, [scheduleSetupPersist]);
-  const saveRecord = useCallback((siteId, mk, rec) => setRecords((prev) => ({ ...prev, [`${siteId}__${mk}`]: rec })), []);
+  const saveRecord = useCallback((siteId, mk, rec) => {
+    saveImmediate.current = true;
+    setRecords((prev) => {
+      const key = `${siteId}__${mk}`;
+      const existing = prev[key] || {};
+      const merged = { ...existing, ...rec };
+      if (Array.isArray(rec.reimbursements)) merged.reimbursements = rec.reimbursements;
+      const next = { ...prev, [key]: merged };
+      stateRef.current = { ...stateRef.current, records: next };
+      return next;
+    });
+  }, []);
+  const onRecordPersisted = useCallback(() => {
+    lastSaveAt.current = Date.now();
+  }, []);
   const renameLibraryHead = useCallback((key, label) => {
     applySiteSetupChange(({ library }) => ({
       library: library.map((h) => (h.key === key ? { ...h, label: (label && label.trim()) || h.label } : h)),
@@ -772,9 +849,12 @@ export default function SiteLedgerApp({ embedded = true }) {
             {view !== "config" && (
               <div className="month-pick">
                 <label>Period</label>
-                <select value={month} onChange={(e) => setMonth(e.target.value)}>
-                  {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                </select>
+                <PeriodMonthSelect
+                  className="sl-period-pick"
+                  selectClassName="sl-period-sel"
+                  value={month}
+                  onChange={setMonth}
+                />
               </div>
             )}
           </div>
@@ -826,7 +906,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               onViewHistory={(group) => setHistoryGroup(group)}
             />
           )}
-          {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
+          {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
           {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onAddParent={addParent} onSetParentColor={setParentColor} onRemoveParent={removeParent} />}
           {view === "reports" && (
             <Reports
@@ -956,7 +1036,7 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
   const lossCount = useMemo(() => withData.filter((r) => r.profit < 0).length, [withData]);
   const thinCount = useMemo(() => withData.filter((r) => r.profit >= 0 && r.margin < WARN_MARGIN).length, [withData]);
 
-  const prevKey = useMemo(() => { const i = monthIdx(month); return i > 0 ? MONTHS[i - 1].key : null; }, [month]);
+  const prevKey = useMemo(() => prevPeriodKey(month, MONTHS), [month]);
   const prevTotals = useMemo(() => {
     if (!prevKey) return null;
     const ids = new Set(filteredRows.map((r) => r.id));
@@ -1303,12 +1383,23 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
   const c = calcSite(site, month, records);
   const estVer = estimateFor(site, month);
   const est = estTotals(estVer);
-  const revBreak = REVENUE_ITEMS.map((it) => ({
-    ...it,
-    label: revenueDisplayLabel(it, rec),
-    raw: Number(rec?.[it.key]) || 0,
-    est: Number(estVer?.revenue?.[it.key]) || 0,
-  }));
+  const revBreak = REVENUE_ITEMS.map((it) => {
+    if (it.key === "esicBill") {
+      const lines = reimbursementDisplayLines(rec || {});
+      return {
+        ...it,
+        label: lines.length === 1 ? `Reimbursement · ${lines[0].label}` : reimbursementRowLabel(rec || {}),
+        raw: reimbursementTotal(rec || {}),
+        est: Number(estVer?.revenue?.[it.key]) || 0,
+      };
+    }
+    return {
+      ...it,
+      label: it.label,
+      raw: Number(rec?.[it.key]) || 0,
+      est: Number(estVer?.revenue?.[it.key]) || 0,
+    };
+  });
   const tree = expenseTree(site, month, records, estVer).filter((g) => g.actual !== 0 || g.est !== 0);
   const cats = parentTotalsSite(site, month, records);
   const catData = PARENTS.map((p) => ({ name: parentLabel(p.key), value: cats[p.key] || 0, color: p.color })).filter((d) => d.value > 0);
@@ -1428,13 +1519,9 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   if (!site) return null;
 
   const structure = displayStructure(site);
-  const structureWithChildren = structure.filter((g) => g.children.length);
   const used = new Set(siteChildKeys(site));
   const available = library.filter((h) => !used.has(h.key));
   const libMap = Object.fromEntries(library.map((h) => [h.key, h]));
-  const rec = records[`${siteId}__${month}`] || {};
-  const c = calcSite(site, month, records, rec);
-  const parentSub = (g) => g.children.reduce((a, k) => a + (c.ex.total[k] || 0), 0);
 
   const moveChild = (childKey, fromParent, toParent, beforeKey) => {
     const libraryChanged = (library.find((h) => h.key === childKey)?.parent !== toParent);
@@ -1603,50 +1690,6 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
       </div>
 
       <ContractBudgetEditor site={site} library={library} onPatchSite={onPatchSite} />
-      <div className="grid-2 entry-cols">
-        <div className="entry-col">
-          <div className="entry-totals rev-totals">
-            <div className="entry-totals-h">Revenue Totals</div>
-            <table className="entry-totals-tbl">
-              <tbody>
-                {REVENUE_ITEMS.map((it) => (
-                  <tr key={it.key}>
-                    <td>{revenueDisplayLabel(it, rec)}</td>
-                    <td className="r mono">{inr(it.sign * (Number(rec[it.key]) || 0))}</td>
-                  </tr>
-                ))}
-                <tr className="ect-grand">
-                  <td>Total Revenue</td>
-                  <td className="r mono">{inr(c.revenue)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div className="entry-col">
-          <div className="entry-totals exp-totals">
-            <div className="entry-totals-h">Expense Totals</div>
-            {structureWithChildren.length === 0 ? (
-              <p className="muted-s" style={{ margin: 0, fontSize: 12.5 }}>Configure cost lines to see section totals.</p>
-            ) : (
-              <table className="entry-totals-tbl">
-                <tbody>
-                  {structureWithChildren.map((g) => (
-                    <tr key={g.parent}>
-                      <td className="ect-label"><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</td>
-                      <td className="r mono">{inr(parentSub(g))}</td>
-                    </tr>
-                  ))}
-                  <tr className="ect-grand">
-                    <td>Total Expenses</td>
-                    <td className="r mono">{inr(c.expense)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
     </>
   );
 }
@@ -1668,8 +1711,8 @@ function ContractBudgetEditor({ site, library, onPatchSite }) {
   return (
     <Card title="Contract & Estimate (Budget)" right={<span className="muted-s">monthly actuals are compared to the estimate in force</span>}>
       <div className="contract-row">
-        <label className="sf"><span>Contract start</span><select value={site.contractStart || ""} onChange={(e) => setContract({ contractStart: e.target.value })}><option value="">—</option>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
-        <label className="sf"><span>Contract end</span><select value={site.contractEnd || ""} onChange={(e) => setContract({ contractEnd: e.target.value })}><option value="">—</option>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
+        <label className="sf"><span>Contract start</span><PeriodMonthSelect allowEmpty selectClassName="sf-sel" value={site.contractStart || ""} onChange={(v) => setContract({ contractStart: v || null })} /></label>
+        <label className="sf"><span>Contract end</span><PeriodMonthSelect allowEmpty selectClassName="sf-sel" value={site.contractEnd || ""} onChange={(v) => setContract({ contractEnd: v || null })} /></label>
         <div className="contract-note">Used for variance comparison and to spread mid-contract costs across remaining months.</div>
       </div>
       {estimates.length > 0 && (
@@ -1686,7 +1729,7 @@ function ContractBudgetEditor({ site, library, onPatchSite }) {
       ) : (
         <div className="est-editor">
           <div className="est-bar">
-            <label className="sf"><span>Effective from</span><select value={effFrom} onChange={(e) => setEffFrom(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
+            <label className="sf"><span>Effective from</span><PeriodMonthSelect selectClassName="sf-sel" value={effFrom} onChange={setEffFrom} /></label>
             <label className="sf" style={{ flex: 2 }}><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for this estimate / revision (e.g. Renewal FY26)" /></label>
             <button className="primary sm" onClick={saveEst}>Save estimate</button><button className="ghost-d" onClick={() => setEditing(false)}>Cancel</button>
           </div>
@@ -1772,7 +1815,7 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
       <div className="spread-form">
         <label className="sf"><span>Cost line</span><select value={head} onChange={(e) => setHead(e.target.value)}>{grouped.map((g) => <optgroup key={g.parent} label={parentLabel(g.parent)}>{g.children.map((k) => <option key={k} value={k}>{libMap[k]?.label || k}</option>)}</optgroup>)}</select></label>
         <label className="sf"><span>Total cost (₹)</span><input type="number" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="4000" /></label>
-        <label className="sf"><span>Arrives / starts</span><select value={start} onChange={(e) => setStart(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}{entryMonth && m.key === entryMonth ? " (this entry)" : ""}</option>)}</select></label>
+        <label className="sf"><span>Arrives / starts</span><PeriodMonthSelect selectClassName="sf-sel" value={start} onChange={setStart} /></label>
         <label className="sf"><span>Spread over</span><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="remaining" disabled={!hasContractEnd}>Remaining contract{hasContractEnd ? ` (${autoMonths} mo)` : " — set end first"}</option><option value="fixed">Fixed no. of months</option></select></label>
         {mode === "fixed" && <label className="sf sm"><span>Months</span><input type="number" value={months} onChange={(e) => setMonths(e.target.value)} placeholder="12" /></label>}
         <label className="sf"><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Extra PPE — new batch" /></label>
@@ -1799,9 +1842,26 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
 /* ───────────────────────── ENTRY FORM ───────────────────────── */
 function entryRecordClean(form) {
   const clean = {};
+  const reimbursements = (form.reimbursements || [])
+    .filter((it) => it.type)
+    .map((it) => ({
+      id: it.id || newReimbursementId(),
+      type: it.type,
+      amount: Number(it.amount) || 0,
+      ...(it.type === REIMBURSEMENT_OTHER_KEY ? { label: String(it.label ?? "").trim() } : {}),
+    }));
+  if (reimbursements.length) {
+    clean.reimbursements = reimbursements;
+    const total = reimbursements.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+    if (total) clean.esicBill = total;
+  }
   Object.entries(form).forEach(([k, v]) => {
-    if (k === "reimbursementType") {
-      if (v) clean[k] = String(v);
+    if (
+      k === "reimbursements" ||
+      k === "reimbursementType" ||
+      k === "reimbursementOtherLabel" ||
+      k === "esicBill"
+    ) {
       return;
     }
     if (v !== undefined && v !== null && v !== 0 && !Number.isNaN(v)) clean[k] = Number(v);
@@ -1809,34 +1869,79 @@ function entryRecordClean(form) {
   return clean;
 }
 
-function revenueDisplayLabel(it, rec) {
-  if (it.key === "esicBill") return reimbursementRowLabel(rec);
-  return it.label;
+function revenueTotalRows(rec) {
+  const rows = [];
+  REVENUE_ITEMS.forEach((it) => {
+    if (it.key === "esicBill") {
+      const lines = reimbursementDisplayLines(rec);
+      if (lines.length) {
+        lines.forEach((ln) => rows.push({ label: `Reimbursement · ${ln.label}`, amount: ln.amount, sign: it.sign }));
+      } else {
+        rows.push({ label: it.label, amount: 0, sign: it.sign });
+      }
+    } else {
+      rows.push({ label: it.label, amount: Number(rec[it.key]) || 0, sign: it.sign });
+    }
+  });
+  return rows;
 }
 
-function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onPatchSite, onAdd, goConfig }) {
+function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onPatchSite, onAdd, goConfig }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   const [mk, setMk] = useState(month);
   const [form, setForm] = useState({});
   const [saveUi, setSaveUi] = useState("idle");
+  const formRef = useRef(form);
+  formRef.current = form;
   const skipAutoSave = useRef(true);
   const autoSaveTimer = useRef(null);
+  const suppressRecordReload = useRef(false);
+  const formLoadKey = useRef("");
+  const persistGen = useRef(0);
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
   useEffect(() => { setMk(month); }, [month]);
   useEffect(() => {
+    const loadKey = `${siteId}__${mk}`;
+    if (suppressRecordReload.current) {
+      suppressRecordReload.current = false;
+      return;
+    }
+    const navigated = formLoadKey.current !== loadKey;
+    formLoadKey.current = loadKey;
+    const raw = records[loadKey];
+    if (!navigated && !raw) return;
     skipAutoSave.current = true;
-    setForm(records[`${siteId}__${mk}`] ? { ...records[`${siteId}__${mk}`] } : {});
+    setForm(
+      raw
+        ? { ...raw, reimbursements: normalizeReimbursementsFromRecord(raw).map((it) => ({ ...it, amount: it.amount || "" })) }
+        : {},
+    );
     setSaveUi("idle");
   }, [siteId, mk, records]);
   const saveUiTimer = useRef(null);
   const persistForm = useCallback((data, { manual = false } = {}) => {
-    onSave(siteId, mk, entryRecordClean(data));
+    const payload = data ?? formRef.current;
+    const clean = entryRecordClean(payload);
+    const gen = ++persistGen.current;
+    suppressRecordReload.current = true;
+    onSave(siteId, mk, clean);
     setMonth(mk);
     setActiveSite(siteId);
-    setSaveUi(manual ? "saved" : "autosaved");
-    if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
-    saveUiTimer.current = setTimeout(() => setSaveUi("idle"), manual ? 2500 : 1800);
-  }, [siteId, mk, onSave, setMonth, setActiveSite]);
+    setSaveUi("saving");
+    savePeriodRecord(siteId, mk, clean)
+      .then(() => {
+        if (gen !== persistGen.current) return;
+        onRecordPersisted?.();
+        setSaveUi(manual ? "saved" : "autosaved");
+        if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
+        saveUiTimer.current = setTimeout(() => setSaveUi("idle"), manual ? 2500 : 1800);
+      })
+      .catch((e) => {
+        if (gen !== persistGen.current) return;
+        console.error("Revenue save failed:", e);
+        setSaveUi("error");
+      });
+  }, [siteId, mk, onSave, onRecordPersisted, setMonth, setActiveSite]);
   useEffect(() => {
     if (skipAutoSave.current) {
       skipAutoSave.current = false;
@@ -1844,60 +1949,157 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     }
     setSaveUi("pending");
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => persistForm(form), 700);
+    autoSaveTimer.current = setTimeout(() => persistForm(), 400);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [form, persistForm]);
+  useEffect(() => {
+    const flushForm = () => {
+      if (skipAutoSave.current) return;
+      if (autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+        autoSaveTimer.current = null;
+      }
+      persistForm();
+    };
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushForm();
+    };
+    window.addEventListener("pagehide", flushForm);
+    window.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", flushForm);
+      window.removeEventListener("visibilitychange", onHide);
+    };
   }, [form, persistForm]);
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add your first site to start recording figures.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
   const site = sites.find((s) => s.id === siteId);
   const structure = displayStructure(site).filter((g) => g.children.length);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v === "" ? undefined : Number(v) }));
-  const setStr = (k, v) => setForm((f) => ({ ...f, [k]: v || undefined }));
   const c = calcSite(site, mk, records, form);
   const parentSub = (g) => g.children.reduce((a, k) => a + (c.ex.total[k] || 0), 0);
-  const copyPrev = () => { const idx = monthIdx(mk); for (let i = idx - 1; i >= 0; i--) { const r = records[`${siteId}__${MONTHS[i].key}`]; if (r) { setForm({ ...r }); return; } } alert("No earlier month found for this site."); };
+  const copyPrev = () => {
+    let cur = prevPeriodKey(mk, MONTHS);
+    while (cur) {
+      const r = records[`${siteId}__${cur}`];
+      if (r) {
+        setForm({ ...r, reimbursements: normalizeReimbursementsFromRecord(r).map((it) => ({ ...it, amount: it.amount || "" })) });
+        return;
+      }
+      cur = prevPeriodKey(cur, MONTHS);
+    }
+    alert("No earlier month found for this site.");
+  };
   const save = () => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    persistForm(form, { manual: true });
+    persistForm(undefined, { manual: true });
   };
   const renderField = (key, label) => (<label className="field" key={key}><span>{label}</span><div className="field-in"><i>₹</i><input type="number" inputMode="numeric" value={form[key] ?? ""} placeholder="0" onChange={(e) => set(key, e.target.value)} /></div></label>);
-  const renderReimbursementField = () => (
-    <label className="field field-reimb" key="esicBill">
-      <span>Reimbursement</span>
-      <div className="reimb-row">
-        <select
-          className="reimb-sel"
-          value={form.reimbursementType || ""}
-          onChange={(e) => setStr("reimbursementType", e.target.value)}
-        >
-          <option value="">Select type…</option>
-          {REIMBURSEMENT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
-        <div className="field-in reimb-amt">
-          <i>₹</i>
-          <input
-            type="number"
-            inputMode="numeric"
-            value={form.esicBill ?? ""}
-            placeholder="0"
-            onChange={(e) => set("esicBill", e.target.value)}
-          />
+  const renderReimbursementSection = () => {
+    const items = form.reimbursements || [];
+    const selectedFixedTypes = new Set(
+      items.filter((it) => it.type && it.type !== REIMBURSEMENT_OTHER_KEY).map((it) => it.type),
+    );
+    const available = REIMBURSEMENT_TYPES.filter(
+      (t) => t.key === REIMBURSEMENT_OTHER_KEY || !selectedFixedTypes.has(t.key),
+    );
+    const addType = (typeKey) => {
+      if (!typeKey) return;
+      if (typeKey !== REIMBURSEMENT_OTHER_KEY && selectedFixedTypes.has(typeKey)) return;
+      setForm((f) => ({
+        ...f,
+        reimbursements: [
+          ...(f.reimbursements || []),
+          {
+            id: newReimbursementId(),
+            type: typeKey,
+            amount: "",
+            ...(typeKey === REIMBURSEMENT_OTHER_KEY ? { label: "" } : {}),
+          },
+        ],
+      }));
+    };
+    const updateItem = (idx, patch) => {
+      setForm((f) => {
+        const arr = [...(f.reimbursements || [])];
+        arr[idx] = { ...arr[idx], ...patch };
+        return { ...f, reimbursements: arr };
+      });
+    };
+    const removeItem = (idx) => {
+      setForm((f) => ({ ...f, reimbursements: (f.reimbursements || []).filter((_, i) => i !== idx) }));
+    };
+    return (
+      <div className="rev-reimb-panel">
+        <div className="rev-reimb-top">
+          <span className="rev-reimb-title">Reimbursement</span>
+          {available.length > 0 && (
+            <select
+              className="rev-reimb-pick"
+              value=""
+              onChange={(e) => addType(e.target.value)}
+            >
+              <option value="">+ Add type</option>
+              {available.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          )}
         </div>
+        {items.length === 0 ? (
+          <p className="rev-reimb-hint">Optional — add PF, ESIC, bonus, or other items as needed.</p>
+        ) : (
+          <div className="rev-reimb-lines">
+            {items.map((it, idx) => (
+              <div className="rev-reimb-line" key={it.id || `${it.type}-${idx}`}>
+                <span className="rev-reimb-tag">
+                  {it.type === REIMBURSEMENT_OTHER_KEY
+                    ? "Other"
+                    : REIMBURSEMENT_TYPES.find((t) => t.key === it.type)?.label || it.type}
+                </span>
+                {it.type === REIMBURSEMENT_OTHER_KEY && (
+                  <input
+                    className="rev-reimb-other"
+                    placeholder="Description"
+                    value={it.label ?? ""}
+                    onChange={(e) => updateItem(idx, { label: e.target.value })}
+                  />
+                )}
+                <div className="field-in rev-reimb-amt">
+                  <i>₹</i>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={it.amount ?? ""}
+                    onChange={(e) => updateItem(idx, { amount: e.target.value })}
+                  />
+                </div>
+                <button type="button" className="rev-reimb-del" title="Remove" onClick={() => removeItem(idx)}>
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </label>
-  );
+    );
+  };
   const pend = site ? pendingMonths(site, records, month) : [];
   const monthFilled = (k) => !!records[`${siteId}__${k}`];
-  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Auto-saved" : saveUi === "pending" ? "Saving…" : "Save figures";
+  const periodStatus = monthFilled(mk) ? "✓ saved" : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
+  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Auto-saved" : saveUi === "pending" || saveUi === "saving" ? "Saving…" : saveUi === "error" ? "Save failed" : "Save figures";
 
   return (
     <div className="entry">
       <div className="entry-bar">
         <div className="entry-sel"><label>Site</label><select value={siteId} onChange={(e) => setSiteId(e.target.value)}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-        <div className="entry-sel"><label>Period</label><select value={mk} onChange={(e) => setMk(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}{monthFilled(m.key) ? " ✓" : inContract(site, m.key) && monthIdx(m.key) <= monthIdx(month) ? " • pending" : ""}</option>)}</select></div>
+        <div className="entry-sel entry-sel-period">
+          <label>Period</label>
+          <PeriodMonthSelect className="sl-period-pick" selectClassName="sl-period-sel" value={mk} onChange={setMk} />
+          {periodStatus && <span className="entry-period-st">{periodStatus}</span>}
+        </div>
         <button className="ghost-d" onClick={copyPrev}><Copy size={14} /> Copy previous</button>
         <button className="ghost-d" onClick={() => goConfig(siteId)}><Sliders size={14} /> Structure</button>
         <div className="entry-live"><span>Rev <b>{inrShort(c.revenue)}</b></span><span>Exp <b>{inrShort(c.expense)}</b></span><span style={{ color: c.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>Profit <b>{inrShort(c.profit)}</b> ({pct(c.margin)})</span></div>
-        <button className="primary" onClick={save} disabled={saveUi === "pending"}>{saveLabel}</button>
+        <button className="primary" onClick={save} disabled={saveUi === "pending" || saveUi === "saving"}>{saveLabel}</button>
       </div>
       {pend.length > 0 && (
         <div className="pend-strip">
@@ -1914,13 +2116,57 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       >
         <SpreadEditor site={site} library={library} onPatchSite={onPatchSite} entryMonth={mk} />
       </Card>
+      <div className="grid-2 entry-cols entry-totals-row">
+        <div className="entry-col">
+          <div className="entry-totals rev-totals">
+            <div className="entry-totals-h">Revenue Totals</div>
+            <table className="entry-totals-tbl">
+              <tbody>
+                {revenueTotalRows(form).map((row, i) => (
+                  <tr key={`${row.label}-${i}`}>
+                    <td>{row.label}</td>
+                    <td className="r mono">{inr(row.sign * row.amount)}</td>
+                  </tr>
+                ))}
+                <tr className="ect-grand">
+                  <td>Total Revenue</td>
+                  <td className="r mono">{inr(c.revenue)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="entry-col">
+          <div className="entry-totals exp-totals">
+            <div className="entry-totals-h">Expense Totals</div>
+            {structure.length === 0 ? (
+              <p className="muted-s" style={{ margin: 0, fontSize: 12.5 }}>Configure cost lines to see section totals.</p>
+            ) : (
+              <table className="entry-totals-tbl">
+                <tbody>
+                  {structure.map((g) => (
+                    <tr key={g.parent}>
+                      <td className="ect-label"><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</td>
+                      <td className="r mono">{inr(parentSub(g))}</td>
+                    </tr>
+                  ))}
+                  <tr className="ect-grand">
+                    <td>Total Expenses</td>
+                    <td className="r mono">{inr(c.expense)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
       <div className="grid-2 entry-cols">
         <div className="entry-col">
           <Card title="Revenue">
-            <div className="fields">
-              {REVENUE_ITEMS.map((it) => (
-                it.key === "esicBill" ? renderReimbursementField() : renderField(it.key, it.label)
-              ))}
+            <div className="rev-entry-simple">
+              {renderField("saleRevenue", "Sale Revenue")}
+              {renderReimbursementSection()}
+              {renderField("creditNote", "less: Credit Note / deductions")}
             </div>
           </Card>
         </div>
@@ -1998,7 +2244,7 @@ function aggHeads(sites, mks, records, level) {
 function buildReport(cfg) {
   const { sites, records, dim, measures, scope, periodMode, month, from, to, filter } = cfg;
   const scopeSites = scope === "all" ? sites : sites.filter((s) => s.id === scope);
-  let mks = periodMode === "single" && dim !== "month" ? [month] : MONTHS.slice(Math.min(monthIdx(from), monthIdx(to)), Math.max(monthIdx(from), monthIdx(to)) + 1).map((m) => m.key);
+  let mks = periodMode === "single" && dim !== "month" ? [month] : periodKeysBetween(from, to);
   if (dim === "month" && periodMode === "single") mks = [month];
   const reported = (s, mk) => !!records[`${s.id}__${mk}`];
 
@@ -2169,9 +2415,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     <div className="ov-filters">
       <label className="ov-filter">
         <span>Period</span>
-        <select value={month} onChange={(e) => setMonth(e.target.value)}>
-          {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-        </select>
+        <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={month} onChange={setMonth} />
       </label>
       <label className="ov-filter">
         <span>Sites</span>
@@ -2198,13 +2442,9 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       <label className="ov-filter range">
         <span>Range</span>
         <div className="ov-range">
-          <select value={from} onChange={(e) => setFrom(e.target.value)}>
-            {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-          </select>
+          <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={from} onChange={setFrom} />
           <span>–</span>
-          <select value={to} onChange={(e) => setTo(e.target.value)}>
-            {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-          </select>
+          <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={to} onChange={setTo} />
         </div>
       </label>
     </div>
@@ -2273,9 +2513,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
               {(dim === "spread" || dim === "pending") ? (
                 <label className="ov-filter">
                   <span>As of month</span>
-                  <select value={month} onChange={(e) => setMonth(e.target.value)}>
-                    {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                  </select>
+                  <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={month} onChange={setMonth} />
                 </label>
               ) : (
                 <>
@@ -2293,21 +2531,15 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
                   {(periodMode === "single" && dim !== "month") ? (
                     <label className="ov-filter">
                       <span>Month</span>
-                      <select value={month} onChange={(e) => setMonth(e.target.value)}>
-                        {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                      </select>
+                      <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={month} onChange={setMonth} />
                     </label>
                   ) : (
                     <label className="ov-filter range">
                       <span>Range</span>
                       <div className="ov-range">
-                        <select value={from} onChange={(e) => setFrom(e.target.value)}>
-                          {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                        </select>
+                        <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={from} onChange={setFrom} />
                         <span>–</span>
-                        <select value={to} onChange={(e) => setTo(e.target.value)}>
-                          {MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                        </select>
+                        <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={to} onChange={setTo} />
                       </div>
                     </label>
                   )}
@@ -2495,8 +2727,8 @@ function AddSiteModal({ onClose, onSave, existing }) {
       <label className="m-field"><span>Service type</span><input value={service} onChange={(e) => setService(e.target.value)} placeholder="Fire Fighting / Security / Housekeeping…" /></label>
       <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
       <div style={{ display: "flex", gap: 10 }}>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><select value={cStart} onChange={(e) => setCStart(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><select value={cEnd} onChange={(e) => setCEnd(e.target.value)}>{MONTHS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select></label>
+        <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><PeriodMonthSelect selectClassName="m-field-sel" value={cStart} onChange={setCStart} /></label>
+        <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><PeriodMonthSelect selectClassName="m-field-sel" value={cEnd} onChange={setCEnd} /></label>
       </div>
       {!isRenewal && (
         <label className="m-field"><span>Start from a structure template</span><select value={tmpl} onChange={(e) => setTmpl(e.target.value)}><option value="default">All standard lines</option><option value="security">Security</option><option value="housekeeping">Housekeeping</option><option value="fire">Fire Fighting</option></select></label>
@@ -2762,6 +2994,25 @@ function Styles() {
     .reimb-sel{flex:1;min-width:0;font-family:var(--body);font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);cursor:pointer;}
     .reimb-sel:focus{outline:none;border-color:var(--accent-mid);}
     .reimb-amt{flex:0 0 148px;}
+    .rev-entry-simple{display:flex;flex-direction:column;gap:12px;padding:4px 2px 2px;}
+    .rev-entry-simple>.field{margin:0;}
+    .rev-reimb-panel{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fafbfc;}
+    .rev-reimb-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+    .rev-reimb-title{font-size:12px;font-weight:600;color:var(--ink-soft);}
+    .rev-reimb-pick{font-family:var(--body);font-size:12px;padding:5px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;max-width:160px;}
+    .rev-reimb-hint{margin:0;font-size:12px;color:var(--muted);}
+    .rev-reimb-lines{display:flex;flex-direction:column;gap:8px;}
+    .rev-reimb-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .rev-reimb-tag{font-size:12px;font-weight:600;color:var(--ink);min-width:88px;flex-shrink:0;}
+    .rev-reimb-other{flex:1;min-width:120px;font-family:var(--body);font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;}
+    .rev-reimb-amt{flex:0 0 120px;min-width:100px;}
+    .rev-reimb-del{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer;flex-shrink:0;}
+    .rev-reimb-del:hover{background:#fee2e2;color:var(--loss);}
+    .period-month-select{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+    .sl-period-sel,.sf-sel,.ov-period-sel,.m-field-sel{font-family:var(--body);font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font-weight:500;cursor:pointer;}
+    .entry-sel-period{display:flex;flex-direction:column;gap:4px;}
+    .entry-period-st{font-size:11px;color:var(--muted);font-weight:600;}
+    .entry-totals-row{margin-bottom:14px;}
     /* config builder */
     .tray{display:flex;flex-wrap:wrap;gap:7px;min-height:54px;padding:10px;border:1px dashed var(--line);border-radius:11px;background:var(--paper);}
     .parents-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px;}
