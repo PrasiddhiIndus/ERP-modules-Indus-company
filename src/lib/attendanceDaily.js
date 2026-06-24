@@ -864,7 +864,8 @@ export async function syncRegisterAutoWeekoffMarks(
   supabase,
   employeeCodes,
   weekoffDates,
-  masterCodeMap = null
+  masterCodeMap = null,
+  options = {}
 ) {
   const codes = [...new Set((employeeCodes || []).map(normalizeAttendanceEmpCode).filter(Boolean))];
   const dates = [...new Set((weekoffDates || []).map(normalizeDbDate).filter(Boolean))].sort();
@@ -872,15 +873,12 @@ export async function syncRegisterAutoWeekoffMarks(
 
   const fromDate = dates[0];
   const toDate = dates[dates.length - 1];
-  const { data, error } = await supabase
-    .from(ATTENDANCE_REGISTER_TABLE)
-    .select("employee_code,register_date,mark,mark_source,leave_request_id,mark_remark")
-    .gte("register_date", fromDate)
-    .lte("register_date", toDate);
-  if (error) throw error;
+  const existingRows =
+    options.existingRegisterRows ??
+    (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
 
   const existingByKey = new Map();
-  for (const row of data || []) indexRegisterRowByEmpDate(existingByKey, row);
+  for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
 
   const upserts = [];
   let failed = 0;
@@ -950,13 +948,10 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
   const toDate = toOverride || range.toDate;
 
   if (respectManualMarks && fromDate && toDate) {
-    const { data, error } = await supabase
-      .from(ATTENDANCE_REGISTER_TABLE)
-      .select("employee_code,register_date,mark,mark_source,leave_request_id,mark_remark")
-      .gte("register_date", fromDate)
-      .lte("register_date", toDate);
-    if (error) throw error;
-    const marksByEmpDay = marksByEmpDayFromRegisterDbRows(data, normalizeRegisterMarkForDb);
+    const existingRows =
+      options.existingRegisterRows ??
+      (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
+    const marksByEmpDay = marksByEmpDayFromRegisterDbRows(existingRows, normalizeRegisterMarkForDb);
     toUpsert = filterPresentRegisterRowsRespectingMarks(candidateRows, marksByEmpDay);
   }
 
@@ -1116,12 +1111,15 @@ export async function migrateLocalRegisterMarksToDb(supabase, monthKey, fromDate
 }
 
 export async function loadRegisterMarksForMonth(supabase, monthMeta, options = {}) {
-  const { masterCodeMap = null } = options;
+  const { masterCodeMap = null, prefetchedRows = null } = options;
   const range = {
     fromDate: monthMeta.fromDate,
     toDate: monthMeta.toDate,
   };
-  let data = await fetchRegisterMarksForMonth(supabase, range, { masterCodeMap });
+  let data = await fetchRegisterMarksForMonth(supabase, range, {
+    masterCodeMap,
+    rows: prefetchedRows,
+  });
   const hasDb = (data.rows || []).length > 0 || Object.keys(data.marks || {}).length > 0;
   const local = readStoredRegisterMarks(monthMeta.monthKey);
   const hasLocal = Object.keys(local).length > 0;
@@ -1135,6 +1133,35 @@ export async function loadRegisterMarksForMonth(supabase, monthMeta, options = {
     };
   }
   return data;
+}
+
+/** Fast path: build month marks/remarks from already-fetched register rows (no extra network). */
+export function buildRegisterMonthViewFromPrefetched(monthMeta, prefetchedRows, masterCodeMap = null) {
+  const rows = prefetchedRows || [];
+  const data = {
+    rows,
+    marks: dbRowsToManualMarks(rows, masterCodeMap),
+    remarks: dbRowsToManualRemarks(rows, masterCodeMap),
+  };
+  const local = readStoredRegisterMarks(monthMeta.monthKey);
+  if (Object.keys(local).length) {
+    data.marks = mergeRegisterMarksWithLocal(data.marks, local);
+  }
+  return data;
+}
+
+/** Background: migrate browser-only marks to Supabase when DB month is empty. */
+export async function migrateLocalRegisterMarksIfEmptyMonth(supabase, monthMeta, prefetchedRows = []) {
+  const hasDb = (prefetchedRows || []).length > 0;
+  const local = readStoredRegisterMarks(monthMeta.monthKey);
+  if (hasDb || !Object.keys(local).length) return false;
+  await migrateLocalRegisterMarksToDb(
+    supabase,
+    monthMeta.monthKey,
+    monthMeta.fromDate,
+    monthMeta.toDate
+  );
+  return true;
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   SectionCard,
@@ -20,6 +20,7 @@ import {
   buildMonthlyRegisterGrid,
   buildRegisterEmployeeList,
   fetchMasterRegisterCodeMap,
+  fetchRegisterMarkRowsInRange,
   collectRegisterEmployeeCodes,
   syncRegisterMarksFromPunches,
   syncRegisterAutoWeekoffMarks,
@@ -40,6 +41,8 @@ import {
   isInactiveEmployeeRelevantForRegisterMonth,
   isoMonthToday,
   loadRegisterMarksForMonth,
+  buildRegisterMonthViewFromPrefetched,
+  migrateLocalRegisterMarksIfEmptyMonth,
   fetchRegisterMarksForYear,
   fetchApprovedLeaveMarksForMonth,
   mergeApprovedLeaveMarksIntoManualMarks,
@@ -54,7 +57,6 @@ import {
   upsertRegisterMarksBatch,
   writeStoredRegisterMarks,
   normalizeAttendanceEmpCode,
-  resolveAttendanceEmpCodeFilter,
   computeDayAttendanceBreakdown,
   registerMarkStatusLabel,
 } from "../../../lib/attendanceDaily";
@@ -117,6 +119,67 @@ function SummaryFooterRow({ footer, colSpan = 2 }) {
   );
 }
 
+function RegisterKpiSkeleton() {
+  return <div className="h-14 rounded-lg bg-gray-200/80 animate-pulse" />;
+}
+
+/** Skeleton grid while monthly register data is loading. */
+function RegisterAttendanceTableSkeleton({ rowCount = 10, daysInMonth = 31 }) {
+  const dayCols = Math.min(daysInMonth, 31);
+  return (
+    <div className="mt-3 min-w-0 max-w-full rounded-lg border border-gray-200 overflow-hidden" aria-busy="true" aria-label="Loading attendance register">
+      <div className="flex items-center gap-2 px-3 py-2 bg-sky-50 border-b border-gray-200">
+        <div className="h-3 w-3 rounded-full border-2 border-sky-600 border-t-transparent animate-spin shrink-0" />
+        <span className="text-xs font-medium text-sky-900">Loading attendance register…</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse min-w-[960px]">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="px-2 py-2 w-10"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
+              <th className="px-2 py-2 w-24"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
+              <th className="px-2 py-2 w-28"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
+              <th className="px-2 py-2 w-36"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
+              <th className="px-2 py-2 w-28"><div className="h-3 bg-gray-200 rounded animate-pulse" /></th>
+              {Array.from({ length: dayCols }, (_, i) => (
+                <th key={i} className="px-1 py-2 w-12">
+                  <div className="h-3 bg-gray-100 rounded animate-pulse mx-auto w-8" />
+                </th>
+              ))}
+              {SUMMARY_COLUMNS.map((col) => (
+                <th key={col.key} className="px-2 py-2 w-16">
+                  <div className="h-3 bg-gray-100 rounded animate-pulse" />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: rowCount }, (_, rowIdx) => (
+              <tr key={rowIdx} className="border-b border-gray-100">
+                <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-6" /></td>
+                <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-16" /></td>
+                <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-20" /></td>
+                <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-32" /></td>
+                <td className="px-2 py-2"><div className="h-4 bg-gray-100 rounded animate-pulse w-24" /></td>
+                {Array.from({ length: dayCols }, (_, dayIdx) => (
+                  <td key={dayIdx} className="px-1 py-1">
+                    <div className="h-7 bg-gray-50 rounded animate-pulse" />
+                  </td>
+                ))}
+                {SUMMARY_COLUMNS.map((col) => (
+                  <td key={col.key} className="px-2 py-2">
+                    <div className="h-4 bg-gray-50 rounded animate-pulse w-8 mx-auto" />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function EmployeeAttendanceDailyPage() {
   const [monthValue, setMonthValue] = useState(isoMonthToday());
   const [empCode, setEmpCode] = useState("");
@@ -128,7 +191,9 @@ export function EmployeeAttendanceDailyPage() {
   const [activeEmployees, setActiveEmployees] = useState([]);
   const [masterRegisterCodeMap, setMasterRegisterCodeMap] = useState(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [yearLoading, setYearLoading] = useState(false);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [registerSort, setRegisterSort] = useState({ field: "empCode", direction: "asc" });
@@ -155,6 +220,11 @@ export function EmployeeAttendanceDailyPage() {
     mark: "",
   });
 
+  const masterRegisterCodeMapRef = useRef(null);
+  const activeEmployeesCacheRef = useRef(null);
+  const inactiveLeavingCacheRef = useRef(null);
+  const loadGenerationRef = useRef(0);
+
   const monthMeta = useMemo(() => monthDateRange(monthValue), [monthValue]);
 
   useEffect(() => {
@@ -174,78 +244,203 @@ export function EmployeeAttendanceDailyPage() {
       setError("Select a valid month.");
       return;
     }
+    const loadGeneration = loadGenerationRef.current + 1;
+    loadGenerationRef.current = loadGeneration;
     setLoading(true);
+    setSyncing(false);
+    setYearLoading(true);
     setError("");
+    setYearRegisterRows([]);
     try {
-      const [punchRows, employees, inactiveWithLeaving] = await Promise.all([
+      const codeMapPromise = masterRegisterCodeMapRef.current
+        ? Promise.resolve(masterRegisterCodeMapRef.current)
+        : fetchMasterRegisterCodeMap(supabase);
+      const employeesPromise = activeEmployeesCacheRef.current
+        ? Promise.resolve(activeEmployeesCacheRef.current)
+        : fetchActiveEmployees(supabase).then((rows) => {
+            activeEmployeesCacheRef.current = rows;
+            return rows;
+          });
+      const inactivePromise = inactiveLeavingCacheRef.current
+        ? Promise.resolve(inactiveLeavingCacheRef.current)
+        : fetchInactiveEmployeesWithDateOfLeaving(supabase).then((rows) => {
+            inactiveLeavingCacheRef.current = rows;
+            return rows;
+          });
+
+      const [
+        punchRows,
+        employees,
+        inactiveWithLeaving,
+        masterCodeMap,
+        monthRegisterRows,
+        approvedLeaveMarks,
+      ] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
           toDate: monthMeta.toDate,
-          empCode: resolveAttendanceEmpCodeFilter(empCode),
         }),
-        fetchActiveEmployees(supabase),
-        fetchInactiveEmployeesWithDateOfLeaving(supabase),
+        employeesPromise,
+        inactivePromise,
+        codeMapPromise,
+        fetchRegisterMarkRowsInRange(supabase, {
+          fromDate: monthMeta.fromDate,
+          toDate: monthMeta.toDate,
+        }),
+        fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
       ]);
-      const masterCodeMap = await fetchMasterRegisterCodeMap(supabase);
-      setMasterRegisterCodeMap(masterCodeMap);
+
+      if (loadGeneration !== loadGenerationRef.current) return;
+
+      if (!masterRegisterCodeMapRef.current) {
+        masterRegisterCodeMapRef.current = masterCodeMap;
+        setMasterRegisterCodeMap(masterCodeMap);
+      }
+
+      const registerData = buildRegisterMonthViewFromPrefetched(
+        monthMeta,
+        monthRegisterRows,
+        masterCodeMap
+      );
+
+      if (loadGeneration !== loadGenerationRef.current) return;
+
       const employeesWithCode = employees.filter((e) => e.empCode);
       const inactiveForMonth = (inactiveWithLeaving || []).filter((e) =>
         isInactiveEmployeeRelevantForRegisterMonth(e.dateOfLeaving, monthMeta.fromDate, monthMeta.toDate)
       );
-      await syncRegisterMarksFromPunches(supabase, punchRows, {
-        fromDate: monthMeta.fromDate,
-        toDate: monthMeta.toDate,
-        respectManualMarks: true,
-        masterCodeMap,
-      });
-      const [registerData, yearRows, approvedLeaveMarks] = await Promise.all([
-        loadRegisterMarksForMonth(supabase, monthMeta, { masterCodeMap }),
-        fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap),
-        fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
-      ]);
       const mergedMarks = mergeApprovedLeaveMarksIntoManualMarks(
         registerData?.marks || {},
         approvedLeaveMarks,
         { punches: punchRows, monthKey: monthMeta.monthKey }
       );
-      const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveForMonth, { masterCodeMap });
+      const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveForMonth, {
+        masterCodeMap,
+      });
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
-      const woResult = await syncRegisterAutoWeekoffMarks(
-        supabase,
-        registerEmpCodes,
-        weekoffDates,
-        masterCodeMap
-      );
+
       setPunches(punchRows);
       setActiveEmployees(registerEmployees);
       setManualMarks(mergedMarks);
       setManualRemarks(registerData?.remarks || {});
-      setYearRegisterRows(yearRows);
       setLeaveLimitWarning("");
+
       const warnings = [];
       if (employees.length > employeesWithCode.length) {
         warnings.push(
           `${employees.length - employeesWithCode.length} active employee(s) hidden — add employee_code in Employee Master to include them in the register.`
         );
       }
-      if (woResult.failed > 0) {
-        warnings.push(
-          `${woResult.failed} auto weekoff cell(s) could not be saved — set employee_code on Employee Master (must match eTimeOffice / raw attendance).`
-        );
-      }
       setRegisterCodeWarning(warnings.join(" "));
+
+      // Show the grid immediately; sync punch/WO marks in the background.
+      setLoading(false);
+
+      void (async () => {
+        if (loadGeneration !== loadGenerationRef.current) return;
+        setSyncing(true);
+        try {
+          const migrated = await migrateLocalRegisterMarksIfEmptyMonth(
+            supabase,
+            monthMeta,
+            monthRegisterRows
+          );
+          if (migrated && loadGeneration === loadGenerationRef.current) {
+            const refreshedRows = await fetchRegisterMarkRowsInRange(supabase, {
+              fromDate: monthMeta.fromDate,
+              toDate: monthMeta.toDate,
+            });
+            const refreshed = buildRegisterMonthViewFromPrefetched(
+              monthMeta,
+              refreshedRows,
+              masterCodeMap
+            );
+            setManualMarks(
+              mergeApprovedLeaveMarksIntoManualMarks(refreshed.marks, approvedLeaveMarks, {
+                punches: punchRows,
+                monthKey: monthMeta.monthKey,
+              })
+            );
+            setManualRemarks(refreshed.remarks || {});
+          }
+
+          const punchSync = await syncRegisterMarksFromPunches(supabase, punchRows, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+            respectManualMarks: true,
+            masterCodeMap,
+            existingRegisterRows: monthRegisterRows,
+          });
+          const woResult = await syncRegisterAutoWeekoffMarks(
+            supabase,
+            registerEmpCodes,
+            weekoffDates,
+            masterCodeMap,
+            { existingRegisterRows: monthRegisterRows }
+          );
+
+          if (loadGeneration !== loadGenerationRef.current) return;
+
+          if (woResult.failed > 0) {
+            setRegisterCodeWarning((prev) => {
+              const woMsg = `${woResult.failed} auto weekoff cell(s) could not be saved — set employee_code on Employee Master (must match eTimeOffice / raw attendance).`;
+              return prev ? `${prev} ${woMsg}` : woMsg;
+            });
+          }
+
+          if (punchSync.upserted > 0 || woResult.upserted > 0) {
+            const refreshed = await loadRegisterMarksForMonth(supabase, monthMeta, { masterCodeMap });
+            if (loadGeneration !== loadGenerationRef.current) return;
+            setManualMarks(
+              mergeApprovedLeaveMarksIntoManualMarks(refreshed?.marks || {}, approvedLeaveMarks, {
+                punches: punchRows,
+                monthKey: monthMeta.monthKey,
+              })
+            );
+            setManualRemarks(refreshed?.remarks || {});
+          }
+        } catch (syncErr) {
+          if (loadGeneration !== loadGenerationRef.current) return;
+          console.warn("Register background sync failed:", syncErr);
+          setRegisterCodeWarning((prev) => {
+            const msg = formatAttendanceSupabaseError(syncErr);
+            return prev ? `${prev} Background sync: ${msg}` : `Background sync: ${msg}`;
+          });
+        } finally {
+          if (loadGeneration === loadGenerationRef.current) setSyncing(false);
+        }
+      })();
+
+      void (async () => {
+        try {
+          const yearRows = await fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap);
+          if (loadGeneration !== loadGenerationRef.current) return;
+          setYearRegisterRows(yearRows);
+        } catch (yearErr) {
+          console.warn("Year register load failed:", yearErr);
+        } finally {
+          if (loadGeneration === loadGenerationRef.current) setYearLoading(false);
+        }
+      })();
     } catch (err) {
+      if (loadGeneration !== loadGenerationRef.current) return;
       setPunches([]);
       setManualMarks({});
       setManualRemarks({});
       setYearRegisterRows([]);
       setRegisterCodeWarning("");
       setError(formatAttendanceSupabaseError(err));
-    } finally {
       setLoading(false);
+      setSyncing(false);
+      setYearLoading(false);
     }
-  }, [empCode, monthMeta]);
+  }, [monthMeta]);
+
+  useEffect(() => {
+    setPage(1);
+    setLoading(true);
+  }, [monthValue]);
 
   useEffect(() => {
     loadData();
@@ -1002,9 +1197,17 @@ export function EmployeeAttendanceDailyPage() {
         right={
           <StatusChip
             label={
-              loading ? "Loading?" : savingMark ? "Saving?" : `${dayFilteredRows.length} employee(s) · Supabase`
+              loading
+                ? "Loading…"
+                : syncing
+                  ? "Syncing marks…"
+                  : savingMark
+                    ? "Saving…"
+                    : yearLoading
+                      ? `${dayFilteredRows.length} employee(s) · loading leave limits`
+                      : `${dayFilteredRows.length} employee(s) · Supabase`
             }
-            severity={loading || savingMark ? "warning" : "info"}
+            severity={loading || syncing || savingMark ? "warning" : "info"}
           />
         }
       >
@@ -1048,10 +1251,10 @@ export function EmployeeAttendanceDailyPage() {
           <button
             type="button"
             onClick={loadData}
-            disabled={loading}
+            disabled={loading || syncing}
             className="h-8 px-3 rounded-lg border border-gray-300 text-xs disabled:opacity-60"
           >
-            {loading ? "Loading?" : "Reload"}
+            {loading || syncing ? "Loading…" : "Reload"}
           </button>
           <button
             type="button"
@@ -1075,6 +1278,15 @@ export function EmployeeAttendanceDailyPage() {
         </FilterBar>
 
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          {loading ? (
+            <>
+              <RegisterKpiSkeleton />
+              <RegisterKpiSkeleton />
+              <RegisterKpiSkeleton />
+              <RegisterKpiSkeleton />
+            </>
+          ) : (
+            <>
           <KpiTile
             label="Total employees"
             value={bulkDayNumber ? dayAttendanceStats.total : "—"}
@@ -1123,6 +1335,8 @@ export function EmployeeAttendanceDailyPage() {
                 : "border-gray-200"
             }
           />
+            </>
+          )}
         </div>
 
         {tableDayAttendanceFilter && bulkDateFrom && (
@@ -1315,7 +1529,18 @@ export function EmployeeAttendanceDailyPage() {
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>
         )}
 
-        <div className="mt-3 min-w-0 max-w-full">
+        {loading ? (
+          <RegisterAttendanceTableSkeleton
+            rowCount={Math.min(pageSize, 12)}
+            daysInMonth={monthMeta?.daysInMonth ?? 31}
+          />
+        ) : (
+        <div className="mt-3 min-w-0 max-w-full relative">
+          {syncing && (
+            <div className="absolute top-0 left-0 right-0 z-10 h-0.5 overflow-hidden rounded-t-lg bg-sky-100">
+              <div className="h-full w-full bg-sky-500 animate-pulse opacity-80" />
+            </div>
+          )}
           <DenseTable
             columns={columns}
             rows={pagedRows}
@@ -1325,8 +1550,9 @@ export function EmployeeAttendanceDailyPage() {
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>
-              Showing {pageStart}-{pageEnd} of {rowsWithSummary.length} ? {activeEmployees.length} active in master
-              {monthMeta ? ` ? ${monthMeta.monthKey}` : ""}
+              Showing {pageStart}-{pageEnd} of {rowsWithSummary.length} · {activeEmployees.length} active in master
+              {monthMeta ? ` · ${monthMeta.monthKey}` : ""}
+              {syncing ? " · syncing marks…" : ""}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -1351,6 +1577,7 @@ export function EmployeeAttendanceDailyPage() {
             </div>
           </div>
         </div>
+        )}
 
         <p className="mt-3 text-[11px] text-gray-500">
           Marks are saved in <code className="text-[10px]">{ATTENDANCE_REGISTER_TABLE}</code> (Supabase). Present from
