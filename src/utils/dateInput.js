@@ -1,3 +1,5 @@
+import { normalizeToIsoDate } from "./dateDisplay";
+
 /** Shared bounds for date fields (validated on blur, not while typing). */
 export const DATE_INPUT_MIN = "1900-01-01";
 export const DATE_INPUT_MAX = "9999-12-31";
@@ -39,16 +41,16 @@ export function normalizeDateInputValue(value) {
   return raw;
 }
 
-/** ISO YYYY-MM-DD → dd/mm/yyyy for manual entry display. */
+/** ISO YYYY-MM-DD → dd-mm-yyyy for manual entry display. */
 export function isoToDisplayDate(value) {
   const raw = String(value ?? "").trim();
   if (!isCompleteIsoDate(raw)) return "";
   const [year, month, day] = raw.split("-");
-  return `${day}/${month}/${year}`;
+  return `${day}-${month}-${year}`;
 }
 
 /**
- * Parse dd/mm/yyyy (or dd-mm-yyyy) to ISO.
+ * Parse dd-mm-yyyy (or dd/mm/yyyy, mm-dd-yyyy) to ISO.
  * Returns `null` while year is incomplete (<4 digits) so day/month are not cleared.
  */
 export function parseDisplayDateToIso(text) {
@@ -63,11 +65,8 @@ export function parseDisplayDateToIso(text) {
   if (y.length > 0 && y.length < 4) return null;
 
   if (y.length === 4 && d && m) {
-    const day = d.padStart(2, "0").slice(-2);
-    const month = m.padStart(2, "0").slice(-2);
-    const year = y.slice(0, 4);
-    const iso = `${year}-${month}-${day}`;
-    return isCompleteIsoDate(iso) ? iso : "";
+    const iso = normalizeToIsoDate(`${d}-${m}-${y}`);
+    return iso || "";
   }
 
   return null;

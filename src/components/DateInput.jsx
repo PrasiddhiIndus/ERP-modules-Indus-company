@@ -29,7 +29,7 @@ export function DateInput({
   title,
   onBlur,
   onFocus,
-  placeholder = "dd/mm/yyyy",
+  placeholder = "dd-mm-yyyy",
   "aria-label": ariaLabel,
 }) {
   const autoId = useId();
@@ -133,7 +133,7 @@ export function DateInput({
         disabled={disabled}
         readOnly={readOnly}
         required={required}
-        title={title || "Enter date as dd/mm/yyyy or use calendar"}
+        title={title || "Enter date as dd-mm-yyyy or use calendar"}
         aria-label={ariaLabel}
         placeholder={placeholder}
         className="erp-date-input-text min-w-0 flex-1 rounded border border-inherit bg-inherit px-2 py-1.5 text-inherit"

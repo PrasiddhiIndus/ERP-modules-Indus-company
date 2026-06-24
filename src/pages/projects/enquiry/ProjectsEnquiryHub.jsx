@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import './enquiryDashboard.css';
 import EnquiryDashboard from './EnquiryDashboard';
 import EnquiryEntry from './EnquiryEntry';
 import EnquiryDatabase from './EnquiryDatabase';
@@ -38,7 +39,7 @@ const ProjectsEnquiryHub = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 projects-enquiry-hub">
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="px-6 py-4">
           <h1 className="text-2xl font-bold text-gray-900">Projects — Enquiry Master</h1>

@@ -1,0 +1,100 @@
+/* Projects Enquiry Master — dashboard 3D chart stage */
+
+.enquiry-analytics {
+  --enquiry-glow: rgba(59, 130, 246, 0.35);
+  --enquiry-depth: rgba(15, 23, 42, 0.12);
+}
+
+.enquiry-kpi-3d {
+  transform-style: preserve-3d;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.45s ease;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 8px 20px -8px var(--enquiry-depth);
+}
+
+.enquiry-kpi-3d:hover {
+  transform: translateY(-6px) rotateX(6deg) scale(1.02);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 18px 36px -10px var(--enquiry-glow);
+}
+
+.enquiry-chart-card {
+  transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.55s ease;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 10px 28px -12px var(--enquiry-depth);
+  background: linear-gradient(165deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.enquiry-chart-card:hover {
+  transform: translateY(-4px) rotateX(4deg);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 22px 44px -14px var(--enquiry-glow);
+}
+
+.enquiry-chart-stage {
+  perspective: 1100px;
+  perspective-origin: 50% 40%;
+}
+
+.enquiry-chart-3d {
+  transform: rotateX(10deg) scale(0.98);
+  transform-origin: center 65%;
+  transform-style: preserve-3d;
+  transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  filter: drop-shadow(0 14px 18px rgba(30, 64, 175, 0.12));
+}
+
+.enquiry-chart-card:hover .enquiry-chart-3d {
+  transform: rotateX(2deg) scale(1);
+}
+
+.enquiry-chart-3d .recharts-surface {
+  overflow: visible;
+}
+
+.enquiry-chart-3d .recharts-bar-rectangle {
+  transition: filter 0.25s ease, opacity 0.25s ease;
+}
+
+.enquiry-chart-3d .recharts-bar-rectangle:hover {
+  filter: brightness(1.08) drop-shadow(0 6px 10px rgba(37, 99, 235, 0.35));
+}
+
+.enquiry-chart-3d .recharts-pie-sector {
+  transition: transform 0.3s ease, filter 0.3s ease;
+  transform-origin: center;
+}
+
+.enquiry-chart-3d .recharts-line-curve {
+  filter: drop-shadow(0 3px 6px rgba(37, 99, 235, 0.25));
+}
+
+@keyframes enquiryKpiPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.88; }
+}
+
+.enquiry-kpi-value-pop {
+  animation: enquiryKpiPop 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes enquiryKpiPop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.projects-enquiry-hub .erp-date-input-text {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}

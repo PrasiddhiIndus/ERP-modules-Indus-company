@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useFinance } from "./contexts/FinanceContext";
-import { PageHeader, SectionCard, TinySelect, LoadingState, ErrorState, StatusPill } from "./components/FinanceUi";
+import { PageHeader, SectionCard, TinySelect, PeriodMonthSelect, LoadingState, ErrorState, StatusPill } from "./components/FinanceUi";
 import { inr, pct } from "./lib/formatters";
 import {
   calcSite,
@@ -72,9 +72,12 @@ export default function BudgetVsActual() {
           </label>
           <label className="text-xs text-gray-600">
             Period
-            <TinySelect className="mt-1 block min-w-[120px]" value={periodKey} onChange={(e) => setFilters({ period: e.target.value })}>
-              {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-            </TinySelect>
+            <PeriodMonthSelect
+              className="mt-1 gap-1"
+              selectClassName="min-w-[72px] h-8 px-2 text-xs border border-gray-300 rounded-lg bg-white"
+              value={periodKey}
+              onChange={(v) => setFilters({ period: v })}
+            />
           </label>
         </div>
       </SectionCard>

@@ -5,6 +5,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { normalizeToIsoDate } from '../utils/dateDisplay';
 
 export const PROJECTS_SCHEMA = 'projects';
 
@@ -32,6 +33,13 @@ export function buildEmptyFormFromFields(entryFields, { receiptDateDefault } = {
   return form;
 }
 
+/** Normalize a date field value to ISO for storage. */
+function normalizeEnquiryDateValue(value) {
+  if (value == null || value === '') return null;
+  const iso = normalizeToIsoDate(value);
+  return iso || null;
+}
+
 /** Build jsonb payload for insert/update from form + entry field defs. */
 export function buildEnquiryDataPayload(form, entryFields) {
   const data = {};
@@ -39,6 +47,7 @@ export function buildEnquiryDataPayload(form, entryFields) {
     if (f.field_key === 'serial_number') continue;
     let v = form[f.field_key];
     if (typeof v === 'string') v = v.trim();
+    if (f.field_type === 'date' && v) v = normalizeEnquiryDateValue(v);
     data[f.field_key] = v === '' ? null : v;
   }
   return data;
@@ -78,6 +87,7 @@ export function packEnquiryUpdate(flat, databaseFields) {
     if (f.field_key === 'serial_number') continue;
     let v = flat[f.field_key];
     if (typeof v === 'string') v = v.trim();
+    if (f.field_type === 'date' && v) v = normalizeEnquiryDateValue(v);
     data[f.field_key] = v === '' ? null : v;
   }
   return { data };

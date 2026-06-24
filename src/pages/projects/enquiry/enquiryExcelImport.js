@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { applyEnquiryDefaults } from '../../../services/projectsApi';
+import { normalizeToIsoDate } from '../../../utils/dateDisplay';
 
 /** Extra header aliases beyond field definition labels (Excel export variants). */
 const FIELD_HEADER_ALIASES = {
@@ -29,7 +30,7 @@ const FIELD_HEADER_ALIASES = {
 export const EXCEL_IMPORT_NOTES = [
   'First row must be column headers. Data starts from row 2.',
   'Use the exact header labels from “Download template”, or the aliases listed in the import panel.',
-  'Dates: DD-MM-YYYY (e.g. 20-05-2026) or YYYY-MM-DD. Excel date cells are accepted.',
+  'Dates: DD-MM-YYYY (e.g. 20-05-2026), YYYY-MM-DD, or Excel date cells. US-style MM-DD-YYYY is auto-corrected on import.',
   'Serial Number is optional on import — new rows get the next auto number.',
   'Client Name is required. Rows without Client Name are skipped.',
   'Current Status values: Not Started, Work in Progress, Completed, Regret (must match Enquiry Dropdown).',
@@ -71,17 +72,8 @@ export function parseExcelDateToIso(value) {
   }
   const raw = String(value).trim();
   if (!raw) return null;
-  const dmy = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
-  if (dmy) {
-    let [, d, m, y] = dmy;
-    if (y.length === 2) y = `20${y}`;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  }
-  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return iso[0].slice(0, 10);
-  const dt = new Date(raw);
-  if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
-  return null;
+  const iso = normalizeToIsoDate(raw);
+  return iso || null;
 }
 
 function mapRowToData(row, headerMap, fields) {

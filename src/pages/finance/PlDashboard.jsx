@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useFinance } from "./contexts/FinanceContext";
 import FinanceDashboardStyles from "./components/FinanceDashboardStyles";
-import { StatusPill, EmptyState, LoadingState, ErrorState } from "./components/FinanceUi";
+import { StatusPill, EmptyState, LoadingState, ErrorState, PeriodMonthSelect } from "./components/FinanceUi";
 import { inr, inrShort, pct } from "./lib/formatters";
 import { monthLabelOf, prevPeriodKey } from "./lib/periods";
 import { calcSite } from "./lib/calculations";
@@ -178,11 +178,12 @@ export default function PlDashboard() {
           </label>
           <label>
             Period
-            <select value={periodKey} onChange={(e) => setFilters({ period: e.target.value })}>
-              {months.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
+            <PeriodMonthSelect
+              className="gap-1"
+              selectClassName="h-8 px-2 text-xs border border-gray-300 rounded-lg bg-white font-semibold"
+              value={periodKey}
+              onChange={(v) => setFilters({ period: v })}
+            />
           </label>
         </div>
       </div>
