@@ -1,6 +1,6 @@
-import React, { useRef } from 'react';
-import { Upload, Eye, X, FileText } from 'lucide-react';
-import { presignFleetR2Get, fileLabelFromR2Key } from '../../lib/fleetR2';
+import React, { useRef, useState } from 'react';
+import { Upload, Eye, Download, RefreshCw, X, FileText } from 'lucide-react';
+import { presignFleetR2Get, downloadFleetR2File, fileLabelFromR2Key, FLEET_ATTACHMENT_ACCEPT } from '../../lib/fleetR2';
 
 /**
  * Multi-file picker + list of saved R2 keys + pending File objects (upload on save).
@@ -8,15 +8,19 @@ import { presignFleetR2Get, fileLabelFromR2Key } from '../../lib/fleetR2';
 export default function FleetAttachmentUploader({
   savedKeys = [],
   onRemoveSavedKey,
+  onReplaceSavedKey,
   pendingFiles = [],
   onPendingAdd,
   onRemovePending,
   multiple = true,
   maxTotal = 10,
   disabled = false,
-  helperText = 'PDF, images, Word, Excel (max 25 MB each). Files are stored in Cloudflare R2.',
+  label = 'Attachments',
+  helperText = 'PDF, JPG, JPEG, PNG, DOC, DOCX (max 25 MB each). Files are stored in Cloudflare R2.',
 }) {
   const inputRef = useRef(null);
+  const replaceInputRef = useRef(null);
+  const [replaceKey, setReplaceKey] = useState(null);
   const total = savedKeys.length + pendingFiles.length;
 
   const handlePick = (e) => {
@@ -29,6 +33,15 @@ export default function FleetAttachmentUploader({
     e.target.value = '';
   };
 
+  const handleReplacePick = (e) => {
+    const file = e.target.files?.[0];
+    if (file && replaceKey && onReplaceSavedKey) {
+      onReplaceSavedKey(replaceKey, file);
+    }
+    setReplaceKey(null);
+    e.target.value = '';
+  };
+
   const openSavedKey = async (key) => {
     try {
       const url = await presignFleetR2Get(key);
@@ -38,9 +51,22 @@ export default function FleetAttachmentUploader({
     }
   };
 
+  const downloadSavedKey = async (key) => {
+    try {
+      await downloadFleetR2File(key);
+    } catch (err) {
+      alert(err?.message || 'Could not download file.');
+    }
+  };
+
+  const startReplace = (key) => {
+    setReplaceKey(key);
+    replaceInputRef.current?.click();
+  };
+
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-medium text-gray-700">Attachments (Cloudflare R2)</label>
+      <label className="block text-sm font-medium text-gray-700">{label}</label>
       <p className="text-xs text-gray-500">{helperText}</p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -48,11 +74,21 @@ export default function FleetAttachmentUploader({
           ref={inputRef}
           type="file"
           multiple={multiple}
-          accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.xls,.doc,.docx,application/pdf,image/*"
+          accept={FLEET_ATTACHMENT_ACCEPT}
           className="hidden"
           disabled={disabled || total >= maxTotal}
           onChange={handlePick}
         />
+        {onReplaceSavedKey && (
+          <input
+            ref={replaceInputRef}
+            type="file"
+            accept={FLEET_ATTACHMENT_ACCEPT}
+            className="hidden"
+            disabled={disabled}
+            onChange={handleReplacePick}
+          />
+        )}
         <button
           type="button"
           disabled={disabled || total >= maxTotal}
@@ -82,16 +118,34 @@ export default function FleetAttachmentUploader({
                   type="button"
                   onClick={() => openSavedKey(key)}
                   className="rounded p-1 text-blue-600 hover:bg-blue-50"
-                  title="Open"
+                  title="View"
                 >
                   <Eye className="h-4 w-4" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => downloadSavedKey(key)}
+                  className="rounded p-1 text-blue-600 hover:bg-blue-50"
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+                {onReplaceSavedKey && (
+                  <button
+                    type="button"
+                    onClick={() => startReplace(key)}
+                    className="rounded p-1 text-amber-600 hover:bg-amber-50"
+                    title="Replace"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                )}
                 {onRemoveSavedKey && (
                   <button
                     type="button"
                     onClick={() => onRemoveSavedKey(key)}
                     className="rounded p-1 text-red-600 hover:bg-red-50"
-                    title="Remove"
+                    title="Delete"
                   >
                     <X className="h-4 w-4" />
                   </button>

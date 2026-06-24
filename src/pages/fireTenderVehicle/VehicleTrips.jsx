@@ -2,6 +2,8 @@ import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
+import { uploadFleetFileToR2, buildFleetUploadSegment, presignFleetR2Get } from '../../lib/fleetR2';
+import FleetAttachmentUploader from './FleetAttachmentUploader';
 import { 
   MapPin, 
   Plus, 
@@ -17,8 +19,15 @@ import {
   Car,
   Calendar,
   Fuel,
-  FileText
+  FileText,
+  Eye
 } from 'lucide-react';
+
+const parseTripR2Keys = (row) => {
+  const raw = row?.expense_attachments;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((k) => String(k).trim().startsWith('fleet/'));
+};
 
 const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [trips, setTrips] = useState([]);
@@ -27,6 +36,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingTrip, setEditingTrip] = useState(null);
+  const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [purposeFilter, setPurposeFilter] = useState('All');
@@ -161,6 +171,11 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const maxFiles = 10;
+    if ((formData.expense_attachments || []).length + pendingAttachmentFiles.length > maxFiles) {
+      alert(`Too many attachments (max ${maxFiles}).`);
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -169,7 +184,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         ? (typeof formData.vehicle_id === 'number' ? formData.vehicle_id : parseInt(formData.vehicle_id, 10))
         : null;
 
-      const tripData = {
+      let r2Keys = [...(formData.expense_attachments || [])];
+
+      const tripDataBase = {
         assignment_type: formData.assignment_type || null,
         vehicle_id: selectedVehicleId,
         trip_purpose: formData.assignment_type === 'fire-tender' ? 'Fire Tender Vehicle Assignment' : 'In-House Vehicle Assignment',
@@ -213,11 +230,15 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         visit_date: formData.visit_date || null,
         visit_duration_days: formData.visit_duration_days !== '' && formData.visit_duration_days != null ? parseInt(formData.visit_duration_days, 10) : null,
         departments_allotted: formData.departments_allotted.length ? formData.departments_allotted : null,
-        expense_attachments: formData.expense_attachments.length ? formData.expense_attachments : null,
         user_id: user.id
       };
 
       if (editingTrip) {
+        const segment = buildFleetUploadSegment(`trip-${editingTrip.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
+        const tripData = { ...tripDataBase, expense_attachments: r2Keys.length ? r2Keys : null };
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_trips')
           .update(tripData)
@@ -233,13 +254,26 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         }
         alert('Trip updated successfully!');
       } else {
-        const { error } = await supabase
+        const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_trips')
-          .insert([tripData]);
+          .insert([{ ...tripDataBase, expense_attachments: null }])
+          .select('id')
+          .single();
 
-        if (error) throw error;
+        if (insertError) throw insertError;
+        const segment = buildFleetUploadSegment(`trip-${row.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
+        if (r2Keys.length) {
+          const { error: upErr } = await supabase
+            .from('operations_fire_tender_vehicle_trips')
+            .update({ expense_attachments: r2Keys })
+            .eq('id', row.id);
+          if (upErr) throw upErr;
+        }
         if (selectedVehicleId) {
-          await setVehicleStatus(selectedVehicleId, tripData.trip_status === 'Active' ? 'On Duty' : 'Available');
+          await setVehicleStatus(selectedVehicleId, tripDataBase.trip_status === 'Active' ? 'On Duty' : 'Available');
         }
         alert('Trip created successfully!');
       }
@@ -255,6 +289,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
   const handleEdit = (trip) => {
     setEditingTrip(trip);
+    setPendingAttachmentFiles([]);
     const assignmentType = trip.trip_purpose === 'Fire Tender Vehicle Assignment' ? 'fire-tender' : 'in-house';
     setFormData({
       assignment_type: trip.assignment_type || assignmentType,
@@ -276,7 +311,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       departments_allotted: Array.isArray(trip.departments_allotted)
         ? trip.departments_allotted
         : (trip.issued_to_department ? trip.issued_to_department.split(',').map((d) => d.trim()).filter(Boolean) : []),
-      expense_attachments: Array.isArray(trip.expense_attachments) ? trip.expense_attachments : [],
+      expense_attachments: parseTripR2Keys(trip),
       remarks: assignmentType === 'in-house' ? (trip.remarks || '') : '',
       trip_purpose: trip.trip_purpose || '',
       issued_to_name: trip.issued_to_name || '',
@@ -369,6 +404,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const resetForm = () => {
+    setPendingAttachmentFiles([]);
     setFormData({
       assignment_type: 'in-house',
       driver_name: '',
@@ -406,6 +442,15 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     });
     setEditingTrip(null);
     setShowForm(false);
+  };
+
+  const openTripAttachment = async (objectKey) => {
+    try {
+      const url = await presignFleetR2Get(objectKey);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      alert(err?.message || 'Could not open file.');
+    }
   };
 
   const getStatusColor = (status) => {
@@ -717,16 +762,6 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                       <input type="number" min="0" value={formData.km_in} onChange={(e) => setFormData({ ...formData, km_in: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Expense Attachments</label>
-                      <input
-                        type="file"
-                        multiple
-                        onChange={(e) => setFormData({ ...formData, expense_attachments: Array.from(e.target.files || []).map((file) => file.name) })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-
                     <div className="md:col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-2">Remarks</label>
                       <textarea value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
@@ -734,6 +769,26 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                   </div>
                 </div>
               )}
+
+              <div className="border-t border-gray-200 pt-4">
+                <FleetAttachmentUploader
+                  label="Supporting documents"
+                  savedKeys={formData.expense_attachments || []}
+                  onRemoveSavedKey={(key) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      expense_attachments: (prev.expense_attachments || []).filter((k) => k !== key),
+                    }))
+                  }
+                  pendingFiles={pendingAttachmentFiles}
+                  onPendingAdd={(files) => setPendingAttachmentFiles((prev) => [...prev, ...files])}
+                  onRemovePending={(idx) =>
+                    setPendingAttachmentFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  multiple
+                  maxTotal={10}
+                />
+              </div>
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
                 <button
@@ -856,7 +911,18 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {parseTripR2Keys(trip).map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => openTripAttachment(key)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="View attachment"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      ))}
                       {trip.trip_status === 'Active' && (
                         <>
                           <button

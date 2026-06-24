@@ -2,6 +2,8 @@ import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
+import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
+import FleetAttachmentUploader from './FleetAttachmentUploader';
 import { 
   Wrench, 
   Plus, 
@@ -16,7 +18,8 @@ import {
   CheckCircle,
   AlertTriangle,
   Car,
-  FileText
+  FileText,
+  Eye
 } from 'lucide-react';
 
 const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
@@ -25,6 +28,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingMaintenance, setEditingMaintenance] = useState(null);
+  const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [vehicleFilter, setVehicleFilter] = useState('All');
   const [serviceTypeFilter, setServiceTypeFilter] = useState('All');
@@ -40,7 +44,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
     parts_replaced: '',
     next_service_due: '',
     remarks: '',
-    attachment_url: ''
+    r2_attachment_keys: []
   });
 
   const serviceTypes = [
@@ -100,6 +104,11 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const maxFiles = 10;
+    if ((formData.r2_attachment_keys || []).length + pendingAttachmentFiles.length > maxFiles) {
+      alert(`Too many attachments (max ${maxFiles}).`);
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -115,24 +124,42 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
         parts_replaced: formData.parts_replaced || null,
         next_service_due: formData.next_service_due && formData.next_service_due.trim() !== '' ? formData.next_service_due : null,
         remarks: formData.remarks || null,
-        attachment_url: formData.attachment_url || null,
         user_id: user.id
       };
 
+      let r2Keys = [...(formData.r2_attachment_keys || [])];
+
       if (editingMaintenance) {
+        const segment = buildFleetUploadSegment(`maint-${editingMaintenance.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_maintenance')
-          .update(maintenanceData)
+          .update({ ...maintenanceData, r2_attachment_keys: r2Keys })
           .eq('id', editingMaintenance.id);
 
         if (error) throw error;
         alert('Maintenance record updated successfully!');
       } else {
-        const { error } = await supabase
+        const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_maintenance')
-          .insert([maintenanceData]);
+          .insert([{ ...maintenanceData, r2_attachment_keys: [] }])
+          .select('id')
+          .single();
 
-        if (error) throw error;
+        if (insertError) throw insertError;
+        const segment = buildFleetUploadSegment(`maint-${row.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
+        if (r2Keys.length) {
+          const { error: upErr } = await supabase
+            .from('operations_fire_tender_vehicle_maintenance')
+            .update({ r2_attachment_keys: r2Keys })
+            .eq('id', row.id);
+          if (upErr) throw upErr;
+        }
         alert('Maintenance record added successfully!');
       }
 
@@ -146,6 +173,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
 
   const handleEdit = (maintenance) => {
     setEditingMaintenance(maintenance);
+    setPendingAttachmentFiles([]);
     setFormData({
       vehicle_id: maintenance.vehicle_id || '',
       service_date: maintenance.service_date || '',
@@ -157,7 +185,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
       parts_replaced: maintenance.parts_replaced || '',
       next_service_due: maintenance.next_service_due || '',
       remarks: maintenance.remarks || '',
-      attachment_url: maintenance.attachment_url || ''
+      r2_attachment_keys: parseFleetAttachmentKeys(maintenance, 'attachment_url')
     });
     setShowForm(true);
   };
@@ -181,6 +209,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const resetForm = () => {
+    setPendingAttachmentFiles([]);
     setFormData({
       vehicle_id: '',
       service_date: '',
@@ -192,10 +221,19 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
       parts_replaced: '',
       next_service_due: '',
       remarks: '',
-      attachment_url: ''
+      r2_attachment_keys: []
     });
     setEditingMaintenance(null);
     setShowForm(false);
+  };
+
+  const openMaintenanceAttachment = async (objectKey) => {
+    try {
+      const url = await presignFleetR2Get(objectKey);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      alert(err?.message || 'Could not open file.');
+    }
   };
 
   const getServiceTypeColor = (serviceType) => {
@@ -435,13 +473,22 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Service Receipt/Invoice URL</label>
-                    <input
-                      type="url"
-                      value={formData.attachment_url}
-                      onChange={(e) => setFormData({...formData, attachment_url: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="https://example.com/receipt.pdf"
+                    <FleetAttachmentUploader
+                      label="Service receipts / invoices"
+                      savedKeys={formData.r2_attachment_keys || []}
+                      onRemoveSavedKey={(key) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          r2_attachment_keys: (prev.r2_attachment_keys || []).filter((k) => k !== key),
+                        }))
+                      }
+                      pendingFiles={pendingAttachmentFiles}
+                      onPendingAdd={(files) => setPendingAttachmentFiles((prev) => [...prev, ...files])}
+                      onRemovePending={(idx) =>
+                        setPendingAttachmentFiles((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      multiple
+                      maxTotal={10}
                     />
                   </div>
 
@@ -582,14 +629,25 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        {record.attachment_url && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {parseFleetAttachmentKeys(record, 'attachment_url').map((key) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => openMaintenanceAttachment(key)}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="View attachment"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                        ))}
+                        {record.attachment_url && String(record.attachment_url).trim().match(/^https?:\/\//i) && (
                           <a
                             href={record.attachment_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-600 hover:text-blue-900"
-                            title="View Receipt"
+                            title="Legacy URL"
                           >
                             <FileText className="h-4 w-4" />
                           </a>

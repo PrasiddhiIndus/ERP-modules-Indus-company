@@ -98,6 +98,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       providerLabel: 'Issuing authority / RTO',
       secondarySectionTitle: 'Authority & file',
       showPremium: false,
+      expiryRequired: false,
       attachmentMax: 6
     },
     Permit: {
@@ -531,7 +532,9 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
 
                   {docFieldCfg.showExpiryDate && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">{docFieldCfg.expiryDateLabel} *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {docFieldCfg.expiryDateLabel}{docFieldCfg.expiryRequired ? ' *' : ''}
+                    </label>
                     <input
                       type="date"
                       value={formData.expiry_date}

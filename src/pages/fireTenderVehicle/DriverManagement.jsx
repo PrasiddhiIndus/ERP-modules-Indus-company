@@ -1,7 +1,7 @@
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
-import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
+import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get, fileLabelFromR2Key, appendFleetDocumentHistory, markFleetDocumentHistoryEntry } from '../../lib/fleetR2';
 import FleetAttachmentUploader from './FleetAttachmentUploader';
 import { 
   Users, 
@@ -26,6 +26,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
   const [showForm, setShowForm] = useState(false);
   const [editingDriver, setEditingDriver] = useState(null);
   const [pendingDriverFiles, setPendingDriverFiles] = useState([]);
+  const [pendingReplacements, setPendingReplacements] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [licenseTypeFilter, setLicenseTypeFilter] = useState('All');
@@ -41,7 +42,8 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
     department: '',
     designation: '',
     is_active: true,
-    r2_attachment_keys: []
+    r2_attachment_keys: [],
+    r2_document_history: []
   });
 
   const licenseTypes = [
@@ -77,7 +79,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const maxFiles = 15;
-    if ((formData.r2_attachment_keys || []).length + pendingDriverFiles.length > maxFiles) {
+    if ((formData.r2_attachment_keys || []).length + pendingDriverFiles.length + pendingReplacements.length > maxFiles) {
       alert(`Too many files (max ${maxFiles}).`);
       return;
     }
@@ -100,15 +102,37 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
       };
 
       let r2Keys = [...(formData.r2_attachment_keys || [])];
+      let documentHistory = Array.isArray(formData.r2_document_history) ? [...formData.r2_document_history] : [];
+
+      const uploadPendingFiles = async (segment) => {
+        for (const file of pendingDriverFiles) {
+          const key = await uploadFleetFileToR2({ file, scope: 'drivers', segment });
+          r2Keys.push(key);
+          documentHistory = appendFleetDocumentHistory(documentHistory, {
+            key,
+            file_name: file.name,
+            status: 'active',
+          });
+        }
+        for (const { oldKey, file } of pendingReplacements) {
+          const key = await uploadFleetFileToR2({ file, scope: 'drivers', segment });
+          r2Keys = r2Keys.filter((k) => k !== oldKey);
+          r2Keys.push(key);
+          documentHistory = markFleetDocumentHistoryEntry(documentHistory, oldKey, 'replaced', { replaced_by: key });
+          documentHistory = appendFleetDocumentHistory(documentHistory, {
+            key,
+            file_name: file.name,
+            status: 'active',
+          });
+        }
+      };
 
       if (editingDriver) {
         const segment = buildFleetUploadSegment(`driver-${editingDriver.id}`);
-        for (const file of pendingDriverFiles) {
-          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'drivers', segment }));
-        }
+        await uploadPendingFiles(segment);
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_drivers')
-          .update({ ...driverFields, r2_attachment_keys: r2Keys })
+          .update({ ...driverFields, r2_attachment_keys: r2Keys, r2_document_history: documentHistory })
           .eq('id', editingDriver.id);
 
         if (error) throw error;
@@ -116,19 +140,17 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
       } else {
         const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_drivers')
-          .insert([{ ...driverFields, r2_attachment_keys: [] }])
+          .insert([{ ...driverFields, r2_attachment_keys: [], r2_document_history: [] }])
           .select('id')
           .single();
 
         if (insertError) throw insertError;
         const segment = buildFleetUploadSegment(`driver-${row.id}`);
-        for (const file of pendingDriverFiles) {
-          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'drivers', segment }));
-        }
-        if (r2Keys.length) {
+        await uploadPendingFiles(segment);
+        if (r2Keys.length || documentHistory.length) {
           const { error: upErr } = await supabase
             .from('operations_fire_tender_vehicle_drivers')
-            .update({ r2_attachment_keys: r2Keys })
+            .update({ r2_attachment_keys: r2Keys, r2_document_history: documentHistory })
             .eq('id', row.id);
           if (upErr) throw upErr;
         }
@@ -146,6 +168,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
   const handleEdit = (driver) => {
     setEditingDriver(driver);
     setPendingDriverFiles([]);
+    setPendingReplacements([]);
     setFormData({
       employee_id: driver.employee_id || '',
       full_name: driver.full_name || '',
@@ -157,7 +180,17 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
       department: driver.department || '',
       designation: driver.designation || '',
       is_active: driver.is_active,
-      r2_attachment_keys: parseFleetAttachmentKeys(driver, null)
+      r2_attachment_keys: parseFleetAttachmentKeys(driver, null),
+      r2_document_history: (() => {
+        const hist = Array.isArray(driver.r2_document_history) ? driver.r2_document_history : [];
+        if (hist.length) return hist;
+        return parseFleetAttachmentKeys(driver, null).map((key) => ({
+          key,
+          file_name: fileLabelFromR2Key(key),
+          uploaded_at: driver.updated_at || driver.created_at || new Date().toISOString(),
+          status: 'active',
+        }));
+      })()
     });
     setShowForm(true);
   };
@@ -198,6 +231,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
 
   const resetForm = () => {
     setPendingDriverFiles([]);
+    setPendingReplacements([]);
     setFormData({
       employee_id: '',
       full_name: '',
@@ -209,12 +243,36 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
       department: '',
       designation: '',
       is_active: true,
-      r2_attachment_keys: []
+      r2_attachment_keys: [],
+      r2_document_history: []
     });
     setEditingDriver(null);
     setShowForm(false);
   };
 
+  const handleRemoveDriverAttachment = (key) => {
+    setFormData((prev) => ({
+      ...prev,
+      r2_attachment_keys: (prev.r2_attachment_keys || []).filter((k) => k !== key),
+      r2_document_history: markFleetDocumentHistoryEntry(prev.r2_document_history, key, 'deleted'),
+    }));
+  };
+
+  const handleReplaceDriverAttachment = (oldKey, file) => {
+    setPendingReplacements((prev) => {
+      const withoutOld = prev.filter((item) => item.oldKey !== oldKey);
+      return [...withoutOld, { oldKey, file }];
+    });
+  };
+
+  const getHistoryStatusClass = (status) => {
+    switch (status) {
+      case 'active': return 'bg-green-100 text-green-800';
+      case 'replaced': return 'bg-amber-100 text-amber-800';
+      case 'deleted': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
   const openDriverAttachment = async (objectKey) => {
     try {
       const url = await presignFleetR2Get(objectKey);
@@ -459,24 +517,66 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
                 </div>
               </div>
 
-              <div className="border-t border-gray-200 pt-4">
+              <div className="border-t border-gray-200 pt-4 space-y-4">
+                <h3 className="text-lg font-medium text-gray-900">Certificates &amp; Licenses</h3>
                 <FleetAttachmentUploader
+                  label="Upload certificates, licenses, and supporting documents"
                   savedKeys={formData.r2_attachment_keys || []}
-                  onRemoveSavedKey={(key) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      r2_attachment_keys: (prev.r2_attachment_keys || []).filter((k) => k !== key),
-                    }))
-                  }
-                  pendingFiles={pendingDriverFiles}
+                  onRemoveSavedKey={handleRemoveDriverAttachment}
+                  onReplaceSavedKey={handleReplaceDriverAttachment}
+                  pendingFiles={[
+                    ...pendingDriverFiles,
+                    ...pendingReplacements.map(({ file }) => file),
+                  ]}
                   onPendingAdd={(files) => setPendingDriverFiles((prev) => [...prev, ...files])}
-                  onRemovePending={(idx) =>
-                    setPendingDriverFiles((prev) => prev.filter((_, i) => i !== idx))
-                  }
+                  onRemovePending={(idx) => {
+                    if (idx < pendingDriverFiles.length) {
+                      setPendingDriverFiles((prev) => prev.filter((_, i) => i !== idx));
+                    } else {
+                      const repIdx = idx - pendingDriverFiles.length;
+                      setPendingReplacements((prev) => prev.filter((_, i) => i !== repIdx));
+                    }
+                  }}
                   multiple
                   maxTotal={15}
-                  helperText="License scans, medical certificates, training proofs (max 25 MB each)."
+                  helperText="Driving license, medical certificate, training proof, and other credentials. PDF, JPG, JPEG, PNG, DOC, DOCX (max 25 MB each)."
                 />
+
+                {(formData.r2_document_history || []).length > 0 && (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <h4 className="text-sm font-medium text-gray-900 mb-2">Document history</h4>
+                    <ul className="max-h-40 space-y-2 overflow-y-auto text-sm">
+                      {[...(formData.r2_document_history || [])]
+                        .slice()
+                        .reverse()
+                        .map((entry) => (
+                          <li key={`${entry.key}-${entry.uploaded_at}`} className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="truncate text-gray-800" title={entry.file_name || entry.key}>
+                              {entry.file_name || fileLabelFromR2Key(entry.key)}
+                            </span>
+                            <span className="flex items-center gap-2 shrink-0">
+                              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${getHistoryStatusClass(entry.status)}`}>
+                                {entry.status}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {entry.uploaded_at ? formatDateDdMmYyyy(entry.uploaded_at.slice(0, 10)) : '—'}
+                              </span>
+                              {entry.status !== 'deleted' && (
+                                <button
+                                  type="button"
+                                  onClick={() => openDriverAttachment(entry.key)}
+                                  className="text-blue-600 hover:text-blue-900"
+                                  title="View"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
