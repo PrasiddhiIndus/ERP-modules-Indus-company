@@ -106,3 +106,50 @@ export function fileLabelFromR2Key(key) {
   const m = tail.match(/^\d+-(.+)$/);
   return m ? m[1] : tail || key;
 }
+
+/** Trigger browser download via presigned R2 URL. */
+export async function downloadFleetR2File(objectKey) {
+  const url = await presignFleetR2Get(objectKey);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileLabelFromR2Key(objectKey);
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+export const FLEET_ATTACHMENT_ACCEPT =
+  '.pdf,.jpg,.jpeg,.png,.doc,.docx,application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** @typedef {{ key: string, file_name: string, uploaded_at: string, status: 'active'|'replaced'|'deleted', replaced_by?: string }} FleetDocumentHistoryEntry */
+
+/**
+ * @param {FleetDocumentHistoryEntry[]|unknown} history
+ * @param {Omit<FleetDocumentHistoryEntry, 'uploaded_at'> & { uploaded_at?: string }} entry
+ * @returns {FleetDocumentHistoryEntry[]}
+ */
+export function appendFleetDocumentHistory(history, entry) {
+  const list = Array.isArray(history) ? [...history] : [];
+  list.push({
+    ...entry,
+    uploaded_at: entry.uploaded_at || new Date().toISOString(),
+  });
+  return list;
+}
+
+/**
+ * @param {FleetDocumentHistoryEntry[]|unknown} history
+ * @param {string} key
+ * @param {'replaced'|'deleted'} status
+ * @param {{ replaced_by?: string }} [extra]
+ * @returns {FleetDocumentHistoryEntry[]}
+ */
+export function markFleetDocumentHistoryEntry(history, key, status, extra = {}) {
+  const list = Array.isArray(history) ? [...history] : [];
+  return list.map((item) =>
+    item.key === key && item.status === 'active'
+      ? { ...item, status, ...extra }
+      : item
+  );
+}
