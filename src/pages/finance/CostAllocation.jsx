@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ListTable } from "../../components/ListTable";
 import { useFinance } from "./contexts/FinanceContext";
-import { PageHeader, PrimaryButton, SectionCard, Modal, TinyInput, TinySelect, LoadingState, ErrorState } from "./components/FinanceUi";
+import { PageHeader, PrimaryButton, SectionCard, Modal, TinyInput, TinySelect, PeriodMonthSelect, LoadingState, ErrorState } from "./components/FinanceUi";
 import { upsertCostAllocation, deleteCostAllocation } from "../../services/financeApi";
 import { inr } from "./lib/formatters";
 import { monthLabelOf, currentPeriodKey } from "./lib/periods";
@@ -121,9 +121,12 @@ export default function CostAllocation() {
             </label>
             <label className="block text-xs text-gray-600">
               Starts from
-              <TinySelect className="w-full mt-1" value={form.start_period} onChange={(e) => setForm({ ...form, start_period: e.target.value })}>
-                {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-              </TinySelect>
+              <PeriodMonthSelect
+                className="mt-1 gap-1"
+                selectClassName="w-full h-8 px-2 text-xs border border-gray-300 rounded-lg bg-white"
+                value={form.start_period}
+                onChange={(v) => setForm({ ...form, start_period: v })}
+              />
             </label>
             <label className="block text-xs text-gray-600">
               Spread mode

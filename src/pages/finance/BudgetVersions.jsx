@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ListTable } from "../../components/ListTable";
 import { useFinance } from "./contexts/FinanceContext";
-import { PageHeader, PrimaryButton, SectionCard, Modal, TinyInput, TinySelect, LoadingState, ErrorState } from "./components/FinanceUi";
+import { PageHeader, PrimaryButton, SectionCard, Modal, TinyInput, TinySelect, PeriodMonthSelect, LoadingState, ErrorState } from "./components/FinanceUi";
 import { upsertBudgetVersion, deleteBudgetVersion } from "../../services/financeApi";
 import { inr, pct } from "./lib/formatters";
 import { estTotals } from "./lib/calculations";
@@ -109,9 +109,12 @@ export default function BudgetVersions() {
             </label>
             <label className="block text-xs text-gray-600">
               Effective from *
-              <TinySelect className="w-full mt-1" value={form.effective_from} onChange={(e) => setForm({ ...form, effective_from: e.target.value })}>
-                {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-              </TinySelect>
+              <PeriodMonthSelect
+                className="mt-1 gap-1"
+                selectClassName="w-full h-8 px-2 text-xs border border-gray-300 rounded-lg bg-white"
+                value={form.effective_from}
+                onChange={(v) => setForm({ ...form, effective_from: v })}
+              />
             </label>
             <label className="block text-xs text-gray-600">
               Note

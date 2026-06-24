@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useFinance } from "./contexts/FinanceContext";
-import { PageHeader, SectionCard, TinyInput, TinySelect, LoadingState, ErrorState } from "./components/FinanceUi";
+import { PageHeader, SectionCard, TinyInput, TinySelect, PeriodMonthSelect, LoadingState, ErrorState } from "./components/FinanceUi";
 import { savePeriodEntry } from "../../services/financeApi";
 import { inr } from "./lib/formatters";
 import { currentPeriodKey } from "./lib/periods";
 import { displayStructure } from "./lib/calculations";
 
 export default function ExpenseEntries() {
-  const { data, loading, error, refresh, permissions, months } = useFinance();
+  const { data, loading, error, refresh, permissions } = useFinance();
   const [searchParams, setSearchParams] = useSearchParams();
   const [siteId, setSiteId] = useState(searchParams.get("siteId") || "");
   const [periodKey, setPeriodKey] = useState(searchParams.get("period") || currentPeriodKey());
@@ -78,9 +78,12 @@ export default function ExpenseEntries() {
               </label>
               <label className="text-xs text-gray-600">
                 Period
-                <TinySelect className="mt-1 block min-w-[120px]" value={periodKey} onChange={(e) => setPeriodKey(e.target.value)}>
-                  {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                </TinySelect>
+                <PeriodMonthSelect
+                  className="mt-1 gap-1"
+                  selectClassName="min-w-[72px] h-8 px-2 text-xs border border-gray-300 rounded-lg bg-white"
+                  value={periodKey}
+                  onChange={setPeriodKey}
+                />
               </label>
               <div className="ml-auto text-sm font-mono self-end pb-1">
                 Total expenses: <strong>{inr(total)}</strong>

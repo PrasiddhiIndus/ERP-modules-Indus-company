@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   LabelList,
   Legend,
   Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
+  Sector,
   Tooltip,
   XAxis,
   YAxis,
@@ -27,10 +29,12 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { DateInput } from '../../../components/DateInput';
 import { flattenEnquiryRow, getEnquiryFieldValue, projectsTable } from '../../../services/projectsApi';
-import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
+import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { getRowStatusValue, STATUS_LEGEND } from './enquiryStatusStyles';
 import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
+import './enquiryDashboard.css';
 
 const STATUS_CHART_COLORS = {
   'Not Started': '#fbbf24',
@@ -64,6 +68,39 @@ const selectCls =
   'w-full min-h-[38px] py-2 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
 
 const labelStyle = { fontSize: 11, fontWeight: 600, fill: '#374151' };
+
+const CHART_ANIM = {
+  isAnimationActive: true,
+  animationDuration: 1400,
+  animationEasing: 'ease-out',
+};
+
+function ChartDefs() {
+  return (
+    <defs>
+      <linearGradient id="enqBarGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#60a5fa" />
+        <stop offset="100%" stopColor="#1d4ed8" />
+      </linearGradient>
+      <linearGradient id="enqLineGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.45} />
+        <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
+      </linearGradient>
+      <filter id="enqPieGlow" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="#3b82f6" floodOpacity="0.35" />
+      </filter>
+      <filter id="enqBarShadow" x="-10%" y="-10%" width="130%" height="140%">
+        <feDropShadow dx="2" dy="5" stdDeviation="4" floodColor="#1e40af" floodOpacity="0.28" />
+      </filter>
+    </defs>
+  );
+}
+
+function receiptMonthKey(dateStr) {
+  const iso = normalizeToIsoDate(dateStr);
+  if (iso) return iso.slice(0, 7);
+  return null;
+}
 
 function countBy(rows, fieldKey, emptyLabel = 'Unassigned') {
   const map = new Map();
@@ -99,34 +136,25 @@ function countByStatus(rows) {
 function countByMonth(rows) {
   const map = new Map();
   for (const row of rows) {
-    const dateStr = getEnquiryFieldValue(row, 'enquiry_receipt_date');
-    if (!dateStr) continue;
-    const match = String(dateStr).match(/^(\d{4})-(\d{2})/);
-    if (!match) continue;
-    const key = `${match[1]}-${match[2]}`;
+    const key = receiptMonthKey(getEnquiryFieldValue(row, 'enquiry_receipt_date'));
+    if (!key) continue;
     map.set(key, (map.get(key) || 0) + 1);
   }
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(-12)
-    .map(([key, count]) => {
-      const [, y, m] = key.match(/^(\d{4})-(\d{2})$/) || [];
-      const label = y && m
-        ? new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
-        : key;
-      return { name: label, count, key };
-    });
+    .map(([key, count]) => ({
+      name: formatDateDdMmYyyy(`${key}-01`),
+      count,
+      key,
+    }));
 }
 
 function toLocalDate(value) {
-  if (!value) return null;
-  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) {
-    const [, y, m, d] = match;
-    return new Date(Number(y), Number(m) - 1, Number(d));
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
+  const iso = normalizeToIsoDate(value);
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-');
+  return new Date(Number(y), Number(m) - 1, Number(d));
 }
 
 function isClosedStatus(status) {
@@ -196,14 +224,43 @@ function renderPieLabel({ value, percent }) {
   return `${value} (${Math.round(percent * 100)}%)`;
 }
 
+function renderActivePieShape(props) {
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
+  return (
+    <g filter="url(#enqPieGlow)">
+      <Sector
+        cx={cx}
+        cy={cy}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 10}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+      />
+      <Sector
+        cx={cx}
+        cy={cy}
+        innerRadius={outerRadius + 12}
+        outerRadius={outerRadius + 14}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        opacity={0.35}
+      />
+    </g>
+  );
+}
+
 function ChartCard({ title, subtitle, children, className = '' }) {
   return (
-    <div className={`bg-white rounded-xl border border-gray-200 shadow-sm ${className}`}>
+    <div className={`enquiry-chart-card bg-white rounded-xl border border-gray-200 ${className}`}>
       <div className="px-4 py-3 border-b border-gray-100">
         <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
         {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-4 enquiry-chart-stage">
+        <div className="enquiry-chart-3d">{children}</div>
+      </div>
     </div>
   );
 }
@@ -218,11 +275,11 @@ function KpiCard({ icon: Icon, label, value, sub, tone = 'blue' }) {
     slate: 'bg-slate-50 text-slate-700 border-slate-100',
   };
   return (
-    <div className={`rounded-xl border p-4 ${tones[tone] || tones.blue}`}>
+    <div className={`enquiry-kpi-3d rounded-xl border p-4 ${tones[tone] || tones.blue}`}>
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide opacity-80">{label}</p>
-          <p className="text-2xl font-bold tabular-nums mt-1">{value}</p>
+          <p className="text-2xl font-bold tabular-nums mt-1 enquiry-kpi-value-pop">{value}</p>
           {sub && <p className="text-xs mt-1 opacity-75">{sub}</p>}
         </div>
         <div className="p-2 rounded-lg bg-white/70">
@@ -254,6 +311,8 @@ export default function EnquiryDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [activeStatusPie, setActiveStatusPie] = useState(null);
+  const [activePriorityPie, setActivePriorityPie] = useState(null);
 
   const statusOptions = valuesForKindKey('current_status');
   const assigneeOptions = valuesForKindKey('assigned_to_person');
@@ -379,7 +438,7 @@ export default function EnquiryDashboard() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="enquiry-analytics p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -448,20 +507,20 @@ export default function EnquiryDashboard() {
           </label>
           <label className="block">
             <span className="text-xs font-medium text-gray-600 mb-1 block">Receipt from</span>
-            <input
-              type="date"
+            <DateInput
               value={filters.dateFrom}
-              onChange={(e) => setFilter('dateFrom', e.target.value)}
+              onChange={(v) => setFilter('dateFrom', v)}
               className={selectCls}
+              placeholder="dd-mm-yyyy"
             />
           </label>
           <label className="block">
             <span className="text-xs font-medium text-gray-600 mb-1 block">Receipt to</span>
-            <input
-              type="date"
+            <DateInput
               value={filters.dateTo}
-              onChange={(e) => setFilter('dateTo', e.target.value)}
+              onChange={(v) => setFilter('dateTo', v)}
               className={selectCls}
+              placeholder="dd-mm-yyyy"
             />
           </label>
           <label className="block">
@@ -522,20 +581,32 @@ export default function EnquiryDashboard() {
           {statusData.length ? (
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
+                <ChartDefs />
                 <Pie
                   data={statusData}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  innerRadius={50}
-                  outerRadius={88}
-                  paddingAngle={2}
+                  innerRadius={52}
+                  outerRadius={90}
+                  paddingAngle={3}
                   label={renderPieLabel}
                   labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                  activeIndex={activeStatusPie}
+                  activeShape={renderActivePieShape}
+                  onMouseEnter={(_, i) => setActiveStatusPie(i)}
+                  onMouseLeave={() => setActiveStatusPie(null)}
+                  {...CHART_ANIM}
                 >
-                  {statusData.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
+                  {statusData.map((entry, i) => (
+                    <Cell
+                      key={entry.name}
+                      fill={entry.fill}
+                      stroke="#fff"
+                      strokeWidth={2}
+                      style={{ filter: 'url(#enqBarShadow)', animationDelay: `${i * 80}ms` }}
+                    />
                   ))}
                 </Pie>
                 <Tooltip content={<ChartTooltip total={statusTotal} />} />
@@ -551,13 +622,18 @@ export default function EnquiryDashboard() {
           {assigneeData.length ? (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={assigneeData} layout="vertical" margin={{ left: 8, right: 28 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <ChartDefs />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
                 <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
-                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="value" radius={[0, 6, 6, 0]} {...CHART_ANIM}>
                   {assigneeData.map((_, i) => (
-                    <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} />
+                    <Cell
+                      key={i}
+                      fill={CHART_PALETTE[i % CHART_PALETTE.length]}
+                      style={{ filter: 'url(#enqBarShadow)' }}
+                    />
                   ))}
                   <LabelList dataKey="value" position="right" style={labelStyle} />
                 </Bar>
@@ -572,19 +648,31 @@ export default function EnquiryDashboard() {
           {priorityData.length ? (
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
+                <ChartDefs />
                 <Pie
                   data={priorityData}
                   dataKey="value"
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  outerRadius={88}
-                  paddingAngle={2}
+                  outerRadius={92}
+                  paddingAngle={3}
                   label={renderPieLabel}
                   labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                  activeIndex={activePriorityPie}
+                  activeShape={renderActivePieShape}
+                  onMouseEnter={(_, i) => setActivePriorityPie(i)}
+                  onMouseLeave={() => setActivePriorityPie(null)}
+                  {...CHART_ANIM}
                 >
-                  {priorityData.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
+                  {priorityData.map((entry, i) => (
+                    <Cell
+                      key={entry.name}
+                      fill={entry.fill}
+                      stroke="#fff"
+                      strokeWidth={2}
+                      style={{ filter: 'url(#enqBarShadow)', animationDelay: `${i * 90}ms` }}
+                    />
                   ))}
                 </Pie>
                 <Tooltip content={<ChartTooltip total={priorityTotal} />} />
@@ -600,7 +688,8 @@ export default function EnquiryDashboard() {
           {sourceData.length ? (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={sourceData.slice(0, 10)} margin={{ bottom: 48, top: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <ChartDefs />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                 <XAxis
                   dataKey="name"
                   tick={{ fontSize: 10 }}
@@ -611,7 +700,7 @@ export default function EnquiryDashboard() {
                 />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
-                <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]}>
+                <Bar dataKey="value" fill="url(#enqBarGrad)" radius={[6, 6, 0, 0]} style={{ filter: 'url(#enqBarShadow)' }} {...CHART_ANIM}>
                   <LabelList dataKey="value" position="top" style={labelStyle} />
                 </Bar>
               </BarChart>
@@ -626,9 +715,10 @@ export default function EnquiryDashboard() {
         <ChartCard title="Enquiries Over Time" subtitle="Monthly count by enquiry receipt date (filtered, last 12 months)">
           {trendData.length ? (
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={trendData} margin={{ top: 20, right: 12 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <ComposedChart data={trendData} margin={{ top: 20, right: 12 }}>
+                <ChartDefs />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                 <Tooltip
                   content={({ active, payload }) => {
@@ -641,10 +731,25 @@ export default function EnquiryDashboard() {
                     );
                   }}
                 />
-                <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} dot={{ r: 4 }}>
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  fill="url(#enqLineGrad)"
+                  stroke="none"
+                  {...CHART_ANIM}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="count"
+                  stroke="#2563eb"
+                  strokeWidth={3}
+                  dot={{ r: 5, strokeWidth: 2, fill: '#fff' }}
+                  activeDot={{ r: 8, strokeWidth: 0, fill: '#1d4ed8' }}
+                  {...CHART_ANIM}
+                >
                   <LabelList dataKey="count" position="top" offset={8} style={labelStyle} />
                 </Line>
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           ) : (
             <p className="text-sm text-gray-500 py-16 text-center">No receipt dates in the filtered set.</p>

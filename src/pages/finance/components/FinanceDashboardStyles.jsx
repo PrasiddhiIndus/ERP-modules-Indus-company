@@ -12,6 +12,7 @@ export default function FinanceDashboardStyles() {
     .fin-filters{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
     .fin-filters label{display:flex;flex-direction:column;gap:3px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;}
     .fin-filters select{font-family:var(--body);font-size:13px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font-weight:600;cursor:pointer;}
+    .period-month-select{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
     .fin-seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
     .fin-seg button{background:var(--surface);border:none;border-right:1px solid var(--line);padding:7px 13px;font-family:var(--body);font-size:12.5px;cursor:pointer;color:var(--ink-soft);}
     .fin-seg button:last-child{border-right:none;}

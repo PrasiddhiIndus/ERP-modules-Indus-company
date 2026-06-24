@@ -34,6 +34,8 @@ export const REVENUE_ITEMS = [
   { key: "creditNote", label: "less: Credit Note / deductions", sign: -1 },
 ];
 
+export const REIMBURSEMENT_OTHER_KEY = "other";
+
 export const REIMBURSEMENT_TYPES = [
   { key: "pf", label: "PF" },
   { key: "esic", label: "ESIC" },
@@ -42,15 +44,61 @@ export const REIMBURSEMENT_TYPES = [
   { key: "gratuity", label: "Gratuity" },
   { key: "bonus", label: "Bonus" },
   { key: "arrears", label: "Arrears" },
+  { key: REIMBURSEMENT_OTHER_KEY, label: "Other" },
 ];
 
 export function reimbursementLabel(typeKey) {
   return REIMBURSEMENT_TYPES.find((t) => t.key === typeKey)?.label || "";
 }
 
+export function newReimbursementId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `r_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Normalize legacy single-type + amount into multi-item array. */
+export function normalizeReimbursementsFromRecord(rec) {
+  if (Array.isArray(rec?.reimbursements) && rec.reimbursements.length) {
+    return rec.reimbursements.map((it) => ({
+      id: it.id || newReimbursementId(),
+      type: it.type || "",
+      amount: Number(it.amount) || 0,
+      ...(it.type === REIMBURSEMENT_OTHER_KEY ? { label: String(it.label ?? "").trim() } : {}),
+    }));
+  }
+  if (rec?.reimbursementType && Number(rec.esicBill)) {
+    const item = {
+      id: newReimbursementId(),
+      type: rec.reimbursementType,
+      amount: Number(rec.esicBill),
+    };
+    if (rec.reimbursementType === REIMBURSEMENT_OTHER_KEY && rec.reimbursementOtherLabel) {
+      item.label = String(rec.reimbursementOtherLabel);
+    }
+    return [item];
+  }
+  return [];
+}
+
+export function reimbursementTotal(rec) {
+  return normalizeReimbursementsFromRecord(rec).reduce((s, it) => s + (Number(it.amount) || 0), 0);
+}
+
+export function reimbursementDisplayLines(rec) {
+  return normalizeReimbursementsFromRecord(rec).map((it) => ({
+    label:
+      it.type === REIMBURSEMENT_OTHER_KEY
+        ? (it.label || "Other").trim() || "Other"
+        : reimbursementLabel(it.type) || it.type,
+    amount: Number(it.amount) || 0,
+  }));
+}
+
 export function reimbursementRowLabel(rec) {
-  const type = rec?.reimbursementType;
-  return type ? `Reimbursement · ${reimbursementLabel(type)}` : "Reimbursement";
+  const lines = reimbursementDisplayLines(rec);
+  if (!lines.length) return "Reimbursement";
+  if (lines.length === 1) return `Reimbursement · ${lines[0].label}`;
+  return `Reimbursement · ${lines.length} items`;
 }
 
 function parsePeriodMeta(notes) {
@@ -266,7 +314,11 @@ function buildRecords(raw, childById, revById) {
         if (code) records[key][code] = Number(l.amount);
       });
     const meta = parsePeriodMeta(pe.notes);
-    if (meta.reimbursementType) records[key].reimbursementType = meta.reimbursementType;
+    if (Array.isArray(meta.reimbursements) && meta.reimbursements.length) {
+      records[key].reimbursements = meta.reimbursements;
+    } else if (meta.reimbursementType) {
+      records[key].reimbursementType = meta.reimbursementType;
+    }
   });
   return records;
 }
@@ -533,6 +585,77 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
   return siteId;
 }
 
+function periodEntryNotesFromRecord(rec) {
+  if (Array.isArray(rec?.reimbursements) && rec.reimbursements.length) {
+    return JSON.stringify({ reimbursements: rec.reimbursements });
+  }
+  if (rec?.reimbursementType) {
+    return JSON.stringify({ reimbursementType: rec.reimbursementType });
+  }
+  return null;
+}
+
+async function syncOnePeriodRecord(siteUuid, periodKey, rec, childIdByCode, revIdByCode) {
+  const { data: pe, error } = await t("period_entries")
+    .upsert(
+      {
+        site_id: siteUuid,
+        period_key: periodKey,
+        status: "submitted",
+        notes: periodEntryNotesFromRecord(rec),
+      },
+      { onConflict: "site_id,period_key" },
+    )
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  await t("revenue_entry_lines").delete().eq("period_entry_id", pe.id);
+  await t("expense_entry_lines").delete().eq("period_entry_id", pe.id);
+
+  for (const [code, amount] of Object.entries(rec || {})) {
+    if (code === "reimbursementType" || code === "reimbursements" || code === "reimbursementOtherLabel" || typeof amount !== "number") continue;
+    if (!Number(amount)) continue;
+    if (revIdByCode[code]) {
+      await t("revenue_entry_lines").insert({
+        period_entry_id: pe.id,
+        revenue_head_id: revIdByCode[code],
+        amount: Number(amount),
+      });
+    } else if (childIdByCode[code]) {
+      await t("expense_entry_lines").insert({
+        period_entry_id: pe.id,
+        child_head_id: childIdByCode[code],
+        amount: Number(amount),
+      });
+    }
+  }
+  return pe.id;
+}
+
+/** Latest pending payload per site/month — coalesces rapid autosaves into one DB write. */
+const pendingPeriodRecords = new Map();
+
+/** Fast path — persist one site/month entry (revenue, reimbursements, expenses) without full ledger sync. */
+export async function savePeriodRecord(siteCode, periodKey, rec) {
+  const compoundKey = `${siteCode}__${periodKey}`;
+  pendingPeriodRecords.set(compoundKey, rec);
+
+  return enqueueSave(async () => {
+    const latest = pendingPeriodRecords.get(compoundKey);
+    pendingPeriodRecords.delete(compoundKey);
+    if (!latest) return true;
+
+    const siteUuid = await getSiteUuidByCode(siteCode);
+    if (!siteUuid) throw new Error(`Site "${siteCode}" not found`);
+    const revIdByCode = await upsertRevenueHeads();
+    const { childIdByCode } = await loadHeadIdMaps();
+    await syncOnePeriodRecord(siteUuid, periodKey, latest, childIdByCode, revIdByCode);
+    invalidateFinanceCache();
+    return true;
+  });
+}
+
 async function syncRecords(records, siteIdByCode, childIdByCode, revIdByCode) {
   const existing = await t("period_entries").select("id, site_id, period_key");
   const sites = (await t("sites").select("id, code")).data || [];
@@ -552,44 +675,16 @@ async function syncRecords(records, siteIdByCode, childIdByCode, revIdByCode) {
     const [siteCode, periodKey] = compoundKey.split("__");
     const siteId = codeToId[siteCode];
     if (!siteId) continue;
-
-    const { data: pe, error } = await t("period_entries")
-      .upsert(
-        {
-          site_id: siteId,
-          period_key: periodKey,
-          status: "submitted",
-          notes: rec.reimbursementType
-            ? JSON.stringify({ reimbursementType: rec.reimbursementType })
-            : null,
-        },
-        { onConflict: "site_id,period_key" },
-      )
-      .select("id")
-      .single();
-    if (error) throw error;
-
-    await t("revenue_entry_lines").delete().eq("period_entry_id", pe.id);
-    await t("expense_entry_lines").delete().eq("period_entry_id", pe.id);
-
-    for (const [code, amount] of Object.entries(rec)) {
-      if (code === "reimbursementType" || typeof amount !== "number") continue;
-      if (!Number(amount)) continue;
-      if (revIdByCode[code]) {
-        await t("revenue_entry_lines").insert({
-          period_entry_id: pe.id,
-          revenue_head_id: revIdByCode[code],
-          amount: Number(amount),
-        });
-      } else if (childIdByCode[code]) {
-        await t("expense_entry_lines").insert({
-          period_entry_id: pe.id,
-          child_head_id: childIdByCode[code],
-          amount: Number(amount),
-        });
-      }
-    }
+    await syncOnePeriodRecord(siteId, periodKey, rec, childIdByCode, revIdByCode);
   }
+}
+
+async function saveLedgerRecordsInner({ records }) {
+  const revIdByCode = await upsertRevenueHeads();
+  const { childIdByCode } = await loadHeadIdMaps();
+  await syncRecords(records || {}, null, childIdByCode, revIdByCode);
+  invalidateFinanceCache();
+  return true;
 }
 
 async function saveLedgerStoreInner({ sites, records, library, parents, pruneSites = false, deletedSiteCodes = [] }) {
@@ -696,6 +791,9 @@ async function saveLedgerPartialInner(payload) {
   }
   if (scope === "masters") {
     return saveLedgerMastersInner(payload);
+  }
+  if (scope === "records") {
+    return saveLedgerRecordsInner(payload);
   }
   return saveLedgerStoreInner(payload);
 }
