@@ -2,6 +2,8 @@ import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, isFleetCategoryAll } from './fleetLoadUtils';
+import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
+import FleetAttachmentUploader from './FleetAttachmentUploader';
 import { 
   Car, 
   Plus, 
@@ -72,7 +74,8 @@ const createEmptyVehicleForm = (vehicleCategory) => ({
   current_odometer_reading: '',
   last_service_date: '',
   next_service_due: '',
-  remarks: ''
+  remarks: '',
+  r2_attachment_keys: []
 });
 
 const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
@@ -87,6 +90,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
   const [typeFilter, setTypeFilter] = useState('All');
 
   const [formData, setFormData] = useState(() => createEmptyVehicleForm(vehicleCategory));
+  const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
 
   const vehicleTypeByCategory = {
     'in-house': ['SUV', 'Car', 'Bike', 'Utility Vehicle', 'Other'],
@@ -171,6 +175,11 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
       alert('Please choose a valid month and year for Month and year of manufacture.');
       return;
     }
+    const maxFiles = 10;
+    if ((formData.r2_attachment_keys || []).length + pendingAttachmentFiles.length > maxFiles) {
+      alert(`Too many attachments (max ${maxFiles}).`);
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -227,20 +236,39 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
         user_id: user.id
       };
 
+      let r2Keys = [...(formData.r2_attachment_keys || [])];
+
       if (editingVehicle) {
+        const segment = buildFleetUploadSegment(`vehicle-${editingVehicle.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_master')
-          .update(vehicleData)
+          .update({ ...vehicleData, r2_attachment_keys: r2Keys })
           .eq('id', editingVehicle.id);
 
         if (error) throw error;
         alert('Vehicle updated successfully!');
       } else {
-        const { error } = await supabase
+        const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_master')
-          .insert([vehicleData]);
+          .insert([{ ...vehicleData, r2_attachment_keys: [] }])
+          .select('id')
+          .single();
 
-        if (error) throw error;
+        if (insertError) throw insertError;
+        const segment = buildFleetUploadSegment(`vehicle-${row.id}`);
+        for (const file of pendingAttachmentFiles) {
+          r2Keys.push(await uploadFleetFileToR2({ file, scope: 'documents', segment }));
+        }
+        if (r2Keys.length) {
+          const { error: upErr } = await supabase
+            .from('operations_fire_tender_vehicle_master')
+            .update({ r2_attachment_keys: r2Keys })
+            .eq('id', row.id);
+          if (upErr) throw upErr;
+        }
         alert('Vehicle added successfully!');
       }
 
@@ -254,6 +282,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
 
   const handleEdit = (vehicle) => {
     setEditingVehicle(vehicle);
+    setPendingAttachmentFiles([]);
     setFormData({
       vehicle_category: vehicle.vehicle_category || (fireTenderTypes.includes(vehicle.vehicle_type) ? 'fire-tender' : 'in-house'),
       vehicle_name: vehicle.vehicle_name || '',
@@ -291,7 +320,8 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
       current_odometer_reading: vehicle.current_odometer_reading || '',
       last_service_date: vehicle.last_service_date || '',
       next_service_due: vehicle.next_service_due || '',
-      remarks: vehicle.remarks || ''
+      remarks: vehicle.remarks || '',
+      r2_attachment_keys: parseFleetAttachmentKeys(vehicle, null)
     });
     setShowForm(true);
   };
@@ -315,9 +345,19 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
   };
 
   const resetForm = () => {
+    setPendingAttachmentFiles([]);
     setFormData(createEmptyVehicleForm(vehicleCategory));
     setEditingVehicle(null);
     setShowForm(false);
+  };
+
+  const openVehicleAttachment = async (objectKey) => {
+    try {
+      const url = await presignFleetR2Get(objectKey);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      alert(err?.message || 'Could not open file.');
+    }
   };
 
   const getStatusColor = (status) => {
@@ -492,9 +532,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                         value={formData.chassis_number}
                         onChange={(e) => setFormData({...formData, chassis_number: e.target.value.toUpperCase()})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        minLength={17}
-                        maxLength={17}
-                        placeholder="17-character VIN"
+                        placeholder="As per vehicle documentation"
                       />
                     </div>
                   )}
@@ -777,9 +815,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                         value={formData.chassis_number}
                         onChange={(e) => setFormData({...formData, chassis_number: e.target.value.toUpperCase()})}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        minLength={17}
-                        maxLength={17}
-                        placeholder="17-character VIN"
+                        placeholder="As per vehicle documentation"
                       />
                     </div>
 
@@ -861,6 +897,26 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                   </div>
                 </div>
               )}
+
+              <div className="border-t border-gray-200 pt-4">
+                <FleetAttachmentUploader
+                  label="Supporting documents"
+                  savedKeys={formData.r2_attachment_keys || []}
+                  onRemoveSavedKey={(key) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      r2_attachment_keys: (prev.r2_attachment_keys || []).filter((k) => k !== key),
+                    }))
+                  }
+                  pendingFiles={pendingAttachmentFiles}
+                  onPendingAdd={(files) => setPendingAttachmentFiles((prev) => [...prev, ...files])}
+                  onRemovePending={(idx) =>
+                    setPendingAttachmentFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  multiple
+                  maxTotal={10}
+                />
+              </div>
 
               <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
                 <button
@@ -961,10 +1017,22 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                     {vehicle.next_service_due ? formatDateDdMmYyyy(vehicle.next_service_due) : '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {parseFleetAttachmentKeys(vehicle, null).map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => openVehicleAttachment(key)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="View attachment"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      ))}
                       <button
                         onClick={() => handleEdit(vehicle)}
                         className="text-blue-600 hover:text-blue-900"
+                        title="Edit vehicle"
                       >
                         <Edit className="h-4 w-4" />
                       </button>
