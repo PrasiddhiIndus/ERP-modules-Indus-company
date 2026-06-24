@@ -450,24 +450,33 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
         prevIds.forEach((id) => {
           if (id && !nextIds.has(id)) removedIds.push(id);
         });
+        const stampedSlice = scoped
+          ? (nextSlice || []).map((po) => ({
+              ...po,
+              moduleType: scoped,
+              updateHistory: withCommercialModuleMarker(po.updateHistory, scoped),
+            }))
+          : nextSlice || [];
         let next;
         if (!scoped) {
-          next = nextSlice;
+          next = stampedSlice;
         } else {
           const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== scoped);
-          const stamped = (nextSlice || []).map((po) => ({
-            ...po,
-            moduleType: scoped,
-            updateHistory: withCommercialModuleMarker(po.updateHistory, scoped),
-          }));
-          next = [...others, ...stamped];
+          next = [...others, ...stampedSlice];
         }
         setBillingError(null);
+        billingRefreshSkipUntilRef.current = Date.now() + 1200;
         Promise.resolve()
           .then(async () => {
             // Persist deletes first so removed rows don't reappear after realtime refresh.
             if (removedIds.length) await deleteCommercialPOsDb(removedIds);
-            await saveCommercialPOsDb(next, { moduleContext: toModuleContext(scoped) });
+            // Only upsert POs in the active commercial scope — never re-save other modules' rows.
+            if (stampedSlice.length) {
+              await saveCommercialPOsDb(
+                stampedSlice,
+                scoped ? { moduleContext: toModuleContext(scoped) } : {}
+              );
+            }
             await loadFromDb();
           })
           .then(() => setUseDb(true))
