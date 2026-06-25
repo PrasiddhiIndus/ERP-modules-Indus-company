@@ -1,7 +1,8 @@
-import { FORMULA_GROUPS, INITIAL_PACKAGES } from './formulaLibraryData';
+import { FORMULA_GROUPS, FORMULA_GROUPS_VERSION, INITIAL_PACKAGES } from './formulaLibraryData';
 
 const STORAGE_KEY = 'hr-salary-formula-packages';
 const GROUPS_STORAGE_KEY = 'hr-salary-formula-groups';
+const GROUPS_VERSION_KEY = 'hr-salary-formula-groups-version';
 
 function clonePackages(list) {
   return list.map((p) => ({
@@ -51,6 +52,13 @@ export function defaultFormulaGroups() {
 
 export function loadFormulaGroups() {
   try {
+    const storedVersion = Number(localStorage.getItem(GROUPS_VERSION_KEY));
+    if (storedVersion !== FORMULA_GROUPS_VERSION) {
+      localStorage.setItem(GROUPS_VERSION_KEY, String(FORMULA_GROUPS_VERSION));
+      const defaults = defaultFormulaGroups();
+      saveFormulaGroups(defaults);
+      return defaults;
+    }
     const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
     const list = raw ? JSON.parse(raw) : null;
     if (!Array.isArray(list) || !list.length) return defaultFormulaGroups();

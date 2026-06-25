@@ -14,9 +14,11 @@ const SUB_TABS = [
 
 function AllFormulasView({ groups, setGroups }) {
   const [editingKey, setEditingKey] = useState(null);
-  const [editValue, setEditValue] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editExpression, setEditExpression] = useState('');
   const [addingToGroup, setAddingToGroup] = useState(null);
   const [newItemName, setNewItemName] = useState('');
+  const [newItemExpression, setNewItemExpression] = useState('');
   const [addError, setAddError] = useState('');
 
   const persistGroups = (next) => {
@@ -27,12 +29,14 @@ function AllFormulasView({ groups, setGroups }) {
   const startEdit = (groupKey, item) => {
     cancelAdd();
     setEditingKey(`${groupKey}:${item.id}`);
-    setEditValue(item.name);
+    setEditName(item.name);
+    setEditExpression(item.expression || '');
   };
 
   const cancelEdit = () => {
     setEditingKey(null);
-    setEditValue('');
+    setEditName('');
+    setEditExpression('');
   };
 
   const startAdd = (groupKey) => {
@@ -45,20 +49,27 @@ function AllFormulasView({ groups, setGroups }) {
   const cancelAdd = () => {
     setAddingToGroup(null);
     setNewItemName('');
+    setNewItemExpression('');
     setAddError('');
   };
 
   const commitEdit = (groupKey, itemId) => {
-    const name = editValue.trim();
+    const name = editName.trim();
     if (!name) {
       cancelEdit();
       return;
     }
+    const expression = editExpression.trim();
     persistGroups(
       groups.map((g) =>
         g.key !== groupKey
           ? g
-          : { ...g, items: g.items.map((i) => (i.id === itemId ? { ...i, name } : i)) }
+          : {
+              ...g,
+              items: g.items.map((i) =>
+                i.id === itemId ? { ...i, name, expression: expression || i.expression || '' } : i
+              ),
+            }
       )
     );
     cancelEdit();
@@ -66,20 +77,20 @@ function AllFormulasView({ groups, setGroups }) {
 
   const commitAdd = (groupKey) => {
     const name = newItemName.trim();
+    const expression = newItemExpression.trim();
     if (!name) {
-      setAddError('Enter a formula name.');
+      setAddError('Enter a component name.');
       return;
     }
-    const group = groups.find((g) => g.key === groupKey);
-    if (group?.items.some((i) => i.name.toLowerCase() === name.toLowerCase())) {
-      setAddError('That formula name already exists in this group.');
+    if (!expression) {
+      setAddError('Enter a formula expression.');
       return;
     }
     persistGroups(
       groups.map((g) =>
         g.key !== groupKey
           ? g
-          : { ...g, items: [...g.items, { id: newFormulaItemId(), name }] }
+          : { ...g, items: [...g.items, { id: newFormulaItemId(), name, expression }] }
       )
     );
     cancelAdd();
@@ -95,13 +106,13 @@ function AllFormulasView({ groups, setGroups }) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 items-stretch">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
       {groups.map((group) => {
         const isAdding = addingToGroup === group.key;
         return (
           <section
             key={group.key}
-            className="flex flex-col h-full rounded-[13px] border border-gray-200 bg-white p-3 min-h-[140px]"
+            className="flex flex-col rounded-[13px] border border-gray-200 bg-white p-3.5 min-h-[140px]"
           >
             <div
               className="flex items-center gap-2 pb-2.5 mb-2.5 border-b-2"
@@ -129,33 +140,54 @@ function AllFormulasView({ groups, setGroups }) {
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="flex flex-col gap-1.5 flex-1">
+            <div className="flex flex-col gap-1.5 flex-1 max-h-[min(70vh,720px)] overflow-y-auto pr-0.5">
               {group.items.length === 0 && !isAdding ? (
                 <p className="text-[11px] text-gray-400 text-center py-4">No formulas yet. Click + to add.</p>
               ) : (
-                group.items.map((item) => {
+                group.items.map((item, index) => {
                   const itemKey = `${group.key}:${item.id}`;
                   const isEditing = editingKey === itemKey;
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center gap-2 rounded-[9px] border border-gray-200 bg-gray-50/80 px-2.5 py-[7px]"
+                      className="flex items-start gap-2 rounded-[9px] border border-gray-200 bg-gray-50/80 px-2.5 py-2"
                     >
+                      <span className="w-5 shrink-0 pt-0.5 text-[10px] font-semibold text-gray-400 tabular-nums text-right">
+                        {index + 1}
+                      </span>
                       {isEditing ? (
-                        <input
-                          type="text"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitEdit(group.key, item.id);
-                            if (e.key === 'Escape') cancelEdit();
-                          }}
-                          onBlur={() => commitEdit(group.key, item.id)}
-                          autoFocus
-                          className="flex-1 min-w-0 h-7 rounded-md border border-[#1F3A8A]/30 px-2 text-[12.5px] text-gray-900 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none"
-                        />
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitEdit(group.key, item.id);
+                              if (e.key === 'Escape') cancelEdit();
+                            }}
+                            placeholder="Component name"
+                            autoFocus
+                            className="w-full h-7 rounded-md border border-[#1F3A8A]/30 px-2 text-[12.5px] text-gray-900 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white"
+                          />
+                          <input
+                            type="text"
+                            value={editExpression}
+                            onChange={(e) => setEditExpression(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitEdit(group.key, item.id);
+                              if (e.key === 'Escape') cancelEdit();
+                            }}
+                            placeholder="Formula expression"
+                            className="w-full h-7 rounded-md border border-[#1F3A8A]/30 px-2 text-[11.5px] text-gray-700 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white font-mono"
+                          />
+                        </div>
                       ) : (
-                        <span className="flex-1 min-w-0 text-[12.5px] text-gray-900 leading-snug">{item.name}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12.5px] font-semibold text-gray-900 leading-snug">{item.name}</p>
+                          {item.expression ? (
+                            <p className="mt-0.5 text-[11px] text-gray-600 leading-snug font-mono">{item.expression}</p>
+                          ) : null}
+                        </div>
                       )}
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button
@@ -194,16 +226,30 @@ function AllFormulasView({ groups, setGroups }) {
                       if (e.key === 'Enter') commitAdd(group.key);
                       if (e.key === 'Escape') cancelAdd();
                     }}
-                    placeholder="Formula name"
+                    placeholder="Component name"
                     autoFocus
                     className="w-full h-8 rounded-md border border-gray-200 px-2 text-[12.5px] text-gray-900 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white"
+                  />
+                  <input
+                    type="text"
+                    value={newItemExpression}
+                    onChange={(e) => {
+                      setNewItemExpression(e.target.value);
+                      setAddError('');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitAdd(group.key);
+                      if (e.key === 'Escape') cancelAdd();
+                    }}
+                    placeholder="Formula expression"
+                    className="w-full h-8 rounded-md border border-gray-200 px-2 text-[11.5px] text-gray-700 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white font-mono"
                   />
                   {addError ? <p className="text-[10px] text-red-600">{addError}</p> : null}
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => commitAdd(group.key)}
-                      disabled={!newItemName.trim()}
+                      disabled={!newItemName.trim() || !newItemExpression.trim()}
                       className="h-7 px-2.5 rounded-md bg-[#1F3A8A] text-white text-[11px] font-medium disabled:opacity-50"
                     >
                       Add
