@@ -66,7 +66,7 @@ function docTitleForKind(kind) {
  * Static HTML invoice preview — shared by Create Invoice and Manage Invoices.
  * Field order and layout mirror buildTaxInvoiceDoc in taxInvoicePdf.js.
  */
-export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true, hideQtyRateColumns = false, hideBillingMonth = false }) {
+export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true, hideQtyRateColumns = false }) {
   if (!inv) return null;
 
   const viewInv = enrichInvoiceWithPo(inv, po);
@@ -130,7 +130,6 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
   const msmeText = `MSME Udyam : ${msmeClause ? msmeClause : ''}`;
   const udhyamLine = `Udhyam Registration No. : ${udhyamNo}`;
 
-  const billMonth = viewInv.billingMonth || viewInv.billing_month || '–';
   const durFrom = viewInv.billingDurationFrom || viewInv.billing_duration_from;
   const durTo = viewInv.billingDurationTo || viewInv.billing_duration_to;
   const billingDur =
@@ -200,12 +199,9 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
     ? resolveHsnSacAboveLineItems(viewInv, po)
     : null;
 
-  const billingMonthRow = hideBillingMonth ? [] : [['Billing Month', billMonth]];
-
   if (isManpowerInvoice) {
     metaRowsLeft = [
       ['Invoice No.', invoiceNo],
-      ...billingMonthRow,
       ['PO Number', poNumberDisp],
       ['PO Date', poDateDisp],
     ];
@@ -218,7 +214,6 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
   } else {
     metaRowsLeft = [
       ['Invoice No.', invoiceNo],
-      ...billingMonthRow,
       ['PO Number', poNumberDisp],
       ['PO Date', poDateDisp],
       ['Delivery Note', deliveryNote],
