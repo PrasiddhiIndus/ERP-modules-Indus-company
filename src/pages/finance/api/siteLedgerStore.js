@@ -24,6 +24,8 @@ export function serializeSiteMeta(site) {
   const meta = {
     siteGroup: site.siteGroup || site.id,
     version: site.version || 1,
+    ocNumber: site.ocNumber ? String(site.ocNumber).trim() : "",
+    ocDate: site.ocDate ? String(site.ocDate).trim() : "",
   };
   return `${SITE_META_PREFIX}${JSON.stringify(meta)}`;
 }
@@ -281,6 +283,8 @@ function buildSites(raw, parentById, childById) {
       name: s.name,
       service: s.service_type || "",
       wo: s.work_order_no || "",
+      ocNumber: meta.ocNumber || "",
+      ocDate: meta.ocDate || "",
       contractStart: s.contract_start_period || periodFromDate(s.contract_start),
       contractEnd: s.contract_end_period || periodFromDate(s.contract_end),
       status: s.status || "active",
@@ -318,6 +322,9 @@ function buildRecords(raw, childById, revById) {
       records[key].reimbursements = meta.reimbursements;
     } else if (meta.reimbursementType) {
       records[key].reimbursementType = meta.reimbursementType;
+    }
+    if (meta.creditNoteRemark) {
+      records[key].creditNoteRemark = String(meta.creditNoteRemark);
     }
   });
   return records;
@@ -586,13 +593,15 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
 }
 
 function periodEntryNotesFromRecord(rec) {
+  const meta = {};
   if (Array.isArray(rec?.reimbursements) && rec.reimbursements.length) {
-    return JSON.stringify({ reimbursements: rec.reimbursements });
+    meta.reimbursements = rec.reimbursements;
+  } else if (rec?.reimbursementType) {
+    meta.reimbursementType = rec.reimbursementType;
   }
-  if (rec?.reimbursementType) {
-    return JSON.stringify({ reimbursementType: rec.reimbursementType });
-  }
-  return null;
+  const remark = rec?.creditNoteRemark != null ? String(rec.creditNoteRemark).trim() : "";
+  if (remark) meta.creditNoteRemark = remark;
+  return Object.keys(meta).length ? JSON.stringify(meta) : null;
 }
 
 async function syncOnePeriodRecord(siteUuid, periodKey, rec, childIdByCode, revIdByCode) {
@@ -614,7 +623,15 @@ async function syncOnePeriodRecord(siteUuid, periodKey, rec, childIdByCode, revI
   await t("expense_entry_lines").delete().eq("period_entry_id", pe.id);
 
   for (const [code, amount] of Object.entries(rec || {})) {
-    if (code === "reimbursementType" || code === "reimbursements" || code === "reimbursementOtherLabel" || typeof amount !== "number") continue;
+    if (
+      code === "reimbursementType" ||
+      code === "reimbursements" ||
+      code === "reimbursementOtherLabel" ||
+      code === "creditNoteRemark" ||
+      typeof amount !== "number"
+    ) {
+      continue;
+    }
     if (!Number(amount)) continue;
     if (revIdByCode[code]) {
       await t("revenue_entry_lines").insert({

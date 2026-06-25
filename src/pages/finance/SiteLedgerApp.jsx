@@ -221,12 +221,18 @@ function compactStructure(structure) {
 const siteChildKeys = (site) => (site.structure || []).flatMap((g) => g.children);
 
 /* ───────────────────────── CALC (child-level + amortization) ───────────────────────── */
+function parseEntryAmount(v) {
+  if (v === undefined || v === null || v === "") return 0;
+  const n = Number(String(v).replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
 function recognizedExpenses(site, mk, records, directOverride) {
   const rec = directOverride || records[`${site.id}__${mk}`] || {};
   const keys = new Set(siteChildKeys(site));
   (site.spreads || []).forEach((s) => keys.add(s.head));
   const direct = {}, amort = {}, total = {};
-  keys.forEach((k) => { direct[k] = Number(rec[k]) || 0; amort[k] = 0; });
+  keys.forEach((k) => { direct[k] = parseEntryAmount(rec[k]); amort[k] = 0; });
   (site.spreads || []).forEach((sp) => {
     const si = monthIdx(sp.start), ci = monthIdx(mk), m = Number(sp.months) || 0;
     if (si >= 0 && m > 0 && ci >= si && ci < si + m) amort[sp.head] = (amort[sp.head] || 0) + Number(sp.total) / m;
@@ -238,7 +244,7 @@ function calcSite(site, mk, records, directOverride) {
   const rec = directOverride || records[`${site.id}__${mk}`] || {};
   const revenue = REVENUE_ITEMS.reduce((s, it) => {
     if (it.key === "esicBill") return s + it.sign * reimbursementTotal(rec);
-    return s + it.sign * (Number(rec[it.key]) || 0);
+    return s + it.sign * parseEntryAmount(rec[it.key]);
   }, 0);
   const ex = recognizedExpenses(site, mk, records, directOverride);
   const expense = Object.values(ex.total).reduce((a, b) => a + b, 0);
@@ -1956,7 +1962,13 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   return (
     <>
       <div className="entry-bar">
-        <div className="entry-sel"><label>Configure site</label><select value={siteId} onChange={(e) => { setSiteId(e.target.value); setActiveSite(e.target.value); }}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        <SiteSearchSelect
+          sites={sites}
+          value={siteId}
+          onChange={(id) => { setSiteId(id); setActiveSite(id); }}
+          label="Configure site"
+          id="config-site-search"
+        />
         <div className="cfg-hint"><GripVertical size={14} /> Drag cost lines between parents to reorder; double-click a parent name to rename it. Changes save automatically.</div>
         <button className="ghost-d" onClick={onAdd}><PlusCircle size={14} /> New site</button>
       </div>
@@ -2194,6 +2206,30 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
 }
 
 /* ───────────────────────── ENTRY FORM ───────────────────────── */
+function recordToFormFields(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const form = {};
+  Object.entries(raw).forEach(([k, v]) => {
+    if (k === "reimbursements" || k === "reimbursementType" || k === "reimbursementOtherLabel" || k === "esicBill") {
+      return;
+    }
+    if (k === "creditNoteRemark") {
+      form.creditNoteRemark = v != null ? String(v) : "";
+      return;
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      form[k] = String(v);
+    } else if (v != null && v !== "") {
+      form[k] = v;
+    }
+  });
+  form.reimbursements = normalizeReimbursementsFromRecord(raw).map((it) => ({
+    ...it,
+    amount: it.amount != null && it.amount !== 0 ? String(it.amount) : "",
+  }));
+  return form;
+}
+
 function entryRecordClean(form) {
   const clean = {};
   const reimbursements = (form.reimbursements || [])
@@ -2201,12 +2237,12 @@ function entryRecordClean(form) {
     .map((it) => ({
       id: it.id || newReimbursementId(),
       type: it.type,
-      amount: Number(it.amount) || 0,
+      amount: parseEntryAmount(it.amount),
       ...(it.type === REIMBURSEMENT_OTHER_KEY ? { label: String(it.label ?? "").trim() } : {}),
     }));
   if (reimbursements.length) {
     clean.reimbursements = reimbursements;
-    const total = reimbursements.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+    const total = reimbursements.reduce((s, it) => s + parseEntryAmount(it.amount), 0);
     if (total) clean.esicBill = total;
   }
   Object.entries(form).forEach(([k, v]) => {
@@ -2214,12 +2250,17 @@ function entryRecordClean(form) {
       k === "reimbursements" ||
       k === "reimbursementType" ||
       k === "reimbursementOtherLabel" ||
-      k === "esicBill"
+      k === "esicBill" ||
+      k === "creditNoteRemark"
     ) {
       return;
     }
-    if (v !== undefined && v !== null && v !== 0 && !Number.isNaN(v)) clean[k] = Number(v);
+    if (v === undefined || v === null || String(v).trim() === "") return;
+    const n = parseEntryAmount(v);
+    if (!Number.isNaN(n)) clean[k] = n;
   });
+  const remark = form.creditNoteRemark != null ? String(form.creditNoteRemark).trim() : "";
+  if (remark) clean.creditNoteRemark = remark;
   return clean;
 }
 
@@ -2234,10 +2275,100 @@ function revenueTotalRows(rec) {
         rows.push({ label: it.label, amount: 0, sign: it.sign });
       }
     } else {
-      rows.push({ label: it.label, amount: Number(rec[it.key]) || 0, sign: it.sign });
+      rows.push({ label: it.label, amount: parseEntryAmount(rec[it.key]), sign: it.sign });
     }
   });
   return rows;
+}
+
+function SiteSearchSelect({ sites, value, onChange, label = "Site", id = "site-search" }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef(null);
+  const selected = sites.find((s) => s.id === value) || null;
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sites;
+    return sites.filter((s) => {
+      const hay = [s.name, s.service, s.wo, s.ocNumber, s.id].filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }, [sites, query]);
+  useEffect(() => {
+    if (!open) setQuery(selected?.name || "");
+  }, [open, selected?.name, selected?.id]);
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+  const pick = (siteId) => {
+    onChange(siteId);
+    setOpen(false);
+    const site = sites.find((s) => s.id === siteId);
+    setQuery(site?.name || "");
+  };
+  return (
+    <div className="entry-sel site-search" ref={wrapRef}>
+      <label htmlFor={id}>{label}</label>
+      <div className="site-search-box">
+        <Search className="site-search-ico" size={14} />
+        <input
+          id={id}
+          type="text"
+          value={open ? query : (selected?.name || "")}
+          placeholder="Search site name, OC, PO…"
+          onFocus={() => {
+            setOpen(true);
+            setQuery(selected?.name || "");
+          }}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setOpen(false);
+              setQuery(selected?.name || "");
+            }
+            if (e.key === "Enter" && filtered[0]) {
+              e.preventDefault();
+              pick(filtered[0].id);
+            }
+          }}
+          autoComplete="off"
+        />
+        {open && (
+          <div className="site-search-menu" role="listbox">
+            {filtered.length === 0 ? (
+              <div className="site-search-empty">No sites match your search</div>
+            ) : (
+              filtered.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="option"
+                  aria-selected={s.id === value}
+                  className={"site-search-opt" + (s.id === value ? " on" : "")}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pick(s.id)}
+                >
+                  <span className="site-search-opt-name">{s.name}</span>
+                  {(s.ocNumber || s.wo) && (
+                    <span className="site-search-opt-meta">
+                      {[s.ocNumber, s.wo].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onPatchSite, onAdd, goConfig }) {
@@ -2245,10 +2376,9 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   const [mk, setMk] = useState(month);
   const [form, setForm] = useState({});
   const [saveUi, setSaveUi] = useState("idle");
+  const [formDirty, setFormDirty] = useState(false);
   const formRef = useRef(form);
   formRef.current = form;
-  const skipAutoSave = useRef(true);
-  const autoSaveTimer = useRef(null);
   const suppressRecordReload = useRef(false);
   const formLoadKey = useRef("");
   const persistGen = useRef(0);
@@ -2260,16 +2390,10 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       suppressRecordReload.current = false;
       return;
     }
-    const navigated = formLoadKey.current !== loadKey;
     formLoadKey.current = loadKey;
     const raw = records[loadKey];
-    if (!navigated && !raw) return;
-    skipAutoSave.current = true;
-    setForm(
-      raw
-        ? { ...raw, reimbursements: normalizeReimbursementsFromRecord(raw).map((it) => ({ ...it, amount: it.amount || "" })) }
-        : {},
-    );
+    setForm(recordToFormFields(raw));
+    setFormDirty(false);
     setSaveUi("idle");
   }, [siteId, mk, records]);
   const saveUiTimer = useRef(null);
@@ -2286,6 +2410,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       .then(() => {
         if (gen !== persistGen.current) return;
         onRecordPersisted?.();
+        setFormDirty(false);
         setSaveUi(manual ? "saved" : "autosaved");
         if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
         saveUiTimer.current = setTimeout(() => setSaveUi("idle"), manual ? 2500 : 1800);
@@ -2297,23 +2422,9 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       });
   }, [siteId, mk, onSave, onRecordPersisted, setMonth, setActiveSite]);
   useEffect(() => {
-    if (skipAutoSave.current) {
-      skipAutoSave.current = false;
-      return undefined;
-    }
-    setSaveUi("pending");
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => persistForm(), 400);
-    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [form, persistForm]);
-  useEffect(() => {
     const flushForm = () => {
-      if (skipAutoSave.current) return;
-      if (autoSaveTimer.current) {
-        clearTimeout(autoSaveTimer.current);
-        autoSaveTimer.current = null;
-      }
-      persistForm();
+      if (!formDirty) return;
+      persistForm(undefined, { manual: true });
     };
     const onHide = () => {
       if (document.visibilityState === "hidden") flushForm();
@@ -2324,11 +2435,16 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       window.removeEventListener("pagehide", flushForm);
       window.removeEventListener("visibilitychange", onHide);
     };
-  }, [form, persistForm]);
+  }, [formDirty, persistForm]);
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add your first site to start recording figures.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
   const site = sites.find((s) => s.id === siteId);
+  if (!site) return <div className="empty"><Building2 size={30} /><h3>Site not found</h3><p>Pick another site from the list.</p></div>;
   const structure = displayStructure(site).filter((g) => g.children.length);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v === "" ? undefined : Number(v) }));
+  const patchForm = (patch) => {
+    setFormDirty(true);
+    setForm((f) => ({ ...f, ...patch }));
+  };
+  const set = (k, v) => patchForm({ [k]: v });
   const c = calcSite(site, mk, records, form);
   const parentSub = (g) => g.children.reduce((a, k) => a + (c.ex.total[k] || 0), 0);
   const copyPrev = () => {
@@ -2336,7 +2452,8 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     while (cur) {
       const r = records[`${siteId}__${cur}`];
       if (r) {
-        setForm({ ...r, reimbursements: normalizeReimbursementsFromRecord(r).map((it) => ({ ...it, amount: it.amount || "" })) });
+        setForm(recordToFormFields(r));
+        setFormDirty(true);
         return;
       }
       cur = prevPeriodKey(cur, MONTHS);
@@ -2344,10 +2461,49 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     alert("No earlier month found for this site.");
   };
   const save = () => {
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     persistForm(undefined, { manual: true });
   };
-  const renderField = (key, label) => (<label className="field" key={key}><span>{label}</span><div className="field-in"><i>₹</i><input type="number" inputMode="numeric" value={form[key] ?? ""} placeholder="0" onChange={(e) => set(key, e.target.value)} /></div></label>);
+  const renderField = (key, label) => (
+    <label className="field" key={key}>
+      <span>{label}</span>
+      <div className="field-in">
+        <i>₹</i>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={form[key] ?? ""}
+          placeholder="0"
+          onChange={(e) => set(key, e.target.value)}
+        />
+      </div>
+    </label>
+  );
+  const renderDeductionField = () => (
+    <div className="deduction-block" key="creditNote">
+      <label className="field">
+        <span>less: Credit Note / deductions</span>
+        <div className="field-in">
+          <i>₹</i>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={form.creditNote ?? ""}
+            placeholder="0"
+            onChange={(e) => set("creditNote", e.target.value)}
+          />
+        </div>
+      </label>
+      <label className="field deduction-remark">
+        <span>Remark (deduction)</span>
+        <input
+          type="text"
+          value={form.creditNoteRemark ?? ""}
+          placeholder="Reason or reference for deduction"
+          onChange={(e) => set("creditNoteRemark", e.target.value)}
+        />
+      </label>
+    </div>
+  );
   const renderReimbursementSection = () => {
     const items = form.reimbursements || [];
     const selectedFixedTypes = new Set(
@@ -2371,8 +2527,10 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
           },
         ],
       }));
+      setFormDirty(true);
     };
     const updateItem = (idx, patch) => {
+      setFormDirty(true);
       setForm((f) => {
         const arr = [...(f.reimbursements || [])];
         arr[idx] = { ...arr[idx], ...patch };
@@ -2380,6 +2538,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       });
     };
     const removeItem = (idx) => {
+      setFormDirty(true);
       setForm((f) => ({ ...f, reimbursements: (f.reimbursements || []).filter((_, i) => i !== idx) }));
     };
     return (
@@ -2419,8 +2578,8 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
                 <div className="field-in rev-reimb-amt">
                   <i>₹</i>
                   <input
-                    type="number"
-                    inputMode="numeric"
+                    type="text"
+                    inputMode="decimal"
                     placeholder="0"
                     value={it.amount ?? ""}
                     onChange={(e) => updateItem(idx, { amount: e.target.value })}
@@ -2439,12 +2598,12 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   const pend = site ? pendingMonths(site, records, month) : [];
   const monthFilled = (k) => !!records[`${siteId}__${k}`];
   const periodStatus = monthFilled(mk) ? "✓ saved" : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
-  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Auto-saved" : saveUi === "pending" || saveUi === "saving" ? "Saving…" : saveUi === "error" ? "Save failed" : "Save figures";
+  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Saved" : saveUi === "saving" ? "Saving…" : saveUi === "error" ? "Save failed — retry" : formDirty ? "Save figures" : "Save figures";
 
   return (
     <div className="entry">
       <div className="entry-bar">
-        <div className="entry-sel"><label>Site</label><select value={siteId} onChange={(e) => setSiteId(e.target.value)}>{sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        <SiteSearchSelect sites={sites} value={siteId} onChange={setSiteId} label="Site" id="entry-site-search" />
         <div className="entry-sel entry-sel-period">
           <label>Period</label>
           <PeriodMonthSelect className="sl-period-pick" selectClassName="sl-period-sel" value={mk} onChange={setMk} />
@@ -2453,7 +2612,10 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
         <button className="ghost-d" onClick={copyPrev}><Copy size={14} /> Copy previous</button>
         <button className="ghost-d" onClick={() => goConfig(siteId)}><Sliders size={14} /> Structure</button>
         <div className="entry-live"><span>Rev <b>{inrShort(c.revenue)}</b></span><span>Exp <b>{inrShort(c.expense)}</b></span><span style={{ color: c.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>Profit <b>{inrShort(c.profit)}</b> ({pct(c.margin)})</span></div>
-        <button className="primary" onClick={save} disabled={saveUi === "pending" || saveUi === "saving"}>{saveLabel}</button>
+        <button className="primary entry-save-btn" onClick={save} disabled={saveUi === "saving"} title="Save all figures for this site and period">
+          {saveLabel}
+        </button>
+        {formDirty && saveUi !== "saving" && <span className="entry-unsaved">Unsaved changes</span>}
       </div>
       {pend.length > 0 && (
         <div className="pend-strip">
@@ -2520,7 +2682,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
             <div className="rev-entry-simple">
               {renderField("saleRevenue", "Sale Revenue")}
               {renderReimbursementSection()}
-              {renderField("creditNote", "less: Credit Note / deductions")}
+              {renderDeductionField()}
             </div>
           </Card>
         </div>
@@ -3018,6 +3180,8 @@ function AddSiteModal({ onClose, onSave, existing }) {
   const [name, setName] = useState("");
   const [service, setService] = useState("");
   const [wo, setWo] = useState("");
+  const [ocNumber, setOcNumber] = useState("");
+  const [ocDate, setOcDate] = useState("");
   const [tmpl, setTmpl] = useState("default");
   const [cStart, setCStart] = useState("2025-04");
   const [cEnd, setCEnd] = useState("2026-03");
@@ -3048,6 +3212,8 @@ function AddSiteModal({ onClose, onSave, existing }) {
       name: trimmed,
       service: (service || priorActive?.service || "").trim(),
       wo: wo.trim(),
+      ocNumber: ocNumber.trim() || (priorActive?.ocNumber || "").trim(),
+      ocDate: ocDate || priorActive?.ocDate || "",
       structure: isRenewal && priorActive?.structure?.length
         ? priorActive.structure.map((g) => ({ parent: g.parent, children: [...g.children] }))
         : structureFromKeys(templates[tmpl]),
@@ -3079,6 +3245,10 @@ function AddSiteModal({ onClose, onSave, existing }) {
         </div>
       )}
       <label className="m-field"><span>Service type</span><input value={service} onChange={(e) => setService(e.target.value)} placeholder="Fire Fighting / Security / Housekeeping…" /></label>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <label className="m-field" style={{ flex: "1 1 200px" }}><span>OC Number</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
+        <label className="m-field" style={{ flex: "0 1 160px" }}><span>OC Date</span><input type="date" value={ocDate} onChange={(e) => setOcDate(e.target.value)} /></label>
+      </div>
       <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
       <div style={{ display: "flex", gap: 10 }}>
         <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><PeriodMonthSelect selectClassName="m-field-sel" value={cStart} onChange={setCStart} /></label>
@@ -3351,8 +3521,22 @@ function Styles() {
     .primary{display:inline-flex;align-items:center;gap:7px;background:var(--accent-mid);color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;}
     .primary:hover{background:var(--accent);}.primary.sm{padding:8px 13px;}
     .entry-bar{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:18px;}
-    .entry-sel{display:flex;flex-direction:column;gap:4px;}
+    .entry-sel{display:flex;flex-direction:column;gap:4px;min-width:200px;}
     .entry-sel label{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}
+    .site-search{position:relative;min-width:220px;max-width:320px;}
+    .site-search-box{position:relative;}
+    .site-search-box input{width:100%;font-family:var(--body);font-size:14px;font-weight:600;padding:8px 12px 8px 32px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);}
+    .site-search-ico{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;}
+    .site-search-menu{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 4px);max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.12);}
+    .site-search-opt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;padding:9px 12px;border:none;background:transparent;cursor:pointer;font-family:var(--body);}
+    .site-search-opt:hover,.site-search-opt.on{background:var(--accent-soft);}
+    .site-search-opt-name{font-size:13px;font-weight:600;color:var(--ink);}
+    .site-search-opt-meta{font-size:11px;color:var(--muted);}
+    .site-search-empty{padding:12px;font-size:12px;color:var(--muted);}
+    .entry-save-btn{min-width:120px;}
+    .entry-unsaved{font-size:11px;color:var(--warn);font-weight:600;align-self:center;}
+    .deduction-block{display:flex;flex-direction:column;gap:8px;}
+    .deduction-remark input{width:100%;font-family:var(--body);font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);}
     .entry-live{margin-left:auto;display:flex;gap:16px;font-size:12.5px;color:var(--ink-soft);font-family:var(--mono);}.entry-live b{font-weight:600;}
     .entry-cols{align-items:start;}
     .entry-col{display:flex;flex-direction:column;gap:12px;}
