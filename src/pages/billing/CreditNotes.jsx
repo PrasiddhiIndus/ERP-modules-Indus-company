@@ -532,7 +532,7 @@ const CreditNotes = () => {
       <div className="bg-white rounded-xl border border-emerald-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-emerald-100 bg-emerald-50/80">
           <h3 className="font-semibold text-emerald-900">Approved — issue note</h3>
-          <p className="text-sm text-emerald-800/90">Document number will follow its own note series, like CN-IFSPL-2026-0001.</p>
+          <p className="text-sm text-emerald-800/90">Document number will follow its own note series, like CN-IFSPL/26-27/0001.</p>
         </div>
         {approvedReady.length === 0 ? (
           <div className="px-4 py-5 text-sm text-gray-600">Nothing approved yet. Approve a row above, then issue the note here.</div>
