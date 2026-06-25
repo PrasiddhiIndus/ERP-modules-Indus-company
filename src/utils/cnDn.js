@@ -1,20 +1,33 @@
 import { getInvoiceTotals } from './taxInvoicePdf';
+import {
+  TAX_INVOICE_PREFIX,
+  getInvoiceFinancialYearSlug,
+  legacyYearToFySlug,
+} from './taxInvoiceNumber';
 
-const NOTE_INVOICE_SERIES = 'IFSPL';
-
-/** Build standalone CN/DN series: CN-IFSPL-2026-0001, DN-IFSPL-2026-0001, etc. */
+/** Build standalone CN/DN series: CN-IFSPL/26-27/0001, DN-IFSPL/26-27/0001, etc. */
 export function cnDnDocumentNumber(noteType, existingNotes = [], noteDate) {
   const prefix = noteType === 'debit' ? 'DN' : 'CN';
-  const d = noteDate ? new Date(noteDate) : new Date();
-  const year = Number.isNaN(d.getTime()) ? new Date().getFullYear() : d.getFullYear();
+  const fySlug = getInvoiceFinancialYearSlug(noteDate);
   const notes = Array.isArray(existingNotes) ? existingNotes : [];
-  const re = new RegExp(`^${prefix}-(?:IFSPL|INV)-${year}-(\\d+)$`, 'i');
+  const reNew = new RegExp(`^${prefix}-IFSPL\\/(\\d{2}-\\d{2})\\/(\\d+)$`, 'i');
+  const reLegacy = new RegExp(`^${prefix}-(?:IFSPL|INV)-(\\d{4})-(\\d+)$`, 'i');
   const maxSeq = notes.reduce((max, note) => {
     const number = String(note?.noteTaxInvoiceNumber || note?.note_tax_invoice_number || '').trim();
-    const match = number.match(re);
-    return match ? Math.max(max, Number(match[1]) || 0) : max;
+    let match = number.match(reNew);
+    if (match) {
+      if (match[1] !== fySlug) return max;
+      return Math.max(max, Number(match[2]) || 0);
+    }
+    match = number.match(reLegacy);
+    if (match) {
+      const legacyFy = legacyYearToFySlug(match[1]);
+      if (legacyFy !== fySlug) return max;
+      return Math.max(max, Number(match[2]) || 0);
+    }
+    return max;
   }, 0);
-  return `${prefix}-${NOTE_INVOICE_SERIES}-${year}-${String(maxSeq + 1).padStart(4, '0')}`;
+  return `${prefix}-${TAX_INVOICE_PREFIX}/${fySlug}/${String(maxSeq + 1).padStart(4, '0')}`;
 }
 
 /** Net receivable for parent tax invoice after linked credit (reduces) and debit (increases) notes. */
