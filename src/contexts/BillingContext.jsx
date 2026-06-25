@@ -365,7 +365,11 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
           fetchCreditDebitNotes(),
           fetchPaymentAdvice(),
         ]);
-        setCommercialPOsFull(pos);
+        setCommercialPOsFull((prevAll) => {
+          if (!commercialModuleScope) return pos;
+          const others = prevAll.filter((p) => getCommercialPoModuleType(p) !== commercialModuleScope);
+          return [...others, ...pos];
+        });
         setInvoicesState(invs);
         setCreditDebitNotesState(notes);
         setPaymentAdviceState(pa);

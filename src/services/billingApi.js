@@ -160,6 +160,12 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     panNumber: raw.pan_number ?? null,
     contactEmail: raw.contact_email ?? null,
     poType: raw.po_type ?? raw.billing_type ?? null,
+    serviceDescription:
+      raw.service_description != null && String(raw.service_description).trim() !== ''
+        ? String(raw.service_description).trim()
+        : c.serviceDescription != null && String(c.serviceDescription).trim() !== ''
+          ? String(c.serviceDescription).trim()
+          : null,
     ratePerCategory: ratesByPo[po.id] || [],
     contactHistoryLog: contactsByPo[po.id] || [],
     updateHistory: Array.isArray(raw.update_history) ? raw.update_history : [],
@@ -524,6 +530,54 @@ export function billingErrorMsg(error, context = 'Save') {
   return msg || `${context} failed.`;
 }
 
+/** Text / config columns that must not be cleared when a partial in-memory PO row is upserted. */
+const PO_WO_PRESERVE_ON_PARTIAL_UPDATE = [
+  'service_description',
+  'remarks',
+  'invoice_terms_text',
+  'shipping_address',
+  'billing_address',
+  'location_name',
+  'legal_name',
+  'gstin',
+  'pan_number',
+  'oc_number',
+  'po_wo_number',
+  'po_date',
+  'pincode',
+  'ship_to_pincode',
+  'place_of_supply',
+  'hsn_code',
+  'sac_code',
+  'payment_terms',
+  'monthly_duty_qty_mode',
+  'lump_sum_billing_mode',
+];
+
+function isBlankPersistedText(v) {
+  return v == null || String(v).trim() === '';
+}
+
+async function loadExistingPoWoRow(poId) {
+  const id = String(poId || '').trim();
+  if (!isUuidString(id)) return null;
+  const { data, error } = await table('po_wo').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+/** Keep existing DB values when the client payload would overwrite them with null/empty. */
+function preservePoWoRowOnUpdate(payload, existingRow) {
+  if (!existingRow || typeof existingRow !== 'object') return payload;
+  const next = { ...payload };
+  for (const key of PO_WO_PRESERVE_ON_PARTIAL_UPDATE) {
+    if (isBlankPersistedText(next[key]) && !isBlankPersistedText(existingRow[key])) {
+      next[key] = existingRow[key];
+    }
+  }
+  return next;
+}
+
 /**
  * Single billing.po_wo row shape for all verticals: columns not used by the active module are explicitly null.
  */
@@ -722,13 +776,16 @@ export async function saveCommercialPOs(list, options = {}) {
         : poModuleContext;
     const updateHistoryStamped = withCommercialModuleMarker(po.updateHistory, moduleType);
     const poIdInput = isUuidString(po.id) ? String(po.id).trim() : undefined;
-    const payload = buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped);
+    let payload = buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped);
+    if (poIdInput) {
+      const existingRow = await loadExistingPoWoRow(poIdInput);
+      payload = preservePoWoRowOnUpdate(payload, existingRow);
+    }
 
     const { data: saved, error: poError } = await persistPoWoRow(payload, poIdInput);
     if (poError) throw new Error(billingErrorMsg(poError, 'PO/WO save'));
     const savedPoId = saved?.id ?? po.id;
 
-    await table('po_rate_category').delete().eq('po_id', savedPoId);
     const rateRows = (po.ratePerCategory || []).map((r, i) => ({
       po_id: savedPoId,
       description: r.description ?? r.designation ?? '',
@@ -739,6 +796,11 @@ export async function saveCommercialPOs(list, options = {}) {
       category_penalty: firstNumber(r, ['penalty', 'category_penalty', 'poLinePenalty', 'po_line_penalty'], 0),
       sort_order: i,
     }));
+    // Partial PO updates (e.g. approval status) must not wipe categories saved from PO Entry.
+    const shouldReplaceRateCategories = !poIdInput || rateRows.length > 0;
+    if (shouldReplaceRateCategories) {
+      await table('po_rate_category').delete().eq('po_id', savedPoId);
+    }
     if (rateRows.length) {
       const tryUpsertRateRows = async (rows, useSortOrderConflict = true) =>
         table('po_rate_category').upsert(
@@ -814,7 +876,6 @@ export async function saveCommercialPOs(list, options = {}) {
       if (rateErr) throw new Error(billingErrorMsg(rateErr, 'Rate category save'));
     }
 
-    await table('po_contact_log').delete().eq('po_id', savedPoId);
     const contactRows = (po.contactHistoryLog || []).map((c) => ({
       po_id: savedPoId,
       contact_name: c.name,
@@ -823,9 +884,13 @@ export async function saveCommercialPOs(list, options = {}) {
       from_date: c.from,
       to_date: c.to,
     }));
-    if (contactRows.length) {
-      const { error: contactErr } = await table('po_contact_log').insert(contactRows);
-      if (contactErr) throw new Error(billingErrorMsg(contactErr, 'Contact log save'));
+    const shouldReplaceContactLog = !poIdInput || contactRows.length > 0;
+    if (shouldReplaceContactLog) {
+      await table('po_contact_log').delete().eq('po_id', savedPoId);
+      if (contactRows.length) {
+        const { error: contactErr } = await table('po_contact_log').insert(contactRows);
+        if (contactErr) throw new Error(billingErrorMsg(contactErr, 'Contact log save'));
+      }
     }
   }
 }
@@ -1030,7 +1095,7 @@ export async function fetchInvoices() {
   });
 }
 
-/** Save a single invoice (upsert) with line items and attachments. */
+/** Save a single invoice (upsert) with line items and attachments. Never mutates billing.po_wo. */
 export async function saveInvoice(inv) {
   let invId = isUuidString(inv.id) ? String(inv.id).trim() : undefined;
   const taxTrimmed = String(inv.taxInvoiceNumber ?? inv.tax_invoice_number ?? '').trim();
