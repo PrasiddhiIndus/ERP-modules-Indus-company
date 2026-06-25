@@ -2038,7 +2038,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
         : buildFullTaxInvoiceNumberFromSerial(manualTaxInvoiceSerial, invoiceDate) ||
           generateTaxInvoiceNumber(getNextTaxInvoiceSequence(invoices, invoiceDate), invoiceDate));
     const lastInvSeries = getLastTaxInvoiceNumberInFy(invoices, invoiceDate);
-    const billingMonthStr = formatBillingMonth(invoiceDate) || '–';
     const billingDurationStr =
       displayPO.startDate || displayPO.start_date
         ? `${formatDateDdMmYyyy(displayPO.startDate || displayPO.start_date)} – ${formatDateDdMmYyyy(displayPO.endDate || displayPO.end_date)}`
@@ -2047,7 +2046,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
     return {
       taxInvoiceNumber: docNo,
       lastInvoiceSeries: lastInvSeries,
-      billingMonthStr,
       billingDurationStr,
       remarksLine,
     };
@@ -3242,7 +3240,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   po={displayPO}
                   showEInvoiceMeta={false}
                   hideQtyRateColumns={isLumpSumBilling && lumpSumShowPenaltyGeometryUi}
-                  hideBillingMonth
                 />
               </div>
 

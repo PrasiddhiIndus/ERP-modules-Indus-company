@@ -6,7 +6,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -1166,6 +1166,25 @@ app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
   } catch (err) {
     const status = Number(err?.status) || 500;
     res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+app.post('/api/software-subscriptions/r2/delete', async (req, res) => {
+  try {
+    await requireSessionForSoftwareSubscriptionsR2(req);
+    const bucket = getR2BucketName();
+
+    const objectKey = String(req.body?.objectKey || '').trim();
+    if (!objectKey.startsWith(R2_SOFTWARE_SUB_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
+
+    const client = getR2S3Client();
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+    res.json({ ok: true, objectKey });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Delete failed.' });
   }
 });
 

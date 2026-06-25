@@ -55,7 +55,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
   const {
     commercialPOs,
     invoices,
-    setInvoices,
+    upsertInvoice,
     billingVerticalFilter,
     billingPoBasisFilter,
     getAddOnInvoiceFormDraft,
@@ -169,12 +169,13 @@ const AddOnInvoices = ({ onNavigateTab }) => {
   const addRow = () => setItems((prev) => [...prev, { description: '', hsnSac: '', quantity: 1, rate: 0, amount: 0 }]);
   const removeRow = (idx) => setItems((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!canOpen) return;
     const no = makeAddOnInvoiceNumber(invoices, addOnDocumentKind);
     const resolvedKind =
       addOnDocumentKind === 'proforma' ? 'proforma' : addOnDocumentKind === 'draft' ? 'draft' : 'tax';
-    const newId = Math.max(0, ...invoices.map((i) => Number(i.id) || 0), 0) + 1;
+    const newId =
+      typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`;
     const inv = {
       id: newId,
       isAddOn: true,
@@ -249,10 +250,15 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       invoiceKind: resolvedKind,
       invoice_kind: resolvedKind,
     };
-    setInvoices((prev) => [...prev, inv]);
-    clearAddOnDraft();
-    clearAddOnInvoiceFormDraft();
-    onNavigateTab && onNavigateTab('manage-invoices');
+    try {
+      await upsertInvoice(inv);
+      clearAddOnDraft();
+      clearAddOnInvoiceFormDraft();
+      onNavigateTab && onNavigateTab('manage-invoices');
+    } catch (e) {
+      console.error('Save add-on invoice failed:', e);
+      window.alert(e?.message || 'Could not save add-on invoice. Check your connection and try again.');
+    }
   };
 
   return (
