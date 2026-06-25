@@ -1,20 +1,63 @@
+/** Bump when default formula groups change so stored data resets. */
+export const FORMULA_GROUPS_VERSION = 2;
+
 /** Canonical payroll formulas for Formula Library. */
-export const FORMULAS = [
-  { id: 'f1', name: 'Basic salary', expression: 'Fixed amount per grade', type: 'e' },
-  { id: 'f2', name: 'HRA', expression: 'IF(metro, Basic×0.50, Basic×0.40)', type: 'e' },
-  { id: 'f3', name: 'Conveyance allowance', expression: 'Fixed ₹1,600/month', type: 'e' },
-  { id: 'f4', name: 'Special allowance', expression: 'CTC – (Basic+HRA+Conv+PF)', type: 'e' },
-  { id: 'f5', name: 'LTA', expression: 'Basic × 1/12', type: 'e' },
-  { id: 'f6', name: 'Medical allowance', expression: 'Fixed ₹1,250/month', type: 'e' },
-  { id: 'f7', name: 'PF deduction', expression: 'MIN(Basic,15000)×0.12', type: 's' },
-  { id: 'f8', name: 'ESI deduction', expression: 'IF(Gross≤21000, Gross×0.0075, 0)', type: 's' },
-  { id: 'f9', name: 'Professional tax', expression: 'Slab-based by state', type: 's' },
-  { id: 'f10', name: 'TDS', expression: 'Annual liability / 12', type: 's' },
-  { id: 'f11', name: 'LOP deduction', expression: '(Gross/Working_days)×LOP_days', type: 'd' },
-  { id: 'f12', name: 'Night shift allowance', expression: 'Basic×0.15×Night_days/Wdays', type: 'e' },
-  { id: 'f13', name: 'Gratuity', expression: '(Basic+DA)/26×15×Years', type: 'e' },
-  { id: 'f14', name: 'Advance recovery', expression: 'Fixed installment per agreement', type: 'd' },
+export const FORMULA_GROUPS = [
+  {
+    key: 'earnings',
+    title: 'Earning Formulas',
+    dot: '#059669',
+    accent: '#059669',
+    items: [
+      { id: 'e1', name: 'Working Days', expression: 'Monthly days − week off' },
+      { id: 'e2', name: 'Earned Basic', expression: 'Minimum wages × Present days' },
+      { id: 'e3', name: 'Earned Basic', expression: 'Minimum monthly wages ÷ working days × Present days' },
+      { id: 'e4', name: 'Leave Wages', expression: 'Earned basic ÷ 20' },
+      { id: 'e5', name: 'Earned House Rent', expression: 'Earned Basic × 40 ÷ 100' },
+      { id: 'e6', name: 'Earned Washing Allowance', expression: 'Washing Allowance ÷ working days × Present days' },
+      { id: 'e7', name: 'Earned Transportation Allowance', expression: 'Transportation Allowance ÷ working days × Present days' },
+      { id: 'e8', name: 'Earned Bonus', expression: 'Earned Basic × 8.33 ÷ 100' },
+      { id: 'e9', name: 'Earned Gratuity', expression: 'Earned basic × 4.81 ÷ 100' },
+      { id: 'e10', name: 'Earned Food Allowance', expression: 'Food Allowance ÷ working days × Present days' },
+      { id: 'e11', name: 'Earned Medical Allowance', expression: 'Medical Allowance ÷ working days × Present days' },
+      { id: 'e12', name: 'Earned NH/PH', expression: 'Minimum wages × NH/PH days' },
+      { id: 'e13', name: 'Earned NH/PH Monthly', expression: 'Minimum wages × Yearly NH/PH days ÷ 12 × Present days ÷ working days' },
+      { id: 'e14', name: 'PF Wages', expression: 'Earned minimum wages + Other Allowance' },
+      { id: 'e15', name: 'Other Allowance', expression: 'Formulas may vary as per site-specific requirements' },
+      { id: 'e16', name: 'Retention Allowance', expression: 'Minimum wages ÷ 2 × Present days' },
+      { id: 'e17', name: 'Earned OT', expression: 'Minimum wages × 2 × OT days' },
+      { id: 'e18', name: 'Earned OT', expression: 'Salary rate ÷ working days × OT days × 2' },
+      { id: 'e19', name: 'Earned Salary', expression: 'Salary rate per day × Present days' },
+      { id: 'e20', name: 'Earned Salary', expression: 'Monthly salary rate ÷ working days × Present days' },
+      { id: 'e21', name: 'Gross Earning', expression: 'Formulas may vary as per site-specific requirements' },
+      { id: 'e22', name: 'Total Earning', expression: 'Gross Earning + Earned NH/PH' },
+      { id: 'e23', name: 'Total Deduction', expression: 'Formulas may vary as per site-specific requirements' },
+      { id: 'e24', name: 'Net Earning', expression: 'Total Earning − Total Deduction' },
+    ],
+  },
+  {
+    key: 'deductions',
+    title: 'Deduction Formulas',
+    dot: '#dc2626',
+    accent: '#dc2626',
+    items: [
+      { id: 'd1', name: 'PF', expression: 'Earned Basic × 12 ÷ 100' },
+      { id: 'd2', name: 'PF', expression: '(Earned Basic + Other Allowance) × 12 ÷ 100' },
+      { id: 'd3', name: 'Loan', expression: 'Amount' },
+      { id: 'd4', name: 'Salary Advance', expression: 'Amount' },
+      { id: 'd5', name: 'Held', expression: 'Amount ÷ full held' },
+      { id: 'd6', name: 'Penalty', expression: 'Amount' },
+      { id: 'd7', name: 'Professional Tax', expression: 'State wise' },
+    ],
+  },
 ];
+
+export const FORMULAS = FORMULA_GROUPS.flatMap((group) =>
+  (group.items || []).map((item) => ({
+    ...item,
+    type: group.key === 'earnings' ? 'e' : 'd',
+  }))
+);
 
 export const TYPE_META = {
   e: { label: 'Earning', badge: 'bg-emerald-100 text-emerald-800', dot: '#059669', accent: '#059669' },
@@ -28,70 +71,6 @@ export const TYPE_GROUP_ORDER = [
   { key: 'd', title: 'Deductions' },
 ];
 
-/** Site Setup–aligned groups for the All formulas tab (name-only rows). */
-export const FORMULA_GROUPS = [
-  {
-    key: 'salaryCost',
-    title: 'Salary Cost',
-    dot: '#64748b',
-    accent: '#64748b',
-    items: [
-      { id: 'salaries', name: 'Gross Salary' },
-      { id: 'salariesOT', name: 'Overtime Payment' },
-      { id: 'voucher', name: 'Voucher Payment' },
-      { id: 'bonus', name: 'Bonus' },
-      { id: 'gratuity', name: 'Gratuity' },
-    ],
-  },
-  {
-    key: 'empBenefit',
-    title: 'Employee Benefit',
-    dot: '#2F7D9E',
-    accent: '#2F7D9E',
-    items: [
-      { id: 'pf', name: 'Provident Fund (PF)' },
-      { id: 'esicEmp', name: 'ESI / WC' },
-      { id: 'insurance', name: 'Insurance / Mediclaim' },
-      { id: 'uniform', name: 'Uniform / PPE' },
-    ],
-  },
-  {
-    key: 'accommodation',
-    title: 'Accomodation and Transportation',
-    dot: '#C97A12',
-    accent: '#C97A12',
-    items: [
-      { id: 'houseRent', name: 'House Rent' },
-      { id: 'cook', name: 'Cook Salary' },
-      { id: 'housekeeping', name: 'Housekeeping salary & material' },
-      { id: 'vehicleRent', name: 'Vehicle Rent' },
-    ],
-  },
-  {
-    key: 'admin',
-    title: 'Admin, Statutory & Other',
-    dot: '#9A4A3A',
-    accent: '#9A4A3A',
-    items: [
-      { id: 'labourLicence', name: 'Labour Licence fees' },
-      { id: 'indirect', name: 'Indirect expenses' },
-      { id: 'bankCharges', name: 'Bank charges / BG' },
-      { id: 'medical', name: 'Medical Expense' },
-      { id: 'bizPromo', name: 'Business Promotion' },
-    ],
-  },
-  {
-    key: 'misc',
-    title: 'Miscellaneous Expenses',
-    dot: '#B08D2E',
-    accent: '#B08D2E',
-    items: [
-      { id: 'equipment', name: 'Equipment / Tools purchase' },
-      { id: 'miscCost', name: 'Miscellaneous cost' },
-    ],
-  },
-];
-
 export function formulaGroupItemCount(groups) {
   return groups.reduce((n, g) => n + g.items.length, 0);
 }
@@ -100,34 +79,26 @@ export function allFormulaGroupItemCount() {
   return formulaGroupItemCount(FORMULA_GROUPS);
 }
 
-export const SYSTEM_COMPONENT_NAMES = [
-  'Basic salary',
-  'HRA',
-  'Conveyance allowance',
-  'Special allowance',
-  'LTA',
-  'Medical allowance',
-  'Night shift allowance',
-];
+export const SYSTEM_COMPONENT_NAMES = FORMULA_GROUPS.flatMap((g) => g.items.map((i) => i.name));
 
 export const INITIAL_PACKAGES = [
   {
     id: 'pkg-north',
     name: 'North region',
     sites: ['Delhi NCR', 'Chandigarh', 'Lucknow', 'Jaipur'],
-    formulaIds: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12'],
+    formulaIds: ['e1', 'e2', 'e4', 'e5', 'e6', 'e7', 'e8', 'e21', 'e22', 'e24', 'd1', 'd7'],
   },
   {
     id: 'pkg-south',
     name: 'South region',
     sites: ['Chennai', 'Bengaluru', 'Hyderabad'],
-    formulaIds: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11'],
+    formulaIds: ['e1', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'e21', 'e22', 'e24', 'd1', 'd2', 'd7'],
   },
   {
     id: 'pkg-west',
     name: 'West region',
     sites: ['Mumbai', 'Pune'],
-    formulaIds: ['f1', 'f2', 'f3', 'f4', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f14'],
+    formulaIds: ['e1', 'e2', 'e4', 'e5', 'e17', 'e21', 'e22', 'e24', 'd1', 'd3', 'd7'],
   },
   {
     id: 'pkg-mfg',
