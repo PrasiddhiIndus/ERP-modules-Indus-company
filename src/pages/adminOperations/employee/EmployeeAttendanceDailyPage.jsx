@@ -46,6 +46,10 @@ import {
   fetchRegisterMarksForYear,
   fetchApprovedLeaveMarksForMonth,
   mergeApprovedLeaveMarksIntoManualMarks,
+  fetchApprovedTourMarksForMonth,
+  mergeApprovedTourIntoRegisterView,
+  refreshApprovedToursOnRegister,
+  syncApprovedToursToRegister,
   monthDateRange,
   registerDateFromDay,
   registerDayTableLabel,
@@ -74,6 +78,8 @@ import {
   projectLeaveUsageAfterMark,
   validateCoMark,
 } from "../../../lib/attendanceLeaveLimits";
+import { subscribeTourWorkflowRealtime } from "../../../lib/adminTourRequests";
+import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
@@ -224,6 +230,10 @@ export function EmployeeAttendanceDailyPage() {
   const activeEmployeesCacheRef = useRef(null);
   const inactiveLeavingCacheRef = useRef(null);
   const loadGenerationRef = useRef(0);
+  const punchesRef = useRef([]);
+  const approvedLeaveMarksRef = useRef({});
+  const monthRegisterRowsRef = useRef([]);
+  const [tourRealtimeLive, setTourRealtimeLive] = useState(false);
 
   const monthMeta = useMemo(() => monthDateRange(monthValue), [monthValue]);
 
@@ -275,6 +285,7 @@ export function EmployeeAttendanceDailyPage() {
         masterCodeMap,
         monthRegisterRows,
         approvedLeaveMarks,
+        approvedTourData,
       ] = await Promise.all([
         fetchAttendancePunchesInRange(supabase, {
           fromDate: monthMeta.fromDate,
@@ -288,6 +299,7 @@ export function EmployeeAttendanceDailyPage() {
           toDate: monthMeta.toDate,
         }),
         fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
+        fetchApprovedTourMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
       ]);
 
       if (loadGeneration !== loadGenerationRef.current) return;
@@ -305,13 +317,23 @@ export function EmployeeAttendanceDailyPage() {
 
       if (loadGeneration !== loadGenerationRef.current) return;
 
+      punchesRef.current = punchRows;
+      approvedLeaveMarksRef.current = approvedLeaveMarks;
+      monthRegisterRowsRef.current = monthRegisterRows;
+
       const employeesWithCode = employees.filter((e) => e.empCode);
       const inactiveForMonth = (inactiveWithLeaving || []).filter((e) =>
         isInactiveEmployeeRelevantForRegisterMonth(e.dateOfLeaving, monthMeta.fromDate, monthMeta.toDate)
       );
-      const mergedMarks = mergeApprovedLeaveMarksIntoManualMarks(
+      const afterLeaveMarks = mergeApprovedLeaveMarksIntoManualMarks(
         registerData?.marks || {},
         approvedLeaveMarks,
+        { punches: punchRows, monthKey: monthMeta.monthKey }
+      );
+      const mergedRegister = mergeApprovedTourIntoRegisterView(
+        afterLeaveMarks,
+        registerData?.remarks || {},
+        approvedTourData,
         { punches: punchRows, monthKey: monthMeta.monthKey }
       );
       const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveForMonth, {
@@ -322,8 +344,8 @@ export function EmployeeAttendanceDailyPage() {
 
       setPunches(punchRows);
       setActiveEmployees(registerEmployees);
-      setManualMarks(mergedMarks);
-      setManualRemarks(registerData?.remarks || {});
+      setManualMarks(mergedRegister.marks);
+      setManualRemarks(mergedRegister.remarks);
       setLeaveLimitWarning("");
 
       const warnings = [];
@@ -356,19 +378,28 @@ export function EmployeeAttendanceDailyPage() {
               refreshedRows,
               masterCodeMap
             );
-            setManualMarks(
-              mergeApprovedLeaveMarksIntoManualMarks(refreshed.marks, approvedLeaveMarks, {
-                punches: punchRows,
-                monthKey: monthMeta.monthKey,
-              })
+            const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(refreshed.marks, approvedLeaveMarks, {
+              punches: punchRows,
+              monthKey: monthMeta.monthKey,
+            });
+            const merged = mergeApprovedTourIntoRegisterView(
+              afterLeave,
+              refreshed.remarks || {},
+              approvedTourData,
+              { punches: punchRows, monthKey: monthMeta.monthKey }
             );
-            setManualRemarks(refreshed.remarks || {});
+            setManualMarks(merged.marks);
+            setManualRemarks(merged.remarks);
           }
 
           const punchSync = await syncRegisterMarksFromPunches(supabase, punchRows, {
             fromDate: monthMeta.fromDate,
             toDate: monthMeta.toDate,
             respectManualMarks: true,
+            masterCodeMap,
+            existingRegisterRows: monthRegisterRows,
+          });
+          const tourSync = await syncApprovedToursToRegister(supabase, monthMeta.fromDate, monthMeta.toDate, {
             masterCodeMap,
             existingRegisterRows: monthRegisterRows,
           });
@@ -389,16 +420,21 @@ export function EmployeeAttendanceDailyPage() {
             });
           }
 
-          if (punchSync.upserted > 0 || woResult.upserted > 0) {
+          if (punchSync.upserted > 0 || tourSync.upserted > 0 || woResult.upserted > 0) {
             const refreshed = await loadRegisterMarksForMonth(supabase, monthMeta, { masterCodeMap });
             if (loadGeneration !== loadGenerationRef.current) return;
-            setManualMarks(
-              mergeApprovedLeaveMarksIntoManualMarks(refreshed?.marks || {}, approvedLeaveMarks, {
-                punches: punchRows,
-                monthKey: monthMeta.monthKey,
-              })
+            const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(refreshed?.marks || {}, approvedLeaveMarks, {
+              punches: punchRows,
+              monthKey: monthMeta.monthKey,
+            });
+            const merged = mergeApprovedTourIntoRegisterView(
+              afterLeave,
+              refreshed?.remarks || {},
+              approvedTourData,
+              { punches: punchRows, monthKey: monthMeta.monthKey }
             );
-            setManualRemarks(refreshed?.remarks || {});
+            setManualMarks(merged.marks);
+            setManualRemarks(merged.remarks);
           }
         } catch (syncErr) {
           if (loadGeneration !== loadGenerationRef.current) return;
@@ -445,6 +481,49 @@ export function EmployeeAttendanceDailyPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!monthMeta?.fromDate || !monthMeta?.toDate) return undefined;
+
+    let debounce = null;
+    let cancelled = false;
+
+    const refreshTours = async () => {
+      if (cancelled) return;
+      try {
+        const merged = await refreshApprovedToursOnRegister(supabase, monthMeta, {
+          punches: punchesRef.current,
+          approvedLeaveMarks: approvedLeaveMarksRef.current,
+          masterCodeMap: masterRegisterCodeMapRef.current,
+          existingRegisterRows: monthRegisterRowsRef.current,
+        });
+        if (cancelled) return;
+        if (merged.registerRows) {
+          monthRegisterRowsRef.current = merged.registerRows;
+        }
+        setManualMarks(merged.marks);
+        setManualRemarks(merged.remarks);
+      } catch (err) {
+        console.warn("Tour realtime refresh failed:", err);
+      }
+    };
+
+    const schedule = () => {
+      if (debounce) window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => {
+        void refreshTours();
+      }, 400);
+    };
+
+    const unsubscribe = subscribeTourWorkflowRealtime(schedule);
+    setTourRealtimeLive(isSupabaseRealtimeEnabled());
+
+    return () => {
+      cancelled = true;
+      if (debounce) window.clearTimeout(debounce);
+      unsubscribe();
+    };
+  }, [monthMeta?.fromDate, monthMeta?.toDate, monthMeta?.monthKey]);
 
   const { rows: gridRows, daysInMonth } = useMemo(() => {
     if (!monthMeta) return { rows: [], daysInMonth: 0 };
@@ -1205,7 +1284,7 @@ export function EmployeeAttendanceDailyPage() {
                     ? "Saving…"
                     : yearLoading
                       ? `${dayFilteredRows.length} employee(s) · loading leave limits`
-                      : `${dayFilteredRows.length} employee(s) · Supabase`
+                      : `${dayFilteredRows.length} employee(s) · Supabase${tourRealtimeLive ? " · tours live" : ""}`
             }
             severity={loading || syncing || savingMark ? "warning" : "info"}
           />
