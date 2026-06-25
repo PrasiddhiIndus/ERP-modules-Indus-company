@@ -25,6 +25,7 @@ import {
   resolveInvoicePartyPincodes,
 } from '../../utils/poPincodeFields';
 import { rollupMainPoBilling, pickInvoiceForEdit } from '../../utils/billingInvoiceRollup';
+import { poMatchesBillingTab } from '../../utils/billingPoListFilters';
 import {
   applyPreGstSupplementaryRows,
   createPreGstSupplementaryRow,
@@ -102,6 +103,7 @@ const BILLING_TABS_MANPOWER = [
   { id: 'Per Day', label: 'Daily' },
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Lump Sum', label: 'Lump Sum' },
+  { id: 'Custom', label: 'Custom' },
   { id: 'Custom Calculator', label: 'Custom Calculator' },
 ];
 
@@ -869,10 +871,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
       return billablePOs;
     }
     const tab = String(poBillingTab || '').trim();
-    return billablePOs.filter((p) => {
-      const bt = String(p.billingType || '').trim();
-      return bt === tab;
-    });
+    return billablePOs.filter((p) => poMatchesBillingTab(p, tab));
   }, [billablePOs, poBillingTab, isTrainingVertical]);
 
   const poTableRows = useMemo(() => {
@@ -2790,7 +2789,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
             {!isRmVertical && !isTrainingVertical ? (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
                 {billingTabs.map((t) => {
-                  const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
+                  const count = billablePOs.filter((p) => poMatchesBillingTab(p, t.id)).length;
                   const active = poBillingTab === t.id;
                   return (
                     <button
@@ -2817,10 +2816,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
             {!isRmVertical && !isTrainingVertical ? (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
                 {billingTabs.map((t) => {
-                  const count = billablePOs.filter((p) => String(p.billingType || '').trim() === t.id).length;
+                  const count = billablePOs.filter((p) => poMatchesBillingTab(p, t.id)).length;
                   const bufferOpen = billablePOs.filter(
                     (p) =>
-                      String(p.billingType || '').trim() === t.id &&
+                      poMatchesBillingTab(p, t.id) &&
                       (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
                       isAfterContractEndForInvoice(p.endDate || p.end_date)
                   ).length;

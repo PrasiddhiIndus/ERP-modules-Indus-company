@@ -511,7 +511,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Registration Number *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Registration Number</label>
                     <input
                       type="text"
                       value={formData.registration_number}
@@ -520,7 +520,6 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                       placeholder="e.g., MH12AB1234"
                       pattern="^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$"
                       title="Enter valid RTO format, e.g. MH12AB1234"
-                      required
                     />
                   </div>
 

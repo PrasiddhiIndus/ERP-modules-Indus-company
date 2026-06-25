@@ -41,6 +41,7 @@ import {
   savePaymentAdvice as savePaymentAdviceDb,
 } from '../services/billingApi';
 import { PO_BASIS_FILTER_ALL, resolveBillingPoBasis } from '../constants/poBasis';
+import { normalizeBillingVerticalKey, resolveBillingVerticalKey } from '../utils/billingPoListFilters';
 
 const BillingContext = createContext({
   __missingProvider: true,
@@ -104,43 +105,11 @@ const BILLING_PO_BASIS_OPTIONS = [
 ];
 
 function normalizeVerticalKey(v) {
-  const raw = String(v || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_]/g, '');
-  const aliases = {
-    // OC-number abbreviations / legacy keys
-    bill: 'manpower',
-    manp: 'manpower',
-    manpower: 'manpower',
-    mp: 'manpower',
-    train: 'training',
-    trng: 'training',
-    training: 'training',
-    rm: 'rm',
-    mm: 'mm',
-    amc: 'amc',
-    iev: 'iev',
-    projects: 'projects',
-    project: 'projects',
-  };
-  return aliases[raw] || raw;
+  return normalizeBillingVerticalKey(v);
 }
 
 function resolvePoVerticalKey(po) {
-  // Prefer explicit vertical from PO entry; OC segment can be stale if vertical was edited later.
-  const direct = po?.vertical || po?.poVertical;
-  if (direct) {
-    const dk = normalizeVerticalKey(direct);
-    if (dk) return dk;
-  }
-  const oc = po?.ocNumber || po?.oc_number;
-  if (oc && String(oc).includes('-')) {
-    const parts = String(oc).split('-');
-    if (parts[1]) return normalizeVerticalKey(parts[1]);
-  }
-  return '';
+  return resolveBillingVerticalKey(po);
 }
 
 function labelVertical(key) {
