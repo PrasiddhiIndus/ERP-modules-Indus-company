@@ -7,12 +7,20 @@ import {
   isLeaveMarkSource,
   isManualMarkSource,
   isPunchMarkSource,
+  isTourMarkSource,
   marksByEmpDayFromRegisterDbRows,
   punchesToPresentRegisterRows,
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
 
 export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
+export const REGISTER_MARK_SOURCE_TOUR = "tour";
+
+export const INDUS_ONE_TOUR_TABLES = {
+  adminRequests: "admin_tour_requests",
+  lmsRequests: "tour_requests",
+  attendanceMarks: "admin_tour_attendance_marks",
+};
 
 export const ATTENDANCE_PUNCH_TABLE = "erp_attendance_punches";
 export const ATTENDANCE_REGISTER_TABLE = "admin_attendance_register";
@@ -559,6 +567,7 @@ export function mergeRegisterMarksWithLocal(dbMarks, localMarks) {
 function registerMarkRowPriority(row) {
   if (isManualMarkSource(row?.mark_source)) return 3;
   if (isLeaveMarkSource(row?.mark_source, row?.leave_request_id)) return 2;
+  if (isTourMarkSource(row?.mark_source, row?.tour_request_id)) return 2;
   if (isPunchMarkSource(row?.mark, row?.mark_source)) return 1;
   return 0;
 }
@@ -643,7 +652,7 @@ export async function fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate 
   while (true) {
     const { data, error } = await supabase
       .from(ATTENDANCE_REGISTER_TABLE)
-      .select("employee_code,register_date,mark,mark_remark,mark_source,leave_request_id")
+      .select("employee_code,register_date,mark,mark_remark,mark_source,leave_request_id,tour_request_id")
       .gte("register_date", fromDate)
       .lte("register_date", toDate)
       .order("register_date", { ascending: true })
@@ -768,6 +777,496 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
   return next;
 }
 
+/** Tour cell comment from approved tour request (location + reason). */
+export function tourLocationFromRow(row) {
+  return String(
+    row?.location ?? row?.destination ?? row?.place ?? row?.tour_location ?? ""
+  ).trim();
+}
+
+export function tourReasonFromRow(row) {
+  return String(row?.reason ?? row?.purpose ?? row?.remarks ?? "").trim();
+}
+
+export function formatTourRegisterRemark(location, reason) {
+  const loc = String(location ?? "").trim();
+  const reas = String(reason ?? "").trim();
+  if (loc && reas) return `${loc} — ${reas}`;
+  return loc || reas || "";
+}
+
+export function formatTourRegisterRemarkFromRow(row) {
+  return formatTourRegisterRemark(tourLocationFromRow(row), tourReasonFromRow(row));
+}
+
+function tourMetaFromRequestRow(row, tourRequestId = null) {
+  return {
+    tour_request_id: tourRequestId ?? row?.id ?? null,
+    location: tourLocationFromRow(row),
+    reason: tourReasonFromRow(row),
+  };
+}
+
+function addTourMark(marks, remarks, employeeCode, registerDate, remark) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const day = dayOfMonthFromIsoDate(registerDate);
+  if (!code || !day) return;
+  // Tours always display as T (LMS may store applied_mark as P(OD) in admin_tour_attendance_marks).
+  if (!marks[code]) marks[code] = {};
+  marks[code][day] = "T";
+  const text = String(remark ?? "").trim();
+  if (text) {
+    if (!remarks[code]) remarks[code] = {};
+    remarks[code][day] = text;
+  }
+}
+
+const TOUR_REQUEST_META_SELECT_ADMIN =
+  "id, location, reason, remarks";
+const TOUR_REQUEST_META_SELECT_LMS =
+  "id, location, reason, destination, purpose, place, tour_location, remarks";
+
+async function fetchTourRequestMetaByIds(supabase, ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  const map = {};
+  if (!unique.length) return map;
+
+  const { data: adminRows, error: adminErr } = await supabase
+    .schema("indus_one")
+    .from(INDUS_ONE_TOUR_TABLES.adminRequests)
+    .select(TOUR_REQUEST_META_SELECT_ADMIN)
+    .in("id", unique);
+  if (!adminErr) {
+    for (const row of adminRows || []) {
+      if (row?.id) map[row.id] = row;
+    }
+  }
+
+  const missing = unique.filter((id) => !map[id]);
+  if (missing.length) {
+    const { data: lmsRows, error: lmsErr } = await supabase
+      .schema("indus_one")
+      .from(INDUS_ONE_TOUR_TABLES.lmsRequests)
+      .select(TOUR_REQUEST_META_SELECT_LMS)
+      .in("id", missing);
+    if (!lmsErr) {
+      for (const row of lmsRows || []) {
+        if (row?.id) map[row.id] = row;
+      }
+    }
+  }
+  return map;
+}
+
+function isApprovedTourStatus(status) {
+  return String(status ?? "").trim().toLowerCase() === "approved";
+}
+
+function tourRequestEmployeeCode(row) {
+  return normalizeAttendanceEmpCode(row?.employee_code || row?.emp_code || "");
+}
+
+function mergeTourMarksIntoAccumulator(targetMarks, targetRemarks, sourceMarks, sourceRemarks) {
+  for (const [empCode, days] of Object.entries(sourceMarks || {})) {
+    const code = normalizeAttendanceEmpCode(empCode);
+    if (!code) continue;
+    if (!targetMarks[code]) targetMarks[code] = {};
+    Object.assign(targetMarks[code], days || {});
+    const remarkDays = sourceRemarks?.[code] || sourceRemarks?.[empCode];
+    if (remarkDays) {
+      if (!targetRemarks[code]) targetRemarks[code] = {};
+      Object.assign(targetRemarks[code], remarkDays);
+    }
+  }
+}
+
+async function fetchApprovedTourRequestsForRange(supabase, fromDate, toDate) {
+  const byId = new Map();
+  const tableSelects = {
+    [INDUS_ONE_TOUR_TABLES.adminRequests]: [
+      "id, employee_code, emp_code, from_date, to_date, location, reason, remarks, status",
+      "id, employee_code, from_date, to_date, location, reason, remarks, status",
+    ],
+    [INDUS_ONE_TOUR_TABLES.lmsRequests]: [
+      "id, employee_code, emp_code, from_date, to_date, location, reason, destination, purpose, remarks, status",
+      "id, employee_code, from_date, to_date, location, reason, destination, purpose, remarks, status",
+      "id, employee_code, from_date, to_date, destination, purpose, remarks, status",
+    ],
+  };
+
+  for (const [table, selects] of Object.entries(tableSelects)) {
+    let data = null;
+    for (const select of selects) {
+      const result = await supabase
+        .schema("indus_one")
+        .from(table)
+        .select(select)
+        .lte("from_date", toDate)
+        .gte("to_date", fromDate);
+      if (!result.error) {
+        data = result.data;
+        break;
+      }
+      if (!String(result.error?.message || "").includes("does not exist")) break;
+    }
+    if (!data) continue;
+    for (const row of data || []) {
+      if (!row?.id || !isApprovedTourStatus(row.status)) continue;
+      const employee_code = tourRequestEmployeeCode(row);
+      if (!byId.has(row.id)) {
+        byId.set(row.id, { ...row, employee_code: employee_code || row.employee_code || row.emp_code });
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
+async function fetchTourAttendanceMarksForRange(supabase, fromDate, toDate) {
+  const { data, error } = await supabase
+    .schema("indus_one")
+    .from(INDUS_ONE_TOUR_TABLES.attendanceMarks)
+    .select("employee_code, register_date, tour_request_id, reverted")
+    .eq("reverted", false)
+    .gte("register_date", fromDate)
+    .lte("register_date", toDate);
+  if (error) return [];
+  return data || [];
+}
+
+async function fetchApprovedTourMarksViaRpc(supabase, fromDate, toDate) {
+  const { data, error } = await supabase.rpc("fetch_approved_tour_marks_for_register", {
+    p_from_date: fromDate,
+    p_to_date: toDate,
+  });
+  if (error) return null;
+  const marks = {};
+  const remarks = {};
+  for (const row of data || []) {
+    const remark = formatTourRegisterRemark(row.location, row.reason);
+    addTourMark(marks, remarks, row.employee_code, row.register_date, remark);
+  }
+  return { marks, remarks };
+}
+
+function expandApprovedTourRequestsToMarks(requests, fromDate, toDate) {
+  const marks = {};
+  const remarks = {};
+  for (const req of requests || []) {
+    if (!isApprovedTourStatus(req.status)) continue;
+    const empCode = tourRequestEmployeeCode(req);
+    if (!empCode) continue;
+    const remark = formatTourRegisterRemarkFromRow(req);
+    const reqFrom = normalizeDbDate(req.from_date);
+    const reqTo = normalizeDbDate(req.to_date);
+    if (!reqFrom || !reqTo) continue;
+    const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
+    const windowTo = reqTo > toDate ? toDate : reqTo;
+    for (const iso of enumerateDates(windowFrom, windowTo)) {
+      addTourMark(marks, remarks, empCode, iso, remark);
+    }
+  }
+  return { marks, remarks };
+}
+
+async function buildApprovedTourMarksFromSources(supabase, fromDate, toDate) {
+  const marks = {};
+  const remarks = {};
+
+  const approved = await fetchApprovedTourRequestsForRange(supabase, fromDate, toDate);
+  const fromRequests = expandApprovedTourRequestsToMarks(approved, fromDate, toDate);
+  mergeTourMarksIntoAccumulator(marks, remarks, fromRequests.marks, fromRequests.remarks);
+
+  const applied = await fetchTourAttendanceMarksForRange(supabase, fromDate, toDate);
+  if (applied.length) {
+    const meta = await fetchTourRequestMetaByIds(
+      supabase,
+      applied.map((row) => row.tour_request_id)
+    );
+    for (const row of applied) {
+      const tour = meta[row.tour_request_id];
+      const remark = formatTourRegisterRemarkFromRow(tour);
+      addTourMark(marks, remarks, row.employee_code, row.register_date, remark);
+    }
+  }
+
+  return { marks, remarks };
+}
+
+async function buildApprovedTourMetaForRange(supabase, fromDate, toDate) {
+  const byEmpDate = {};
+  const addMeta = (rawCode, registerDate, meta) => {
+    const code = normalizeAttendanceEmpCode(rawCode);
+    const date = normalizeDbDate(registerDate);
+    if (!code || !date) return;
+    if (!byEmpDate[code]) byEmpDate[code] = {};
+    byEmpDate[code][date] = meta;
+  };
+
+  const approved = await fetchApprovedTourRequestsForRange(supabase, fromDate, toDate);
+  for (const req of approved) {
+    const code = tourRequestEmployeeCode(req);
+    if (!code) continue;
+    const reqFrom = normalizeDbDate(req.from_date);
+    const reqTo = normalizeDbDate(req.to_date);
+    if (!reqFrom || !reqTo) continue;
+    const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
+    const windowTo = reqTo > toDate ? toDate : reqTo;
+    for (const iso of enumerateDates(windowFrom, windowTo)) {
+      addMeta(code, iso, tourMetaFromRequestRow(req));
+    }
+  }
+
+  const applied = await fetchTourAttendanceMarksForRange(supabase, fromDate, toDate);
+  if (applied.length) {
+    const meta = await fetchTourRequestMetaByIds(
+      supabase,
+      applied.map((row) => row.tour_request_id)
+    );
+    for (const row of applied) {
+      const tour = meta[row.tour_request_id];
+      addMeta(row.employee_code, row.register_date, tourMetaFromRequestRow(tour, row.tour_request_id));
+    }
+  }
+
+  return { byEmpDate };
+}
+
+/**
+ * Approved tours for the daily register (read-only).
+ * Merges admin_tour_attendance_marks, admin_tour_requests, and tour_requests (LMS).
+ */
+export async function fetchApprovedTourMarksForMonth(supabase, fromDate, toDate) {
+  if (!fromDate || !toDate) return { marks: {}, remarks: {} };
+
+  try {
+    const rpcResult = await fetchApprovedTourMarksViaRpc(supabase, fromDate, toDate);
+    if (rpcResult && Object.keys(rpcResult.marks).length) {
+      return rpcResult;
+    }
+  } catch {
+    /* RPC not deployed yet — fall back to direct reads */
+  }
+
+  try {
+    return await buildApprovedTourMarksFromSources(supabase, fromDate, toDate);
+  } catch (err) {
+    console.warn("fetchApprovedTourMarksForMonth failed:", err);
+    return { marks: {}, remarks: {} };
+  }
+}
+
+/**
+ * Re-apply approved tours to register state (realtime refresh).
+ */
+export async function refreshApprovedToursOnRegister(supabase, monthMeta, options = {}) {
+  const {
+    punches = [],
+    approvedLeaveMarks = {},
+    masterCodeMap = null,
+    existingRegisterRows = null,
+  } = options;
+  if (!monthMeta?.fromDate || !monthMeta?.toDate) {
+    return { marks: {}, remarks: {} };
+  }
+
+  const tourData = await fetchApprovedTourMarksForMonth(
+    supabase,
+    monthMeta.fromDate,
+    monthMeta.toDate
+  );
+
+  await syncApprovedToursToRegister(supabase, monthMeta.fromDate, monthMeta.toDate, {
+    masterCodeMap,
+    existingRegisterRows,
+  });
+
+  const registerRows = await fetchRegisterMarkRowsInRange(supabase, {
+    fromDate: monthMeta.fromDate,
+    toDate: monthMeta.toDate,
+  });
+
+  const registerData = buildRegisterMonthViewFromPrefetched(monthMeta, registerRows, masterCodeMap);
+  const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(
+    registerData?.marks || {},
+    approvedLeaveMarks,
+    { punches, monthKey: monthMeta.monthKey }
+  );
+  const merged = mergeApprovedTourIntoRegisterView(afterLeave, registerData?.remarks || {}, tourData, {
+    punches,
+    monthKey: monthMeta.monthKey,
+  });
+  return { ...merged, registerRows };
+}
+
+
+/** Merge approved tour T marks + comments into register view. Punch (P) wins over tour. */
+export function mergeApprovedTourIntoRegisterView(
+  manualMarks,
+  manualRemarks,
+  tourData,
+  { punches = [], monthKey } = {}
+) {
+  const tourMarks = tourData?.marks || {};
+  const tourRemarks = tourData?.remarks || {};
+  const presentKeys = buildPresentKeysFromPunches(punches);
+  const nextMarks = {};
+  for (const [code, days] of Object.entries(manualMarks || {})) {
+    nextMarks[code] = { ...(days || {}) };
+  }
+  const nextRemarks = { ...(manualRemarks || {}) };
+
+  for (const [empCode, days] of Object.entries(tourMarks)) {
+    const code = normalizeAttendanceEmpCode(empCode);
+    if (!code) continue;
+    if (!nextMarks[code]) nextMarks[code] = {};
+    for (const [dayKey, mark] of Object.entries(days || {})) {
+      const day = Number(dayKey);
+      const canonical = normalizeRegisterMarkForDb(mark);
+      if (!Number.isFinite(day) || canonical !== "T") continue;
+      const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
+      if (iso && presentKeys.has(`${code}|${iso}`)) continue;
+      const existing = nextMarks[code][day];
+      if (existing === "P") continue;
+      nextMarks[code][day] = "T";
+      const remark = String(tourRemarks[code]?.[day] || tourRemarks[empCode]?.[day] || "").trim();
+      if (!nextRemarks[code]) nextRemarks[code] = {};
+      if (remark) {
+        nextRemarks[code][day] = remark;
+      } else {
+        delete nextRemarks[code][day];
+      }
+    }
+  }
+
+  // Biometric punch wins over tour T in the grid (same as leave overlay).
+  for (const key of presentKeys) {
+    const pipe = key.indexOf("|");
+    if (pipe < 0) continue;
+    const code = key.slice(0, pipe);
+    const iso = key.slice(pipe + 1);
+    const day = dayOfMonthFromIsoDate(iso);
+    if (!code || !day) continue;
+    if (nextMarks[code]?.[day] === "T") {
+      delete nextMarks[code][day];
+      if (nextRemarks[code]) delete nextRemarks[code][day];
+    }
+  }
+
+  return { marks: nextMarks, remarks: nextRemarks };
+}
+
+function canTourSyncApplyToExisting(existing) {
+  if (!existing?.mark) return true;
+  if (isManualMarkSource(existing.mark_source)) return false;
+  if (isPunchMarkSource(existing.mark, existing.mark_source)) return false;
+  const mark = String(existing.mark ?? "").trim();
+  if (mark === "P") return false;
+  // LMS tour approval often writes P(OD); convert those cells to T on sync.
+  if (mark === "P(OD)") return true;
+  if (mark === "T" && !String(existing.mark_remark ?? "").trim()) return true;
+  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) return true;
+  if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return true;
+  return false;
+}
+
+/**
+ * Upsert approved tour days as T with location/reason comments on the register.
+ * Runs after punch sync so machine Present wins when both exist.
+ */
+export async function syncApprovedToursToRegister(supabase, fromDate, toDate, options = {}) {
+  const masterCodeMap = options.masterCodeMap ?? null;
+  const tourRows = await fetchApprovedTourRegisterUpserts(supabase, fromDate, toDate);
+  if (!tourRows.length) return { upserted: 0, skipped: 0, candidates: 0 };
+
+  const existingRows =
+    options.existingRegisterRows ??
+    (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
+
+  const existingByKey = new Map();
+  for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
+
+  const toUpsert = [];
+  let skipped = 0;
+  for (const row of tourRows) {
+    const normCode = normalizeAttendanceEmpCode(row.employee_code);
+    const dbCode = toRegisterDbEmployeeCode(row.employee_code, masterCodeMap);
+    const date = normalizeDbDate(row.register_date);
+    if (!normCode || !dbCode || !date) {
+      skipped += 1;
+      continue;
+    }
+    const existing = lookupRegisterRow(existingByKey, normCode, dbCode, date);
+    if (!canTourSyncApplyToExisting(existing)) {
+      skipped += 1;
+      continue;
+    }
+    toUpsert.push({
+      ...row,
+      employee_code: dbCode,
+      register_date: date,
+      month_key: date.slice(0, 7),
+      mark: "T",
+      mark_source: REGISTER_MARK_SOURCE_TOUR,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  if (toUpsert.length) {
+    await upsertRegisterMarksBatch(supabase, toUpsert, { masterCodeMap });
+  }
+
+  return {
+    upserted: toUpsert.length,
+    skipped,
+    candidates: tourRows.length,
+  };
+}
+
+async function fetchApprovedTourRegisterUpserts(supabase, fromDate, toDate) {
+  const { byEmpDate } = await fetchApprovedTourMetaForRange(supabase, fromDate, toDate);
+  const rows = [];
+  for (const [code, dates] of Object.entries(byEmpDate)) {
+    for (const [registerDate, meta] of Object.entries(dates)) {
+      rows.push({
+        employee_code: code,
+        register_date: registerDate,
+        mark_remark: formatTourRegisterRemark(meta?.location, meta?.reason) || null,
+        tour_request_id: meta?.tour_request_id ?? null,
+        leave_request_id: null,
+      });
+    }
+  }
+  return rows;
+}
+
+async function fetchApprovedTourMetaForRange(supabase, fromDate, toDate) {
+  try {
+    const { data, error } = await supabase.rpc("fetch_approved_tour_marks_for_register", {
+      p_from_date: fromDate,
+      p_to_date: toDate,
+    });
+    if (!error && data?.length) {
+      const byEmpDate = {};
+      for (const row of data) {
+        const code = normalizeAttendanceEmpCode(row.employee_code);
+        const date = normalizeDbDate(row.register_date);
+        if (!code || !date) continue;
+        if (!byEmpDate[code]) byEmpDate[code] = {};
+        byEmpDate[code][date] = {
+          tour_request_id: row.tour_request_id ?? null,
+          location: row.location,
+          reason: row.reason,
+        };
+      }
+      return { byEmpDate };
+    }
+  } catch {
+    /* RPC not deployed */
+  }
+
+  return buildApprovedTourMetaForRange(supabase, fromDate, toDate);
+}
+
 /** All register mark rows for a calendar year (leave limits, CO validation, alerts). */
 export async function fetchRegisterMarksForYear(supabase, year, masterCodeMap = null) {
   const y = Number(year) || new Date().getFullYear();
@@ -831,6 +1330,7 @@ export function canAutoWeekoffApplyToExisting(existing) {
   if (!existing?.mark) return true;
   if (String(existing.mark_remark ?? "").trim()) return false;
   if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return false;
+  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) return false;
   const src = String(existing.mark_source ?? "").trim().toLowerCase();
   if (isManualMarkSource(src)) return false;
   const mark = String(existing.mark ?? "").trim();

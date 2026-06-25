@@ -60,6 +60,11 @@ export function isLeaveMarkSource(markSource, leaveRequestId) {
   return String(markSource ?? '').trim().toLowerCase() === 'leave';
 }
 
+export function isTourMarkSource(markSource, tourRequestId) {
+  if (tourRequestId) return true;
+  return String(markSource ?? '').trim().toLowerCase() === 'tour';
+}
+
 export function isPunchMarkSource(mark, markSource) {
   const src = String(markSource ?? '').trim().toLowerCase();
   if (PUNCH_MARK_SOURCES.has(src)) return true;
@@ -78,10 +83,12 @@ export function canPunchSyncOverwriteExisting(existing) {
   if (!existing) return true;
   const mark = existing.mark ?? '';
   const markNorm = String(mark ?? '').trim();
-  if (markNorm === 'P(OD)' || markNorm === 'T') return false;
-  if (String(existing.mark_remark ?? '').trim()) return false;
   const markSource = existing.mark_source ?? null;
   const leaveRequestId = existing.leave_request_id ?? null;
+  const tourRequestId = existing.tour_request_id ?? null;
+  if (isTourMarkSource(markSource, tourRequestId)) return true;
+  if (markNorm === 'P(OD)' || markNorm === 'T') return false;
+  if (String(existing.mark_remark ?? '').trim()) return false;
   if (!mark && !markSource) return true;
   if (isManualMarkSource(markSource)) return false;
   if (isLeaveMarkSource(markSource, leaveRequestId)) return true;
@@ -122,6 +129,7 @@ export function marksByEmpDayFromRegisterDbRows(dbRows, normalizeMarkFn) {
       mark: mark || '',
       mark_source: row.mark_source ?? null,
       leave_request_id: row.leave_request_id ?? null,
+      tour_request_id: row.tour_request_id ?? null,
       mark_remark: row.mark_remark ?? null,
     };
   }
