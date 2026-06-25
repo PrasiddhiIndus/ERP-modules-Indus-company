@@ -69,6 +69,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       providerLabel: 'Issuing RTO / authority',
       secondarySectionTitle: 'RTO & file',
       showPremium: false,
+      expiryRequired: false,
       attachmentMax: 6
     },
     Insurance: {
