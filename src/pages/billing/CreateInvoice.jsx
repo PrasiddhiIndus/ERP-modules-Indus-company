@@ -698,7 +698,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   const [lumpSumConsolidatedLineDraft, setLumpSumConsolidatedLineDraft] = useState(() =>
     initDraft?.lumpSumConsolidatedLineDraft
       ? initDraft.lumpSumConsolidatedLineDraft
-      : { description: null, hsnSac: null, quantity: '', rate: '' }
+      : { description: null, hsnSac: null, materialCode: null, uom: null, quantity: '', rate: '' }
   );
   const [poBillingTab, setPoBillingTab] = useState(() => initDraft?.poBillingTab ?? 'Monthly');
   const [createMainTab, setCreateMainTab] = useState(() => initDraft?.createMainTab ?? 'select-po');
@@ -1216,7 +1216,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (poConfigInitializedForRef.current === poId) return;
     poConfigInitializedForRef.current = poId;
     setLumpSumInvoicePenaltyGeometry(false);
-    setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, quantity: '', rate: '' });
+    setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, materialCode: null, uom: null, quantity: '', rate: '' });
     setInvoiceMonthlyDutyQtyMode(
       normalizeMonthlyDutyQtyMode(selectedPO?.monthlyDutyQtyMode || selectedPO?.monthly_duty_qty_mode)
     );
@@ -1875,6 +1875,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
         lumpSumConsolidatedLineDraft.hsnSac == null
           ? geometryRows[0]?.hsnSac || resolvePoHsnSac(displayPO) || ''
           : lumpSumConsolidatedLineDraft.hsnSac,
+      materialCode:
+        lumpSumConsolidatedLineDraft.materialCode == null
+          ? geometryRows[0]?.materialCode || ''
+          : lumpSumConsolidatedLineDraft.materialCode,
+      uom:
+        lumpSumConsolidatedLineDraft.uom == null
+          ? geometryRows[0]?.uom ?? ''
+          : lumpSumConsolidatedLineDraft.uom,
       quantity: qty,
       rate,
       amount,
@@ -1935,6 +1943,8 @@ const CreateInvoice = ({ onNavigateTab }) => {
       {
         description: sourceRows[0]?.description ?? 'Lump Sum Billing (Invoice Consolidated)',
         hsnSac: sourceRows[0]?.hsnSac || resolvePoHsnSac(displayPO) || '',
+        materialCode: sourceRows[0]?.materialCode || '',
+        uom: sourceRows[0]?.uom ?? '',
         quantity: qty,
         rate,
         amount,
@@ -3210,7 +3220,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 setInvoiceMonthlyDutyQtyMode('po_geometry');
                 setInvoiceLumpSumBillingMode('normal');
                 setLumpSumInvoicePenaltyGeometry(false);
-                setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, quantity: '', rate: '' });
+                setLumpSumConsolidatedLineDraft({ description: null, hsnSac: null, materialCode: null, uom: null, quantity: '', rate: '' });
                 const { from, to } = getDefaultServicePeriodRange();
                 setServicePeriodFrom(from);
                 setServicePeriodTo(to);
@@ -3504,11 +3514,17 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     </p>
                     {consolidatedLumpSumLine ? (
                       <div className="mt-3 overflow-x-auto">
-                        <table className="min-w-[680px] w-full border border-neutral-300 bg-white text-xs">
+                        <table className="min-w-[880px] w-full border border-neutral-300 bg-white text-xs">
                           <thead className="bg-neutral-100 text-neutral-900">
                             <tr>
                               <th className="w-12 border border-neutral-300 px-2 py-2 text-center">#</th>
                               <th className="border border-neutral-300 px-2 py-2 text-left">Description</th>
+                              {materialCodeRequired ? (
+                                <th className="w-32 border border-neutral-300 px-2 py-2 text-center">Material code</th>
+                              ) : (
+                                <th className="w-28 border border-neutral-300 px-2 py-2 text-center">HSN / SAC</th>
+                              )}
+                              <th className="w-24 border border-neutral-300 px-2 py-2 text-center">UOM</th>
                               <th className="w-28 border border-neutral-300 px-2 py-2 text-right">Amount</th>
                             </tr>
                           </thead>
@@ -3524,6 +3540,36 @@ const CreateInvoice = ({ onNavigateTab }) => {
                                   placeholder="Final invoice line description"
                                 />
                               </td>
+                              {materialCodeRequired ? (
+                                <td className="border border-neutral-300 px-2 py-2">
+                                  <input
+                                    type="text"
+                                    value={consolidatedLumpSumLine.materialCode || ''}
+                                    onChange={(e) => updateLumpSumConsolidatedLine({ materialCode: e.target.value })}
+                                    className="w-full rounded border border-gray-300 px-2 py-1 text-center font-mono text-sm"
+                                    placeholder="Material code"
+                                  />
+                                </td>
+                              ) : (
+                                <td className="border border-neutral-300 px-2 py-2">
+                                  <input
+                                    type="text"
+                                    value={consolidatedLumpSumLine.hsnSac || ''}
+                                    onChange={(e) => updateLumpSumConsolidatedLine({ hsnSac: e.target.value })}
+                                    className="w-full rounded border border-gray-300 px-2 py-1 text-center font-mono text-sm"
+                                    placeholder={resolvePoHsnSac(displayPO) || 'HSN/SAC'}
+                                  />
+                                </td>
+                              )}
+                              <td className="border border-neutral-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={consolidatedLumpSumLine.uom ?? ''}
+                                  onChange={(e) => updateLumpSumConsolidatedLine({ uom: e.target.value })}
+                                  className="w-full rounded border border-gray-300 px-2 py-1 text-center text-sm"
+                                  placeholder="UOM"
+                                />
+                              </td>
                               <td className="border border-neutral-300 px-2 py-2 text-right font-semibold tabular-nums">
                                 ₹{round2(consolidatedLumpSumLine.amount).toLocaleString('en-IN')}
                               </td>
@@ -3531,7 +3577,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                           </tbody>
                         </table>
                         <p className="mt-1 text-[11px] text-neutral-500">
-                          Only the description is editable here; calculated values are locked and feed the tax invoice.
+                          Description, {materialCodeRequired ? 'material code' : 'HSN / SAC'}, and UOM are editable here; calculated amount is locked and feeds the tax invoice.
                         </p>
                       </div>
                     ) : null}
