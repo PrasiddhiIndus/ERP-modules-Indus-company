@@ -303,7 +303,7 @@ export default function FormulaLibrary() {
 
       {formulaSubTab === 'all' ? <AllFormulasView groups={formulaGroups} setGroups={setFormulaGroups} /> : null}
       {formulaSubTab === 'datawizard' ? <DatawizardReport formulaGroups={formulaGroups} /> : null}
-      {formulaSubTab === 'calc' ? <SiteCalculationFormulas /> : null}
+      {formulaSubTab === 'calc' ? <SiteCalculationFormulas formulaGroups={formulaGroups} /> : null}
     </div>
   );
 }

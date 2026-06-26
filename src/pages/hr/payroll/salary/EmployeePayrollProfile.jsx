@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { SectionCard, Badge, DenseTable } from '../../../adminOperations/components/AdminUi';
 import { supabase } from '../../../../lib/supabase';
 import { EMPLOYEE_MASTER_TABLE } from '../../../../modules/payroll/integrations';
-import { listEmployeePayrollProfiles, listComponentsMaster, getActiveFormulaSetForSite } from '../../../../services/payrollApi';
+import { listEmployeePayrollProfiles, listComponentsMaster, resolveFormulasForSite } from '../../../../services/payrollApi';
 import { fetchPresentDaysByEmployeeCode } from '../../../../services/attendancePayrollApi';
 import { computeEmployeePayroll } from '../../../../modules/payroll/calc/pipeline';
 import { listPtRules, listTdsRules } from '../../../../services/payrollApi';
@@ -42,15 +42,7 @@ export default function EmployeePayrollProfile() {
       const attendance = att.byEmpCode.get(code) || { presentDays: 0, monthDays: att.daysInMonth };
       let formulas = [];
       if (prof?.payroll_site_id) {
-        const set = await getActiveFormulaSetForSite(prof.payroll_site_id);
-        formulas = set?.components || [];
-      }
-      if (!formulas.length) {
-        formulas = [
-          { component_code: 'GROSS', formula_text: String(prof?.gross_monthly || 0) },
-          { component_code: 'BASIC', formula_text: 'Gross * 0.40' },
-          { component_code: 'HRA', formula_text: 'Basic * 0.50' },
-        ];
+        formulas = await resolveFormulasForSite(prof.payroll_site_id, components);
       }
       const result = computeEmployeePayroll({
         profile: prof || { gross_monthly: 0 },

@@ -2,6 +2,12 @@ import { supabase } from '../lib/supabase';
 import { PAYROLL_TABLES, EMPLOYEE_MASTER_TABLE } from '../modules/payroll/integrations';
 import { fetchPresentDaysByEmployeeCode, fetchActiveEmployeesForPayroll } from './attendancePayrollApi';
 import { computeEmployeePayroll } from '../modules/payroll/calc/pipeline';
+import {
+  loadMasterComponentFormulas,
+  mergeMasterAndSiteFormulas,
+  parseSiteFormulaSet,
+  toFormulaArray,
+} from '../pages/hr/payroll/salary/formulaMasterBridge';
 
 const T = PAYROLL_TABLES;
 
@@ -104,6 +110,15 @@ export async function getActiveFormulaSetForSite(siteId) {
     .order('display_order');
   if (cErr) throw cErr;
   return { ...data, components: comps || [] };
+}
+
+/** Resolve formulas: site-specific overrides first, then master defaults. */
+export async function resolveFormulasForSite(siteId, components = []) {
+  const master = loadMasterComponentFormulas(components);
+  if (!siteId) return toFormulaArray(master);
+  const set = await getActiveFormulaSetForSite(siteId);
+  const overrides = parseSiteFormulaSet(set);
+  return toFormulaArray(mergeMasterAndSiteFormulas(master, overrides));
 }
 
 export async function saveFormulaSet(siteId, { notes, components, status = 'active' }) {
@@ -239,17 +254,13 @@ export async function runPayrollPreview(monthValue, { persist = false, runLabel 
     let formulas = [];
     if (siteId) {
       if (!siteFormulaCache.has(siteId)) {
-        const set = await getActiveFormulaSetForSite(siteId);
-        siteFormulaCache.set(siteId, set?.components || []);
+        const resolved = await resolveFormulasForSite(siteId, components);
+        siteFormulaCache.set(siteId, resolved);
       }
       formulas = siteFormulaCache.get(siteId) || [];
     }
     if (!formulas.length) {
-      formulas = [
-        { component_code: 'GROSS', formula_text: String(prof.gross_monthly || 0), is_enabled: true },
-        { component_code: 'BASIC', formula_text: 'Gross * 0.40', is_enabled: true },
-        { component_code: 'HRA', formula_text: 'Basic * 0.50', is_enabled: true },
-      ];
+      formulas = toFormulaArray(loadMasterComponentFormulas(components));
     }
     const computed = computeEmployeePayroll({
       profile: prof,
