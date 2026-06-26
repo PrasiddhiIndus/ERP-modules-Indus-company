@@ -30,6 +30,7 @@ export const EMPLOYEE_MASTER_CODE_COL = "employee_code";
 export const REGISTER_MARK_UPSERT_CHUNK = 200;
 export const PUNCH_FETCH_CHUNK = 1000;
 export const REGISTER_FETCH_CHUNK = 1000;
+export const REGISTER_FETCH_TIMEOUT_MS = 60000;
 export const ABSENT_GRID_CAP = 5000;
 
 export const STORAGE_KEYS = {
@@ -611,16 +612,73 @@ export function dbRowsToManualMarks(rows, masterCodeMap = null) {
 /** DB rows -> manualRemarks[empCode][dayNumber] (P(OD) / T comments). */
 export function dbRowsToManualRemarks(rows, masterCodeMap = null) {
   const remarks = {};
+  const priority = {};
   for (const row of rows || []) {
     const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
     const day = dayOfMonthFromIsoDate(row.register_date);
     const mark = normalizeRegisterMarkForDb(row.mark);
     const remark = String(row.mark_remark || "").trim();
     if (!code || !day || !isRegisterCommentMark(mark) || !remark) continue;
+    const rowPri = registerMarkRowPriority(row);
+    const prevPri = priority[code]?.[day] ?? -1;
+    if (rowPri < prevPri) continue;
     if (!remarks[code]) remarks[code] = {};
+    if (!priority[code]) priority[code] = {};
     remarks[code][day] = remark;
+    priority[code][day] = rowPri;
   }
   return remarks;
+}
+
+/** Update a prefetched register row cache after a cell save (keeps tour sync from stale reads). */
+export function patchRegisterRowInCache(rows, patch) {
+  const list = [...(rows || [])];
+  const employee_code = String(patch?.employee_code ?? "").trim();
+  const register_date = normalizeDbDate(patch?.register_date);
+  if (!employee_code || !register_date) return list;
+  const normCode = normalizeAttendanceEmpCode(employee_code);
+  const idx = list.findIndex(
+    (row) =>
+      normalizeAttendanceEmpCode(row.employee_code) === normCode &&
+      normalizeDbDate(row.register_date) === register_date
+  );
+  const nextRow = {
+    ...(idx >= 0 ? list[idx] : {}),
+    employee_code,
+    register_date,
+    mark: patch.mark ?? (idx >= 0 ? list[idx].mark : null),
+    mark_remark:
+      patch.mark_remark !== undefined
+        ? patch.mark_remark
+        : idx >= 0
+          ? list[idx].mark_remark
+          : null,
+    mark_source:
+      patch.mark_source !== undefined
+        ? patch.mark_source
+        : idx >= 0
+          ? list[idx].mark_source
+          : "manual",
+    leave_request_id:
+      patch.leave_request_id !== undefined
+        ? patch.leave_request_id
+        : idx >= 0
+          ? list[idx].leave_request_id
+          : null,
+    tour_request_id:
+      patch.tour_request_id !== undefined
+        ? patch.tour_request_id
+        : idx >= 0
+          ? list[idx].tour_request_id
+          : null,
+  };
+  if (!nextRow.mark) {
+    if (idx >= 0) list.splice(idx, 1);
+    return list;
+  }
+  if (idx >= 0) list[idx] = nextRow;
+  else list.push(nextRow);
+  return list;
 }
 
 export function manualMarksToDbRows(marksByEmp, monthKey) {
@@ -645,26 +703,117 @@ export function manualMarksToDbRows(marksByEmp, monthKey) {
   return rows;
 }
 
-/** Paginated read — PostgREST defaults to 1000 rows; a full month can exceed that. */
-export async function fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }) {
+const REGISTER_ROW_SELECT_VARIANTS = [
+  "employee_code,register_date,mark,mark_remark,mark_source,leave_request_id,tour_request_id",
+  "employee_code,register_date,mark,mark_remark,mark_source,leave_request_id",
+  "employee_code,register_date,mark,mark_remark,mark_source",
+  "employee_code,register_date,mark,mark_remark",
+  "employee_code,register_date,mark",
+];
+
+function isRetryableRegisterQueryError(error) {
+  if (!error) return false;
+  const msg = String(error.message || "").toLowerCase();
+  const code = String(error.code || "");
+  const status = Number(error.status || error.statusCode || 0);
+  if (status === 500 || status === 502 || status === 503 || status === 504) return true;
+  if (code === "PGRST204" || code === "42703" || code === "PGRST202" || code === "PGRST106") return true;
+  if (msg.includes("does not exist")) return true;
+  if (msg.includes("could not find")) return true;
+  if (msg.includes("schema cache")) return true;
+  if (msg.includes("statement timeout") || msg.includes("canceling statement")) return true;
+  if (msg.includes("timed out") || msg.includes("timeout")) return true;
+  return false;
+}
+
+/** When the range is a full calendar month, prefer month_key (indexed) over register_date scan. */
+export function resolveRegisterFetchMonthKey({ fromDate, toDate, monthKey } = {}) {
+  if (monthKey) return monthKey;
+  if (!fromDate || !toDate || fromDate.length < 10 || toDate.length < 10) return null;
+  const mk = fromDate.slice(0, 7);
+  if (!toDate.startsWith(mk) || !fromDate.endsWith("-01")) return null;
+  const [year, month] = mk.split("-").map(Number);
+  if (!year || !month) return null;
+  const lastDay = daysInCalendarMonth(year, month);
+  const expectedTo = `${mk}-${String(lastDay).padStart(2, "0")}`;
+  return toDate === expectedTo ? mk : null;
+}
+
+function registerFetchAbortSignal() {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(REGISTER_FETCH_TIMEOUT_MS);
+  }
+  return undefined;
+}
+
+function applyRegisterFetchAbortSignal(query) {
+  const signal = registerFetchAbortSignal();
+  if (signal && typeof query.abortSignal === "function") {
+    return query.abortSignal(signal);
+  }
+  return query;
+}
+
+async function fetchRegisterMarkRowsForSingleDay(supabase, { select, day, monthKey, useMonthKey }) {
   const all = [];
-  let offset = 0;
+  let afterEmployeeCode = null;
+
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from(ATTENDANCE_REGISTER_TABLE)
-      .select("employee_code,register_date,mark,mark_remark,mark_source,leave_request_id,tour_request_id")
-      .gte("register_date", fromDate)
-      .lte("register_date", toDate)
-      .order("register_date", { ascending: true })
+      .select(select)
+      .eq("register_date", day)
       .order("employee_code", { ascending: true })
-      .range(offset, offset + REGISTER_FETCH_CHUNK - 1);
-    if (error) throw error;
+      .limit(REGISTER_FETCH_CHUNK);
+    if (useMonthKey && monthKey) query = query.eq("month_key", monthKey);
+    if (afterEmployeeCode) query = query.gt("employee_code", afterEmployeeCode);
+    query = applyRegisterFetchAbortSignal(query);
+
+    const { data, error } = await query;
+    if (error) return { rows: null, error };
     const chunk = data || [];
     all.push(...chunk);
-    if (chunk.length < REGISTER_FETCH_CHUNK) break;
-    offset += REGISTER_FETCH_CHUNK;
+    if (chunk.length < REGISTER_FETCH_CHUNK) return { rows: all, error: null };
+    afterEmployeeCode = chunk[chunk.length - 1]?.employee_code;
+    if (!afterEmployeeCode) return { rows: all, error: null };
   }
-  return all;
+}
+
+async function fetchRegisterMarkRowsForSelect(supabase, { select, fromDate, toDate, monthKey, useMonthKey }) {
+  const all = [];
+  for (const day of enumerateDates(fromDate, toDate)) {
+    const { rows, error } = await fetchRegisterMarkRowsForSingleDay(supabase, {
+      select,
+      day,
+      monthKey,
+      useMonthKey,
+    });
+    if (error) return { rows: null, error };
+    all.push(...rows);
+  }
+  return { rows: all, error: null };
+}
+
+/** Paginated read — one day per request (no OFFSET) so large months do not 500 on deep pages. */
+export async function fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate, monthKey } = {}) {
+  const resolvedMonthKey = resolveRegisterFetchMonthKey({ fromDate, toDate, monthKey });
+  const filterModes = resolvedMonthKey ? [true, false] : [false];
+
+  for (const select of REGISTER_ROW_SELECT_VARIANTS) {
+    for (const useMonthKey of filterModes) {
+      const { rows, error } = await fetchRegisterMarkRowsForSelect(supabase, {
+        select,
+        fromDate,
+        toDate,
+        monthKey: resolvedMonthKey,
+        useMonthKey,
+      });
+      if (!error) return rows;
+      if (!isRetryableRegisterQueryError(error)) throw error;
+    }
+  }
+
+  throw new Error("Unable to load attendance register marks for the selected period.");
 }
 
 export async function fetchRegisterMarksForMonth(
@@ -821,38 +970,86 @@ function addTourMark(marks, remarks, employeeCode, registerDate, remark) {
   }
 }
 
-const TOUR_REQUEST_META_SELECT_ADMIN =
-  "id, location, reason, remarks";
-const TOUR_REQUEST_META_SELECT_LMS =
-  "id, location, reason, destination, purpose, place, tour_location, remarks";
+const TOUR_TABLE_SCHEMAS = ["indus_one", "public"];
+
+const ADMIN_TOUR_REQUEST_RANGE_SELECTS = [
+  "id, employee_code, from_date, to_date, status",
+  "id, employee_code, from_date, to_date, destination, purpose, remarks, status",
+  "id, employee_code, from_date, to_date, location, reason, remarks, status",
+  "id, employee_code, emp_code, from_date, to_date, location, reason, remarks, status",
+];
+
+const LMS_TOUR_REQUEST_RANGE_SELECTS = [
+  "id, employee_code, from_date, to_date, status",
+  "id, employee_code, from_date, to_date, destination, purpose, remarks, status",
+  "id, employee_code, from_date, to_date, location, reason, destination, purpose, remarks, status",
+  "id, employee_code, emp_code, from_date, to_date, destination, purpose, remarks, status",
+];
+
+const ADMIN_TOUR_META_SELECTS = [
+  "id",
+  "id, destination, purpose, remarks",
+  "id, location, reason, remarks",
+  "id, location, reason, destination, purpose, remarks",
+];
+
+const LMS_TOUR_META_SELECTS = [
+  "id",
+  "id, destination, purpose, remarks",
+  "id, location, reason, destination, purpose, remarks",
+  "id, location, reason, destination, purpose, place, tour_location, remarks",
+];
+
+function isRetryableTourQueryError(error) {
+  if (!error) return false;
+  const msg = String(error.message || "").toLowerCase();
+  const code = String(error.code || "");
+  if (code === "PGRST204" || code === "42703" || code === "PGRST202" || code === "PGRST106") return true;
+  if (msg.includes("does not exist")) return true;
+  if (msg.includes("could not find")) return true;
+  if (msg.includes("schema cache")) return true;
+  if (msg.includes("invalid schema")) return true;
+  return false;
+}
+
+async function queryTourTableWithFallback(supabase, table, selectVariants, applyFilters) {
+  for (const select of selectVariants) {
+    for (const schema of TOUR_TABLE_SCHEMAS) {
+      let query = supabase.schema(schema).from(table).select(select);
+      query = applyFilters(query);
+      const result = await query;
+      if (!result.error) return result.data || [];
+      if (!isRetryableTourQueryError(result.error)) return [];
+    }
+  }
+  return [];
+}
 
 async function fetchTourRequestMetaByIds(supabase, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   const map = {};
   if (!unique.length) return map;
 
-  const { data: adminRows, error: adminErr } = await supabase
-    .schema("indus_one")
-    .from(INDUS_ONE_TOUR_TABLES.adminRequests)
-    .select(TOUR_REQUEST_META_SELECT_ADMIN)
-    .in("id", unique);
-  if (!adminErr) {
-    for (const row of adminRows || []) {
-      if (row?.id) map[row.id] = row;
-    }
+  const adminRows = await queryTourTableWithFallback(
+    supabase,
+    INDUS_ONE_TOUR_TABLES.adminRequests,
+    ADMIN_TOUR_META_SELECTS,
+    (q) => q.in("id", unique)
+  );
+  for (const row of adminRows) {
+    if (row?.id) map[row.id] = row;
   }
 
   const missing = unique.filter((id) => !map[id]);
   if (missing.length) {
-    const { data: lmsRows, error: lmsErr } = await supabase
-      .schema("indus_one")
-      .from(INDUS_ONE_TOUR_TABLES.lmsRequests)
-      .select(TOUR_REQUEST_META_SELECT_LMS)
-      .in("id", missing);
-    if (!lmsErr) {
-      for (const row of lmsRows || []) {
-        if (row?.id) map[row.id] = row;
-      }
+    const lmsRows = await queryTourTableWithFallback(
+      supabase,
+      INDUS_ONE_TOUR_TABLES.lmsRequests,
+      LMS_TOUR_META_SELECTS,
+      (q) => q.in("id", missing)
+    );
+    for (const row of lmsRows) {
+      if (row?.id) map[row.id] = row;
     }
   }
   return map;
@@ -883,34 +1080,15 @@ function mergeTourMarksIntoAccumulator(targetMarks, targetRemarks, sourceMarks, 
 async function fetchApprovedTourRequestsForRange(supabase, fromDate, toDate) {
   const byId = new Map();
   const tableSelects = {
-    [INDUS_ONE_TOUR_TABLES.adminRequests]: [
-      "id, employee_code, emp_code, from_date, to_date, location, reason, remarks, status",
-      "id, employee_code, from_date, to_date, location, reason, remarks, status",
-    ],
-    [INDUS_ONE_TOUR_TABLES.lmsRequests]: [
-      "id, employee_code, emp_code, from_date, to_date, location, reason, destination, purpose, remarks, status",
-      "id, employee_code, from_date, to_date, location, reason, destination, purpose, remarks, status",
-      "id, employee_code, from_date, to_date, destination, purpose, remarks, status",
-    ],
+    [INDUS_ONE_TOUR_TABLES.adminRequests]: ADMIN_TOUR_REQUEST_RANGE_SELECTS,
+    [INDUS_ONE_TOUR_TABLES.lmsRequests]: LMS_TOUR_REQUEST_RANGE_SELECTS,
   };
 
   for (const [table, selects] of Object.entries(tableSelects)) {
-    let data = null;
-    for (const select of selects) {
-      const result = await supabase
-        .schema("indus_one")
-        .from(table)
-        .select(select)
-        .lte("from_date", toDate)
-        .gte("to_date", fromDate);
-      if (!result.error) {
-        data = result.data;
-        break;
-      }
-      if (!String(result.error?.message || "").includes("does not exist")) break;
-    }
-    if (!data) continue;
-    for (const row of data || []) {
+    const rows = await queryTourTableWithFallback(supabase, table, selects, (q) =>
+      q.lte("from_date", toDate).gte("to_date", fromDate)
+    );
+    for (const row of rows) {
       if (!row?.id || !isApprovedTourStatus(row.status)) continue;
       const employee_code = tourRequestEmployeeCode(row);
       if (!byId.has(row.id)) {
@@ -922,30 +1100,18 @@ async function fetchApprovedTourRequestsForRange(supabase, fromDate, toDate) {
 }
 
 async function fetchTourAttendanceMarksForRange(supabase, fromDate, toDate) {
-  const { data, error } = await supabase
-    .schema("indus_one")
-    .from(INDUS_ONE_TOUR_TABLES.attendanceMarks)
-    .select("employee_code, register_date, tour_request_id, reverted")
-    .eq("reverted", false)
-    .gte("register_date", fromDate)
-    .lte("register_date", toDate);
-  if (error) return [];
-  return data || [];
-}
-
-async function fetchApprovedTourMarksViaRpc(supabase, fromDate, toDate) {
-  const { data, error } = await supabase.rpc("fetch_approved_tour_marks_for_register", {
-    p_from_date: fromDate,
-    p_to_date: toDate,
-  });
-  if (error) return null;
-  const marks = {};
-  const remarks = {};
-  for (const row of data || []) {
-    const remark = formatTourRegisterRemark(row.location, row.reason);
-    addTourMark(marks, remarks, row.employee_code, row.register_date, remark);
+  for (const schema of TOUR_TABLE_SCHEMAS) {
+    const { data, error } = await supabase
+      .schema(schema)
+      .from(INDUS_ONE_TOUR_TABLES.attendanceMarks)
+      .select("employee_code, register_date, tour_request_id, reverted")
+      .eq("reverted", false)
+      .gte("register_date", fromDate)
+      .lte("register_date", toDate);
+    if (!error) return data || [];
+    if (!isRetryableTourQueryError(error)) return [];
   }
-  return { marks, remarks };
+  return [];
 }
 
 function expandApprovedTourRequestsToMarks(requests, fromDate, toDate) {
@@ -1039,15 +1205,6 @@ export async function fetchApprovedTourMarksForMonth(supabase, fromDate, toDate)
   if (!fromDate || !toDate) return { marks: {}, remarks: {} };
 
   try {
-    const rpcResult = await fetchApprovedTourMarksViaRpc(supabase, fromDate, toDate);
-    if (rpcResult && Object.keys(rpcResult.marks).length) {
-      return rpcResult;
-    }
-  } catch {
-    /* RPC not deployed yet — fall back to direct reads */
-  }
-
-  try {
     return await buildApprovedTourMarksFromSources(supabase, fromDate, toDate);
   } catch (err) {
     console.warn("fetchApprovedTourMarksForMonth failed:", err);
@@ -1127,12 +1284,15 @@ export function mergeApprovedTourIntoRegisterView(
       if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = nextMarks[code][day];
       if (existing === "P") continue;
-      nextMarks[code][day] = "T";
       const remark = String(tourRemarks[code]?.[day] || tourRemarks[empCode]?.[day] || "").trim();
+      const existingRemark = String(nextRemarks[code]?.[day] || "").trim();
+      // Manual / DB T comment wins over an approved tour with no remark text.
+      if (existing === "T" && existingRemark) continue;
+      nextMarks[code][day] = "T";
       if (!nextRemarks[code]) nextRemarks[code] = {};
       if (remark) {
         nextRemarks[code][day] = remark;
-      } else {
+      } else if (!existingRemark) {
         delete nextRemarks[code][day];
       }
     }
@@ -1161,6 +1321,7 @@ function canTourSyncApplyToExisting(existing) {
   if (isPunchMarkSource(existing.mark, existing.mark_source)) return false;
   const mark = String(existing.mark ?? "").trim();
   if (mark === "P") return false;
+  if (mark === "T" && String(existing.mark_remark ?? "").trim()) return false;
   // LMS tour approval often writes P(OD); convert those cells to T on sync.
   if (mark === "P(OD)") return true;
   if (mark === "T" && !String(existing.mark_remark ?? "").trim()) return true;
@@ -1178,9 +1339,11 @@ export async function syncApprovedToursToRegister(supabase, fromDate, toDate, op
   const tourRows = await fetchApprovedTourRegisterUpserts(supabase, fromDate, toDate);
   if (!tourRows.length) return { upserted: 0, skipped: 0, candidates: 0 };
 
-  const existingRows =
-    options.existingRegisterRows ??
-    (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
+  const existingRows = await fetchRegisterMarkRowsInRange(supabase, {
+    fromDate,
+    toDate,
+    monthKey: resolveRegisterFetchMonthKey({ fromDate, toDate }),
+  });
 
   const existingByKey = new Map();
   for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
@@ -1240,39 +1403,27 @@ async function fetchApprovedTourRegisterUpserts(supabase, fromDate, toDate) {
 }
 
 async function fetchApprovedTourMetaForRange(supabase, fromDate, toDate) {
-  try {
-    const { data, error } = await supabase.rpc("fetch_approved_tour_marks_for_register", {
-      p_from_date: fromDate,
-      p_to_date: toDate,
-    });
-    if (!error && data?.length) {
-      const byEmpDate = {};
-      for (const row of data) {
-        const code = normalizeAttendanceEmpCode(row.employee_code);
-        const date = normalizeDbDate(row.register_date);
-        if (!code || !date) continue;
-        if (!byEmpDate[code]) byEmpDate[code] = {};
-        byEmpDate[code][date] = {
-          tour_request_id: row.tour_request_id ?? null,
-          location: row.location,
-          reason: row.reason,
-        };
-      }
-      return { byEmpDate };
-    }
-  } catch {
-    /* RPC not deployed */
-  }
-
   return buildApprovedTourMetaForRange(supabase, fromDate, toDate);
 }
 
 /** All register mark rows for a calendar year (leave limits, CO validation, alerts). */
 export async function fetchRegisterMarksForYear(supabase, year, masterCodeMap = null) {
   const y = Number(year) || new Date().getFullYear();
-  const fromDate = `${y}-01-01`;
-  const toDate = `${y}-12-31`;
-  const rows = await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate });
+  const monthRanges = [];
+  for (let month = 1; month <= 12; month += 1) {
+    const range = monthDateRange(monthKeyFromParts(y, month));
+    if (range) monthRanges.push(range);
+  }
+  const monthRowSets = await Promise.all(
+    monthRanges.map((range) =>
+      fetchRegisterMarkRowsInRange(supabase, {
+        fromDate: range.fromDate,
+        toDate: range.toDate,
+        monthKey: range.monthKey,
+      })
+    )
+  );
+  const rows = monthRowSets.flat();
   return rows.map((row) => ({
     employee_code: resolveRegisterGridEmpCode(row.employee_code, masterCodeMap),
     register_date: String(normalizeDbDate(row.register_date) || "").slice(0, 10),
