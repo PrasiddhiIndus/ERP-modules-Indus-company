@@ -23,6 +23,8 @@ function evalNode(node, vars) {
     }
     case 'unary':
       return node.op === '-' ? -toNumber(evalNode(node.arg, vars)) : toNumber(evalNode(node.arg, vars));
+    case 'percent':
+      return toNumber(evalNode(node.arg, vars)) / 100;
     case 'binary': {
       const l = evalNode(node.left, vars);
       const r = evalNode(node.right, vars);

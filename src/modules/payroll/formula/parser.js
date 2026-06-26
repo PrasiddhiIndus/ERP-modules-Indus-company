@@ -1,12 +1,13 @@
 /**
  * Safe payroll formula parser → AST.
- * Supports: numbers, identifiers, + - * /, parentheses, function calls.
+ * Supports: numbers, identifiers, + - * /, %, parentheses, function calls.
  */
 
 const TOKEN_TYPES = {
   NUMBER: 'NUMBER',
   IDENT: 'IDENT',
   OP: 'OP',
+  PERCENT: 'PERCENT',
   LPAREN: 'LPAREN',
   RPAREN: 'RPAREN',
   COMMA: 'COMMA',
@@ -54,6 +55,11 @@ function tokenize(input) {
     }
     if (ch === ',') {
       tokens.push({ type: TOKEN_TYPES.COMMA });
+      i += 1;
+      continue;
+    }
+    if (ch === '%') {
+      tokens.push({ type: TOKEN_TYPES.PERCENT });
       i += 1;
       continue;
     }
@@ -109,11 +115,20 @@ export function parseFormula(input) {
   }
 
   function parseMultiplicative() {
-    let node = parseUnary();
+    let node = parsePercent();
     while (peek().type === TOKEN_TYPES.OP && (peek().value === '*' || peek().value === '/')) {
       const op = consume(TOKEN_TYPES.OP).value;
-      const right = parseUnary();
+      const right = parsePercent();
       node = { type: 'binary', op, left: node, right };
+    }
+    return node;
+  }
+
+  function parsePercent() {
+    let node = parseUnary();
+    while (peek().type === TOKEN_TYPES.PERCENT) {
+      consume(TOKEN_TYPES.PERCENT);
+      node = { type: 'percent', arg: node };
     }
     return node;
   }
@@ -172,7 +187,7 @@ export function extractDependencies(ast) {
       walk(node.left);
       walk(node.right);
     }
-    if (node.type === 'unary') walk(node.arg);
+    if (node.type === 'unary' || node.type === 'percent') walk(node.arg);
     if (node.type === 'call') node.args.forEach(walk);
   };
   walk(ast);

@@ -8,7 +8,8 @@ const PAD = [
   ['4', '5', '6', '*'],
   ['1', '2', '3', '-'],
   ['0', '.', '(', ')'],
-  ['+', ',', 'round(', 'prorate('],
+  ['+', ',', '%', 'round('],
+  ['prorate(', null, null, null],
 ];
 
 const TYPE_LABELS = {
@@ -252,17 +253,25 @@ export default function FormulaBuilder({
           <p className="text-xs text-emerald-700 mt-1">Valid · deps: {(validation.deps || []).join(', ') || 'none'}</p>
         )}
         <div className="mt-3 grid grid-cols-4 gap-1">
-          {PAD.flat().map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => insertToken(k)}
-              className="h-9 rounded border border-gray-200 bg-gray-50 text-sm font-mono hover:bg-white"
-            >
-              {k}
-            </button>
-          ))}
+          {PAD.flat()
+            .filter((k) => k != null)
+            .map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => insertToken(k)}
+                className={`h-9 rounded border border-gray-200 bg-gray-50 text-sm font-mono hover:bg-white ${
+                  k === '%' ? 'bg-amber-50 border-amber-200 text-amber-900 font-semibold' : ''
+                }`}
+              >
+                {k}
+              </button>
+            ))}
         </div>
+        <p className="text-[10px] text-gray-500 mt-1.5">
+          Use <span className="font-mono">%</span> for percentages — e.g. <span className="font-mono">BASIC * 12%</span> or{' '}
+          <span className="font-mono">Gross * 40%</span>
+        </p>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {FORMULA_VARIABLES.map((v) => (
             <button
