@@ -9,7 +9,12 @@ import {
   indexToPeriodKey,
   prevPeriodKey,
   PERIOD_END_YEAR,
+  dateToPeriodKey,
 } from "./lib/periods";
+
+function contractPeriodFromDateInput(dateStr) {
+  return dateToPeriodKey(dateStr) || null;
+}
 import { subscribeFinanceRefresh } from "../../services/financeApi";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { financePath } from "./navConfig";
@@ -3181,17 +3186,11 @@ function AddSiteModal({ onClose, onSave, existing }) {
   const [service, setService] = useState("");
   const [wo, setWo] = useState("");
   const [ocNumber, setOcNumber] = useState("");
-  const [ocDate, setOcDate] = useState("");
-  const [tmpl, setTmpl] = useState("default");
-  const [cStart, setCStart] = useState("2025-04");
-  const [cEnd, setCEnd] = useState("2026-03");
+  const [cStart, setCStart] = useState("2025-04-01");
+  const [cEnd, setCEnd] = useState("2026-03-31");
+  const [estCStart, setEstCStart] = useState("");
+  const [estCEnd, setEstCEnd] = useState("");
   const [renewalMode, setRenewalMode] = useState(false);
-  const templates = {
-    default: DEFAULT_KEYS,
-    security: ["salaries", "salariesOT", "holiday", "gratuity", "pf", "esicEmp", "uniform", "empBenefit", "houseRent", "fuel", "labourLicence", "indirect", "bankCharges", "bizPromo"],
-    housekeeping: ["salaries", "salariesOT", "pf", "esicEmp", "empBenefit", "uniform", "cook", "housekeeping", "houseRent", "purchaseRepair", "indirect", "bankCharges", "bizPromo"],
-    fire: ["salaries", "salariesOT", "holiday", "bonus", "gratuity", "pf", "esicEmp", "insurance", "empBenefit", "uniform", "houseRent", "fuel", "vehicleRepair", "equipment", "labourLicence", "indirect", "bankCharges", "bizPromo"],
-  };
   const nameMatches = useMemo(
     () => existing.filter((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase()),
     [existing, name],
@@ -3213,14 +3212,15 @@ function AddSiteModal({ onClose, onSave, existing }) {
       service: (service || priorActive?.service || "").trim(),
       wo: wo.trim(),
       ocNumber: ocNumber.trim() || (priorActive?.ocNumber || "").trim(),
-      ocDate: ocDate || priorActive?.ocDate || "",
       structure: isRenewal && priorActive?.structure?.length
         ? priorActive.structure.map((g) => ({ parent: g.parent, children: [...g.children] }))
-        : structureFromKeys(templates[tmpl]),
+        : structureFromKeys(DEFAULT_KEYS),
       spreads: [],
       estimates: [],
-      contractStart: cStart,
-      contractEnd: cEnd,
+      contractStart: contractPeriodFromDateInput(cStart),
+      contractEnd: contractPeriodFromDateInput(cEnd),
+      estContractStart: contractPeriodFromDateInput(estCStart),
+      estContractEnd: contractPeriodFromDateInput(estCEnd),
       siteGroup: priorActive?.siteGroup || slug(trimmed),
       version: 1,
       status: "active",
@@ -3245,18 +3245,16 @@ function AddSiteModal({ onClose, onSave, existing }) {
         </div>
       )}
       <label className="m-field"><span>Service type</span><input value={service} onChange={(e) => setService(e.target.value)} placeholder="Fire Fighting / Security / Housekeeping…" /></label>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <label className="m-field" style={{ flex: "1 1 200px" }}><span>OC Number</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
-        <label className="m-field" style={{ flex: "0 1 160px" }}><span>OC Date</span><input type="date" value={ocDate} onChange={(e) => setOcDate(e.target.value)} /></label>
-      </div>
+      <label className="m-field"><span>OC Number</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
       <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
-      <div style={{ display: "flex", gap: 10 }}>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><PeriodMonthSelect selectClassName="m-field-sel" value={cStart} onChange={setCStart} /></label>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><PeriodMonthSelect selectClassName="m-field-sel" value={cEnd} onChange={setCEnd} /></label>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><input type="date" value={cStart} onChange={(e) => setCStart(e.target.value)} /></label>
+        <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><input type="date" value={cEnd} onChange={(e) => setCEnd(e.target.value)} /></label>
       </div>
-      {!isRenewal && (
-        <label className="m-field"><span>Start from a structure template</span><select value={tmpl} onChange={(e) => setTmpl(e.target.value)}><option value="default">All standard lines</option><option value="security">Security</option><option value="housekeeping">Housekeeping</option><option value="fire">Fire Fighting</option></select></label>
-      )}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <label className="m-field" style={{ flex: 1 }}><span>Estimated contract start</span><input type="date" value={estCStart} onChange={(e) => setEstCStart(e.target.value)} /></label>
+        <label className="m-field" style={{ flex: 1 }}><span>Estimated contract end</span><input type="date" value={estCEnd} onChange={(e) => setEstCEnd(e.target.value)} /></label>
+      </div>
       {isRenewal && priorActive && (
         <p className="m-note">Structure will be copied from {versionLabel(priorActive)}. Adjust rates and heads in Site Setup after creating.</p>
       )}
