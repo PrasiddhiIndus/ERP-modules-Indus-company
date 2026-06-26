@@ -47,7 +47,7 @@ import {
   fetchApprovedLeaveMarksForMonth,
   mergeApprovedLeaveMarksIntoManualMarks,
   fetchApprovedTourMarksForMonth,
-  mergeApprovedTourIntoRegisterView,
+  finalizeRegisterMarksAndRemarks,
   refreshApprovedToursOnRegister,
   syncApprovedToursToRegister,
   monthDateRange,
@@ -332,12 +332,15 @@ export function EmployeeAttendanceDailyPage() {
         approvedLeaveMarks,
         { punches: punchRows, monthKey: monthMeta.monthKey }
       );
-      const mergedRegister = mergeApprovedTourIntoRegisterView(
-        afterLeaveMarks,
-        registerData?.remarks || {},
-        approvedTourData,
-        { punches: punchRows, monthKey: monthMeta.monthKey }
-      );
+      const mergedRegister = finalizeRegisterMarksAndRemarks({
+        marks: afterLeaveMarks,
+        remarks: registerData?.remarks || {},
+        tourData: approvedTourData,
+        registerRows: monthRegisterRows,
+        masterCodeMap,
+        punches: punchRows,
+        monthKey: monthMeta.monthKey,
+      });
       const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveForMonth, {
         masterCodeMap,
       });
@@ -384,12 +387,15 @@ export function EmployeeAttendanceDailyPage() {
               punches: punchRows,
               monthKey: monthMeta.monthKey,
             });
-            const merged = mergeApprovedTourIntoRegisterView(
-              afterLeave,
-              refreshed.remarks || {},
-              approvedTourData,
-              { punches: punchRows, monthKey: monthMeta.monthKey }
-            );
+            const merged = finalizeRegisterMarksAndRemarks({
+              marks: afterLeave,
+              remarks: refreshed.remarks || {},
+              tourData: approvedTourData,
+              registerRows: refreshedRows,
+              masterCodeMap,
+              punches: punchRows,
+              monthKey: monthMeta.monthKey,
+            });
             setManualMarks(merged.marks);
             setManualRemarks(merged.remarks);
           }
@@ -422,22 +428,39 @@ export function EmployeeAttendanceDailyPage() {
             });
           }
 
-          if (punchSync.upserted > 0 || tourSync.upserted > 0 || woResult.upserted > 0) {
-            const refreshed = await loadRegisterMarksForMonth(supabase, monthMeta, { masterCodeMap });
-            if (loadGeneration !== loadGenerationRef.current) return;
-            const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(refreshed?.marks || {}, approvedLeaveMarks, {
-              punches: punchRows,
-              monthKey: monthMeta.monthKey,
-            });
-            const merged = mergeApprovedTourIntoRegisterView(
-              afterLeave,
-              refreshed?.remarks || {},
-              approvedTourData,
-              { punches: punchRows, monthKey: monthMeta.monthKey }
-            );
-            setManualMarks(merged.marks);
-            setManualRemarks(merged.remarks);
-          }
+          const freshTourData = await fetchApprovedTourMarksForMonth(
+            supabase,
+            monthMeta.fromDate,
+            monthMeta.toDate
+          );
+          const refreshedRows = await fetchRegisterMarkRowsInRange(supabase, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+            monthKey: monthMeta.monthKey,
+          });
+          if (loadGeneration !== loadGenerationRef.current) return;
+          monthRegisterRowsRef.current = refreshedRows;
+          const registerView = buildRegisterMonthViewFromPrefetched(
+            monthMeta,
+            refreshedRows,
+            masterCodeMap
+          );
+          const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(
+            registerView.marks,
+            approvedLeaveMarks,
+            { punches: punchRows, monthKey: monthMeta.monthKey }
+          );
+          const finalized = finalizeRegisterMarksAndRemarks({
+            marks: afterLeave,
+            remarks: registerView.remarks || {},
+            tourData: freshTourData,
+            registerRows: refreshedRows,
+            masterCodeMap,
+            punches: punchRows,
+            monthKey: monthMeta.monthKey,
+          });
+          setManualMarks(finalized.marks);
+          setManualRemarks(finalized.remarks);
         } catch (syncErr) {
           if (loadGeneration !== loadGenerationRef.current) return;
           console.warn("Register background sync failed:", syncErr);
