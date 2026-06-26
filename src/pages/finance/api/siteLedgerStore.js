@@ -596,6 +596,46 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
   return siteId;
 }
 
+/** Merge a partial period patch into a full record (coalesces rapid saves). */
+export function mergePeriodEntry(base, patch) {
+  const merged = { ...(base || {}) };
+  if (!patch || typeof patch !== "object") return merged;
+
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === "reimbursements") {
+      if (Array.isArray(v) && v.length) {
+        merged.reimbursements = v;
+      } else {
+        delete merged.reimbursements;
+        delete merged.reimbursementType;
+        delete merged.reimbursementOtherLabel;
+        delete merged.esicBill;
+      }
+      continue;
+    }
+    if (k === "reimbursementType" || k === "reimbursementOtherLabel") continue;
+    if (k === "creditNoteRemark") {
+      const remark = v != null ? String(v).trim() : "";
+      if (remark) merged.creditNoteRemark = remark;
+      else delete merged.creditNoteRemark;
+      continue;
+    }
+    if (k === "esicBill") {
+      if (Number(v)) merged.esicBill = Number(v);
+      else delete merged.esicBill;
+      continue;
+    }
+    if (typeof v === "number") {
+      if (Number(v)) merged[k] = Number(v);
+      else delete merged[k];
+      continue;
+    }
+    if (v != null && v !== "") merged[k] = v;
+    else delete merged[k];
+  }
+  return merged;
+}
+
 function periodEntryNotesFromRecord(rec) {
   const meta = {};
   if (Array.isArray(rec?.reimbursements) && rec.reimbursements.length) {
@@ -660,7 +700,8 @@ const pendingPeriodRecords = new Map();
 /** Fast path — persist one site/month entry (revenue, reimbursements, expenses) without full ledger sync. */
 export async function savePeriodRecord(siteCode, periodKey, rec) {
   const compoundKey = `${siteCode}__${periodKey}`;
-  pendingPeriodRecords.set(compoundKey, rec);
+  const prev = pendingPeriodRecords.get(compoundKey);
+  pendingPeriodRecords.set(compoundKey, mergePeriodEntry(prev || {}, rec));
 
   return enqueueSave(async () => {
     const latest = pendingPeriodRecords.get(compoundKey);

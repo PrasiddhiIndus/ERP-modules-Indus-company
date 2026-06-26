@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, savePeriodRecord, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
+import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, savePeriodRecord, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
 import {
   buildMonthOptions,
@@ -10,11 +10,8 @@ import {
   prevPeriodKey,
   PERIOD_END_YEAR,
   dateToPeriodKey,
+  periodKeyToDateStart,
 } from "./lib/periods";
-
-function contractPeriodFromDateInput(dateStr) {
-  return dateToPeriodKey(dateStr) || null;
-}
 import { subscribeFinanceRefresh } from "../../services/financeApi";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { financePath } from "./navConfig";
@@ -30,6 +27,18 @@ import {
   Target, FileClock, ChevronRight, ChevronDown, RotateCcw, FileBarChart, AlertCircle, Settings, History,
   Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock,
 } from "lucide-react";
+
+function contractPeriodFromDateInput(dateStr) {
+  return dateToPeriodKey(dateStr) || null;
+}
+
+function contractDateInputValue(periodOrDate) {
+  if (!periodOrDate) return "";
+  const s = String(periodOrDate).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}$/.test(s)) return periodKeyToDateStart(s) || "";
+  return "";
+}
 
 /* ───────────────────────── DOMAIN MODEL ─────────────────────────
    Two-level expense hierarchy:
@@ -440,6 +449,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [saveState, setSaveState] = useState("idle");
   const [loaded, setLoaded] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [editSite, setEditSite] = useState(null);
   const [ioOpen, setIoOpen] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [showHistorical, setShowHistorical] = useState(urlInit.showHistorical);
@@ -723,8 +733,7 @@ export default function SiteLedgerApp({ embedded = true }) {
     setRecords((prev) => {
       const key = `${siteId}__${mk}`;
       const existing = prev[key] || {};
-      const merged = { ...existing, ...rec };
-      if (Array.isArray(rec.reimbursements)) merged.reimbursements = rec.reimbursements;
+      const merged = mergePeriodEntry(existing, rec);
       const next = { ...prev, [key]: merged };
       stateRef.current = { ...stateRef.current, records: next };
       return next;
@@ -904,6 +913,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               inactiveCount={sitesEnriched.length - activeSiteCount}
               openSite={(id) => { setActiveSite(id); setView("site"); }}
               onEdit={(id) => { setActiveSite(id); setView("entry"); }}
+              onEditSite={(id) => setEditSite(sitesEnriched.find((s) => s.id === id) || null)}
               onConfig={(id) => { setActiveSite(id); setView("config"); }}
               onDelete={removeSite}
               onViewHistory={(group) => setHistoryGroup(group)}
@@ -942,11 +952,25 @@ export default function SiteLedgerApp({ embedded = true }) {
       </main>
       </div>
 
-      {showAdd && (
+      {(showAdd || editSite) && (
         <AddSiteModal
+          key={editSite?.id || "add"}
+          editSite={editSite}
           existing={sitesEnriched}
-          onClose={() => setShowAdd(false)}
+          onClose={() => { setShowAdd(false); setEditSite(null); }}
           onSave={(s) => {
+            if (s.isEdit) {
+              patchSite(s.id, {
+                name: s.name,
+                service: s.service,
+                wo: s.wo,
+                ocNumber: s.ocNumber,
+                contractStart: s.contractStart,
+                contractEnd: s.contractEnd,
+              });
+              setEditSite(null);
+              return;
+            }
             if (s.isRenewal) {
               saveImmediate.current = true;
               const beforeIds = new Set(sites.map((x) => x.id));
@@ -1360,7 +1384,7 @@ function PendingMonthsCell({ site, records, uptoMk }) {
 function SitesTable({
   rows, records, month, sitesAll, activeSiteCount, query, setQuery,
   showHistorical, setShowHistorical, inactiveCount,
-  openSite, onEdit, onConfig, onDelete, onViewHistory, onAdd, onExport, mLabel,
+  openSite, onEdit, onEditSite, onConfig, onDelete, onViewHistory, onAdd, onExport, mLabel,
 }) {
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
   const [filters, setFilters] = useState(SITES_FILTERS_INIT);
@@ -1555,6 +1579,7 @@ function SitesTable({
         <table className="tbl sm-tbl">
           <thead>
             <tr>
+              <th className="r">Sr. No.</th>
               <th className="click" onClick={() => setS("name")}>Site Name{arr("name")}</th>
               <th>Contract</th>
               <th>Service</th>
@@ -1568,8 +1593,9 @@ function SitesTable({
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((r) => (
+            {pageRows.map((r, i) => (
               <tr key={r.id} className={!isSiteActive(r) ? "row-inactive" : ""}>
+                <td className="r mono muted-s">{(safePage - 1) * rowsPerPage + i + 1}</td>
                 <td className="strong">
                   <button type="button" className="sm-site-link" onClick={() => openSite(r.id)}>{r.name}</button>
                   <span className="sm-ver">{versionLabel(r)}</span>
@@ -1588,6 +1614,7 @@ function SitesTable({
                 <td><PendingMonthsCell site={r} records={records} uptoMk={month} /></td>
                 <td className="r nowrap sm-actions">
                   <button type="button" className="sm-act" title="View" onClick={() => openSite(r.id)}><Eye size={15} /></button>
+                  <button type="button" className="sm-act" title="Edit site" onClick={() => onEditSite(r.id)}><Sliders size={15} /></button>
                   {isSiteActive(r) && (
                     <button type="button" className="sm-act" title="Edit figures" onClick={() => onEdit(r.id)}><Pencil size={15} /></button>
                   )}
@@ -1603,6 +1630,7 @@ function SitesTable({
                     </button>
                     {menuOpen === r.id && (
                       <div className="sm-more-menu" onClick={(e) => e.stopPropagation()}>
+                        <button type="button" onClick={() => { onEditSite(r.id); setMenuOpen(null); }}>Edit site</button>
                         <button type="button" onClick={() => { onViewHistory(r.siteGroup); setMenuOpen(null); }}>Version history</button>
                         {isSiteActive(r) && (
                           <>
@@ -1618,7 +1646,7 @@ function SitesTable({
             ))}
             {!pageRows.length && (
               <tr>
-                <td colSpan={10} className="sm-empty">No sites match your filters.</td>
+                <td colSpan={11} className="sm-empty">No sites match your filters.</td>
               </tr>
             )}
           </tbody>
@@ -1967,15 +1995,23 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   return (
     <>
       <div className="entry-bar">
-        <SiteSearchSelect
-          sites={sites}
-          value={siteId}
-          onChange={(id) => { setSiteId(id); setActiveSite(id); }}
-          label="Configure site"
-          id="config-site-search"
-        />
-        <div className="cfg-hint"><GripVertical size={14} /> Drag cost lines between parents to reorder; double-click a parent name to rename it. Changes save automatically.</div>
-        <button className="ghost-d" onClick={onAdd}><PlusCircle size={14} /> New site</button>
+        <div className="entry-sel">
+          <label htmlFor="config-site-select">Select site</label>
+          <select
+            id="config-site-select"
+            value={siteId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setSiteId(id);
+              setActiveSite(id);
+            }}
+          >
+            {sites.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}{s.wo ? ` · ${s.wo}` : ""}</option>
+            ))}
+          </select>
+        </div>
+        <div className="cfg-hint"><GripVertical size={14} /> Changes apply only to the selected site. Drag cost lines between parents to reorder.</div>
       </div>
 
       <Card title="Available cost lines" right={<span className="muted-s">{available.length} unused · drag into a parent below</span>}>
@@ -2082,8 +2118,8 @@ function ContractBudgetEditor({ site, library, onPatchSite }) {
   return (
     <Card title="Contract & Estimate (Budget)" right={<span className="muted-s">monthly actuals are compared to the estimate in force</span>}>
       <div className="contract-row">
-        <label className="sf"><span>Contract start</span><PeriodMonthSelect allowEmpty selectClassName="sf-sel" value={site.contractStart || ""} onChange={(v) => setContract({ contractStart: v || null })} /></label>
-        <label className="sf"><span>Contract end</span><PeriodMonthSelect allowEmpty selectClassName="sf-sel" value={site.contractEnd || ""} onChange={(v) => setContract({ contractEnd: v || null })} /></label>
+        <label className="sf"><span>Estimated contract start</span><input type="date" className="sf-sel" value={contractDateInputValue(site.estContractStart)} onChange={(e) => setContract({ estContractStart: e.target.value || null })} /></label>
+        <label className="sf"><span>Estimated contract end</span><input type="date" className="sf-sel" value={contractDateInputValue(site.estContractEnd)} onChange={(e) => setContract({ estContractEnd: e.target.value || null })} /></label>
         <div className="contract-note">Used for variance comparison and to spread mid-contract costs across remaining months.</div>
       </div>
       {estimates.length > 0 && (
@@ -2245,7 +2281,7 @@ function entryRecordClean(form) {
       amount: parseEntryAmount(it.amount),
       ...(it.type === REIMBURSEMENT_OTHER_KEY ? { label: String(it.label ?? "").trim() } : {}),
     }));
-  if (reimbursements.length) {
+  if (Array.isArray(form.reimbursements)) {
     clean.reimbursements = reimbursements;
     const total = reimbursements.reduce((s, it) => s + parseEntryAmount(it.amount), 0);
     if (total) clean.esicBill = total;
@@ -2267,6 +2303,11 @@ function entryRecordClean(form) {
   const remark = form.creditNoteRemark != null ? String(form.creditNoteRemark).trim() : "";
   if (remark) clean.creditNoteRemark = remark;
   return clean;
+}
+
+function buildReimbursementSavePayload(existing, reimbursementItems) {
+  const reimbClean = entryRecordClean({ reimbursements: reimbursementItems });
+  return mergePeriodEntry(existing, reimbClean);
 }
 
 function revenueTotalRows(rec) {
@@ -2381,7 +2422,9 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   const [mk, setMk] = useState(month);
   const [form, setForm] = useState({});
   const [saveUi, setSaveUi] = useState("idle");
+  const [reimbSaveUi, setReimbSaveUi] = useState("idle");
   const [formDirty, setFormDirty] = useState(false);
+  const [reimbDirty, setReimbDirty] = useState(false);
   const formRef = useRef(form);
   formRef.current = form;
   const suppressRecordReload = useRef(false);
@@ -2395,23 +2438,36 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       suppressRecordReload.current = false;
       return;
     }
+    const navigated = formLoadKey.current !== loadKey;
     formLoadKey.current = loadKey;
     const raw = records[loadKey];
-    setForm(recordToFormFields(raw));
-    setFormDirty(false);
-    setSaveUi("idle");
+    setForm((prev) => {
+      const loaded = recordToFormFields(raw);
+      if (!navigated) {
+        return { ...loaded, ...prev, reimbursements: prev.reimbursements ?? loaded.reimbursements };
+      }
+      return loaded;
+    });
+    if (navigated) {
+      setFormDirty(false);
+      setReimbDirty(false);
+      setSaveUi("idle");
+      setReimbSaveUi("idle");
+    }
   }, [siteId, mk, records]);
   const saveUiTimer = useRef(null);
   const persistForm = useCallback((data, { manual = false } = {}) => {
     const payload = data ?? formRef.current;
     const clean = entryRecordClean(payload);
+    const existing = records[`${siteId}__${mk}`] || {};
+    const toPersist = mergePeriodEntry(existing, clean);
     const gen = ++persistGen.current;
     suppressRecordReload.current = true;
-    onSave(siteId, mk, clean);
+    onSave(siteId, mk, toPersist);
     setMonth(mk);
     setActiveSite(siteId);
     setSaveUi("saving");
-    savePeriodRecord(siteId, mk, clean)
+    savePeriodRecord(siteId, mk, toPersist)
       .then(() => {
         if (gen !== persistGen.current) return;
         onRecordPersisted?.();
@@ -2425,7 +2481,33 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
         console.error("Revenue save failed:", e);
         setSaveUi("error");
       });
-  }, [siteId, mk, onSave, onRecordPersisted, setMonth, setActiveSite]);
+  }, [siteId, mk, records, onSave, onRecordPersisted, setMonth, setActiveSite]);
+  const saveReimbursements = useCallback(() => {
+    const existing = records[`${siteId}__${mk}`] || {};
+    const merged = buildReimbursementSavePayload(existing, formRef.current.reimbursements || []);
+    const gen = ++persistGen.current;
+    suppressRecordReload.current = true;
+    onSave(siteId, mk, merged);
+    setReimbSaveUi("saving");
+    savePeriodRecord(siteId, mk, merged)
+      .then(() => {
+        if (gen !== persistGen.current) return;
+        onRecordPersisted?.();
+        setForm((f) => ({
+          ...f,
+          reimbursements: recordToFormFields(merged).reimbursements,
+        }));
+        setReimbDirty(false);
+        setReimbSaveUi("saved");
+        if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
+        saveUiTimer.current = setTimeout(() => setReimbSaveUi("idle"), 2500);
+      })
+      .catch((e) => {
+        if (gen !== persistGen.current) return;
+        console.error("Reimbursement save failed:", e);
+        setReimbSaveUi("error");
+      });
+  }, [siteId, mk, records, onSave, onRecordPersisted]);
   useEffect(() => {
     const flushForm = () => {
       if (!formDirty) return;
@@ -2532,10 +2614,10 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
           },
         ],
       }));
-      setFormDirty(true);
+      setReimbDirty(true);
     };
     const updateItem = (idx, patch) => {
-      setFormDirty(true);
+      setReimbDirty(true);
       setForm((f) => {
         const arr = [...(f.reimbursements || [])];
         arr[idx] = { ...arr[idx], ...patch };
@@ -2543,23 +2625,51 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       });
     };
     const removeItem = (idx) => {
-      setFormDirty(true);
+      setReimbDirty(true);
       setForm((f) => ({ ...f, reimbursements: (f.reimbursements || []).filter((_, i) => i !== idx) }));
     };
+    const cancelReimbursements = () => {
+      const raw = records[`${siteId}__${mk}`];
+      setForm((f) => ({ ...f, reimbursements: recordToFormFields(raw).reimbursements }));
+      setReimbDirty(false);
+      setReimbSaveUi("idle");
+    };
+    const reimbSaveLabel = reimbSaveUi === "saved"
+      ? "✓ Saved"
+      : reimbSaveUi === "saving"
+        ? "Saving…"
+        : reimbSaveUi === "error"
+          ? "Save failed — retry"
+          : "Save reimbursement";
     return (
       <div className="rev-reimb-panel">
         <div className="rev-reimb-top">
           <span className="rev-reimb-title">Reimbursement</span>
-          {available.length > 0 && (
-            <select
-              className="rev-reimb-pick"
-              value=""
-              onChange={(e) => addType(e.target.value)}
+          <div className="rev-reimb-actions">
+            {available.length > 0 && (
+              <select
+                className="rev-reimb-pick"
+                value=""
+                onChange={(e) => addType(e.target.value)}
+              >
+                <option value="">+ Add type</option>
+                {available.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
+            )}
+            {reimbDirty && (
+              <button type="button" className="ghost-d rev-reimb-cancel" onClick={cancelReimbursements}>
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              className="primary sm rev-reimb-save"
+              onClick={saveReimbursements}
+              disabled={reimbSaveUi === "saving"}
             >
-              <option value="">+ Add type</option>
-              {available.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-            </select>
-          )}
+              {reimbSaveLabel}
+            </button>
+          </div>
         </div>
         {items.length === 0 ? (
           <p className="rev-reimb-hint">Optional — add PF, ESIC, bonus, or other items as needed.</p>
@@ -2608,19 +2718,31 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   return (
     <div className="entry">
       <div className="entry-bar">
-        <SiteSearchSelect sites={sites} value={siteId} onChange={setSiteId} label="Site" id="entry-site-search" />
-        <div className="entry-sel entry-sel-period">
-          <label>Period</label>
-          <PeriodMonthSelect className="sl-period-pick" selectClassName="sl-period-sel" value={mk} onChange={setMk} />
-          {periodStatus && <span className="entry-period-st">{periodStatus}</span>}
+        <div className="entry-bar-primary">
+          <SiteSearchSelect sites={sites} value={siteId} onChange={setSiteId} label="Site" id="entry-site-search" />
+          <div className="entry-sel entry-sel-period">
+            <label>Period</label>
+            <PeriodMonthSelect className="sl-period-pick" selectClassName="sl-period-sel" value={mk} onChange={setMk} />
+          </div>
         </div>
-        <button className="ghost-d" onClick={copyPrev}><Copy size={14} /> Copy previous</button>
-        <button className="ghost-d" onClick={() => goConfig(siteId)}><Sliders size={14} /> Structure</button>
-        <div className="entry-live"><span>Rev <b>{inrShort(c.revenue)}</b></span><span>Exp <b>{inrShort(c.expense)}</b></span><span style={{ color: c.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>Profit <b>{inrShort(c.profit)}</b> ({pct(c.margin)})</span></div>
-        <button className="primary entry-save-btn" onClick={save} disabled={saveUi === "saving"} title="Save all figures for this site and period">
-          {saveLabel}
-        </button>
-        {formDirty && saveUi !== "saving" && <span className="entry-unsaved">Unsaved changes</span>}
+        <div className="entry-bar-tools">
+          <button type="button" className="ghost-d" onClick={copyPrev}><Copy size={14} /> Copy previous</button>
+          <button type="button" className="ghost-d" onClick={() => goConfig(siteId)}><Sliders size={14} /> Structure</button>
+        </div>
+        <div className="entry-live">
+          <span>Rev <b>{inrShort(c.revenue)}</b></span>
+          <span>Exp <b>{inrShort(c.expense)}</b></span>
+          <span style={{ color: c.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>Profit <b>{inrShort(c.profit)}</b> ({pct(c.margin)})</span>
+        </div>
+        <div className="entry-bar-save">
+          <div className="entry-bar-save-row">
+            {periodStatus && <span className="entry-period-st">{periodStatus}</span>}
+            <button type="button" className="primary entry-save-btn" onClick={save} disabled={saveUi === "saving"} title="Save all figures for this site and period">
+              {saveLabel}
+            </button>
+          </div>
+          {formDirty && saveUi !== "saving" && <span className="entry-unsaved">Unsaved changes</span>}
+        </div>
       </div>
       {pend.length > 0 && (
         <div className="pend-strip">
@@ -3181,19 +3303,18 @@ function ReportTable({ report, showTotals = true, dim }) {
 }
 
 /* ───────────────────────── MODALS ───────────────────────── */
-function AddSiteModal({ onClose, onSave, existing }) {
-  const [name, setName] = useState("");
-  const [service, setService] = useState("");
-  const [wo, setWo] = useState("");
-  const [ocNumber, setOcNumber] = useState("");
-  const [cStart, setCStart] = useState("2025-04-01");
-  const [cEnd, setCEnd] = useState("2026-03-31");
-  const [estCStart, setEstCStart] = useState("");
-  const [estCEnd, setEstCEnd] = useState("");
+function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
+  const isEdit = !!editSite;
+  const [name, setName] = useState(editSite?.name || "");
+  const [service, setService] = useState(editSite?.service || "");
+  const [wo, setWo] = useState(editSite?.wo || "");
+  const [ocNumber, setOcNumber] = useState(editSite?.ocNumber || "");
+  const [cStart, setCStart] = useState(() => contractDateInputValue(editSite?.contractStart) || "2025-04-01");
+  const [cEnd, setCEnd] = useState(() => contractDateInputValue(editSite?.contractEnd) || "2026-03-31");
   const [renewalMode, setRenewalMode] = useState(false);
   const nameMatches = useMemo(
-    () => existing.filter((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase()),
-    [existing, name],
+    () => (isEdit ? [] : existing.filter((s) => s.name.trim().toLowerCase() === name.trim().toLowerCase())),
+    [existing, name, isEdit],
   );
   const priorActive = useMemo(
     () => nameMatches.find(isSiteActive) || nameMatches[0] || null,
@@ -3203,6 +3324,19 @@ function AddSiteModal({ onClose, onSave, existing }) {
   const submit = () => {
     if (!name.trim()) return;
     const trimmed = name.trim();
+    if (isEdit) {
+      onSave({
+        isEdit: true,
+        id: editSite.id,
+        name: trimmed,
+        service: service.trim(),
+        wo: wo.trim(),
+        ocNumber: ocNumber.trim(),
+        contractStart: contractPeriodFromDateInput(cStart),
+        contractEnd: contractPeriodFromDateInput(cEnd),
+      });
+      return;
+    }
     let id = slug(trimmed);
     let n = 1;
     while (existing.some((s) => s.id === id)) id = slug(trimmed) + "-" + (++n);
@@ -3219,8 +3353,6 @@ function AddSiteModal({ onClose, onSave, existing }) {
       estimates: [],
       contractStart: contractPeriodFromDateInput(cStart),
       contractEnd: contractPeriodFromDateInput(cEnd),
-      estContractStart: contractPeriodFromDateInput(estCStart),
-      estContractEnd: contractPeriodFromDateInput(estCEnd),
       siteGroup: priorActive?.siteGroup || slug(trimmed),
       version: 1,
       status: "active",
@@ -3229,9 +3361,9 @@ function AddSiteModal({ onClose, onSave, existing }) {
     onSave(base);
   };
   return (
-    <Modal onClose={onClose} title={isRenewal ? "New Contract / PO Version" : "Add Site"}>
+    <Modal onClose={onClose} title={isEdit ? "Edit Site" : isRenewal ? "New Contract / PO Version" : "Add Site"}>
       <label className="m-field"><span>Site / client name *</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lalitpur Power Generation" autoFocus /></label>
-      {nameMatches.length > 0 && (
+      {!isEdit && nameMatches.length > 0 && (
         <div className="renewal-banner">
           <History size={15} />
           <div>
@@ -3251,15 +3383,11 @@ function AddSiteModal({ onClose, onSave, existing }) {
         <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><input type="date" value={cStart} onChange={(e) => setCStart(e.target.value)} /></label>
         <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><input type="date" value={cEnd} onChange={(e) => setCEnd(e.target.value)} /></label>
       </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <label className="m-field" style={{ flex: 1 }}><span>Estimated contract start</span><input type="date" value={estCStart} onChange={(e) => setEstCStart(e.target.value)} /></label>
-        <label className="m-field" style={{ flex: 1 }}><span>Estimated contract end</span><input type="date" value={estCEnd} onChange={(e) => setEstCEnd(e.target.value)} /></label>
-      </div>
-      {isRenewal && priorActive && (
+      {!isEdit && isRenewal && priorActive && (
         <p className="m-note">Structure will be copied from {versionLabel(priorActive)}. Adjust rates and heads in Site Setup after creating.</p>
       )}
-      <p className="m-note">Next, in Site Setup you can arrange parent → child lines (drag &amp; drop) and set the <b>estimate / budget</b>.</p>
-      <div className="m-actions"><button className="ghost-d" onClick={onClose}>Cancel</button><button className="primary" onClick={submit}>{isRenewal ? "Create new version" : "Add & configure"}</button></div>
+      <p className="m-note">{isEdit ? "Update site details. Cost structure and estimates are managed in Site Setup." : <>Next, in Site Setup you can arrange parent → child lines (drag &amp; drop) and set the <b>estimate / budget</b>.</>}</p>
+      <div className="m-actions"><button className="ghost-d" onClick={onClose}>Cancel</button><button className="primary" onClick={submit}>{isEdit ? "Save changes" : isRenewal ? "Create new version" : "Add & configure"}</button></div>
     </Modal>
   );
 }
@@ -3518,6 +3646,119 @@ function Styles() {
     .site-head-right{display:flex;align-items:center;gap:10px;}
     .primary{display:inline-flex;align-items:center;gap:7px;background:var(--accent-mid);color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;}
     .primary:hover{background:var(--accent);}.primary.sm{padding:8px 13px;}
+    .entry{display:flex;flex-direction:column;gap:16px;}
+    .entry>.entry-bar,.entry>.pend-strip,.entry>.amort-note,.entry>.card,.entry>.grid-2{margin-bottom:0;}
+    .entry .entry-bar{
+      display:grid;
+      grid-template-columns:minmax(280px,1.4fr) auto minmax(220px,1fr) auto;
+      grid-template-areas:"primary tools live save";
+      align-items:end;
+      gap:12px 16px;
+      padding:16px 18px;
+      background:var(--surface);
+      border:1px solid var(--line);
+      border-radius:14px;
+      margin-bottom:0;
+    }
+    .entry .entry-bar-primary{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 16px;grid-area:primary;min-width:0;}
+    .entry .entry-bar-primary .site-search{flex:1 1 240px;max-width:360px;min-width:200px;}
+    .entry .entry-bar-primary .entry-sel-period{flex:0 1 200px;min-width:170px;}
+    .entry .entry-bar-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;grid-area:tools;}
+    .entry .entry-bar-tools .ghost-d{height:38px;white-space:nowrap;}
+    .entry .entry-live{
+      grid-area:live;
+      margin-left:0;
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      flex-wrap:wrap;
+      gap:8px 18px;
+      padding:8px 12px;
+      background:var(--paper);
+      border:1px solid var(--line);
+      border-radius:9px;
+      min-height:38px;
+      box-sizing:border-box;
+    }
+    .entry .entry-bar-save{
+      grid-area:save;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-end;
+      gap:4px;
+      justify-self:end;
+    }
+    .entry .entry-bar-save-row{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;}
+    .entry .entry-bar-save .entry-save-btn{height:38px;min-width:132px;flex-shrink:0;}
+    .entry .entry-bar-save .entry-period-st{
+      font-size:11px;
+      font-weight:600;
+      white-space:nowrap;
+      line-height:1;
+      padding:7px 11px;
+      border-radius:20px;
+      border:1px solid var(--line);
+      background:var(--paper);
+      color:var(--muted);
+    }
+    .entry .entry-bar-save .entry-unsaved{align-self:center;}
+    @media(max-width:1100px){
+      .entry .entry-bar{grid-template-columns:1fr 1fr;grid-template-areas:"primary primary" "tools tools" "live live" "save save";}
+      .entry .entry-bar-save{align-items:stretch;}
+      .entry .entry-bar-save-row{justify-content:flex-end;}
+      .entry .entry-bar-save .entry-save-btn{width:auto;}
+      .entry .entry-live{justify-content:flex-start;}
+    }
+    .entry .entry-cols{align-items:stretch;gap:16px;}
+    .entry .entry-col{min-width:0;}
+    .entry .entry-col>.card{height:100%;margin-bottom:0;display:flex;flex-direction:column;}
+    .entry .entry-col>.card>div:last-child{flex:1;}
+    .entry .entry-totals{height:100%;box-sizing:border-box;}
+    .entry .entry-totals-tbl td:last-child{text-align:right;white-space:nowrap;}
+    .entry .entry-totals-tbl td:first-child{padding-right:12px;}
+    .entry .fields{align-items:end;gap:10px 14px;}
+    .entry .field{min-height:58px;justify-content:flex-end;}
+    .entry .field>span{line-height:1.35;min-height:2.7em;display:flex;align-items:flex-end;}
+    .entry .field-in{min-height:38px;box-sizing:border-box;}
+    .entry .field-in input{min-height:36px;box-sizing:border-box;}
+    .entry .deduction-block{width:100%;gap:10px;}
+    .entry .deduction-remark>span{font-size:12px;color:var(--ink-soft);display:block;margin-bottom:4px;line-height:1.35;}
+    .entry .rev-entry-simple{gap:14px;padding:2px 0;}
+    .entry .rev-reimb-panel{padding:12px 14px;}
+    .entry .rev-reimb-top{align-items:flex-start;margin-bottom:10px;}
+    .entry .rev-reimb-title{line-height:38px;}
+    .entry .rev-reimb-line{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:nowrap;
+    }
+    .entry .rev-reimb-tag{
+      width:132px;
+      flex-shrink:0;
+      line-height:1.3;
+    }
+    .entry .rev-reimb-other{
+      flex:1;
+      min-width:120px;
+      box-sizing:border-box;
+      height:38px;
+    }
+    .entry .rev-reimb-amt{
+      width:132px;
+      flex-shrink:0;
+      margin-left:auto;
+    }
+    .entry .rev-reimb-line:has(.rev-reimb-other) .rev-reimb-amt{margin-left:0;}
+    .entry .rev-reimb-del{flex-shrink:0;}
+    .entry .rev-reimb-actions{align-items:center;}
+    .entry .rev-reimb-pick{min-width:140px;height:34px;}
+    .entry .rev-reimb-save,.entry .rev-reimb-cancel{height:34px;display:inline-flex;align-items:center;}
+    .entry .fgroup{margin-bottom:16px;}
+    .entry .fgroup:last-child{margin-bottom:0;}
+    .entry .fgroup-h{align-items:center;min-height:28px;margin-bottom:10px;}
+    .entry .pend-strip{margin-bottom:0;}
+    .entry .amort-note{margin-bottom:0;}
     .entry-bar{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:18px;}
     .entry-sel{display:flex;flex-direction:column;gap:4px;min-width:200px;}
     .entry-sel label{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}
@@ -3565,7 +3806,10 @@ function Styles() {
     .rev-entry-simple{display:flex;flex-direction:column;gap:12px;padding:4px 2px 2px;}
     .rev-entry-simple>.field{margin:0;}
     .rev-reimb-panel{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fafbfc;}
-    .rev-reimb-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+    .rev-reimb-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+    .rev-reimb-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto;}
+    .rev-reimb-cancel{font-size:12px;padding:5px 10px;}
+    .rev-reimb-save{white-space:nowrap;}
     .rev-reimb-title{font-size:12px;font-weight:600;color:var(--ink-soft);}
     .rev-reimb-pick{font-family:var(--body);font-size:12px;padding:5px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;max-width:160px;}
     .rev-reimb-hint{margin:0;font-size:12px;color:var(--muted);}
