@@ -26,6 +26,8 @@ export function serializeSiteMeta(site) {
     version: site.version || 1,
     ocNumber: site.ocNumber ? String(site.ocNumber).trim() : "",
     ocDate: site.ocDate ? String(site.ocDate).trim() : "",
+    estContractStart: site.estContractStart ? String(site.estContractStart).trim() : "",
+    estContractEnd: site.estContractEnd ? String(site.estContractEnd).trim() : "",
   };
   return `${SITE_META_PREFIX}${JSON.stringify(meta)}`;
 }
@@ -285,6 +287,8 @@ function buildSites(raw, parentById, childById) {
       wo: s.work_order_no || "",
       ocNumber: meta.ocNumber || "",
       ocDate: meta.ocDate || "",
+      estContractStart: meta.estContractStart || "",
+      estContractEnd: meta.estContractEnd || "",
       contractStart: s.contract_start_period || periodFromDate(s.contract_start),
       contractEnd: s.contract_end_period || periodFromDate(s.contract_end),
       status: s.status || "active",
