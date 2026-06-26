@@ -189,6 +189,103 @@ function makeCycle({ poWoNumber, totalContractValue, startDate, endDate, approve
   };
 }
 
+function normalizePoApprovalStatus(po) {
+  return String(po?.approvalStatus ?? po?.approval_status ?? APPROVAL_STATUS.DRAFT).toLowerCase();
+}
+
+function preservePoApprovalFieldsFromPrevious(prevPo) {
+  return {
+    approvalStatus: normalizePoApprovalStatus(prevPo),
+    approvalSentAt: prevPo?.approvalSentAt ?? prevPo?.approval_sent_at ?? null,
+    approvedByUserId: prevPo?.approvedByUserId ?? prevPo?.approved_by_user_id ?? null,
+    approvedByName: prevPo?.approvedByName ?? prevPo?.approved_by_name ?? null,
+    approvedAt: prevPo?.approvedAt ?? prevPo?.approved_at ?? null,
+    rejectedByUserId: prevPo?.rejectedByUserId ?? prevPo?.rejected_by_user_id ?? null,
+    rejectedByName: prevPo?.rejectedByName ?? prevPo?.rejected_by_name ?? null,
+    rejectedAt: prevPo?.rejectedAt ?? prevPo?.rejected_at ?? null,
+  };
+}
+
+function clearedPoApprovalFields() {
+  return {
+    approvalStatus: APPROVAL_STATUS.DRAFT,
+    approvalSentAt: null,
+    approvedByUserId: null,
+    approvedByName: null,
+    approvedAt: null,
+    rejectedByUserId: null,
+    rejectedByName: null,
+    rejectedAt: null,
+  };
+}
+
+function normalizeRatesForMaterialCompare(rates) {
+  return (rates || []).map((r) => ({
+    description: String(r.description || '').trim().toLowerCase(),
+    hsnSac: String(r.hsnSac ?? r.hsn_sac ?? '').trim(),
+    materialCode: String(r.materialCode ?? r.material_code ?? '').trim(),
+    qty: Number(r.qty) || 0,
+    rate: Number(r.rate) || 0,
+    penalty: Number(r.penalty) || 0,
+  }));
+}
+
+function readPoField(obj, keys) {
+  for (const key of keys) {
+    const value = obj?.[key];
+    if (value != null && String(value).trim() !== '') return String(value).trim();
+  }
+  return '';
+}
+
+function hasMaterialManpowerPoChanges(prevPo, nextSnapshot, { addingRenewalCycle = false } = {}) {
+  if (!prevPo || !nextSnapshot) return true;
+  if (addingRenewalCycle) return true;
+  const comparableFields = [
+    ['poWoNumber', 'po_wo_number'],
+    ['totalContractValue', 'total_contract_value'],
+    ['startDate', 'start_date'],
+    ['endDate', 'end_date'],
+    ['billingType', 'billing_type', 'poType', 'po_type'],
+    ['legalName', 'legal_name'],
+    ['gstin'],
+    ['ocNumber', 'oc_number'],
+    ['serviceDescription', 'service_description'],
+    ['paymentTerms', 'payment_terms'],
+    ['vertical'],
+    ['sacCode', 'sac_code'],
+    ['hsnCode', 'hsn_code'],
+    ['poDate', 'po_date'],
+    ['billingWithoutPo', 'billing_without_po'],
+  ];
+  for (const keys of comparableFields) {
+    if (readPoField(prevPo, keys) !== readPoField(nextSnapshot, keys)) return true;
+  }
+  const prevRates = JSON.stringify(normalizeRatesForMaterialCompare(prevPo.ratePerCategory));
+  const nextRates = JSON.stringify(normalizeRatesForMaterialCompare(nextSnapshot.ratePerCategory));
+  return prevRates !== nextRates;
+}
+
+function resolvePoApprovalFieldsForSave({ editId, prevPo, nextSnapshot, addingRenewalCycle = false }) {
+  if (!editId || !prevPo) {
+    return {
+      approvalStatus: prevPo?.approvalStatus ?? prevPo?.approval_status ?? APPROVAL_STATUS.DRAFT,
+      approvalSentAt: prevPo?.approvalSentAt ?? prevPo?.approval_sent_at ?? null,
+    };
+  }
+  const priorStatus = normalizePoApprovalStatus(prevPo);
+  const inWorkflow = [
+    APPROVAL_STATUS.SENT,
+    APPROVAL_STATUS.APPROVED,
+    APPROVAL_STATUS.REJECTED,
+  ].includes(priorStatus);
+  if (!inWorkflow) return clearedPoApprovalFields();
+  if (hasMaterialManpowerPoChanges(prevPo, nextSnapshot, { addingRenewalCycle })) {
+    return clearedPoApprovalFields();
+  }
+  return preservePoApprovalFieldsFromPrevious(prevPo);
+}
+
 function getLatestCycle(cycles, fallback) {
   const arr = Array.isArray(cycles) ? cycles.filter(Boolean) : [];
   if (arr.length) return arr[arr.length - 1];
@@ -198,6 +295,13 @@ function getLatestCycle(cycles, fallback) {
 function validateGSTIN(value) {
   if (!value || value.length !== 15) return false;
   return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/.test(value.toUpperCase());
+}
+
+/** GSTIN chars 3–12 (1-based) embed the 10-character PAN, e.g. 27ABCDE1234F2Z5 → ABCDE1234F */
+function extractPanFromGstin(gstin) {
+  const g = String(gstin || '').trim().toUpperCase();
+  if (g.length < 12) return '';
+  return g.slice(2, 12);
 }
 
 function extractStateGuess(placeOfSupply, billingAddress) {
@@ -1016,13 +1120,61 @@ const POEntry = () => {
         : null;
     const mtPayment = deriveMtPaymentTermPayload(formData.paymentTerms, formData.customPaymentTerms);
     const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
+    const canAddNewCycle = isAfterContractEnd(formData.endDate);
+    const hasNewCycle =
+      String(formData.newCyclePoWoNumber || '').trim() &&
+      formData.newCycleTotalContractValue !== '' &&
+      formData.newCycleTotalContractValue != null;
+    if (editId && hasNewCycle && !canAddNewCycle) {
+      setSaveError(
+        'Renewal PO/WO can only be saved after the contract end date. Clear the renewal fields or update the contract dates.'
+      );
+      return;
+    }
+    const addingRenewalCycle = Boolean(editId && canAddNewCycle && hasNewCycle);
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
     const nowIso = new Date().toISOString();
     const historyPrev = Array.isArray(prevPo?.updateHistory) ? [...prevPo.updateHistory] : [];
+    const nextSnapshot = {
+      poWoNumber: trimmedPoWoNumber,
+      totalContractValue: totalVal,
+      startDate: formData.startDate || '',
+      endDate: formData.endDate || '',
+      billingType: poType,
+      legalName: formData.legalName.trim(),
+      gstin: formData.gstin.trim().toUpperCase(),
+      ocNumber: ocNum,
+      serviceDescription: formData.serviceDescription.trim(),
+      paymentTerms: mtPayment.paymentTerms || formData.paymentTerms.trim() || null,
+      vertical:
+        formData.vertical ||
+        (formData.ocNumber && formData.ocNumber.split('-')[1]) ||
+        'Manpower',
+      sacCode: String(formData.sacCode || formData.hsnCode || '').trim(),
+      hsnCode: String(formData.hsnCode || formData.sacCode || '').trim(),
+      poDate: formData.poDate || null,
+      billingWithoutPo: isWithoutPo,
+      ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', materialCode: '', qty: 0, rate: 0, penalty: 0 }],
+    };
+    const approvalFields = resolvePoApprovalFieldsForSave({
+      editId,
+      prevPo,
+      nextSnapshot,
+      addingRenewalCycle,
+    });
     if (editId && prevPo) {
+      const materialChanged = hasMaterialManpowerPoChanges(prevPo, nextSnapshot, { addingRenewalCycle });
+      const inWorkflow = [
+        APPROVAL_STATUS.SENT,
+        APPROVAL_STATUS.APPROVED,
+        APPROVAL_STATUS.REJECTED,
+      ].includes(normalizePoApprovalStatus(prevPo));
       historyPrev.push({
         at: nowIso,
-        summary: 'PO/WO updated — requires Commercial approval again',
+        summary:
+          inWorkflow && materialChanged
+            ? 'PO/WO updated — requires Commercial approval again'
+            : 'PO/WO updated',
       });
     }
     const po = {
@@ -1078,8 +1230,7 @@ const POEntry = () => {
       msmeClause: (formData.msmeClause || '').trim(),
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
-      approvalStatus: editId ? APPROVAL_STATUS.DRAFT : (prevPo?.approvalStatus || APPROVAL_STATUS.DRAFT),
-      approvalSentAt: editId ? null : (prevPo?.approvalSentAt || null),
+      ...approvalFields,
       updateHistory: editId ? historyPrev : [],
       created_at: prevPo?.created_at || prevPo?.createdAt || nowIso,
       createdAt: prevPo?.createdAt || prevPo?.created_at || nowIso,
@@ -1097,19 +1248,7 @@ const POEntry = () => {
       moduleType: COMMERCIAL_MODULE_MANPOWER_TRAINING,
     };
 
-    // Renewal cycle row: only when editing an existing PO and contract has ended (same as R&M / AM&C PO Entry).
-    const canAddNewCycle = isAfterContractEnd(formData.endDate);
-    const hasNewCycle =
-      String(formData.newCyclePoWoNumber || '').trim() &&
-      formData.newCycleTotalContractValue !== '' &&
-      formData.newCycleTotalContractValue != null;
-    if (editId && hasNewCycle && !canAddNewCycle) {
-      setSaveError(
-        'Renewal PO/WO can only be saved after the contract end date. Clear the renewal fields or update the contract dates.'
-      );
-      return;
-    }
-    if (canAddNewCycle && hasNewCycle && editId) {
+    if (addingRenewalCycle) {
       po.renewalCycles = [
         ...(po.renewalCycles || []),
         makeCycle({
@@ -1630,7 +1769,7 @@ const POEntry = () => {
                       If different from billing, invoice will show separate BILL TO and SHIP TO blocks.
                     </p>
                   </div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { setFormData((p) => ({ ...p, gstin: e.target.value.toUpperCase() })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">GSTIN (15-digit)</label><input type="text" value={formData.gstin} onChange={(e) => { const gstin = e.target.value.toUpperCase(); const panFromGstin = extractPanFromGstin(gstin); setFormData((p) => ({ ...p, gstin, ...(panFromGstin ? { panNumber: panFromGstin } : {}) })); setGstinError(''); }} onBlur={handleGstinBlur} maxLength={15} className={`w-full border rounded-lg px-3 py-2 ${gstinError ? 'border-red-500' : 'border-gray-300'}`} placeholder="e.g. 27AABCU9603R1ZM" />{gstinError && <p className="text-red-600 text-xs mt-1">{gstinError}</p>}</div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label><input type="text" value={formData.panNumber} onChange={(e) => setFormData((p) => ({ ...p, panNumber: e.target.value.toUpperCase() }))} maxLength={10} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="e.g. AABCU9603R" /></div>
                   <div><label className="block text-sm font-medium text-gray-700 mb-1">Location Name</label><input type="text" value={formData.locationName} onChange={(e) => setFormData((p) => ({ ...p, locationName: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   <div>

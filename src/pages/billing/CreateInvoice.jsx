@@ -103,7 +103,6 @@ const BILLING_TABS_MANPOWER = [
   { id: 'Per Day', label: 'Daily' },
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Lump Sum', label: 'Lump Sum' },
-  { id: 'Custom', label: 'Custom' },
   { id: 'Custom Calculator', label: 'Custom Calculator' },
 ];
 
@@ -845,6 +844,15 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [billingVerticalFilter]);
 
   const billingTabs = useMemo(() => (isRmVertical ? BILLING_TABS_RM : BILLING_TABS_MANPOWER), [isRmVertical]);
+
+  useEffect(() => {
+    const allowed = new Set(billingTabs.map((t) => t.id));
+    if (!allowed.has(poBillingTab)) {
+      if (isRmVertical) setPoBillingTab('Service');
+      else if (isTrainingVertical) setPoBillingTab('Per Day');
+      else setPoBillingTab('Monthly');
+    }
+  }, [billingTabs, poBillingTab, isRmVertical, isTrainingVertical]);
 
   useEffect(() => {
     if (billingDraftRestoreGuardRef.current) return;
