@@ -60,6 +60,8 @@ import {
   upsertRegisterMark,
   upsertRegisterMarksBatch,
   writeStoredRegisterMarks,
+  patchRegisterRowInCache,
+  toRegisterDbEmployeeCode,
   normalizeAttendanceEmpCode,
   computeDayAttendanceBreakdown,
   registerMarkStatusLabel,
@@ -634,6 +636,13 @@ export function EmployeeAttendanceDailyPage() {
           isCommentMark ? empRemarks[day] || "" : "",
           masterRegisterCodeMap
         );
+        monthRegisterRowsRef.current = patchRegisterRowInCache(monthRegisterRowsRef.current, {
+          employee_code: toRegisterDbEmployeeCode(empCodeKey, masterRegisterCodeMap) || empCodeKey,
+          register_date: registerDate,
+          mark: value,
+          mark_remark: isCommentMark ? String(empRemarks[day] || "").trim() || null : null,
+          mark_source: "manual",
+        });
         if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
         setYearRegisterRows((prev) => {
           const code = normalizeAttendanceEmpCode(empCodeKey);
@@ -713,6 +722,13 @@ export function EmployeeAttendanceDailyPage() {
         trimmed,
         masterRegisterCodeMap
       );
+      monthRegisterRowsRef.current = patchRegisterRowInCache(monthRegisterRowsRef.current, {
+        employee_code: toRegisterDbEmployeeCode(empCodeKey, masterRegisterCodeMap) || empCodeKey,
+        register_date: registerDateFromDay(monthMeta.monthKey, day),
+        mark: mark || "P(OD)",
+        mark_remark: trimmed || null,
+        mark_source: "manual",
+      });
       closePodCommentEditor();
     } catch (err) {
       setError(formatAttendanceSupabaseError(err));
