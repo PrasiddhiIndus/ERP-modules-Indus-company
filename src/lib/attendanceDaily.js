@@ -28,6 +28,8 @@ export const EMPLOYEE_MASTER_TABLE = "admin_ifsp_employee_master";
 /** DB column: eTimeOffice punch / attendance join key (not employee_id). */
 export const EMPLOYEE_MASTER_CODE_COL = "employee_code";
 export const REGISTER_MARK_UPSERT_CHUNK = 200;
+/** Fixed columns before day 1 in register export (S.No, Machine ID, Emp code, Name, Dept). */
+export const REGISTER_EXPORT_DAY_COL_OFFSET = 5;
 export const PUNCH_FETCH_CHUNK = 1000;
 export const REGISTER_FETCH_CHUNK = 1000;
 export const REGISTER_FETCH_TIMEOUT_MS = 60000;
@@ -1205,6 +1207,24 @@ export async function fetchApprovedTourMarksForMonth(supabase, fromDate, toDate)
   if (!fromDate || !toDate) return { marks: {}, remarks: {} };
 
   try {
+    const { data, error } = await supabase.rpc("fetch_approved_tour_marks_for_register", {
+      p_from_date: fromDate,
+      p_to_date: toDate,
+    });
+    if (!error && data?.length) {
+      const marks = {};
+      const remarks = {};
+      for (const row of data) {
+        const remark = formatTourRegisterRemark(row.location, row.reason);
+        addTourMark(marks, remarks, row.employee_code, row.register_date, remark);
+      }
+      if (Object.keys(marks).length) return { marks, remarks };
+    }
+  } catch {
+    /* RPC not deployed — fall back to direct reads */
+  }
+
+  try {
     return await buildApprovedTourMarksFromSources(supabase, fromDate, toDate);
   } catch (err) {
     console.warn("fetchApprovedTourMarksForMonth failed:", err);
@@ -1248,7 +1268,12 @@ export async function refreshApprovedToursOnRegister(supabase, monthMeta, option
     approvedLeaveMarks,
     { punches, monthKey: monthMeta.monthKey }
   );
-  const merged = mergeApprovedTourIntoRegisterView(afterLeave, registerData?.remarks || {}, tourData, {
+  const merged = finalizeRegisterMarksAndRemarks({
+    marks: afterLeave,
+    remarks: registerData?.remarks || {},
+    tourData,
+    registerRows,
+    masterCodeMap,
     punches,
     monthKey: monthMeta.monthKey,
   });
@@ -1284,15 +1309,15 @@ export function mergeApprovedTourIntoRegisterView(
       if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = nextMarks[code][day];
       if (existing === "P") continue;
-      const remark = String(tourRemarks[code]?.[day] || tourRemarks[empCode]?.[day] || "").trim();
+      const tourRemark = String(tourRemarks[code]?.[day] || tourRemarks[empCode]?.[day] || "").trim();
       const existingRemark = String(nextRemarks[code]?.[day] || "").trim();
-      // Manual / DB T comment wins over an approved tour with no remark text.
-      if (existing === "T" && existingRemark) continue;
       nextMarks[code][day] = "T";
       if (!nextRemarks[code]) nextRemarks[code] = {};
-      if (remark) {
-        nextRemarks[code][day] = remark;
-      } else if (!existingRemark) {
+      if (tourRemark) {
+        nextRemarks[code][day] = tourRemark;
+      } else if (existingRemark) {
+        nextRemarks[code][day] = existingRemark;
+      } else {
         delete nextRemarks[code][day];
       }
     }
@@ -1315,6 +1340,71 @@ export function mergeApprovedTourIntoRegisterView(
   return { marks: nextMarks, remarks: nextRemarks };
 }
 
+/**
+ * Ensure T / P(OD) cells always carry mark_remark from DB rows or approved tour overlay.
+ */
+export function ensureCommentRemarksForRegisterMarks(
+  remarks,
+  marks,
+  registerRows,
+  tourRemarks = {},
+  masterCodeMap = null
+) {
+  const next = {};
+  for (const [code, days] of Object.entries(remarks || {})) {
+    next[code] = { ...(days || {}) };
+  }
+  const fromDb = dbRowsToManualRemarks(registerRows, masterCodeMap);
+
+  for (const [code, days] of Object.entries(marks || {})) {
+    const normCode = normalizeAttendanceEmpCode(code);
+    if (!normCode) continue;
+    for (const [dayKey, mark] of Object.entries(days || {})) {
+      const day = Number(dayKey);
+      const canonical = normalizeRegisterMarkForDb(mark);
+      if (!Number.isFinite(day) || !isRegisterCommentMark(canonical)) continue;
+
+      const dbText = String(fromDb[normCode]?.[day] || fromDb[code]?.[day] || "").trim();
+      const tourText = String(
+        tourRemarks[normCode]?.[day] || tourRemarks[code]?.[day] || ""
+      ).trim();
+      const existing = String(next[normCode]?.[day] || next[code]?.[day] || "").trim();
+      const resolved = dbText || tourText || existing;
+      if (!resolved) continue;
+
+      if (!next[normCode]) next[normCode] = {};
+      next[normCode][day] = resolved;
+    }
+  }
+  return next;
+}
+
+/** Merge tour overlay then hydrate comment marks from DB + tour tables. */
+export function finalizeRegisterMarksAndRemarks({
+  marks,
+  remarks,
+  tourData,
+  registerRows,
+  masterCodeMap = null,
+  punches = [],
+  monthKey,
+}) {
+  const merged = mergeApprovedTourIntoRegisterView(marks, remarks, tourData, {
+    punches,
+    monthKey,
+  });
+  return {
+    marks: merged.marks,
+    remarks: ensureCommentRemarksForRegisterMarks(
+      merged.remarks,
+      merged.marks,
+      registerRows,
+      tourData?.remarks,
+      masterCodeMap
+    ),
+  };
+}
+
 function canTourSyncApplyToExisting(existing) {
   if (!existing?.mark) return true;
   if (isManualMarkSource(existing.mark_source)) return false;
@@ -1325,7 +1415,9 @@ function canTourSyncApplyToExisting(existing) {
   // LMS tour approval often writes P(OD); convert those cells to T on sync.
   if (mark === "P(OD)") return true;
   if (mark === "T" && !String(existing.mark_remark ?? "").trim()) return true;
-  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) return true;
+  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) {
+    return !String(existing.mark_remark ?? "").trim();
+  }
   if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return true;
   return false;
 }
@@ -2074,7 +2166,7 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
       const dayMark = row.dayMarks?.[day];
       if (!isRegisterCommentMark(dayMark)) continue;
       const excelRowIndex = rowIdx + 1;
-      const excelColIndex = 4 + (day - 1);
+      const excelColIndex = REGISTER_EXPORT_DAY_COL_OFFSET + (day - 1);
       const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: excelColIndex });
       if (!ws[cellAddress]) ws[cellAddress] = { v: dayMark, t: "s" };
       if (!ws[cellAddress].c) ws[cellAddress].c = [];
