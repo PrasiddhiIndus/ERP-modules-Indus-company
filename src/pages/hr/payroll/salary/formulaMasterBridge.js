@@ -3,11 +3,11 @@ import { loadFormulaGroups } from './formulaLibraryStorage';
 /** Machine-readable default formulas keyed by payroll component_code. */
 export const DEFAULT_MASTER_FORMULAS = {
   GROSS: 'Gross',
-  BASIC: 'Gross * 0.40',
-  HRA: 'Basic * 0.50',
+  BASIC: 'Gross * 40%',
+  HRA: 'Basic * 50%',
   SPECIAL_ALLOWANCE: 'Gross - BASIC - HRA',
-  PF_EMP: 'min(BASIC * 0.12, 1800)',
-  ESIC_EMP: 'Gross * 0.0075',
+  PF_EMP: 'min(BASIC * 12%, 1800)',
+  ESIC_EMP: 'Gross * 0.75%',
   PT: 'FixedAmount',
   TDS: '0',
   LOAN: '0',
