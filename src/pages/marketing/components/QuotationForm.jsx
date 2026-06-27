@@ -538,15 +538,6 @@ const QuotationForm = ({
 
       const { data: { user } } = await supabase.auth.getUser();
 
-      // If editing an existing quotation: save costing sheet first (silent),
-      // then update quotation and close from this submit.
-      if (quotation?.id && costingSheetRef.current?.save) {
-        const res = await costingSheetRef.current.save({ silent: true });
-        if (res?.ok && typeof res.grandTotal === 'number') {
-          setCostingTotal(res.grandTotal);
-        }
-      }
-      
       // Generate unique quotation number with retry mechanism
       let quotationNumber;
       if (quotation) {

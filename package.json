@@ -6,13 +6,17 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "concurrently \"npm run server\" \"npm run dev:frontend\"",
+    "dev:staging": "concurrently \"npm run server\" \"npm run dev:frontend:staging\"",
     "dev:frontend": "vite",
+    "dev:frontend:staging": "vite --mode staging",
     "server": "node --watch server/index.js",
     "kill-api-port": "powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 8787 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }\"",
     "dev:full": "npm run dev",
-    "build": "vite build",
+    "build": "vite build --mode production",
+    "build:staging": "vite build --mode staging",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:staging": "vite preview --mode staging"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",

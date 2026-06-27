@@ -27,6 +27,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!.env.staging.example
 !.env.server.example
 .env.server
 .env.local

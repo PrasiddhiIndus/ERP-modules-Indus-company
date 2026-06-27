@@ -3,6 +3,7 @@ import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 import { X, Download, Mail } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
+import { sanitizePdfText } from '../utils/pdfTextSanitize';
 import jsPDF from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 
@@ -14,6 +15,7 @@ const InternalQuotationFormModal = ({
 }) => {
   const [quotation, setQuotation] = useState(null);
   const [client, setClient] = useState(null);
+  const [enquiry, setEnquiry] = useState(null);
   const [costingData, setCostingData] = useState(null);
   const [costingTableItems, setCostingTableItems] = useState([]);
   const [costingTableHeads, setCostingTableHeads] = useState([]);
@@ -175,7 +177,7 @@ const InternalQuotationFormModal = ({
         .select(`
           *,
           marketing_clients:client_id (*),
-          marketing_enquiries:enquiry_id (id, enquiry_number)
+          marketing_enquiries:enquiry_id (id, enquiry_number, contact_email)
         `)
         .eq('id', id)
         .single();
@@ -183,6 +185,7 @@ const InternalQuotationFormModal = ({
       if (quotationError) throw quotationError;
       setQuotation(quotationData);
       setClient(quotationData.marketing_clients);
+      setEnquiry(quotationData.marketing_enquiries || null);
 
       // Set form data from quotation
       setFormData({
@@ -207,13 +210,12 @@ const InternalQuotationFormModal = ({
         .from('marketing_costing_sheets')
         .select('*')
         .eq('quotation_id', id)
-        .order('item_order', { ascending: true });
+        .order('updated_at', { ascending: false });
 
       if (costingError) throw costingError;
 
-      // Parse costing_data if available
       if (costingData && costingData.length > 0) {
-        const firstSheet = costingData[0];
+        const firstSheet = costingData.find((s) => s.costing_data) || costingData[0];
         if (firstSheet.costing_data) {
           try {
             const parsedData = typeof firstSheet.costing_data === 'string' 
@@ -602,7 +604,7 @@ const InternalQuotationFormModal = ({
   const justifyText = (doc, text, x, y, maxWidth, lineHeight) => {
     if (!text) return y;
     
-    const words = text.replace(/\s+/g, ' ').trim().split(' ');
+    const words = sanitizePdfText(text).replace(/\s+/g, ' ').trim().split(' ');
     let line = '';
     let currentY = y;
     
@@ -699,7 +701,7 @@ const InternalQuotationFormModal = ({
       yPos += 4;
       if (client.client_name) {
         doc.setFont('helvetica', 'bold');
-        doc.text(client.client_name, marginLeft, yPos);
+        doc.text(sanitizePdfText(client.client_name), marginLeft, yPos);
         doc.setFont('helvetica', 'normal');
         yPos += 4;
       }
@@ -710,7 +712,7 @@ const InternalQuotationFormModal = ({
         client.country,
       ].filter(Boolean);
       addrParts.forEach((part) => {
-        doc.text(part, marginLeft, yPos);
+        doc.text(sanitizePdfText(part), marginLeft, yPos);
         yPos += 4;
       });
       yPos += sectionGap;
@@ -719,7 +721,7 @@ const InternalQuotationFormModal = ({
       if (formData.subject_title) {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
-        doc.text(`Subject: ${formData.subject_title}`, marginLeft, yPos);
+        doc.text(`Subject: ${sanitizePdfText(formData.subject_title)}`, marginLeft, yPos);
         doc.setFont('helvetica', 'normal');
         yPos += sectionGap;
       }
@@ -759,10 +761,12 @@ const InternalQuotationFormModal = ({
       const pdfHeaders = ['Item Name', 'Specification', 'Quotation Rate Per Unit', 'Grand Total (Excl GST)', 'GST %', 'GST Amount', 'Grand Total With GST'];
       if (costingTableItems.length > 0 && costingData) {
         costingTableItems.forEach((item, index) => {
-          const itemName = item.productName || item.name || `Item ${index + 1}`;
-          const specification = item.productId
-            ? (item.specification || getProductSpecification(item.productId) || '-')
-            : '-';
+          const itemName = sanitizePdfText(item.productName || item.name || `Item ${index + 1}`);
+          const specification = sanitizePdfText(
+            item.productId
+              ? (item.specification || getProductSpecification(item.productId) || '-')
+              : '-'
+          );
           const quotationRatePerUnit = parseFloat(getCostingValue(item.id, 'quotation_rate_per_unit') || 0);
           const grandExclGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_excl_gst') || 0);
           const gstPct = getCostingValue(item.id, 'gst_pct');
@@ -926,7 +930,7 @@ const InternalQuotationFormModal = ({
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
-      doc.text(formData.signed_by || 'Authorized Signatory', marginLeft, yPos);
+      doc.text(sanitizePdfText(formData.signed_by || 'Authorized Signatory'), marginLeft, yPos);
       yPos += 4;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
@@ -963,9 +967,12 @@ const InternalQuotationFormModal = ({
   const getProductSpecification = (productId) => {
     const product = products.find(p => p.id === productId);
     if (!product || !product.detailed_specifications) return '';
-    // Get specification without additional info
     const parts = product.detailed_specifications.split('Additional Info:');
-    return parts[0].trim();
+    return sanitizePdfText(parts[0].trim());
+  };
+
+  const getQuotationRecipientEmail = () => {
+    return enquiry?.contact_email || client?.contact_email || '';
   };
 
   // Send Email with all quotation data - matching PDF format
@@ -976,8 +983,8 @@ const InternalQuotationFormModal = ({
         return;
       }
 
-      if (!client.contact_email) {
-        alert('Client email not available');
+      if (!getQuotationRecipientEmail()) {
+        alert('Primary email not available on enquiry or client');
         return;
       }
 
@@ -1004,8 +1011,7 @@ const InternalQuotationFormModal = ({
       // Calculate grand total first
       const grandTotal = costingTableItems.length > 0 && costingData
         ? costingTableItems.reduce((sum, item) => {
-            const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-            return sum + finalPrice;
+            return sum + parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0);
           }, 0)
         : finalAmount;
 
@@ -1016,15 +1022,17 @@ const InternalQuotationFormModal = ({
       // Format items in table format
       if (costingTableItems.length > 0 && costingData) {
         costingTableItems.forEach((item, index) => {
-          const finalPrice = parseFloat(costingData[`${item.id}_final_price`] || 0);
-          const itemName = item.name || item.productName || `Item ${index + 1}`;
-          const specification = item.productId
-            ? (item.specification || getProductSpecification(item.productId) || '-')
-            : '-';
+          const grandWithGst = parseFloat(getCostingValue(item.id, 'grand_total_supply_cost_with_gst') || 0);
+          const quotationRate = parseFloat(getCostingValue(item.id, 'quotation_rate_per_unit') || 0);
+          const itemName = sanitizePdfText(item.name || item.productName || `Item ${index + 1}`);
+          const specification = sanitizePdfText(
+            item.productId
+              ? (item.specification || getProductSpecification(item.productId) || '-')
+              : '-'
+          );
           
-          // Format with tabs for table alignment
-          const rateFormatted = `₹${finalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-          const totalFormatted = `₹${finalPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          const rateFormatted = `Rs. ${quotationRate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          const totalFormatted = `Rs. ${grandWithGst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           
           body += `${index + 1}\t${itemName}\t${specification}\t${rateFormatted}\t${totalFormatted}\n`;
         });
@@ -1081,7 +1089,7 @@ const InternalQuotationFormModal = ({
 
       // Open email client after a short delay
       setTimeout(() => {
-        const mailto = `mailto:${encodeURIComponent(client.contact_email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        const mailto = `mailto:${encodeURIComponent(getQuotationRecipientEmail())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         window.open(mailto);
         
         alert(`📧 Email client opened!\n\n📎 PDF "${fileName}" has been automatically downloaded.\n\nPlease attach it to your email from your Downloads folder.`);
@@ -1124,7 +1132,7 @@ const InternalQuotationFormModal = ({
     yPos += 4;
     if (client.client_name) {
       doc.setFont('helvetica', 'bold');
-      doc.text(client.client_name, marginLeft, yPos);
+      doc.text(sanitizePdfText(client.client_name), marginLeft, yPos);
       doc.setFont('helvetica', 'normal');
       yPos += 4;
     }
@@ -1405,7 +1413,8 @@ const InternalQuotationFormModal = ({
                   {client?.contact_email && (
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Email</p>
-                      <p className="text-sm font-medium text-gray-900">{client.contact_email}</p>
+                      <p className="text-sm font-medium text-gray-900">{getQuotationRecipientEmail() || '-'}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Primary email (from enquiry or client)</p>
                     </div>
                   )}
                   {client?.contact_number && (
@@ -1462,14 +1471,14 @@ const InternalQuotationFormModal = ({
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Subject
+                      Line Description
                     </label>
                     <textarea
                       value={formData.subject}
                       onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                       rows={4}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                      placeholder="Enter subject content"
+                      placeholder="Enter line description / opening paragraph"
                     />
                   </div>
                 </div>
