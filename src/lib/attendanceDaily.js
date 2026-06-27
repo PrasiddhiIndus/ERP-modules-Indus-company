@@ -756,6 +756,67 @@ function applyRegisterFetchAbortSignal(query) {
   return query;
 }
 
+function applyRegisterRowsKeyset(query, afterDate, afterEmployeeCode) {
+  if (!afterDate || afterEmployeeCode == null || afterEmployeeCode === "") {
+    return query;
+  }
+  const d = String(afterDate).slice(0, 10);
+  const c = String(afterEmployeeCode);
+  return query.or(`register_date.gt.${d},and(register_date.eq.${d},employee_code.gt.${c})`);
+}
+
+function sortRegisterRowsByDateAndCode(rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const dateCmp = String(a?.register_date || "").localeCompare(String(b?.register_date || ""));
+    if (dateCmp !== 0) return dateCmp;
+    return String(a?.employee_code || "").localeCompare(String(b?.employee_code || ""));
+  });
+}
+
+/** Keyset pagination over a date window — replaces up to 31 sequential per-day round trips. */
+async function fetchRegisterMarkRowsRangeKeyset(
+  supabase,
+  { select, fromDate, toDate, monthKey, useMonthKey }
+) {
+  const all = [];
+  let afterDate = null;
+  let afterEmployeeCode = null;
+
+  while (true) {
+    let query = supabase
+      .from(ATTENDANCE_REGISTER_TABLE)
+      .select(select)
+      .gte("register_date", fromDate)
+      .lte("register_date", toDate)
+      .order("register_date", { ascending: true })
+      .order("employee_code", { ascending: true })
+      .limit(REGISTER_FETCH_CHUNK);
+
+    if (useMonthKey && monthKey) {
+      query = query.eq("month_key", monthKey);
+    }
+
+    query = applyRegisterRowsKeyset(query, afterDate, afterEmployeeCode);
+    query = applyRegisterFetchAbortSignal(query);
+
+    const { data, error } = await query;
+    if (error) return { rows: null, error };
+
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < REGISTER_FETCH_CHUNK) {
+      return { rows: all, error: null };
+    }
+
+    const last = chunk[chunk.length - 1];
+    afterDate = last?.register_date;
+    afterEmployeeCode = last?.employee_code;
+    if (!afterDate || afterEmployeeCode == null || afterEmployeeCode === "") {
+      return { rows: all, error: null };
+    }
+  }
+}
+
 async function fetchRegisterMarkRowsForSingleDay(supabase, { select, day, monthKey, useMonthKey }) {
   const all = [];
   let afterEmployeeCode = null;
@@ -781,22 +842,45 @@ async function fetchRegisterMarkRowsForSingleDay(supabase, { select, day, monthK
   }
 }
 
-async function fetchRegisterMarkRowsForSelect(supabase, { select, fromDate, toDate, monthKey, useMonthKey }) {
-  const all = [];
-  for (const day of enumerateDates(fromDate, toDate)) {
-    const { rows, error } = await fetchRegisterMarkRowsForSingleDay(supabase, {
-      select,
-      day,
-      monthKey,
-      useMonthKey,
-    });
-    if (error) return { rows: null, error };
-    all.push(...rows);
+async function fetchRegisterMarkRowsForSelectPerDay(supabase, { select, fromDate, toDate, monthKey, useMonthKey }) {
+  const days = enumerateDates(fromDate, toDate);
+  const results = await Promise.all(
+    days.map((day) =>
+      fetchRegisterMarkRowsForSingleDay(supabase, {
+        select,
+        day,
+        monthKey,
+        useMonthKey,
+      })
+    )
+  );
+  for (const result of results) {
+    if (result.error) return { rows: null, error: result.error };
   }
-  return { rows: all, error: null };
+  return { rows: sortRegisterRowsByDateAndCode(results.flatMap((r) => r.rows || [])), error: null };
 }
 
-/** Paginated read — one day per request (no OFFSET) so large months do not 500 on deep pages. */
+async function fetchRegisterMarkRowsForSelect(supabase, { select, fromDate, toDate, monthKey, useMonthKey }) {
+  const keysetResult = await fetchRegisterMarkRowsRangeKeyset(supabase, {
+    select,
+    fromDate,
+    toDate,
+    monthKey,
+    useMonthKey,
+  });
+  if (!keysetResult.error) return keysetResult;
+  if (!isRetryableRegisterQueryError(keysetResult.error)) return keysetResult;
+
+  return fetchRegisterMarkRowsForSelectPerDay(supabase, {
+    select,
+    fromDate,
+    toDate,
+    monthKey,
+    useMonthKey,
+  });
+}
+
+/** Paginated read — keyset over the date range (fallback: parallel per-day chunks). */
 export async function fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate, monthKey } = {}) {
   const resolvedMonthKey = resolveRegisterFetchMonthKey({ fromDate, toDate, monthKey });
   const filterModes = resolvedMonthKey ? [true, false] : [false];
@@ -1086,11 +1170,17 @@ async function fetchApprovedTourRequestsForRange(supabase, fromDate, toDate) {
     [INDUS_ONE_TOUR_TABLES.lmsRequests]: LMS_TOUR_REQUEST_RANGE_SELECTS,
   };
 
-  for (const [table, selects] of Object.entries(tableSelects)) {
-    const rows = await queryTourTableWithFallback(supabase, table, selects, (q) =>
-      q.lte("from_date", toDate).gte("to_date", fromDate)
-    );
-    for (const row of rows) {
+  const entries = Object.entries(tableSelects);
+  const tableResults = await Promise.all(
+    entries.map(([table, selects]) =>
+      queryTourTableWithFallback(supabase, table, selects, (q) =>
+        q.lte("from_date", toDate).gte("to_date", fromDate)
+      )
+    )
+  );
+
+  for (let i = 0; i < entries.length; i += 1) {
+    for (const row of tableResults[i] || []) {
       if (!row?.id || !isApprovedTourStatus(row.status)) continue;
       const employee_code = tourRequestEmployeeCode(row);
       if (!byId.has(row.id)) {
@@ -1140,11 +1230,14 @@ async function buildApprovedTourMarksFromSources(supabase, fromDate, toDate) {
   const marks = {};
   const remarks = {};
 
-  const approved = await fetchApprovedTourRequestsForRange(supabase, fromDate, toDate);
+  const [approved, applied] = await Promise.all([
+    fetchApprovedTourRequestsForRange(supabase, fromDate, toDate),
+    fetchTourAttendanceMarksForRange(supabase, fromDate, toDate),
+  ]);
+
   const fromRequests = expandApprovedTourRequestsToMarks(approved, fromDate, toDate);
   mergeTourMarksIntoAccumulator(marks, remarks, fromRequests.marks, fromRequests.remarks);
 
-  const applied = await fetchTourAttendanceMarksForRange(supabase, fromDate, toDate);
   if (applied.length) {
     const meta = await fetchTourRequestMetaByIds(
       supabase,
@@ -2669,15 +2762,16 @@ export async function fetchAttendancePunchesPage(supabase, options = {}) {
 
 export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate, empCode }) {
   const all = [];
-  let offset = 0;
+  let afterDate = null;
+  let afterId = null;
 
   while (true) {
     let query = supabase
       .from(ATTENDANCE_PUNCH_TABLE)
       .select(PUNCH_LIST_SELECT)
       .order("punch_date", { ascending: true })
-      .order("punch_time", { ascending: true })
-      .range(offset, offset + PUNCH_FETCH_CHUNK - 1);
+      .order("id", { ascending: true })
+      .limit(PUNCH_FETCH_CHUNK);
 
     if (fromDate) query = query.gte("punch_date", fromDate);
     if (toDate) query = query.lte("punch_date", toDate);
@@ -2688,13 +2782,28 @@ export async function fetchAttendancePunchesInRange(supabase, { fromDate, toDate
       else if (variants.length) query = query.in("employee_code", variants);
     }
 
+    if (afterDate && afterId) {
+      const d = String(afterDate).slice(0, 10);
+      query = query.or(`punch_date.gt.${d},and(punch_date.eq.${d},id.gt.${afterId})`);
+    }
+
     const { data, error } = await query;
     if (error) throw error;
     const chunk = (data || []).map(mapDbPunchToViewRow);
     all.push(...chunk);
     if (chunk.length < PUNCH_FETCH_CHUNK) break;
-    offset += PUNCH_FETCH_CHUNK;
+
+    const last = data[data.length - 1];
+    afterDate = last?.punch_date;
+    afterId = last?.id;
+    if (!afterDate || !afterId) break;
   }
+
+  all.sort((a, b) => {
+    const dateCmp = String(a.punchDate || "").localeCompare(String(b.punchDate || ""));
+    if (dateCmp !== 0) return dateCmp;
+    return String(a.punchTime || "").localeCompare(String(b.punchTime || ""));
+  });
 
   return all;
 }
