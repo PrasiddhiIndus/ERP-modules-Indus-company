@@ -9,6 +9,10 @@ import InternalQuotationFormModal from './components/InternalQuotationFormModal'
 import ExcelCostingSheet from './components/ExcelCostingSheet';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, Save, FileDown, Search, RefreshCw, History } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
+import {
+  calcFinalAmountFromCostingData,
+  buildLatestCostingMap,
+} from './utils/marketingQuotationUtils';
 import jsPDF from 'jspdf';
 import { INDUS_LOGO_SRC } from '../../constants/branding.js';
 
@@ -165,7 +169,6 @@ const QuotationTracker = () => {
   const [quotationsWithRevisionCount, setQuotationsWithRevisionCount] = useState([]);
   const [enquiries, setEnquiries] = useState([]);
   const [clients, setClients] = useState([]);
-  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showCostingForm, setShowCostingForm] = useState(false);
@@ -221,17 +224,17 @@ const QuotationTracker = () => {
 
   useEffect(() => {
     fetchQuotations();
-    fetchEnquiries();
-    fetchClients();
-    fetchProducts();
     if (enquiryId) {
-      // Auto-fetch enquiry data and populate client_id, then open the form
       fetchEnquiryData(enquiryId).then(() => {
-        // Open the form automatically when enquiryId is present
         setShowForm(true);
       });
     }
   }, [enquiryId]);
+
+  useEffect(() => {
+    if (showForm && enquiries.length === 0) fetchEnquiries();
+    if (showForm && clients.length === 0) fetchClients();
+  }, [showForm]);
 
   // Auto-fetch enquiry data when enquiry_id is present
   const fetchEnquiryData = async (enquiryId) => {
@@ -352,34 +355,29 @@ const QuotationTracker = () => {
       });
       
       const uniqueQuotations = Array.from(quotationMap.values());
-      
-      // Fetch revision counts for each quotation
-      const quotationsWithCounts = await Promise.all(
-        uniqueQuotations.map(async (quotation) => {
-          // Get base quotation ID (the original one without /R)
-          const baseNumber = quotation.quotation_number.split('/R')[0];
-          const { data: baseQuotation } = await supabase
-            .from('marketing_quotations')
-            .select('id')
-            .eq('quotation_number', baseNumber)
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-          
-          const baseId = baseQuotation?.id || quotation.id;
-          
-          const { count } = await supabase
-            .from('marketing_quotation_revisions')
-            .select('id', { count: 'exact', head: true })
-            .eq('quotation_id', baseId);
-          
-          return {
-            ...quotation,
-            revisionCount: count || 0,
-            hasRevisions: (count || 0) > 0
-          };
-        })
-      );
+
+      const baseIds = uniqueQuotations.map((q) => q.id);
+
+      const revisionCountMap = {};
+      if (baseIds.length > 0) {
+        const { data: revisionRows } = await supabase
+          .from('marketing_quotation_revisions')
+          .select('quotation_id')
+          .in('quotation_id', baseIds);
+
+        (revisionRows || []).forEach((row) => {
+          revisionCountMap[row.quotation_id] = (revisionCountMap[row.quotation_id] || 0) + 1;
+        });
+      }
+
+      const quotationsWithCounts = uniqueQuotations.map((quotation) => {
+        const count = revisionCountMap[quotation.id] || 0;
+        return {
+          ...quotation,
+          revisionCount: count,
+          hasRevisions: count > 0,
+        };
+      });
       
       setQuotations(uniqueQuotations);
       setQuotationsWithRevisionCount(quotationsWithCounts);
@@ -411,19 +409,6 @@ const QuotationTracker = () => {
       setClients(data || []);
     } catch (error) {
       console.error('Error fetching clients:', error);
-    }
-  };
-
-  const fetchProducts = async () => {
-    try {
-      const { data } = await supabase
-        .from('marketing_products')
-        .select('*')
-        .eq('is_active', true)
-        .order('product_name');
-      setProducts(data || []);
-    } catch (error) {
-      console.error('Error fetching products:', error);
     }
   };
 
@@ -507,7 +492,6 @@ const QuotationTracker = () => {
   const fetchQuotationsWithCosting = async () => {
     try {
       setLoadingInternal(true);
-      // Fetch quotations that have internal quotation data (subject_title or subject filled)
       const { data: quotationsData, error: quotationsError } = await supabase
         .from('marketing_quotations')
         .select(`
@@ -520,54 +504,36 @@ const QuotationTracker = () => {
 
       if (quotationsError) throw quotationsError;
 
-      const quotationsWithCosting = await Promise.all(
-        quotationsData.map(async (quotation) => {
-          const { data: costingData } = await supabase
-            .from('marketing_costing_sheets')
-            .select('id, costing_data, created_at')
-            .eq('quotation_id', quotation.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+      const quotationIds = (quotationsData || []).map((q) => q.id);
+      let costingMap = new Map();
+      if (quotationIds.length > 0) {
+        const { data: costingSheets } = await supabase
+          .from('marketing_costing_sheets')
+          .select('quotation_id, costing_data, created_at, updated_at')
+          .in('quotation_id', quotationIds)
+          .order('updated_at', { ascending: false });
+        costingMap = buildLatestCostingMap(costingSheets || []);
+      }
 
-          // Calculate final amount from costing data
-          let finalAmount = 0;
-          if (costingData?.costing_data) {
-            try {
-              const costingDataParsed = typeof costingData.costing_data === 'string' 
-                ? JSON.parse(costingData.costing_data) 
-                : costingData.costing_data;
-              if (costingDataParsed.items && costingDataParsed.items.length > 0) {
-                finalAmount = costingDataParsed.items.reduce((sum, item) => {
-                  const finalPriceKey = `${item.id}_final_price`;
-                  const finalPrice = parseFloat(costingDataParsed[finalPriceKey] || 0);
-                  return sum + finalPrice;
-                }, 0);
-              }
-            } catch (e) {
-              console.error('Error parsing costing data:', e);
-              finalAmount = parseFloat(quotation.final_amount || 0);
-            }
-          } else {
-            finalAmount = parseFloat(quotation.final_amount || 0);
-          }
+      const quotationsWithCosting = (quotationsData || []).map((quotation) => {
+        const costingData = costingMap.get(quotation.id) || null;
+        const finalAmount = costingData?.costing_data
+          ? calcFinalAmountFromCostingData(costingData.costing_data)
+          : parseFloat(quotation.final_amount || 0);
 
-          // Check if internal quotation data exists (has subject_title or subject)
-          const hasInternalData = quotation.subject_title || quotation.subject;
-          // Get created date for internal quotation (when subject_title or subject was first set)
-          const internalQuotationCreatedDate = hasInternalData && quotation.updated_at 
-            ? quotation.updated_at 
-            : null;
+        const hasInternalData = quotation.subject_title || quotation.subject;
+        const internalQuotationCreatedDate = hasInternalData && quotation.updated_at
+          ? quotation.updated_at
+          : null;
 
-          return {
-            ...quotation,
-            hasCosting: costingData !== null,
-            hasInternalQuotation: hasInternalData,
-            finalAmount: finalAmount,
-            internalQuotationCreatedDate: internalQuotationCreatedDate,
-          };
-        })
-      );
+        return {
+          ...quotation,
+          hasCosting: costingData !== null,
+          hasInternalQuotation: hasInternalData,
+          finalAmount,
+          internalQuotationCreatedDate,
+        };
+      });
 
 
       // Show all quotations with costing (latest only, no duplicates by base quotation number)
@@ -848,8 +814,13 @@ const QuotationTracker = () => {
         }
       }
 
-      // Save quotation items from costing sheet
+      // Save quotation items from costing sheet (replace existing rows)
       if (costingTotal > 0) {
+        await supabase
+          .from('marketing_quotation_items')
+          .delete()
+          .eq('quotation_id', quotationId);
+
         await supabase
           .from('marketing_quotation_items')
           .insert([{
@@ -1120,6 +1091,22 @@ const QuotationTracker = () => {
   };
 
   const handleExport = () => {
+    if (activeTab === 'internal') {
+      const exportData = quotationsWithCosting.map((quotation) => ({
+        'Quotation Number': quotation.quotation_number,
+        'Client': quotation.marketing_clients?.client_name || '-',
+        'Subject': quotation.subject_title || '-',
+        'Line Description': quotation.subject || '-',
+        'Final Amount (Rs.)': quotation.finalAmount > 0 ? quotation.finalAmount : 0,
+        'Internal Quotation Date': quotation.internalQuotationCreatedDate
+          ? formatDateDdMmYyyy(quotation.internalQuotationCreatedDate)
+          : (quotation.created_at ? formatDateDdMmYyyy(quotation.created_at) : '-'),
+        'Status': quotation.subject_title || quotation.subject ? 'Saved' : (quotation.status || 'Sent'),
+      }));
+      exportToExcel(exportData, 'Internal_Quotations_Export', 'Internal Quotations');
+      return;
+    }
+
     const exportData = quotations.map(quotation => ({
       'Quotation Number': quotation.quotation_number,
       'Date': quotation.quotation_date,
@@ -1947,20 +1934,7 @@ Marketing Team`;
                         // Calculate final amount from costing data
                         let finalAmount = 0;
                         if (sheet.costing_data) {
-                          try {
-                            const costingData = typeof sheet.costing_data === 'string' 
-                              ? JSON.parse(sheet.costing_data) 
-                              : sheet.costing_data;
-                            if (costingData.items && costingData.items.length > 0) {
-                              finalAmount = costingData.items.reduce((sum, item) => {
-                                const finalPriceKey = `${item.id}_final_price`;
-                                const finalPrice = parseFloat(costingData[finalPriceKey] || 0);
-                                return sum + finalPrice;
-                              }, 0);
-                            }
-                          } catch (e) {
-                            console.error('Error parsing costing data:', e);
-                          }
+                          finalAmount = calcFinalAmountFromCostingData(sheet.costing_data);
                         }
                         return (
                           <tr key={sheet.id} className="hover:bg-green-50/30 transition-colors border-b border-gray-200">
@@ -2058,13 +2032,15 @@ Marketing Team`;
                     background: #a855f7;
                   }
                 `}</style>
-                <table className="w-full min-w-[1000px] text-xs">
+                <table className="w-full min-w-[1200px] text-xs">
                   <thead className="bg-gradient-to-r from-red-50 to-amber-50 border-b border-red-100">
                     <tr>
                       <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider w-11">S.No</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Quotation ID</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Client Name</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Final Amount</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider min-w-[140px]">Subject</th>
+                      <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider min-w-[180px]">Line Description</th>
+                      <th className="px-3 py-2 text-right text-[11px] font-bold text-gray-700 uppercase tracking-wider">Final Amount</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Created Date</th>
                       <th className="px-3 py-2 text-left text-[11px] font-bold text-gray-700 uppercase tracking-wider">Status</th>
                       <th className="px-3 py-2 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider">Actions</th>
@@ -2091,7 +2067,17 @@ Marketing Team`;
                               {quotation.marketing_clients?.client_name || '-'}
                             </span>
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 max-w-[180px]">
+                            <span className="text-xs text-gray-800 line-clamp-2" title={quotation.subject_title || ''}>
+                              {quotation.subject_title || '-'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 max-w-[220px]">
+                            <span className="text-xs text-gray-600 line-clamp-2" title={quotation.subject || ''}>
+                              {quotation.subject || '-'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right">
                             <span className="text-xs font-semibold text-gray-900">
                               {quotation.finalAmount > 0 
                                 ? `₹${quotation.finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

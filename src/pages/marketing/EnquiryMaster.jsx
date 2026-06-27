@@ -8,6 +8,10 @@ import { parseIndianNumber } from './utils/numberFormat';
 import NumberInput from './components/NumberInput';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { isValidDateInputValue, normalizeDateInputValue, resolveNativeDateInputChange } from '../../utils/dateInput';
+import {
+  parseCommaSeparatedEmails,
+  parseEnquirySecondaryEmails,
+} from './utils/marketingQuotationUtils';
 
 const DOCUMENTS_BUCKET = 'marketing-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
@@ -31,6 +35,7 @@ const EnquiryMaster = () => {
     contact_person: '',
     contact_number: '',
     contact_email: '',
+    secondary_emails: '',
     site_location: '',
     description: '',
     estimated_value: '',
@@ -126,6 +131,7 @@ const EnquiryMaster = () => {
         contact_person: '',
         contact_number: '',
         contact_email: '',
+        secondary_emails: '',
         site_location: '',
       }));
       return;
@@ -163,7 +169,8 @@ const EnquiryMaster = () => {
     if (contactEmails.length === 0 && client.contact_email) {
       contactEmails = [client.contact_email];
     }
-    const contactEmail = contactEmails.join(', ');
+    const primaryEmail = contactEmails[0] || '';
+    const secondaryEmail = contactEmails.slice(1).join(', ');
 
     const addressParts = [client.street_address, client.city, client.state, client.country].filter(Boolean);
     const siteLocation = addressParts.length > 0 ? addressParts.join(', ') : '';
@@ -172,7 +179,8 @@ const EnquiryMaster = () => {
       client_id: clientId,
       contact_person: client.primary_contact_person || prev.contact_person,
       contact_number: contactNumber || prev.contact_number,
-      contact_email: contactEmail || prev.contact_email,
+      contact_email: primaryEmail || prev.contact_email,
+      secondary_emails: secondaryEmail || prev.secondary_emails,
       site_location: siteLocation || prev.site_location,
     }));
   };
@@ -268,13 +276,20 @@ const EnquiryMaster = () => {
       const assignedIds = Array.isArray(formData.assigned_to_ids) ? formData.assigned_to_ids.filter(Boolean) : [];
       const assignedNames = Array.isArray(formData.assigned_to_custom_names) ? formData.assigned_to_custom_names.map((n) => (n || '').trim()).filter(Boolean) : [];
 
+      const primaryEmail = (formData.contact_email || '').trim() || null;
+      const secondaryFromInput = parseCommaSeparatedEmails(formData.secondary_emails);
+      const secondaryEmails = secondaryFromInput.filter(
+        (email) => email.toLowerCase() !== (primaryEmail || '').toLowerCase()
+      );
+
       const enquiryPayload = {
         enquiry_date: formData.enquiry_date || null,
         source: formData.source || 'Email',
         client_id: formData.client_id || null,
         contact_person: (formData.contact_person || '').trim() || null,
         contact_number: (formData.contact_number || '').trim() || null,
-        contact_email: (formData.contact_email || '').trim() || null,
+        contact_email: primaryEmail,
+        contact_emails: secondaryEmails.length > 0 ? JSON.stringify(secondaryEmails) : null,
         site_location: (formData.site_location || '').trim() || null,
         description: (formData.description || '').trim() || null,
         estimated_value: formData.estimated_value ? parseIndianNumber(String(formData.estimated_value)) : null,
@@ -420,6 +435,7 @@ const EnquiryMaster = () => {
         contact_person: '',
         contact_number: '',
         contact_email: '',
+        secondary_emails: '',
         site_location: '',
         description: '',
         estimated_value: '',
@@ -459,13 +475,25 @@ const EnquiryMaster = () => {
     } else if (enquiry.assigned_to_name?.trim()) {
       names = [enquiry.assigned_to_name.trim()];
     }
+    const legacyEmails = parseCommaSeparatedEmails(enquiry.contact_email);
+    const storedSecondary = parseEnquirySecondaryEmails(enquiry.contact_emails);
+    const primaryEmail = legacyEmails[0] || (enquiry.contact_email || '').trim();
+    const secondaryParts = [
+      ...storedSecondary,
+      ...legacyEmails.slice(1),
+    ].filter((email, idx, arr) => email && arr.findIndex((e) => e.toLowerCase() === email.toLowerCase()) === idx);
+    const secondaryEmails = secondaryParts
+      .filter((email) => email.toLowerCase() !== (primaryEmail || '').toLowerCase())
+      .join(', ');
+
     setFormData({
       enquiry_date: enquiry.enquiry_date || new Date().toISOString().split('T')[0],
       source: enquiry.source || 'Email',
       client_id: enquiry.client_id || '',
       contact_person: enquiry.contact_person || '',
       contact_number: enquiry.contact_number || '',
-      contact_email: enquiry.contact_email || '',
+      contact_email: primaryEmail,
+      secondary_emails: secondaryEmails,
       site_location: enquiry.site_location || '',
       description: enquiry.description || '',
       estimated_value: enquiry.estimated_value || '',
@@ -599,7 +627,8 @@ const EnquiryMaster = () => {
         'Client': enquiry.marketing_clients?.client_name || '-',
         'Contact Person': enquiry.contact_person || '-',
         'Contact Number': enquiry.contact_number || '-',
-        'Contact Email': enquiry.contact_email || '-',
+        'Contact Email (Primary)': enquiry.contact_email || '-',
+        'Secondary Emails': parseEnquirySecondaryEmails(enquiry.contact_emails).join(', ') || '-',
         'Site Location': enquiry.site_location || '-',
         'Assigned To': assignedTo,
         'Estimated Value (₹)': enquiry.estimated_value || '-',
@@ -694,6 +723,7 @@ const EnquiryMaster = () => {
                   contact_person: '',
                   contact_number: '',
                   contact_email: '',
+                  secondary_emails: '',
                   site_location: '',
                   description: '',
                   estimated_value: '',
@@ -1118,13 +1148,26 @@ const EnquiryMaster = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Contact Email</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Primary Email</label>
                   <input
                     type="email"
                     value={formData.contact_email}
                     onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Email shown on quotations"
                   />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Secondary Emails</label>
+                  <input
+                    type="text"
+                    value={formData.secondary_emails}
+                    onChange={(e) => setFormData({ ...formData, secondary_emails: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder="Comma-separated emails (internal reference only)"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Secondary emails are stored for internal use and will not appear on quotations.</p>
                 </div>
 
                 <div className="md:col-span-2">
@@ -1622,11 +1665,19 @@ const EnquiryMaster = () => {
                       </p>
                     </div>
                   </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Contact Email</label>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Primary Email</label>
                     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
                       <p className="text-sm text-gray-900">
                         {viewingEnquiry.contact_email || <span className="text-gray-400 italic">Not provided</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1.5">Secondary Emails</label>
+                    <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+                      <p className="text-sm text-gray-900">
+                        {parseEnquirySecondaryEmails(viewingEnquiry.contact_emails).join(', ') || <span className="text-gray-400 italic">Not provided</span>}
                       </p>
                     </div>
                   </div>

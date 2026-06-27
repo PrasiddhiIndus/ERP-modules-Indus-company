@@ -2,7 +2,10 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
+// Env: `.env.production` for `npm run build`, `.env.staging` for `npm run build:staging` / `dev:staging`.
+// Vite loads `.env`, then `.env.[mode]` from envDir (repo root by default).
 export default defineConfig({
+  envDir: '.',
   plugins: [react()],
   resolve: {
     // Single React instance so Context (e.g. BillingProvider) is not null in child hooks.

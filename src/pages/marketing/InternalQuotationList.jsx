@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import QuotationTrackerNavbar from './QuotationTrackerNavbar';
-import { Search, Eye, Edit, Trash2 } from 'lucide-react';
+import { Search, Eye, Edit, Trash2, Download } from 'lucide-react';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { exportToExcel } from './utils/excelExport';
+import {
+  calcFinalAmountFromCostingData,
+  buildLatestCostingMap,
+} from './utils/marketingQuotationUtils';
 
 const InternalQuotationList = () => {
   const navigate = useNavigate();
@@ -18,7 +23,6 @@ const InternalQuotationList = () => {
   const fetchQuotationsWithCosting = async () => {
     try {
       setLoading(true);
-      // Fetch all quotations that have costing sheets (not just "Sent" status)
       const { data: quotationsData, error: quotationsError } = await supabase
         .from('marketing_quotations')
         .select(`
@@ -30,55 +34,51 @@ const InternalQuotationList = () => {
 
       if (quotationsError) throw quotationsError;
 
-      // Check which quotations have costing sheets and fetch final amount
-      const quotationsWithCosting = await Promise.all(
-        quotationsData.map(async (quotation) => {
-          const { data: costingData, error: costingError } = await supabase
-            .from('marketing_costing_sheets')
-            .select('id, costing_data')
-            .eq('quotation_id', quotation.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+      const quotationIds = (quotationsData || []).map((q) => q.id);
+      let costingMap = new Map();
+      if (quotationIds.length > 0) {
+        const { data: costingSheets } = await supabase
+          .from('marketing_costing_sheets')
+          .select('quotation_id, costing_data, created_at, updated_at')
+          .in('quotation_id', quotationIds)
+          .order('updated_at', { ascending: false });
+        costingMap = buildLatestCostingMap(costingSheets || []);
+      }
 
-          // Calculate final amount from costing data
-          let finalAmount = 0;
-          if (costingData?.costing_data) {
-            try {
-              const costingDataParsed = typeof costingData.costing_data === 'string' 
-                ? JSON.parse(costingData.costing_data) 
-                : costingData.costing_data;
-              if (costingDataParsed.items && costingDataParsed.items.length > 0) {
-                finalAmount = costingDataParsed.items.reduce((sum, item) => {
-                  const finalPriceKey = `${item.id}_final_price`;
-                  const finalPrice = parseFloat(costingDataParsed[finalPriceKey] || 0);
-                  return sum + finalPrice;
-                }, 0);
-              }
-            } catch (e) {
-              console.error('Error parsing costing data:', e);
-              // Fallback to quotation's final_amount if available
-              finalAmount = parseFloat(quotation.final_amount || 0);
-            }
-          } else {
-            // Use quotation's final_amount if costing data not available
-            finalAmount = parseFloat(quotation.final_amount || 0);
-          }
+      const quotationsWithCosting = (quotationsData || []).map((quotation) => {
+        const costingData = costingMap.get(quotation.id) || null;
+        const finalAmount = costingData?.costing_data
+          ? calcFinalAmountFromCostingData(costingData.costing_data)
+          : parseFloat(quotation.final_amount || 0);
 
-          return {
-            ...quotation,
-            hasCosting: costingData !== null,
-            finalAmount: finalAmount,
-          };
-        })
-      );
+        return {
+          ...quotation,
+          hasCosting: costingData !== null,
+          finalAmount,
+        };
+      });
 
-      setQuotations(quotationsWithCosting.filter(q => q.hasCosting));
+      setQuotations(quotationsWithCosting.filter((q) => q.hasCosting));
       setLoading(false);
     } catch (error) {
       console.error('Error fetching quotations:', error);
       setLoading(false);
     }
+  };
+
+  const handleExport = () => {
+    const exportData = quotations.map((quotation) => ({
+      'Quotation Number': quotation.quotation_number,
+      'Client': quotation.marketing_clients?.client_name || '-',
+      'Subject': quotation.subject_title || '-',
+      'Line Description': quotation.subject || '-',
+      'Final Amount (Rs.)': quotation.finalAmount > 0 ? quotation.finalAmount : 0,
+      'Internal Quotation Date': quotation.subject_title || quotation.subject
+        ? formatDateDdMmYyyy(quotation.updated_at || quotation.created_at)
+        : '-',
+      'Status': quotation.subject_title || quotation.subject ? 'Saved' : (quotation.status || 'Draft'),
+    }));
+    exportToExcel(exportData, 'Internal_Quotations_Export', 'Internal Quotations');
   };
 
   const handleCreateInternalQuotation = (quotationId) => {
@@ -116,6 +116,21 @@ const InternalQuotationList = () => {
     }
   };
 
+  const filteredQuotations = quotations.filter((quotation) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    const quotationNumber = quotation.quotation_number?.toLowerCase() || '';
+    const clientName = quotation.marketing_clients?.client_name?.toLowerCase() || '';
+    const subject = quotation.subject_title?.toLowerCase() || '';
+    const lineDesc = quotation.subject?.toLowerCase() || '';
+    return (
+      quotationNumber.includes(query) ||
+      clientName.includes(query) ||
+      subject.includes(query) ||
+      lineDesc.includes(query)
+    );
+  });
+
   return (
     <div className="w-full min-h-screen bg-gray-50">
       <QuotationTrackerNavbar />
@@ -126,15 +141,22 @@ const InternalQuotationList = () => {
               <h1 className="text-2xl font-bold text-gray-900">Internal Quotation</h1>
               <p className="text-sm text-gray-600 mt-1">List of quotations with costing sheets</p>
             </div>
+            <button
+              onClick={handleExport}
+              disabled={quotations.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 text-sm"
+            >
+              <Download className="w-4 h-4" />
+              Export Excel
+            </button>
           </div>
           
-          {/* Search Bar */}
           <div className="mb-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <input
                 type="text"
-                placeholder="Search by quotation number or client name..."
+                placeholder="Search by quotation number, client, subject, or line description..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
@@ -150,12 +172,14 @@ const InternalQuotationList = () => {
             </div>
           ) : (
             <div className="overflow-x-auto bg-white rounded-lg border border-gray-200 shadow-sm">
-              <table className="w-full border-collapse">
+              <table className="w-full min-w-[1100px] border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b">
                     <th className="px-4 py-3 text-center text-sm font-medium text-gray-700 w-11">S.No</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Quotation Id</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Client Name</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 min-w-[140px]">Subject</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700 min-w-[180px]">Line Description</th>
                     <th className="px-4 py-3 text-right text-sm font-medium text-gray-700">Final Amount</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Internal Quotation Date</th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Status</th>
@@ -163,15 +187,8 @@ const InternalQuotationList = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {quotations.filter((quotation) => {
-                    if (!searchQuery) return true;
-                    const query = searchQuery.toLowerCase();
-                    const quotationNumber = quotation.quotation_number?.toLowerCase() || '';
-                    const clientName = quotation.marketing_clients?.client_name?.toLowerCase() || '';
-                    return quotationNumber.includes(query) || clientName.includes(query);
-                  }).map((quotation, idx) => {
+                  {filteredQuotations.map((quotation, idx) => {
                     const hasInternalQuotation = quotation.subject_title || quotation.subject;
-                    // Use updated_at if internal quotation exists, otherwise use created_at
                     const internalQuotationDate = hasInternalQuotation && quotation.updated_at 
                       ? quotation.updated_at 
                       : quotation.created_at;
@@ -183,6 +200,16 @@ const InternalQuotationList = () => {
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {quotation.marketing_clients?.client_name || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-800 max-w-[180px]">
+                          <span className="line-clamp-2" title={quotation.subject_title || ''}>
+                            {quotation.subject_title || '-'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 max-w-[220px]">
+                          <span className="line-clamp-2" title={quotation.subject || ''}>
+                            {quotation.subject || '-'}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 text-right font-medium">
                           {quotation.finalAmount > 0 
@@ -255,4 +282,3 @@ const InternalQuotationList = () => {
 };
 
 export default InternalQuotationList;
-
