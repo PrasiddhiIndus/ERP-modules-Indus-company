@@ -16,9 +16,12 @@ const supabaseAnonKey = getSupabaseAnonKey() || 'placeholder-key'
 const isConfigured = isSupabaseEnvConfigured()
 
 if (!isConfigured) {
-  console.warn(
-    '⚠️ Supabase env missing: copy .env.example to .env, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (anon key only), restart dev server.'
-  )
+  const mode = import.meta.env.MODE || 'development'
+  const envHint =
+    mode === 'staging'
+      ? 'copy .env.staging.example to .env.staging, set staging VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then restart (npm run dev:staging).'
+      : 'copy .env.example to .env, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (anon key only), restart dev server.'
+  console.warn(`⚠️ Supabase env missing: ${envHint}`)
 } else if (import.meta.env.PROD && !supabaseUrlLooksValid(supabaseUrl)) {
   console.warn('⚠️ VITE_SUPABASE_URL should be a valid https URL')
 }
@@ -518,6 +521,11 @@ const customFetch = async (url, options = {}) => {
     }
 
     if (!res.ok && import.meta.env.DEV) {
+      const skipStagingBillingNoise =
+        import.meta.env.MODE === 'staging' &&
+        res.status === 406 &&
+        pathLog.includes('po_wo');
+      if (!skipStagingBillingNoise) {
       try {
         const ct = res.headers.get('content-type') || ''
         const clone = res.clone()
@@ -537,6 +545,7 @@ const customFetch = async (url, options = {}) => {
         console.warn(`[Supabase fetch] ${method} ${pathLog} → HTTP ${res.status}`, detail || '(no body)')
       } catch {
         /* ignore logging failures */
+      }
       }
     }
 
@@ -575,6 +584,52 @@ async function pingSupabaseRest() {
     throw new Error(`Supabase health check failed (HTTP ${res.status}). Verify URL/key and project status.`)
   }
   return { ok: true, status: res.status }
+}
+
+/** Public teams/modules config — always uses anon key (avoids 401 when session JWT is invalid). */
+export async function fetchPublicAppAccessConfig() {
+  if (!isConfigured) {
+    return { data: null, error: new Error('Supabase env not configured') }
+  }
+  const base = String(supabaseUrl).replace(/\/+$/, '')
+  const params = new URLSearchParams({
+    select: 'id,teams,modules,module_path_prefixes,updated_at',
+    id: 'eq.default',
+  })
+  const url = `${base}/rest/v1/erp_app_access_config?${params}`
+  try {
+    const res = await baseFetch(url, {
+      method: 'GET',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        Accept: 'application/json',
+      },
+    })
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const body = await res.json()
+        detail = body?.hint || body?.message || ''
+      } catch {
+        /* ignore */
+      }
+      const stagingHint =
+        import.meta.env.MODE === 'staging' &&
+        (res.status === 401 || String(detail).toLowerCase().includes('permission denied'))
+          ? ' Run supabase/staging_bootstrap.sql then staging_fix_403.sql in staging Supabase SQL Editor (project xjzhlbpgnpcmbdlufhwo).'
+          : ''
+      return {
+        data: null,
+        error: new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ''}${stagingHint}`),
+      }
+    }
+    const rows = await res.json()
+    const row = Array.isArray(rows) ? rows[0] : null
+    return { data: row ?? null, error: null }
+  } catch (err) {
+    return { data: null, error: err }
+  }
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getAccessibleModules, getLoginRedirectPath } from '../config/roles'
+import { isStagingSupabaseProject } from '../lib/stagingProject'
 import { supabase, invokeAuthenticatedFunction } from '../lib/supabase'
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import {
@@ -16,6 +17,12 @@ import {
   Building2,
   MapPin,
 } from 'lucide-react'
+
+const isInvalidCredentialsError = (err) => {
+  if (!err?.message) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('invalid login credentials') || msg.includes('invalid_credentials')
+}
 
 const isEmailNotConfirmedError = (err) => {
   if (!err?.message) return false
@@ -118,6 +125,10 @@ const Login = () => {
         )
       } else if (isNetworkError(signInError)) {
         setError(NETWORK_ERROR_MESSAGE)
+      } else if (isInvalidCredentialsError(signInError) && isStagingSupabaseProject()) {
+        setError(
+          'Staging login failed: user missing, wrong password, or email not confirmed. In Supabase xjzhlbpgnpcmbdlufhwo: Authentication → Users → rahul.ifspl@gmail.com → Confirm user (or Add user with Auto Confirm ON). Then run staging_setup_rahul_admin.sql. Or run: npm run staging:create-rahul-admin (with STAGING_SUPABASE_SERVICE_ROLE_KEY).'
+        )
       } else {
         setError(signInError.message || 'Sign in failed. Check email, password, and that your account exists in User Management.')
       }

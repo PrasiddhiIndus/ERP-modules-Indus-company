@@ -53,13 +53,22 @@ on conflict (id) do nothing;
 
 alter table public.erp_app_access_config enable row level security;
 
--- Read-only for authenticated users (safe defaults).
+-- Register/login load config before sign-in (anon). Authenticated users keep read access.
+drop policy if exists "anon read app access config" on public.erp_app_access_config;
+create policy "anon read app access config"
+on public.erp_app_access_config
+for select
+to anon
+using (true);
+
 drop policy if exists "read app access config" on public.erp_app_access_config;
 create policy "read app access config"
 on public.erp_app_access_config
 for select
 to authenticated
 using (true);
+
+grant select on public.erp_app_access_config to anon, authenticated;
 
 -- Only super admins should edit config (enforce on server side as needed).
 -- For now, do not grant update/insert policies here.

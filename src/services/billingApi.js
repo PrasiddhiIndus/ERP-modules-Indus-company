@@ -8,6 +8,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { isStagingSupabaseProject } from '../lib/stagingProject';
 import {
   COMMERCIAL_MODULE_PROJECTS,
   getCommercialModuleTypeFromUpdateHistory,
@@ -443,6 +444,12 @@ export async function isBillingDbAvailable() {
  * @param {{ moduleType?: string } | string} [options] - When set, same rows as DB but filtered (equivalent to GET ?module_type=).
  */
 export async function fetchCommercialPOs(options) {
+  // Staging: skip billing REST until staging_billing_minimal.sql + API "billing" schema exposed.
+  // Set VITE_STAGING_BILLING_ENABLED=true in .env.staging after that setup.
+  if (isStagingSupabaseProject() && import.meta.env.VITE_STAGING_BILLING_ENABLED !== 'true') {
+    return [];
+  }
+
   const moduleType =
     typeof options === 'string'
       ? options
@@ -458,7 +465,11 @@ export async function fetchCommercialPOs(options) {
   const { data: rows, error } = await table('po_wo')
     .select('*')
     .order('created_at', { ascending: false });
-  if (error) throw error;
+  if (error) {
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('invalid schema') && msg.includes('billing')) return [];
+    throw error;
+  }
 
   const poIds = (rows || []).map((r) => r.id);
   if (poIds.length === 0) return [];

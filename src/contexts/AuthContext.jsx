@@ -9,6 +9,7 @@ import {
 } from "../lib/profileSelect";
 import {
   clearSupabaseAuthStorage,
+  clearSessionIfSupabaseProjectMismatch,
   isAuthCredentialError,
   isInvalidRefreshTokenError,
   isTransientAuthError,
@@ -43,6 +44,13 @@ export const AuthProvider = ({ children }) => {
 
     const getSession = async () => {
       try {
+        if (clearSessionIfSupabaseProjectMismatch()) {
+          userRef.current = null;
+          setUser(null);
+          setProfileRow(null);
+          profileSyncAttemptedRef.current = null;
+        }
+
         const {
           data: { session },
           error,
@@ -132,8 +140,47 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // New methodology: profiles is the single source of truth.
-  // The app never guesses role/team from user_metadata; it uses `login-check`.
   const useProfilesTable = true;
+
+  const STAGING_PROFILE_SQL_HINT =
+    "Profile access blocked on staging DB. In Supabase SQL Editor run: supabase/staging_fix_403.sql (then refresh and sign in again).";
+
+  const isProfileAccessDeniedError = (error) => {
+    if (!error) return false;
+    const code = String(error.code || "");
+    const msg = String(error.message || "").toLowerCase();
+    return (
+      code === "42501" ||
+      msg.includes("permission denied") ||
+      msg.includes("row-level security") ||
+      msg.includes("403")
+    );
+  };
+
+  const ensureProfileFromAuthUser = async (authUser) => {
+    if (!authUser?.id) return false;
+    const { data: existing } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", authUser.id)
+      .maybeSingle();
+    if (existing?.id) return true;
+
+    const meta = authUser.user_metadata || {};
+    const allowed = meta.allowed_modules;
+    const emailLocal = (authUser.email || "user@local").split("@")[0];
+    const payload = {
+      id: authUser.id,
+      email: authUser.email ?? null,
+      username: String(meta.username || meta.full_name || emailLocal).trim() || emailLocal,
+      team: meta.team ?? null,
+      role: meta.role || "executive",
+      allowed_modules: Array.isArray(allowed) ? allowed : [],
+    };
+    const { error } = await supabase.from("profiles").insert(payload);
+    if (error?.code === "23505") return true;
+    return !error;
+  };
 
   const fetchProfileFromTable = async (userId) => {
     const preferEmpCode = getEmpCodeColumnSupported() !== false;
@@ -153,12 +200,18 @@ export const AuthProvider = ({ children }) => {
     } else if (!error && preferEmpCode) {
       setEmpCodeColumnSupported(true);
     }
-    if (error || !data?.id) return { ok: false };
+    if (error) {
+      return {
+        ok: false,
+        message: isProfileAccessDeniedError(error) ? STAGING_PROFILE_SQL_HINT : error.message,
+      };
+    }
+    if (!data?.id) return { ok: false };
     setProfileRow(data);
     return { ok: true, profile: data };
   };
 
-  const fetchProfileViaLoginCheck = async (accessToken, userId) => {
+  const fetchProfileViaLoginCheck = async (accessToken, userId, authUser = null) => {
     const uid = userId || user?.id;
     if (!uid) return { ok: false };
     if (profileFetchInFlightRef.current === uid) {
@@ -169,6 +222,20 @@ export const AuthProvider = ({ children }) => {
     try {
       const tableFirst = await fetchProfileFromTable(uid);
       if (tableFirst.ok) return tableFirst;
+
+      let userForProfile = authUser;
+      if (!userForProfile) {
+        const { data: userData } = await supabase.auth.getUser();
+        userForProfile = userData?.user ?? null;
+      }
+      if (userForProfile?.id === uid) {
+        await ensureProfileFromAuthUser(userForProfile);
+        const afterUpsert = await fetchProfileFromTable(uid);
+        if (afterUpsert.ok) return afterUpsert;
+        if (afterUpsert.message) return afterUpsert;
+      } else if (tableFirst.message) {
+        return { ok: false, message: tableFirst.message };
+      }
 
       const run = (token) =>
         invokeAuthenticatedFunction("login-check", { body: {} }, token || accessToken);
@@ -236,7 +303,7 @@ export const AuthProvider = ({ children }) => {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/`,
+        emailRedirectTo: `${window.location.origin}/login`,
         data: {
           full_name: profileData?.username ?? "",
           phone: profileData?.phone ?? "",
@@ -251,21 +318,16 @@ export const AuthProvider = ({ children }) => {
     if (error) return { error };
 
     if (data?.user && useProfilesTable) {
-      try {
-        await supabase.from("profiles").upsert(
-          {
-            id: data.user.id,
-            email: data.user.email,
-            username: profileData?.username ?? "",
-            team: profileData?.team ?? null,
-            role: safeRole,
-            allowed_modules: profileData?.allowed_modules ?? [],
-          },
-          { onConflict: "id" }
-        );
-      } catch (_) {
-        // Profiles table may not exist or RLS may block; auth still works via user_metadata
-      }
+      await ensureProfileFromAuthUser({
+        ...data.user,
+        user_metadata: {
+          ...(data.user.user_metadata || {}),
+          username: profileData?.username ?? "",
+          team: profileData?.team ?? null,
+          role: safeRole,
+          allowed_modules: profileData?.allowed_modules ?? [],
+        },
+      });
     }
     return { data, error: null };
   };
@@ -300,9 +362,11 @@ export const AuthProvider = ({ children }) => {
         profileSyncAttemptedRef.current = authUser.id;
         userRef.current = authUser.id;
         setUser(authUser);
+        await ensureProfileFromAuthUser(authUser);
         const checked = await fetchProfileViaLoginCheck(
           result.data.session?.access_token,
-          authUser.id
+          authUser.id,
+          authUser
         );
         if (!checked.ok) {
           const profileMsg = checked.message || "Could not load your access profile. Contact admin.";
