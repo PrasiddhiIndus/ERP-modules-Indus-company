@@ -9,6 +9,8 @@
  * Legacy users with no `role` in profile still receive broad access except Super Admin-only modules.
  */
 
+import { isStagingSupabaseProject } from '../lib/stagingProject';
+
 export const ROLES = {
   EXECUTIVE: "executive",
   MANAGER: "manager",
@@ -357,6 +359,15 @@ export function getAccessibleModules(profile) {
     "settings",
     ...Object.keys(MODULE_PATH_PREFIXES).filter((k) => k !== "overview" && k !== "settings"),
   ]);
+
+  // Staging QA: optional full access for every logged-in user (set VITE_STAGING_FULL_ACCESS=true in .env.staging)
+  if (
+    isStagingSupabaseProject() &&
+    String(import.meta.env.VITE_STAGING_FULL_ACCESS || '').toLowerCase() === 'true'
+  ) {
+    return allModules;
+  }
+
   // "overview" (main dashboard) is restricted to Admin + Super Admin only.
   // Everyone can still access Settings.
   const always = new Set(["settings"]);

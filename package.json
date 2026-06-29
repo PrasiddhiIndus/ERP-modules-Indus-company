@@ -16,7 +16,8 @@
     "build:staging": "vite build --mode staging",
     "lint": "eslint .",
     "preview": "vite preview",
-    "preview:staging": "vite preview --mode staging"
+    "preview:staging": "vite preview --mode staging",
+    "staging:create-rahul-admin": "node scripts/staging-create-rahul-admin.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",
