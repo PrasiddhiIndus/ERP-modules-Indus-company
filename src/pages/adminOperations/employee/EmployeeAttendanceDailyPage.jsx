@@ -33,6 +33,7 @@ import {
   deleteRegisterMarksBatch,
   resolveBulkDayRange,
   downloadMonthlyRegisterExcel,
+  buildPunchLookupByEmpDate,
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
   fetchActiveEmployees,
@@ -216,6 +217,7 @@ export function EmployeeAttendanceDailyPage() {
   const [bulkEmployeeSearch, setBulkEmployeeSearch] = useState("");
   const [bulkEmployeeMarkFilter, setBulkEmployeeMarkFilter] = useState("all");
   const [exporting, setExporting] = useState(false);
+  const [exportingPunches, setExportingPunches] = useState(false);
   const [savingMark, setSavingMark] = useState(false);
   const [registerCodeWarning, setRegisterCodeWarning] = useState("");
   const [yearRegisterRows, setYearRegisterRows] = useState([]);
@@ -909,6 +911,23 @@ export function EmployeeAttendanceDailyPage() {
     }
   };
 
+  const handleExportPunchInOutExcel = async () => {
+    if (!monthMeta || !rowsWithSummary.length) return;
+    setExportingPunches(true);
+    try {
+      const rowsWithRemarks = rowsWithSummary.map((row) => ({
+        ...row,
+        dayRemarks: manualRemarks[row.empCode] || {},
+      }));
+      const punchByEmpDate = buildPunchLookupByEmpDate(punches);
+      await downloadMonthlyRegisterExcel(rowsWithRemarks, daysInMonth, monthMeta.monthKey, {
+        punchByEmpDate,
+      });
+    } finally {
+      setExportingPunches(false);
+    }
+  };
+
   const bulkPickerEmployees = useMemo(() => {
     if (!bulkDayRange) return [];
     return filteredRows.filter((row) =>
@@ -1381,6 +1400,14 @@ export function EmployeeAttendanceDailyPage() {
             className="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium disabled:opacity-60 inline-flex items-center gap-1.5"
           >
             {exporting ? "Exporting?" : "Export to Excel"}
+          </button>
+          <button
+            type="button"
+            onClick={handleExportPunchInOutExcel}
+            disabled={!rowsWithSummary.length || exportingPunches}
+            className="h-8 px-3 rounded-lg bg-emerald-600 text-white text-xs font-medium disabled:opacity-60 hover:bg-emerald-700 inline-flex items-center gap-1.5"
+          >
+            {exportingPunches ? "Exporting…" : "Export punch in/out"}
           </button>
           <button
             type="button"
