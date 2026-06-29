@@ -1,0 +1,149 @@
+/* Manpower Management — enquiry dashboard (scoped; does not affect Projects Enquiry) */
+
+.mp-enquiry-analytics {
+  --mp-kpi-shadow: rgba(15, 23, 42, 0.08);
+}
+
+.mp-enquiry-analytics .mp-filter-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.mp-enquiry-analytics .mp-filter-panel label > span {
+  min-height: 1rem;
+  line-height: 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.mp-enquiry-analytics .mp-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .mp-enquiry-analytics .mp-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .mp-enquiry-analytics .mp-filter-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.mp-enquiry-analytics .mp-filter-search {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 1024px) {
+  .mp-enquiry-analytics .mp-filter-search {
+    grid-column: span 2;
+  }
+}
+
+.mp-enquiry-analytics .mp-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .mp-enquiry-analytics .mp-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.875rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .mp-enquiry-analytics .mp-kpi-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.mp-enquiry-analytics .mp-kpi-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 7.25rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.75rem;
+  border-width: 1px;
+  box-shadow: 0 1px 2px var(--mp-kpi-shadow);
+}
+
+.mp-enquiry-analytics .mp-kpi-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.mp-enquiry-analytics .mp-kpi-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  opacity: 0.85;
+}
+
+.mp-enquiry-analytics .mp-kpi-icon {
+  flex-shrink: 0;
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mp-enquiry-analytics .mp-kpi-value {
+  font-size: clamp(1.25rem, 2.2vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.mp-enquiry-analytics .mp-kpi-sub {
+  margin-top: auto;
+  padding-top: 0.375rem;
+  min-height: 1rem;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  opacity: 0.75;
+}
+
+.mp-enquiry-analytics .mp-chart-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px var(--mp-kpi-shadow);
+  overflow: hidden;
+}
+
+.mp-enquiry-analytics .mp-chart-head {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.mp-enquiry-analytics .mp-chart-body {
+  padding: 0.75rem 1rem 1rem;
+  min-height: 300px;
+}
+
+.mp-enquiry-analytics .mp-chart-body .recharts-responsive-container {
+  margin: 0 auto;
+}
+
+.mp-enquiry-analytics .mp-chart-body .recharts-wrapper,
+.mp-enquiry-analytics .mp-chart-body .recharts-surface {
+  overflow: visible;
+}
+
+.mp-enquiry-analytics .erp-date-input-text {
+  font-variant-numeric: tabular-nums;
+}

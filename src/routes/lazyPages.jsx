@@ -41,6 +41,7 @@ export const VehicleTypePage = lazy(() => import("../pages/projects/configuratio
 
 // Manpower
 export const ManpowerManagement = lazy(() => import("../pages/manpowerProject/ManpowerManagement"));
+export const ManpowerEnquiryDashboard = lazy(() => import("../pages/manpowerProject/ManpowerEnquiryDashboard"));
 export const InternalQuotationList = lazy(() => import("../pages/manpowerProject/enquiryProjects/InternalQuotationList"));
 export const InternalQuotationForm = lazy(() => import("../pages/manpowerProject/enquiryProjects/InternalQuotationForm"));
 export const ManpowerQuotationList = lazy(() => import("../pages/manpowerProject/quotation/ManpowerQuotationList"));

@@ -366,6 +366,7 @@ function App() {
             <Route path="manpower/configuration/:section" element={<ManpowerConfiguration />} />
             <Route path="manpower/:id" element={<ManpowerManagement />} />
 
+            <Route path="commercial/manpower-training/manpower-management/dashboard" element={<ManpowerManagement />} />
             <Route path="commercial/manpower-training/manpower-management" element={<ManpowerManagement />} />
             <Route path="commercial/manpower-training/manpower-management/:id" element={<ManpowerManagement />} />
             <Route path="commercial/manpower-training/internal-quotation" element={<InternalQuotationList />} />

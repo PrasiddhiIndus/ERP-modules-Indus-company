@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams, useLocation } from "react-router-dom";
 import {
   Search,
   Plus,
@@ -24,6 +24,7 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
+import ManpowerEnquiryDashboard from "./ManpowerEnquiryDashboard";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import {
   buildAuthorizationValue,
@@ -58,14 +59,15 @@ import {
 
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_SORT = { key: "srNo", dir: "desc" };
+const MANPOWER_BASE = "/app/commercial/manpower-training/manpower-management";
 const ACTION_COL_WIDTH = 112;
 const tableMinWidth =
   INQUIRY_TABLE_COLUMNS.reduce((sum, col) => sum + col.width, 0) + ACTION_COL_WIDTH;
 const INQUIRY_MULTILINE_COLUMNS = new Set(["descriptionOfWork", "remarks", "furtherAction"]);
 const STICKY_ACTION_CELL =
-  "sticky right-0 z-[2] border-l border-gray-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-red-50/35";
+  "manpower-inquiry-action-cell sticky right-0 border-l border-gray-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-red-50/35";
 const STICKY_ACTION_HEAD =
-  "sticky right-0 top-0 z-[3] border-l border-red-100 bg-gradient-to-r from-red-50 to-amber-50 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
+  "manpower-inquiry-action-head sticky right-0 top-0 border-l border-red-100 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
 
 function getRejectionRemark(row) {
   const { meta } = parseAuthorizationMeta(row.authorization_to);
@@ -223,7 +225,9 @@ function ImportPreviewDialog({ preview, confirming, onConfirm, onCancel }) {
 const ManpowerManagement = () => {
   const { id: routeId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isDashboardView = location.pathname === `${MANPOWER_BASE}/dashboard`;
   const { user, userProfile, accessibleModules } = useAuth();
   const canApproveEnquiries = userCanApproveInModules(
     userProfile,
@@ -300,7 +304,7 @@ const ManpowerManagement = () => {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (routeId && routeId !== "list" && routeId !== "internal-quotation" && routeId !== "quotation" && routeId !== "configuration") {
+    if (routeId && routeId !== "list" && routeId !== "internal-quotation" && routeId !== "quotation" && routeId !== "configuration" && routeId !== "dashboard") {
       setEditingId(routeId);
       setShowForm(true);
     } else {
@@ -430,19 +434,24 @@ const ManpowerManagement = () => {
   const closeForm = () => {
     setShowForm(false);
     setEditingId(null);
-    navigate("/app/commercial/manpower-training/manpower-management", { replace: true });
+    navigate(isDashboardView ? `${MANPOWER_BASE}/dashboard` : MANPOWER_BASE, { replace: true });
   };
 
   const openNew = () => {
     setEditingId(null);
     setShowForm(true);
-    navigate("/app/commercial/manpower-training/manpower-management", { replace: true });
+    navigate(isDashboardView ? `${MANPOWER_BASE}/dashboard` : MANPOWER_BASE, { replace: true });
   };
 
   const openEdit = (enquiryId) => {
     setEditingId(enquiryId);
     setShowForm(true);
-    navigate(`/app/commercial/manpower-training/manpower-management/${enquiryId}`, { replace: false });
+    navigate(`${MANPOWER_BASE}/${enquiryId}`, { replace: false });
+  };
+
+  const switchTab = (tab) => {
+    if (tab === "dashboard") navigate(`${MANPOWER_BASE}/dashboard`);
+    else navigate(MANPOWER_BASE);
   };
 
   const afterSave = () => {
@@ -573,8 +582,12 @@ const ManpowerManagement = () => {
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Manpower Management</h1>
-              <p className="text-sm sm:text-base text-gray-600 mt-1">Manpower Management inquiry tracker — columns aligned with Excel</p>
-              {listError && (
+              <p className="text-sm sm:text-base text-gray-600 mt-1">
+                {isDashboardView
+                  ? "Dashboard analytics, charts, and filtered summaries for manpower enquiries."
+                  : "Manpower Management inquiry tracker — columns aligned with Excel"}
+              </p>
+              {listError && !isDashboardView && (
                 <p className="mt-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
                 Could not load enquiries: {listError}. Run migrations{" "}
                 <code className="text-xs">20260414120000_manpower_enquiries_and_storage.sql</code> and{" "}
@@ -591,6 +604,8 @@ const ManpowerManagement = () => {
                 <Plus className="w-4 h-4" />
                 <span>New Enquiry</span>
               </button>
+              {!isDashboardView && (
+                <>
               <button
                 type="button"
                 onClick={handleExport}
@@ -624,9 +639,41 @@ const ManpowerManagement = () => {
                 className="hidden"
                 onChange={(e) => handleImportFile(e.target.files?.[0])}
               />
+                </>
+              )}
             </div>
           </div>
 
+          <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => switchTab("dashboard")}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                isDashboardView
+                  ? "border-purple-600 text-purple-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Dashboard
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab("list")}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                !isDashboardView
+                  ? "border-purple-600 text-purple-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Enquiry List
+            </button>
+          </div>
+        </div>
+
+          {isDashboardView ? (
+            <ManpowerEnquiryDashboard embedded />
+          ) : (
+          <>
           <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 sm:p-4 space-y-3">
             <div className="flex flex-col lg:flex-row gap-3">
               <div className="relative flex-1">
@@ -765,7 +812,6 @@ const ManpowerManagement = () => {
               </div>
             ) : null}
           </div>
-        </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           {loading ? (
@@ -792,8 +838,7 @@ const ManpowerManagement = () => {
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.45); border-radius: 4px; }
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(220, 38, 38, 0.65); }
                 .manpower-inquiry-table { border-collapse: separate; border-spacing: 0; }
-                .manpower-inquiry-table th,
-                .manpower-inquiry-table td {
+                .manpower-inquiry-table tbody td {
                   overflow: hidden;
                   vertical-align: middle;
                   box-sizing: border-box;
@@ -801,8 +846,27 @@ const ManpowerManagement = () => {
                 .manpower-inquiry-table thead th {
                   position: sticky;
                   top: 0;
+                  z-index: 10;
+                  overflow: visible;
+                  vertical-align: middle;
+                  box-sizing: border-box;
+                  /* Fully opaque — no clip/transparency so rows never show through */
+                  background-color: #fffbeb !important;
+                  background-image: linear-gradient(90deg, #fef2f2 0%, #fffbeb 100%) !important;
+                  box-shadow: 0 1px 0 0 #fecaca;
+                }
+                .manpower-inquiry-table thead th.manpower-inquiry-action-head {
+                  z-index: 20;
+                  background-color: #fffbeb !important;
+                  background-image: linear-gradient(90deg, #fef2f2 0%, #fffbeb 100%) !important;
+                  box-shadow: -5px 0 8px -4px rgba(15, 23, 42, 0.1), 0 1px 0 0 #fecaca;
+                }
+                .manpower-inquiry-table tbody td {
+                  position: relative;
+                  z-index: 0;
+                }
+                .manpower-inquiry-table tbody td.manpower-inquiry-action-cell {
                   z-index: 1;
-                  background: linear-gradient(to right, #fef2f2, #fffbeb);
                 }
               `}</style>
                 <table className="manpower-inquiry-table w-full text-xs" style={{ minWidth: tableMinWidth, tableLayout: "fixed" }}>
@@ -1007,6 +1071,8 @@ const ManpowerManagement = () => {
             </div>
           </div>
         )}
+          </>
+          )}
       </div>
 
       {importPreview ? (

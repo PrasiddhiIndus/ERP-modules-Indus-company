@@ -11,8 +11,10 @@ const ManpowerNavbar = () => {
     const IQ_BASE = "/app/commercial/manpower-training/internal-quotation";
     const isManpowerRoot = p === MANPOWER_BASE;
     const rest = p.replace(/^\/app\/commercial\/manpower-training\/manpower-management\//, "");
+    const DASHBOARD_PATH = `${MANPOWER_BASE}/dashboard`;
+    const isDashboard = p === DASHBOARD_PATH;
     const isReservedSubpath =
-        rest.startsWith("internal-quotation") || rest.startsWith("configuration") || rest === "list";
+        rest.startsWith("internal-quotation") || rest.startsWith("configuration") || rest === "list" || rest === "dashboard";
     const isIdRoute = p.startsWith(`${MANPOWER_BASE}/`) && rest.length > 0 && !isReservedSubpath && !rest.includes("/");
     const onEnquiryHub = isManpowerRoot || isIdRoute;
     const newEnquiryActive = onEnquiryHub && location.search.includes("new=1");
@@ -29,6 +31,13 @@ const ManpowerNavbar = () => {
 
             {/* Buttons Row - pushed right */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 ml-auto">
+                <Link
+                    to={DASHBOARD_PATH}
+                    className={`px-4 py-2 rounded text-white ${isDashboard ? "bg-blue-700" : "bg-blue-600 hover:bg-blue-700"}`}
+                >
+                    Dashboard
+                </Link>
+
                 <Link
                     to={`${MANPOWER_BASE}?new=1`}
                     className={`px-4 py-2 rounded text-white ${newEnquiryActive ? "bg-red-700" : "bg-red-600 hover:bg-red-700"}`}
