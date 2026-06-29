@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCircle, Send, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { isStagingSupabaseProject } from '../lib/stagingProject';
 import { getCommercialPOs as getCommercialPOsLocal } from '../data/billingStore';
 import { fetchCommercialPOs } from '../services/billingApi';
 import {
@@ -195,6 +196,9 @@ const PoApprovalBell = () => {
     if (!shouldShow || !user?.id) return undefined;
     refresh();
     const interval = window.setInterval(refresh, 30000);
+    if (import.meta.env.MODE === 'staging' || isStagingSupabaseProject()) {
+      return () => window.clearInterval(interval);
+    }
     const channel = supabase
       .channel(`po-approval-bell-${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'billing', table: 'po_wo' }, () => refresh())

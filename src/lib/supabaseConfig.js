@@ -29,6 +29,28 @@ export function getSupabaseAnonKey() {
   return String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
 }
 
+/** Project ref from URL, e.g. xjzhlbpgnpcmbdlufhwo */
+export function getSupabaseProjectRefFromUrl(url = getSupabaseUrl()) {
+  const m = String(url || '').match(/https?:\/\/([a-z0-9]+)\.supabase\.co/i);
+  return m ? m[1] : '';
+}
+
+/** Project ref embedded in Supabase JWT (anon key or user access token). */
+export function getSupabaseProjectRefFromJwt(token) {
+  const payload = decodeJwtPayload(token);
+  const ref = payload?.ref;
+  return typeof ref === 'string' ? ref.trim() : '';
+}
+
+/** False when a cached session belongs to a different Supabase project (causes REST 401). */
+export function sessionMatchesConfiguredProject(accessToken) {
+  if (!accessToken) return true;
+  const configuredRef = getSupabaseProjectRefFromUrl();
+  const sessionRef = getSupabaseProjectRefFromJwt(accessToken);
+  if (!configuredRef || !sessionRef) return true;
+  return configuredRef === sessionRef;
+}
+
 const PLACEHOLDER_URL = 'https://placeholder.supabase.co';
 const PLACEHOLDER_KEY = 'placeholder-key';
 

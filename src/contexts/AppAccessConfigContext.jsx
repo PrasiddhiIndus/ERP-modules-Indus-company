@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, fetchPublicAppAccessConfig } from "../lib/supabase";
 import { isSupabaseRealtimeEnabled } from "../lib/supabaseConfig";
 import { MODULES as FALLBACK_MODULES, TEAMS as FALLBACK_TEAMS, MODULE_PATH_PREFIXES as FALLBACK_PREFIXES } from "../config/roles";
 
@@ -26,11 +26,7 @@ export function AppAccessConfigProvider({ children }) {
     const load = async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase
-          .from("erp_app_access_config")
-          .select("id, teams, modules, module_path_prefixes, updated_at")
-          .eq("id", "default")
-          .maybeSingle();
+        const { data, error } = await fetchPublicAppAccessConfig();
         if (cancelled) return;
         if (error || !data) {
           setRaw(null);
