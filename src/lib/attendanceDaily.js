@@ -2215,8 +2215,213 @@ export function buildMonthlyRegisterCsv(rows, daysInMonth, monthKey) {
   return [header.map(csvEscape).join(","), ...lines, footerLine].join("\r\n");
 }
 
-export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) {
+/** Map `${empCode}|${isoDate}` → punch in/out / hours for register export cells. */
+export function buildPunchLookupByEmpDate(punches) {
+  const map = new Map();
+  for (const row of pairPunchesToDailyRows(punches || [])) {
+    const empCode = normalizeAttendanceEmpCode(row.empCode);
+    const punchDate = normalizeDbDate(row.punchDate);
+    if (!empCode || !punchDate) continue;
+    map.set(`${empCode}|${punchDate}`, {
+      punchIn: row.punchIn || "",
+      punchOut: row.punchOut || "",
+      workedHours: row.workedHours || "",
+      workedMinutes: row.workedMinutes,
+      punchInStatus: row.punchInStatus || "",
+    });
+  }
+  return map;
+}
+
+/** Excel fill for late punch-in only. */
+const REGISTER_EXPORT_FILL_LATE_PUNCH_IN = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFFEE2E2" },
+};
+
+/** Excel fill for Tour (T) and Present on Duty P(OD) — same color. */
+const REGISTER_EXPORT_FILL_TOUR_OR_POD = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFCCFBF1" },
+};
+
+/** @returns {"latePunchIn"|"tourOrPod"|""} */
+export function registerExportDayCellTone(mark, punchInfo) {
+  const m = String(mark || "").trim();
+  if (!m) return "";
+
+  if (m === "T" || m === "P(OD)") return "tourOrPod";
+
+  if (m !== "P" || !punchInfo) return "";
+  if (String(punchInfo.punchInStatus || "").toLowerCase() === "late") return "latePunchIn";
+  return "";
+}
+
+function applyRegisterExportCellStyle(cell, tone) {
+  if (tone === "latePunchIn") {
+    cell.fill = REGISTER_EXPORT_FILL_LATE_PUNCH_IN;
+    cell.font = { color: { argb: "FF991B1B" } };
+    return;
+  }
+  if (tone === "tourOrPod") {
+    cell.fill = REGISTER_EXPORT_FILL_TOUR_OR_POD;
+    cell.font = { color: { argb: "FF0F766E" } };
+  }
+}
+
+/** @deprecated Use registerExportDayCellTone */
+export function registerExportPunchCellTone(mark, punchInfo) {
+  return registerExportDayCellTone(mark, punchInfo);
+}
+
+function applyRegisterExportPunchCellStyle(cell, tone) {
+  applyRegisterExportCellStyle(cell, tone);
+}
+
+function formatRegisterExportWorkedHours(punchInfo) {
+  if (!punchInfo) return "—";
+  const minutes = punchInfo.workedMinutes;
+  if (minutes != null && Number.isFinite(minutes) && minutes >= 0) {
+    const h = Math.floor(minutes / 60);
+    const m = Math.round(minutes % 60);
+    if (h === 0) return `${m}m`;
+    return `${h}h ${String(m).padStart(2, "0")}m`;
+  }
+  const label = String(punchInfo.workedHours || "").trim();
+  if (!label || label === "—") return "—";
+  const match = label.match(/^(\d+)h\s+(\d+)m$/);
+  if (match) return `${match[1]}h ${String(match[2]).padStart(2, "0")}m`;
+  return label;
+}
+
+/** Day cell for register export when punch detail is requested (mark P + in/out/hrs). */
+export function formatRegisterDayExportCell(mark, punchInfo) {
+  const m = String(mark || "").trim();
+  if (!m) return "";
+  if (m !== "P") return m;
+  if (!punchInfo) return m;
+  return [
+    m,
+    `In : ${punchInfo.punchIn || "—"}`,
+    `Out : ${punchInfo.punchOut || "—"}`,
+    `Hrs: ${formatRegisterExportWorkedHours(punchInfo)}`,
+  ].join("\r\n");
+}
+
+function resolveRegisterExportDayCell(row, day, monthKey, punchByEmpDate) {
+  const mark = String(row.dayMarks?.[day] || "").trim();
+  if (!mark) return "";
+  if (!punchByEmpDate) return mark;
+  const iso = registerDateFromDay(monthKey, day);
+  const empCode = normalizeAttendanceEmpCode(row.empCode);
+  if (!iso || !empCode) return mark;
+  return formatRegisterDayExportCell(mark, punchByEmpDate.get(`${empCode}|${iso}`));
+}
+
+async function downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, monthKey, punchByEmpDate, fileName) {
+  const ExcelJS = (await import("exceljs")).default;
+  const dayHeaders = registerDayExportHeaders(monthKey, daysInMonth);
+  const header = [
+    "S.No",
+    "Machine ID",
+    "Employee code",
+    "Employee Name",
+    "Department",
+    ...dayHeaders,
+    ...REGISTER_SUMMARY_HEADERS,
+  ];
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Register");
+  const headerRow = ws.addRow(header);
+  headerRow.font = { bold: true };
+  headerRow.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+
+  const dayColStart = REGISTER_EXPORT_DAY_COL_OFFSET + 1;
+
+  rows.forEach((row, rowIdx) => {
+    const excelRow = ws.addRow([
+      rowIdx + 1,
+      row.employeeId,
+      row.empCode,
+      row.employeeName,
+      row.department || "",
+      ...Array.from({ length: daysInMonth }, (_, i) =>
+        resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate)
+      ),
+      ...summaryCellsForRow(row),
+    ]);
+    excelRow.height = 62;
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const cell = excelRow.getCell(dayColStart + day - 1);
+      cell.alignment = { vertical: "top", wrapText: true };
+      const dayMark = row.dayMarks?.[day];
+      const iso = registerDateFromDay(monthKey, day);
+      const empCode = normalizeAttendanceEmpCode(row.empCode);
+      const punchInfo =
+        iso && empCode && punchByEmpDate ? punchByEmpDate.get(`${empCode}|${iso}`) : null;
+      const tone = registerExportDayCellTone(dayMark, punchInfo);
+      if (tone) applyRegisterExportCellStyle(cell, tone);
+      const comment = String(row.dayRemarks?.[day] || "").trim();
+      if (comment && isRegisterCommentMark(dayMark)) {
+        cell.note = comment;
+      }
+    }
+  });
+
+  const footer = computeRegisterSummaryFooter(rows);
+  const footerRow = ws.addRow([
+    "Total",
+    "",
+    "",
+    "",
+    ...Array(daysInMonth).fill(""),
+    footer.leave,
+    footer.weekoff,
+    footer.appliedWo,
+    footer.nhph,
+    footer.ot,
+    footer.totalPresent,
+  ]);
+  footerRow.font = { bold: true };
+
+  ws.columns = [
+    { width: 6 },
+    { width: 12 },
+    { width: 14 },
+    { width: 22 },
+    { width: 16 },
+    ...Array.from({ length: daysInMonth }, () => ({ width: 14 })),
+    ...Array.from({ length: REGISTER_SUMMARY_HEADERS.length }, () => ({ width: 12 })),
+  ];
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey, options = {}) {
   const XLSX = await import("xlsx");
+  const punchByEmpDate = options.punchByEmpDate || null;
+  const fileName =
+    options.fileName ||
+    (punchByEmpDate
+      ? `daily-attendance-register-with-punch-${monthKey}.xlsx`
+      : `daily-attendance-register-${monthKey}.xlsx`);
+
+  if (punchByEmpDate) {
+    await downloadMonthlyRegisterExcelWithPunchWrap(rows, daysInMonth, monthKey, punchByEmpDate, fileName);
+    return;
+  }
+
   const dayHeaders = registerDayExportHeaders(monthKey, daysInMonth);
   const header = [
     "S.No",
@@ -2233,7 +2438,9 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
     row.empCode,
     row.employeeName,
     row.department || "",
-    ...Array.from({ length: daysInMonth }, (_, i) => row.dayMarks[i + 1] || ""),
+    ...Array.from({ length: daysInMonth }, (_, i) =>
+      resolveRegisterExportDayCell(row, i + 1, monthKey, punchByEmpDate)
+    ),
     ...summaryCellsForRow(row),
   ]);
   const footer = computeRegisterSummaryFooter(rows);
@@ -2269,7 +2476,7 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey) 
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Register");
-  XLSX.writeFile(wb, `daily-attendance-register-${monthKey}.xlsx`);
+  XLSX.writeFile(wb, fileName);
 }
 
 /** Full row including JSON payload (sync / export). */
