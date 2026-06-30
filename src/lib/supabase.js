@@ -732,8 +732,14 @@ export async function invokeAuthenticatedFunction(name, options = {}, accessToke
       : undefined
 
   try {
+    const fnTimeoutMs = 15000
+    const fetchSignal =
+      typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(fnTimeoutMs)
+        : undefined
     const res = await baseFetch(url, {
       method,
+      signal: fetchSignal,
       headers: {
         apikey: supabaseAnonKey,
         Authorization: `Bearer ${token}`,

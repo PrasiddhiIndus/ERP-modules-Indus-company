@@ -134,10 +134,13 @@ const Login = () => {
       }
     } else if (data?.session) {
       const row = data.profile
+      const meta = data.user?.user_metadata || {}
       const profile = {
-        role: row?.role ?? 'executive',
-        team: row?.team ?? null,
-        allowed_modules: Array.isArray(row?.allowed_modules) ? row.allowed_modules : [],
+        role: row?.role ?? meta.role ?? 'executive',
+        team: row?.team ?? meta.team ?? null,
+        allowed_modules: Array.isArray(row?.allowed_modules)
+          ? row.allowed_modules
+          : (Array.isArray(meta.allowed_modules) ? meta.allowed_modules : []),
       }
       const mods = getAccessibleModules(profile)
       navigate(getLoginRedirectPath(profile, mods))
