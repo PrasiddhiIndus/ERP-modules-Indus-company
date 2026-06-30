@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
-import { SUPABASE_AUTH_STORAGE_KEY } from './authSessionUtils'
+import {
+  SUPABASE_AUTH_STORAGE_KEY,
+  readCachedAccessToken,
+  isCachedAccessTokenExpired,
+} from './authSessionUtils'
 import {
   assertBrowserSafeSupabaseKey,
   getSupabaseAnonKey,
@@ -29,6 +33,7 @@ if (!isConfigured) {
 // Custom fetch: optional timeout when Supabase does not pass its own signal, plus clearer network errors.
 // Avoid AbortSignal.any — combining signals broke some saves/updates with supabase-js.
 const FETCH_TIMEOUT_MS = 20000
+const AUTH_FETCH_TIMEOUT_MS = 25000
 const baseFetch = fetch
 const useStrictSupabaseHealthCheck =
   import.meta.env.VITE_STRICT_SUPABASE_HEALTH_CHECK === 'true' ||
@@ -460,32 +465,57 @@ function isTimeoutError(err) {
 }
 
 /**
- * When `options.signal` is absent, apply a timeout. When present, use Supabase’s signal as-is
- * (do not merge — merging caused flaky PATCH/POST to rest/v1).
- * Auth endpoints are excluded — cutting off token refresh causes spurious sign-outs.
+ * When `options.signal` is absent, apply a timeout. Auth calls (login, refresh, user)
+ * also time out so production never hangs forever on a stuck token refresh.
  */
 function resolveFetchSignal(options, url) {
   if (options.signal) {
     return { signal: options.signal, clearTimer: () => {} }
   }
-  if (String(url).includes('/auth/v1/')) {
-    return { signal: undefined, clearTimer: () => {} }
-  }
+  const urlStr = String(url)
+  const timeoutMs = urlStr.includes('/auth/v1/') ? AUTH_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), clearTimer: () => {} }
+    return { signal: AbortSignal.timeout(timeoutMs), clearTimer: () => {} }
   }
   const c = new AbortController()
-  const tid = setTimeout(() => c.abort(), FETCH_TIMEOUT_MS)
+  const tid = setTimeout(() => c.abort(), timeoutMs)
   return {
     signal: c.signal,
     clearTimer: () => clearTimeout(tid),
   }
 }
 
+/** Module data calls must wait for JWT hydration or RLS returns empty rows. */
+function fetchNeedsSessionHydration(urlStr) {
+  return (
+    urlStr.includes('/rest/v1/') ||
+    urlStr.includes('/storage/v1/') ||
+    (urlStr.includes('/functions/v1/') && !urlStr.includes('/functions/v1/login-check'))
+  );
+}
+
+/** Attach user JWT from localStorage — avoids setSession/getSession auth lock that blocks login. */
+function applyCachedUserAuthHeader(urlStr, options = {}) {
+  if (!fetchNeedsSessionHydration(urlStr)) return options;
+  const token = readCachedAccessToken();
+  if (!token || isCachedAccessTokenExpired()) return options;
+
+  const headers = new Headers(options.headers || {});
+  const existing = headers.get('Authorization') || '';
+  // Prefer user JWT over anon key on every module REST/storage request.
+  if (!existing || existing === `Bearer ${supabaseAnonKey}` || !existing.startsWith('Bearer ey')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return { ...options, headers };
+}
+
+let supabaseClientRef = null;
+
 const customFetch = async (url, options = {}) => {
   const pathLog = shortUrlForLog(url)
-  const { signal, clearTimer } = resolveFetchSignal(options, url)
-  const fetchOptions = { ...options }
+  const urlStr = String(url)
+  const fetchOptions = applyCachedUserAuthHeader(urlStr, options)
+  const { signal, clearTimer } = resolveFetchSignal(fetchOptions, url)
   if (signal !== undefined) fetchOptions.signal = signal
 
   try {
@@ -643,11 +673,24 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 })
 
+supabaseClientRef = supabase
+
 /**
  * Check if Supabase is reachable and env is configured.
  * Use this to show a clear error on the other machine when data doesn't load.
  * @returns {{ ok: boolean, message?: string }}
  */
+const CONNECTION_CHECK_TIMEOUT_MS = 12000
+
+function withTimeout(promise, ms, label = 'Connection check') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+    }),
+  ])
+}
+
 export async function checkSupabaseConnection() {
   if (!isConfigured) {
     return {
@@ -656,16 +699,24 @@ export async function checkSupabaseConnection() {
     };
   }
   try {
-    // 1) Session fetch (may be local-only if cached)
-    const { error } = await supabase.auth.getSession();
-    if (error && (error.message?.includes('fetch') || error.message?.toLowerCase().includes('network') || isTimeoutError(error))) {
-      return { ok: false, message: `Cannot reach Supabase: ${error.message}. Check internet, firewall, or VPN.` }
-    }
+    // Do not use getSession() here — it may trigger token refresh on /auth/v1/ with no timeout
+    // and leave production stuck on "Checking connection…" when refresh hangs.
+    await withTimeout(pingSupabaseRest(), CONNECTION_CHECK_TIMEOUT_MS, 'Supabase health check')
 
-    // 2) Optional strict network ping. Disabled by default because it can block the
-    // app on slow networks even when normal Supabase auth/data calls are fine.
     if (useStrictSupabaseHealthCheck) {
-      await pingSupabaseRest()
+      const base = String(supabaseUrl).replace(/\/+$/, '')
+      const url = `${base}/rest/v1/`
+      await withTimeout(
+        baseFetch(url, {
+          method: 'HEAD',
+          headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
+          signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? AbortSignal.timeout(CONNECTION_CHECK_TIMEOUT_MS)
+            : undefined,
+        }),
+        CONNECTION_CHECK_TIMEOUT_MS,
+        'Supabase REST check'
+      )
     }
     return { ok: true };
   } catch (err) {
@@ -714,8 +765,14 @@ export async function invokeAuthenticatedFunction(name, options = {}, accessToke
       : undefined
 
   try {
+    const fnTimeoutMs = 15000
+    const fetchSignal =
+      typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(fnTimeoutMs)
+        : undefined
     const res = await baseFetch(url, {
       method,
+      signal: fetchSignal,
       headers: {
         apikey: supabaseAnonKey,
         Authorization: `Bearer ${token}`,

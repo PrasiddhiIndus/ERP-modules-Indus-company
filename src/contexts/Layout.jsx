@@ -74,8 +74,8 @@ const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass :
 const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : "text-gray-700"}`;
 
 const Layout = () => {
-  const { user, signOut, accessibleModules, userProfile, profileLoading } = useAuth();
-  const can = (moduleKey) => !accessibleModules?.size || accessibleModules.has(moduleKey);
+  const { user, signOut, accessibleModules, userProfile } = useAuth();
+  const can = (moduleKey) => Boolean(accessibleModules?.has(moduleKey));
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
   const location = useLocation();
@@ -90,10 +90,6 @@ const Layout = () => {
   // - For other deep links, show Access denied (helps debugging and avoids surprise redirects).
   useEffect(() => {
     if (!pathname.startsWith("/app")) return;
-    if (profileLoading) {
-      setIsAccessDenied(false);
-      return;
-    }
     if (!accessibleModules?.size) {
       setIsAccessDenied(false);
       return;
@@ -106,7 +102,7 @@ const Layout = () => {
       return;
     }
     setIsAccessDenied(!allowed);
-  }, [pathname, accessibleModules, profileLoading, navigate, userProfile]);
+  }, [pathname, accessibleModules, navigate, userProfile]);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
@@ -170,16 +166,6 @@ const Layout = () => {
   };
 
   const [activityLogOpen, setActivityLogOpen] = useState(false);
-
-  if (profileLoading && pathname.startsWith("/app")) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-        <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-sm p-6 text-center">
-          <p className="text-sm text-slate-700">Loading your access…</p>
-        </div>
-      </div>
-    );
-  }
 
   if (isAccessDenied) {
     const landing = getLandingPathForUser(userProfile, accessibleModules);

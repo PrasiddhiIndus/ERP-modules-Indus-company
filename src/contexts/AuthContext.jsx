@@ -13,23 +13,90 @@ import {
   isAuthCredentialError,
   isInvalidRefreshTokenError,
   isTransientAuthError,
+  readCachedAccessToken,
   readCachedSessionUser,
+  readCachedProfileRow,
+  writeCachedProfileRow,
+  clearCachedProfileRow,
+  markSupabaseSessionHydrated,
+  resetSupabaseSessionHydration,
+  directSignInWithPassword,
+  isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
-import PageLoader from "../components/PageLoader";
+
+/** Build role/profile from auth user metadata — used for immediate post-login navigation. */
+function buildAuthProfile(authUser) {
+  if (!authUser) return null;
+  const email = String(authUser.email || '').trim().toLowerCase();
+  const meta = authUser.user_metadata || {};
+  const superAdminEmailsRaw = String(import.meta.env.VITE_SUPER_ADMIN_EMAILS || '').trim();
+  const superAdminEmails = superAdminEmailsRaw
+    ? superAdminEmailsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : [];
+  const forcedRole =
+    email === 'rahul.ifspl@gmail.com'
+      ? 'super_admin_pro'
+      : superAdminEmails.includes(email)
+        ? 'super_admin'
+        : null;
+  return {
+    username: meta.username || meta.full_name || email.split('@')[0] || 'User',
+    team: meta.team ?? null,
+    role: forcedRole || meta.role || null,
+    allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+  };
+}
+
+const PROFILE_FETCH_TIMEOUT_MS = 20000;
+const PROFILE_SYNC_RETRIES = 3;
+
+function withTimeout(promise, ms, label = 'Request') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms);
+    }),
+  ]);
+}
 
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 
+/** Restore user from localStorage synchronously — no network wait on first paint. */
+function readInitialAuthUser() {
+  if (typeof window === 'undefined') return null;
+  if (clearSessionIfSupabaseProjectMismatch()) return null;
+  const token = readCachedAccessToken();
+  if (!token) return null;
+  if (isCachedAccessTokenExpired()) {
+    clearSupabaseAuthStorage();
+    return null;
+  }
+  return readCachedSessionUser();
+}
+
+function readInitialProfileRow() {
+  const authUser = readInitialAuthUser();
+  return authUser?.id ? readCachedProfileRow(authUser.id) : null;
+}
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [profileRow, setProfileRow] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(() => readInitialAuthUser());
+  const [profileRow, setProfileRow] = useState(() => readInitialProfileRow());
+  const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const userRef = useRef(null);
   const profileSyncAttemptedRef = useRef(null);
   const signInProfileSyncRef = useRef(false);
   const profileFetchInFlightRef = useRef(null);
+  const useProfilesTable = true;
+
+  useEffect(() => {
+    if (user?.id && useProfilesTable) {
+      userRef.current = user.id;
+    }
+  }, []);
 
   useEffect(() => {
     const applySessionUser = (sessionUser) => {
@@ -37,86 +104,48 @@ export const AuthProvider = ({ children }) => {
       const newUserId = newUser?.id ?? null;
       userRef.current = newUserId;
       setUser(newUser);
-      setProfileRow(null);
+      setProfileRow(newUserId ? readCachedProfileRow(newUserId) : null);
       profileSyncAttemptedRef.current = null;
-      if (newUserId && useProfilesTable) setProfileLoading(true);
+      if (newUserId && useProfilesTable) {
+        // Profile sync is non-blocking; userProfile falls back to auth metadata.
+      }
     };
 
-    const getSession = async () => {
+    const refreshSessionInBackground = async () => {
+      if (typeof window !== 'undefined' && window.location.pathname === '/') return;
+      if (!readCachedAccessToken() || isCachedAccessTokenExpired()) return;
       try {
-        if (clearSessionIfSupabaseProjectMismatch()) {
-          userRef.current = null;
-          setUser(null);
-          setProfileRow(null);
-          profileSyncAttemptedRef.current = null;
-        }
-
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
-
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('getSession timed out')), 8000);
+        });
+        const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]);
         if (error) {
           if (isInvalidRefreshTokenError(error.message)) {
-            console.warn('Invalid refresh token detected, clearing session...');
-            try {
-              await supabase.auth.signOut();
-            } catch {
-              /* ignore */
-            }
             clearSupabaseAuthStorage();
             userRef.current = null;
             setUser(null);
-          } else if (isTransientAuthError(error.message)) {
-            console.warn('Transient error reading session, keeping cached session:', error.message);
-            applySessionUser(session?.user ?? readCachedSessionUser());
-          } else {
-            console.error('Error getting session:', error);
-            const cachedUser = session?.user ?? readCachedSessionUser();
-            if (cachedUser) {
-              applySessionUser(cachedUser);
-            } else {
-              userRef.current = null;
-              setUser(null);
-            }
           }
-        } else {
-          applySessionUser(session?.user ?? null);
+          return;
         }
-      } catch (error) {
-        console.error('Error getting session:', error);
-        if (isInvalidRefreshTokenError(error.message)) {
-          try {
-            await supabase.auth.signOut();
-          } catch {
-            /* ignore */
-          }
-          clearSupabaseAuthStorage();
-          userRef.current = null;
-          setUser(null);
-        } else {
-          const cachedUser = readCachedSessionUser();
-          if (cachedUser) {
-            console.warn('Using cached session after session read failure:', error.message);
-            applySessionUser(cachedUser);
-          } else {
-            userRef.current = null;
-            setUser(null);
-          }
+        if (session?.user && userRef.current !== session.user.id) {
+          applySessionUser(session.user);
         }
-      } finally {
-        setLoading(false);
+      } catch {
+        // Non-blocking — cached session already shown or user on login page.
       }
     };
-    getSession();
+
+    void refreshSessionInBackground();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         userRef.current = null;
         setUser(null);
         setProfileRow(null);
+        clearCachedProfileRow();
         profileSyncAttemptedRef.current = null;
         return;
       }
@@ -128,19 +157,13 @@ export const AuthProvider = ({ children }) => {
       if (userRef.current !== newUserId) {
         userRef.current = newUserId;
         setUser(newUser);
-        setProfileRow(null);
+        setProfileRow(readCachedProfileRow(newUserId));
         profileSyncAttemptedRef.current = null;
-        if (useProfilesTable && !signInProfileSyncRef.current) {
-          setProfileLoading(true);
-        }
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
-
-  // New methodology: profiles is the single source of truth.
-  const useProfilesTable = true;
 
   const STAGING_PROFILE_SQL_HINT =
     "Profile access blocked on staging DB. In Supabase SQL Editor run: supabase/staging_fix_403.sql (then refresh and sign in again).";
@@ -159,11 +182,13 @@ export const AuthProvider = ({ children }) => {
 
   const ensureProfileFromAuthUser = async (authUser) => {
     if (!authUser?.id) return false;
-    const { data: existing } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", authUser.id)
-      .maybeSingle();
+    const readExisting = () =>
+      supabase.from("profiles").select("id").eq("id", authUser.id).maybeSingle();
+    const { data: existing } = await withTimeout(
+      readExisting(),
+      PROFILE_FETCH_TIMEOUT_MS,
+      'Profile lookup'
+    ).catch(() => ({ data: null }));
     if (existing?.id) return true;
 
     const meta = authUser.user_metadata || {};
@@ -177,7 +202,12 @@ export const AuthProvider = ({ children }) => {
       role: meta.role || "executive",
       allowed_modules: Array.isArray(allowed) ? allowed : [],
     };
-    const { error } = await supabase.from("profiles").insert(payload);
+    const insert = () => supabase.from("profiles").insert(payload);
+    const { error } = await withTimeout(
+      insert(),
+      PROFILE_FETCH_TIMEOUT_MS,
+      'Profile insert'
+    ).catch((err) => ({ error: err }));
     if (error?.code === "23505") return true;
     return !error;
   };
@@ -208,29 +238,61 @@ export const AuthProvider = ({ children }) => {
     }
     if (!data?.id) return { ok: false };
     setProfileRow(data);
+    writeCachedProfileRow(data);
     return { ok: true, profile: data };
   };
 
-  const fetchProfileViaLoginCheck = async (accessToken, userId, authUser = null) => {
+  const fetchProfileViaLoginCheck = async (accessToken, userId, authUser = null, opts = {}) => {
+    const { background = false } = opts;
     const uid = userId || user?.id;
     if (!uid) return { ok: false };
     if (profileFetchInFlightRef.current === uid) {
       return { ok: false, message: "Profile sync in progress." };
     }
     profileFetchInFlightRef.current = uid;
-    setProfileLoading(true);
     try {
-      const tableFirst = await fetchProfileFromTable(uid);
+      let tableFirst;
+      try {
+        tableFirst = await withTimeout(
+          fetchProfileFromTable(uid),
+          PROFILE_FETCH_TIMEOUT_MS,
+          'Profile read'
+        );
+      } catch (err) {
+        tableFirst = {
+          ok: false,
+          message: String(err?.message || err).includes('timed out')
+            ? 'Profile read timed out. Check profiles table RLS in Supabase (run production_login_fix.sql).'
+            : String(err?.message || err),
+        };
+      }
       if (tableFirst.ok) return tableFirst;
 
       let userForProfile = authUser;
       if (!userForProfile) {
-        const { data: userData } = await supabase.auth.getUser();
-        userForProfile = userData?.user ?? null;
+        try {
+          const { data: userData } = await withTimeout(
+            supabase.auth.getUser(),
+            PROFILE_FETCH_TIMEOUT_MS,
+            'Auth user'
+          );
+          userForProfile = userData?.user ?? null;
+        } catch {
+          userForProfile = null;
+        }
       }
       if (userForProfile?.id === uid) {
         await ensureProfileFromAuthUser(userForProfile);
-        const afterUpsert = await fetchProfileFromTable(uid);
+        let afterUpsert;
+        try {
+          afterUpsert = await withTimeout(
+            fetchProfileFromTable(uid),
+            PROFILE_FETCH_TIMEOUT_MS,
+            'Profile read'
+          );
+        } catch (err) {
+          afterUpsert = { ok: false, message: String(err?.message || err) };
+        }
         if (afterUpsert.ok) return afterUpsert;
         if (afterUpsert.message) return afterUpsert;
       } else if (tableFirst.message) {
@@ -240,32 +302,69 @@ export const AuthProvider = ({ children }) => {
       const run = (token) =>
         invokeAuthenticatedFunction("login-check", { body: {} }, token || accessToken);
 
-      let { data, error } = await run(accessToken);
+      let data;
+      let error;
+      try {
+        ({ data, error } = await withTimeout(
+          run(accessToken),
+          PROFILE_FETCH_TIMEOUT_MS,
+          'login-check'
+        ));
+      } catch (err) {
+        error = { message: String(err?.message || err) };
+        data = null;
+      }
       if (error) {
         const msg = await parseEdgeFunctionError(error, data);
         const retryable =
           msg === "Invalid token" ||
           msg.includes("Missing Authorization") ||
           msg === "Not signed in";
-        if (retryable) {
+        if (retryable && accessToken) {
           await new Promise((r) => setTimeout(r, 300));
-          const { data: sess } = await supabase.auth.getSession();
-          const retryToken = accessToken || sess?.session?.access_token;
-          ({ data, error } = await run(retryToken));
+          try {
+            ({ data, error } = await withTimeout(
+              run(accessToken),
+              PROFILE_FETCH_TIMEOUT_MS,
+              'login-check'
+            ));
+          } catch (err) {
+            error = { message: String(err?.message || err) };
+            data = null;
+          }
         }
         if (error) {
-          const tableFallback = await fetchProfileFromTable(uid);
+          let tableFallback;
+          try {
+            tableFallback = await withTimeout(
+              fetchProfileFromTable(uid),
+              PROFILE_FETCH_TIMEOUT_MS,
+              'Profile read'
+            );
+          } catch (err) {
+            tableFallback = { ok: false, message: String(err?.message || err) };
+          }
           if (tableFallback.ok) return tableFallback;
           const msg2 = await parseEdgeFunctionError(error, data);
           return { ok: false, message: msg2 };
         }
       }
       if (!data?.ok || !data?.profile?.id) {
-        const tableFallback = await fetchProfileFromTable(uid);
+        let tableFallback;
+        try {
+          tableFallback = await withTimeout(
+            fetchProfileFromTable(uid),
+            PROFILE_FETCH_TIMEOUT_MS,
+            'Profile read'
+          );
+        } catch (err) {
+          tableFallback = { ok: false, message: String(err?.message || err) };
+        }
         if (tableFallback.ok) return tableFallback;
         return { ok: false, message: data?.error || "Could not load profile." };
       }
       setProfileRow(data.profile);
+      writeCachedProfileRow(data.profile);
       return { ok: true, profile: data.profile };
     } finally {
       if (profileFetchInFlightRef.current === uid) {
@@ -275,22 +374,33 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const syncProfileInBackground = (accessToken, userId, authUser = null) => {
+    if (!userId || !accessToken) return;
+    void (async () => {
+      for (let attempt = 1; attempt <= PROFILE_SYNC_RETRIES; attempt += 1) {
+        const result = await fetchProfileViaLoginCheck(accessToken, userId, authUser, {
+          background: true,
+        });
+        if (result.ok) return;
+        if (attempt < PROFILE_SYNC_RETRIES) {
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+        }
+      }
+    })();
+  };
+
   useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
+      clearCachedProfileRow();
       setProfileLoading(false);
       return;
     }
     if (signInProfileSyncRef.current) return;
-    if (profileSyncAttemptedRef.current === user.id) return;
     profileSyncAttemptedRef.current = user.id;
-    void (async () => {
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess?.session?.access_token;
-      if (!token) return;
-      await new Promise((r) => setTimeout(r, 150));
-      await fetchProfileViaLoginCheck(token, user.id);
-    })();
+    const token = readCachedAccessToken();
+    if (!token) return;
+    syncProfileInBackground(token, user.id, user);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -345,55 +455,69 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async (email, password) => {
     const normEmail = String(email || "").trim().toLowerCase();
+    resetSupabaseSessionHydration();
     signInProfileSyncRef.current = true;
+    let profileSyncStarted = false;
     try {
-      const result = await supabase.auth.signInWithPassword({
-        email: normEmail,
-        password,
-      });
+      // Direct GoTrue REST login — avoids supabase-js auth lock hang on production.
+      const result = await directSignInWithPassword(normEmail, password);
+
       if (result?.error) {
-        return result;
-      }
-      if (result?.data?.session) {
-        await supabase.auth.setSession(result.data.session);
-      }
-      if (result?.data?.user?.id) {
-        const authUser = result.data.user;
-        profileSyncAttemptedRef.current = authUser.id;
-        userRef.current = authUser.id;
-        setUser(authUser);
-        await ensureProfileFromAuthUser(authUser);
-        const checked = await fetchProfileViaLoginCheck(
-          result.data.session?.access_token,
-          authUser.id,
-          authUser
-        );
-        if (!checked.ok) {
-          const profileMsg = checked.message || "Could not load your access profile. Contact admin.";
-          if (isAuthCredentialError(profileMsg) && !isTransientAuthError(profileMsg)) {
-            await clearInvalidSession();
-            return {
-              data: { session: null, user: null },
-              error: { message: profileMsg },
-            };
-          }
+        const msg = result.error.message || '';
+        if (isTransientAuthError(msg) || msg.toLowerCase().includes('abort')) {
           return {
-            ...result,
-            error: { message: profileMsg },
+            data: { session: null, user: null },
+            error: {
+              message:
+                'Login timed out or network failed. Check internet/VPN, confirm Supabase production project is active, then try again.',
+            },
           };
         }
-        return { ...result, profile: checked.profile };
+        return result;
       }
-      return result;
+
+      const authUser = result?.data?.user;
+      const session = result?.data?.session;
+      if (!authUser?.id || !session) {
+        return {
+          data: { session: null, user: null },
+          error: { message: 'Sign in did not return a session. Confirm email in Supabase or contact admin.' },
+        };
+      }
+
+      profileSyncAttemptedRef.current = authUser.id;
+      userRef.current = authUser.id;
+      setUser(authUser);
+      markSupabaseSessionHydrated();
+
+      const quickProfile = buildAuthProfile(authUser);
+
+      profileSyncStarted = true;
+      void (async () => {
+        try {
+          await ensureProfileFromAuthUser(authUser);
+          syncProfileInBackground(session.access_token, authUser.id, authUser);
+        } catch (err) {
+          console.warn('Background profile sync after login:', err?.message || err);
+        } finally {
+          signInProfileSyncRef.current = false;
+        }
+      })();
+
+      return { ...result, profile: quickProfile };
     } catch (err) {
       const msg = err?.message || String(err);
-      const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError');
+      const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError') || msg.includes('abort');
       return {
         data: { session: null, user: null },
-        error: { message: isNetwork ? 'Cannot reach Supabase. Check .env, restart dev server (npm run dev), and firewall/network.' : msg },
+        error: {
+          message: isNetwork
+            ? 'Cannot reach Supabase. Check internet/VPN, confirm the production project is active in Supabase Dashboard, then try again.'
+            : msg,
+        },
       };
     } finally {
-      signInProfileSyncRef.current = false;
+      if (!profileSyncStarted) signInProfileSyncRef.current = false;
     }
   };
 
@@ -406,13 +530,17 @@ export const AuthProvider = ({ children }) => {
     try {
       const { error } = await supabase.auth.signOut();
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: null };
     } catch (err) {
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: err };
     }
   };
@@ -421,13 +549,17 @@ export const AuthProvider = ({ children }) => {
     try {
       await supabase.auth.signOut();
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: null };
     } catch (err) {
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: err };
     }
   };
@@ -443,6 +575,7 @@ export const AuthProvider = ({ children }) => {
     const forcedSuperRole = isSuperAdminPro
       ? 'super_admin_pro'
       : (superAdminEmails.includes(email) ? 'super_admin' : null);
+
     if (profileRow) {
       const dbRole = profileRow.role ?? null;
       const effectiveRole =
@@ -456,8 +589,8 @@ export const AuthProvider = ({ children }) => {
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
       };
     }
-    // Single source of truth is `profiles`. If profileRow is missing, treat as not ready.
-    return null;
+
+    return buildAuthProfile(user);
   }, [user, profileRow]);
 
   const accessibleModules = useMemo(
@@ -487,9 +620,15 @@ export const AuthProvider = ({ children }) => {
     };
   }, [useProfilesTable, user?.id, userProfile?.role, profileRow?.role]);
 
+  useEffect(() => {
+    if (!profileLoading) return undefined;
+    const t = setTimeout(() => setProfileLoading(false), PROFILE_FETCH_TIMEOUT_MS + 3000);
+    return () => clearTimeout(t);
+  }, [profileLoading]);
+
   return (
     <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
-      {loading ? <PageLoader fullScreen label="Loading session…" /> : children}
+      {children}
     </AuthContext.Provider>
   );
 };

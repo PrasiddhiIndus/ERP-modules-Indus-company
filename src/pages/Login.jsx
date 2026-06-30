@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getAccessibleModules, getLoginRedirectPath } from '../config/roles'
 import { isStagingSupabaseProject } from '../lib/stagingProject'
 import { supabase, invokeAuthenticatedFunction } from '../lib/supabase'
+import { writeCachedProfileRow, markSupabaseSessionHydrated, clearSupabaseAuthStorage, isCachedAccessTokenExpired } from '../lib/authSessionUtils'
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import {
   Mail,
@@ -82,6 +83,9 @@ const Login = () => {
   const navigate = useNavigate()
 
   useEffect(() => {
+    if (isCachedAccessTokenExpired()) {
+      clearSupabaseAuthStorage()
+    }
     const t = setInterval(() => {
       setStatIndex((i) => (i + 1) % ROTATING_STATS.length)
     }, 5000)
@@ -115,6 +119,7 @@ const Login = () => {
     setError('')
     setShowVerifyCode(false)
     setOtpSendStatus('idle')
+    try {
     const { data, error: signInError } = await signIn(email.trim(), password)
     if (signInError) {
       if (isEmailNotConfirmedError(signInError)) {
@@ -134,17 +139,22 @@ const Login = () => {
       }
     } else if (data?.session) {
       const row = data.profile
+      const meta = data.user?.user_metadata || {}
       const profile = {
-        role: row?.role ?? 'executive',
-        team: row?.team ?? null,
-        allowed_modules: Array.isArray(row?.allowed_modules) ? row.allowed_modules : [],
+        role: row?.role ?? meta.role ?? 'executive',
+        team: row?.team ?? meta.team ?? null,
+        allowed_modules: Array.isArray(row?.allowed_modules)
+          ? row.allowed_modules
+          : (Array.isArray(meta.allowed_modules) ? meta.allowed_modules : []),
       }
       const mods = getAccessibleModules(profile)
       navigate(getLoginRedirectPath(profile, mods))
     } else {
       setError('Sign in did not return a session. Confirm email in Supabase Authentication or contact admin.')
     }
-    setLoading(false)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleVerifyCode = async (e) => {
@@ -167,7 +177,7 @@ const Login = () => {
       return
     }
     if (data?.session) {
-      await supabase.auth.setSession(data.session)
+      markSupabaseSessionHydrated()
       const { data: chk } = await invokeAuthenticatedFunction(
         'login-check',
         { body: {} },
@@ -182,6 +192,7 @@ const Login = () => {
             ? chk.profile.allowed_modules
             : [],
         }
+        writeCachedProfileRow(chk.profile)
       } else {
         const u = data.user
         profile = {
