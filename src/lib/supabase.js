@@ -468,7 +468,11 @@ function resolveFetchSignal(options, url) {
   if (options.signal) {
     return { signal: options.signal, clearTimer: () => {} }
   }
-  if (String(url).includes('/auth/v1/')) {
+  const urlStr = String(url)
+  // Token refresh must not be aborted mid-flight; lightweight health checks should still time out.
+  const isAuthRefreshLike =
+    urlStr.includes('/auth/v1/') && !urlStr.includes('/auth/v1/health')
+  if (isAuthRefreshLike) {
     return { signal: undefined, clearTimer: () => {} }
   }
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
@@ -648,6 +652,17 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
  * Use this to show a clear error on the other machine when data doesn't load.
  * @returns {{ ok: boolean, message?: string }}
  */
+const CONNECTION_CHECK_TIMEOUT_MS = 12000
+
+function withTimeout(promise, ms, label = 'Connection check') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+    }),
+  ])
+}
+
 export async function checkSupabaseConnection() {
   if (!isConfigured) {
     return {
@@ -656,16 +671,24 @@ export async function checkSupabaseConnection() {
     };
   }
   try {
-    // 1) Session fetch (may be local-only if cached)
-    const { error } = await supabase.auth.getSession();
-    if (error && (error.message?.includes('fetch') || error.message?.toLowerCase().includes('network') || isTimeoutError(error))) {
-      return { ok: false, message: `Cannot reach Supabase: ${error.message}. Check internet, firewall, or VPN.` }
-    }
+    // Do not use getSession() here — it may trigger token refresh on /auth/v1/ with no timeout
+    // and leave production stuck on "Checking connection…" when refresh hangs.
+    await withTimeout(pingSupabaseRest(), CONNECTION_CHECK_TIMEOUT_MS, 'Supabase health check')
 
-    // 2) Optional strict network ping. Disabled by default because it can block the
-    // app on slow networks even when normal Supabase auth/data calls are fine.
     if (useStrictSupabaseHealthCheck) {
-      await pingSupabaseRest()
+      const base = String(supabaseUrl).replace(/\/+$/, '')
+      const url = `${base}/rest/v1/`
+      await withTimeout(
+        baseFetch(url, {
+          method: 'HEAD',
+          headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
+          signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+            ? AbortSignal.timeout(CONNECTION_CHECK_TIMEOUT_MS)
+            : undefined,
+        }),
+        CONNECTION_CHECK_TIMEOUT_MS,
+        'Supabase REST check'
+      )
     }
     return { ok: true };
   } catch (err) {

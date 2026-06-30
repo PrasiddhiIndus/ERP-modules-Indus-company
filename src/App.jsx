@@ -155,15 +155,28 @@ function ConnectionGuard({ children }) {
 
   useEffect(() => {
     let cancelled = false;
+    const watchdog = setTimeout(() => {
+      if (cancelled) return;
+      setStatus("error");
+      setErrorMessage(
+        "Connection check is taking too long. Clear site data for this domain (cached login), disable VPN, or restore the Supabase project in Dashboard if it is paused."
+      );
+    }, 15000);
+
     checkSupabaseConnection().then(({ ok, message }) => {
       if (cancelled) return;
+      clearTimeout(watchdog);
       if (ok) setStatus("ok");
       else {
         setStatus("error");
         setErrorMessage(message || "Connection failed.");
       }
     });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      clearTimeout(watchdog);
+    };
   }, []);
 
   const retry = () => {
