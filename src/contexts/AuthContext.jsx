@@ -15,6 +15,9 @@ import {
   isTransientAuthError,
   readCachedAccessToken,
   readCachedSessionUser,
+  readCachedProfileRow,
+  writeCachedProfileRow,
+  clearCachedProfileRow,
   isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
@@ -70,9 +73,14 @@ function readInitialAuthUser() {
   return readCachedSessionUser();
 }
 
+function readInitialProfileRow() {
+  const authUser = readInitialAuthUser();
+  return authUser?.id ? readCachedProfileRow(authUser.id) : null;
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => readInitialAuthUser());
-  const [profileRow, setProfileRow] = useState(null);
+  const [profileRow, setProfileRow] = useState(() => readInitialProfileRow());
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const userRef = useRef(null);
@@ -93,7 +101,7 @@ export const AuthProvider = ({ children }) => {
       const newUserId = newUser?.id ?? null;
       userRef.current = newUserId;
       setUser(newUser);
-      setProfileRow(null);
+      setProfileRow(newUserId ? readCachedProfileRow(newUserId) : null);
       profileSyncAttemptedRef.current = null;
       if (newUserId && useProfilesTable) {
         // Profile sync is non-blocking; userProfile falls back to auth metadata.
@@ -129,6 +137,7 @@ export const AuthProvider = ({ children }) => {
         userRef.current = null;
         setUser(null);
         setProfileRow(null);
+        clearCachedProfileRow();
         profileSyncAttemptedRef.current = null;
         return;
       }
@@ -140,7 +149,7 @@ export const AuthProvider = ({ children }) => {
       if (userRef.current !== newUserId) {
         userRef.current = newUserId;
         setUser(newUser);
-        setProfileRow(null);
+        setProfileRow(readCachedProfileRow(newUserId));
         profileSyncAttemptedRef.current = null;
       }
     });
@@ -221,6 +230,7 @@ export const AuthProvider = ({ children }) => {
     }
     if (!data?.id) return { ok: false };
     setProfileRow(data);
+    writeCachedProfileRow(data);
     return { ok: true, profile: data };
   };
 
@@ -346,6 +356,7 @@ export const AuthProvider = ({ children }) => {
         return { ok: false, message: data?.error || "Could not load profile." };
       }
       setProfileRow(data.profile);
+      writeCachedProfileRow(data.profile);
       return { ok: true, profile: data.profile };
     } finally {
       if (profileFetchInFlightRef.current === uid) {
@@ -363,18 +374,15 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
+      clearCachedProfileRow();
       setProfileLoading(false);
       return;
     }
     if (signInProfileSyncRef.current) return;
-    if (profileSyncAttemptedRef.current === user.id) return;
     profileSyncAttemptedRef.current = user.id;
-    void (async () => {
-      const token = readCachedAccessToken();
-      if (!token) return;
-      await new Promise((r) => setTimeout(r, 150));
-      syncProfileInBackground(token, user.id);
-    })();
+    const token = readCachedAccessToken();
+    if (!token) return;
+    syncProfileInBackground(token, user.id, user);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -509,13 +517,17 @@ export const AuthProvider = ({ children }) => {
     try {
       const { error } = await supabase.auth.signOut();
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: null };
     } catch (err) {
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: err };
     }
   };
@@ -524,13 +536,17 @@ export const AuthProvider = ({ children }) => {
     try {
       await supabase.auth.signOut();
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: null };
     } catch (err) {
       clearSupabaseAuthStorage();
+      clearCachedProfileRow();
       userRef.current = null;
       setUser(null);
+      setProfileRow(null);
       return { error: err };
     }
   };

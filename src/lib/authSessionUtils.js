@@ -114,11 +114,56 @@ export function isCachedAccessTokenExpired(skewSeconds = 60) {
 
 export function clearSupabaseAuthStorage() {
   try {
+    clearCachedProfileRow();
     Object.keys(localStorage).forEach((key) => {
       if (key.includes('supabase') || key.includes('sb-')) {
         localStorage.removeItem(key);
       }
     });
+  } catch {
+    /* ignore */
+  }
+}
+
+const PROFILE_CACHE_KEY = 'erp.auth.profile';
+
+/** Last known profiles row — instant correct sidebar on page refresh. */
+export function readCachedProfileRow(userId) {
+  if (!userId) return null;
+  try {
+    const raw = sessionStorage.getItem(PROFILE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.id !== userId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedProfileRow(profile) {
+  if (!profile?.id) return;
+  try {
+    sessionStorage.setItem(
+      PROFILE_CACHE_KEY,
+      JSON.stringify({
+        id: profile.id,
+        email: profile.email ?? null,
+        username: profile.username ?? null,
+        team: profile.team ?? null,
+        role: profile.role ?? null,
+        allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
+        employee_code: profile.employee_code ?? null,
+      })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearCachedProfileRow() {
+  try {
+    sessionStorage.removeItem(PROFILE_CACHE_KEY);
   } catch {
     /* ignore */
   }
