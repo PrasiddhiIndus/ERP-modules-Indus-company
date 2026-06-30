@@ -43,6 +43,16 @@ function buildAuthProfile(authUser) {
 }
 
 const SIGN_IN_TIMEOUT_MS = 20000;
+const PROFILE_FETCH_TIMEOUT_MS = 12000;
+
+function withTimeout(promise, ms, label = 'Request') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms);
+    }),
+  ]);
+}
 
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
@@ -208,16 +218,31 @@ export const AuthProvider = ({ children }) => {
     return { ok: true, profile: data };
   };
 
-  const fetchProfileViaLoginCheck = async (accessToken, userId, authUser = null) => {
+  const fetchProfileViaLoginCheck = async (accessToken, userId, authUser = null, opts = {}) => {
+    const { background = false } = opts;
     const uid = userId || user?.id;
     if (!uid) return { ok: false };
     if (profileFetchInFlightRef.current === uid) {
       return { ok: false, message: "Profile sync in progress." };
     }
     profileFetchInFlightRef.current = uid;
-    setProfileLoading(true);
+    if (!background) setProfileLoading(true);
     try {
-      const tableFirst = await fetchProfileFromTable(uid);
+      let tableFirst;
+      try {
+        tableFirst = await withTimeout(
+          fetchProfileFromTable(uid),
+          PROFILE_FETCH_TIMEOUT_MS,
+          'Profile read'
+        );
+      } catch (err) {
+        tableFirst = {
+          ok: false,
+          message: String(err?.message || err).includes('timed out')
+            ? 'Profile read timed out. Check profiles table RLS in Supabase (run production_login_fix.sql).'
+            : String(err?.message || err),
+        };
+      }
       if (tableFirst.ok) return tableFirst;
 
       let userForProfile = authUser;
@@ -237,7 +262,18 @@ export const AuthProvider = ({ children }) => {
       const run = (token) =>
         invokeAuthenticatedFunction("login-check", { body: {} }, token || accessToken);
 
-      let { data, error } = await run(accessToken);
+      let data;
+      let error;
+      try {
+        ({ data, error } = await withTimeout(
+          run(accessToken),
+          PROFILE_FETCH_TIMEOUT_MS,
+          'login-check'
+        ));
+      } catch (err) {
+        error = { message: String(err?.message || err) };
+        data = null;
+      }
       if (error) {
         const msg = await parseEdgeFunctionError(error, data);
         const retryable =
@@ -246,7 +282,16 @@ export const AuthProvider = ({ children }) => {
           msg === "Not signed in";
         if (retryable && accessToken) {
           await new Promise((r) => setTimeout(r, 300));
-          ({ data, error } = await run(accessToken));
+          try {
+            ({ data, error } = await withTimeout(
+              run(accessToken),
+              PROFILE_FETCH_TIMEOUT_MS,
+              'login-check'
+            ));
+          } catch (err) {
+            error = { message: String(err?.message || err) };
+            data = null;
+          }
         }
         if (error) {
           const tableFallback = await fetchProfileFromTable(uid);
@@ -339,7 +384,9 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async (email, password) => {
     const normEmail = String(email || "").trim().toLowerCase();
+    signInProfileSyncRef.current = true;
     setLoading(true);
+    let profileSyncStarted = false;
     try {
       const result = await Promise.race([
         supabase.auth.signInWithPassword({ email: normEmail, password }),
@@ -377,13 +424,18 @@ export const AuthProvider = ({ children }) => {
 
       const quickProfile = buildAuthProfile(authUser);
 
-      // Sync profiles table in background — do not block login (production was hanging here).
+      // Sync profiles table in background — never block login (production hung on profile fetch).
+      profileSyncStarted = true;
       void (async () => {
         try {
           await ensureProfileFromAuthUser(authUser);
-          await fetchProfileViaLoginCheck(session.access_token, authUser.id, authUser);
+          await fetchProfileViaLoginCheck(session.access_token, authUser.id, authUser, {
+            background: true,
+          });
         } catch (err) {
           console.warn('Background profile sync after login:', err?.message || err);
+        } finally {
+          signInProfileSyncRef.current = false;
         }
       })();
 
@@ -400,6 +452,7 @@ export const AuthProvider = ({ children }) => {
         },
       };
     } finally {
+      if (!profileSyncStarted) signInProfileSyncRef.current = false;
       setLoading(false);
     }
   };

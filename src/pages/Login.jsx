@@ -115,6 +115,7 @@ const Login = () => {
     setError('')
     setShowVerifyCode(false)
     setOtpSendStatus('idle')
+    try {
     const { data, error: signInError } = await signIn(email.trim(), password)
     if (signInError) {
       if (isEmailNotConfirmedError(signInError)) {
@@ -147,7 +148,9 @@ const Login = () => {
     } else {
       setError('Sign in did not return a session. Confirm email in Supabase Authentication or contact admin.')
     }
-    setLoading(false)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleVerifyCode = async (e) => {
