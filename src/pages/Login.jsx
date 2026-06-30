@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { getAccessibleModules, getLoginRedirectPath, normalizeAccessProfile } from '../config/roles'
 import { isStagingSupabaseProject } from '../lib/stagingProject'
-import { supabase, invokeAuthenticatedFunction } from '../lib/supabase'
-import { writeCachedProfileRow, markSupabaseSessionHydrated, clearSupabaseAuthStorage, isCachedAccessTokenExpired } from '../lib/authSessionUtils'
+import { markSupabaseSessionHydrated, clearSupabaseAuthStorage, isCachedAccessTokenExpired, readCachedAccessToken } from '../lib/authSessionUtils'
+import {
+  planPostLoginNavigation,
+  logLoginStage,
+  validateTeamLandingPaths,
+  resolveSafeLandingPath,
+  buildProfileFromSession,
+} from '../lib/loginFlow'
+import { getAccessibleModules } from '../config/roles'
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import {
   Mail,
@@ -79,10 +85,11 @@ const Login = () => {
   const [otpSendStatus, setOtpSendStatus] = useState('idle') // idle | sending | sent | failed | rate_limited
   const [statIndex, setStatIndex] = useState(0)
 
-  const { signIn, verifyEmailOtp, resendConfirmation } = useAuth()
+  const { signIn, verifyEmailOtp, resendConfirmation, user, userProfile, applyCachedProfile } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
+    validateTeamLandingPaths()
     if (isCachedAccessTokenExpired()) {
       clearSupabaseAuthStorage()
     }
@@ -91,6 +98,16 @@ const Login = () => {
     }, 5000)
     return () => clearInterval(t)
   }, [])
+
+  // Never keep an authenticated user on the login screen.
+  useEffect(() => {
+    if (!user?.id || !readCachedAccessToken() || isCachedAccessTokenExpired()) return
+    const profile = userProfile || buildProfileFromSession({ user }, null)
+    const mods = getAccessibleModules(profile)
+    const path = resolveSafeLandingPath(profile, mods)
+    logLoginStage('already-authenticated-redirect', { path, userId: user.id })
+    navigate(path, { replace: true })
+  }, [user, userProfile, navigate])
 
   const sendVerificationCode = async () => {
     const trimmed = email.trim()
@@ -113,50 +130,20 @@ const Login = () => {
     return true
   }
 
-  const buildLoginProfile = (session, quickProfile) => {
-    const meta = session?.user?.user_metadata || {}
-    const row = quickProfile
-    return normalizeAccessProfile({
-      role: row?.role ?? meta.role ?? null,
-      team: row?.team ?? meta.team ?? null,
-      allowed_modules: Array.isArray(row?.allowed_modules)
-        ? row.allowed_modules
-        : (Array.isArray(meta.allowed_modules) ? meta.allowed_modules : []),
-    })
-  }
-
-  const resolveProfileAfterLogin = async (session, quickProfile) => {
-    const fallback = buildLoginProfile(session, quickProfile)
-    if (!session?.access_token) return fallback
-    try {
-      const { data: chk } = await invokeAuthenticatedFunction(
-        'login-check',
-        { body: {} },
-        session.access_token
-      )
-      if (chk?.ok && chk?.profile) {
-        writeCachedProfileRow(chk.profile)
-        return normalizeAccessProfile({
-          role: chk.profile.role,
-          team: chk.profile.team ?? null,
-          allowed_modules: chk.profile.allowed_modules,
-        })
-      }
-    } catch {
-      /* use fallback from auth metadata / quick profile */
+  const finishLoginNavigation = async (session, quickProfile) => {
+    const result = await planPostLoginNavigation(session, quickProfile)
+    if (!result.ok) {
+      logLoginStage('redirect-failed', { error: result.error })
+      setError(result.error)
+      return false
     }
-    if (session?.user?.id) {
-      const meta = session.user.user_metadata || {}
-      writeCachedProfileRow({
-        id: session.user.id,
-        email: session.user.email,
-        username: meta.username || meta.full_name || session.user.email?.split('@')[0],
-        team: fallback.team,
-        role: fallback.role,
-        allowed_modules: fallback.allowed_modules,
-      })
+    applyCachedProfile(session.user.id)
+    if (result.warning) {
+      logLoginStage('redirect-warning', { warning: result.warning })
     }
-    return fallback
+    logLoginStage('navigate', { path: result.path })
+    navigate(result.path, { replace: true })
+    return true
   }
 
   const handleSubmit = async (e) => {
@@ -184,12 +171,7 @@ const Login = () => {
         setError(signInError.message || 'Sign in failed. Check email, password, and that your account exists in User Management.')
       }
     } else if (data?.session) {
-      const quick = buildLoginProfile(data.session, quickProfile)
-      const mods = getAccessibleModules(quick)
-      const path = getLoginRedirectPath(quick, mods)
-      navigate(path, { replace: true })
-      // Profile sync must not block navigation — login-check can hang or race with auth hydrate.
-      void resolveProfileAfterLogin(data.session, quickProfile)
+      await finishLoginNavigation(data.session, quickProfile)
     } else {
       setError('Sign in did not return a session. Confirm email in Supabase Authentication or contact admin.')
     }
@@ -219,10 +201,7 @@ const Login = () => {
     }
     if (data?.session) {
       markSupabaseSessionHydrated()
-      const quick = buildLoginProfile(data.session, null)
-      const mods = getAccessibleModules(quick)
-      navigate(getLoginRedirectPath(quick, mods), { replace: true })
-      void resolveProfileAfterLogin(data.session, null)
+      await finishLoginNavigation(data.session, null)
     }
     setLoading(false)
   }

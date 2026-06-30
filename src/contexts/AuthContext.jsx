@@ -25,6 +25,7 @@ import {
   hydrateSupabaseAuthFromCache,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules, normalizeAppRole, ROLES } from "../config/roles";
+import { logLoginStage } from "../lib/loginFlow";
 
 /** Build role/profile from auth user metadata — used for immediate post-login navigation. */
 function buildAuthProfile(authUser) {
@@ -98,6 +99,19 @@ export const AuthProvider = ({ children }) => {
       userRef.current = user.id;
     }
   }, []);
+
+  // Restore React user from localStorage when JWT is valid but state was cleared (e.g. hydrate race).
+  useEffect(() => {
+    if (user?.id) return;
+    const token = readCachedAccessToken();
+    if (!token || isCachedAccessTokenExpired()) return;
+    const cachedUser = readCachedSessionUser();
+    if (!cachedUser?.id) return;
+    userRef.current = cachedUser.id;
+    setUser(cachedUser);
+    setProfileRow(readCachedProfileRow(cachedUser.id));
+    logLoginStage('session-restored-from-cache', { userId: cachedUser.id });
+  }, [user?.id]);
 
   useEffect(() => {
     const applySessionUser = (sessionUser) => {
@@ -511,16 +525,21 @@ export const AuthProvider = ({ children }) => {
       userRef.current = authUser.id;
       setUser(authUser);
       markSupabaseSessionHydrated();
+      logLoginStage('session-stored', {
+        userId: authUser.id,
+        expiresAt: session.expires_at,
+      });
 
       // Sync supabase-js in-memory session (best-effort, capped) so auto-refresh does not
       // emit SIGNED_OUT and wipe the user before ProtectedRoute renders.
       try {
-        await Promise.race([
+        const hydrated = await Promise.race([
           hydrateSupabaseAuthFromCache(supabase),
           new Promise((resolve) => setTimeout(() => resolve(false), 4000)),
         ]);
+        logLoginStage('session-hydrate', { ok: Boolean(hydrated) });
       } catch {
-        /* REST login session in localStorage is still valid */
+        logLoginStage('session-hydrate', { ok: false, reason: 'exception' });
       }
 
       const quickProfile = buildAuthProfile(authUser);
@@ -576,6 +595,14 @@ export const AuthProvider = ({ children }) => {
       setProfileRow(null);
       return { error: err };
     }
+  };
+
+  /** Apply sessionStorage profile cache to React state (after login-check). */
+  const applyCachedProfile = (userId = user?.id) => {
+    const uid = userId || userRef.current;
+    if (!uid) return;
+    const row = readCachedProfileRow(uid);
+    if (row) setProfileRow(row);
   };
 
   const clearInvalidSession = async () => {
@@ -660,7 +687,7 @@ export const AuthProvider = ({ children }) => {
   }, [profileLoading]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
+    <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp, applyCachedProfile }}>
       {children}
     </AuthContext.Provider>
   );

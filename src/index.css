@@ -121,6 +121,11 @@ main.erp-app-shell .erp-freeze-pane-edge {
   border-right: 1px solid #d1d5db;
 }
 
+/* Daily register: sticky date header while scrolling employee rows */
+main.erp-app-shell .erp-freeze-pane-sticky-header > div > div:first-child .erp-freeze-pane-frozen {
+  background-color: #f9fafb;
+}
+
 /* INDUS OS – Command Interface login */
 .login-page {
   --indus-red: #C8102E;

@@ -130,6 +130,39 @@ export function currentPeriodKey() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** Pending data-entry history before this period is collapsed by default (April 2026). */
+export const PENDING_HISTORY_CUTOFF_KEY = "2026-04";
+
+export function currentPeriodDateIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Map period key (YYYY-MM) to date input value (first day of month). */
+export function periodKeyToDateInput(key) {
+  if (!key) return currentPeriodDateIso().slice(0, 8) + "01";
+  const p = parsePeriodKey(key);
+  if (!p) return "";
+  return `${p.year}-${String(p.month).padStart(2, "0")}-01`;
+}
+
+/** Display monthly period as DD/MM/YYYY (period start). */
+export function formatPeriodDateDDMMYYYY(key) {
+  const p = parsePeriodKey(key);
+  if (!p) return String(key || "");
+  const dd = "01";
+  const mm = String(p.month).padStart(2, "0");
+  return `${dd}/${mm}/${p.year}`;
+}
+
+/** Period keys from start through min(end, capKey), inclusive. */
+export function periodKeysUpTo(capKey, monthsList = null) {
+  const cap = capKey || currentPeriodKey();
+  const capIdx = periodAbsoluteIndex(cap);
+  const list = monthsList || buildMonthOptions();
+  return list.filter((m) => periodAbsoluteIndex(m.key) <= capIdx).map((m) => m.key);
+}
+
 export function getPeriodRange(mode, anchorKey, months) {
   const idx = monthIdx(anchorKey, months);
   if (idx < 0) return [anchorKey];

@@ -1,5 +1,5 @@
 import React from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import PageLoader from "./PageLoader";
 import {
@@ -7,6 +7,7 @@ import {
   readCachedSessionUser,
   isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
+import { logLoginStage } from "../lib/loginFlow";
 
 /** True when localStorage still holds a valid JWT (direct REST login path). */
 function hasValidCachedSession() {
@@ -16,6 +17,7 @@ function hasValidCachedSession() {
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
+  const location = useLocation();
   const cachedUser = hasValidCachedSession() ? readCachedSessionUser() : null;
   const effectiveUser = user || cachedUser;
 
@@ -24,8 +26,24 @@ const ProtectedRoute = ({ children }) => {
   }
 
   if (!effectiveUser) {
-    return <Navigate to="/" replace />;
+    if (hasValidCachedSession()) {
+      logLoginStage("route-guard-wait", {
+        path: location.pathname,
+        reason: "valid-jwt-missing-react-user",
+      });
+      return <PageLoader fullScreen label="Restoring session…" />;
+    }
+    logLoginStage("route-guard-deny", {
+      path: location.pathname,
+      reason: "no-session",
+    });
+    return <Navigate to="/" replace state={{ from: location.pathname, reason: "session-required" }} />;
   }
+
+  logLoginStage("route-guard-allow", {
+    path: location.pathname,
+    userId: effectiveUser.id,
+  });
 
   return children;
 };
