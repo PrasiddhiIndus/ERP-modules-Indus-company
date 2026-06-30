@@ -42,6 +42,8 @@ export const AuthProvider = ({ children }) => {
       if (newUserId && useProfilesTable) setProfileLoading(true);
     };
 
+    const SESSION_READ_TIMEOUT_MS = 15000;
+
     const getSession = async () => {
       try {
         if (clearSessionIfSupabaseProjectMismatch()) {
@@ -51,10 +53,20 @@ export const AuthProvider = ({ children }) => {
           profileSyncAttemptedRef.current = null;
         }
 
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise((_, reject) => {
+            setTimeout(
+              () => reject(new Error('Session read timed out — using cached session if available')),
+              SESSION_READ_TIMEOUT_MS
+            );
+          }),
+        ]);
+
         const {
           data: { session },
           error,
-        } = await supabase.auth.getSession();
+        } = sessionResult;
 
         if (error) {
           if (isInvalidRefreshTokenError(error.message)) {
@@ -99,6 +111,10 @@ export const AuthProvider = ({ children }) => {
           if (cachedUser) {
             console.warn('Using cached session after session read failure:', error.message);
             applySessionUser(cachedUser);
+          } else if (String(error?.message || '').includes('timed out')) {
+            clearSupabaseAuthStorage();
+            userRef.current = null;
+            setUser(null);
           } else {
             userRef.current = null;
             setUser(null);
