@@ -18,20 +18,39 @@ import {
   isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
-import PageLoader from "../components/PageLoader";
 
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 
+/** Restore user from localStorage synchronously — no network wait on first paint. */
+function readInitialAuthUser() {
+  if (typeof window === 'undefined') return null;
+  if (clearSessionIfSupabaseProjectMismatch()) return null;
+  const token = readCachedAccessToken();
+  if (!token) return null;
+  if (isCachedAccessTokenExpired()) {
+    clearSupabaseAuthStorage();
+    return null;
+  }
+  return readCachedSessionUser();
+}
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => readInitialAuthUser());
   const [profileRow, setProfileRow] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const userRef = useRef(null);
   const profileSyncAttemptedRef = useRef(null);
   const signInProfileSyncRef = useRef(false);
   const profileFetchInFlightRef = useRef(null);
+  const useProfilesTable = true;
+
+  useEffect(() => {
+    if (user?.id && useProfilesTable) {
+      userRef.current = user.id;
+    }
+  }, []);
 
   useEffect(() => {
     const applySessionUser = (sessionUser) => {
@@ -44,72 +63,27 @@ export const AuthProvider = ({ children }) => {
       if (newUserId && useProfilesTable) setProfileLoading(true);
     };
 
-    const hydrateSession = async () => {
+    const refreshSessionInBackground = async () => {
+      if (!readCachedAccessToken() || isCachedAccessTokenExpired()) return;
       try {
-        if (clearSessionIfSupabaseProjectMismatch()) {
-          userRef.current = null;
-          setUser(null);
-          setProfileRow(null);
-          profileSyncAttemptedRef.current = null;
-          return;
-        }
-
-        const cachedUser = readCachedSessionUser();
-        const hasStoredSession = !!readCachedAccessToken();
-
-        // No stored session — show login immediately (no network call).
-        if (!hasStoredSession) {
-          userRef.current = null;
-          setUser(null);
-          return;
-        }
-
-        // Expired cached JWT — clear stale refresh token (avoids hung getSession on production).
-        if (isCachedAccessTokenExpired()) {
-          console.warn('Cached session expired; clearing stored auth.');
-          clearSupabaseAuthStorage();
-          userRef.current = null;
-          setUser(null);
-          return;
-        }
-
-        // Valid cached session — restore user immediately, refresh in background.
-        if (cachedUser) {
-          applySessionUser(cachedUser);
-        }
-
-        try {
-          const { data: { session }, error } = await supabase.auth.getSession();
-          if (error) {
-            if (isInvalidRefreshTokenError(error.message)) {
-              clearSupabaseAuthStorage();
-              userRef.current = null;
-              setUser(null);
-            } else if (isTransientAuthError(error.message)) {
-              applySessionUser(session?.user ?? cachedUser);
-            } else if (!cachedUser) {
-              userRef.current = null;
-              setUser(null);
-            }
-          } else if (session?.user) {
-            applySessionUser(session.user);
-          }
-        } catch (error) {
-          if (isInvalidRefreshTokenError(error?.message)) {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          if (isInvalidRefreshTokenError(error.message)) {
             clearSupabaseAuthStorage();
             userRef.current = null;
             setUser(null);
-          } else if (!cachedUser) {
-            userRef.current = null;
-            setUser(null);
           }
-          // Keep cached user on transient/timeout errors — login still works.
+          return;
         }
-      } finally {
-        setLoading(false);
+        if (session?.user && userRef.current !== session.user.id) {
+          applySessionUser(session.user);
+        }
+      } catch {
+        // Non-blocking — cached session already shown or user on login page.
       }
     };
-    hydrateSession();
+
+    void refreshSessionInBackground();
 
     const {
       data: { subscription },
@@ -139,9 +113,6 @@ export const AuthProvider = ({ children }) => {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  // New methodology: profiles is the single source of truth.
-  const useProfilesTable = true;
 
   const STAGING_PROFILE_SQL_HINT =
     "Profile access blocked on staging DB. In Supabase SQL Editor run: supabase/staging_fix_403.sql (then refresh and sign in again).";
@@ -344,6 +315,7 @@ export const AuthProvider = ({ children }) => {
   const signIn = async (email, password) => {
     const normEmail = String(email || "").trim().toLowerCase();
     signInProfileSyncRef.current = true;
+    setLoading(true);
     try {
       const result = await supabase.auth.signInWithPassword({
         email: normEmail,
@@ -403,6 +375,7 @@ export const AuthProvider = ({ children }) => {
       };
     } finally {
       signInProfileSyncRef.current = false;
+      setLoading(false);
     }
   };
 
@@ -498,7 +471,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
-      {loading ? <PageLoader fullScreen label="Loading session…" /> : children}
+      {children}
     </AuthContext.Provider>
   );
 };
