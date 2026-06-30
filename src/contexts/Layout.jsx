@@ -75,7 +75,7 @@ const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass :
 
 const Layout = () => {
   const { user, signOut, accessibleModules, userProfile } = useAuth();
-  const can = (moduleKey) => !accessibleModules?.size || accessibleModules.has(moduleKey);
+  const can = (moduleKey) => Boolean(accessibleModules?.has(moduleKey));
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
   const location = useLocation();
