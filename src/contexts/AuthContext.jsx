@@ -95,7 +95,9 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       setProfileRow(null);
       profileSyncAttemptedRef.current = null;
-      if (newUserId && useProfilesTable) setProfileLoading(true);
+      if (newUserId && useProfilesTable) {
+        // Profile sync is non-blocking; userProfile falls back to auth metadata.
+      }
     };
 
     const refreshSessionInBackground = async () => {
@@ -140,9 +142,6 @@ export const AuthProvider = ({ children }) => {
         setUser(newUser);
         setProfileRow(null);
         profileSyncAttemptedRef.current = null;
-        if (useProfilesTable && !signInProfileSyncRef.current) {
-          setProfileLoading(true);
-        }
       }
     });
 
@@ -166,11 +165,13 @@ export const AuthProvider = ({ children }) => {
 
   const ensureProfileFromAuthUser = async (authUser) => {
     if (!authUser?.id) return false;
-    const { data: existing } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("id", authUser.id)
-      .maybeSingle();
+    const readExisting = () =>
+      supabase.from("profiles").select("id").eq("id", authUser.id).maybeSingle();
+    const { data: existing } = await withTimeout(
+      readExisting(),
+      PROFILE_FETCH_TIMEOUT_MS,
+      'Profile lookup'
+    ).catch(() => ({ data: null }));
     if (existing?.id) return true;
 
     const meta = authUser.user_metadata || {};
@@ -184,7 +185,12 @@ export const AuthProvider = ({ children }) => {
       role: meta.role || "executive",
       allowed_modules: Array.isArray(allowed) ? allowed : [],
     };
-    const { error } = await supabase.from("profiles").insert(payload);
+    const insert = () => supabase.from("profiles").insert(payload);
+    const { error } = await withTimeout(
+      insert(),
+      PROFILE_FETCH_TIMEOUT_MS,
+      'Profile insert'
+    ).catch((err) => ({ error: err }));
     if (error?.code === "23505") return true;
     return !error;
   };
@@ -226,7 +232,6 @@ export const AuthProvider = ({ children }) => {
       return { ok: false, message: "Profile sync in progress." };
     }
     profileFetchInFlightRef.current = uid;
-    if (!background) setProfileLoading(true);
     try {
       let tableFirst;
       try {
@@ -247,12 +252,29 @@ export const AuthProvider = ({ children }) => {
 
       let userForProfile = authUser;
       if (!userForProfile) {
-        const { data: userData } = await supabase.auth.getUser();
-        userForProfile = userData?.user ?? null;
+        try {
+          const { data: userData } = await withTimeout(
+            supabase.auth.getUser(),
+            PROFILE_FETCH_TIMEOUT_MS,
+            'Auth user'
+          );
+          userForProfile = userData?.user ?? null;
+        } catch {
+          userForProfile = null;
+        }
       }
       if (userForProfile?.id === uid) {
         await ensureProfileFromAuthUser(userForProfile);
-        const afterUpsert = await fetchProfileFromTable(uid);
+        let afterUpsert;
+        try {
+          afterUpsert = await withTimeout(
+            fetchProfileFromTable(uid),
+            PROFILE_FETCH_TIMEOUT_MS,
+            'Profile read'
+          );
+        } catch (err) {
+          afterUpsert = { ok: false, message: String(err?.message || err) };
+        }
         if (afterUpsert.ok) return afterUpsert;
         if (afterUpsert.message) return afterUpsert;
       } else if (tableFirst.message) {
@@ -294,14 +316,32 @@ export const AuthProvider = ({ children }) => {
           }
         }
         if (error) {
-          const tableFallback = await fetchProfileFromTable(uid);
+          let tableFallback;
+          try {
+            tableFallback = await withTimeout(
+              fetchProfileFromTable(uid),
+              PROFILE_FETCH_TIMEOUT_MS,
+              'Profile read'
+            );
+          } catch (err) {
+            tableFallback = { ok: false, message: String(err?.message || err) };
+          }
           if (tableFallback.ok) return tableFallback;
           const msg2 = await parseEdgeFunctionError(error, data);
           return { ok: false, message: msg2 };
         }
       }
       if (!data?.ok || !data?.profile?.id) {
-        const tableFallback = await fetchProfileFromTable(uid);
+        let tableFallback;
+        try {
+          tableFallback = await withTimeout(
+            fetchProfileFromTable(uid),
+            PROFILE_FETCH_TIMEOUT_MS,
+            'Profile read'
+          );
+        } catch (err) {
+          tableFallback = { ok: false, message: String(err?.message || err) };
+        }
         if (tableFallback.ok) return tableFallback;
         return { ok: false, message: data?.error || "Could not load profile." };
       }
@@ -313,6 +353,11 @@ export const AuthProvider = ({ children }) => {
       }
       setProfileLoading(false);
     }
+  };
+
+  const syncProfileInBackground = (accessToken, userId, authUser = null) => {
+    if (!userId || !accessToken) return;
+    void fetchProfileViaLoginCheck(accessToken, userId, authUser, { background: true });
   };
 
   useEffect(() => {
@@ -328,7 +373,7 @@ export const AuthProvider = ({ children }) => {
       const token = readCachedAccessToken();
       if (!token) return;
       await new Promise((r) => setTimeout(r, 150));
-      await fetchProfileViaLoginCheck(token, user.id);
+      syncProfileInBackground(token, user.id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
@@ -429,9 +474,7 @@ export const AuthProvider = ({ children }) => {
       void (async () => {
         try {
           await ensureProfileFromAuthUser(authUser);
-          await fetchProfileViaLoginCheck(session.access_token, authUser.id, authUser, {
-            background: true,
-          });
+          syncProfileInBackground(session.access_token, authUser.id, authUser);
         } catch (err) {
           console.warn('Background profile sync after login:', err?.message || err);
         } finally {
@@ -547,6 +590,12 @@ export const AuthProvider = ({ children }) => {
       cancelled = true;
     };
   }, [useProfilesTable, user?.id, userProfile?.role, profileRow?.role]);
+
+  useEffect(() => {
+    if (!profileLoading) return undefined;
+    const t = setTimeout(() => setProfileLoading(false), PROFILE_FETCH_TIMEOUT_MS + 3000);
+    return () => clearTimeout(t);
+  }, [profileLoading]);
 
   return (
     <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp }}>
