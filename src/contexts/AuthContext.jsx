@@ -19,6 +19,31 @@ import {
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
 
+/** Build role/profile from auth user metadata — used for immediate post-login navigation. */
+function buildAuthProfile(authUser) {
+  if (!authUser) return null;
+  const email = String(authUser.email || '').trim().toLowerCase();
+  const meta = authUser.user_metadata || {};
+  const superAdminEmailsRaw = String(import.meta.env.VITE_SUPER_ADMIN_EMAILS || '').trim();
+  const superAdminEmails = superAdminEmailsRaw
+    ? superAdminEmailsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : [];
+  const forcedRole =
+    email === 'rahul.ifspl@gmail.com'
+      ? 'super_admin_pro'
+      : superAdminEmails.includes(email)
+        ? 'super_admin'
+        : null;
+  return {
+    username: meta.username || meta.full_name || email.split('@')[0] || 'User',
+    team: meta.team ?? null,
+    role: forcedRole || meta.role || 'executive',
+    allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+  };
+}
+
+const SIGN_IN_TIMEOUT_MS = 20000;
+
 const AuthContext = createContext();
 export const useAuth = () => useContext(AuthContext);
 
@@ -314,13 +339,15 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async (email, password) => {
     const normEmail = String(email || "").trim().toLowerCase();
-    signInProfileSyncRef.current = true;
     setLoading(true);
     try {
-      const result = await supabase.auth.signInWithPassword({
-        email: normEmail,
-        password,
-      });
+      const result = await Promise.race([
+        supabase.auth.signInWithPassword({ email: normEmail, password }),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Login timed out')), SIGN_IN_TIMEOUT_MS);
+        }),
+      ]);
+
       if (result?.error) {
         const msg = result.error.message || '';
         if (isTransientAuthError(msg) || msg.toLowerCase().includes('abort')) {
@@ -334,34 +361,33 @@ export const AuthProvider = ({ children }) => {
         }
         return result;
       }
-      if (result?.data?.user?.id) {
-        const authUser = result.data.user;
-        profileSyncAttemptedRef.current = authUser.id;
-        userRef.current = authUser.id;
-        setUser(authUser);
-        await ensureProfileFromAuthUser(authUser);
-        const checked = await fetchProfileViaLoginCheck(
-          result.data.session?.access_token,
-          authUser.id,
-          authUser
-        );
-        if (!checked.ok) {
-          const profileMsg = checked.message || "Could not load your access profile. Contact admin.";
-          if (isAuthCredentialError(profileMsg) && !isTransientAuthError(profileMsg)) {
-            await clearInvalidSession();
-            return {
-              data: { session: null, user: null },
-              error: { message: profileMsg },
-            };
-          }
-          return {
-            ...result,
-            error: { message: profileMsg },
-          };
-        }
-        return { ...result, profile: checked.profile };
+
+      const authUser = result?.data?.user;
+      const session = result?.data?.session;
+      if (!authUser?.id || !session) {
+        return {
+          data: { session: null, user: null },
+          error: { message: 'Sign in did not return a session. Confirm email in Supabase or contact admin.' },
+        };
       }
-      return result;
+
+      profileSyncAttemptedRef.current = authUser.id;
+      userRef.current = authUser.id;
+      setUser(authUser);
+
+      const quickProfile = buildAuthProfile(authUser);
+
+      // Sync profiles table in background — do not block login (production was hanging here).
+      void (async () => {
+        try {
+          await ensureProfileFromAuthUser(authUser);
+          await fetchProfileViaLoginCheck(session.access_token, authUser.id, authUser);
+        } catch (err) {
+          console.warn('Background profile sync after login:', err?.message || err);
+        }
+      })();
+
+      return { ...result, profile: quickProfile };
     } catch (err) {
       const msg = err?.message || String(err);
       const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError') || msg.includes('abort');
@@ -374,7 +400,6 @@ export const AuthProvider = ({ children }) => {
         },
       };
     } finally {
-      signInProfileSyncRef.current = false;
       setLoading(false);
     }
   };
@@ -425,6 +450,7 @@ export const AuthProvider = ({ children }) => {
     const forcedSuperRole = isSuperAdminPro
       ? 'super_admin_pro'
       : (superAdminEmails.includes(email) ? 'super_admin' : null);
+
     if (profileRow) {
       const dbRole = profileRow.role ?? null;
       const effectiveRole =
@@ -438,8 +464,8 @@ export const AuthProvider = ({ children }) => {
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
       };
     }
-    // Single source of truth is `profiles`. If profileRow is missing, treat as not ready.
-    return null;
+
+    return buildAuthProfile(user);
   }, [user, profileRow]);
 
   const accessibleModules = useMemo(
