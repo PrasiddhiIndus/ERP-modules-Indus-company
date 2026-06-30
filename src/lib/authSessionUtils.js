@@ -1,11 +1,97 @@
 import {
   getSupabaseProjectRefFromUrl,
   getSupabaseProjectRefFromJwt,
+  getSupabaseAnonKey,
+  getSupabaseUrl,
   sessionMatchesConfiguredProject,
 } from './supabaseConfig';
 
 /** Supabase auth storage key — must match `storageKey` in supabase.js */
 export const SUPABASE_AUTH_STORAGE_KEY = 'supabase.auth.token';
+
+const DIRECT_SIGN_IN_TIMEOUT_MS = 20000;
+
+/** Save GoTrue token response to localStorage (format read by supabase-js + our cache helpers). */
+export function persistAuthSession(tokenResponse) {
+  if (!tokenResponse?.access_token || !tokenResponse?.user) return null;
+  const expiresAt =
+    tokenResponse.expires_at ??
+    Math.floor(Date.now() / 1000) + Number(tokenResponse.expires_in || 3600);
+  const session = {
+    access_token: tokenResponse.access_token,
+    refresh_token: tokenResponse.refresh_token ?? '',
+    expires_in: tokenResponse.expires_in,
+    expires_at: expiresAt,
+    token_type: tokenResponse.token_type || 'bearer',
+    user: tokenResponse.user,
+  };
+  try {
+    localStorage.setItem(
+      SUPABASE_AUTH_STORAGE_KEY,
+      JSON.stringify({ ...session, currentSession: session })
+    );
+  } catch {
+    return null;
+  }
+  resetSupabaseSessionHydration();
+  markSupabaseSessionHydrated();
+  return session;
+}
+
+/**
+ * Login via GoTrue REST API directly — bypasses supabase-js auth lock that hangs production login.
+ */
+export async function directSignInWithPassword(email, password) {
+  const supabaseUrl = getSupabaseUrl();
+  const anonKey = getSupabaseAnonKey();
+  if (!supabaseUrl || !anonKey) {
+    return {
+      data: { session: null, user: null },
+      error: { message: 'Supabase is not configured. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.' },
+    };
+  }
+
+  const base = supabaseUrl.replace(/\/+$/, '');
+  const url = `${base}/auth/v1/token?grant_type=password`;
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), DIRECT_SIGN_IN_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: String(email || '').trim().toLowerCase(), password }),
+      signal: controller.signal,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg =
+        body.error_description ||
+        body.msg ||
+        body.message ||
+        body.error ||
+        `Login failed (HTTP ${res.status})`;
+      return { data: { session: null, user: null }, error: { message: msg } };
+    }
+    const session = persistAuthSession(body);
+    if (!session) {
+      return { data: { session: null, user: null }, error: { message: 'Login succeeded but session could not be saved.' } };
+    }
+    return { data: { session, user: session.user }, error: null };
+  } catch (err) {
+    const msg =
+      err?.name === 'AbortError'
+        ? 'Login timed out. Check internet/VPN or confirm Supabase production project is active.'
+        : err?.message || String(err);
+    return { data: { session: null, user: null }, error: { message: msg } };
+  } finally {
+    clearTimeout(tid);
+  }
+}
 
 /** Read cached access token without a network round-trip. */
 export function readCachedAccessToken() {

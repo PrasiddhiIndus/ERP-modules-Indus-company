@@ -502,8 +502,8 @@ function applyCachedUserAuthHeader(urlStr, options = {}) {
 
   const headers = new Headers(options.headers || {});
   const existing = headers.get('Authorization') || '';
-  // Prefer cached user JWT when client would send anon key or nothing yet.
-  if (!existing || existing === `Bearer ${supabaseAnonKey}`) {
+  // Prefer user JWT over anon key on every module REST/storage request.
+  if (!existing || existing === `Bearer ${supabaseAnonKey}` || !existing.startsWith('Bearer ey')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
   return { ...options, headers };

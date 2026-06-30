@@ -20,6 +20,7 @@ import {
   clearCachedProfileRow,
   markSupabaseSessionHydrated,
   resetSupabaseSessionHydration,
+  directSignInWithPassword,
   isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
@@ -47,7 +48,6 @@ function buildAuthProfile(authUser) {
   };
 }
 
-const SIGN_IN_TIMEOUT_MS = 20000;
 const PROFILE_FETCH_TIMEOUT_MS = 20000;
 const PROFILE_SYNC_RETRIES = 3;
 
@@ -140,7 +140,7 @@ export const AuthProvider = ({ children }) => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         userRef.current = null;
         setUser(null);
@@ -457,15 +457,10 @@ export const AuthProvider = ({ children }) => {
     const normEmail = String(email || "").trim().toLowerCase();
     resetSupabaseSessionHydration();
     signInProfileSyncRef.current = true;
-    setLoading(true);
     let profileSyncStarted = false;
     try {
-      const result = await Promise.race([
-        supabase.auth.signInWithPassword({ email: normEmail, password }),
-        new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Login timed out')), SIGN_IN_TIMEOUT_MS);
-        }),
-      ]);
+      // Direct GoTrue REST login — avoids supabase-js auth lock hang on production.
+      const result = await directSignInWithPassword(normEmail, password);
 
       if (result?.error) {
         const msg = result.error.message || '';
@@ -493,13 +488,10 @@ export const AuthProvider = ({ children }) => {
       profileSyncAttemptedRef.current = authUser.id;
       userRef.current = authUser.id;
       setUser(authUser);
-
-      // signInWithPassword already wrote session to localStorage — do not await setSession (blocks login).
       markSupabaseSessionHydrated();
 
       const quickProfile = buildAuthProfile(authUser);
 
-      // Sync profiles table in background — never block login (production hung on profile fetch).
       profileSyncStarted = true;
       void (async () => {
         try {
@@ -526,7 +518,6 @@ export const AuthProvider = ({ children }) => {
       };
     } finally {
       if (!profileSyncStarted) signInProfileSyncRef.current = false;
-      setLoading(false);
     }
   };
 
