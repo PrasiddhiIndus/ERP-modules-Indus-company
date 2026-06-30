@@ -10,7 +10,6 @@ import ExcelCostingSheet from './components/ExcelCostingSheet';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, Save, FileDown, Search, RefreshCw, History } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
 import {
-  calcFinalAmountFromCostingData,
   buildLatestCostingMap,
 } from './utils/marketingQuotationUtils';
 import jsPDF from 'jspdf';
@@ -297,13 +296,7 @@ const QuotationTracker = () => {
     } else if (activeTab === 'internal') {
       fetchQuotationsWithCosting();
     }
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (activeTab === 'costing') {
-      fetchCostingSheets();
-    }
-  }, [selectedQuotationId]);
+  }, [activeTab, selectedQuotationId]);
 
   const fetchQuotations = async () => {
     try {
@@ -311,7 +304,26 @@ const QuotationTracker = () => {
       const { data, error } = await supabase
         .from('marketing_quotations')
         .select(`
-          *,
+          id,
+          quotation_number,
+          enquiry_id,
+          client_id,
+          quotation_date,
+          valid_until,
+          revision_number,
+          gst_type,
+          gst_percentage,
+          total_amount,
+          gst_amount,
+          final_amount,
+          payment_terms,
+          terms_and_conditions,
+          status,
+          assigned_to,
+          subject_title,
+          subject,
+          created_at,
+          updated_at,
           marketing_enquiries:enquiry_id (id, enquiry_number),
           marketing_clients:client_id (id, client_name, contact_email)
         `)
@@ -433,7 +445,13 @@ const QuotationTracker = () => {
       const { data, error } = await supabase
         .from('marketing_costing_sheets')
         .select(`
-          *,
+          id,
+          quotation_id,
+          total_price,
+          quantity,
+          unit_price,
+          created_at,
+          updated_at,
           marketing_quotations:quotation_id (
             id,
             quotation_number,
@@ -443,7 +461,7 @@ const QuotationTracker = () => {
           marketing_enquiries:enquiry_id (id, enquiry_number)
           )
         `)
-        .order('created_at', { ascending: false });
+        .order('updated_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching costing sheets:', error);
@@ -495,7 +513,16 @@ const QuotationTracker = () => {
       const { data: quotationsData, error: quotationsError } = await supabase
         .from('marketing_quotations')
         .select(`
-          *,
+          id,
+          quotation_number,
+          client_id,
+          enquiry_id,
+          status,
+          final_amount,
+          subject_title,
+          subject,
+          created_at,
+          updated_at,
           marketing_clients:client_id (id, client_name, contact_email, contact_number, city, state, country),
           marketing_enquiries:enquiry_id (id, enquiry_number)
         `)
@@ -509,16 +536,17 @@ const QuotationTracker = () => {
       if (quotationIds.length > 0) {
         const { data: costingSheets } = await supabase
           .from('marketing_costing_sheets')
-          .select('quotation_id, costing_data, created_at, updated_at')
+          .select('quotation_id, total_price, created_at, updated_at')
           .in('quotation_id', quotationIds)
           .order('updated_at', { ascending: false });
         costingMap = buildLatestCostingMap(costingSheets || []);
       }
 
       const quotationsWithCosting = (quotationsData || []).map((quotation) => {
-        const costingData = costingMap.get(quotation.id) || null;
-        const finalAmount = costingData?.costing_data
-          ? calcFinalAmountFromCostingData(costingData.costing_data)
+        const costingRow = costingMap.get(quotation.id) || null;
+        const sheetTotal = parseFloat(costingRow?.total_price || 0);
+        const finalAmount = sheetTotal > 0
+          ? sheetTotal
           : parseFloat(quotation.final_amount || 0);
 
         const hasInternalData = quotation.subject_title || quotation.subject;
@@ -528,7 +556,7 @@ const QuotationTracker = () => {
 
         return {
           ...quotation,
-          hasCosting: costingData !== null,
+          hasCosting: costingRow !== null,
           hasInternalQuotation: hasInternalData,
           finalAmount,
           internalQuotationCreatedDate,
@@ -1931,11 +1959,7 @@ Marketing Team`;
                                enquiryNumber.includes(query);
                       }).map((sheet, idx) => {
                         const quotation = sheet.marketing_quotations;
-                        // Calculate final amount from costing data
-                        let finalAmount = 0;
-                        if (sheet.costing_data) {
-                          finalAmount = calcFinalAmountFromCostingData(sheet.costing_data);
-                        }
+                        const finalAmount = parseFloat(sheet.total_price || 0);
                         return (
                           <tr key={sheet.id} className="hover:bg-green-50/30 transition-colors border-b border-gray-200">
                             <td className="px-2 py-2 whitespace-nowrap text-xs text-center tabular-nums text-gray-600">{idx + 1}</td>
@@ -2001,7 +2025,7 @@ Marketing Team`;
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="text"
-                  placeholder="Search by quotation number or client name..."
+                  placeholder="Search by quotation number, client, subject, or line description..."
                   value={internalSearchQuery}
                   onChange={(e) => setInternalSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
@@ -2052,7 +2076,12 @@ Marketing Team`;
                       const query = internalSearchQuery.toLowerCase();
                       const quotationNumber = quotation.quotation_number?.toLowerCase() || '';
                       const clientName = quotation.marketing_clients?.client_name?.toLowerCase() || '';
-                      return quotationNumber.includes(query) || clientName.includes(query);
+                      const subject = quotation.subject_title?.toLowerCase() || '';
+                      const lineDesc = quotation.subject?.toLowerCase() || '';
+                      return quotationNumber.includes(query) ||
+                        clientName.includes(query) ||
+                        subject.includes(query) ||
+                        lineDesc.includes(query);
                     }).map((quotation, index, filteredArray) => {
                       const hasInternalData = quotation.subject_title || quotation.subject;
                       const isLastRow = index === filteredArray.length - 1;

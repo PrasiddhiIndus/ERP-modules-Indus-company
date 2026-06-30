@@ -45,34 +45,78 @@ export function buildLatestCostingMap(sheets) {
   return map;
 }
 
+const COSTING_MANUAL_CELL_KEYS = [
+  'qty',
+  'import_base_cost',
+  'import_custom_duty_pct',
+  'import_freight',
+  'import_transit_insurance_pct',
+  'supply_freight',
+  'supply_transit_insurance_pct',
+  'margin_pct',
+  'business_dev_pct',
+  'other_misc_cost',
+  'gst_pct',
+];
+
+/** True when a costing row has a product name or any manual cell value. */
+export function costingItemHasContent(item, costingData = {}) {
+  const name = (item?.productName || item?.name || '').trim();
+  if (name) return true;
+  return COSTING_MANUAL_CELL_KEYS.some((key) => {
+    const raw = costingData[`${item.id}_${key}`];
+    if (raw === '' || raw === null || raw === undefined) return false;
+    const n = parseFloat(raw);
+    return !Number.isNaN(n) && n !== 0;
+  });
+}
+
+/** Remove duplicate rows by item id (keeps first occurrence). */
+export function dedupeCostingItemsById(items) {
+  const seen = new Set();
+  return (items || []).filter((item) => {
+    const id = item?.id;
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+/** Keep only cell keys belonging to the given item ids. */
+export function pruneCostingCellData(cellData, itemIds) {
+  const idSet = new Set(itemIds);
+  const out = {};
+  Object.keys(cellData || {}).forEach((key) => {
+    if (key === 'items' || key === 'costHeads' || key === 'gstPercentage') return;
+    const match = key.match(/^(.+)_([a-z0-9_]+)$/);
+    if (match && idSet.has(match[1])) {
+      out[key] = cellData[key];
+    }
+  });
+  return out;
+}
+
+/** Pick the canonical costing sheet row for a quotation (JSON blob preferred, latest updated). */
+export function pickCanonicalCostingSheet(sheets) {
+  if (!sheets?.length) return null;
+  const withJson = sheets.filter((s) => s.costing_data);
+  const pool = withJson.length > 0 ? withJson : sheets;
+  return pool.reduce((best, sheet) => {
+    if (!best) return sheet;
+    const bestTs = new Date(best.updated_at || best.created_at || 0).getTime();
+    const sheetTs = new Date(sheet.updated_at || sheet.created_at || 0).getTime();
+    return sheetTs > bestTs ? sheet : best;
+  }, null);
+}
+
 /** Remove blank rows before persisting costing sheet JSON. */
 export function filterEmptyCostingItems(items, costingData = {}) {
-  const manualKeys = [
-    'qty',
-    'import_base_cost',
-    'import_custom_duty_pct',
-    'import_freight',
-    'import_transit_insurance_pct',
-    'supply_freight',
-    'supply_transit_insurance_pct',
-    'margin_pct',
-    'business_dev_pct',
-    'other_misc_cost',
-    'gst_pct',
-  ];
+  const deduped = dedupeCostingItemsById(items);
+  const filtered = deduped.filter((item) => costingItemHasContent(item, costingData));
 
-  const filtered = (items || []).filter((item) => {
-    const name = (item.productName || item.name || '').trim();
-    if (name) return true;
-    return manualKeys.some((key) => {
-      const raw = costingData[`${item.id}_${key}`];
-      if (raw === '' || raw === null || raw === undefined) return false;
-      const n = parseFloat(raw);
-      return !Number.isNaN(n) && n !== 0;
-    });
-  });
-
-  return filtered.length > 0 ? filtered : items?.length ? [items[0]] : [];
+  if (filtered.length > 0) return filtered;
+  if (deduped.length === 1) return deduped;
+  return deduped.length > 0 ? [deduped[0]] : [];
 }
 
 /** Parse enquiry secondary emails from DB value. */
