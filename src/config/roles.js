@@ -111,7 +111,7 @@ export const MODULE_PATH_PREFIXES = {
   commercialRm: ["/app/commercial/rm-mm-amc-iev"],
   billing: ["/app/billing"],
   tracking: ["/app/billing/tracking"],
-  operations: ["/app/fire-tender-vehicle", "/app/operations"],
+  operations: ["/app/operations", "/app/fire-tender-vehicle-management"],
   projects: [
     "/app/projects/po",
     "/app/projects/enquiry",
@@ -130,6 +130,34 @@ export const MODULE_PATH_PREFIXES = {
   softwareSubscriptions: ["/app/software-subscriptions-reminders"],
   /** IT/IS team home — same routes as software subscriptions (not Super Admin–only module key). */
   itIs: ["/app/software-subscriptions-reminders"],
+};
+
+/**
+ * Canonical post-login URLs — must match registered routes in App.jsx.
+ * Used for landing navigation only; MODULE_PATH_PREFIXES still governs route guards.
+ */
+export const MODULE_LANDING_PATHS = {
+  overview: "/app/dashboard",
+  settings: "/app/settings",
+  hr: "/app/hr",
+  compliance: "/app/ifsp-employee-compliance",
+  admin: "/app/admin/dashboard",
+  sales: "/app/manpower",
+  marketing: "/app/marketing",
+  commercialMt: "/app/commercial/manpower-training/po-entry",
+  commercialRm: "/app/commercial/rm-mm-amc-iev/po-entry",
+  billing: "/app/billing",
+  tracking: "/app/billing/tracking",
+  operations: "/app/operations",
+  projects: "/app/projects/po/po-entry",
+  procurement: "/app/procurement",
+  amc: "/app/amc",
+  finance: "/app/accounts-finance/reports/site-ledger",
+  fireTender: "/app/fire-tender",
+  indusLms: "/app/indus-lms-trainings",
+  itIs: "/app/software-subscriptions-reminders",
+  userManagement: "/app/user-management",
+  softwareSubscriptions: "/app/software-subscriptions-reminders",
 };
 
 const SUPER_ADMIN_ONLY_MODULES = new Set(["userManagement", "softwareSubscriptions"]);
@@ -209,10 +237,12 @@ function buildScopedModuleSet(profile, { includeOverview = false } = {}) {
 export function getLandingPathForUser(userProfile, accessibleModules) {
   const mods = accessibleModules && accessibleModules.size ? accessibleModules : new Set();
 
-  const pickFirstPrefix = (modKey) => {
-    const arr = MODULE_PATH_PREFIXES[modKey];
-    return Array.isArray(arr) && arr.length ? arr[0] : null;
+  const pickLanding = (modKey) => {
+    if (!modKey || !mods.has(modKey)) return null;
+    return MODULE_LANDING_PATHS[modKey] || null;
   };
+
+  const pickFirstPrefix = (modKey) => pickLanding(modKey);
 
   const role = normalizeAppRole(userProfile?.role);
   const teamKey = normalizeTeamModuleKey(userProfile?.team);
@@ -235,20 +265,18 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
     if (p) return p;
   }
 
-  // 3) Executive / Manager with no team + no allowed_modules: don't guess (legacy "all modules" used to land on /app/hr).
+  // 3) Executive / Manager with no team + no allowed_modules: legacy broad access includes overview.
   if (
     (role === ROLES.EXECUTIVE || role === ROLES.MANAGER) &&
     !teamKey &&
     allowedKeys.length === 0
   ) {
-    if (mods.has("settings")) {
-      const p = pickFirstPrefix("settings");
-      if (p) return p;
-    }
-    return "/app/dashboard";
+    if (mods.has("overview")) return "/app/dashboard";
+    if (mods.has("settings")) return pickLanding("settings") || "/app/settings";
+    return "/app/settings";
   }
 
-  // 4) Executive / Manager: do not walk Set insertion order (was sending users to /app/hr).
+  // 4) Executive / Manager: stable module order — never land on dashboard without overview.
   if (role === ROLES.EXECUTIVE || role === ROLES.MANAGER) {
     const rest = [...mods]
       .filter(
@@ -261,14 +289,12 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
       )
       .sort();
     for (const k of rest) {
-      const p = tryKey(k);
+      const p = pickLanding(k);
       if (p) return p;
     }
-    if (mods.has("settings")) {
-      const p = pickFirstPrefix("settings");
-      if (p) return p;
-    }
-    return "/app/dashboard";
+    if (mods.has("settings")) return pickLanding("settings") || "/app/settings";
+    if (mods.has("overview")) return "/app/dashboard";
+    return "/app/settings";
   }
 
   // 5) Other roles: first non-overview module in stable order
@@ -276,16 +302,13 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
     .filter((k) => k !== "overview" && k !== "settings" && !SUPER_ADMIN_ONLY_MODULES.has(k))
     .sort();
   for (const k of rest) {
-    const p = tryKey(k);
+    const p = pickLanding(k);
     if (p) return p;
   }
 
-  if (mods.has("settings")) {
-    const p = pickFirstPrefix("settings");
-    if (p) return p;
-  }
-
-  return "/app/dashboard";
+  if (mods.has("settings")) return pickLanding("settings") || "/app/settings";
+  if (mods.has("overview")) return "/app/dashboard";
+  return "/app/settings";
 }
 
 /**

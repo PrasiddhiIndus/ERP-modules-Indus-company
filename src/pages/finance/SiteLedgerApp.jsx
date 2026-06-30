@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, savePeriodRecord, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
-import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
+import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
+import { SiteClientAutocomplete } from "./components/SiteClientAutocomplete";
+import { PlAuditPanel } from "./components/PlAuditPanel";
+import { useFinance } from "./contexts/FinanceContext";
+import { buildPeriodAuditMeta } from "./lib/plAudit";
 import {
   buildMonthOptions,
   monthLabelOf as periodMonthLabelOf,
@@ -11,8 +15,11 @@ import {
   PERIOD_END_YEAR,
   dateToPeriodKey,
   periodKeyToDateStart,
+  currentPeriodKey,
+  PENDING_HISTORY_CUTOFF_KEY,
 } from "./lib/periods";
 import { subscribeFinanceRefresh } from "../../services/financeApi";
+import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { financePath } from "./navConfig";
 import {
@@ -22,7 +29,7 @@ import {
 import {
   LayoutDashboard, Building2, PlusCircle, Search, AlertTriangle,
   TrendingUp, Wallet, Receipt, Percent, IndianRupee, ChevronLeft,
-  ArrowUpRight, ArrowDownRight, Download, Upload, Copy, X, Pencil,
+  ArrowUpRight, ArrowDownRight, Copy, Download, X, Pencil,
   Trash2, CircleDot, Sliders, GripVertical, CalendarClock, Plus,
   Target, FileClock, ChevronRight, ChevronDown, RotateCcw, FileBarChart, AlertCircle, Settings, History,
   Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock,
@@ -56,12 +63,19 @@ const REVENUE_ITEMS = [
 const DEFAULT_PARENTS = [
   { key: "salaryCost", label: "Salary Cost", color: "#1F6F4E" },
   { key: "empBenefit", label: "Employee Benefit", color: "#2F7D9E" },
-  { key: "facilities", label: "Facilities & Site Upkeep", color: "#C97A12" },
-  { key: "vehicle", label: "Vehicle & Transport", color: "#3E6B89" },
-  { key: "maintenance", label: "Maintenance & Equipment", color: "#8E6FB0" },
-  { key: "admin", label: "Admin, Statutory & Other", color: "#9A4A3A" },
+  { key: "facilities", label: "Facilities & Site Keep-up", color: "#C97A12" },
+  { key: "uniformPpe", label: "Uniform/PPE's", color: "#6B7C3A" },
+  { key: "adminMisc", label: "Admin & Other Misc. Expenses", color: "#9A4A3A" },
+  { key: "fireTenderVehicle", label: "Fire Tender & Utility Vehicle", color: "#3E6B89" },
 ];
-const PARENT_PALETTE = ["#1F6F4E", "#2F7D9E", "#C97A12", "#3E6B89", "#8E6FB0", "#9A4A3A", "#B08D2E", "#6B7C3A", "#8A4F9E", "#3E8979", "#A9842B", "#577590"];
+/** Migrate legacy parent keys from older Site Ledger versions. */
+const PARENT_KEY_MIGRATE = {
+  vehicle: "fireTenderVehicle",
+  maintenance: "fireTenderVehicle",
+  admin: "adminMisc",
+  facilities: "facilities",
+};
+const PARENT_PALETTE = ["#1F6F4E", "#2F7D9E", "#C97A12", "#6B7C3A", "#9A4A3A", "#3E6B89"];
 // Live, mutable registry (kept in sync from App state so module helpers stay valid)
 const PARENTS = DEFAULT_PARENTS.map((p) => ({ ...p }));
 function syncParents(arr) { PARENTS.splice(0, PARENTS.length, ...arr.map((p) => ({ ...p }))); }
@@ -82,41 +96,72 @@ const CHILD_HEADS = [
   { key: "insurance", label: "Insurance / Mediclaim", parent: "empBenefit" },
   { key: "medical", label: "Medical Expense", parent: "empBenefit" },
   { key: "empBenefit", label: "Employee welfare / benefit", parent: "empBenefit" },
-  { key: "uniform", label: "Uniform / PPE", parent: "empBenefit" },
+  { key: "uniform", label: "Uniform / PPE", parent: "uniformPpe" },
   { key: "houseRent", label: "House Rent", parent: "facilities" },
   { key: "cook", label: "Cook Salary", parent: "facilities" },
   { key: "housekeeping", label: "Housekeeping salary & material", parent: "facilities" },
-  { key: "vehicleRent", label: "Vehicle rent (temporary)", parent: "vehicle" },
-  { key: "vehicleRepair", label: "Vehicle repair & maintenance", parent: "vehicle" },
-  { key: "vehicleEMI", label: "Vehicle EMI / Reg / Insurance", parent: "vehicle" },
-  { key: "fuel", label: "Petrol & Diesel", parent: "vehicle" },
-  { key: "purchaseRepair", label: "Purchase / repair & maint.", parent: "maintenance" },
-  { key: "equipment", label: "Equipment / Tools purchase", parent: "maintenance" },
-  { key: "labourLicence", label: "Labour Licence fees", parent: "admin" },
-  { key: "indirect", label: "Indirect expenses", parent: "admin" },
-  { key: "bankCharges", label: "Bank charges / BG", parent: "admin" },
-  { key: "bizPromo", label: "Business Promotion", parent: "admin" },
+  { key: "vehicleRent", label: "Vehicle rent (temporary)", parent: "fireTenderVehicle" },
+  { key: "vehicleRepair", label: "Vehicle repair & maintenance", parent: "fireTenderVehicle" },
+  { key: "vehicleEMI", label: "Vehicle EMI / Reg / Insurance", parent: "fireTenderVehicle" },
+  { key: "fuel", label: "Petrol & Diesel", parent: "fireTenderVehicle" },
+  { key: "purchaseRepair", label: "Purchase / repair & maint.", parent: "fireTenderVehicle" },
+  { key: "equipment", label: "Equipment / Tools purchase", parent: "fireTenderVehicle" },
+  { key: "labourLicence", label: "Labour Licence fees", parent: "adminMisc" },
+  { key: "indirect", label: "Indirect expenses", parent: "adminMisc" },
+  { key: "bankCharges", label: "Bank charges / BG", parent: "adminMisc" },
+  { key: "bizPromo", label: "Business Promotion", parent: "adminMisc" },
 ];
 const DEFAULT_KEYS = CHILD_HEADS.map((c) => c.key);
 
 const TARGET_MARGIN = 12;
 const WARN_MARGIN = 8;
 
+const PlMarginContext = React.createContext({ targetMargin: TARGET_MARGIN, warnMargin: WARN_MARGIN });
+function usePlMargins() {
+  return React.useContext(PlMarginContext);
+}
+
 const SL_VALID_VIEWS = new Set(["overview", "sites", "site", "config", "entry", "reports"]);
 
 function readSlStateFromUrl(searchParams) {
   const v = searchParams.get("slView");
+  const cur = currentPeriodKey();
   return {
     view: SL_VALID_VIEWS.has(v) ? v : "overview",
     activeSite: searchParams.get("slSite") || null,
-    month: searchParams.get("slMonth") || "2025-09",
+    month: searchParams.get("slMonth") || cur,
     showHistorical: searchParams.get("slHist") === "1",
   };
 }
 
 /* ───────────────────────── MONTHS ───────────────────────── */
 const MONTHS = buildMonthOptions();
-const monthLabelOf = (k) => periodMonthLabelOf(k, MONTHS);
+const monthLabelOf = (k) => formatPeriodDateDDMMYYYY(k) || periodMonthLabelOf(k, MONTHS);
+
+function migrateStructureParents(structure) {
+  return (structure || []).map((g) => ({
+    parent: PARENT_KEY_MIGRATE[g.parent] || g.parent,
+    children: [...(g.children || [])],
+  }));
+}
+
+function mergeSiteLibrary(site, globalLibrary) {
+  const custom = site?.customHeads || [];
+  const merged = [...globalLibrary];
+  custom.forEach((h) => {
+    if (!merged.some((x) => x.key === h.key)) {
+      merged.push({ ...h, custom: true, siteScoped: true });
+    }
+  });
+  return merged;
+}
+
+function pendingMonthsFiltered(site, records, uptoMk, { expandHistory = false } = {}) {
+  const all = pendingMonths(site, records, uptoMk);
+  if (expandHistory) return all;
+  const cutoff = monthIdx(PENDING_HISTORY_CUTOFF_KEY);
+  return all.filter((mk) => monthIdx(mk) >= cutoff);
+}
 
 /* ───────────────────────── FORMATTERS ───────────────────────── */
 const inr = (n) => "₹" + Math.round(n || 0).toLocaleString("en-IN");
@@ -285,8 +330,9 @@ function expenseTree(site, mk, records, estVer) {
   });
 }
 function childLabel(site, key) {
-  const lib = (site._lib || CHILD_HEADS).find((c) => c.key === key);
-  return lib?.label || CHILD_HEADS.find((c) => c.key === key)?.label || key;
+  const lib = mergeSiteLibrary(site, site._lib || CHILD_HEADS);
+  const hit = lib.find((c) => c.key === key);
+  return hit?.label || CHILD_HEADS.find((c) => c.key === key)?.label || key;
 }
 
 // Estimate (budget) in force for a month
@@ -326,7 +372,11 @@ const isPending = (site, records, mk) => inContract(site, mk) && !records[`${sit
 /* ───────────────────────── NORMALIZE / STORAGE ───────────────────────── */
 function grp(parent, children) { return { parent, children }; }
 function structureFromKeys(keys) {
-  return PARENTS.map((p) => grp(p.key, keys.filter((k) => (CHILD_HEADS.find((c) => c.key === k)?.parent || "admin") === p.key))).filter((g) => g.children.length);
+  return PARENTS.map((p) => grp(p.key, keys.filter((k) => {
+    const def = CHILD_HEADS.find((c) => c.key === k);
+    const parent = def?.parent || PARENT_KEY_MIGRATE[def?.parent] || "adminMisc";
+    return parent === p.key;
+  }))).filter((g) => g.children.length);
 }
 
 function emptyStore() {
@@ -344,10 +394,10 @@ function normalize(data) {
   const sites = (data.sites || []).map((s) => {
     let structure = s.structure;
     if (!structure || !structure.length) {
-      // migrate from older flat headKeys, else default
       const keys = (s.headKeys && s.headKeys.length) ? s.headKeys : [...DEFAULT_KEYS];
       structure = structureFromKeys(keys);
     }
+    structure = migrateStructureParents(structure);
     // ensure all referenced child keys exist in library
     structure.forEach((g) => g.children.forEach((k) => { if (!have.has(k)) { library.push({ key: k, label: k, parent: g.parent }); have.add(k); } }));
     return {
@@ -360,6 +410,7 @@ function normalize(data) {
       status: s.status || "active",
       siteGroup: s.siteGroup || null,
       version: s.version || 1,
+      customHeads: Array.isArray(s.customHeads) ? s.customHeads : [],
     };
   });
   return { sites: enrichSitesWithVersions(sites), records: data.records || {}, library };
@@ -410,8 +461,11 @@ function Card({ title, right, children, pad = true, className = "" }) {
   return (<div className={"card " + className}>{(title || right) && <div className="card-head"><h3>{title}</h3>{right}</div>}<div style={{ padding: pad ? "0 18px 18px" : 0 }}>{children}</div></div>);
 }
 function StatusPill({ margin, profit }) {
+  const { targetMargin, warnMargin } = usePlMargins();
   let label = "On target", cls = "pill-ok";
-  if (profit < 0) { label = "Loss"; cls = "pill-loss"; } else if (margin < WARN_MARGIN) { label = "Thin"; cls = "pill-warn"; } else if (margin < TARGET_MARGIN) { label = "Watch"; cls = "pill-watch"; }
+  if (profit < 0) { label = "Loss"; cls = "pill-loss"; }
+  else if (margin < warnMargin) { label = "Thin"; cls = "pill-warn"; }
+  else if (margin < targetMargin) { label = "Watch"; cls = "pill-watch"; }
   return <span className={"pill " + cls}><CircleDot size={9} /> {label}</span>;
 }
 function TipBox({ active, payload, fmt }) {
@@ -436,6 +490,15 @@ function VarCells({ est, actual, lowerIsBetter, hasEst }) {
 /* ───────────────────────── MAIN ───────────────────────── */
 export default function SiteLedgerApp({ embedded = true }) {
   const navigate = useNavigate();
+  const { targetMargin: ctxTarget, warnMargin: ctxWarn } = useFinance();
+  const marginCtx = useMemo(
+    () => ({
+      targetMargin: Number(ctxTarget) || TARGET_MARGIN,
+      warnMargin: Number(ctxWarn) || WARN_MARGIN,
+    }),
+    [ctxTarget, ctxWarn],
+  );
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlInit = useMemo(() => readSlStateFromUrl(searchParams), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [sites, setSites] = useState([]);
@@ -450,7 +513,6 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [loaded, setLoaded] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [editSite, setEditSite] = useState(null);
-  const [ioOpen, setIoOpen] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [showHistorical, setShowHistorical] = useState(urlInit.showHistorical);
   const [historyGroup, setHistoryGroup] = useState(null);
@@ -471,8 +533,14 @@ export default function SiteLedgerApp({ embedded = true }) {
   );
   const activeSiteCount = useMemo(() => activeSitesOnly(sitesEnriched).length, [sitesEnriched]);
   // attach library to sites so childLabel resolves custom labels
-  const sitesL = useMemo(() => operationalSites.map((s) => ({ ...s, _lib: library })), [operationalSites, library]);
-  const sitesAllL = useMemo(() => sitesEnriched.map((s) => ({ ...s, _lib: library })), [sitesEnriched, library]);
+  const sitesL = useMemo(
+    () => operationalSites.map((s) => ({ ...s, _lib: mergeSiteLibrary(s, library) })),
+    [operationalSites, library],
+  );
+  const sitesAllL = useMemo(
+    () => sitesEnriched.map((s) => ({ ...s, _lib: mergeSiteLibrary(s, library) })),
+    [sitesEnriched, library],
+  );
 
   const reloadLedger = useCallback(async () => {
     const { data, ok, error } = await loadStore();
@@ -496,7 +564,7 @@ export default function SiteLedgerApp({ embedded = true }) {
       else next.delete("slView");
       if (activeSite) next.set("slSite", activeSite);
       else next.delete("slSite");
-      if (month && month !== "2025-09") next.set("slMonth", month);
+      if (month && month !== currentPeriodKey()) next.set("slMonth", month);
       else next.delete("slMonth");
       if (showHistorical) next.set("slHist", "1");
       else next.delete("slHist");
@@ -663,21 +731,28 @@ export default function SiteLedgerApp({ embedded = true }) {
   const needsPortfolio = view !== "config" && view !== "entry";
 
   const activeMonths = useMemo(() => {
-    if (!needsPortfolio) return MONTHS.slice(-6);
+    const cap = currentPeriodKey();
+    const capIdx = monthIdx(cap);
+    if (!needsPortfolio) {
+      return MONTHS.filter((m) => monthIdx(m.key) <= capIdx).slice(-6);
+    }
     const have = new Set();
-    Object.keys(records).forEach((k) => have.add(k.split("__")[1]));
+    Object.keys(records).forEach((k) => {
+      const mk = k.split("__")[1];
+      if (monthIdx(mk) <= capIdx) have.add(mk);
+    });
     sites.forEach((s) =>
       (s.spreads || []).forEach((sp) => {
         const si = monthIdx(sp.start);
         const m = Number(sp.months) || 0;
         for (let i = 0; i < m; i++) {
           const key = indexToPeriodKey(si + i);
-          if (key) have.add(key);
+          if (key && monthIdx(key) <= capIdx) have.add(key);
         }
       }),
     );
-    const list = MONTHS.filter((m) => have.has(m.key));
-    return list.length ? list : MONTHS.slice(-6);
+    const list = MONTHS.filter((m) => have.has(m.key) && monthIdx(m.key) <= capIdx);
+    return list.length ? list : MONTHS.filter((m) => monthIdx(m.key) <= capIdx).slice(-6);
   }, [records, sites, needsPortfolio]);
 
   const rows = useMemo(() => {
@@ -730,15 +805,16 @@ export default function SiteLedgerApp({ embedded = true }) {
   }, [scheduleSetupPersist]);
   const saveRecord = useCallback((siteId, mk, rec) => {
     saveImmediate.current = true;
+    const withAudit = { ...rec, _audit: buildPeriodAuditMeta(user) };
     setRecords((prev) => {
       const key = `${siteId}__${mk}`;
       const existing = prev[key] || {};
-      const merged = mergePeriodEntry(existing, rec);
+      const merged = mergePeriodEntry(existing, withAudit);
       const next = { ...prev, [key]: merged };
       stateRef.current = { ...stateRef.current, records: next };
       return next;
     });
-  }, []);
+  }, [user]);
   const onRecordPersisted = useCallback(() => {
     lastSaveAt.current = Date.now();
   }, []);
@@ -796,6 +872,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   if (!loaded) return <div style={{ fontFamily: "var(--body)", padding: 40, color: "var(--muted)" }}><Styles />Loading your sites…</div>;
 
   return (
+    <PlMarginContext.Provider value={marginCtx}>
     <div className={`app${embedded ? " embedded stacked" : ""}`}>
       <Styles />
       {!embedded && (
@@ -809,8 +886,7 @@ export default function SiteLedgerApp({ embedded = true }) {
             <button className={view === "reports" ? "nav on" : "nav"} onClick={() => setView("reports")}><FileBarChart size={17} /> Reports</button>
           </nav>
           <div className="side-foot">
-            <button className="ghost" onClick={() => setIoOpen(true)}><Download size={14} /> Backup / Import</button>
-            <div className={"save " + saveState}>{saveState === "saving" && "Saving…"}{saveState === "saved" && "✓ Saved to cloud"}{saveState === "local" && "Save failed — use Backup"}{saveState === "idle" && "Ready"}</div>
+            <div className={"save " + saveState}>{saveState === "saving" && "Saving…"}{saveState === "saved" && "✓ Saved to cloud"}{saveState === "local" && "Save failed — retry"}{saveState === "idle" && "Ready"}</div>
           </div>
         </aside>
       )}
@@ -852,9 +928,6 @@ export default function SiteLedgerApp({ embedded = true }) {
           <div className="topbar-right">
             {embedded && (
               <>
-                <button type="button" className="ghost sl-btn" onClick={() => setIoOpen(true)}>
-                  <Download size={14} /> Backup
-                </button>
                 <button type="button" className="ghost sl-btn" onClick={() => navigate(financePath("settings"))}>
                   <Settings size={14} /> Settings
                 </button>
@@ -870,9 +943,9 @@ export default function SiteLedgerApp({ embedded = true }) {
             {view !== "config" && (
               <div className="month-pick">
                 <label>Period</label>
-                <PeriodMonthSelect
+                <PeriodDateSelect
                   className="sl-period-pick"
-                  selectClassName="sl-period-sel"
+                  inputClassName="sl-period-sel"
                   value={month}
                   onChange={setMonth}
                 />
@@ -897,6 +970,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               openSite={(id) => { setActiveSite(id); setView("site"); }}
               goEntry={(id) => { setActiveSite(id); setView("entry"); }}
               onViewHistory={(group) => setHistoryGroup(group)}
+              marginCtx={marginCtx}
             />
           )}
           {view === "sites" && (
@@ -918,7 +992,6 @@ export default function SiteLedgerApp({ embedded = true }) {
               onDelete={removeSite}
               onViewHistory={(group) => setHistoryGroup(group)}
               onAdd={() => setShowAdd(true)}
-              onExport={() => setIoOpen(true)}
               mLabel={mLabel}
             />
           )}
@@ -935,7 +1008,7 @@ export default function SiteLedgerApp({ embedded = true }) {
             />
           )}
           {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
-          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onAddParent={addParent} onSetParentColor={setParentColor} onRemoveParent={removeParent} />}
+          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onSetParentColor={setParentColor} />}
           {view === "reports" && (
             <Reports
               sites={sitesL}
@@ -999,15 +1072,15 @@ export default function SiteLedgerApp({ embedded = true }) {
           onOpenSite={(id) => { setActiveSite(id); setView("site"); setHistoryGroup(null); }}
         />
       )}
-      {ioOpen && <IoModal sites={sites} records={records} library={library} parents={parents} onClose={() => setIoOpen(false)} onImport={(d) => { const n = normalize(d); setSites(n.sites); setRecords(n.records); setLibrary(n.library); let ps = (d.parents && d.parents.length) ? d.parents : DEFAULT_PARENTS.map((p) => ({ ...p })); if (d.parentLabels) ps = ps.map((p) => d.parentLabels[p.key] ? { ...p, label: d.parentLabels[p.key] } : p); syncParents(ps); setParents(ps); setIoOpen(false); }} />}
     </div>
+    </PlMarginContext.Provider>
   );
 }
 
 /* ───────────────────────── OVERVIEW ───────────────────────── */
 const PORTFOLIO_FILTERS_INIT = {
-  search: "", status: "all", service: "all", contract: "all",
-  revMin: "", revMax: "", marginMin: "", marginMax: "",
+  search: "", status: "all", contract: "all", siteId: "all",
+  revMin: "", revMax: "",
 };
 
 function portfolioDelta(cur, prev) {
@@ -1019,35 +1092,29 @@ function applyPortfolioFilters(rows, filters, month) {
   let list = rows;
   const q = filters.search.trim().toLowerCase();
   if (q) {
-    list = list.filter((r) => r.name.toLowerCase().includes(q) || (r.service || "").toLowerCase().includes(q));
+    list = list.filter((r) => r.name.toLowerCase().includes(q) || (r.ocNumber || "").toLowerCase().includes(q));
   }
-  if (filters.service !== "all") list = list.filter((r) => (r.service || "") === filters.service);
+  if (filters.siteId !== "all") list = list.filter((r) => r.id === filters.siteId);
   if (filters.contract === "in") list = list.filter((r) => inContract(r, month));
   if (filters.contract === "out") list = list.filter((r) => !inContract(r, month));
   if (filters.status === "reporting") list = list.filter((r) => r.hasData);
   if (filters.status === "pending") list = list.filter((r) => r.pending);
   if (filters.status === "loss") list = list.filter((r) => r.hasData && r.profit < 0);
-  if (filters.status === "thin") list = list.filter((r) => r.hasData && r.profit >= 0 && r.margin < WARN_MARGIN);
+  if (filters.status === "thin") list = list.filter((r) => r.hasData && r.profit >= 0 && r.margin < (filters._warnMargin ?? WARN_MARGIN));
   if (filters.status === "below-est") list = list.filter((r) => r.hasData && r.est && r.profit < r.est.profit);
   if (filters.revMin !== "") list = list.filter((r) => r.hasData && r.revenue >= Number(filters.revMin));
   if (filters.revMax !== "") list = list.filter((r) => r.hasData && r.revenue <= Number(filters.revMax));
-  if (filters.marginMin !== "") list = list.filter((r) => r.hasData && r.margin >= Number(filters.marginMin));
-  if (filters.marginMax !== "") list = list.filter((r) => r.hasData && r.margin <= Number(filters.marginMax));
   return list;
 }
 
-function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths, siteCount, totalSiteCount, showHistorical, setShowHistorical, openSite, goEntry, onViewHistory }) {
+function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths, siteCount, totalSiteCount, showHistorical, setShowHistorical, openSite, goEntry, onViewHistory, marginCtx }) {
+  const { targetMargin, warnMargin } = marginCtx || usePlMargins();
   const [filters, setFilters] = useState(PORTFOLIO_FILTERS_INIT);
   const setF = (patch) => setFilters((prev) => ({ ...prev, ...patch }));
 
-  const services = useMemo(
-    () => [...new Set(rows.map((r) => r.service).filter(Boolean))].sort(),
-    [rows],
-  );
-
   const filteredRows = useMemo(
-    () => applyPortfolioFilters(rows, filters, month),
-    [rows, filters, month],
+    () => applyPortfolioFilters(rows, { ...filters, _warnMargin: warnMargin }, month),
+    [rows, filters, month, warnMargin],
   );
 
   const withData = useMemo(() => filteredRows.filter((r) => r.hasData), [filteredRows]);
@@ -1076,7 +1143,7 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
 
   const belowEst = useMemo(() => withData.filter((r) => r.est && r.profit < r.est.profit).length, [withData]);
   const lossCount = useMemo(() => withData.filter((r) => r.profit < 0).length, [withData]);
-  const thinCount = useMemo(() => withData.filter((r) => r.profit >= 0 && r.margin < WARN_MARGIN).length, [withData]);
+  const thinCount = useMemo(() => withData.filter((r) => r.profit >= 0 && r.margin < warnMargin).length, [withData, warnMargin]);
 
   const prevKey = useMemo(() => prevPeriodKey(month, MONTHS), [month]);
   const prevTotals = useMemo(() => {
@@ -1130,16 +1197,39 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
   }, [withData, sitesL, records, month]);
 
   const attention = useMemo(
-    () => [...withData].filter((r) => r.profit < 0 || r.margin < WARN_MARGIN).sort((a, b) => a.profit - b.profit),
-    [withData],
+    () => [...withData].filter((r) => r.profit < 0 || r.margin < warnMargin).sort((a, b) => a.profit - b.profit),
+    [withData, warnMargin],
   );
 
-  const hasActiveFilters = filters.search || filters.status !== "all" || filters.service !== "all"
-    || filters.contract !== "all" || filters.revMin || filters.revMax || filters.marginMin || filters.marginMax;
+  const hasActiveFilters = filters.search || filters.status !== "all" || filters.siteId !== "all"
+    || filters.contract !== "all" || filters.revMin || filters.revMax;
+
+  const siteOptions = useMemo(
+    () => [...rows].sort((a, b) => a.name.localeCompare(b.name)),
+    [rows],
+  );
 
   return (
     <>
-      <div className="ov-filters">
+      <div className="ov-hero">
+        <div>
+          <h2 className="ov-hero-title">Portfolio snapshot</h2>
+          <p className="ov-hero-sub">Period <b>{mLabel}</b> · Target margin {targetMargin}% · Warning below {warnMargin}%</p>
+        </div>
+        <div className="ov-margin-legend">
+          <span className="ov-margin-chip target">Target {targetMargin}%</span>
+          <span className="ov-margin-chip warn">Warning {warnMargin}%</span>
+        </div>
+      </div>
+
+      <div className="ov-filters ov-filters-modern">
+        <label className="ov-filter">
+          <span>Site</span>
+          <select value={filters.siteId} onChange={(e) => setF({ siteId: e.target.value })}>
+            <option value="all">All sites</option>
+            {siteOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
         <div className="ov-filter search">
           <Search size={14} />
           <input value={filters.search} onChange={(e) => setF({ search: e.target.value })} placeholder="Search sites…" />
@@ -1156,13 +1246,6 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
           </select>
         </label>
         <label className="ov-filter">
-          <span>Service</span>
-          <select value={filters.service} onChange={(e) => setF({ service: e.target.value })}>
-            <option value="all">All services</option>
-            {services.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-        <label className="ov-filter">
           <span>Contract</span>
           <select value={filters.contract} onChange={(e) => setF({ contract: e.target.value })}>
             <option value="all">All</option>
@@ -1176,14 +1259,6 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
             <input type="number" value={filters.revMin} onChange={(e) => setF({ revMin: e.target.value })} placeholder="Min" />
             <span>–</span>
             <input type="number" value={filters.revMax} onChange={(e) => setF({ revMax: e.target.value })} placeholder="Max" />
-          </div>
-        </label>
-        <label className="ov-filter range">
-          <span>Margin (%)</span>
-          <div className="ov-range">
-            <input type="number" value={filters.marginMin} onChange={(e) => setF({ marginMin: e.target.value })} placeholder="Min" />
-            <span>–</span>
-            <input type="number" value={filters.marginMax} onChange={(e) => setF({ marginMax: e.target.value })} placeholder="Max" />
           </div>
         </label>
         {hasActiveFilters && (
@@ -1313,14 +1388,14 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
         )}
       </Card>
 
-      <Card title="Sites Needing Attention" right={<span className="muted-s">{attention.length} flagged · loss or margin &lt; {WARN_MARGIN}%</span>}>
+      <Card title="Sites Needing Attention" right={<span className="muted-s">{attention.length} flagged · loss or margin &lt; {warnMargin}%</span>}>
         {attention.length === 0 ? (
-          <div className="all-clear"><TrendingUp size={16} /> Every reporting site cleared the {WARN_MARGIN}% margin floor this period.</div>
+          <div className="all-clear"><TrendingUp size={16} /> Every reporting site cleared the {warnMargin}% margin floor this period.</div>
         ) : (
           <table className="tbl">
             <thead>
               <tr>
-                <th>Site</th><th>Service</th><th className="r">Revenue</th><th className="r">Profit</th><th className="r">Margin</th><th>Status</th><th />
+                <th>Site</th><th className="r">Target</th><th className="r">Warning</th><th className="r">Revenue</th><th className="r">Profit</th><th className="r">Margin</th><th>Status</th><th />
               </tr>
             </thead>
             <tbody>
@@ -1333,10 +1408,11 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
                       <span className="ver-pill">{versionLabel(r)}</span>
                     )}
                   </td>
-                  <td className="muted-s">{r.service || "—"}</td>
+                  <td className="r mono muted-s">{targetMargin}%</td>
+                  <td className="r mono muted-s">{warnMargin}%</td>
                   <td className="r mono">{inr(r.revenue)}</td>
                   <td className="r mono" style={{ color: r.profit < 0 ? "var(--loss)" : "var(--ink)" }}>{inr(r.profit)}</td>
-                  <td className="r mono" style={{ color: r.margin < 0 ? "var(--loss)" : r.margin < WARN_MARGIN ? "var(--warn)" : "var(--ink)" }}>{pct(r.margin)}</td>
+                  <td className="r mono" style={{ color: r.margin < 0 ? "var(--loss)" : r.margin < warnMargin ? "var(--warn)" : "var(--ink)" }}>{pct(r.margin)}</td>
                   <td><StatusPill margin={r.margin} profit={r.profit} /></td>
                   <td className="r nowrap">
                     {sitesAll.filter((s) => s.siteGroup === r.siteGroup).length > 1 && (
@@ -1350,13 +1426,33 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
           </table>
         )}
       </Card>
+
+      <Card title="Site margin thresholds" right={<span className="muted-s">per active site · {mLabel}</span>}>
+        <table className="tbl tbl-compact">
+          <thead>
+            <tr><th>Site</th><th className="r">Target margin</th><th className="r">Warning margin</th><th className="r">Actual margin</th></tr>
+          </thead>
+          <tbody>
+            {filteredRows.map((r) => (
+              <tr key={r.id}>
+                <td className="strong">{r.name}</td>
+                <td className="r mono">{targetMargin}%</td>
+                <td className="r mono">{warnMargin}%</td>
+                <td className="r mono" style={{ color: !r.hasData ? "var(--muted)" : r.margin < warnMargin ? "var(--warn)" : "var(--profit)" }}>
+                  {r.hasData ? pct(r.margin) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
     </>
   );
 }
 
 
 /* ───────────────────────── SITES TABLE ───────────────────────── */
-const SITES_FILTERS_INIT = { status: "all", service: "all", financial: "all" };
+const SITES_FILTERS_INIT = { status: "all", financial: "all" };
 
 function pendingMonthsTone(count) {
   if (count <= 0) return "ok";
@@ -1384,42 +1480,38 @@ function PendingMonthsCell({ site, records, uptoMk }) {
 function SitesTable({
   rows, records, month, sitesAll, activeSiteCount, query, setQuery,
   showHistorical, setShowHistorical, inactiveCount,
-  openSite, onEdit, onEditSite, onConfig, onDelete, onViewHistory, onAdd, onExport, mLabel,
+  openSite, onEdit, onEditSite, onConfig, onDelete, onViewHistory, onAdd, mLabel,
 }) {
+  const { warnMargin } = usePlMargins();
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
   const [filters, setFilters] = useState(SITES_FILTERS_INIT);
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [menuOpen, setMenuOpen] = useState(null);
 
-  const services = useMemo(
-    () => [...new Set(rows.map((r) => r.service).filter(Boolean))].sort(),
-    [rows],
-  );
+  const filtered = useMemo(() => {
+    let list = rows.filter(
+      (r) =>
+        r.name.toLowerCase().includes(query.toLowerCase()) ||
+        (r.ocNumber || "").toLowerCase().includes(query.toLowerCase()) ||
+        (r.wo || "").toLowerCase().includes(query.toLowerCase()),
+    );
+    if (filters.status === "active") list = list.filter((r) => isSiteActive(r));
+    if (filters.status === "inactive") list = list.filter((r) => !isSiteActive(r));
+    if (filters.financial === "completed") list = list.filter((r) => pendingMonths(r, records, month).length === 0);
+    if (filters.financial === "pending") list = list.filter((r) => pendingMonths(r, records, month).length > 0);
+    if (filters.financial === "loss") list = list.filter((r) => r.hasData && r.profit < 0);
+    if (filters.financial === "thin") list = list.filter((r) => r.hasData && r.profit >= 0 && r.margin < warnMargin);
+    return list;
+  }, [rows, query, filters, records, month, warnMargin]);
 
   const totalSites = sitesAll.length;
-  const inactiveSites = totalSites - activeSiteCount;
+  const inactiveSites = inactiveCount ?? (totalSites - activeSiteCount);
   const dataCompleted = rows.filter((r) => pendingMonths(r, records, month).length === 0).length;
   const dataPending = rows.filter((r) => pendingMonths(r, records, month).length > 0).length;
   const overdueLoss = rows.filter((r) => r.hasData && r.profit < 0).length;
   const completedPct = rows.length ? Math.round((dataCompleted / rows.length) * 100) : 0;
   const pendingPct = rows.length ? Math.round((dataPending / rows.length) * 100) : 0;
-
-  const filtered = useMemo(() => {
-    let list = rows.filter(
-      (r) =>
-        r.name.toLowerCase().includes(query.toLowerCase()) ||
-        (r.service || "").toLowerCase().includes(query.toLowerCase()),
-    );
-    if (filters.status === "active") list = list.filter((r) => isSiteActive(r));
-    if (filters.status === "inactive") list = list.filter((r) => !isSiteActive(r));
-    if (filters.service !== "all") list = list.filter((r) => r.service === filters.service);
-    if (filters.financial === "completed") list = list.filter((r) => pendingMonths(r, records, month).length === 0);
-    if (filters.financial === "pending") list = list.filter((r) => pendingMonths(r, records, month).length > 0);
-    if (filters.financial === "loss") list = list.filter((r) => r.hasData && r.profit < 0);
-    if (filters.financial === "thin") list = list.filter((r) => r.hasData && r.profit >= 0 && r.margin < WARN_MARGIN);
-    return list;
-  }, [rows, query, filters, records, month]);
 
   const sorted = useMemo(() => {
     const m = sort.dir === "asc" ? 1 : -1;
@@ -1454,7 +1546,7 @@ function SitesTable({
   const setF = (patch) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
   const setS = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
   const arr = (k) => (sort.key === k ? (sort.dir === "desc" ? " ▾" : " ▴") : "");
-  const hasActiveFilters = filters.status !== "all" || filters.service !== "all" || filters.financial !== "all";
+  const hasActiveFilters = filters.status !== "all" || filters.financial !== "all";
 
   const copySiteSummary = (r) => {
     const pend = pendingMonths(r, records, month).map(monthLabelOf).join(", ");
@@ -1485,9 +1577,6 @@ function SitesTable({
           <p className="sm-sub">Master list of all sites and their financial data status</p>
         </div>
         <div className="sm-head-actions">
-          <button type="button" className="ghost-d sm-btn-outline" onClick={onExport}>
-            <Download size={14} /> Export
-          </button>
           <button type="button" className="primary sm-btn-add" onClick={onAdd}>
             <Plus size={14} /> Add Site
           </button>
@@ -1528,26 +1617,26 @@ function SitesTable({
       </div>
 
       <div className="sm-filters">
-        <label className="sm-filter sm-filter-search">
-          <span>Search</span>
-          <div className="sm-search">
-            <Search size={14} />
-            <input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search sites…" />
-          </div>
-        </label>
+        <div className="sm-filter sm-filter-search sm-ac-wrap">
+          <SiteClientAutocomplete
+            sites={rows}
+            value=""
+            onChange={(id) => {
+              const site = rows.find((s) => s.id === id);
+              if (site) setQuery(site.name);
+              setPage(1);
+            }}
+            label="Search site / client"
+            id="sites-master-search"
+            placeholder="Type site or client name…"
+          />
+        </div>
         <label className="sm-filter">
           <span>Status</span>
           <select value={filters.status} onChange={(e) => setF({ status: e.target.value })}>
             <option value="all">All</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
-          </select>
-        </label>
-        <label className="sm-filter">
-          <span>Service</span>
-          <select value={filters.service} onChange={(e) => setF({ service: e.target.value })}>
-            <option value="all">All</option>
-            {services.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
         <label className="sm-filter">
@@ -1582,7 +1671,7 @@ function SitesTable({
               <th className="r">Sr. No.</th>
               <th className="click" onClick={() => setS("name")}>Site Name{arr("name")}</th>
               <th>Contract</th>
-              <th>Service</th>
+              <th>Client / OC</th>
               <th className="r click" onClick={() => setS("revenue")}>Revenue (₹){arr("revenue")}</th>
               <th className="r click" onClick={() => setS("expense")}>Expense (₹){arr("expense")}</th>
               <th className="r click" onClick={() => setS("profit")}>Profit (₹){arr("profit")}</th>
@@ -1603,11 +1692,11 @@ function SitesTable({
                 <td className="muted-s mono">
                   {r.contractStart ? `${monthLabelOf(r.contractStart)} - ${monthLabelOf(r.contractEnd)}` : "—"}
                 </td>
-                <td className="muted-s">{r.service || "—"}</td>
+                <td className="muted-s">{r.ocNumber || r.wo || "—"}</td>
                 <td className="r mono">{inr(r.revenue)}</td>
                 <td className="r mono">{inr(r.expense)}</td>
                 <td className="r mono" style={{ color: r.profit < 0 ? "var(--loss)" : "var(--ink)" }}>{inr(r.profit)}</td>
-                <td className="r mono" style={{ color: r.margin < 0 ? "var(--loss)" : r.margin < WARN_MARGIN ? "var(--warn)" : "var(--ink)" }}>{pct(r.margin)}</td>
+                <td className="r mono" style={{ color: r.margin < 0 ? "var(--loss)" : r.margin < warnMargin ? "var(--warn)" : "var(--ink)" }}>{pct(r.margin)}</td>
                 <td>
                   {r.hasData ? <StatusPill margin={r.margin} profit={r.profit} /> : <span className="muted-s">—</span>}
                 </td>
@@ -1751,7 +1840,7 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
             <span className="ver-pill inline">{versionLabel(site)}{historical ? " · Inactive" : " · Active"}</span>
           </h2>
           <div className="site-head-meta">
-            {site.service && <span>Service: <b>{site.service}</b></span>}
+            {site.ocNumber && <span>Client: <b>{site.ocNumber}</b></span>}
             {site.wo && <span>W.O.: <b>{site.wo}</b></span>}
             {site.contractStart && (
               <span>Contract: <b>{monthLabelOf(site.contractStart)} – {monthLabelOf(site.contractEnd)}</b></span>
@@ -1894,7 +1983,7 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
 }
 
 /* ───────────────────────── SITE CONFIG (parent → child builder) ───────────────────────── */
-function SiteConfig({ sites, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onAddParent, onSetParentColor, onRemoveParent }) {
+function SiteConfig({ sites, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onSetParentColor }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
   const site = sites.find((s) => s.id === siteId);
@@ -1911,14 +2000,14 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add a site to configure its parent &amp; child cost heads.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
   if (!site) return null;
 
+  const siteLib = mergeSiteLibrary(site, library);
   const structure = displayStructure(site);
   const used = new Set(siteChildKeys(site));
-  const available = library.filter((h) => !used.has(h.key));
-  const libMap = Object.fromEntries(library.map((h) => [h.key, h]));
+  const available = siteLib.filter((h) => !used.has(h.key));
+  const libMap = Object.fromEntries(siteLib.map((h) => [h.key, h]));
 
   const moveChild = (childKey, fromParent, toParent, beforeKey) => {
-    const libraryChanged = (library.find((h) => h.key === childKey)?.parent !== toParent);
-    onApplySetupChange(({ sites: allSites, library: lib }) => {
+    onApplySetupChange(({ sites: allSites }) => {
       const target = allSites.find((s) => s.id === siteId);
       if (!target) return {};
       let nextStructure = displayStructure(target).map((g) => ({ parent: g.parent, children: [...g.children] }));
@@ -1927,14 +2016,10 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
       if (!tg) return {};
       if (beforeKey) { const i = tg.children.indexOf(beforeKey); tg.children.splice(i < 0 ? tg.children.length : i, 0, childKey); }
       else tg.children.push(childKey);
-      const nextLibrary = libraryChanged
-        ? lib.map((h) => (h.key === childKey ? { ...h, parent: toParent } : h))
-        : lib;
       return {
-        sites: allSites.map((site) => (site.id === siteId ? { ...site, structure: compactStructure(nextStructure) } : site)),
-        library: nextLibrary,
+        sites: allSites.map((s) => (s.id === siteId ? { ...s, structure: compactStructure(nextStructure) } : s)),
       };
-    }, { scope: "structure", siteCode: siteId, libraryChanged });
+    }, { scope: "structure", siteCode: siteId });
   };
 
   const removeChild = (childKey) => {
@@ -1962,33 +2047,66 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   const onDropChild = (toParent, beforeKey) => { const d = drag.current; if (d) moveChild(d.childKey, d.fromParent, toParent, beforeKey); drag.current = null; };
   const onDropAvailable = () => { const d = drag.current; if (d && d.fromParent !== "__available__") removeChild(d.childKey); drag.current = null; };
 
-  const commitChildRename = (key) => {
-    onRenameHead(key, editChildVal);
-    setEditingChild(null);
-  };
   const deleteHead = (key) => {
     const h = libMap[key];
     if (!h) return;
-    if (!h.custom && !confirm(`Delete "${h.label}" from the library? It will be removed from all sites.`)) return;
-    onRemoveHead(key);
+    const isSiteCustom = (site.customHeads || []).some((x) => x.key === key);
+    if (!isSiteCustom) {
+      removeChild(key);
+      return;
+    }
+    onApplySetupChange(({ sites: allSites }) => {
+      const target = allSites.find((s) => s.id === siteId);
+      if (!target) return {};
+      const nextStructure = displayStructure(target).map((g) => ({
+        parent: g.parent,
+        children: g.children.filter((k) => k !== key),
+      }));
+      return {
+        sites: allSites.map((s) => (s.id === siteId ? {
+          ...s,
+          customHeads: (s.customHeads || []).filter((x) => x.key !== key),
+          structure: compactStructure(nextStructure),
+        } : s)),
+      };
+    }, { scope: "structure", siteCode: siteId });
+  };
+
+  const commitChildRename = (key) => {
+    const isSiteCustom = (site.customHeads || []).some((x) => x.key === key);
+    if (isSiteCustom) {
+      onApplySetupChange(({ sites: allSites }) => ({
+        sites: allSites.map((s) => (s.id === siteId ? {
+          ...s,
+          customHeads: (s.customHeads || []).map((h) => (h.key === key ? { ...h, label: (editChildVal && editChildVal.trim()) || h.label } : h)),
+        } : s)),
+      }), { scope: "structure", siteCode: siteId });
+    } else {
+      onRenameHead(key, editChildVal);
+    }
+    setEditingChild(null);
   };
 
   const addCustom = () => {
     if (!newLabel.trim()) return;
-    let key = slug(newLabel); let n = 1;
-    while (library.some((h) => h.key === key)) key = slug(newLabel) + "-" + (++n);
-    const head = { key, label: newLabel.trim(), parent: newParent, custom: true };
-    onApplySetupChange(({ sites: allSites, library: lib }) => {
+    let key = `${siteId}_${slug(newLabel)}`;
+    let n = 1;
+    while (siteLib.some((h) => h.key === key)) key = `${siteId}_${slug(newLabel)}-${++n}`;
+    const head = { key, label: newLabel.trim(), parent: newParent, custom: true, siteScoped: true };
+    onApplySetupChange(({ sites: allSites }) => {
       const target = allSites.find((s) => s.id === siteId);
       if (!target) return {};
       const nextStructure = displayStructure(target).map((g) => (
         g.parent === newParent ? { parent: g.parent, children: [...g.children, key] } : g
       ));
       return {
-        library: lib.some((h) => h.key === key) ? lib : [...lib, head],
-        sites: allSites.map((site) => (site.id === siteId ? { ...site, structure: compactStructure(nextStructure) } : site)),
+        sites: allSites.map((s) => (s.id === siteId ? {
+          ...s,
+          customHeads: [...(s.customHeads || []), head],
+          structure: compactStructure(nextStructure),
+        } : s)),
       };
-    }, { scope: "structure", siteCode: siteId, libraryChanged: true });
+    }, { scope: "structure", siteCode: siteId });
     setNewLabel("");
   };
 
@@ -2011,7 +2129,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
             ))}
           </select>
         </div>
-        <div className="cfg-hint"><GripVertical size={14} /> Changes apply only to the selected site. Drag cost lines between parents to reorder.</div>
+        <div className="cfg-hint"><GripVertical size={14} /> Components are site-specific — changes apply only to <b>{site.name}</b>.</div>
       </div>
 
       <Card title="Available cost lines" right={<span className="muted-s">{available.length} unused · drag into a parent below</span>}>
@@ -2044,11 +2162,9 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
         </div>
       </Card>
 
-      <div className="pmanage">
+      <div className="pmanage pmanage-locked">
         <span className="blab">Parent heads</span>
-        <input value={newPName} onChange={(e) => setNewPName(e.target.value)} placeholder="New parent head (e.g. Statutory Costs)" onKeyDown={(e) => { if (e.key === "Enter" && newPName.trim()) { onAddParent(newPName, newPColor); setNewPName(""); } }} />
-        <div className="swatches">{PARENT_PALETTE.map((c) => <button key={c} className={"sw" + (newPColor === c ? " on" : "")} style={{ background: c }} onClick={() => setNewPColor(c)} />)}</div>
-        <button className="primary sm" disabled={!newPName.trim()} onClick={() => { if (newPName.trim()) { onAddParent(newPName, newPColor); setNewPName(""); } }}><Plus size={14} /> Add parent</button>
+        <span className="muted-s">Standardized across P&amp;L — six reportable groups</span>
       </div>
 
       <div className="parents-grid">
@@ -2063,9 +2179,8 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
                   onKeyDown={(e) => { if (e.key === "Enter") { onRenameParent(g.parent, editVal); setEditing(null); } if (e.key === "Escape") setEditing(null); }} />
               ) : (
                 <>
-                  <b className="pname" title="Double-click to rename" onDoubleClick={() => { setEditing(g.parent); setEditVal(parentLabel(g.parent)); }}>{parentLabel(g.parent)}</b>
-                  <button className="chip-act pname-edit" title="Rename head" onClick={() => { setEditing(g.parent); setEditVal(parentLabel(g.parent)); }}><Pencil size={11} /></button>
-                  {g.children.length === 0 && <button className="chip-act danger" title="Delete this parent head" onClick={() => onRemoveParent(g.parent)}><Trash2 size={11} /></button>}
+                  <b className="pname" title="Standard parent head">{parentLabel(g.parent)}</b>
+                  {g.children.length === 0 && <span className="muted-s sm">No lines assigned</span>}
                 </>
               )}
               <span className="pcount">{g.children.length}</span>
@@ -2136,7 +2251,7 @@ function ContractBudgetEditor({ site, library, onPatchSite }) {
       ) : (
         <div className="est-editor">
           <div className="est-bar">
-            <label className="sf"><span>Effective from</span><PeriodMonthSelect selectClassName="sf-sel" value={effFrom} onChange={setEffFrom} /></label>
+            <label className="sf"><span>Effective from</span><PeriodDateSelect inputClassName="sf-sel" value={effFrom} onChange={setEffFrom} showFormattedHint={false} /></label>
             <label className="sf" style={{ flex: 2 }}><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for this estimate / revision (e.g. Renewal FY26)" /></label>
             <button className="primary sm" onClick={saveEst}>Save estimate</button><button className="ghost-d" onClick={() => setEditing(false)}>Cancel</button>
           </div>
@@ -2222,7 +2337,7 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
       <div className="spread-form">
         <label className="sf"><span>Cost line</span><select value={head} onChange={(e) => setHead(e.target.value)}>{grouped.map((g) => <optgroup key={g.parent} label={parentLabel(g.parent)}>{g.children.map((k) => <option key={k} value={k}>{libMap[k]?.label || k}</option>)}</optgroup>)}</select></label>
         <label className="sf"><span>Total cost (₹)</span><input type="number" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="4000" /></label>
-        <label className="sf"><span>Arrives / starts</span><PeriodMonthSelect selectClassName="sf-sel" value={start} onChange={setStart} /></label>
+        <label className="sf"><span>Arrives / starts</span><PeriodDateSelect inputClassName="sf-sel" value={start} onChange={setStart} showFormattedHint={false} /></label>
         <label className="sf"><span>Spread over</span><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="remaining" disabled={!hasContractEnd}>Remaining contract{hasContractEnd ? ` (${autoMonths} mo)` : " — set end first"}</option><option value="fixed">Fixed no. of months</option></select></label>
         {mode === "fixed" && <label className="sf sm"><span>Months</span><input type="number" value={months} onChange={(e) => setMonths(e.target.value)} placeholder="12" /></label>}
         <label className="sf"><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Extra PPE — new batch" /></label>
@@ -2419,7 +2534,7 @@ function SiteSearchSelect({ sites, value, onChange, label = "Site", id = "site-s
 
 function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onPatchSite, onAdd, goConfig }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
-  const [mk, setMk] = useState(month);
+  const [mk, setMk] = useState(month || currentPeriodKey());
   const [form, setForm] = useState({});
   const [saveUi, setSaveUi] = useState("idle");
   const [reimbSaveUi, setReimbSaveUi] = useState("idle");
@@ -2534,19 +2649,6 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   const set = (k, v) => patchForm({ [k]: v });
   const c = calcSite(site, mk, records, form);
   const parentSub = (g) => g.children.reduce((a, k) => a + (c.ex.total[k] || 0), 0);
-  const copyPrev = () => {
-    let cur = prevPeriodKey(mk, MONTHS);
-    while (cur) {
-      const r = records[`${siteId}__${cur}`];
-      if (r) {
-        setForm(recordToFormFields(r));
-        setFormDirty(true);
-        return;
-      }
-      cur = prevPeriodKey(cur, MONTHS);
-    }
-    alert("No earlier month found for this site.");
-  };
   const save = () => {
     persistForm(undefined, { manual: true });
   };
@@ -2710,23 +2812,21 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       </div>
     );
   };
-  const pend = site ? pendingMonths(site, records, month) : [];
-  const monthFilled = (k) => !!records[`${siteId}__${k}`];
   const periodStatus = monthFilled(mk) ? "✓ saved" : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
   const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Saved" : saveUi === "saving" ? "Saving…" : saveUi === "error" ? "Save failed — retry" : formDirty ? "Save figures" : "Save figures";
+  const periodAudit = records[`${siteId}__${mk}`]?._audit;
 
   return (
     <div className="entry">
       <div className="entry-bar">
         <div className="entry-bar-primary">
-          <SiteSearchSelect sites={sites} value={siteId} onChange={setSiteId} label="Site" id="entry-site-search" />
+          <SiteClientAutocomplete sites={sites} value={siteId} onChange={(id) => { setSiteId(id); setActiveSite(id); }} label="Site / Client" id="entry-site-search" />
           <div className="entry-sel entry-sel-period">
             <label>Period</label>
-            <PeriodMonthSelect className="sl-period-pick" selectClassName="sl-period-sel" value={mk} onChange={setMk} />
+            <PeriodDateSelect className="sl-period-pick" inputClassName="sl-period-sel" value={mk} onChange={setMk} />
           </div>
         </div>
         <div className="entry-bar-tools">
-          <button type="button" className="ghost-d" onClick={copyPrev}><Copy size={14} /> Copy previous</button>
           <button type="button" className="ghost-d" onClick={() => goConfig(siteId)}><Sliders size={14} /> Structure</button>
         </div>
         <div className="entry-live">
@@ -2744,12 +2844,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
           {formDirty && saveUi !== "saving" && <span className="entry-unsaved">Unsaved changes</span>}
         </div>
       </div>
-      {pend.length > 0 && (
-        <div className="pend-strip">
-          <span className="pend-strip-lbl"><AlertCircle size={14} /> Pending for this site:</span>
-          {pend.map((k) => <button key={k} className={"pend-chip" + (k === mk ? " on" : "")} onClick={() => setMk(k)}>{monthLabelOf(k)}</button>)}
-        </div>
-      )}
+      <PlAuditPanel audit={periodAudit} className="entry-audit" />
       {c.ex && Object.values(c.ex.amort).some((v) => v > 0) && (
         <div className="amort-note"><CalendarClock size={15} /> This period includes <b>{inr(Object.values(c.ex.amort).reduce((a, b) => a + b, 0))}</b> of spread costs (recognised automatically below).</div>
       )}
@@ -2885,17 +2980,17 @@ function aggHeads(sites, mks, records, level) {
 }
 
 function buildReport(cfg) {
-  const { sites, records, dim, measures, scope, periodMode, month, from, to, filter } = cfg;
+  const { sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory } = cfg;
   const scopeSites = scope === "all" ? sites : sites.filter((s) => s.id === scope);
   let mks = periodMode === "single" && dim !== "month" ? [month] : periodKeysBetween(from, to);
   if (dim === "month" && periodMode === "single") mks = [month];
   const reported = (s, mk) => !!records[`${s.id}__${mk}`];
 
   if (dim === "pending") {
-    const cols = ["Site", "Contract", "Expected", "Filled", "Pending", `Pending months (to ${monthLabelOf(month)})`];
+    const cols = ["Site", "Contract", "Expected", "Filled", "Pending", `Pending periods (to ${monthLabelOf(month)})`];
     const rows = scopeSites.map((s) => {
       const exp = expectedMonths(s, month);
-      const pend = exp.filter((mk) => !records[`${s.id}__${mk}`]);
+      const pend = pendingMonthsFiltered(s, records, month, { expandHistory: expandPendingHistory });
       return [s.name, s.contractStart ? `${monthLabelOf(s.contractStart)}–${monthLabelOf(s.contractEnd)}` : "—", exp.length, exp.length - pend.length, pend.length, pend.map(monthLabelOf).join(", ") || "—"];
     }).sort((a, b) => b[4] - a[4]);
     return { kind: "pending", cols, rows };
@@ -2963,8 +3058,9 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
   const [filter, setFilter] = useState("none");
   const [title, setTitle] = useState("Portfolio P&L Summary");
   const [activePreset, setActivePreset] = useState("pnl");
+  const [expandPendingHistory, setExpandPendingHistory] = useState(false);
 
-  useEffect(() => { setMonth(defaultMonth); }, [defaultMonth]);
+  useEffect(() => { setMonth(defaultMonth || currentPeriodKey()); }, [defaultMonth]);
 
   const choose = (p) => {
     setActivePreset(p.id);
@@ -2998,8 +3094,8 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
   };
 
   const report = useMemo(
-    () => buildReport({ sites, records, dim, measures, scope, periodMode, month, from, to, filter }),
-    [sites, records, dim, measures, scope, periodMode, month, from, to, filter, parents],
+    () => buildReport({ sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory }),
+    [sites, records, dim, measures, scope, periodMode, month, from, to, filter, expandPendingHistory, parents],
   );
 
   const periodText = (dim === "spread" || dim === "pending")
@@ -3058,7 +3154,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     <div className="ov-filters">
       <label className="ov-filter">
         <span>Period</span>
-        <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={month} onChange={setMonth} />
+        <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
       </label>
       <label className="ov-filter">
         <span>Sites</span>
@@ -3085,9 +3181,9 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       <label className="ov-filter range">
         <span>Range</span>
         <div className="ov-range">
-          <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={from} onChange={setFrom} />
+          <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={from} onChange={setFrom} showFormattedHint={false} />
           <span>–</span>
-          <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={to} onChange={setTo} />
+          <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={to} onChange={setTo} showFormattedHint={false} />
         </div>
       </label>
     </div>
@@ -3121,6 +3217,22 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
           </div>
           {stdFilterBar}
           {trendFilterBar}
+      {activePreset === "pending" && (
+        <div className="ov-filters">
+          <label className="ov-filter">
+            <span>Period (as of)</span>
+            <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
+          </label>
+          <button
+            type="button"
+            className={"hist-scope-btn" + (expandPendingHistory ? " on" : "")}
+            onClick={() => setExpandPendingHistory((v) => !v)}
+          >
+            <History size={13} />
+            {expandPendingHistory ? "Showing all pending history" : "Expand history (before Apr 2026)"}
+          </button>
+        </div>
+      )}
         </>
       )}
 
@@ -3156,7 +3268,7 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
               {(dim === "spread" || dim === "pending") ? (
                 <label className="ov-filter">
                   <span>As of month</span>
-                  <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={month} onChange={setMonth} />
+                  <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
                 </label>
               ) : (
                 <>
@@ -3174,15 +3286,15 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
                   {(periodMode === "single" && dim !== "month") ? (
                     <label className="ov-filter">
                       <span>Month</span>
-                      <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={month} onChange={setMonth} />
+                      <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={month} onChange={setMonth} />
                     </label>
                   ) : (
                     <label className="ov-filter range">
                       <span>Range</span>
                       <div className="ov-range">
-                        <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={from} onChange={setFrom} />
+                        <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={from} onChange={setFrom} showFormattedHint={false} />
                         <span>–</span>
-                        <PeriodMonthSelect className="ov-period-pick" selectClassName="ov-period-sel" value={to} onChange={setTo} />
+                        <PeriodDateSelect className="ov-period-pick" inputClassName="ov-period-sel" value={to} onChange={setTo} showFormattedHint={false} />
                       </div>
                     </label>
                   )}
@@ -3306,7 +3418,6 @@ function ReportTable({ report, showTotals = true, dim }) {
 function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
   const isEdit = !!editSite;
   const [name, setName] = useState(editSite?.name || "");
-  const [service, setService] = useState(editSite?.service || "");
   const [wo, setWo] = useState(editSite?.wo || "");
   const [ocNumber, setOcNumber] = useState(editSite?.ocNumber || "");
   const [cStart, setCStart] = useState(() => contractDateInputValue(editSite?.contractStart) || "2025-04-01");
@@ -3329,7 +3440,7 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
         isEdit: true,
         id: editSite.id,
         name: trimmed,
-        service: service.trim(),
+        service: editSite?.service || "",
         wo: wo.trim(),
         ocNumber: ocNumber.trim(),
         contractStart: contractPeriodFromDateInput(cStart),
@@ -3343,7 +3454,7 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
     const base = {
       id,
       name: trimmed,
-      service: (service || priorActive?.service || "").trim(),
+      service: (priorActive?.service || "").trim(),
       wo: wo.trim(),
       ocNumber: ocNumber.trim() || (priorActive?.ocNumber || "").trim(),
       structure: isRenewal && priorActive?.structure?.length
@@ -3376,8 +3487,7 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
           </label>
         </div>
       )}
-      <label className="m-field"><span>Service type</span><input value={service} onChange={(e) => setService(e.target.value)} placeholder="Fire Fighting / Security / Housekeeping…" /></label>
-      <label className="m-field"><span>OC Number</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
+      <label className="m-field"><span>OC Number (client ref)</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
       <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><input type="date" value={cStart} onChange={(e) => setCStart(e.target.value)} /></label>
@@ -3395,51 +3505,89 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
 function SiteVersionHistoryModal({ siteGroup, sites, records, month, onClose, onOpenSite }) {
   const versions = useMemo(() => sitesInGroup(sites, siteGroup), [sites, siteGroup]);
   const siteName = versions[0]?.name || "Site";
+  const clientLabel = versions[0]?.ocNumber || versions[0]?.wo || siteName;
   const mLabel = monthLabelOf(month);
+  const active = versions.filter(isSiteActive);
+  const historical = versions.filter((s) => !isSiteActive(s));
+  const [histOpen, setHistOpen] = useState(historical.length > 0);
+
+  const renderRow = (s, readOnly = false) => {
+    const c = calcSite(s, month, records);
+    const hasData = !!records[`${s.id}__${month}`];
+    const estCount = (s.estimates || []).length;
+    return (
+      <tr key={s.id} className={!isSiteActive(s) ? "row-inactive" : ""}>
+        <td className="strong">{versionLabel(s)}</td>
+        <td className="mono">{s.wo || "—"}</td>
+        <td className="mono muted-s">{s.contractStart ? `${monthLabelOf(s.contractStart)}–${monthLabelOf(s.contractEnd)}` : "—"}</td>
+        <td className="muted-s">{s.ocNumber || clientLabel}</td>
+        <td>
+          <span className={"pill " + (isSiteActive(s) ? "pill-ok" : "pill-inactive")}>
+            <CircleDot size={9} /> {isSiteActive(s) ? "Active" : "Historical"}
+          </span>
+        </td>
+        <td className="r mono" style={{ color: hasData ? (c.profit < 0 ? "var(--loss)" : "var(--ink)") : "var(--muted)" }}>
+          {hasData ? inr(c.profit) : "—"}
+        </td>
+        <td className="r mono muted-s">{estCount || "—"}</td>
+        <td className="r">
+          {readOnly ? (
+            <span className="muted-s">Read-only</span>
+          ) : (
+            <button type="button" className="link" onClick={() => onOpenSite(s.id)}>View P&L →</button>
+          )}
+        </td>
+      </tr>
+    );
+  };
+
   return (
-    <Modal onClose={onClose} title={`Version History · ${siteName}`} wide>
-      <p className="m-note">Complete audit trail of PO / contract versions. Historical versions are read-only and excluded from active portfolio totals by default.</p>
-      <table className="tbl hist-tbl">
-        <thead>
-          <tr>
-            <th>Version</th>
-            <th>PO / W.O.</th>
-            <th>Contract</th>
-            <th>Service</th>
-            <th>Status</th>
-            <th className="r">P&L · {mLabel}</th>
-            <th className="r">Estimates</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {versions.map((s) => {
-            const c = calcSite(s, month, records);
-            const hasData = !!records[`${s.id}__${month}`];
-            const estCount = (s.estimates || []).length;
-            return (
-              <tr key={s.id} className={!isSiteActive(s) ? "row-inactive" : ""}>
-                <td className="strong">{versionLabel(s)}</td>
-                <td className="mono">{s.wo || "—"}</td>
-                <td className="mono muted-s">{s.contractStart ? `${monthLabelOf(s.contractStart)}–${monthLabelOf(s.contractEnd)}` : "—"}</td>
-                <td className="muted-s">{s.service || "—"}</td>
-                <td>
-                  <span className={"pill " + (isSiteActive(s) ? "pill-ok" : "pill-inactive")}>
-                    <CircleDot size={9} /> {isSiteActive(s) ? "Active" : "Inactive"}
-                  </span>
-                </td>
-                <td className="r mono" style={{ color: hasData ? (c.profit < 0 ? "var(--loss)" : "var(--ink)") : "var(--muted)" }}>
-                  {hasData ? inr(c.profit) : "—"}
-                </td>
-                <td className="r mono muted-s">{estCount || "—"}</td>
-                <td className="r">
-                  <button type="button" className="link" onClick={() => onOpenSite(s.id)}>View P&L →</button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <Modal onClose={onClose} title={`Contract History · ${siteName}`} wide>
+      <p className="m-note">Active contract shown below. Expired or completed contracts are preserved as read-only historical records. You can add a new contract for the same site/client at any time.</p>
+
+      <div className="hist-accordion-group">
+        <div className="hist-acc-head open">
+          <span className="hist-acc-title">{siteName}</span>
+          <span className="hist-acc-sub">Client · {clientLabel}</span>
+        </div>
+        <div className="hist-acc-body">
+          <h4 className="hist-section-label">Active contract</h4>
+          {active.length === 0 ? (
+            <p className="muted-s">No active contract — create a new version from All Sites.</p>
+          ) : (
+            <table className="tbl hist-tbl">
+              <thead>
+                <tr>
+                  <th>Version</th><th>PO / W.O.</th><th>Contract</th><th>Client</th><th>Status</th>
+                  <th className="r">P&L · {mLabel}</th><th className="r">Estimates</th><th />
+                </tr>
+              </thead>
+              <tbody>{active.map((s) => renderRow(s, false))}</tbody>
+            </table>
+          )}
+
+          {historical.length > 0 && (
+            <>
+              <button type="button" className="hist-expand-btn" onClick={() => setHistOpen((v) => !v)}>
+                {histOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                Historical data ({historical.length} contract{historical.length === 1 ? "" : "s"})
+              </button>
+              {histOpen && (
+                <table className="tbl hist-tbl hist-tbl-arch">
+                  <thead>
+                    <tr>
+                      <th>Version</th><th>PO / W.O.</th><th>Contract</th><th>Client</th><th>Status</th>
+                      <th className="r">P&L · {mLabel}</th><th className="r">Estimates</th><th />
+                    </tr>
+                  </thead>
+                  <tbody>{historical.map((s) => renderRow(s, true))}</tbody>
+                </table>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="m-actions">
         <button className="ghost-d" onClick={onClose}>Close</button>
       </div>
@@ -3447,22 +3595,6 @@ function SiteVersionHistoryModal({ siteGroup, sites, records, month, onClose, on
   );
 }
 
-function IoModal({ sites, records, library, parents, onClose, onImport }) {
-  const [text, setText] = useState("");
-  const json = JSON.stringify({ sites, records, library, parents }, null, 2);
-  const copy = () => navigator.clipboard?.writeText(json);
-  const download = () => { try { const b = new Blob([json], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "siteledger-backup.json"; a.click(); URL.revokeObjectURL(u); } catch (e) { copy(); } };
-  const doImport = () => { try { const d = JSON.parse(text); if (!d.sites || !Array.isArray(d.sites)) throw 0; onImport(d); } catch (e) { alert("Could not read that JSON. Paste a valid backup."); } };
-  return (
-    <Modal onClose={onClose} title="Backup / Import" wide>
-      <p className="m-note">Data is saved to the ERP database automatically. Use backup to export or restore a JSON copy.</p>
-      <div className="m-actions" style={{ justifyContent: "flex-start", marginTop: 4 }}><button className="primary" onClick={download}><Download size={14} /> Download backup</button><button className="ghost-d" onClick={copy}><Copy size={14} /> Copy to clipboard</button></div>
-      <div className="m-divider">Restore / import</div>
-      <textarea className="m-text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste a backup JSON here to restore…" />
-      <div className="m-actions"><button className="ghost-d" onClick={onClose}>Close</button><button className="primary" onClick={doImport}><Upload size={14} /> Import &amp; replace</button></div>
-    </Modal>
-  );
-}
 function Modal({ children, onClose, title, wide }) {
   return (<div className="overlay" onClick={onClose}><div className={"modal" + (wide ? " wide" : "")} onClick={(e) => e.stopPropagation()}><div className="modal-head"><h3>{title}</h3><button className="icon-btn" onClick={onClose}><X size={16} /></button></div><div className="modal-body">{children}</div></div></div>);
 }
@@ -3515,6 +3647,34 @@ function Styles() {
     .scroll{padding:20px 24px 40px;flex:1;}
     .app:not(.embedded) .scroll{overflow-y:auto;min-height:0;}
     .app.embedded .scroll{overflow:visible;}
+    .ov-filters-modern{background:linear-gradient(180deg,#fff 0%,#f8fafc 100%);border-color:#e2e8f0;box-shadow:0 1px 2px rgba(15,23,42,.04);}
+    .ov-hero{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;padding:16px 18px;background:#fff;border:1px solid var(--line);border-radius:14px;}
+    .ov-hero-title{margin:0;font-size:18px;font-weight:700;letter-spacing:-.02em;}
+    .ov-hero-sub{margin:4px 0 0;font-size:13px;color:var(--muted);}
+    .ov-margin-legend{display:flex;gap:8px;flex-wrap:wrap;}
+    .ov-margin-chip{font-size:11px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid var(--line);}
+    .ov-margin-chip.target{background:#ecfdf5;color:#166534;border-color:#bbf7d0;}
+    .ov-margin-chip.warn{background:#fffbeb;color:#92400e;border-color:#fde68a;}
+    .pl-date-input,.sl-period-sel,.ov-period-sel{font-family:var(--body);font-size:14px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font-weight:500;}
+    .pl-date-hint{display:block;font-size:11px;color:var(--muted);margin-top:3px;}
+    .period-date-select{display:flex;flex-direction:column;gap:2px;}
+    .pl-audit-panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;margin-bottom:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;font-size:12.5px;color:var(--ink-soft);}
+    .pl-audit-empty{gap:8px;color:var(--muted);}
+    .pl-audit-title{font-weight:700;color:var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:.06em;}
+    .pl-audit-rows{display:flex;flex-wrap:wrap;gap:14px;}
+    .pl-audit-row{display:flex;align-items:center;gap:6px;}
+    .entry-audit{margin-top:0;margin-bottom:14px;}
+    .pmanage-locked{display:flex;align-items:center;gap:12px;margin:16px 0 10px;flex-wrap:wrap;}
+    .tbl-compact td,.tbl-compact th{padding-top:8px;padding-bottom:8px;}
+    .hist-accordion-group{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:8px;}
+    .hist-acc-head{padding:12px 14px;background:#f8fafc;border-bottom:1px solid var(--line);}
+    .hist-acc-title{display:block;font-weight:700;font-size:14px;}
+    .hist-acc-sub{font-size:12px;color:var(--muted);}
+    .hist-acc-body{padding:14px;}
+    .hist-section-label{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+    .hist-expand-btn{display:inline-flex;align-items:center;gap:6px;margin:14px 0 8px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:12.5px;cursor:pointer;}
+    .hist-tbl-arch{opacity:.92;}
+    .sm-ac-wrap{min-width:240px;flex:1;}
     .ov-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;padding:14px 16px;margin-bottom:14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;}
     .ov-filter{display:flex;flex-direction:column;gap:4px;min-width:0;}
     .ov-filter>span{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}

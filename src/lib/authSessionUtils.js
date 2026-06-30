@@ -141,7 +141,11 @@ export async function hydrateSupabaseAuthFromCache(supabaseClient) {
     const { data, error } = await Promise.race([setSessionPromise, timeoutPromise]);
     if (error) {
       if (isInvalidRefreshTokenError(error.message)) {
-        clearSupabaseAuthStorage();
+        // Direct REST login can yield a valid access JWT before refresh sync succeeds.
+        // Never wipe a still-valid cached session — that caused post-login redirect to /login.
+        if (isCachedAccessTokenExpired()) {
+          clearSupabaseAuthStorage();
+        }
       }
       return false;
     }

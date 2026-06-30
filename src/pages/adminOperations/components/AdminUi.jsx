@@ -108,6 +108,8 @@ function FreezePaneDenseTable({
   showSerialNumber,
   serialLabel,
   serialOffset,
+  stickyHeader = false,
+  scrollMaxHeight = "calc(100dvh - 22rem)",
 }) {
   const tableColumns = useMemo(
     () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
@@ -132,12 +134,25 @@ function FreezePaneDenseTable({
     );
   }
 
+  const scrollContainerClass = stickyHeader
+    ? "erp-freeze-pane-scroll erp-freeze-pane-sticky-header w-full min-w-0 max-w-full overflow-auto rounded-lg border border-gray-200"
+    : "erp-freeze-pane-scroll w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-gray-200";
+
   return (
-    <div className="erp-freeze-pane-scroll w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-gray-200">
+    <div
+      className={scrollContainerClass}
+      style={stickyHeader ? { maxHeight: scrollMaxHeight } : undefined}
+    >
       <div className="w-max min-w-full">
-        <div className="flex border-b border-gray-200 bg-gray-50 text-xs text-gray-600">
+        <div
+          className={`flex border-b border-gray-200 bg-gray-50 text-xs text-gray-600 ${
+            stickyHeader ? "sticky top-0 z-20 shadow-[0_1px_0_0_#e5e7eb]" : ""
+          }`}
+        >
           <div
-            className="erp-freeze-pane-frozen flex shrink-0 sticky left-0 z-30 bg-gray-50 erp-freeze-pane-edge"
+            className={`erp-freeze-pane-frozen flex shrink-0 sticky left-0 bg-gray-50 erp-freeze-pane-edge ${
+              stickyHeader ? "z-40" : "z-30"
+            }`}
             style={{ width: frozenBlockWidth, minWidth: frozenBlockWidth }}
           >
             {frozenCols.map((c, i) => (
@@ -210,6 +225,8 @@ export const DenseTable = ({
   showSerialNumber = "auto",
   serialLabel = "S.No",
   serialOffset = 0,
+  stickyHeader = false,
+  scrollMaxHeight = "calc(100dvh - 22rem)",
 }) => {
   const tableColumns = useMemo(
     () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
@@ -228,6 +245,8 @@ export const DenseTable = ({
         showSerialNumber={showSerialNumber}
         serialLabel={serialLabel}
         serialOffset={serialOffset}
+        stickyHeader={stickyHeader}
+        scrollMaxHeight={scrollMaxHeight}
       />
     );
   }
