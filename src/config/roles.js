@@ -21,6 +21,40 @@ export const ROLES = {
   SUPER_ADMIN_PRO: "super_admin_pro",
 };
 
+const KNOWN_ROLES = new Set(Object.values(ROLES));
+
+/**
+ * Canonical role for routing / module guards (case-insensitive).
+ * Returns null when missing or unrecognized — callers treat null like legacy "no role".
+ */
+export function normalizeAppRole(raw) {
+  const r = String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  if (!r) return null;
+  if (r === "superadmin_pro" || r === "super_admin_pro") return ROLES.SUPER_ADMIN_PRO;
+  if (r === "superadmin" || r === "super_admin") return ROLES.SUPER_ADMIN;
+  if (r === "admin" || r === "hod") return ROLES.ADMIN;
+  if (r === "manager") return ROLES.MANAGER;
+  if (r === "executive") return ROLES.EXECUTIVE;
+  if (KNOWN_ROLES.has(r)) return r;
+  return null;
+}
+
+/** Role + team shape used by access helpers — normalizes role casing from profiles / metadata. */
+export function normalizeAccessProfile(profile) {
+  if (!profile || typeof profile !== "object") {
+    return { role: null, team: profile?.team ?? null, allowed_modules: [] };
+  }
+  const role = normalizeAppRole(profile.role);
+  return {
+    role,
+    team: profile.team ?? null,
+    allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
+  };
+}
+
 export const TEAMS = [
   { value: "hr", label: "HR" },
   { value: "compliance", label: "Compliance" },
@@ -66,7 +100,7 @@ export const MODULE_PATH_PREFIXES = {
   overview: ["/app/dashboard"],
   hr: ["/app/hr", "/app/hr/payroll/salary", "/app/attendance", "/app/salary", "/app/people-management"],
   compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance"],
-  admin: ["/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass", "/app/admin"],
+  admin: ["/app/admin", "/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass"],
   // Legacy bucket: Sales historically owned /manpower + /commercial routes.
   // Keep this broad so refresh/deep-links don't get redirected to /app/dashboard.
   sales: ["/app/manpower", "/app/commercial"],
@@ -180,7 +214,7 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
     return Array.isArray(arr) && arr.length ? arr[0] : null;
   };
 
-  const role = userProfile?.role;
+  const role = normalizeAppRole(userProfile?.role);
   const teamKey = normalizeTeamModuleKey(userProfile?.team);
   const allowedKeys = (userProfile?.allowed_modules || [])
     .map((m) => normalizeTeamModuleKey(m))
@@ -260,7 +294,7 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
  * Executive + Manager → first allowed team/module home via getLandingPathForUser.
  */
 export function getLoginRedirectPath(userProfile, accessibleModules) {
-  const role = userProfile?.role;
+  const role = normalizeAppRole(userProfile?.role);
   if (
     role === ROLES.ADMIN ||
     role === ROLES.SUPER_ADMIN ||
@@ -354,6 +388,7 @@ export function userCanEditInModules(userProfile, accessibleModules, moduleKeysA
  * @returns {Set<string>} - module keys (always includes 'settings'; Admin/Super Admin include 'overview')
  */
 export function getAccessibleModules(profile) {
+  const normalized = normalizeAccessProfile(profile);
   const allModules = new Set([
     "overview",
     "settings",
@@ -374,36 +409,38 @@ export function getAccessibleModules(profile) {
   // Lock down: these modules are only for Super Admin. Even legacy "no role" should not see them.
   const allWithoutSuperAdminOnly = new Set([...allModules].filter((m) => !SUPER_ADMIN_ONLY_MODULES.has(m)));
 
-  if (!profile?.role) {
-    // no role = legacy: allow all except Super Admin-only modules
+  const accessProfile = { ...profile, ...normalized };
+
+  if (!normalized.role) {
+    // no role / unknown role = legacy: allow all except Super Admin-only modules
     const legacy = new Set(allWithoutSuperAdminOnly);
-    applyFireTenderModuleGate(profile, legacy);
+    applyFireTenderModuleGate(accessProfile, legacy);
     return legacy;
   }
-  if (profile.role === ROLES.SUPER_ADMIN_PRO) return allModules;
-  if (profile.role === ROLES.SUPER_ADMIN) return allModules;
+  if (normalized.role === ROLES.SUPER_ADMIN_PRO) return allModules;
+  if (normalized.role === ROLES.SUPER_ADMIN) return allModules;
 
   // Admin/HOD with configured modules is scoped to those modules, with dashboard access.
   // Legacy Admin profiles without team/modules keep broad operational access.
-  if (profile.role === ROLES.ADMIN) {
-    const adminSet = hasAssignedScopedModules(profile)
-      ? buildScopedModuleSet(profile, { includeOverview: true })
+  if (normalized.role === ROLES.ADMIN) {
+    const adminSet = hasAssignedScopedModules(accessProfile)
+      ? buildScopedModuleSet(accessProfile, { includeOverview: true })
       : new Set(allWithoutSuperAdminOnly);
-    applyFireTenderModuleGate(profile, adminSet);
+    applyFireTenderModuleGate(accessProfile, adminSet);
     return adminSet;
   }
 
-  if (SCOPED_ROLE_MODULES.has(profile.role)) {
+  if (SCOPED_ROLE_MODULES.has(normalized.role)) {
     // If team metadata is missing, don't accidentally lock the user to dashboard-only access.
     // Treat it like legacy access (except Super Admin-only modules).
-    if (!hasAssignedScopedModules(profile)) {
+    if (!hasAssignedScopedModules(accessProfile)) {
       const legacyExec = new Set(allWithoutSuperAdminOnly);
-      applyFireTenderModuleGate(profile, legacyExec);
+      applyFireTenderModuleGate(accessProfile, legacyExec);
       return legacyExec;
     }
-    return buildScopedModuleSet(profile);
+    return buildScopedModuleSet(accessProfile);
   }
-  applyFireTenderModuleGate(profile, always);
+  applyFireTenderModuleGate(accessProfile, always);
   return always;
 }
 
