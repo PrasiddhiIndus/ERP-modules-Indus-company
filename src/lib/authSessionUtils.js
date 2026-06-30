@@ -93,6 +93,25 @@ export function readCachedSessionUser() {
   }
 }
 
+/** True when cached access JWT is missing or past expiry (skip network refresh on boot). */
+export function isCachedAccessTokenExpired(skewSeconds = 60) {
+  const token = readCachedAccessToken();
+  if (!token) return true;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4;
+    if (pad) b64 += '='.repeat(4 - pad);
+    const payload = JSON.parse(atob(b64));
+    const exp = payload?.exp;
+    if (!exp) return false;
+    return Date.now() / 1000 >= exp - skewSeconds;
+  } catch {
+    return true;
+  }
+}
+
 export function clearSupabaseAuthStorage() {
   try {
     Object.keys(localStorage).forEach((key) => {
