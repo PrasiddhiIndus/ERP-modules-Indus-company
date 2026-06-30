@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getAccessibleModules, getLoginRedirectPath } from '../config/roles'
 import { isStagingSupabaseProject } from '../lib/stagingProject'
 import { supabase, invokeAuthenticatedFunction } from '../lib/supabase'
-import { writeCachedProfileRow } from '../lib/authSessionUtils'
+import { writeCachedProfileRow, markSupabaseSessionHydrated } from '../lib/authSessionUtils'
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import {
   Mail,
@@ -175,6 +175,7 @@ const Login = () => {
     }
     if (data?.session) {
       await supabase.auth.setSession(data.session)
+      markSupabaseSessionHydrated()
       const { data: chk } = await invokeAuthenticatedFunction(
         'login-check',
         { body: {} },

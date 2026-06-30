@@ -19,6 +19,8 @@ import {
   writeCachedProfileRow,
   clearCachedProfileRow,
   hydrateSupabaseAuthFromCache,
+  ensureSupabaseSessionHydrated,
+  markSupabaseSessionHydrated,
   isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
@@ -384,7 +386,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    void hydrateSupabaseAuthFromCache(supabase);
+    void ensureSupabaseSessionHydrated(supabase);
   }, []);
 
   useEffect(() => {
@@ -395,7 +397,7 @@ export const AuthProvider = ({ children }) => {
       return;
     }
     void (async () => {
-      await hydrateSupabaseAuthFromCache(supabase);
+      await ensureSupabaseSessionHydrated(supabase);
       if (signInProfileSyncRef.current) return;
       profileSyncAttemptedRef.current = user.id;
       const token = readCachedAccessToken();
@@ -498,6 +500,7 @@ export const AuthProvider = ({ children }) => {
         access_token: session.access_token,
         refresh_token: session.refresh_token ?? '',
       });
+      markSupabaseSessionHydrated();
 
       const quickProfile = buildAuthProfile(authUser);
 

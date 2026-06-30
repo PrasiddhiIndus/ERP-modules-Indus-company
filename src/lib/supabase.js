@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
-import { SUPABASE_AUTH_STORAGE_KEY, hydrateSupabaseAuthFromCache } from './authSessionUtils'
+import {
+  SUPABASE_AUTH_STORAGE_KEY,
+  ensureSupabaseSessionHydrated,
+} from './authSessionUtils'
 import {
   assertBrowserSafeSupabaseKey,
   getSupabaseAnonKey,
@@ -481,8 +484,23 @@ function resolveFetchSignal(options, url) {
   }
 }
 
+/** Module data calls must wait for JWT hydration or RLS returns empty rows. */
+function fetchNeedsSessionHydration(urlStr) {
+  return (
+    urlStr.includes('/rest/v1/') ||
+    urlStr.includes('/storage/v1/') ||
+    (urlStr.includes('/functions/v1/') && !urlStr.includes('/functions/v1/login-check'))
+  );
+}
+
+let supabaseClientRef = null;
+
 const customFetch = async (url, options = {}) => {
   const pathLog = shortUrlForLog(url)
+  const urlStr = String(url)
+  if (typeof window !== 'undefined' && supabaseClientRef && fetchNeedsSessionHydration(urlStr)) {
+    await ensureSupabaseSessionHydrated(supabaseClientRef)
+  }
   const { signal, clearTimer } = resolveFetchSignal(options, url)
   const fetchOptions = { ...options }
   if (signal !== undefined) fetchOptions.signal = signal
@@ -642,9 +660,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 })
 
-// Ensure REST/RPC calls use the signed-in JWT immediately after page refresh.
+supabaseClientRef = supabase
+
+// Prime JWT before any module fetch (marketing, commercial, finance, etc.).
 if (typeof window !== 'undefined') {
-  void hydrateSupabaseAuthFromCache(supabase)
+  void ensureSupabaseSessionHydrated(supabase)
 }
 
 /**
