@@ -866,8 +866,14 @@ export default function SiteLedgerApp({ embedded = true }) {
   ], [activeSiteCount]);
 
   const handleLedgerNav = useCallback((id) => {
+    if (id === "entry") {
+      setActiveSite((prev) => {
+        if (prev && sitesL.some((s) => s.id === prev)) return prev;
+        return sitesL[0]?.id || null;
+      });
+    }
     setView(id);
-  }, []);
+  }, [sitesL]);
 
   if (!loaded) return <div style={{ fontFamily: "var(--body)", padding: 40, color: "var(--muted)" }}><Styles />Loading your sites…</div>;
 
@@ -882,7 +888,7 @@ export default function SiteLedgerApp({ embedded = true }) {
             <button className={view === "overview" ? "nav on" : "nav"} onClick={() => setView("overview")}><LayoutDashboard size={17} /> Overview</button>
             <button className={view === "sites" ? "nav on" : "nav"} onClick={() => setView("sites")}><Building2 size={17} /> All Sites <span className="count">{activeSiteCount}</span></button>
             <button className={view === "config" ? "nav on" : "nav"} onClick={() => setView("config")}><Sliders size={17} /> Site Setup</button>
-            <button className={view === "entry" ? "nav on" : "nav"} onClick={() => setView("entry")}><Pencil size={17} /> Enter / Edit Figures</button>
+            <button className={view === "entry" ? "nav on" : "nav"} onClick={() => handleLedgerNav("entry")}><Pencil size={17} /> Enter / Edit Figures</button>
             <button className={view === "reports" ? "nav on" : "nav"} onClick={() => setView("reports")}><FileBarChart size={17} /> Reports</button>
           </nav>
           <div className="side-foot">
@@ -968,7 +974,11 @@ export default function SiteLedgerApp({ embedded = true }) {
               showHistorical={showHistorical}
               setShowHistorical={setShowHistorical}
               openSite={(id) => { setActiveSite(id); setView("site"); }}
-              goEntry={(id) => { setActiveSite(id); setView("entry"); }}
+              goEntry={(id) => {
+                const nextId = id || (activeSite && sitesL.some((s) => s.id === activeSite) ? activeSite : sitesL[0]?.id);
+                if (nextId) setActiveSite(nextId);
+                setView("entry");
+              }}
               onViewHistory={(group) => setHistoryGroup(group)}
               marginCtx={marginCtx}
             />
@@ -1079,7 +1089,7 @@ export default function SiteLedgerApp({ embedded = true }) {
 
 /* ───────────────────────── OVERVIEW ───────────────────────── */
 const PORTFOLIO_FILTERS_INIT = {
-  search: "", status: "all", contract: "all", siteId: "all",
+  search: "", status: "all", contract: "all",
   revMin: "", revMax: "",
 };
 
@@ -1092,9 +1102,14 @@ function applyPortfolioFilters(rows, filters, month) {
   let list = rows;
   const q = filters.search.trim().toLowerCase();
   if (q) {
-    list = list.filter((r) => r.name.toLowerCase().includes(q) || (r.ocNumber || "").toLowerCase().includes(q));
+    list = list.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        (r.ocNumber || "").toLowerCase().includes(q) ||
+        (r.wo || "").toLowerCase().includes(q) ||
+        (r.client || "").toLowerCase().includes(q),
+    );
   }
-  if (filters.siteId !== "all") list = list.filter((r) => r.id === filters.siteId);
   if (filters.contract === "in") list = list.filter((r) => inContract(r, month));
   if (filters.contract === "out") list = list.filter((r) => !inContract(r, month));
   if (filters.status === "reporting") list = list.filter((r) => r.hasData);
@@ -1201,7 +1216,7 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
     [withData, warnMargin],
   );
 
-  const hasActiveFilters = filters.search || filters.status !== "all" || filters.siteId !== "all"
+  const hasActiveFilters = filters.search || filters.status !== "all"
     || filters.contract !== "all" || filters.revMin || filters.revMax;
 
   const siteOptions = useMemo(
@@ -1223,16 +1238,20 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
       </div>
 
       <div className="ov-filters ov-filters-modern">
-        <label className="ov-filter">
-          <span>Site</span>
-          <select value={filters.siteId} onChange={(e) => setF({ siteId: e.target.value })}>
-            <option value="all">All sites</option>
-            {siteOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
-        <div className="ov-filter search">
-          <Search size={14} />
-          <input value={filters.search} onChange={(e) => setF({ search: e.target.value })} placeholder="Search sites…" />
+        <div className="ov-filter ov-filter-ac">
+          <SiteClientAutocomplete
+            sites={siteOptions}
+            value=""
+            filterQuery={filters.search}
+            onChange={(id) => {
+              const site = siteOptions.find((s) => s.id === id);
+              if (site) setF({ search: site.name });
+            }}
+            onSearchChange={(q) => setF({ search: q })}
+            label="Search site / client"
+            id="portfolio-overview-search"
+            placeholder="Type site or client name…"
+          />
         </div>
         <label className="ov-filter">
           <span>Status</span>
@@ -2545,7 +2564,15 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   const suppressRecordReload = useRef(false);
   const formLoadKey = useRef("");
   const persistGen = useRef(0);
-  useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
+  useEffect(() => {
+    if (activeSite && sites.some((s) => s.id === activeSite)) {
+      setSiteId(activeSite);
+      return;
+    }
+    if (siteId && sites.some((s) => s.id === siteId)) return;
+    const fallback = sites[0]?.id || "";
+    if (fallback) setSiteId(fallback);
+  }, [activeSite, sites, siteId]);
   useEffect(() => { setMk(month); }, [month]);
   useEffect(() => {
     const loadKey = `${siteId}__${mk}`;
@@ -2812,7 +2839,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
       </div>
     );
   };
-  const periodStatus = monthFilled(mk) ? "✓ saved" : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
+  const periodStatus = records[`${siteId}__${mk}`] ? "✓ saved" : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
   const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Saved" : saveUi === "saving" ? "Saving…" : saveUi === "error" ? "Save failed — retry" : formDirty ? "Save figures" : "Save figures";
   const periodAudit = records[`${siteId}__${mk}`]?._audit;
 
@@ -3675,6 +3702,9 @@ function Styles() {
     .hist-expand-btn{display:inline-flex;align-items:center;gap:6px;margin:14px 0 8px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:12.5px;cursor:pointer;}
     .hist-tbl-arch{opacity:.92;}
     .sm-ac-wrap{min-width:240px;flex:1;}
+    .ov-filter-ac{min-width:240px;flex:1;max-width:320px;}
+    .ov-filter-ac .entry-sel{margin:0;}
+    .ov-filter-ac .site-search{min-width:0;max-width:none;width:100%;}
     .ov-filters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;padding:14px 16px;margin-bottom:14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;}
     .ov-filter{display:flex;flex-direction:column;gap:4px;min-width:0;}
     .ov-filter>span{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}
