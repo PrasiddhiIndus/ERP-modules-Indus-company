@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import {
   SUPABASE_AUTH_STORAGE_KEY,
-  ensureSupabaseSessionHydrated,
+  readCachedAccessToken,
+  isCachedAccessTokenExpired,
 } from './authSessionUtils'
 import {
   assertBrowserSafeSupabaseKey,
@@ -493,16 +494,28 @@ function fetchNeedsSessionHydration(urlStr) {
   );
 }
 
+/** Attach user JWT from localStorage — avoids setSession/getSession auth lock that blocks login. */
+function applyCachedUserAuthHeader(urlStr, options = {}) {
+  if (!fetchNeedsSessionHydration(urlStr)) return options;
+  const token = readCachedAccessToken();
+  if (!token || isCachedAccessTokenExpired()) return options;
+
+  const headers = new Headers(options.headers || {});
+  const existing = headers.get('Authorization') || '';
+  // Prefer cached user JWT when client would send anon key or nothing yet.
+  if (!existing || existing === `Bearer ${supabaseAnonKey}`) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return { ...options, headers };
+}
+
 let supabaseClientRef = null;
 
 const customFetch = async (url, options = {}) => {
   const pathLog = shortUrlForLog(url)
   const urlStr = String(url)
-  if (typeof window !== 'undefined' && supabaseClientRef && fetchNeedsSessionHydration(urlStr)) {
-    await ensureSupabaseSessionHydrated(supabaseClientRef)
-  }
-  const { signal, clearTimer } = resolveFetchSignal(options, url)
-  const fetchOptions = { ...options }
+  const fetchOptions = applyCachedUserAuthHeader(urlStr, options)
+  const { signal, clearTimer } = resolveFetchSignal(fetchOptions, url)
   if (signal !== undefined) fetchOptions.signal = signal
 
   try {
@@ -661,11 +674,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 })
 
 supabaseClientRef = supabase
-
-// Prime JWT before any module fetch (marketing, commercial, finance, etc.).
-if (typeof window !== 'undefined') {
-  void ensureSupabaseSessionHydrated(supabase)
-}
 
 /**
  * Check if Supabase is reachable and env is configured.

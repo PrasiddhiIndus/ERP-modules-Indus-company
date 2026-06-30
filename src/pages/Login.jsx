@@ -174,7 +174,6 @@ const Login = () => {
       return
     }
     if (data?.session) {
-      await supabase.auth.setSession(data.session)
       markSupabaseSessionHydrated()
       const { data: chk } = await invokeAuthenticatedFunction(
         'login-check',
