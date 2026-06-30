@@ -59,6 +59,33 @@ export async function hydrateSupabaseAuthFromCache(supabaseClient) {
   }
 }
 
+let sessionHydratePromise = null;
+
+/** Clear after sign-out so the next login re-hydrates. */
+export function resetSupabaseSessionHydration() {
+  sessionHydratePromise = null;
+}
+
+/** Call after signInWithPassword/setSession so data fetches skip re-hydrate wait. */
+export function markSupabaseSessionHydrated() {
+  sessionHydratePromise = Promise.resolve(true);
+}
+
+/**
+ * Ensure module REST/storage requests use the user JWT (not anon) before hitting production DB.
+ * Shared across all modules — marketing, commercial, admin, fire tender, finance.
+ */
+export function ensureSupabaseSessionHydrated(supabaseClient) {
+  if (typeof window === 'undefined') return Promise.resolve(false);
+  if (!readCachedAccessToken() || isCachedAccessTokenExpired()) {
+    return Promise.resolve(false);
+  }
+  if (!sessionHydratePromise) {
+    sessionHydratePromise = hydrateSupabaseAuthFromCache(supabaseClient).catch(() => false);
+  }
+  return sessionHydratePromise;
+}
+
 /**
  * Drop cached auth when switching staging ↔ production locally (prevents REST 401).
  * @returns {boolean} true if storage was cleared
@@ -150,6 +177,7 @@ export function isCachedAccessTokenExpired(skewSeconds = 60) {
 
 export function clearSupabaseAuthStorage() {
   try {
+    resetSupabaseSessionHydration();
     clearCachedProfileRow();
     Object.keys(localStorage).forEach((key) => {
       if (key.includes('supabase') || key.includes('sb-')) {

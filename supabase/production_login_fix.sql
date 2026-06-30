@@ -58,7 +58,9 @@ WHERE p.id IS NULL;
 -- Step 5: Deploy edge function (from project root, with production Supabase CLI linked):
 --   supabase functions deploy login-check --no-verify-jwt
 --
--- Step 6: In Supabase Dashboard → Authentication → Users:
+-- Step 6: If modules open but tables are empty, also run:
+--   supabase/production_modules_data_fix.sql
+-- And in Dashboard → Settings → API → Exposed schemas add: billing, finance, indus_one
 --   - Each login email must exist
 --   - "Email confirmed" should be ON (or disable email confirmation in Auth settings)
 --   - Reset password if unsure
