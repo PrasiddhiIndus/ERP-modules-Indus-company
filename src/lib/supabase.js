@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { SUPABASE_AUTH_STORAGE_KEY } from './authSessionUtils'
+import { SUPABASE_AUTH_STORAGE_KEY, hydrateSupabaseAuthFromCache } from './authSessionUtils'
 import {
   assertBrowserSafeSupabaseKey,
   getSupabaseAnonKey,
@@ -641,6 +641,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     storageKey: SUPABASE_AUTH_STORAGE_KEY,
   },
 })
+
+// Ensure REST/RPC calls use the signed-in JWT immediately after page refresh.
+if (typeof window !== 'undefined') {
+  void hydrateSupabaseAuthFromCache(supabase)
+}
 
 /**
  * Check if Supabase is reachable and env is configured.

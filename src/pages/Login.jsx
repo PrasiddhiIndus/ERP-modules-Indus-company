@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getAccessibleModules, getLoginRedirectPath } from '../config/roles'
 import { isStagingSupabaseProject } from '../lib/stagingProject'
 import { supabase, invokeAuthenticatedFunction } from '../lib/supabase'
+import { writeCachedProfileRow } from '../lib/authSessionUtils'
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
 import {
   Mail,
@@ -188,6 +189,7 @@ const Login = () => {
             ? chk.profile.allowed_modules
             : [],
         }
+        writeCachedProfileRow(chk.profile)
       } else {
         const u = data.user
         profile = {
