@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import ExcelCostingSheet from './ExcelCostingSheet';
+import { pickCanonicalCostingSheet } from '../utils/marketingQuotationUtils';
 
 const QuotationForm = ({ 
   isOpen, 
@@ -343,34 +344,37 @@ const QuotationForm = ({
     try {
       const { data, error } = await supabase
         .from('marketing_costing_sheets')
-        .select('*')
+        .select('id, costing_data, total_price, updated_at, created_at')
         .eq('quotation_id', quotationId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('updated_at', { ascending: false });
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
 
-      if (data) {
-        setCostingSheetId(data.id);
-        if (data.costing_data) {
+      const sheet = pickCanonicalCostingSheet(data || []);
+      if (sheet) {
+        setCostingSheetId(sheet.id);
+        if (sheet.costing_data) {
           try {
-            const parsedData = typeof data.costing_data === 'string' 
-              ? JSON.parse(data.costing_data) 
-              : data.costing_data;
-            
-            // Calculate total from costing data
+            const parsedData = typeof sheet.costing_data === 'string'
+              ? JSON.parse(sheet.costing_data)
+              : sheet.costing_data;
+
             if (parsedData.items && parsedData.items.length > 0) {
               const total = parsedData.items.reduce((sum, item) => {
-                const finalPriceKey = `${item.id}_final_price`;
-                const finalPrice = parseFloat(parsedData[finalPriceKey] || 0);
+                const withGst = parseFloat(parsedData[`${item.id}_grand_total_supply_cost_with_gst`] || 0);
+                if (withGst > 0) return sum + withGst;
+                const finalPrice = parseFloat(parsedData[`${item.id}_final_price`] || 0);
                 return sum + finalPrice;
               }, 0);
               setCostingTotal(total);
+            } else if (sheet.total_price) {
+              setCostingTotal(parseFloat(sheet.total_price) || 0);
             }
           } catch (e) {
             console.error('Error parsing costing data:', e);
           }
+        } else if (sheet.total_price) {
+          setCostingTotal(parseFloat(sheet.total_price) || 0);
         }
       } else {
         setCostingSheetId(null);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { Plus, Trash2, Save, ChevronDown } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
-import { filterEmptyCostingItems } from '../utils/marketingQuotationUtils';
+import { filterEmptyCostingItems, dedupeCostingItemsById, pruneCostingCellData, pickCanonicalCostingSheet } from '../utils/marketingQuotationUtils';
 import { sanitizePdfText } from '../utils/pdfTextSanitize';
 
 // Fixed costing sheet column definitions (column names as required – do not add/remove)
@@ -31,6 +31,10 @@ const COSTING_SHEET_COLUMNS = [
   { id: 'grand_total_supply_cost_with_gst', label: 'Grand Total Supply Cost With GST', isEditable: false, isCalculated: true },
 ];
 
+let productsCache = null;
+let productsCacheTime = 0;
+const PRODUCTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 /** Format number with thousand separators (e.g. 1000 → "1,000", 1000.5 → "1,000.5"). Use decimals: 2 for amounts (1,000.00). */
 const formatNumber = (value, decimals = null) => {
   const n = parseFloat(value);
@@ -58,6 +62,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const itemNameRefs = useRef({});
+  const isSavingRef = useRef(false);
   // Fixed columns - no drag/edit/delete
 
   useEffect(() => {
@@ -96,6 +101,12 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
   const fetchProducts = async () => {
     try {
+      const now = Date.now();
+      if (productsCache && now - productsCacheTime < PRODUCTS_CACHE_TTL_MS) {
+        setProducts(productsCache);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('marketing_products')
         .select('id, product_name, product_code, base_cost_price, custom_price, detailed_specifications')
@@ -103,7 +114,9 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         .order('product_name');
       
       if (error) throw error;
-      setProducts(data || []);
+      productsCache = data || [];
+      productsCacheTime = now;
+      setProducts(productsCache);
     } catch (error) {
       console.error('Error fetching products:', error);
     }
@@ -200,12 +213,12 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
       if (data && data.length > 0) {
         const costingSheet = costingSheetId
-          ? data.find((sheet) => sheet.id === costingSheetId) || data.find((s) => s.costing_data) || data[0]
-          : data.find((s) => s.costing_data) || data[0];
+          ? data.find((sheet) => sheet.id === costingSheetId) || pickCanonicalCostingSheet(data)
+          : pickCanonicalCostingSheet(data);
         
         // Parse stored JSON data
         let parsedData = {};
-        if (costingSheet.costing_data) {
+        if (costingSheet?.costing_data) {
           try {
             parsedData = typeof costingSheet.costing_data === 'string' 
               ? JSON.parse(costingSheet.costing_data) 
@@ -217,7 +230,8 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
         // Restore items and cost heads from stored data
         if (parsedData.items && parsedData.items.length > 0) {
-          const restoredItems = parsedData.items.map(item => {
+          const uniqueItems = dedupeCostingItemsById(parsedData.items);
+          const restoredItems = uniqueItems.map(item => {
             let specification = item.specification || '';
             if (!specification && item.productId && products.length) {
               const product = products.find(p => p.id === item.productId);
@@ -426,7 +440,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
   const addItem = () => {
     const newItem = {
-      id: `item-${Date.now()}`,
+      id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       productId: null,
       productName: '',
       specification: '',
@@ -471,6 +485,10 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   };
 
   const saveCostingSheet = useCallback(async ({ silent = false, quotationId: providedQuotationId = null } = {}) => {
+    if (isSavingRef.current) {
+      return { ok: false, error: new Error('Save already in progress') };
+    }
+    isSavingRef.current = true;
     try {
       if (isViewMode) return { ok: true, skipped: true };
       const targetQuotationId = providedQuotationId || quotationId;
@@ -480,8 +498,10 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       }
       const { data: { user } } = await supabase.auth.getUser();
 
-      const activeItems = filterEmptyCostingItems(items, costingData);
-      const fullCellData = buildFullCostingDataForSave(activeItems, costingData);
+      const dedupedItems = dedupeCostingItemsById(items);
+      const activeItems = filterEmptyCostingItems(dedupedItems, costingData);
+      const prunedCellData = pruneCostingCellData(costingData, activeItems.map((i) => i.id));
+      const fullCellData = buildFullCostingDataForSave(activeItems, prunedCellData);
 
       const grandTotal = activeItems.reduce((sum, item) => {
         return sum + (parseFloat(fullCellData[`${item.id}_grand_total_supply_cost_with_gst`] || 0) || 0);
@@ -515,21 +535,20 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
       const { data: existingSheets, error: checkError } = await supabase
         .from('marketing_costing_sheets')
-        .select('id, costing_data, updated_at')
+        .select('id, costing_data, updated_at, created_at')
         .eq('quotation_id', targetQuotationId)
         .order('updated_at', { ascending: false });
 
       if (checkError) throw checkError;
 
-      const existing =
-        existingSheets?.find((s) => s.costing_data) || existingSheets?.[0] || null;
+      const existing = pickCanonicalCostingSheet(existingSheets || []);
 
-      if (existingSheets && existingSheets.length > 1 && existing) {
-        const duplicateIds = existingSheets
+      if (existingSheets && existingSheets.length > 0 && existing) {
+        const staleIds = existingSheets
           .filter((s) => s.id !== existing.id)
           .map((s) => s.id);
-        if (duplicateIds.length > 0) {
-          await supabase.from('marketing_costing_sheets').delete().in('id', duplicateIds);
+        if (staleIds.length > 0) {
+          await supabase.from('marketing_costing_sheets').delete().in('id', staleIds);
         }
       }
 
@@ -565,6 +584,9 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         if (error) throw error;
       }
 
+      setItems(activeItems);
+      setCostingData(fullCellData);
+
       // Update quotation with amounts from costing sheet
       const { error: quotationError } = await supabase
         .from('marketing_quotations')
@@ -593,6 +615,8 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       console.error('Error saving costing sheet:', error);
       if (!silent) alert('Error saving costing sheet: ' + error.message);
       return { ok: false, error };
+    } finally {
+      isSavingRef.current = false;
     }
   }, [isViewMode, quotationId, items, costingData, products, onSaveSuccess]);
 
@@ -837,7 +861,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                   return (
                     <td
                       key={`${item.id}_${head.id}`}
-                      className={`px-1 py-1 border-r border-gray-400 ${isManualEntry ? 'costing-manual-entry bg-red-50' : 'bg-white'}`}
+                      className={`px-1.5 py-1 border-r border-gray-400 align-middle ${isManualEntry ? 'costing-manual-entry bg-red-50' : 'bg-white'}`}
                     >
                       {head.isCalculated ? (
                         <div className={`text-xs font-semibold text-right whitespace-nowrap ${head.id === 'grand_total_supply_cost_with_gst' ? 'text-green-700' : 'text-gray-800'}`}>
@@ -902,8 +926,8 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                     <span>Add Item</span>
                   </button>
                 </td>
-                {costHeads.map(() => (
-                  <td key={`empty_${Math.random()}`} className="px-1 py-1 border-r border-gray-400 bg-gray-100"></td>
+                {costHeads.map((head) => (
+                  <td key={`add-row-${head.id}`} className="px-1 py-1 border-r border-gray-400 bg-gray-100"></td>
                 ))}
                 <td className="bg-gray-100 border-l border-gray-400"></td>
               </tr>

@@ -276,11 +276,20 @@ const EnquiryMaster = () => {
       const assignedIds = Array.isArray(formData.assigned_to_ids) ? formData.assigned_to_ids.filter(Boolean) : [];
       const assignedNames = Array.isArray(formData.assigned_to_custom_names) ? formData.assigned_to_custom_names.map((n) => (n || '').trim()).filter(Boolean) : [];
 
-      const primaryEmail = (formData.contact_email || '').trim() || null;
+      const primaryFromField = parseCommaSeparatedEmails(formData.contact_email);
+      const primaryEmail = (primaryFromField[0] || '').trim() || null;
+      const secondaryFromPrimary = primaryFromField.slice(1);
       const secondaryFromInput = parseCommaSeparatedEmails(formData.secondary_emails);
-      const secondaryEmails = secondaryFromInput.filter(
-        (email) => email.toLowerCase() !== (primaryEmail || '').toLowerCase()
-      );
+      const secondaryEmails = [...secondaryFromPrimary, ...secondaryFromInput]
+        .map((email) => email.trim())
+        .filter(Boolean)
+        .filter((email, index, arr) => {
+          const lower = email.toLowerCase();
+          return (
+            lower !== (primaryEmail || '').toLowerCase() &&
+            arr.findIndex((e) => e.toLowerCase() === lower) === index
+          );
+        });
 
       const enquiryPayload = {
         enquiry_date: formData.enquiry_date || null,
@@ -1150,11 +1159,11 @@ const EnquiryMaster = () => {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Primary Email</label>
                   <input
-                    type="email"
+                    type="text"
                     value={formData.contact_email}
                     onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Email shown on quotations"
+                    placeholder="Primary email (shown on quotations). Comma-separated: first is primary, rest are secondary."
                   />
                 </div>
 

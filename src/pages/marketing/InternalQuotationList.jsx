@@ -6,7 +6,6 @@ import { Search, Eye, Edit, Trash2, Download } from 'lucide-react';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { exportToExcel } from './utils/excelExport';
 import {
-  calcFinalAmountFromCostingData,
   buildLatestCostingMap,
 } from './utils/marketingQuotationUtils';
 
@@ -39,21 +38,22 @@ const InternalQuotationList = () => {
       if (quotationIds.length > 0) {
         const { data: costingSheets } = await supabase
           .from('marketing_costing_sheets')
-          .select('quotation_id, costing_data, created_at, updated_at')
+          .select('quotation_id, total_price, created_at, updated_at')
           .in('quotation_id', quotationIds)
           .order('updated_at', { ascending: false });
         costingMap = buildLatestCostingMap(costingSheets || []);
       }
 
       const quotationsWithCosting = (quotationsData || []).map((quotation) => {
-        const costingData = costingMap.get(quotation.id) || null;
-        const finalAmount = costingData?.costing_data
-          ? calcFinalAmountFromCostingData(costingData.costing_data)
+        const costingRow = costingMap.get(quotation.id) || null;
+        const sheetTotal = parseFloat(costingRow?.total_price || 0);
+        const finalAmount = sheetTotal > 0
+          ? sheetTotal
           : parseFloat(quotation.final_amount || 0);
 
         return {
           ...quotation,
-          hasCosting: costingData !== null,
+          hasCosting: costingRow !== null,
           finalAmount,
         };
       });

@@ -4,6 +4,10 @@ import { X, Download, Mail } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
 import { sanitizePdfText } from '../utils/pdfTextSanitize';
+import {
+  pickCanonicalCostingSheet,
+  dedupeCostingItemsById,
+} from '../utils/marketingQuotationUtils';
 import jsPDF from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 
@@ -215,8 +219,8 @@ const InternalQuotationFormModal = ({
       if (costingError) throw costingError;
 
       if (costingData && costingData.length > 0) {
-        const firstSheet = costingData.find((s) => s.costing_data) || costingData[0];
-        if (firstSheet.costing_data) {
+        const firstSheet = pickCanonicalCostingSheet(costingData);
+        if (firstSheet?.costing_data) {
           try {
             const parsedData = typeof firstSheet.costing_data === 'string' 
               ? JSON.parse(firstSheet.costing_data) 
@@ -224,7 +228,7 @@ const InternalQuotationFormModal = ({
             
             setCostingData(parsedData);
             if (parsedData.items && Array.isArray(parsedData.items)) {
-              setCostingTableItems(parsedData.items);
+              setCostingTableItems(dedupeCostingItemsById(parsedData.items));
             }
             if (parsedData.costHeads && Array.isArray(parsedData.costHeads)) {
               setCostingTableHeads(parsedData.costHeads);
@@ -1038,14 +1042,14 @@ const InternalQuotationFormModal = ({
         });
       } else {
         // Fallback
-        const rateFormatted = `₹${finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        const totalFormatted = `₹${finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const rateFormatted = `Rs. ${finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const totalFormatted = `Rs. ${finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         body += `1\tTotal Amount\t-\t${rateFormatted}\t${totalFormatted}\n`;
       }
       
       // Total row
       body += `─────────────────────────────────────────────────────────────────────────────────────────\n`;
-      const grandTotalFormatted = `₹${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const grandTotalFormatted = `Rs. ${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       body += `\tTotal Amount\t\t\t${grandTotalFormatted}\n\n`;
 
       // Terms and Conditions - Format: Lettered list (a), b), c), d))
@@ -1143,7 +1147,7 @@ const InternalQuotationFormModal = ({
       client.country,
     ].filter(Boolean);
     addrParts.forEach((part) => {
-      doc.text(part, marginLeft, yPos);
+      doc.text(sanitizePdfText(part), marginLeft, yPos);
       yPos += 4;
     });
     yPos += sectionGap;
@@ -1151,7 +1155,7 @@ const InternalQuotationFormModal = ({
     if (formData.subject_title) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
-      doc.text(`Subject: ${formData.subject_title}`, marginLeft, yPos);
+      doc.text(`Subject: ${sanitizePdfText(formData.subject_title)}`, marginLeft, yPos);
       doc.setFont('helvetica', 'normal');
       yPos += sectionGap;
     }
@@ -1173,11 +1177,13 @@ const InternalQuotationFormModal = ({
     doc.setFont('helvetica', 'normal');
     yPos += sectionGap;
 
-    const formatNum = (num) =>
-      `₹${parseFloat(num || 0).toLocaleString('en-IN', {
+    const formatNum = (num) => {
+      const formatted = parseFloat(num || 0).toLocaleString('en-IN', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-      })}`;
+      });
+      return `Rs. ${formatted}`;
+    };
 
     // Prepare table data: Item Name, Specification, Quotation Rate Per Unit, Grand Total (Excl GST), GST %, GST Amount, Grand Total With GST
     const tableData = [];
@@ -1354,7 +1360,7 @@ const InternalQuotationFormModal = ({
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.text(formData.signed_by || 'Authorized Signatory', marginLeft, yPos);
+    doc.text(sanitizePdfText(formData.signed_by || 'Authorized Signatory'), marginLeft, yPos);
     yPos += 4;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
