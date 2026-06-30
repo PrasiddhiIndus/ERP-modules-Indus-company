@@ -22,8 +22,9 @@ import {
   resetSupabaseSessionHydration,
   directSignInWithPassword,
   isCachedAccessTokenExpired,
+  hydrateSupabaseAuthFromCache,
 } from "../lib/authSessionUtils";
-import { getAccessibleModules } from "../config/roles";
+import { getAccessibleModules, normalizeAppRole, ROLES } from "../config/roles";
 
 /** Build role/profile from auth user metadata — used for immediate post-login navigation. */
 function buildAuthProfile(authUser) {
@@ -43,7 +44,7 @@ function buildAuthProfile(authUser) {
   return {
     username: meta.username || meta.full_name || email.split('@')[0] || 'User',
     team: meta.team ?? null,
-    role: forcedRole || meta.role || null,
+    role: normalizeAppRole(forcedRole || meta.role || null),
     allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
   };
 }
@@ -122,6 +123,15 @@ export const AuthProvider = ({ children }) => {
         const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]);
         if (error) {
           if (isInvalidRefreshTokenError(error.message)) {
+            // Keep direct-REST sessions when localStorage JWT is still valid.
+            if (readCachedAccessToken() && !isCachedAccessTokenExpired()) {
+              const cachedUser = readCachedSessionUser();
+              if (cachedUser?.id) {
+                userRef.current = cachedUser.id;
+                setUser((prev) => prev ?? cachedUser);
+                return;
+              }
+            }
             clearSupabaseAuthStorage();
             userRef.current = null;
             setUser(null);
@@ -142,6 +152,18 @@ export const AuthProvider = ({ children }) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
+        // directSignInWithPassword persists JWT in localStorage before supabase-js hydrates;
+        // ignore spurious SIGNED_OUT while a valid cached session still exists.
+        const token = readCachedAccessToken();
+        if (token && !isCachedAccessTokenExpired()) {
+          const cachedUser = readCachedSessionUser();
+          if (cachedUser?.id) {
+            userRef.current = cachedUser.id;
+            setUser(cachedUser);
+            setProfileRow(readCachedProfileRow(cachedUser.id));
+            return;
+          }
+        }
         userRef.current = null;
         setUser(null);
         setProfileRow(null);
@@ -490,6 +512,17 @@ export const AuthProvider = ({ children }) => {
       setUser(authUser);
       markSupabaseSessionHydrated();
 
+      // Sync supabase-js in-memory session (best-effort, capped) so auto-refresh does not
+      // emit SIGNED_OUT and wipe the user before ProtectedRoute renders.
+      try {
+        await Promise.race([
+          hydrateSupabaseAuthFromCache(supabase),
+          new Promise((resolve) => setTimeout(() => resolve(false), 4000)),
+        ]);
+      } catch {
+        /* REST login session in localStorage is still valid */
+      }
+
       const quickProfile = buildAuthProfile(authUser);
 
       profileSyncStarted = true;
@@ -577,9 +610,9 @@ export const AuthProvider = ({ children }) => {
       : (superAdminEmails.includes(email) ? 'super_admin' : null);
 
     if (profileRow) {
-      const dbRole = profileRow.role ?? null;
+      const dbRole = normalizeAppRole(profileRow.role);
       const effectiveRole =
-        forcedSuperRole && dbRole !== 'super_admin' && dbRole !== 'super_admin_pro'
+        forcedSuperRole && dbRole !== ROLES.SUPER_ADMIN && dbRole !== ROLES.SUPER_ADMIN_PRO
           ? forcedSuperRole
           : (dbRole ?? forcedSuperRole);
       return {
