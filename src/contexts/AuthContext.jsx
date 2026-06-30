@@ -18,9 +18,8 @@ import {
   readCachedProfileRow,
   writeCachedProfileRow,
   clearCachedProfileRow,
-  hydrateSupabaseAuthFromCache,
-  ensureSupabaseSessionHydrated,
   markSupabaseSessionHydrated,
+  resetSupabaseSessionHydration,
   isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
@@ -113,9 +112,14 @@ export const AuthProvider = ({ children }) => {
     };
 
     const refreshSessionInBackground = async () => {
+      if (typeof window !== 'undefined' && window.location.pathname === '/') return;
       if (!readCachedAccessToken() || isCachedAccessTokenExpired()) return;
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('getSession timed out')), 8000);
+        });
+        const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]);
         if (error) {
           if (isInvalidRefreshTokenError(error.message)) {
             clearSupabaseAuthStorage();
@@ -386,24 +390,17 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    void ensureSupabaseSessionHydrated(supabase);
-  }, []);
-
-  useEffect(() => {
     if (!user?.id) {
       setProfileRow(null);
       clearCachedProfileRow();
       setProfileLoading(false);
       return;
     }
-    void (async () => {
-      await ensureSupabaseSessionHydrated(supabase);
-      if (signInProfileSyncRef.current) return;
-      profileSyncAttemptedRef.current = user.id;
-      const token = readCachedAccessToken();
-      if (!token) return;
-      syncProfileInBackground(token, user.id, user);
-    })();
+    if (signInProfileSyncRef.current) return;
+    profileSyncAttemptedRef.current = user.id;
+    const token = readCachedAccessToken();
+    if (!token) return;
+    syncProfileInBackground(token, user.id, user);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -458,6 +455,7 @@ export const AuthProvider = ({ children }) => {
 
   const signIn = async (email, password) => {
     const normEmail = String(email || "").trim().toLowerCase();
+    resetSupabaseSessionHydration();
     signInProfileSyncRef.current = true;
     setLoading(true);
     let profileSyncStarted = false;
@@ -496,10 +494,7 @@ export const AuthProvider = ({ children }) => {
       userRef.current = authUser.id;
       setUser(authUser);
 
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token ?? '',
-      });
+      // signInWithPassword already wrote session to localStorage — do not await setSession (blocks login).
       markSupabaseSessionHydrated();
 
       const quickProfile = buildAuthProfile(authUser);

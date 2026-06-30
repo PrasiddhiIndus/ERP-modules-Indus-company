@@ -32,9 +32,11 @@ export function readCachedAuthSession() {
   }
 }
 
+const HYDRATE_SESSION_TIMEOUT_MS = 8000;
+
 /**
- * Restore Supabase client JWT from localStorage so module queries hit DB as authenticated
- * immediately on refresh (without waiting on getSession network refresh).
+ * Restore Supabase client JWT from localStorage (optional — REST uses applyCachedUserAuthHeader).
+ * Never call this before signInWithPassword; it can block login via the auth lock.
  */
 export async function hydrateSupabaseAuthFromCache(supabaseClient) {
   if (typeof window === 'undefined') return false;
@@ -43,10 +45,14 @@ export async function hydrateSupabaseAuthFromCache(supabaseClient) {
   const session = readCachedAuthSession();
   if (!session?.access_token) return false;
   try {
-    const { data, error } = await supabaseClient.auth.setSession({
+    const setSessionPromise = supabaseClient.auth.setSession({
       access_token: session.access_token,
       refresh_token: session.refresh_token ?? '',
     });
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Session hydrate timed out')), HYDRATE_SESSION_TIMEOUT_MS);
+    });
+    const { data, error } = await Promise.race([setSessionPromise, timeoutPromise]);
     if (error) {
       if (isInvalidRefreshTokenError(error.message)) {
         clearSupabaseAuthStorage();
@@ -72,8 +78,8 @@ export function markSupabaseSessionHydrated() {
 }
 
 /**
- * Ensure module REST/storage requests use the user JWT (not anon) before hitting production DB.
- * Shared across all modules — marketing, commercial, admin, fire tender, finance.
+ * Background session sync — do NOT use in customFetch (blocks login).
+ * Prefer readCachedAccessToken + Authorization header on REST calls.
  */
 export function ensureSupabaseSessionHydrated(supabaseClient) {
   if (typeof window === 'undefined') return Promise.resolve(false);
@@ -81,7 +87,11 @@ export function ensureSupabaseSessionHydrated(supabaseClient) {
     return Promise.resolve(false);
   }
   if (!sessionHydratePromise) {
-    sessionHydratePromise = hydrateSupabaseAuthFromCache(supabaseClient).catch(() => false);
+    sessionHydratePromise = hydrateSupabaseAuthFromCache(supabaseClient)
+      .catch(() => false)
+      .finally(() => {
+        sessionHydratePromise = null;
+      });
   }
   return sessionHydratePromise;
 }
