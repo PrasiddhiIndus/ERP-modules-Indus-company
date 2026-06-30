@@ -34,11 +34,16 @@ SELECT
     split_part(u.email, '@', 1)
   ),
   u.raw_user_meta_data->>'team',
-  COALESCE(u.raw_user_meta_data->>'role', 'executive'),
+  COALESCE(NULLIF(u.raw_user_meta_data->>'role', ''), 'executive'),
   COALESCE(u.raw_user_meta_data->'allowed_modules', '[]'::jsonb)
 FROM auth.users u
 WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id)
 ON CONFLICT (id) DO NOTHING;
+
+-- Step 2b: Ensure authenticated role can read/write core ERP tables (RLS still applies per policy)
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 
 -- Step 3: List users still missing profiles (should be 0 rows)
 SELECT u.id, u.email, u.email_confirmed_at IS NOT NULL AS email_confirmed

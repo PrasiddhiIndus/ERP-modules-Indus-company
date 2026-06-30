@@ -18,6 +18,7 @@ import {
   readCachedProfileRow,
   writeCachedProfileRow,
   clearCachedProfileRow,
+  hydrateSupabaseAuthFromCache,
   isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
@@ -40,13 +41,14 @@ function buildAuthProfile(authUser) {
   return {
     username: meta.username || meta.full_name || email.split('@')[0] || 'User',
     team: meta.team ?? null,
-    role: forcedRole || meta.role || 'executive',
+    role: forcedRole || meta.role || null,
     allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
   };
 }
 
 const SIGN_IN_TIMEOUT_MS = 20000;
-const PROFILE_FETCH_TIMEOUT_MS = 12000;
+const PROFILE_FETCH_TIMEOUT_MS = 20000;
+const PROFILE_SYNC_RETRIES = 3;
 
 function withTimeout(promise, ms, label = 'Request') {
   return Promise.race([
@@ -368,8 +370,22 @@ export const AuthProvider = ({ children }) => {
 
   const syncProfileInBackground = (accessToken, userId, authUser = null) => {
     if (!userId || !accessToken) return;
-    void fetchProfileViaLoginCheck(accessToken, userId, authUser, { background: true });
+    void (async () => {
+      for (let attempt = 1; attempt <= PROFILE_SYNC_RETRIES; attempt += 1) {
+        const result = await fetchProfileViaLoginCheck(accessToken, userId, authUser, {
+          background: true,
+        });
+        if (result.ok) return;
+        if (attempt < PROFILE_SYNC_RETRIES) {
+          await new Promise((r) => setTimeout(r, 400 * attempt));
+        }
+      }
+    })();
   };
+
+  useEffect(() => {
+    void hydrateSupabaseAuthFromCache(supabase);
+  }, []);
 
   useEffect(() => {
     if (!user?.id) {
@@ -378,11 +394,14 @@ export const AuthProvider = ({ children }) => {
       setProfileLoading(false);
       return;
     }
-    if (signInProfileSyncRef.current) return;
-    profileSyncAttemptedRef.current = user.id;
-    const token = readCachedAccessToken();
-    if (!token) return;
-    syncProfileInBackground(token, user.id, user);
+    void (async () => {
+      await hydrateSupabaseAuthFromCache(supabase);
+      if (signInProfileSyncRef.current) return;
+      profileSyncAttemptedRef.current = user.id;
+      const token = readCachedAccessToken();
+      if (!token) return;
+      syncProfileInBackground(token, user.id, user);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -474,6 +493,11 @@ export const AuthProvider = ({ children }) => {
       profileSyncAttemptedRef.current = authUser.id;
       userRef.current = authUser.id;
       setUser(authUser);
+
+      await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token ?? '',
+      });
 
       const quickProfile = buildAuthProfile(authUser);
 

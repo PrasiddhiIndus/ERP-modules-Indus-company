@@ -10,13 +10,52 @@ export const SUPABASE_AUTH_STORAGE_KEY = 'supabase.auth.token';
 /** Read cached access token without a network round-trip. */
 export function readCachedAccessToken() {
   try {
-    const raw = localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const session = parsed?.currentSession ?? parsed?.session ?? parsed;
+    const session = readCachedAuthSession();
     return session?.access_token ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Full cached session object from localStorage (no network). */
+export function readCachedAuthSession() {
+  try {
+    const raw = localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const session = parsed?.currentSession ?? parsed?.session ?? null;
+    if (session?.access_token) return session;
+    if (parsed?.access_token) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Restore Supabase client JWT from localStorage so module queries hit DB as authenticated
+ * immediately on refresh (without waiting on getSession network refresh).
+ */
+export async function hydrateSupabaseAuthFromCache(supabaseClient) {
+  if (typeof window === 'undefined') return false;
+  if (clearSessionIfSupabaseProjectMismatch()) return false;
+  if (isCachedAccessTokenExpired()) return false;
+  const session = readCachedAuthSession();
+  if (!session?.access_token) return false;
+  try {
+    const { data, error } = await supabaseClient.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token ?? '',
+    });
+    if (error) {
+      if (isInvalidRefreshTokenError(error.message)) {
+        clearSupabaseAuthStorage();
+      }
+      return false;
+    }
+    return Boolean(data?.session?.access_token);
+  } catch {
+    return false;
   }
 }
 
@@ -83,10 +122,7 @@ export function isAuthCredentialError(message) {
 /** Read cached session user from localStorage without a network round-trip. */
 export function readCachedSessionUser() {
   try {
-    const raw = localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const session = parsed?.currentSession ?? parsed?.session ?? parsed;
+    const session = readCachedAuthSession();
     return session?.user ?? null;
   } catch {
     return null;
