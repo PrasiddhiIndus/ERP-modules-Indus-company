@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { getAccessibleModules, getLoginRedirectPath } from '../config/roles'
+import { getAccessibleModules, getLoginRedirectPath, normalizeAccessProfile } from '../config/roles'
 import { isStagingSupabaseProject } from '../lib/stagingProject'
 import { supabase, invokeAuthenticatedFunction } from '../lib/supabase'
 import { writeCachedProfileRow, markSupabaseSessionHydrated, clearSupabaseAuthStorage, isCachedAccessTokenExpired } from '../lib/authSessionUtils'
@@ -113,6 +113,52 @@ const Login = () => {
     return true
   }
 
+  const buildLoginProfile = (session, quickProfile) => {
+    const meta = session?.user?.user_metadata || {}
+    const row = quickProfile
+    return normalizeAccessProfile({
+      role: row?.role ?? meta.role ?? null,
+      team: row?.team ?? meta.team ?? null,
+      allowed_modules: Array.isArray(row?.allowed_modules)
+        ? row.allowed_modules
+        : (Array.isArray(meta.allowed_modules) ? meta.allowed_modules : []),
+    })
+  }
+
+  const resolveProfileAfterLogin = async (session, quickProfile) => {
+    const fallback = buildLoginProfile(session, quickProfile)
+    if (!session?.access_token) return fallback
+    try {
+      const { data: chk } = await invokeAuthenticatedFunction(
+        'login-check',
+        { body: {} },
+        session.access_token
+      )
+      if (chk?.ok && chk?.profile) {
+        writeCachedProfileRow(chk.profile)
+        return normalizeAccessProfile({
+          role: chk.profile.role,
+          team: chk.profile.team ?? null,
+          allowed_modules: chk.profile.allowed_modules,
+        })
+      }
+    } catch {
+      /* use fallback from auth metadata / quick profile */
+    }
+    if (session?.user?.id) {
+      const meta = session.user.user_metadata || {}
+      writeCachedProfileRow({
+        id: session.user.id,
+        email: session.user.email,
+        username: meta.username || meta.full_name || session.user.email?.split('@')[0],
+        team: fallback.team,
+        role: fallback.role,
+        allowed_modules: fallback.allowed_modules,
+      })
+    }
+    return fallback
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -120,7 +166,7 @@ const Login = () => {
     setShowVerifyCode(false)
     setOtpSendStatus('idle')
     try {
-    const { data, error: signInError } = await signIn(email.trim(), password)
+    const { data, error: signInError, profile: quickProfile } = await signIn(email.trim(), password)
     if (signInError) {
       if (isEmailNotConfirmedError(signInError)) {
         setShowVerifyCode(true)
@@ -138,17 +184,12 @@ const Login = () => {
         setError(signInError.message || 'Sign in failed. Check email, password, and that your account exists in User Management.')
       }
     } else if (data?.session) {
-      const row = data.profile
-      const meta = data.user?.user_metadata || {}
-      const profile = {
-        role: row?.role ?? meta.role ?? 'executive',
-        team: row?.team ?? meta.team ?? null,
-        allowed_modules: Array.isArray(row?.allowed_modules)
-          ? row.allowed_modules
-          : (Array.isArray(meta.allowed_modules) ? meta.allowed_modules : []),
-      }
-      const mods = getAccessibleModules(profile)
-      navigate(getLoginRedirectPath(profile, mods))
+      const quick = buildLoginProfile(data.session, quickProfile)
+      const mods = getAccessibleModules(quick)
+      const path = getLoginRedirectPath(quick, mods)
+      navigate(path, { replace: true })
+      // Profile sync must not block navigation — login-check can hang or race with auth hydrate.
+      void resolveProfileAfterLogin(data.session, quickProfile)
     } else {
       setError('Sign in did not return a session. Confirm email in Supabase Authentication or contact admin.')
     }
@@ -178,33 +219,10 @@ const Login = () => {
     }
     if (data?.session) {
       markSupabaseSessionHydrated()
-      const { data: chk } = await invokeAuthenticatedFunction(
-        'login-check',
-        { body: {} },
-        data.session.access_token
-      )
-      let profile
-      if (chk?.ok && chk?.profile) {
-        profile = {
-          role: chk.profile.role ?? 'executive',
-          team: chk.profile.team ?? null,
-          allowed_modules: Array.isArray(chk.profile.allowed_modules)
-            ? chk.profile.allowed_modules
-            : [],
-        }
-        writeCachedProfileRow(chk.profile)
-      } else {
-        const u = data.user
-        profile = {
-          role: u?.user_metadata?.role ?? 'executive',
-          team: u?.user_metadata?.team ?? null,
-          allowed_modules: Array.isArray(u?.user_metadata?.allowed_modules)
-            ? u.user_metadata.allowed_modules
-            : [],
-        }
-      }
-      const mods = getAccessibleModules(profile)
-      navigate(getLoginRedirectPath(profile, mods))
+      const quick = buildLoginProfile(data.session, null)
+      const mods = getAccessibleModules(quick)
+      navigate(getLoginRedirectPath(quick, mods), { replace: true })
+      void resolveProfileAfterLogin(data.session, null)
     }
     setLoading(false)
   }
