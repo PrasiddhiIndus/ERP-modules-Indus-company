@@ -1692,6 +1692,8 @@ export function EmployeeAttendanceDailyPage() {
             frozenColumnCount={4}
             frozenColumnWidths={[96, 116, 220, 140]}
             serialOffset={(currentPage - 1) * pageSize}
+            stickyHeader
+            scrollMaxHeight="calc(100dvh - 22rem)"
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-600">
             <span>

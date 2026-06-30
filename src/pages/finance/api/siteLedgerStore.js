@@ -322,6 +322,9 @@ function buildRecords(raw, childById, revById) {
         if (code) records[key][code] = Number(l.amount);
       });
     const meta = parsePeriodMeta(pe.notes);
+    if (meta.audit?.updatedAt) {
+      records[key]._audit = meta.audit;
+    }
     if (Array.isArray(meta.reimbursements) && meta.reimbursements.length) {
       records[key].reimbursements = meta.reimbursements;
     } else if (meta.reimbursementType) {
@@ -398,7 +401,7 @@ async function syncParents(parents) {
     out[p.key] = data.id;
   }
 
-  const fallbackParentId = out.admin || Object.values(out)[0];
+  const fallbackParentId = out.adminMisc || out.admin || Object.values(out)[0];
   for (const row of existing) {
     if (!keep.has(row.code)) {
       await removeParentHeadRow(row, fallbackParentId);
@@ -625,6 +628,10 @@ export function mergePeriodEntry(base, patch) {
       else delete merged.esicBill;
       continue;
     }
+    if (k === "_audit") {
+      if (v && typeof v === "object" && v.updatedAt) merged._audit = v;
+      continue;
+    }
     if (typeof v === "number") {
       if (Number(v)) merged[k] = Number(v);
       else delete merged[k];
@@ -645,6 +652,7 @@ function periodEntryNotesFromRecord(rec) {
   }
   const remark = rec?.creditNoteRemark != null ? String(rec.creditNoteRemark).trim() : "";
   if (remark) meta.creditNoteRemark = remark;
+  if (rec?._audit?.updatedAt) meta.audit = rec._audit;
   return Object.keys(meta).length ? JSON.stringify(meta) : null;
 }
 
@@ -672,6 +680,7 @@ async function syncOnePeriodRecord(siteUuid, periodKey, rec, childIdByCode, revI
       code === "reimbursements" ||
       code === "reimbursementOtherLabel" ||
       code === "creditNoteRemark" ||
+      code === "_audit" ||
       typeof amount !== "number"
     ) {
       continue;
