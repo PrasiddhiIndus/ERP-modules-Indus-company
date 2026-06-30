@@ -13,7 +13,9 @@ import {
   isAuthCredentialError,
   isInvalidRefreshTokenError,
   isTransientAuthError,
+  readCachedAccessToken,
   readCachedSessionUser,
+  isCachedAccessTokenExpired,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules } from "../config/roles";
 import PageLoader from "../components/PageLoader";
@@ -42,89 +44,72 @@ export const AuthProvider = ({ children }) => {
       if (newUserId && useProfilesTable) setProfileLoading(true);
     };
 
-    const SESSION_READ_TIMEOUT_MS = 15000;
-
-    const getSession = async () => {
+    const hydrateSession = async () => {
       try {
         if (clearSessionIfSupabaseProjectMismatch()) {
           userRef.current = null;
           setUser(null);
           setProfileRow(null);
           profileSyncAttemptedRef.current = null;
+          return;
         }
 
-        const sessionResult = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise((_, reject) => {
-            setTimeout(
-              () => reject(new Error('Session read timed out — using cached session if available')),
-              SESSION_READ_TIMEOUT_MS
-            );
-          }),
-        ]);
+        const cachedUser = readCachedSessionUser();
+        const hasStoredSession = !!readCachedAccessToken();
 
-        const {
-          data: { session },
-          error,
-        } = sessionResult;
-
-        if (error) {
-          if (isInvalidRefreshTokenError(error.message)) {
-            console.warn('Invalid refresh token detected, clearing session...');
-            try {
-              await supabase.auth.signOut();
-            } catch {
-              /* ignore */
-            }
-            clearSupabaseAuthStorage();
-            userRef.current = null;
-            setUser(null);
-          } else if (isTransientAuthError(error.message)) {
-            console.warn('Transient error reading session, keeping cached session:', error.message);
-            applySessionUser(session?.user ?? readCachedSessionUser());
-          } else {
-            console.error('Error getting session:', error);
-            const cachedUser = session?.user ?? readCachedSessionUser();
-            if (cachedUser) {
-              applySessionUser(cachedUser);
-            } else {
-              userRef.current = null;
-              setUser(null);
-            }
-          }
-        } else {
-          applySessionUser(session?.user ?? null);
+        // No stored session — show login immediately (no network call).
+        if (!hasStoredSession) {
+          userRef.current = null;
+          setUser(null);
+          return;
         }
-      } catch (error) {
-        console.error('Error getting session:', error);
-        if (isInvalidRefreshTokenError(error.message)) {
-          try {
-            await supabase.auth.signOut();
-          } catch {
-            /* ignore */
-          }
+
+        // Expired cached JWT — clear stale refresh token (avoids hung getSession on production).
+        if (isCachedAccessTokenExpired()) {
+          console.warn('Cached session expired; clearing stored auth.');
           clearSupabaseAuthStorage();
           userRef.current = null;
           setUser(null);
-        } else {
-          const cachedUser = readCachedSessionUser();
-          if (cachedUser) {
-            console.warn('Using cached session after session read failure:', error.message);
-            applySessionUser(cachedUser);
-          } else if (String(error?.message || '').includes('timed out')) {
+          return;
+        }
+
+        // Valid cached session — restore user immediately, refresh in background.
+        if (cachedUser) {
+          applySessionUser(cachedUser);
+        }
+
+        try {
+          const { data: { session }, error } = await supabase.auth.getSession();
+          if (error) {
+            if (isInvalidRefreshTokenError(error.message)) {
+              clearSupabaseAuthStorage();
+              userRef.current = null;
+              setUser(null);
+            } else if (isTransientAuthError(error.message)) {
+              applySessionUser(session?.user ?? cachedUser);
+            } else if (!cachedUser) {
+              userRef.current = null;
+              setUser(null);
+            }
+          } else if (session?.user) {
+            applySessionUser(session.user);
+          }
+        } catch (error) {
+          if (isInvalidRefreshTokenError(error?.message)) {
             clearSupabaseAuthStorage();
             userRef.current = null;
             setUser(null);
-          } else {
+          } else if (!cachedUser) {
             userRef.current = null;
             setUser(null);
           }
+          // Keep cached user on transient/timeout errors — login still works.
         }
       } finally {
         setLoading(false);
       }
     };
-    getSession();
+    hydrateSession();
 
     const {
       data: { subscription },
@@ -263,11 +248,9 @@ export const AuthProvider = ({ children }) => {
           msg === "Invalid token" ||
           msg.includes("Missing Authorization") ||
           msg === "Not signed in";
-        if (retryable) {
+        if (retryable && accessToken) {
           await new Promise((r) => setTimeout(r, 300));
-          const { data: sess } = await supabase.auth.getSession();
-          const retryToken = accessToken || sess?.session?.access_token;
-          ({ data, error } = await run(retryToken));
+          ({ data, error } = await run(accessToken));
         }
         if (error) {
           const tableFallback = await fetchProfileFromTable(uid);
@@ -301,8 +284,7 @@ export const AuthProvider = ({ children }) => {
     if (profileSyncAttemptedRef.current === user.id) return;
     profileSyncAttemptedRef.current = user.id;
     void (async () => {
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess?.session?.access_token;
+      const token = readCachedAccessToken();
       if (!token) return;
       await new Promise((r) => setTimeout(r, 150));
       await fetchProfileViaLoginCheck(token, user.id);
@@ -368,10 +350,17 @@ export const AuthProvider = ({ children }) => {
         password,
       });
       if (result?.error) {
+        const msg = result.error.message || '';
+        if (isTransientAuthError(msg) || msg.toLowerCase().includes('abort')) {
+          return {
+            data: { session: null, user: null },
+            error: {
+              message:
+                'Login timed out or network failed. Check internet/VPN, confirm Supabase production project is active, then try again.',
+            },
+          };
+        }
         return result;
-      }
-      if (result?.data?.session) {
-        await supabase.auth.setSession(result.data.session);
       }
       if (result?.data?.user?.id) {
         const authUser = result.data.user;
@@ -403,10 +392,14 @@ export const AuthProvider = ({ children }) => {
       return result;
     } catch (err) {
       const msg = err?.message || String(err);
-      const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError');
+      const isNetwork = msg.includes('Failed to fetch') || msg.includes('Cannot reach Supabase') || msg.includes('timed out') || msg.includes('NetworkError') || msg.includes('abort');
       return {
         data: { session: null, user: null },
-        error: { message: isNetwork ? 'Cannot reach Supabase. Check .env, restart dev server (npm run dev), and firewall/network.' : msg },
+        error: {
+          message: isNetwork
+            ? 'Cannot reach Supabase. Check internet/VPN, confirm the production project is active in Supabase Dashboard, then try again.'
+            : msg,
+        },
       };
     } finally {
       signInProfileSyncRef.current = false;

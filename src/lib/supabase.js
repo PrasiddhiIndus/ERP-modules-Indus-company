@@ -29,6 +29,7 @@ if (!isConfigured) {
 // Custom fetch: optional timeout when Supabase does not pass its own signal, plus clearer network errors.
 // Avoid AbortSignal.any — combining signals broke some saves/updates with supabase-js.
 const FETCH_TIMEOUT_MS = 20000
+const AUTH_FETCH_TIMEOUT_MS = 25000
 const baseFetch = fetch
 const useStrictSupabaseHealthCheck =
   import.meta.env.VITE_STRICT_SUPABASE_HEALTH_CHECK === 'true' ||
@@ -460,26 +461,20 @@ function isTimeoutError(err) {
 }
 
 /**
- * When `options.signal` is absent, apply a timeout. When present, use Supabase’s signal as-is
- * (do not merge — merging caused flaky PATCH/POST to rest/v1).
- * Auth endpoints are excluded — cutting off token refresh causes spurious sign-outs.
+ * When `options.signal` is absent, apply a timeout. Auth calls (login, refresh, user)
+ * also time out so production never hangs forever on a stuck token refresh.
  */
 function resolveFetchSignal(options, url) {
   if (options.signal) {
     return { signal: options.signal, clearTimer: () => {} }
   }
   const urlStr = String(url)
-  // Token refresh must not be aborted mid-flight; lightweight health checks should still time out.
-  const isAuthRefreshLike =
-    urlStr.includes('/auth/v1/') && !urlStr.includes('/auth/v1/health')
-  if (isAuthRefreshLike) {
-    return { signal: undefined, clearTimer: () => {} }
-  }
+  const timeoutMs = urlStr.includes('/auth/v1/') ? AUTH_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), clearTimer: () => {} }
+    return { signal: AbortSignal.timeout(timeoutMs), clearTimer: () => {} }
   }
   const c = new AbortController()
-  const tid = setTimeout(() => c.abort(), FETCH_TIMEOUT_MS)
+  const tid = setTimeout(() => c.abort(), timeoutMs)
   return {
     signal: c.signal,
     clearTimer: () => clearTimeout(tid),
