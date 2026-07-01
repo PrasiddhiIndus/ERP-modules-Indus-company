@@ -3,9 +3,16 @@ import { supabase } from "../../../lib/supabase";
 import {
   VERTICAL_OPTIONS,
   MODE_OF_SUBMISSION_OPTIONS,
+  SOURCE_TYPE_OPTIONS,
+  INDUSTRY_OPTIONS,
+  WORKING_HOURS_OPTIONS,
+  ENQUIRY_SUBTYPE_OPTIONS,
+  SERVICE_CATEGORY_OPTIONS,
+  CONTRACT_DURATION_UNITS,
+  INDIA_STATES_UT,
   parseAuthorizationMeta,
   buildInquiryDbPayload,
-  excelFieldsToForm,
+  inquiryRowToForm,
   getNextSrNo,
   getNextEnquiryNumber,
 } from "../utils/manpowerEnquiryExcelFields";
@@ -15,12 +22,35 @@ import {
 } from "../utils/commercialInquiryAssignees";
 
 const emptyForm = {
+  enquiryNumber: "",
+  enquiryDate: new Date().toISOString().split("T")[0],
+  receivedBy: "",
+  sourceType: "Direct Mail",
+  clientName: "",
+  contactPersonName: "",
+  contactPersonDesignation: "",
+  contactPersonPhone: "",
+  contactPersonEmail: "",
+  siteState: "",
+  siteCity: "",
+  siteName: "",
+  industrySector: "",
+  serviceCategory: "",
+  enquirySubType: "Regular",
+  scopeInputType: "Text",
+  scopeOfWork: "",
+  scopeAttachment: null,
+  contractDurationValue: "",
+  contractDurationUnit: "Months",
+  workingHoursShift: "",
+  applicableStateMw: "",
+  minWageEffectiveDate: "",
+  submissionBidDeadline: "",
   srNo: "",
   receivedDate: new Date().toISOString().split("T")[0],
   vertical: "",
   modeOfSubmission: "",
   totalManpower: "",
-  clientName: "",
   location: "",
   descriptionOfWork: "",
   approxValue: "",
@@ -37,6 +67,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [assignedToOptions, setAssignedToOptions] = useState([]);
   const [srNoLoading, setSrNoLoading] = useState(false);
   const defaultAssigneeRef = useRef("");
+  const existingDocumentsPathRef = useRef("");
+  const existingEnquiryNumberRef = useRef("");
 
   const initNewForm = useCallback(async () => {
     setSrNoLoading(true);
@@ -48,18 +80,25 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     } finally {
       setSrNoLoading(false);
     }
+    const today = new Date().toISOString().split("T")[0];
     setFormData({
       ...emptyForm,
-      receivedDate: new Date().toISOString().split("T")[0],
+      enquiryDate: today,
+      receivedDate: today,
+      receivedBy: defaultAssigneeRef.current || "",
       enquiryAssignedTo: defaultAssigneeRef.current || "",
       srNo: nextSrNo,
     });
+    existingDocumentsPathRef.current = "";
+    existingEnquiryNumberRef.current = "";
   }, []);
 
   useEffect(() => {
     const loadCommercialEmployees = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         const options = await fetchCommercialAssigneeOptions(supabase);
 
         if (user?.email) {
@@ -70,6 +109,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         setAssignedToOptions(options);
         setFormData((prev) => ({
           ...prev,
+          receivedBy: prev.receivedBy || defaultAssigneeRef.current || "",
           enquiryAssignedTo: prev.enquiryAssignedTo || defaultAssigneeRef.current || "",
         }));
       } catch (err) {
@@ -93,27 +133,69 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         return;
       }
       if (!data) return;
-      const nextForm = excelFieldsToForm(data);
+      const nextForm = inquiryRowToForm(data);
+      existingDocumentsPathRef.current = data.documents || "";
+      existingEnquiryNumberRef.current = data.enquiry_number || "";
       setFormData(nextForm);
-      setAssignedToOptions((prev) => mergeAssignedToOptions(prev, nextForm.enquiryAssignedTo));
+      setAssignedToOptions((prev) =>
+        mergeAssignedToOptions(mergeAssignedToOptions(prev, nextForm.receivedBy), nextForm.enquiryAssignedTo)
+      );
     };
 
     fetchEnquiry();
   }, [enquiryId, initNewForm]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, files, type } = e.target;
+    if (files) {
+      setFormData((prev) => ({ ...prev, [name]: files[0] || null }));
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async () => {
     if (submitting) return;
-    if (!String(formData.clientName || "").trim()) {
-      alert("Please enter Client Name.");
+
+    const required = [
+      ["enquiryDate", "Enquiry Date"],
+      ["receivedBy", "Received By"],
+      ["sourceType", "Source Type"],
+      ["clientName", "Client Name"],
+      ["contactPersonName", "Client Contact Person (Name)"],
+      ["siteName", "Site / Project Location (Site Name)"],
+      ["siteState", "Site / Project Location (State)"],
+      ["siteCity", "Site / Project Location (City)"],
+      ["industrySector", "Industry / Sector"],
+      ["serviceCategory", "Service Category"],
+      ["enquirySubType", "Enquiry Sub-type"],
+      ["contractDurationValue", "Contract Duration"],
+      ["workingHoursShift", "Working Hours / Shift"],
+      ["applicableStateMw", "Applicable State (for MW)"],
+      ["minWageEffectiveDate", "Min Wage Effective Date"],
+      ["submissionBidDeadline", "Submission / Bid Deadline"],
+    ];
+
+    for (const [field, label] of required) {
+      if (!String(formData[field] || "").trim()) {
+        alert(`Please enter ${label}.`);
+        return;
+      }
+    }
+
+    if (
+      (formData.scopeInputType === "Text" || formData.scopeInputType === "Both") &&
+      !String(formData.scopeOfWork || "").trim()
+    ) {
+      alert("Please enter Scope of Work.");
       return;
     }
-    if (!formData.modeOfSubmission) {
-      alert("Please select Mode of Submission.");
+    if (
+      (formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") &&
+      !formData.scopeAttachment &&
+      !existingDocumentsPathRef.current
+    ) {
+      alert("Please upload the SOP document for Scope of Work.");
       return;
     }
 
@@ -129,19 +211,33 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       if (enquiryId) {
         const { data: existing, error: existingError } = await supabase
           .from("manpower_enquiries")
-          .select("authorization_to, sr_no")
+          .select("authorization_to, sr_no, documents")
           .eq("id", enquiryId)
           .single();
         if (existingError) throw existingError;
         existingMeta = parseAuthorizationMeta(existing?.authorization_to).meta;
         if (existing?.sr_no != null) existingMeta.srNo = existing.sr_no;
+        existingDocumentsPathRef.current = existing?.documents || existingDocumentsPathRef.current;
       }
 
-      const srNo = enquiryId
-        ? existingMeta.srNo ?? formData.srNo
-        : formData.srNo || (await getNextSrNo(supabase));
+      let documentPath = existingDocumentsPathRef.current || null;
+      if (formData.scopeAttachment) {
+        const { data, error } = await supabase.storage
+          .from("manpower-docs")
+          .upload(`documents/${Date.now()}_${formData.scopeAttachment.name}`, formData.scopeAttachment);
+        if (error) throw error;
+        documentPath = data.path;
+      }
+
+      const srNo = enquiryId ? existingMeta.srNo ?? formData.srNo : formData.srNo || (await getNextSrNo(supabase));
 
       const payload = buildInquiryDbPayload({ ...formData, srNo }, existingMeta);
+      if (documentPath) {
+        payload.documents = documentPath;
+        if (formData.scopeInputType === "Attachment" && !String(formData.scopeOfWork || "").trim()) {
+          payload.manpower_required = "Attachment uploaded";
+        }
+      }
 
       if (enquiryId) {
         const { error } = await supabase.from("manpower_enquiries").update(payload).eq("id", enquiryId);
@@ -157,7 +253,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         if (user?.id) insertPayload.user_id = user.id;
         const { error } = await supabase.from("manpower_enquiries").insert([insertPayload]);
         if (error) throw error;
-        alert(`Inquiry saved successfully! Sr. No: ${payload.sr_no ?? srNo}`);
+        alert(`Inquiry saved successfully! Enquiry ID: ${enquiryNumber}`);
       }
 
       onSaved();
@@ -173,12 +269,305 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const inputClass =
     "w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent";
   const labelClass = "block text-sm font-medium text-gray-700 mb-2";
+  const sectionClass = "rounded-xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm";
+  const sectionTitleClass = "text-base font-semibold text-slate-900";
+  const sectionHintClass = "text-xs text-slate-500 mt-1";
+
+  const assigneeOptions = mergeAssignedToOptions(
+    mergeAssignedToOptions(assignedToOptions, formData.receivedBy),
+    formData.enquiryAssignedTo
+  );
 
   return (
     <div className="max-h-[calc(95vh-140px)] overflow-y-auto overflow-x-hidden space-y-5 pr-1 pb-4">
-      <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
-        <h4 className="text-base font-semibold text-slate-900">Manpower Management Inquiry</h4>
-        <p className="text-xs text-slate-500 mt-1">Fields match the Manpower Management Excel tracker.</p>
+      <div className={sectionClass}>
+        <h4 className={sectionTitleClass}>Manpower Management Inquiry</h4>
+        <p className={sectionHintClass}>Common header fields for all enquiry types (Commercial — Manpower).</p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className={labelClass}>Enquiry ID</label>
+            <input
+              value={
+                existingEnquiryNumberRef.current ||
+                formData.enquiryNumber ||
+                "Will auto-generate as ENQ-YYYY-NNNN"
+              }
+              readOnly
+              className={`${inputClass} bg-gray-50 text-gray-600`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>
+              Enquiry Date <span className="text-red-500">*</span>
+            </label>
+            <input type="date" name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>
+              Received By <span className="text-red-500">*</span>
+            </label>
+            <select name="receivedBy" value={formData.receivedBy} onChange={handleChange} className={inputClass}>
+              <option value="">Select user</option>
+              {assigneeOptions.map((opt) => (
+                <option key={`recv-${opt.value}`} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>
+              Source Type <span className="text-red-500">*</span>
+            </label>
+            <select name="sourceType" value={formData.sourceType} onChange={handleChange} className={inputClass}>
+              {SOURCE_TYPE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>
+              Client Name <span className="text-red-500">*</span>
+            </label>
+            <input name="clientName" value={formData.clientName} onChange={handleChange} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>
+              Client Contact Person — Name <span className="text-red-500">*</span>
+            </label>
+            <input name="contactPersonName" value={formData.contactPersonName} onChange={handleChange} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Designation</label>
+            <input
+              name="contactPersonDesignation"
+              value={formData.contactPersonDesignation}
+              onChange={handleChange}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Phone</label>
+            <input type="tel" name="contactPersonPhone" value={formData.contactPersonPhone} onChange={handleChange} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Email</label>
+            <input type="email" name="contactPersonEmail" value={formData.contactPersonEmail} onChange={handleChange} className={inputClass} />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <h5 className="text-sm font-semibold text-gray-700 mb-2">
+            Site / Project Location <span className="text-red-500">*</span>
+          </h5>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">State</label>
+              <select name="siteState" value={formData.siteState} onChange={handleChange} className={inputClass}>
+                <option value="">Select state</option>
+                {INDIA_STATES_UT.map((state) => (
+                  <option key={state} value={state}>
+                    {state}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
+              <input name="siteCity" value={formData.siteCity} onChange={handleChange} className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Site Name</label>
+              <input name="siteName" value={formData.siteName} onChange={handleChange} className={inputClass} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className={labelClass}>
+              Industry / Sector <span className="text-red-500">*</span>
+            </label>
+            <select name="industrySector" value={formData.industrySector} onChange={handleChange} className={inputClass}>
+              <option value="">Select industry</option>
+              {INDUSTRY_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>
+              Service Category <span className="text-red-500">*</span>
+            </label>
+            <select name="serviceCategory" value={formData.serviceCategory} onChange={handleChange} className={inputClass}>
+              <option value="">Select category</option>
+              {SERVICE_CATEGORY_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <label className={labelClass}>
+            Enquiry Sub-type <span className="text-red-500">*</span>
+          </label>
+          <div className="flex flex-wrap gap-4">
+            {ENQUIRY_SUBTYPE_OPTIONS.map((opt) => (
+              <label key={opt} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="enquirySubType"
+                  value={opt}
+                  checked={formData.enquirySubType === opt}
+                  onChange={handleChange}
+                />
+                {opt}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <label className={labelClass}>
+            Scope of Work <span className="text-red-500">*</span>
+          </label>
+          <div className="flex flex-wrap gap-4 mb-3 text-sm">
+            {["Text", "Attachment", "Both"].map((mode) => (
+              <label key={mode} className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="scopeInputType"
+                  value={mode}
+                  checked={formData.scopeInputType === mode}
+                  onChange={handleChange}
+                />
+                {mode}
+              </label>
+            ))}
+          </div>
+          {(formData.scopeInputType === "Text" || formData.scopeInputType === "Both") && (
+            <textarea
+              name="scopeOfWork"
+              value={formData.scopeOfWork}
+              onChange={handleChange}
+              rows={4}
+              className={inputClass}
+              placeholder="Enter scope details or SOP summary..."
+            />
+          )}
+          {(formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") && (
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">SOP Document Upload</label>
+              <input
+                type="file"
+                name="scopeAttachment"
+                onChange={handleChange}
+                className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white"
+              />
+              {existingDocumentsPathRef.current && !formData.scopeAttachment && (
+                <p className="mt-1 text-xs text-green-700">Existing document on file.</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div>
+            <label className={labelClass}>
+              Contract Duration <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                name="contractDurationValue"
+                type="number"
+                min="0"
+                value={formData.contractDurationValue}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="Value"
+              />
+              <select
+                name="contractDurationUnit"
+                value={formData.contractDurationUnit}
+                onChange={handleChange}
+                className="px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                {CONTRACT_DURATION_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>
+              Working Hours / Shift <span className="text-red-500">*</span>
+            </label>
+            <select name="workingHoursShift" value={formData.workingHoursShift} onChange={handleChange} className={inputClass}>
+              <option value="">Select</option>
+              {WORKING_HOURS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>
+              Applicable State (for MW) <span className="text-red-500">*</span>
+            </label>
+            <select name="applicableStateMw" value={formData.applicableStateMw} onChange={handleChange} className={inputClass}>
+              <option value="">Select state</option>
+              {INDIA_STATES_UT.map((state) => (
+                <option key={`mw-${state}`} value={state}>
+                  {state}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label className={labelClass}>
+              Min Wage Effective Date (WEF) <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="date"
+              name="minWageEffectiveDate"
+              value={formData.minWageEffectiveDate}
+              onChange={handleChange}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>
+              Submission / Bid Deadline <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="datetime-local"
+              name="submissionBidDeadline"
+              value={formData.submissionBidDeadline}
+              onChange={handleChange}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-slate-500">Reminder alerts: T-7 and T-1 days.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className={sectionClass}>
+        <h4 className={sectionTitleClass}>Tracker &amp; Follow-up</h4>
+        <p className={sectionHintClass}>Excel tracker columns for internal commercial follow-up.</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
@@ -211,9 +600,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
           <div>
-            <label className={labelClass}>
-              Mode of Submission <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Mode of Submission</label>
             <select name="modeOfSubmission" value={formData.modeOfSubmission} onChange={handleChange} className={inputClass}>
               <option value="">Select mode</option>
               {MODE_OF_SUBMISSION_OPTIONS.map((opt) => (
@@ -228,18 +615,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <input type="number" min="0" name="totalManpower" value={formData.totalManpower} onChange={handleChange} className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>
-              Client Name <span className="text-red-500">*</span>
-            </label>
-            <input name="clientName" value={formData.clientName} onChange={handleChange} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Location</label>
-            <input name="location" value={formData.location} onChange={handleChange} className={inputClass} />
-          </div>
-          <div className="md:col-span-2">
-            <label className={labelClass}>Description of Work</label>
-            <textarea name="descriptionOfWork" value={formData.descriptionOfWork} onChange={handleChange} rows={3} className={inputClass} />
+            <label className={labelClass}>Location (summary)</label>
+            <input name="location" value={formData.location} onChange={handleChange} className={inputClass} placeholder="Auto-filled from site fields if blank" />
           </div>
           <div>
             <label className={labelClass}>Approx Value (WO Taxes)</label>
@@ -252,8 +629,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <label className={labelClass}>Enquiry Assigned to</label>
             <select name="enquiryAssignedTo" value={formData.enquiryAssignedTo} onChange={handleChange} className={inputClass}>
               <option value="">Select Commercial team member</option>
-              {mergeAssignedToOptions(assignedToOptions, formData.enquiryAssignedTo).map((opt) => (
-                <option key={opt.value} value={opt.value}>
+              {assigneeOptions.map((opt) => (
+                <option key={`assign-${opt.value}`} value={opt.value}>
                   {opt.label}
                 </option>
               ))}
