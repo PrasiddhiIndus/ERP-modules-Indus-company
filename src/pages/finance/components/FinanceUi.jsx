@@ -12,6 +12,7 @@ import {
 
 export { SectionCard, KpiTile, Badge, Modal, TinyInput, TinySelect, StatusChip };
 export { PeriodMonthSelect } from "./PeriodMonthSelect";
+export { FinanceDateInput } from "./FinanceDateInput";
 
 export function PageHeader({ title, subtitle, onRefresh, onExport, primaryAction, children }) {
   return (

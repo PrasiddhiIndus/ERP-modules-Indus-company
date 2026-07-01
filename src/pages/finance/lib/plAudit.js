@@ -1,4 +1,4 @@
-/** Audit metadata stored in period entry notes JSON (backward-compatible). */
+import { formatFinanceDate } from "./formatters";
 
 export function buildPeriodAuditMeta(user) {
   const email = String(user?.email || "").trim();
@@ -23,11 +23,8 @@ export function formatAuditTimestamp(iso) {
   if (!iso) return { date: "—", time: "—" };
   try {
     const d = new Date(iso);
-    const date = d.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+    if (Number.isNaN(d.getTime())) return { date: String(iso), time: "" };
+    const date = formatFinanceDate(d);
     const time = d.toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",

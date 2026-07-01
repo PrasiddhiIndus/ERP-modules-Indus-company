@@ -8,6 +8,8 @@ export function SiteClientAutocomplete({
   sites,
   value,
   onChange,
+  onSearchChange,
+  filterQuery,
   label = "Site / Client",
   id = "site-client-search",
   placeholder = "Type site or client name…",
@@ -31,8 +33,8 @@ export function SiteClientAutocomplete({
   }, [sites, query]);
 
   useEffect(() => {
-    if (!open) setQuery(selected?.name || "");
-  }, [open, selected?.name, selected?.id]);
+    if (!open) setQuery(selected?.name || filterQuery || "");
+  }, [open, selected?.name, selected?.id, filterQuery]);
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -49,7 +51,7 @@ export function SiteClientAutocomplete({
     setQuery(site?.name || "");
   };
 
-  const displayValue = open ? query : (selected?.name || "");
+  const displayValue = open ? query : (selected?.name || filterQuery || "");
 
   return (
     <div className={`entry-sel site-search site-client-ac ${className}`} ref={wrapRef}>
@@ -66,7 +68,9 @@ export function SiteClientAutocomplete({
             setQuery(selected?.name || "");
           }}
           onChange={(e) => {
-            setQuery(e.target.value);
+            const next = e.target.value;
+            setQuery(next);
+            onSearchChange?.(next);
             setOpen(true);
           }}
           onKeyDown={(e) => {

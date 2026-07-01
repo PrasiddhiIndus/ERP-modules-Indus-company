@@ -4,7 +4,7 @@ import React from "react";
 export default function FinanceDashboardStyles() {
   return (
     <style>{`
-    .fin-dash{--paper:#f8fafc;--surface:#ffffff;--ink:#111827;--ink-soft:#4b5563;--muted:#6b7280;--line:#e5e7eb;--green:#dc2626;--profit:#15803d;--loss:#b91c1c;--warn:#d97706;--gold:#b45309;--display:system-ui,-apple-system,sans-serif;--body:system-ui,-apple-system,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;font-family:var(--body);color:var(--ink);background:var(--paper);}
+    .fin-dash{--paper:#f8fafc;--surface:#ffffff;--ink:#111827;--ink-soft:#4b5563;--muted:#6b7280;--line:#e5e7eb;--green:#dc2626;--profit:#15803d;--loss:#b91c1c;--warn:#d97706;--gold:#b45309;--display:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;--body:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;--mono:ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,monospace;font-family:var(--body);font-size:13px;color:var(--ink);background:var(--paper);}
     .fin-dash *{box-sizing:border-box}
     .fin-topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 0 20px;border-bottom:1px solid var(--line);margin-bottom:18px;}
     .fin-topbar h1{font-family:var(--display);font-size:23px;font-weight:700;margin:0;letter-spacing:-.02em;}

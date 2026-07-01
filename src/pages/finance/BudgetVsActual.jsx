@@ -110,7 +110,7 @@ export default function BudgetVsActual() {
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="text-xs uppercase text-gray-500 border-b">
+                  <tr className="text-xs text-gray-500 border-b">
                     <th className="text-left py-2 px-2">Particulars</th>
                     <th className="text-right py-2 px-2">Estimate</th>
                     <th className="text-right py-2 px-2">Actual</th>
@@ -119,7 +119,7 @@ export default function BudgetVsActual() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="bg-gray-50 text-xs uppercase text-gray-500"><td colSpan={5} className="py-2 px-2">Revenue</td></tr>
+                  <tr className="bg-gray-50 text-xs text-gray-500"><td colSpan={5} className="py-2 px-2">Revenue</td></tr>
                   {analysis.revBreak.map((it) => (
                     <tr key={it.id} className="border-b">
                       <td className="py-2 px-2">{it.label}</td>
@@ -130,7 +130,7 @@ export default function BudgetVsActual() {
                     <td className="py-2 px-2">Total Revenue</td>
                     <VarCells est={analysis.est?.revenue || 0} actual={analysis.c.revenue} lowerIsBetter={false} hasEst={!!analysis.est} />
                   </tr>
-                  <tr className="bg-gray-50 text-xs uppercase text-gray-500"><td colSpan={5} className="py-2 px-2">Expenses</td></tr>
+                  <tr className="bg-gray-50 text-xs text-gray-500"><td colSpan={5} className="py-2 px-2">Expenses</td></tr>
                   {analysis.tree.filter((g) => g.actual || g.est).map((g) => (
                     <tr key={g.parentId} className="border-b font-medium">
                       <td className="py-2 px-2">

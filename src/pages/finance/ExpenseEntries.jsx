@@ -91,7 +91,7 @@ export default function ExpenseEntries() {
             </div>
             {structure.filter((g) => g.children.length).map((g) => (
               <div key={g.parentId} className="mb-4">
-                <div className="text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2" style={{ color: g.color }}>
+                <div className="text-xs font-semibold mb-2 flex items-center gap-2" style={{ color: g.color }}>
                   <span className="w-2 h-2 rounded" style={{ background: g.color }} />
                   {g.label}
                 </div>
