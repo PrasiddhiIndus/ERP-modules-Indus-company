@@ -3,7 +3,7 @@ import { ListTable } from "../../components/ListTable";
 import { useFinance } from "./contexts/FinanceContext";
 import {
   PageHeader, PrimaryButton, SectionCard, Modal, TinyInput, TinySelect,
-  LoadingState, ErrorState, Badge,
+  LoadingState, ErrorState, Badge, FinanceDateInput,
 } from "./components/FinanceUi";
 import { upsertSite, deleteSite } from "../../services/financeApi";
 import { slug } from "./lib/formatters";
@@ -166,11 +166,19 @@ export default function SitesMaster() {
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-xs text-gray-600">
                 Contract start
-                <TinyInput type="date" className="w-full mt-1" value={form.contract_start} onChange={(e) => setForm({ ...form, contract_start: e.target.value })} />
+                <FinanceDateInput
+                  className="w-full mt-1 h-8 border border-gray-300 rounded px-2 text-xs"
+                  value={form.contract_start}
+                  onChange={(v) => setForm({ ...form, contract_start: v || "" })}
+                />
               </label>
               <label className="block text-xs text-gray-600">
                 Contract end
-                <TinyInput type="date" className="w-full mt-1" value={form.contract_end} onChange={(e) => setForm({ ...form, contract_end: e.target.value })} />
+                <FinanceDateInput
+                  className="w-full mt-1 h-8 border border-gray-300 rounded px-2 text-xs"
+                  value={form.contract_end}
+                  onChange={(v) => setForm({ ...form, contract_end: v || "" })}
+                />
               </label>
             </div>
             <label className="block text-xs text-gray-600">
