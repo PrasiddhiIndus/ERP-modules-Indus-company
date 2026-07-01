@@ -108,16 +108,23 @@ export function DateInput({
     if (readOnly || disabled) return;
     const picker = pickerRef.current;
     if (!picker) return;
-    if (isoValue && isCompleteIsoDate(isoValue)) picker.value = isoValue;
-    if (typeof picker.showPicker === "function") {
-      picker.showPicker();
-    } else {
-      picker.click();
+    if (isoValue && isCompleteIsoDate(isoValue)) {
+      picker.value = isoValue;
     }
+    try {
+      if (typeof picker.showPicker === "function") {
+        picker.showPicker();
+        return;
+      }
+    } catch {
+      // showPicker can throw outside a direct user gesture in some browsers
+    }
+    picker.focus({ preventScroll: true });
+    picker.click();
   };
 
   return (
-    <div className={`erp-date-input flex items-center gap-1 ${className}`.trim()}>
+    <div className={`erp-date-input flex w-full items-stretch gap-0 overflow-hidden ${className}`.trim()}>
       <input
         type="text"
         inputMode="numeric"
@@ -137,33 +144,40 @@ export function DateInput({
         title={title || "Enter date as dd/mm/yyyy or use calendar"}
         aria-label={ariaLabel}
         placeholder={placeholder}
-        className={`erp-date-input-text min-w-0 flex-1 rounded border border-inherit bg-inherit px-2 text-inherit ${
-          compact ? "py-1 text-xs" : "py-1.5"
+        className={`erp-date-input-text min-w-0 flex-1 border-0 bg-transparent px-3 text-inherit placeholder:text-slate-400 focus:outline-none focus:ring-0 ${
+          compact ? "py-1 text-xs" : "text-sm"
         }`}
       />
-      <input
-        ref={pickerRef}
-        type="date"
-        tabIndex={-1}
-        aria-hidden
-        className="sr-only"
-        value={isoValue}
-        min={min}
-        max={max}
-        onChange={handlePickerChange}
-        disabled={disabled}
-      />
-      <button
-        type="button"
+      <div
+        className={`erp-date-input-calendar relative shrink-0 flex items-center justify-center border-l border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 ${
+          disabled || readOnly ? "opacity-50 pointer-events-none" : "cursor-pointer"
+        } ${compact ? "px-2" : "px-2.5"}`}
         onClick={openCalendar}
-        disabled={disabled || readOnly}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openCalendar();
+          }
+        }}
+        role="button"
+        tabIndex={disabled || readOnly ? -1 : 0}
         title="Open calendar"
-        className={`erp-date-input-calendar shrink-0 rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 ${
-          compact ? "p-1" : "p-1.5"
-        }`}
+        aria-label="Open calendar"
       >
-        <Calendar className="h-4 w-4" />
-      </button>
+        <input
+          ref={pickerRef}
+          type="date"
+          tabIndex={-1}
+          aria-hidden
+          className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+          value={isoValue}
+          min={min}
+          max={max}
+          onChange={handlePickerChange}
+          disabled={disabled || readOnly}
+        />
+        <Calendar className={`pointer-events-none relative z-0 ${compact ? "h-3.5 w-3.5" : "h-4 w-4"}`} />
+      </div>
     </div>
   );
 }
