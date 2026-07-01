@@ -56,6 +56,7 @@ import {
   registerDayTableLabel,
   registerMarkCellWrapperClass,
   registerMarkCellInlineStyle,
+  registerMarkDisplayValue,
   isRegisterCommentMark,
   isRegisterDayAfterLeaving,
   upsertRegisterMark,
@@ -109,8 +110,10 @@ const BULK_MARKS = [
 const BULK_CLEAR_MARK = "__CLEAR__";
 
 function formatSummaryValue(value, decimals) {
-  if (decimals) return Number(value || 0).toFixed(2);
-  return value ?? 0;
+  const n = Number(value || 0);
+  if (decimals) return n.toFixed(2);
+  if (Number.isInteger(n)) return n;
+  return n.toFixed(1);
 }
 
 function SummaryFooterRow({ footer, colSpan = 2 }) {
@@ -1287,7 +1290,9 @@ export function EmployeeAttendanceDailyPage() {
                       aria-hidden
                     />
                     <div className="pointer-events-none absolute z-30 right-0 top-full mt-1 hidden max-w-[260px] rounded-md bg-gray-900 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg group-hover/comment:block">
-                      <div className="font-semibold text-[9px] text-gray-200">{commentMark} comment</div>
+                      <div className="font-semibold text-[9px] text-gray-200">
+                        {registerMarkDisplayValue(commentMark)} comment
+                      </div>
                       <div>{comment}</div>
                     </div>
                   </>
@@ -1450,7 +1455,7 @@ export function EmployeeAttendanceDailyPage() {
           <KpiTile
             label="Present employees"
             value={bulkDayNumber ? dayAttendanceStats.present : "—"}
-            sub={bulkDateFrom ? `P / P(OD) / T on ${bulkDateFrom}` : "Select a date below"}
+            sub={bulkDateFrom ? `P / P(OD) on ${bulkDateFrom}` : "Select a date below"}
             onClick={() => openDayAttendanceDrawer("present")}
             tone={
               tableDayAttendanceFilter === "present"
@@ -1737,7 +1742,7 @@ export function EmployeeAttendanceDailyPage() {
         <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-lg border border-gray-300 bg-white p-4 shadow-xl">
             <h3 className="text-sm font-semibold text-gray-800">
-              {commentEditor.mark === "T" ? "T Comment" : "P(OD) Comment"}
+              {registerMarkDisplayValue(commentEditor.mark)} Comment
             </h3>
             <p className="mt-1 text-xs text-gray-600">Comment for selected employee/date (Excel-style cell note).</p>
             <textarea
@@ -1817,7 +1822,7 @@ export function EmployeeAttendanceDailyPage() {
       >
         <p className="text-[11px] text-gray-500 mb-3">
           {dayAttendanceDrawer.mode === "present"
-            ? "Employees marked Present (P) / P(OD) / T, including auto-present from punches."
+            ? "Employees marked Present (P) / P(OD), including tours and auto-present from punches."
             : dayAttendanceDrawer.mode === "absent"
               ? "Employees with a mark other than present (leave, weekoff, NH/PH, etc.)."
               : dayAttendanceDrawer.mode === "unmarked"
