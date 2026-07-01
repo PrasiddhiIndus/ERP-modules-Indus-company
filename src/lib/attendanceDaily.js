@@ -80,6 +80,7 @@ export const REGISTER_LEAVE_RED_CELL_MARKS = new Set([
   "SBEL",
   "PTL",
   "ML",
+  "LWP",
 ]);
 
 /** Primary register mark picker rows (Leave opens submenu). */
@@ -87,8 +88,8 @@ export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: "", label: "—" },
   { value: "P", label: "P — Present" },
   { value: "P(OD)", label: "P(OD) — Present on Duty" },
-  { value: "T", label: "T — Tour" },
   { value: "L", label: "L — Leave", hasSubmenu: true },
+  { value: "LWP", label: "LWP — Leave Without Pay" },
   { value: "WO", label: "WO — Weekly Off" },
   { value: REGISTER_MARK_NHPH, label: "NH/PH" },
   { value: "CO", label: "CO — Compensatory Off" },
@@ -97,9 +98,23 @@ export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: REGISTER_MARK_LEFT, label: "Left — Left organization" },
 ];
 
+/** Tour marks are stored as T but displayed like P(OD) in the register grid. */
+export function isRegisterTourMark(mark) {
+  return String(mark ?? "").trim() === "T";
+}
+
+/** Closed-cell / export label (T → P(OD)). */
+export function registerMarkDisplayValue(mark) {
+  const m = String(mark ?? "").trim();
+  if (!m) return "-";
+  if (isRegisterTourMark(m)) return "P(OD)";
+  return m;
+}
+
 export function registerMarkOptionLabel(value) {
   if (!value) return "—";
   if (isRegisterLeftMark(value)) return "Left";
+  if (isRegisterTourMark(value)) return "P(OD) — Present on Duty";
   const primary = REGISTER_PRIMARY_MARK_OPTIONS.find((o) => o.value === value);
   if (primary) return primary.label;
   const leave = REGISTER_LEAVE_SUBMENU_OPTIONS.find((o) => o.value === value);
@@ -123,9 +138,32 @@ export function isRegisterCommentMark(mark) {
 /** Marks that count toward monthly present-day totals (payroll / register summary). */
 const REGISTER_PRESENT_CREDIT_MARKS = new Set(["P", "P(OD)", "T", "CO", "WFH"]);
 
+/** LWP — leave without pay; counts in leave totals only, not present. */
+export function isRegisterLwpMark(mark) {
+  return String(mark ?? "").trim() === "LWP";
+}
+
+/** Whether mark is a leave type for register summary tallies. */
+export function isRegisterSummaryLeaveMark(mark) {
+  const m = String(mark ?? "").trim();
+  if (!m) return false;
+  if (m === "A") return true;
+  if (m === "HD" || isRegisterLwpMark(m)) return true;
+  if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return true;
+  return false;
+}
+
+/** Leave-day credit for register summary (HD = 0.5). */
+export function registerSummaryLeaveCredit(mark) {
+  const m = String(mark ?? "").trim();
+  if (!isRegisterSummaryLeaveMark(m)) return 0;
+  if (m === "HD") return 0.5;
+  return 1;
+}
+
 /**
  * Present-day credit for one register cell (0, 0.5, or 1).
- * CO and WFH count as present; leave / WO / NH/PH do not.
+ * P-types, all leave types except LWP (HD = 0.5); WO / NH/PH do not.
  */
 export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
@@ -134,6 +172,9 @@ export function registerPresentDayCredit(mark) {
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
   if (canonical && REGISTER_PRESENT_CREDIT_MARKS.has(canonical)) return 1;
+  if (isRegisterLwpMark(raw)) return 0;
+  if (raw === "HD") return 0.5;
+  if (isRegisterSummaryLeaveMark(raw)) return 1;
   return 0;
 }
 
@@ -155,6 +196,7 @@ export function isRegisterEffectivePresentMark(mark) {
 
 /** Human-readable status for a single day cell (present / unmarked / leave / …). */
 export function registerMarkStatusLabel(mark) {
+  if (isRegisterTourMark(mark)) return "Present (OD)";
   if (isRegisterPresentMark(mark)) return mark === "P(OD)" ? "Present (OD)" : "Present";
   if (!mark) return "Unmarked";
   const opt = REGISTER_STATUS_OPTIONS.find((o) => o.value === mark);
@@ -232,6 +274,7 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
   "CO",
   "PTL",
   "ML",
+  "LWP",
   REGISTER_MARK_LEFT,
 ]);
 
@@ -262,7 +305,12 @@ export const REGISTER_SUMMARY_ROWS = [
 ];
 
 /** L plus legacy leave codes still stored in older rows. */
-export const REGISTER_LEAVE_MARKS = new Set(["L", "A", "PL", "SL", "CL", "HD"]);
+export const REGISTER_LEAVE_MARKS = new Set([
+  "A",
+  "HD",
+  "LWP",
+  ...REGISTER_LEAVE_RED_CELL_MARKS,
+]);
 
 /** Shared palette — closed cell box + bulk Mark P/L/WO/NH/PH buttons. */
 export const REGISTER_MARK_PALETTE = {
@@ -302,6 +350,7 @@ export const REGISTER_MARK_CELL_COLORS = {
 export function resolveRegisterMarkCellColors(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
+  if (m === "T") return REGISTER_MARK_CELL_COLORS["P(OD)"];
   if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return REGISTER_MARK_CELL_COLORS.L;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_CELL_COLORS[REGISTER_MARK_NHPH];
   if (REGISTER_MARK_CELL_COLORS[m]) return REGISTER_MARK_CELL_COLORS[m];
@@ -2056,9 +2105,8 @@ export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, days
   for (let day = 1; day <= daysInMonth; day += 1) {
     const mark = row.dayMarks[day] || "";
     summary.totalPresent += registerPresentDayCreditForCell(mark, { year, month, day });
-    if (isRegisterLeaveMark(mark)) summary.leave += 1;
-    const isThirdSat = year && month && isThirdSaturdayOfMonth(year, month, day);
-    if (mark === "WO" && !isThirdSat) {
+    summary.leave += registerSummaryLeaveCredit(mark);
+    if (mark === "WO") {
       summary.weekoff += 1;
       if (manualMarksForEmp[day] === "WO") summary.appliedWo += 1;
     }
@@ -2126,7 +2174,7 @@ export function computeMonthlyRegisterKpis(rows, daysInMonth) {
       if (mark === "P" || mark === "P(OD)") totals.P += 1;
       else if (mark === "WO") totals.WO += 1;
       else if (isRegisterNhphMark(mark)) totals[REGISTER_MARK_NHPH] += 1;
-      else if (isRegisterLeaveMark(mark)) totals.L += 1;
+      else if (isRegisterSummaryLeaveMark(mark)) totals.L += registerSummaryLeaveCredit(mark);
       else if (!mark) totals.blank += 1;
       else totals.blank += 1;
     }
@@ -2313,7 +2361,9 @@ export function formatRegisterDayExportCell(mark, punchInfo) {
 function resolveRegisterExportDayCell(row, day, monthKey, punchByEmpDate) {
   const mark = String(row.dayMarks?.[day] || "").trim();
   if (!mark) return "";
-  if (!punchByEmpDate) return mark;
+  const exportMark = registerMarkDisplayValue(mark);
+  if (exportMark === "-") return "";
+  if (!punchByEmpDate || mark !== "P") return exportMark;
   const iso = registerDateFromDay(monthKey, day);
   const empCode = normalizeAttendanceEmpCode(row.empCode);
   if (!iso || !empCode) return mark;
@@ -2468,7 +2518,7 @@ export async function downloadMonthlyRegisterExcel(rows, daysInMonth, monthKey, 
       const excelRowIndex = rowIdx + 1;
       const excelColIndex = REGISTER_EXPORT_DAY_COL_OFFSET + (day - 1);
       const cellAddress = XLSX.utils.encode_cell({ r: excelRowIndex, c: excelColIndex });
-      if (!ws[cellAddress]) ws[cellAddress] = { v: dayMark, t: "s" };
+      if (!ws[cellAddress]) ws[cellAddress] = { v: registerMarkDisplayValue(dayMark), t: "s" };
       if (!ws[cellAddress].c) ws[cellAddress].c = [];
       ws[cellAddress].c.hidden = true;
       ws[cellAddress].c.push({ a: "INDUS OS", t: comment });

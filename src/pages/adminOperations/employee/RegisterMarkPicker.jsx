@@ -4,6 +4,7 @@ import {
   REGISTER_LEAVE_SUBMENU_OPTIONS,
   REGISTER_PRIMARY_MARK_OPTIONS,
   registerMarkCellInlineStyle,
+  registerMarkDisplayValue,
   registerMarkOptionLabel,
   registerMarkSelectTextClass,
 } from "../../../lib/attendanceDaily";
@@ -121,7 +122,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
     setOpen(true);
   };
 
-  const display = value || "-";
+  const display = registerMarkDisplayValue(value);
 
   const menu =
     open && menuPos
