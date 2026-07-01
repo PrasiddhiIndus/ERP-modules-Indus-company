@@ -11,7 +11,9 @@ import {
   PrimaryButton,
   SecondaryButton,
 } from "../../components/OperationsUi";
-import { useOperations } from "../../contexts/OperationsContext";
+import { useOperations } from "../../contexts/OperationsContext";;
+import { formatDateDdMmYyyy } from "../../../../utils/dateDisplay";
+
 
 const VEHICLE_TYPE_OPTIONS = ["Tata Yodha", "Mahindra Bolero Ambulance", "Hero Glamour", "Maruti Eco", "Fire Tender", "Other"];
 
@@ -48,7 +50,7 @@ export default function DahejVehicleMaster() {
           { key: "registration_no", label: "Registration No." },
           { key: "vehicle_type", label: "Type" },
           { key: "is_active", label: "Status", render: (r) => (r.is_active ? "Active" : "Inactive") },
-          { key: "modified_at", label: "Last Modified", render: (r) => (r.modified_at ? new Date(r.modified_at).toLocaleDateString() : "—") },
+          { key: "modified_at", label: "Last Modified", render: (r) => (r.modified_at ? formatDateDdMmYyyy(r.modified_at) : "—") },
           {
             key: "actions",
             label: "Actions",

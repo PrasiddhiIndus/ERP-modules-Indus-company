@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { SectionCard } from "../components/StoreUi";
+import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
 
 function toCsv(rows) {
   if (!rows.length) return "";
@@ -79,7 +80,7 @@ export default function ReportsPage({ data }) {
               {filtered.map((l, idx) => (
                 <tr key={l.id} className="border-b">
                   <td className="text-center tabular-nums p-2">{idx + 1}</td>
-                  <td className="p-2">{new Date(l.createdAt).toLocaleString()}</td>
+                  <td className="p-2">{formatDateTimeDdMmYyyy(l.createdAt)}</td>
                   <td className="p-2">{l.type}</td>
                   <td className="p-2">{l.rows?.length || 0}</td>
                   <td className="p-2">{l.sourceRef || l.reason || l.status || "-"}</td>

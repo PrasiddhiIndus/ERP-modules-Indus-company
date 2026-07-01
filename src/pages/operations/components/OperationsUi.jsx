@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import FormDateInput from "../../../components/FormDateInput";
 import {
   ChevronLeft,
   ChevronRight,
@@ -176,10 +177,26 @@ export function FormField({ label, error, required, children, hint }) {
   );
 }
 
-export function FormInput({ error, className = "", ...props }) {
+export function FormInput({ error, className = "", type, value, onChange, ...props }) {
+  if (type === "date") {
+    return (
+      <FormDateInput
+        value={value}
+        onChange={onChange}
+        className={`w-full h-9 border rounded-lg px-2.5 text-sm ${
+          error ? "border-red-400 bg-red-50/30" : "border-gray-300"
+        } ${className}`}
+        compact
+        {...props}
+      />
+    );
+  }
   return (
     <input
       {...props}
+      type={type}
+      value={value}
+      onChange={onChange}
       className={`w-full h-9 border rounded-lg px-2.5 text-sm ${
         error ? "border-red-400 bg-red-50/30" : "border-gray-300"
       } ${className}`}

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { SectionCard } from '../../../adminOperations/components/AdminUi';
 import { supabase } from '../../../../lib/supabase';
-import { PAYROLL_TABLES } from '../../../../modules/payroll/integrations';
+import { PAYROLL_TABLES } from '../../../../modules/payroll/integrations';;
+import { formatDateTimeDdMmYyyy } from "../../../../utils/dateDisplay";
+
 
 export default function PayrollOutputs() {
   const [payslips, setPayslips] = useState([]);
@@ -23,7 +25,7 @@ export default function PayrollOutputs() {
         <ul className="text-xs space-y-2">
           {payslips.map((p) => (
             <li key={p.id} className="border border-gray-100 rounded px-2 py-2">
-              Employee {p.employee_master_id} · {p.payslip_number || 'Draft'} · {new Date(p.generated_at).toLocaleString('en-IN')}
+              Employee {p.employee_master_id} · {p.payslip_number || 'Draft'} · {formatDateTimeDdMmYyyy(p.generated_at)}
             </li>
           ))}
         </ul>

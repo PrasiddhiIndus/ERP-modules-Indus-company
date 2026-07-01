@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useBilling } from '../../contexts/BillingContext';
 import { BILLING_AUTOSAVE_KEYS } from '../../utils/billingFormAutosave';
-import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';;
+import FormDateInput from "../../components/FormDateInput";
+
 import {
   FileCheck,
   AlertTriangle,
@@ -909,19 +911,13 @@ const WOPOManagement = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Start Date *</label>
-                    <input
-                      type="date"
-                      value={formData.start_date}
-                      onChange={(e) => setFormData((f) => ({ ...f, start_date: e.target.value }))}
+                    <FormDateInput value={formData.start_date} onChange={(e) => setFormData((f) => ({ ...f, start_date: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">End Date *</label>
-                    <input
-                      type="date"
-                      value={formData.end_date}
-                      onChange={(e) => setFormData((f) => ({ ...f, end_date: e.target.value }))}
+                    <FormDateInput value={formData.end_date} onChange={(e) => setFormData((f) => ({ ...f, end_date: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500/40 focus:border-transparent"
                     />
                   </div>

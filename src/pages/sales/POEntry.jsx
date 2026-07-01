@@ -4,7 +4,7 @@ import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XC
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../config/roles';
-import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../utils/dateDisplay";
 import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';
 import {
   COMMERCIAL_MODULE_MANPOWER_TRAINING,
@@ -18,8 +18,21 @@ import {
   isPoWithoutPoBilling,
 } from '../../constants/poBasis';
 import { buildCommercialClientProfiles } from '../../utils/commercialClientProfiles';
+import {
+  buildRenewalCyclesForNewSiteOcPo,
+  collectSiteOcPoNumberHistory,
+  COMMERCIAL_PO_STATUS_SUPERSEDED,
+  findCommercialPoSaveConflict,
+  getLatestPoForSiteOc,
+} from '../../utils/commercialPoSaveValidation';
+import {
+  buildContactHistoryLogForSave,
+  contactHistoryRowsForDisplay,
+} from '../../utils/commercialContactHistory';
 import ClientLegalNameAutocomplete from '../../components/commercial/ClientLegalNameAutocomplete';
 import PoClientPincodeFields from '../../components/PoClientPincodeFields';
+import FormDateInput from "../../components/FormDateInput";
+
 import {
   deriveBillToShipToPinSameFromPo,
   normalizePoPincode,
@@ -531,6 +544,29 @@ const POEntry = () => {
       }),
     [commercialPOs, editId]
   );
+
+  const latestPriorPoForForm = useMemo(() => {
+    if (editId) return null;
+    return getLatestPoForSiteOc(commercialPOs, formData.siteId, formData.ocNumber);
+  }, [commercialPOs, editId, formData.siteId, formData.ocNumber]);
+
+  const siteOcPoNumberHistory = useMemo(
+    () =>
+      collectSiteOcPoNumberHistory(commercialPOs, formData.siteId, formData.ocNumber, {
+        excludePoId: editId,
+      }),
+    [commercialPOs, editId, formData.siteId, formData.ocNumber]
+  );
+
+  const showSiteOcPoHistory = !editId && siteOcPoNumberHistory.length > 0;
+  const showPriorPoNumberField = Boolean(editId || latestPriorPoForForm);
+
+  useEffect(() => {
+    if (!showForm || editId || !latestPriorPoForForm) return;
+    const oldNum = String(latestPriorPoForForm.poWoNumber || latestPriorPoForForm.po_wo_number || '').trim();
+    if (!oldNum) return;
+    setFormData((prev) => (prev.poWoNumber === oldNum ? prev : { ...prev, poWoNumber: oldNum }));
+  }, [showForm, editId, latestPriorPoForForm]);
 
   const handleApplyClientSnapshot = (snapshot) => {
     setFormData((prev) => ({ ...prev, ...snapshot }));
@@ -1070,11 +1106,31 @@ const POEntry = () => {
       const effectiveOc = (formData.ocNumber || '').trim() || dummies.ocNumber;
       ocNum = effectiveOc || generateOCNumber(formData.vertical || 'Manpower', formData.ocSeries || nextSeries);
     }
-    const effectivePoWo =
-      (formData.poWoNumber || '').trim() ||
-      String(formData.newCyclePoWoNumber || '').trim() ||
+    const priorActivePo =
+      !editId ? getLatestPoForSiteOc(commercialPOs, formData.siteId.trim(), ocNum) : null;
+    const newPoWo = String(formData.newCyclePoWoNumber || '').trim();
+    const legacyPoWo = String(formData.poWoNumber || '').trim();
+    const trimmedPoWoNumber =
+      newPoWo ||
+      (editId ? legacyPoWo : priorActivePo ? '' : legacyPoWo) ||
       (isWithoutPo ? dummies.poWoNumber : '');
-    const trimmedPoWoNumber = effectivePoWo;
+    const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
+    const siteIdForSave = formData.siteId.trim() || prevPo?.siteId || prevPo?.site_id || '';
+    const poSaveConflict = findCommercialPoSaveConflict(
+      commercialPOs,
+      {
+        siteId: siteIdForSave,
+        ocNumber: ocNum,
+        poWoNumber: trimmedPoWoNumber,
+        startDate: formData.startDate || '',
+        endDate: formData.endDate || '',
+      },
+      { excludePoId: editId }
+    );
+    if (poSaveConflict) {
+      setSaveError(poSaveConflict.message);
+      return;
+    }
     const primaryTotalEmpty =
       formData.totalContractValue === '' || formData.totalContractValue == null;
     if (formData.paymentTerms === CUSTOM_MT_PAYMENT_TERM && !String(formData.customPaymentTerms || '').trim()) {
@@ -1082,7 +1138,13 @@ const POEntry = () => {
       return;
     }
     if (!isWithoutPo && !trimmedPoWoNumber) {
-      setSaveError('Enter PO/WO number in New PO Number (renewal).');
+      setSaveError(
+        editId
+          ? 'Enter PO/WO number in New PO Number (renewal).'
+          : priorActivePo
+            ? 'Enter the new active PO/WO number.'
+            : 'Enter PO/WO number.'
+      );
       return;
     }
     if (isWithoutPo && !trimmedPoWoNumber) {
@@ -1116,21 +1178,15 @@ const POEntry = () => {
         : null;
     const monthlyContractValueVal =
       totalContractMonthVal && totalContractMonthVal > 0
-        ? Math.round(((Number(formData.newCycleTotalContractValue) || 0) / totalContractMonthVal) * 100) / 100
+        ? Math.round((totalVal / totalContractMonthVal) * 100) / 100
         : null;
     const mtPayment = deriveMtPaymentTermPayload(formData.paymentTerms, formData.customPaymentTerms);
-    const prevPo = editId ? commercialPOs.find((p) => p.id === editId) : null;
     const canAddNewCycle = isAfterContractEnd(formData.endDate);
     const hasNewCycle =
       String(formData.newCyclePoWoNumber || '').trim() &&
       formData.newCycleTotalContractValue !== '' &&
       formData.newCycleTotalContractValue != null;
-    if (editId && hasNewCycle && !canAddNewCycle) {
-      setSaveError(
-        'Renewal PO/WO can only be saved after the contract end date. Clear the renewal fields or update the contract dates.'
-      );
-      return;
-    }
+    // Renewal cycle is optional until contract end; ignore new-cycle fields until then.
     const addingRenewalCycle = Boolean(editId && canAddNewCycle && hasNewCycle);
     const newId = editId ?? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `temp-${Date.now()}`);
     const nowIso = new Date().toISOString();
@@ -1177,6 +1233,16 @@ const POEntry = () => {
             : 'PO/WO updated',
       });
     }
+    const contactHistorySourcePo = editId ? prevPo : priorActivePo;
+    const contactHistoryLog = buildContactHistoryLogForSave({
+      prevLog: contactHistorySourcePo?.contactHistoryLog || [],
+      prevCoordinator: contactHistorySourcePo?.currentCoordinator || '',
+      prevContactNumber: contactHistorySourcePo?.contactNumber || '',
+      currentCoordinator: formData.currentCoordinator.trim(),
+      contactNumber: formData.contactNumber.trim(),
+      startDate: formData.startDate || nowIso.slice(0, 10),
+      asOfDate: nowIso.slice(0, 10),
+    });
     const po = {
       id: newId, siteId: formData.siteId.trim() || `SITE-${String(newId).slice(0, 8)}`,
       locationName: formData.locationName.trim() || formData.legalName, legalName: formData.legalName.trim(),
@@ -1190,8 +1256,7 @@ const POEntry = () => {
         ? (formData.vendorCode || '').trim()
         : paddedVendorForSave || parseStructuredOcMt(ocNum)?.vendorPadded || '',
       gstSupplyType: formData.gstSupplyType || 'intra',
-      contactHistoryLog: editId ? (commercialPOs.find((p) => p.id === editId)?.contactHistoryLog || [])
-        : [{ name: formData.currentCoordinator.trim(), number: formData.contactNumber.trim(), from: formData.startDate || new Date().toISOString().slice(0, 10), to: null }],
+      contactHistoryLog,
       ocNumber: ocNum,
       ocSeries: isWithoutPo
         ? formData.ocSeries || nextSeries
@@ -1202,7 +1267,12 @@ const POEntry = () => {
         (formData.ocNumber && formData.ocNumber.split('-')[1]) ||
         'Manpower',
       poWoNumber: trimmedPoWoNumber,
-      renewalCycles: Array.isArray(formData.renewalCycles) ? formData.renewalCycles : [],
+      renewalCycles:
+        priorActivePo && !editId
+          ? buildRenewalCyclesForNewSiteOcPo(priorActivePo)
+          : Array.isArray(formData.renewalCycles)
+            ? formData.renewalCycles
+            : [],
       ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', materialCode: '', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
       totalContractMonth: totalContractMonthVal,
       monthlyContractValue: monthlyContractValueVal,
@@ -1260,8 +1330,26 @@ const POEntry = () => {
         }),
       ];
     }
-    if (editId) setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
-    else setCommercialPOs((prev) => [...prev, po]);
+    if (editId) {
+      setCommercialPOs((prev) => prev.map((p) => (p.id === editId ? po : p)));
+    } else {
+      const supersedeId = priorActivePo?.id;
+      setCommercialPOs((prev) => {
+        const next = supersedeId
+          ? prev.map((p) =>
+              p.id === supersedeId
+                ? {
+                    ...p,
+                    status: COMMERCIAL_PO_STATUS_SUPERSEDED,
+                    updated_at: nowIso,
+                    updatedAt: nowIso,
+                  }
+                : p
+            )
+          : prev;
+        return [...next, po];
+      });
+    }
     setSaveError('');
     setShowForm(false);
     setFormData(initialForm);
@@ -1269,11 +1357,42 @@ const POEntry = () => {
 
   const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
   const poForHistory = viewHistoryPoId ? commercialPOs.find((p) => p.id === viewHistoryPoId) : null;
+  const poContactHistoryRows = useMemo(
+    () => (poForHistory ? contactHistoryRowsForDisplay(poForHistory) : []),
+    [poForHistory]
+  );
+  const poNumberHistoryRows = useMemo(() => {
+    if (!poForHistory) return [];
+    const siteId = poForHistory.siteId || poForHistory.site_id || '';
+    const ocNumber = poForHistory.ocNumber || poForHistory.oc_number || '';
+    if (siteId && ocNumber) {
+      return collectSiteOcPoNumberHistory(commercialPOs, siteId, ocNumber);
+    }
+    const rows = (poForHistory.renewalCycles || poForHistory.renewal_cycles || []).map((c) => ({
+      poWoNumber: c.po_wo_number,
+      startDate: c.start_date,
+      endDate: c.end_date,
+      isCurrentOnRow: false,
+    }));
+    rows.push({
+      poWoNumber: poForHistory.poWoNumber || poForHistory.po_wo_number,
+      startDate: poForHistory.startDate || poForHistory.start_date,
+      endDate: poForHistory.endDate || poForHistory.end_date,
+      isCurrentOnRow: true,
+    });
+    return rows.filter((r) => String(r.poWoNumber || '').trim());
+  }, [poForHistory, commercialPOs]);
   const isLumpSumMode = formData.billingType === 'Lump Sum';
   const isLumpSumPenaltyMode = formData.billingType === 'Lump Sum';
   const monthlyContractValue =
     isLumpSumMode && Number(formData.totalContractMonth) > 0
-      ? Math.round(((Number(formData.newCycleTotalContractValue) || 0) / Number(formData.totalContractMonth)) * 100) / 100
+      ? Math.round(
+          ((editId
+            ? Number(formData.newCycleTotalContractValue) || 0
+            : Number(formData.totalContractValue) || 0) /
+            Number(formData.totalContractMonth)) *
+            100
+        ) / 100
       : '';
 
   return (
@@ -1723,11 +1842,7 @@ const POEntry = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-date">
                       PO Date
                     </label>
-                    <input
-                      id="sales-po-date"
-                      type="date"
-                      value={formData.poDate}
-                      onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))}
+                    <FormDateInput id="sales-po-date" value={formData.poDate} onChange={(e) => setFormData((p) => ({ ...p, poDate: e.target.value }))}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>
@@ -1945,54 +2060,94 @@ const POEntry = () => {
                         <p className="text-xs text-gray-500 mt-1">
                           {editId
                             ? `FY segment stays as saved (${fyForOc}). Vendor digits are optional.`
-                            : 'Enter the full OC above. Duplicate OC and PO/WO numbers are allowed for now.'}
+                            : 'Enter the full OC above. Multiple POs may share the same Site and OC when PO/WO numbers differ and service periods do not overlap.'}
                         </p>
                       </div>
                     </>
                   )}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      PO Number (OLD){' '}
-                      <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
-                    </label>
-                    <input
-                      type="text"
-                      readOnly
-                      tabIndex={-1}
-                      value={formData.poWoNumber}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current PO on file.</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Total contract value (OLD) (₹){' '}
-                      <span className="text-gray-400 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
-                    </label>
-                    <input
-                      type="number"
-                      readOnly
-                      tabIndex={-1}
-                      value={formData.totalContractValue}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
-                      min="0"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current value on file.</p>
-                  </div>
+                  {showPriorPoNumberField ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-500 mb-1">
+                        PO Number (OLD){' '}
+                        <span className="text-gray-400 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
+                      </label>
+                      <input
+                        type="text"
+                        readOnly
+                        tabIndex={-1}
+                        value={formData.poWoNumber}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        {editId
+                          ? 'Read-only snapshot of the current PO on file.'
+                          : 'Previous active PO number for this Site and OC — moved to history when you save the new PO.'}
+                      </p>
+                    </div>
+                  ) : null}
+                  {editId ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-500 mb-1">
+                        Total contract value (OLD) (₹){' '}
+                        <span className="text-gray-400 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
+                      </label>
+                      <input
+                        type="number"
+                        readOnly
+                        tabIndex={-1}
+                        value={formData.totalContractValue}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-gray-100 text-gray-600 cursor-not-allowed"
+                        min="0"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">Read-only snapshot of the current value on file.</p>
+                    </div>
+                  ) : null}
                 </div>
+
+                {showSiteOcPoHistory ? (
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+                    <p className="text-xs font-semibold text-gray-800 mb-2">PO Number History</p>
+                    <div className="space-y-1.5 text-xs text-gray-700">
+                      {siteOcPoNumberHistory.map((entry, i) => (
+                        <div key={`${entry.poWoNumber}-${i}`} className="flex flex-wrap gap-x-3 gap-y-1">
+                          <span className="font-mono font-medium">{entry.poWoNumber}</span>
+                          {entry.totalContractValue != null && entry.totalContractValue !== '' ? (
+                            <span>₹{Number(entry.totalContractValue || 0).toLocaleString('en-IN')}</span>
+                          ) : null}
+                          <span className="text-gray-500">
+                            ({formatDateDdMmYyyy(entry.startDate) || '—'} to {formatDateDdMmYyyy(entry.endDate) || '—'})
+                          </span>
+                          {entry.isCurrentOnRow ? (
+                            <span className="text-amber-700 font-medium">current on file</span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      New PO Number{' '}
-                      <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                      {showPriorPoNumberField ? 'New PO Number' : 'PO / WO Number'}{' '}
+                      <span className="text-gray-500 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
                     </label>
-                    <p className="text-xs text-gray-500 mb-1.5">New PO/WO number (renewal)</p>
+                    {showPriorPoNumberField ? (
+                      <p className="text-xs text-gray-500 mb-1.5">
+                        {editId ? 'New PO/WO number (renewal)' : 'Enter the new active PO/WO number for this period'}
+                      </p>
+                    ) : null}
                     <div className="grid grid-cols-1 gap-2">
                       <input
                         type="text"
-                        value={formData.newCyclePoWoNumber}
-                        onChange={(e) => setFormData((p) => ({ ...p, newCyclePoWoNumber: e.target.value }))}
+                        value={showPriorPoNumberField ? formData.newCyclePoWoNumber : formData.newCyclePoWoNumber || formData.poWoNumber}
+                        onChange={(e) =>
+                          setFormData((p) =>
+                            showPriorPoNumberField
+                              ? { ...p, newCyclePoWoNumber: e.target.value }
+                              : { ...p, newCyclePoWoNumber: e.target.value, poWoNumber: e.target.value }
+                          )
+                        }
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
                         placeholder="Enter PO/WO number"
                       />
@@ -2000,20 +2155,28 @@ const POEntry = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      New Total contract value (₹){' '}
-                      <span className="text-gray-500 font-normal">({formData.startDate || '—'} to {formData.endDate || '—'})</span>
+                      {editId ? 'New Total contract value (₹)' : 'Total contract value (₹)'}{' '}
+                      <span className="text-gray-500 font-normal">({formatDateDdMmYyyy(formData.startDate) || '—'} to {formatDateDdMmYyyy(formData.endDate) || '—'})</span>
                     </label>
                     <input
                       type="number"
-                      value={formData.newCycleTotalContractValue}
-                      onChange={(e) => setFormData((p) => ({ ...p, newCycleTotalContractValue: e.target.value }))}
+                      value={editId ? formData.newCycleTotalContractValue : formData.totalContractValue}
+                      onChange={(e) =>
+                        setFormData((p) =>
+                          editId
+                            ? { ...p, newCycleTotalContractValue: e.target.value }
+                            : { ...p, totalContractValue: e.target.value }
+                        )
+                      }
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
                       min="0"
                       placeholder="Enter total contract value"
                     />
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      After Commercial approves renewal, buffer-period tax invoices (and any legacy supplementary PO rows) are aligned to this new PO/WO number and contract dates.
-                    </p>
+                    {editId ? (
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        After Commercial approves renewal, buffer-period tax invoices (and any legacy supplementary PO rows) are aligned to this new PO/WO number and contract dates.
+                      </p>
+                    ) : null}
                     {editId && !isAfterContractEnd(formData.endDate) ? (
                       <p className="text-[11px] text-amber-700 mt-1">
                         Adding a renewal cycle is allowed only after the contract end date; use these fields for the initial PO when creating a new record.
@@ -2207,8 +2370,8 @@ const POEntry = () => {
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
                 <h4 className="text-sm font-semibold text-gray-900 mb-4">5. Timelines & Rules</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><input type="date" value={formData.startDate} onChange={(e) => handleDateInputChange('startDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
-                  <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><input type="date" value={formData.endDate} onChange={(e) => handleDateInputChange('endDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label><FormDateInput value={formData.startDate} onChange={(e) => handleDateInputChange('startDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
+                  <div><label className="block text-sm font-medium text-gray-700 mb-1">End Date</label><FormDateInput value={formData.endDate} onChange={(e) => handleDateInputChange('endDate', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2" /></div>
                   {String(formData.vertical || '').trim().toLowerCase() !== 'training' ? (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Billing Type</label>
@@ -2295,18 +2458,109 @@ const POEntry = () => {
       {viewHistoryPoId && poForHistory && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-[85vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">History – {poForHistory.ocNumber}</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">History – {poForHistory.ocNumber}</h3>
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 mb-4 text-sm text-gray-800">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Current PO on file</p>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                <div>
+                  <dt className="text-xs text-gray-500">PO / WO Number</dt>
+                  <dd className="font-mono font-medium">{poForHistory.poWoNumber || poForHistory.po_wo_number || '–'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Service period</dt>
+                  <dd>
+                    {formatDateDdMmYyyy(poForHistory.startDate || poForHistory.start_date) || '—'}{' '}
+                    to {formatDateDdMmYyyy(poForHistory.endDate || poForHistory.end_date) || '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Name</dt>
+                  <dd>{poForHistory.currentCoordinator || '–'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Contact Number</dt>
+                  <dd className="font-mono tabular-nums">{poForHistory.contactNumber || '–'}</dd>
+                </div>
+              </dl>
+            </div>
+
+            {poNumberHistoryRows.length > 0 ? (
+              <>
+                <p className="text-sm font-medium text-gray-700 mb-2">PO number history</p>
+                <div className="overflow-x-auto mb-4">
+                  <table className="min-w-full border border-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PO / WO Number</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Start date</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">End date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {poNumberHistoryRows.map((entry, i) => (
+                        <tr key={`${entry.poWoNumber}-${i}`}>
+                          <td className="px-3 py-2 text-sm font-mono">
+                            {entry.poWoNumber || '–'}
+                            {entry.isCurrentOnRow ? (
+                              <span className="ml-2 text-[10px] font-sans font-medium text-amber-700">current</span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(entry.startDate) || '–'}</td>
+                          <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(entry.endDate) || '–'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
+
             <p className="text-sm font-medium text-gray-700 mb-2">PO update log</p>
             <ul className="text-sm text-gray-600 list-disc pl-5 mb-4 space-y-1">
               {(poForHistory.updateHistory || []).filter((h) => !isCommercialModuleMarker(h)).length === 0 && (
                 <li className="list-none text-gray-400">No PO updates recorded yet.</li>
               )}
               {(poForHistory.updateHistory || []).filter((h) => !isCommercialModuleMarker(h)).map((h, i) => (
-                <li key={i}><span className="font-mono text-xs">{h.at ? new Date(h.at).toLocaleString('en-IN') : '–'}</span> — {h.summary || '—'}</li>
+                <li key={i}><span className="font-mono text-xs">{h.at ? formatDateTimeDdMmYyyy(h.at) : '–'}</span> — {h.summary || '—'}</li>
               ))}
             </ul>
             <p className="text-sm font-medium text-gray-700 mb-2">Contact history</p>
-            <div className="overflow-x-auto"><table className="min-w-full border border-gray-200"><thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th></tr></thead><tbody className="divide-y divide-gray-200">{(poForHistory.contactHistoryLog || []).map((h, i) => (<tr key={i}><td className="px-3 py-2 text-sm">{h.name}</td><td className="px-3 py-2 text-sm">{h.number}</td><td className="px-3 py-2 text-sm">{h.from || '–'}</td><td className="px-3 py-2 text-sm">{h.to || 'Current'}</td></tr>))}</tbody></table></div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {poContactHistoryRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-3 text-sm text-gray-400 text-center">
+                        No contact history recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    poContactHistoryRows.map((h, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-2 text-sm">{h.name || '–'}</td>
+                        <td className="px-3 py-2 text-sm">{h.number || '–'}</td>
+                        <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(h.from) || '–'}</td>
+                        <td className="px-3 py-2 text-sm">{h.to ? formatDateDdMmYyyy(h.to) : 'Current'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {poContactHistoryRows.some((h) => h.isCurrentFallback) ? (
+              <p className="text-xs text-amber-700 mt-2">
+                Showing current coordinator from the PO record. Save the PO once to persist contact history in the database.
+              </p>
+            ) : null}
             <div className="mt-4 flex justify-end"><button type="button" onClick={() => setViewHistoryPoId(null)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button></div>
           </div>
         </div>

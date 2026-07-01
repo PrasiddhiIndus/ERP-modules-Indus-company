@@ -25,7 +25,9 @@ import { useAuth } from "../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
 import ManpowerEnquiryDashboard from "./ManpowerEnquiryDashboard";
-import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";;
+import FormDateInput from "../../components/FormDateInput";
+
 import {
   buildAuthorizationValue,
   extractWorkflowMeta,
@@ -774,19 +776,13 @@ const ManpowerManagement = () => {
                 </label>
                 <label className="text-xs text-gray-600">
                   <span className="block mb-1 font-medium">Received From</span>
-                  <input
-                    type="date"
-                    value={filters.receivedFrom}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, receivedFrom: e.target.value }))}
+                  <FormDateInput value={filters.receivedFrom} onChange={(e) => setFilters((prev) => ({ ...prev, receivedFrom: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                   />
                 </label>
                 <label className="text-xs text-gray-600">
                   <span className="block mb-1 font-medium">Received To</span>
-                  <input
-                    type="date"
-                    value={filters.receivedTo}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, receivedTo: e.target.value }))}
+                  <FormDateInput value={filters.receivedTo} onChange={(e) => setFilters((prev) => ({ ...prev, receivedTo: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
                   />
                 </label>

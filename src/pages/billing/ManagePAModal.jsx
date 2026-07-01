@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { useBilling } from '../../contexts/BillingContext';
 import { BILLING_AUTOSAVE_KEYS } from '../../utils/billingFormAutosave';
-import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';;
+import FormDateInput from "../../components/FormDateInput";
+
 
 const ManagePAModal = ({ invoiceId, invoice, onClose }) => {
   const { paymentAdvice, setPaymentAdvice, setInvoices } = useBilling();
@@ -73,10 +75,7 @@ const ManagePAModal = ({ invoiceId, invoice, onClose }) => {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">PA Received Date</label>
-            <input
-              type="date"
-              value={paReceivedDate}
-              onChange={(e) => setPaReceivedDate(e.target.value)}
+            <FormDateInput value={paReceivedDate} onChange={(e) => setPaReceivedDate(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
             />
           </div>

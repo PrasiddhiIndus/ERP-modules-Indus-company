@@ -121,7 +121,20 @@ main.erp-app-shell .erp-freeze-pane-edge {
   border-right: 1px solid #d1d5db;
 }
 
-/* Daily register: sticky date header while scrolling employee rows */
+/* ERP dates: dd/mm/yyyy display (en-GB, locale-independent) */
+html[lang="en-GB"] .erp-date-input-text::placeholder {
+  color: #9ca3af;
+  font-size: 0.875em;
+}
+
+html[lang="en-GB"] input[type="date"] {
+  font-family: inherit;
+}
+
+html[lang="en-GB"] input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  font-variant-numeric: tabular-nums;
+}
+
 main.erp-app-shell .erp-freeze-pane-sticky-header > div > div:first-child .erp-freeze-pane-frozen {
   background-color: #f9fafb;
 }

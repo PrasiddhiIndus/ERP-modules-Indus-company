@@ -15,7 +15,9 @@ import {
   saveBillingFormDraft,
   clearBillingFormDraft,
 } from '../../utils/billingFormAutosave';
-import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
+import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';;
+import FormDateInput from "../../components/FormDateInput";
+
 
 const REQ_PENDING = 'pending';
 const REQ_APPROVED = 'approved';
@@ -143,10 +145,7 @@ function IssueCnDnModal({ parent, noteType, requestReason, existingNotes, onClos
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Note date</label>
-              <input
-                type="date"
-                value={noteDate}
-                onChange={(e) => setNoteDate(e.target.value)}
+              <FormDateInput value={noteDate} onChange={(e) => setNoteDate(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               />
             </div>

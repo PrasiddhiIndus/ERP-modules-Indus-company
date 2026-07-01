@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Camera, User } from 'lucide-react';
-import { salaryAppPath } from './salaryNav';
+import { salaryAppPath } from './salaryNav';;
+import FormDateInput from "../../../../components/FormDateInput";
+
 import {
   getEmployeeMasterById,
   initialsFromName,
@@ -218,7 +220,7 @@ export default function EmployeeMasterProfile() {
                     <input type="text" value={form.lastName} onChange={onChange('lastName')} className={inputClass} />
                   </Field>
                   <Field label="Date Of Birth">
-                    <input type="date" value={form.dob} onChange={onChange('dob')} className={inputClass} />
+                    <FormDateInput value={form.dob} onChange={onChange('dob')} className={inputClass}/>
                   </Field>
                   <Field label="Gender">
                     <div className="flex flex-wrap items-center gap-4 h-9">
@@ -238,7 +240,7 @@ export default function EmployeeMasterProfile() {
                     </div>
                   </Field>
                   <Field label="Date of Joining">
-                    <input type="date" value={form.dateOfJoining} onChange={onChange('dateOfJoining')} className={inputClass} />
+                    <FormDateInput value={form.dateOfJoining} onChange={onChange('dateOfJoining')} className={inputClass}/>
                   </Field>
                   <Field label="Location">
                     <input type="text" value={form.location} onChange={onChange('location')} className={inputClass} placeholder="State / city" />
@@ -303,7 +305,7 @@ export default function EmployeeMasterProfile() {
                     <input type="tel" value={form.familyPhone} onChange={onChange('familyPhone')} className={inputClass} />
                   </Field>
                   <Field label="Date of Birth">
-                    <input type="date" value={form.familyDob} onChange={onChange('familyDob')} className={inputClass} />
+                    <FormDateInput value={form.familyDob} onChange={onChange('familyDob')} className={inputClass}/>
                   </Field>
                 </div>
               </>

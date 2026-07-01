@@ -1,17 +1,14 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { DAHEJ_EXPENSE_COLUMNS, DAHEJ_GRID_GROUPS } from "../constants/columns";
-import { useDahejExpenses } from "../contexts/DahejExpensesContext";
+import { useDahejExpenses } from "../contexts/DahejExpensesContext";;
+import FormDateInput from "../../../../components/FormDateInput";
+
 
 function CellInput({ column, value, onChange, disabled, onKeyDown }) {
   const common = "w-full h-7 px-1 text-[11px] border-0 bg-transparent focus:bg-blue-50 focus:ring-1 focus:ring-[#1F3A8A] rounded outline-none";
   if (column.type === "date") {
     return (
-      <input
-        type="date"
-        className={common}
-        value={value || ""}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+      <FormDateInput className={common} value={value || ""} disabled={disabled} onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
       />
     );

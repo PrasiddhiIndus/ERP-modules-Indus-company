@@ -21,7 +21,9 @@ import {
 } from '../../lib/employeeHierarchy';
 import { ManagerSearchSelect } from '../../components/employee/ManagerSearchSelect';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx';;
+import FormDateInput from "../../components/FormDateInput";
+
 import { 
   Users, 
   Plus, 
@@ -1541,10 +1543,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Date_of_Joining *</label>
-                    <input
-                      type="date"
-                      value={formData.date_of_joining}
-                      onChange={(e) => setFormData({...formData, date_of_joining: e.target.value})}
+                    <FormDateInput value={formData.date_of_joining} onChange={(e) => setFormData({...formData, date_of_joining: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     />
@@ -1584,10 +1583,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Date_of_Birth</label>
-                    <input
-                      type="date"
-                      value={formData.date_of_birth}
-                      onChange={(e) => setFormData({...formData, date_of_birth: e.target.value})}
+                    <FormDateInput value={formData.date_of_birth} onChange={(e) => setFormData({...formData, date_of_birth: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                     <p className="text-xs text-gray-500 mt-1">Birthday reminders appear in Admin → Alerts &amp; Notifications (all active employees).</p>
@@ -1595,10 +1591,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Wedding_Anniversary_Date</label>
-                    <input
-                      type="date"
-                      value={formData.date_of_anniversary}
-                      onChange={(e) => setFormData({...formData, date_of_anniversary: e.target.value})}
+                    <FormDateInput value={formData.date_of_anniversary} onChange={(e) => setFormData({...formData, date_of_anniversary: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                     <p className="text-xs text-gray-500 mt-1">Anniversary reminders appear in Admin → Alerts &amp; Notifications.</p>
@@ -1739,10 +1732,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Son's DOB (MM-DD-YYYY)</label>
-                    <input
-                      type="date"
-                      value={formData.son_dob}
-                      onChange={(e) => setFormData({...formData, son_dob: e.target.value})}
+                    <FormDateInput value={formData.son_dob} onChange={(e) => setFormData({...formData, son_dob: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -1909,11 +1899,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                       Date of Leaving (DOL)
                       {formData.status === 'Inactive' ? <span className="text-red-600"> *</span> : null}
                     </label>
-                    <input
-                      type="date"
-                      required={formData.status === 'Inactive'}
-                      value={formData.date_of_leaving}
-                      onChange={(e) => setFormData({...formData, date_of_leaving: e.target.value})}
+                    <FormDateInput required={formData.status === 'Inactive'} value={formData.date_of_leaving} onChange={(e) => setFormData({...formData, date_of_leaving: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>

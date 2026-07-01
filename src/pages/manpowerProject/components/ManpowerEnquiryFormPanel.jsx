@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "../../../lib/supabase";
+import { supabase } from "../../../lib/supabase";;
+import FormDateInput from "../../../components/FormDateInput";
+
 import {
   VERTICAL_OPTIONS,
   MODE_OF_SUBMISSION_OPTIONS,
@@ -610,8 +612,10 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             />
           </div>
           <div>
-            <label className={labelClass}>Enquiry Date {req}</label>
-            <input type="date" name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass} />
+            <label className={labelClass}>
+              Enquiry Date <span className="text-red-500">*</span>
+            </label>
+            <FormDateInput name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass}/>
           </div>
           <div>
             <label className={labelClass}>Received By {req}</label>
@@ -831,14 +835,10 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
-            <label className={labelClass}>Min Wage Effective Date (WEF) {req}</label>
-            <input
-              type="date"
-              name="minWageEffectiveDate"
-              value={formData.minWageEffectiveDate}
-              onChange={handleChange}
-              className={inputClass}
-            />
+            <label className={labelClass}>
+              Min Wage Effective Date (WEF) <span className="text-red-500">*</span>
+            </label>
+            <FormDateInput name="minWageEffectiveDate" value={formData.minWageEffectiveDate} onChange={handleChange} className={inputClass}/>
           </div>
           <div>
             <label className={labelClass}>Submission / Bid Deadline {req}</label>
@@ -872,7 +872,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </div>
           <div>
             <label className={labelClass}>Received Date</label>
-            <input type="date" name="receivedDate" value={formData.receivedDate} onChange={handleChange} className={inputClass} />
+            <FormDateInput name="receivedDate" value={formData.receivedDate} onChange={handleChange} className={inputClass}/>
           </div>
           <div>
             <label className={labelClass}>Vertical</label>
@@ -930,11 +930,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </div>
           <div>
             <label className={labelClass}>Due Date for Submission (if any)</label>
-            <input type="date" name="dueDate" value={formData.dueDate} onChange={handleChange} className={inputClass} />
+            <FormDateInput name="dueDate" value={formData.dueDate} onChange={handleChange} className={inputClass}/>
           </div>
           <div>
             <label className={labelClass}>Offer Submitted On</label>
-            <input type="date" name="offerSubmittedOn" value={formData.offerSubmittedOn} onChange={handleChange} className={inputClass} />
+            <FormDateInput name="offerSubmittedOn" value={formData.offerSubmittedOn} onChange={handleChange} className={inputClass}/>
           </div>
           <div className="md:col-span-2">
             <label className={labelClass}>Remarks</label>

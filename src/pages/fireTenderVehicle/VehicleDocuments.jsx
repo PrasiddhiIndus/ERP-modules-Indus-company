@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
 import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
-import FleetAttachmentUploader from './FleetAttachmentUploader';
+import FleetAttachmentUploader from './FleetAttachmentUploader';;
+import FormDateInput from "../../components/FormDateInput";
+
 import { 
   FileText, 
   Plus, 
@@ -522,10 +524,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
                   {docFieldCfg.showIssueDate && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">{docFieldCfg.issueDateLabel}</label>
-                    <input
-                      type="date"
-                      value={formData.issue_date}
-                      onChange={(e) => setFormData({...formData, issue_date: e.target.value})}
+                    <FormDateInput value={formData.issue_date} onChange={(e) => setFormData({...formData, issue_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -536,10 +535,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       {docFieldCfg.expiryDateLabel}{docFieldCfg.expiryRequired ? ' *' : ''}
                     </label>
-                    <input
-                      type="date"
-                      value={formData.expiry_date}
-                      onChange={(e) => setFormData({...formData, expiry_date: e.target.value})}
+                    <FormDateInput value={formData.expiry_date} onChange={(e) => setFormData({...formData, expiry_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required={docFieldCfg.expiryRequired}
                     />

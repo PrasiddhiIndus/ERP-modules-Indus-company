@@ -21,6 +21,7 @@ export function DateInput({
   min = DATE_INPUT_MIN,
   max = DATE_INPUT_MAX,
   className = "",
+  compact = false,
   disabled = false,
   readOnly = false,
   name,
@@ -29,7 +30,7 @@ export function DateInput({
   title,
   onBlur,
   onFocus,
-  placeholder = "dd-mm-yyyy",
+  placeholder = "dd/mm/yyyy",
   "aria-label": ariaLabel,
 }) {
   const autoId = useId();
@@ -133,10 +134,12 @@ export function DateInput({
         disabled={disabled}
         readOnly={readOnly}
         required={required}
-        title={title || "Enter date as dd-mm-yyyy or use calendar"}
+        title={title || "Enter date as dd/mm/yyyy or use calendar"}
         aria-label={ariaLabel}
         placeholder={placeholder}
-        className="erp-date-input-text min-w-0 flex-1 rounded border border-inherit bg-inherit px-2 py-1.5 text-inherit"
+        className={`erp-date-input-text min-w-0 flex-1 rounded border border-inherit bg-inherit px-2 text-inherit ${
+          compact ? "py-1 text-xs" : "py-1.5"
+        }`}
       />
       <input
         ref={pickerRef}
@@ -155,7 +158,9 @@ export function DateInput({
         onClick={openCalendar}
         disabled={disabled || readOnly}
         title="Open calendar"
-        className="erp-date-input-calendar shrink-0 rounded border border-gray-300 bg-white p-1.5 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+        className={`erp-date-input-calendar shrink-0 rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 ${
+          compact ? "p-1" : "p-1.5"
+        }`}
       >
         <Calendar className="h-4 w-4" />
       </button>

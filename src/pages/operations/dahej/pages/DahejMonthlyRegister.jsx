@@ -6,6 +6,8 @@ import { PageHeader, PrimaryButton, SectionCard, TinySelect } from "../../compon
 import { useOperations } from "../../contexts/OperationsContext";
 import { formatCurrency } from "../../data/mockOperationsData";
 import { exportDahejExcel } from "../utils/dahejExpenseExcel";
+import { formatDateDdMmYyyy, formatMonthYearLabel } from "../../../../utils/dateDisplay";
+
 
 function monthOptions() {
   const opts = [];
@@ -13,7 +15,7 @@ function monthOptions() {
   for (let i = 0; i < 36; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+    const label = formatMonthYearLabel(d.getFullYear(), d.getMonth() + 1);
     opts.push({ key, label });
   }
   return opts;
@@ -74,7 +76,7 @@ export default function DahejMonthlyRegister() {
           <p className={`text-lg font-bold ${dashboard.balance < 0 ? "text-red-600" : "text-emerald-700"}`}>{formatCurrency(dashboard.balance)}</p>
         </SectionCard>
         <SectionCard title="Month Status" className="!shadow-none">
-          <p className="text-sm font-medium">{monthClosed ? `Closed ${closing?.closed_at ? new Date(closing.closed_at).toLocaleDateString() : ""}` : "Open"}</p>
+          <p className="text-sm font-medium">{monthClosed ? `Closed ${closing?.closed_at ? formatDateDdMmYyyy(closing.closed_at) : ""}` : "Open"}</p>
         </SectionCard>
       </div>
 

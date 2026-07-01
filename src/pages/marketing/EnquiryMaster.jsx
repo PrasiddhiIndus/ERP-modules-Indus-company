@@ -7,7 +7,9 @@ import DateRangeCalendar from './components/DateRangeCalendar';
 import { parseIndianNumber } from './utils/numberFormat';
 import NumberInput from './components/NumberInput';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { isValidDateInputValue, normalizeDateInputValue, resolveNativeDateInputChange } from '../../utils/dateInput';
+import { isValidDateInputValue, normalizeDateInputValue, resolveNativeDateInputChange } from '../../utils/dateInput';;
+import FormDateInput from "../../components/FormDateInput";
+
 import {
   parseCommaSeparatedEmails,
   parseEnquirySecondaryEmails,
@@ -1079,10 +1081,7 @@ const EnquiryMaster = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Enquiry Date <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
-                    value={formData.enquiry_date}
-                    onChange={(e) => handleDateInputChange('enquiry_date', e)}
+                  <FormDateInput value={formData.enquiry_date} onChange={(e) => handleDateInputChange('enquiry_date', e)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     required
                   />
@@ -1211,10 +1210,7 @@ const EnquiryMaster = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Expected Closing Date</label>
-                  <input
-                    type="date"
-                    value={formData.expected_closing_date}
-                    onChange={(e) => handleDateInputChange('expected_closing_date', e)}
+                  <FormDateInput value={formData.expected_closing_date} onChange={(e) => handleDateInputChange('expected_closing_date', e)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                 </div>
