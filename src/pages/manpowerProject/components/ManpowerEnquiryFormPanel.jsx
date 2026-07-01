@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "../../../lib/supabase";;
+import { supabase } from "../../../lib/supabase";
 import FormDateInput from "../../../components/FormDateInput";
+import FormDateTimeInput from "../../../components/FormDateTimeInput";
 
 import {
   VERTICAL_OPTIONS,
@@ -63,6 +64,7 @@ const emptyForm = {
   tenderFeeApplicable: "Not Applicable",
   tenderFeeAmount: "",
   emdFeeStatus: "Not Applicable",
+  emdFeeAmount: "",
   paymentMode: "",
   paymentReferenceNo: "",
   paymentStatus: "",
@@ -86,11 +88,15 @@ function FormSection({ number, title, hint, children, variant = "default" }) {
   const isTender = variant === "tender";
   return (
     <div
-      className={`rounded-xl border p-4 sm:p-6 shadow-sm ${
-        isTender ? "border-blue-200 bg-blue-50/40" : "border-slate-200 bg-white"
+      className={`rounded-xl border shadow-sm ${
+        isTender ? "border-blue-200/80 bg-gradient-to-b from-blue-50/60 to-white" : "border-slate-200 bg-white"
       }`}
     >
-      <div className="flex flex-wrap items-start gap-2 mb-4">
+      <div
+        className={`flex flex-wrap items-start gap-2 px-5 sm:px-6 pt-5 pb-4 border-b ${
+          isTender ? "border-blue-100" : "border-slate-100"
+        }`}
+      >
         {number && (
           <span
             className={`inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md px-1.5 text-xs font-bold ${
@@ -101,10 +107,89 @@ function FormSection({ number, title, hint, children, variant = "default" }) {
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <h4 className={`text-base font-semibold ${isTender ? "text-blue-900" : "text-slate-900"}`}>{title}</h4>
-          {hint && <p className={`text-xs mt-0.5 ${isTender ? "text-blue-700/80" : "text-slate-500"}`}>{hint}</p>}
+          <h4 className={`text-sm font-semibold sm:text-base ${isTender ? "text-blue-900" : "text-slate-900"}`}>
+            {title}
+          </h4>
+          {hint && (
+            <p className={`text-xs mt-1 leading-relaxed ${isTender ? "text-blue-700/75" : "text-slate-500"}`}>
+              {hint}
+            </p>
+          )}
         </div>
       </div>
+      <div className="px-5 sm:px-6 py-5">{children}</div>
+    </div>
+  );
+}
+
+function Field({ label, required, children, className = "", hint }) {
+  return (
+    <div className={className}>
+      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1.5">
+        {label}
+        {required && <span className="text-red-500 normal-case tracking-normal ml-0.5">*</span>}
+      </label>
+      {children}
+      {hint && <p className="mt-1.5 text-xs text-slate-500 leading-relaxed">{hint}</p>}
+    </div>
+  );
+}
+
+function CurrencyInput({ name, value, onChange, placeholder = "0", disabled = false, inputClass }) {
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-500">
+        ₹
+      </span>
+      <input
+        type="number"
+        min="0"
+        step="0.01"
+        name={name}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        placeholder={placeholder}
+        className={`${inputClass} pl-9`}
+      />
+    </div>
+  );
+}
+
+function RadioPills({ name, value, onChange, options }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((opt) => {
+        const selected = value === opt.value;
+        return (
+          <label
+            key={opt.value}
+            className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              selected
+                ? "border-purple-600 bg-purple-50 text-purple-800 shadow-sm"
+                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+            }`}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={opt.value}
+              checked={selected}
+              onChange={onChange}
+              className="sr-only"
+            />
+            {opt.label}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function FeeEntryPanel({ title, children }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      {title && <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{title}</p>}
       {children}
     </div>
   );
@@ -122,7 +207,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
   const isOnlineTender = formData.sourceType === "Online Tender";
   const isTenderFeeApplicable = formData.tenderFeeApplicable === "Applicable";
-  const isPaymentRequired = isTenderFeeApplicable || formData.emdFeeStatus === "Applicable - Pay";
+  const isEmdFeePayable = formData.emdFeeStatus === "Applicable - Pay";
+  const isPaymentRequired = isTenderFeeApplicable || isEmdFeePayable;
 
   const initNewForm = useCallback(async () => {
     setSrNoLoading(true);
@@ -283,6 +369,10 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         alert("Please enter Tender Fee Amount.");
         return false;
       }
+      if (isEmdFeePayable && !String(formData.emdFeeAmount || "").trim()) {
+        alert("Please enter EMD Fee Amount.");
+        return false;
+      }
       if (isPaymentRequired) {
         if (!formData.paymentMode) {
           alert("Please select Payment Mode.");
@@ -386,8 +476,15 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   };
 
   const inputClass =
-    "w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent";
-  const labelClass = "block text-sm font-medium text-gray-700 mb-2";
+    "w-full h-10 px-3 text-sm border border-slate-300 rounded-lg bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500 transition-shadow";
+  const textareaClass =
+    "w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500 transition-shadow resize-y min-h-[88px]";
+  const selectClass = `${inputClass} appearance-none`;
+  const fileClass =
+    "w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200 px-3 py-2 border border-slate-300 rounded-lg bg-white";
+  const gridClass = "grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5";
+  const gridThreeClass = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5";
+  const labelClass = "block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1.5";
   const req = <span className="text-red-500">*</span>;
 
   const assigneeOptions = mergeAssignedToOptions(
@@ -399,13 +496,12 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     <FormSection
       number="3.2"
       title="Online Tender Fields"
-      hint="Shown when Source Type is Online Tender."
+      hint="Portal details and fee entries — shown when Source Type is Online Tender."
       variant="tender"
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className={labelClass}>Portal Name {req}</label>
-          <select name="portalNameOption" value={formData.portalNameOption} onChange={handleChange} className={inputClass}>
+      <div className={gridClass}>
+        <Field label="Portal Name" required>
+          <select name="portalNameOption" value={formData.portalNameOption} onChange={handleChange} className={selectClass}>
             <option value="">Select portal</option>
             {TENDER_PORTAL_OPTIONS.map((opt) => (
               <option key={opt} value={opt}>
@@ -413,176 +509,166 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               </option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className={labelClass}>
-            Custom Portal Name {formData.portalNameOption === "Custom" ? req : null}
-          </label>
+        </Field>
+        <Field label="Custom Portal Name" required={formData.portalNameOption === "Custom"}>
           <input
             name="portalNameCustom"
             value={formData.portalNameCustom}
             onChange={handleChange}
             className={inputClass}
-            placeholder="Enter portal name if Custom"
+            placeholder="Enter portal name"
             disabled={formData.portalNameOption !== "Custom"}
           />
-        </div>
-        <div>
-          <label className={labelClass}>Tender Number {req}</label>
-          <input name="tenderNumber" value={formData.tenderNumber} onChange={handleChange} className={inputClass} placeholder="As per portal" />
-        </div>
-        <div>
-          <label className={labelClass}>Estimated Value (Client) {req}</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-            <input
-              type="number"
-              min="0"
-              name="estimatedValueClient"
-              value={formData.estimatedValueClient}
-              onChange={handleChange}
-              placeholder="Published on portal"
-              className={`${inputClass} pl-12`}
-            />
-          </div>
-        </div>
-        <div>
-          <label className={labelClass}>Our Quoted Rate {req}</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-            <input
-              type="number"
-              min="0"
-              name="ourQuotedRate"
-              value={formData.ourQuotedRate}
-              onChange={handleChange}
-              placeholder="Rate submitted on portal"
-              className={`${inputClass} pl-12`}
-            />
-          </div>
-        </div>
-        <div>
-          <label className={labelClass}>Portal Submission Date {req}</label>
+        </Field>
+        <Field label="Tender Number" required>
           <input
-            type="datetime-local"
+            name="tenderNumber"
+            value={formData.tenderNumber}
+            onChange={handleChange}
+            className={inputClass}
+            placeholder="As per portal"
+          />
+        </Field>
+        <Field label="Portal Submission Date" required>
+          <FormDateTimeInput
             name="portalSubmissionDate"
             value={formData.portalSubmissionDate}
             onChange={handleChange}
             className={inputClass}
+            aria-label="Portal submission date and time"
           />
-        </div>
-        <div className="md:col-span-2">
-          <label className={labelClass}>Portal Screenshot / Proof {req}</label>
+        </Field>
+        <Field label="Estimated Value (Client)" required>
+          <CurrencyInput
+            name="estimatedValueClient"
+            value={formData.estimatedValueClient}
+            onChange={handleChange}
+            placeholder="Published on portal"
+            inputClass={inputClass}
+          />
+        </Field>
+        <Field label="Our Quoted Rate" required>
+          <CurrencyInput
+            name="ourQuotedRate"
+            value={formData.ourQuotedRate}
+            onChange={handleChange}
+            placeholder="Rate on portal"
+            inputClass={inputClass}
+          />
+        </Field>
+        <Field label="Portal Screenshot / Proof" required className="sm:col-span-2" hint="PNG or PDF of submission confirmation.">
           <input
             type="file"
             name="portalProofAttachment"
             accept=".png,.pdf,image/png,application/pdf"
             onChange={handleChange}
-            className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white"
+            className={fileClass}
           />
-          <p className="mt-1 text-xs text-slate-500">PNG or PDF of submission confirmation.</p>
           {existingPortalProofPathRef.current && !formData.portalProofAttachment && (
-            <p className="mt-1 text-xs text-green-700">Existing proof on file.</p>
+            <p className="mt-1.5 text-xs font-medium text-emerald-700">Existing proof on file.</p>
           )}
-        </div>
+        </Field>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-blue-200/60">
-        <p className="text-sm font-semibold text-blue-900 mb-3">Fees &amp; Payment</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>Tender Fee Applicable? {req}</label>
-            <div className="flex items-center gap-4 text-sm">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="tenderFeeApplicable"
-                  value="Applicable"
-                  checked={formData.tenderFeeApplicable === "Applicable"}
-                  onChange={handleChange}
-                />
-                Applicable
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="tenderFeeApplicable"
-                  value="Not Applicable"
-                  checked={formData.tenderFeeApplicable === "Not Applicable"}
-                  onChange={handleChange}
-                />
-                Not Applicable
-              </label>
-            </div>
-          </div>
-          <div>
-            <label className={labelClass}>EMD Fee</label>
-            <select name="emdFeeStatus" value={formData.emdFeeStatus} onChange={handleChange} className={inputClass}>
-              {EMD_FEE_STATUS_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+      <div className="mt-6 pt-5 border-t border-blue-200/70">
+        <p className="text-xs font-semibold uppercase tracking-wide text-blue-800 mb-4">Fees &amp; Payment</p>
 
-        {isTenderFeeApplicable && (
-          <div className="mt-4">
-            <label className={labelClass}>Tender Fee Amount {req}</label>
-            <div className="relative md:w-1/2">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-              <input
-                type="number"
-                min="0"
-                name="tenderFeeAmount"
-                value={formData.tenderFeeAmount}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <FeeEntryPanel title="Tender Fee">
+            <Field label="Tender Fee Applicable?" required>
+              <RadioPills
+                name="tenderFeeApplicable"
+                value={formData.tenderFeeApplicable}
                 onChange={handleChange}
-                className={`${inputClass} pl-12`}
-                placeholder="0"
+                options={[
+                  { value: "Applicable", label: "Applicable" },
+                  { value: "Not Applicable", label: "Not Applicable" },
+                ]}
               />
-            </div>
-          </div>
-        )}
+            </Field>
+            {isTenderFeeApplicable && (
+              <div className="mt-4 rounded-md border border-blue-100 bg-blue-50/50 p-3.5">
+                <Field label="Tender Fee Amount (Manual Entry)" required hint="Enter the tender fee amount as per portal / notification.">
+                  <CurrencyInput
+                    name="tenderFeeAmount"
+                    value={formData.tenderFeeAmount}
+                    onChange={handleChange}
+                    placeholder="Enter amount"
+                    inputClass={inputClass}
+                  />
+                </Field>
+              </div>
+            )}
+          </FeeEntryPanel>
 
-        <div className="mt-4">
-          <label className={labelClass}>Payment Status {req}</label>
-          <select name="paymentStatus" value={formData.paymentStatus} onChange={handleChange} className={`${inputClass} md:w-1/2`}>
-            <option value="">Select</option>
-            {PAYMENT_STATUS_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {isPaymentRequired && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            <div>
-              <label className={labelClass}>Payment Mode {req}</label>
-              <select name="paymentMode" value={formData.paymentMode} onChange={handleChange} className={inputClass}>
-                <option value="">Select</option>
-                {PAYMENT_MODE_OPTIONS.map((opt) => (
+          <FeeEntryPanel title="EMD Fee">
+            <Field label="EMD Fee Status">
+              <select name="emdFeeStatus" value={formData.emdFeeStatus} onChange={handleChange} className={selectClass}>
+                {EMD_FEE_STATUS_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className={labelClass}>DD / NEFT Reference No. {req}</label>
-              <input
-                name="paymentReferenceNo"
-                value={formData.paymentReferenceNo}
-                onChange={handleChange}
-                className={inputClass}
-                placeholder="DD number or UTR number"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Payment Date {req}</label>
-              <input type="date" name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass} />
+            </Field>
+            {isEmdFeePayable && (
+              <div className="mt-4 rounded-md border border-blue-100 bg-blue-50/50 p-3.5">
+                <Field label="EMD Fee Amount (Manual Entry)" required hint="Enter EMD amount payable as per tender document.">
+                  <CurrencyInput
+                    name="emdFeeAmount"
+                    value={formData.emdFeeAmount}
+                    onChange={handleChange}
+                    placeholder="Enter EMD amount"
+                    inputClass={inputClass}
+                  />
+                </Field>
+              </div>
+            )}
+            {formData.emdFeeStatus === "Exempted" && (
+              <p className="mt-3 text-xs text-slate-500 leading-relaxed">EMD is exempted — no payment entry required.</p>
+            )}
+          </FeeEntryPanel>
+        </div>
+
+        <div className="mt-5">
+          <Field label="Payment Status" required>
+            <select name="paymentStatus" value={formData.paymentStatus} onChange={handleChange} className={`${selectClass} sm:max-w-xs`}>
+              <option value="">Select status</option>
+              {PAYMENT_STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
+        {isPaymentRequired && (
+          <div className="mt-5 rounded-lg border border-amber-200/80 bg-amber-50/40 p-4 sm:p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 mb-4">Payment Details</p>
+            <div className={gridClass}>
+              <Field label="Payment Mode" required>
+                <select name="paymentMode" value={formData.paymentMode} onChange={handleChange} className={selectClass}>
+                  <option value="">Select mode</option>
+                  {PAYMENT_MODE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="DD / NEFT Reference No." required hint="DD number or UTR number.">
+                <input
+                  name="paymentReferenceNo"
+                  value={formData.paymentReferenceNo}
+                  onChange={handleChange}
+                  className={inputClass}
+                  placeholder="Reference number"
+                />
+              </Field>
+              <Field label="Payment Date" required>
+                <FormDateInput name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass} />
+              </Field>
             </div>
           </div>
         )}
@@ -592,13 +678,13 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-5 px-4 py-4 sm:px-6 sm:py-5">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-4 px-4 py-4 sm:px-6 sm:py-5">
       <FormSection
         number="3.1"
         title="Common Header — Enquiry Details"
         hint="Shared fields for all enquiry types."
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={gridClass}>
           <div>
             <label className={labelClass}>Enquiry ID</label>
             <input
@@ -644,7 +730,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       {onlineTenderSection}
 
       <FormSection title="Client &amp; Contact Person" hint="Primary client and point of contact details.">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={gridClass}>
           <div>
             <label className={labelClass}>Client Name {req}</label>
             <input name="clientName" value={formData.clientName} onChange={handleChange} className={inputClass} />
@@ -674,7 +760,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       </FormSection>
 
       <FormSection title="Site / Project Location" hint="State, city, and site name.">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className={gridThreeClass}>
           <div>
             <label className={labelClass}>State {req}</label>
             <select name="siteState" value={formData.siteState} onChange={handleChange} className={inputClass}>
@@ -698,7 +784,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       </FormSection>
 
       <FormSection title="Service &amp; Category">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={gridClass}>
           <div>
             <label className={labelClass}>Industry / Sector {req}</label>
             <select name="industrySector" value={formData.industrySector} onChange={handleChange} className={inputClass}>
@@ -722,39 +808,26 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
         </div>
-        <div className="mt-4">
+        <div className="mt-5">
           <label className={labelClass}>Enquiry Sub-type {req}</label>
-          <div className="flex flex-wrap gap-4">
-            {ENQUIRY_SUBTYPE_OPTIONS.map((opt) => (
-              <label key={opt} className="inline-flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="radio"
-                  name="enquirySubType"
-                  value={opt}
-                  checked={formData.enquirySubType === opt}
-                  onChange={handleChange}
-                />
-                {opt}
-              </label>
-            ))}
-          </div>
+          <RadioPills
+            name="enquirySubType"
+            value={formData.enquirySubType}
+            onChange={handleChange}
+            options={ENQUIRY_SUBTYPE_OPTIONS.map((opt) => ({ value: opt, label: opt }))}
+          />
         </div>
       </FormSection>
 
       <FormSection title="Scope of Work" hint="SOP document upload or text entry.">
-        <div className="flex flex-wrap gap-4 mb-3 text-sm">
-          {["Text", "Attachment", "Both"].map((mode) => (
-            <label key={mode} className="inline-flex items-center gap-2">
-              <input
-                type="radio"
-                name="scopeInputType"
-                value={mode}
-                checked={formData.scopeInputType === mode}
-                onChange={handleChange}
-              />
-              {mode}
-            </label>
-          ))}
+        <div className="mb-4">
+          <label className={labelClass}>Input Type</label>
+          <RadioPills
+            name="scopeInputType"
+            value={formData.scopeInputType}
+            onChange={handleChange}
+            options={["Text", "Attachment", "Both"].map((mode) => ({ value: mode, label: mode }))}
+          />
         </div>
         {(formData.scopeInputType === "Text" || formData.scopeInputType === "Both") && (
           <textarea
@@ -762,7 +835,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             value={formData.scopeOfWork}
             onChange={handleChange}
             rows={4}
-            className={inputClass}
+            className={textareaClass}
             placeholder="Enter scope details or SOP summary..."
           />
         )}
@@ -773,7 +846,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               type="file"
               name="scopeAttachment"
               onChange={handleChange}
-              className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white"
+              className={fileClass}
             />
             {existingDocumentsPathRef.current && !formData.scopeAttachment && (
               <p className="mt-1 text-xs text-green-700">Existing document on file.</p>
@@ -783,7 +856,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       </FormSection>
 
       <FormSection title="Contract, Wage &amp; Deadline">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className={gridThreeClass}>
           <div>
             <label className={labelClass}>Contract Duration {req}</label>
             <div className="flex gap-2">
@@ -833,29 +906,31 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div className={`${gridClass} mt-5`}>
           <div>
             <label className={labelClass}>
               Min Wage Effective Date (WEF) <span className="text-red-500">*</span>
             </label>
             <FormDateInput name="minWageEffectiveDate" value={formData.minWageEffectiveDate} onChange={handleChange} className={inputClass}/>
           </div>
-          <div>
-            <label className={labelClass}>Submission / Bid Deadline {req}</label>
-            <input
-              type="datetime-local"
+          <Field
+            label="Submission / Bid Deadline"
+            required
+            hint="Reminder alerts: T-7 and T-1 days."
+          >
+            <FormDateTimeInput
               name="submissionBidDeadline"
               value={formData.submissionBidDeadline}
               onChange={handleChange}
               className={inputClass}
+              aria-label="Submission or bid deadline"
             />
-            <p className="mt-1 text-xs text-slate-500">Reminder alerts: T-7 and T-1 days.</p>
-          </div>
+          </Field>
         </div>
       </FormSection>
 
       <FormSection title="Tracker &amp; Follow-up" hint="Excel tracker columns for internal commercial follow-up.">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={gridClass}>
           <div>
             <label className={labelClass}>Sr. No</label>
             <input
@@ -938,21 +1013,21 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </div>
           <div className="md:col-span-2">
             <label className={labelClass}>Remarks</label>
-            <textarea name="remarks" value={formData.remarks} onChange={handleChange} rows={2} className={inputClass} />
+            <textarea name="remarks" value={formData.remarks} onChange={handleChange} rows={2} className={textareaClass} />
           </div>
-          <div className="md:col-span-2">
+          <div className="sm:col-span-2">
             <label className={labelClass}>Further action / Follow up</label>
-            <textarea name="furtherAction" value={formData.furtherAction} onChange={handleChange} rows={2} className={inputClass} />
+            <textarea name="furtherAction" value={formData.furtherAction} onChange={handleChange} rows={2} className={textareaClass} />
           </div>
         </div>
       </FormSection>
       </div>
 
-      <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 flex justify-end gap-3">
+      <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-6">
         <button
           type="button"
           onClick={onCancel}
-          className="px-5 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors"
+          className="h-10 px-4 text-sm font-medium text-slate-600 rounded-lg hover:bg-slate-100 hover:text-slate-900 transition-colors"
         >
           Cancel
         </button>
@@ -960,7 +1035,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           type="button"
           onClick={handleSubmit}
           disabled={submitting}
-          className={`px-5 py-2 text-sm font-medium rounded-lg text-white bg-purple-600 hover:bg-purple-700 transition-colors ${
+          className={`h-10 px-5 text-sm font-semibold rounded-lg text-white bg-purple-600 hover:bg-purple-700 shadow-sm transition-colors ${
             submitting ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
