@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useFinance } from "./contexts/FinanceContext";
 import FinanceDashboardStyles from "./components/FinanceDashboardStyles";
+import FinanceTypographyStyles from "./components/FinanceTypographyStyles";
 import { StatusPill, EmptyState, LoadingState, ErrorState, PeriodMonthSelect } from "./components/FinanceUi";
 import { inr, inrShort, pct } from "./lib/formatters";
 import { monthLabelOf, prevPeriodKey } from "./lib/periods";
@@ -150,8 +151,9 @@ export default function PlDashboard() {
   const pendCount = pendingSites.length;
 
   return (
-    <div className="fin-dash">
+    <div className="fin-dash finance-module">
       <FinanceDashboardStyles />
+      <FinanceTypographyStyles />
       <div className="fin-topbar">
         <div>
           <h1>Portfolio Overview</h1>

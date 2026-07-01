@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, savePeriodRecord, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
+import { FinanceDateInput } from "./components/FinanceDateInput";
+import FinanceTypographyStyles from "./components/FinanceTypographyStyles";
 import { SiteClientAutocomplete } from "./components/SiteClientAutocomplete";
 import { PlAuditPanel } from "./components/PlAuditPanel";
 import { useFinance } from "./contexts/FinanceContext";
@@ -18,6 +20,7 @@ import {
   currentPeriodKey,
   PENDING_HISTORY_CUTOFF_KEY,
 } from "./lib/periods";
+import { formatFinanceDate, formatFinanceLabel } from "./lib/formatters";
 import { subscribeFinanceRefresh } from "../../services/financeApi";
 import { useAuth } from "../../contexts/AuthContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -332,7 +335,8 @@ function expenseTree(site, mk, records, estVer) {
 function childLabel(site, key) {
   const lib = mergeSiteLibrary(site, site._lib || CHILD_HEADS);
   const hit = lib.find((c) => c.key === key);
-  return hit?.label || CHILD_HEADS.find((c) => c.key === key)?.label || key;
+  const raw = hit?.label || CHILD_HEADS.find((c) => c.key === key)?.label || key;
+  return formatFinanceLabel(raw);
 }
 
 // Estimate (budget) in force for a month
@@ -879,8 +883,9 @@ export default function SiteLedgerApp({ embedded = true }) {
 
   return (
     <PlMarginContext.Provider value={marginCtx}>
-    <div className={`app${embedded ? " embedded stacked" : ""}`}>
+    <div className={`app finance-module${embedded ? " embedded stacked" : ""}`}>
       <Styles />
+      <FinanceTypographyStyles />
       {!embedded && (
         <aside className="side">
           <div className="brand"><div className="brand-mark">P&L</div><div><div className="brand-name">SiteLedger</div><div className="brand-sub">Multi-site P&amp;L</div></div></div>
@@ -945,17 +950,6 @@ export default function SiteLedgerApp({ embedded = true }) {
                   {saveState === "idle" && "Ready"}
                 </div>
               </>
-            )}
-            {view !== "config" && (
-              <div className="month-pick">
-                <label>Period</label>
-                <PeriodDateSelect
-                  className="sl-period-pick"
-                  inputClassName="sl-period-sel"
-                  value={month}
-                  onChange={setMonth}
-                />
-              </div>
             )}
           </div>
         </header>
@@ -2252,8 +2246,8 @@ function ContractBudgetEditor({ site, library, onPatchSite }) {
   return (
     <Card title="Contract & Estimate (Budget)" right={<span className="muted-s">monthly actuals are compared to the estimate in force</span>}>
       <div className="contract-row">
-        <label className="sf"><span>Estimated contract start</span><input type="date" className="sf-sel" value={contractDateInputValue(site.estContractStart)} onChange={(e) => setContract({ estContractStart: e.target.value || null })} /></label>
-        <label className="sf"><span>Estimated contract end</span><input type="date" className="sf-sel" value={contractDateInputValue(site.estContractEnd)} onChange={(e) => setContract({ estContractEnd: e.target.value || null })} /></label>
+        <label className="sf"><span>Estimated contract start</span><FinanceDateInput className="sf-sel" value={contractDateInputValue(site.estContractStart)} onChange={(v) => setContract({ estContractStart: v || null })} /></label>
+        <label className="sf"><span>Estimated contract end</span><FinanceDateInput className="sf-sel" value={contractDateInputValue(site.estContractEnd)} onChange={(v) => setContract({ estContractEnd: v || null })} /></label>
         <div className="contract-note">Used for variance comparison and to spread mid-contract costs across remaining months.</div>
       </div>
       {estimates.length > 0 && (
@@ -2343,7 +2337,7 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
                 <td className="strong">{libMap[sp.head]?.label || sp.head}</td>
                 <td className="muted-s">{sp.note || "—"}</td>
                 <td className="r mono">{inr(sp.total)}</td>
-                <td className="mono">{monthLabelOf(sp.start)}</td>
+                <td className="mono">{formatFinanceDate(periodKeyToDateStart(sp.start)) || monthLabelOf(sp.start)}</td>
                 <td className="r mono">{sp.months}</td>
                 <td className="r mono" style={{ color: "var(--green)" }}>{inr(sp.total / sp.months)}</td>
                 {entryMonth && <td className={active ? "spread-active-yes" : "spread-active-no"}>{active ? "yes" : "no"}</td>}
@@ -2356,7 +2350,17 @@ function SpreadEditor({ site, library, onPatchSite, entryMonth }) {
       <div className="spread-form">
         <label className="sf"><span>Cost line</span><select value={head} onChange={(e) => setHead(e.target.value)}>{grouped.map((g) => <optgroup key={g.parent} label={parentLabel(g.parent)}>{g.children.map((k) => <option key={k} value={k}>{libMap[k]?.label || k}</option>)}</optgroup>)}</select></label>
         <label className="sf"><span>Total cost (₹)</span><input type="number" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="4000" /></label>
-        <label className="sf"><span>Arrives / starts</span><PeriodDateSelect inputClassName="sf-sel" value={start} onChange={setStart} showFormattedHint={false} /></label>
+        <label className="sf">
+          <span>Arrives / starts</span>
+          <FinanceDateInput
+            className="sf-sel"
+            value={periodKeyToDateStart(start) || ""}
+            onChange={(iso) => {
+              const pk = dateToPeriodKey(iso);
+              if (pk) setStart(pk);
+            }}
+          />
+        </label>
         <label className="sf"><span>Spread over</span><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="remaining" disabled={!hasContractEnd}>Remaining contract{hasContractEnd ? ` (${autoMonths} mo)` : " — set end first"}</option><option value="fixed">Fixed no. of months</option></select></label>
         {mode === "fixed" && <label className="sf sm"><span>Months</span><input type="number" value={months} onChange={(e) => setMonths(e.target.value)} placeholder="12" /></label>}
         <label className="sf"><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Extra PPE — new batch" /></label>
@@ -3517,8 +3521,8 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
       <label className="m-field"><span>OC Number (client ref)</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
       <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><input type="date" value={cStart} onChange={(e) => setCStart(e.target.value)} /></label>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><input type="date" value={cEnd} onChange={(e) => setCEnd(e.target.value)} /></label>
+        <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><FinanceDateInput value={cStart} onChange={setCStart} /></label>
+        <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><FinanceDateInput value={cEnd} onChange={setCEnd} /></label>
       </div>
       {!isEdit && isRenewal && priorActive && (
         <p className="m-note">Structure will be copied from {versionLabel(priorActive)}. Adjust rates and heads in Site Setup after creating.</p>
@@ -3630,9 +3634,9 @@ function Modal({ children, onClose, title, wide }) {
 function Styles() {
   return (
     <style>{`
-    :root{--paper:#f8fafc;--surface:#ffffff;--ink:#111827;--ink-soft:#4b5563;--muted:#6b7280;--line:#e5e7eb;--accent:#b91c1c;--accent-soft:#fef2f2;--accent-mid:#dc2626;--profit:#15803d;--loss:#b91c1c;--warn:#d97706;--gold:#b45309;--display:system-ui,-apple-system,sans-serif;--body:system-ui,-apple-system,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;}
+    :root{--paper:#f8fafc;--surface:#ffffff;--ink:#111827;--ink-soft:#4b5563;--muted:#6b7280;--line:#e5e7eb;--accent:#b91c1c;--accent-soft:#fef2f2;--accent-mid:#dc2626;--profit:#15803d;--loss:#b91c1c;--warn:#d97706;--gold:#b45309;--display:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;--body:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;--mono:ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,monospace;}
     *{box-sizing:border-box}
-    .app{display:flex;min-height:640px;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:14px;}
+    .app{display:flex;min-height:640px;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:13px;}
     .app.embedded{min-height:520px;background:var(--paper);width:100%;}
     .app.stacked{flex-direction:column;}
     .sl-body{flex:1;min-width:0;width:100%;display:flex;flex-direction:column;}
@@ -3683,6 +3687,7 @@ function Styles() {
     .ov-margin-chip.target{background:#ecfdf5;color:#166534;border-color:#bbf7d0;}
     .ov-margin-chip.warn{background:#fffbeb;color:#92400e;border-color:#fde68a;}
     .pl-date-input,.sl-period-sel,.ov-period-sel{font-family:var(--body);font-size:14px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);font-weight:500;}
+    .period-date-select .period-month-select{display:flex;gap:6px;flex-wrap:wrap;}
     .pl-date-hint{display:block;font-size:11px;color:var(--muted);margin-top:3px;}
     .period-date-select{display:flex;flex-direction:column;gap:2px;}
     .pl-audit-panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;margin-bottom:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;font-size:12.5px;color:var(--ink-soft);}
@@ -3782,28 +3787,29 @@ function Styles() {
     .search input{border:none;background:none;outline:none;font-family:var(--body);font-size:13px;width:160px;color:var(--ink);}
     /* variance table (site detail · Income – Expenditure) */
     .site-ie-card .vtbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-top:1px solid var(--line);}
-    .site-ie-card .vtbl{table-layout:fixed;width:100%;min-width:520px;border-collapse:separate;border-spacing:0;}
-    .site-ie-card .vtbl col.vtbl-col-part{width:26%;}
-    .site-ie-card .vtbl col.vtbl-col-num{width:18.5%;}
-    .site-ie-card .vtbl thead th{background:#f8fafc;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;padding:10px 12px;border-bottom:2px solid var(--line);white-space:nowrap;}
+    .site-ie-card .vtbl{table-layout:fixed;width:100%;min-width:640px;border-collapse:separate;border-spacing:0;}
+    .site-ie-card .vtbl col.vtbl-col-part{width:36%;}
+    .site-ie-card .vtbl col.vtbl-col-num{width:16%;}
+    .site-ie-card .vtbl thead th{background:#f8fafc;font-size:12px;text-transform:none;letter-spacing:0;color:var(--muted);font-weight:600;padding:10px 12px;border-bottom:2px solid var(--line);white-space:nowrap;}
     .site-ie-card .vtbl thead th:first-child{padding-left:14px;text-align:left;}
     .site-ie-card .vtbl th.r,.site-ie-card .vtbl td.r{text-align:right;}
     .site-ie-card .vtbl tbody td{padding:9px 12px;vertical-align:middle;border-bottom:1px solid #f0f1f3;}
-    .site-ie-card .vtbl .vtbl-part{padding-left:14px;padding-right:10px;max-width:0;color:var(--ink-soft);font-size:12.5px;line-height:1.4;word-break:break-word;overflow-wrap:anywhere;}
-    .site-ie-card .vtbl-num{white-space:nowrap;font-size:12.5px;padding-right:14px!important;}
-    .site-ie-card .vtbl tr.vsec td{background:#f3f4f6;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;padding:7px 14px;border-bottom:1px solid var(--line);}
-    .site-ie-card .vhint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted);font-size:10px;}
+    .site-ie-card .vtbl .vtbl-part{padding-left:14px;padding-right:12px;color:var(--ink-soft);font-size:13px;line-height:1.45;word-break:normal;overflow-wrap:break-word;}
+    .site-ie-card .vtbl-num{white-space:nowrap;font-size:13px;padding-right:14px!important;}
+    .site-ie-card .vtbl tr.vsec td{background:#f3f4f6;font-size:12px;text-transform:none;letter-spacing:0;color:var(--muted);font-weight:600;padding:8px 14px;border-bottom:1px solid var(--line);}
+    .site-ie-card .vhint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted);font-size:11px;}
     .site-ie-card .vtbl tr.vparent{cursor:pointer;}
     .site-ie-card .vtbl tr.vparent td.vtbl-part{color:var(--ink);}
     .site-ie-card .vtbl tr.vparent:hover td,.site-ie-card .vtbl tbody tr:not(.vsec):not(.vtot):hover td{background:#fafbfc;}
     .site-ie-card .vparent-label{display:grid;grid-template-columns:auto auto 1fr auto;grid-template-rows:auto auto;gap:2px 6px;align-items:start;min-width:0;width:100%;}
-    .site-ie-card .vparent-name{grid-column:3;grid-row:1;font-weight:600;line-height:1.35;font-size:12.5px;min-width:0;word-break:break-word;}
+    .site-ie-card .vparent-name{grid-column:3;grid-row:1;font-weight:600;line-height:1.4;font-size:13px;min-width:0;word-break:normal;overflow-wrap:break-word;}
     .site-ie-card .pcount{grid-column:4;grid-row:1;justify-self:end;font-family:var(--mono);font-size:9.5px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:20px;padding:0 5px;line-height:1.5;}
     .site-ie-card .vparent-label .amort-tag{grid-column:3 / -1;grid-row:2;}
     .site-ie-card .pchev{display:inline-flex;flex-shrink:0;color:var(--muted);margin-top:2px;grid-column:1;grid-row:1;}
     .site-ie-card .pdot{width:8px;height:8px;border-radius:3px;display:inline-block;flex-shrink:0;margin-top:5px;grid-column:2;grid-row:1;}
-    .site-ie-card .vchild-name{flex:1;min-width:0;line-height:1.35;font-size:12px;}
+    .site-ie-card .vchild-name{flex:1;min-width:0;line-height:1.45;font-size:13px;color:var(--ink);word-break:normal;overflow-wrap:break-word;}
     .site-ie-card .vtbl tr.vchild td{background:#fafbfc;}
+    .site-ie-card .vtbl tr.vchild td.vtbl-part{color:var(--ink);}
     .site-ie-card .cbranch{display:inline-block;flex-shrink:0;width:8px;border-left:2px solid var(--line);border-bottom:2px solid var(--line);height:8px;margin-top:4px;}
     .site-ie-card .vtbl tr.vtot td{font-weight:700;border-bottom:1px solid var(--line);}
     .site-ie-card .vtbl tr.vtot td.vtbl-part{color:var(--ink);font-size:12.5px;}
@@ -3812,7 +3818,7 @@ function Styles() {
     .site-ie-card .vtbl tr.vtot.loss td{background:rgba(178,63,42,.09);color:var(--loss);}
     .site-ie-card .vtbl tr.vmargin td{font-weight:600;border-top:2px solid var(--line);border-bottom:none;background:#fff;}
     .site-ie-card .amort-tag{display:inline-flex;align-items:center;flex-shrink:1;max-width:100%;margin-top:2px;font-style:normal;font-size:9.5px;color:var(--gold);background:rgba(169,132,43,.1);padding:1px 5px;border-radius:4px;font-family:var(--mono);white-space:normal;line-height:1.3;word-break:break-word;}
-    .site-ie-card .vtbl-part-child{display:flex;align-items:flex-start;gap:6px;padding-left:22px!important;}
+    .site-ie-card .vtbl-part-child{display:flex;align-items:flex-start;gap:8px;padding-left:28px!important;min-width:12rem;}
     /* site detail view */
     .site-detail{display:flex;flex-direction:column;gap:0;}
     .site-detail .back{align-self:flex-start;margin-bottom:12px;}

@@ -1,41 +1,25 @@
 import React from "react";
-import {
-  currentPeriodDateIso,
-  currentPeriodKey,
-  dateToPeriodKey,
-  periodKeyToDateInput,
-  formatPeriodDateDDMMYYYY,
-  parsePeriodKey,
-} from "../lib/periods";
+import { currentPeriodKey, formatPeriodDateDDMMYYYY, parsePeriodKey } from "../lib/periods";
+import { PeriodMonthSelect } from "./PeriodMonthSelect";
 
 /**
- * Period picker shown as DD/MM/YYYY (native date input).
- * Internally maps to monthly period keys (YYYY-MM) for backward-compatible storage.
+ * Monthly period picker (year + month) — avoids native date inputs that show mm/dd/yyyy in US locale.
  */
 export function PeriodDateSelect({
   value,
   onChange,
   className = "",
   inputClassName = "",
-  maxDate,
-  showFormattedHint = true,
+  showFormattedHint = false,
 }) {
   const periodKey = value || currentPeriodKey();
-  const dateVal = periodKeyToDateInput(periodKey);
-  const max = maxDate || currentPeriodDateIso();
 
   return (
     <div className={`period-date-select ${className}`}>
-      <input
-        type="date"
-        className={inputClassName || "pl-date-input"}
-        value={dateVal}
-        max={max}
-        onChange={(e) => {
-          const pk = dateToPeriodKey(e.target.value);
-          if (pk) onChange(pk);
-        }}
-        aria-label="Period date"
+      <PeriodMonthSelect
+        value={periodKey}
+        onChange={onChange}
+        selectClassName={inputClassName || "pl-date-input"}
       />
       {showFormattedHint && parsePeriodKey(periodKey) && (
         <span className="pl-date-hint" aria-hidden>

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Download, Upload, Copy } from "lucide-react";
 import { useFinance } from "./contexts/FinanceContext";
 import { PageHeader, SectionCard, LoadingState, ErrorState } from "./components/FinanceUi";
+import { formatFinanceDateTime } from "./lib/formatters";
 import { exportFinanceBackup, logImportExport } from "../../services/financeApi";
 
 export default function ImportExport() {
@@ -115,7 +116,7 @@ export default function ImportExport() {
             data.importExportLogs.map((log) => (
               <li key={log.id} className="flex justify-between border-b border-gray-100 py-2">
                 <span>{log.operation} · {log.file_name || "—"}</span>
-                <span className="text-gray-500 text-xs">{new Date(log.created_at).toLocaleString()}</span>
+                <span className="text-gray-500 text-xs">{formatFinanceDateTime(log.created_at)}</span>
               </li>
             ))
           )}

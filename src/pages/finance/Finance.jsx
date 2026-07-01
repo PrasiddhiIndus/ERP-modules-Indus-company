@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { FinanceProvider, useFinance } from "./contexts/FinanceContext";
 import { isFinanceSchemaError } from "../../services/financeApi";
 import { FINANCE_NAV, financePath, getFinanceTabFromPath } from "./navConfig";
+import FinanceTypographyStyles from "./components/FinanceTypographyStyles";
 import FinanceTabNav from "./components/FinanceTabNav";
 import Settings from "./Settings";
 import SiteLedgerApp from "./SiteLedgerApp";
@@ -45,7 +46,8 @@ function FinanceShell() {
 
   if (isSiteLedger) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-slate-50 finance-module">
+        <FinanceTypographyStyles />
         <FinanceSchemaBanner />
         <SiteLedgerApp embedded />
       </div>
@@ -55,7 +57,8 @@ function FinanceShell() {
   const activeNav = FINANCE_NAV.find((n) => n.id === activeId);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 finance-module">
+      <FinanceTypographyStyles />
       <div className="bg-white border-b border-gray-200 shadow-sm">
         <div className="px-4 sm:px-6 py-3">
           <h1 className="text-xl font-bold text-gray-900">Finance / P&amp;L</h1>

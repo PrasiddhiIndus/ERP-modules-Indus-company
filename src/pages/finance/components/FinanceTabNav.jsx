@@ -69,7 +69,7 @@ export default function FinanceTabNav({ items, activeId, onSelect, className = "
             return (
               <React.Fragment key={item.id}>
                 {showSection && (
-                  <span className="inline-flex items-center px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 self-center select-none">
+                  <span className="inline-flex items-center px-2 text-[11px] font-semibold text-gray-500 self-center select-none">
                     {SECTION_LABELS[item.section] || item.section}
                   </span>
                 )}
