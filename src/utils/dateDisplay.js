@@ -1,19 +1,21 @@
 /**
- * Canonical UI + export date format: dd-mm-yyyy
+ * Canonical ERP date format: DD/MM/YYYY (en-GB display, locale-independent).
+ * Storage remains ISO YYYY-MM-DD everywhere.
  */
 
 const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/;
 const DMY_DASH_RE = /^(\d{1,2})-(\d{1,2})-(\d{4})$/;
 const DMY_SLASH_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
 
-export const UI_DATE_FORMAT_LABEL = "dd-mm-yyyy";
+export const ERP_DATE_LOCALE = "en-GB";
+export const UI_DATE_FORMAT_LABEL = "dd/mm/yyyy";
 
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
 function toDdMmYyyy(dd, mm, yyyy) {
-  return `${pad2(dd)}-${pad2(mm)}-${yyyy}`;
+  return `${pad2(dd)}/${pad2(mm)}/${yyyy}`;
 }
 
 function isoFromParts(day, month, year) {
@@ -24,7 +26,7 @@ function isoFromParts(day, month, year) {
   return `${String(y).padStart(4, "0")}-${pad2(m)}-${pad2(d)}`;
 }
 
-/** Resolve d-m-y / m-d-y — default dd-mm-yyyy; swap when a part is > 12. */
+/** Resolve d-m-y / m-d-y — default dd/mm/yyyy; swap when a part is > 12. */
 function isoFromAmbiguousParts(a, b, year) {
   const n1 = Number(a);
   const n2 = Number(b);
@@ -47,7 +49,7 @@ function isoFromAmbiguousParts(a, b, year) {
 
 /**
  * Parse assorted date strings → ISO YYYY-MM-DD (storage).
- * Handles ISO, dd-mm-yyyy, mm-dd-yyyy (Excel US export), and datetimes.
+ * Handles ISO, dd/mm/yyyy, dd-mm-yyyy, mm-dd-yyyy (Excel US export), and datetimes.
  */
 export function normalizeToIsoDate(value) {
   if (value == null || String(value).trim() === "") return "";
@@ -81,7 +83,7 @@ export function normalizeToIsoDate(value) {
   return "";
 }
 
-/** yyyy-mm-dd, ISO datetime, dd/mm/yyyy, dd-mm-yyyy, mm-dd-yyyy, or Date → dd-mm-yyyy */
+/** yyyy-mm-dd, ISO datetime, dd/mm/yyyy, dd-mm-yyyy, mm-dd-yyyy, or Date → dd/mm/yyyy */
 export function formatDateDdMmYyyy(value) {
   if (value == null || String(value).trim() === "") return "";
   const iso = normalizeToIsoDate(value);
@@ -95,6 +97,43 @@ export function formatDateDdMmYyyy(value) {
 /** Alias for exports and shared display. */
 export const formatDateForDisplay = formatDateDdMmYyyy;
 export const formatDateForExport = formatDateDdMmYyyy;
+
+/** Date + 24h time as dd/mm/yyyy HH:mm (en-GB, not OS locale). */
+export function formatDateTimeDdMmYyyy(value) {
+  if (value == null || String(value).trim() === "") return "";
+  const s = String(value).trim();
+  const isoDate = normalizeToIsoDate(s);
+  if (!isoDate && !/T/.test(s)) {
+    return formatDateDdMmYyyy(value);
+  }
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return formatDateDdMmYyyy(value) || "";
+  const datePart = formatDateDdMmYyyy(dt);
+  const timePart = dt.toLocaleTimeString(ERP_DATE_LOCALE, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${datePart} ${timePart}`;
+}
+
+/** Month label e.g. "June 2025" — English month names, not OS-dependent short dates. */
+export function formatMonthYearLabel(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || m < 1 || m > 12) return "";
+  const d = new Date(y, m - 1, 1);
+  const monthName = d.toLocaleString(ERP_DATE_LOCALE, { month: "long" });
+  return `${monthName} ${y}`;
+}
+
+/** From ISO date or Date — month + year only. */
+export function formatMonthYearFromValue(value) {
+  const iso = normalizeToIsoDate(value);
+  if (!iso) return "";
+  const [y, m] = iso.split("-");
+  return formatMonthYearLabel(y, m);
+}
 
 const DATE_FIELD_KEY_RE =
   /(date|_at$|_on$|from$|to$|dob$|expiry|valid_until|valid_until|invoice_date|punch_date|enquiry_date|quotation_date|follow_up_date|revision_date|awarded_date|delivery_date|start_date|end_date|service_period|billing_month)/i;

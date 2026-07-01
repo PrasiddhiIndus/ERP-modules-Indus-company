@@ -18,14 +18,16 @@ import { generateEInvoice } from '../../services/eInvoiceApi';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 import { resolveInvoicePartyAddresses } from '../../utils/invoicePartyAddresses';
 import { resolveInvoicePartyPincodes } from '../../utils/poPincodeFields';
-import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../utils/dateDisplay";
 import { downloadTaxInvoicePdf, downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import ManagePAModal from './ManagePAModal';
 import GenerateEInvoiceModal from './GenerateEInvoiceModal';
 import { netAfterCnDn } from '../../utils/cnDn';
-import { enrichInvoiceWithPo, findPoForInvoice } from '../../utils/billingPoInvoiceFields';
+import { enrichInvoiceWithPo, findPoForInvoice } from '../../utils/billingPoInvoiceFields';;
+import FormDateInput from "../../components/FormDateInput";
+
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -871,11 +873,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 <label className="text-[11px] font-medium text-slate-500" htmlFor="manage-inv-date-from">
                   From
                 </label>
-                <input
-                  id="manage-inv-date-from"
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => {
+                <FormDateInput id="manage-inv-date-from" value={dateFrom} onChange={(e) => {
                     setDateFrom(e.target.value);
                     setDateFilterMode('range');
                     setPage(1);
@@ -885,11 +883,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 <label className="text-[11px] font-medium text-slate-500" htmlFor="manage-inv-date-to">
                   To
                 </label>
-                <input
-                  id="manage-inv-date-to"
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => {
+                <FormDateInput id="manage-inv-date-to" value={dateTo} onChange={(e) => {
                     setDateTo(e.target.value);
                     setDateFilterMode('range');
                     setPage(1);
@@ -1286,7 +1280,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                       ₹{roundInvoiceAmount(inv.calculatedInvoiceAmount ?? inv.totalAmount ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="px-3 py-2 text-gray-700">
-                      {inv.cancelledAt ? new Date(inv.cancelledAt).toLocaleString('en-IN') : '–'}
+                      {inv.cancelledAt ? formatDateTimeDdMmYyyy(inv.cancelledAt) : '–'}
                     </td>
                     <td className="px-3 py-2 text-gray-800">
                       <span

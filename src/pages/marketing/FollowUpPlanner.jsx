@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, Calendar, RefreshCw, Search, Users } from 'lucide-react';
 import { exportToExcel } from './utils/excelExport';
-import ExcelCostingSheet from './components/ExcelCostingSheet';
+import ExcelCostingSheet from './components/ExcelCostingSheet';;
+import FormDateInput from "../../components/FormDateInput";
+
 
 const FollowUpPlanner = () => {
   const navigate = useNavigate();
@@ -1223,10 +1225,7 @@ const FollowUpPlanner = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Follow-up Date / Due Date <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
-                    value={formData.follow_up_date}
-                    onChange={(e) => setFormData({ ...formData, follow_up_date: e.target.value })}
+                  <FormDateInput value={formData.follow_up_date} onChange={(e) => setFormData({ ...formData, follow_up_date: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                     required
                   />
@@ -1355,10 +1354,7 @@ const FollowUpPlanner = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Upcoming Date (Follow-up Date) <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="date"
-                      value={revisionFormData.upcoming_date}
-                      onChange={(e) => setRevisionFormData({ ...revisionFormData, upcoming_date: e.target.value })}
+                    <FormDateInput value={revisionFormData.upcoming_date} onChange={(e) => setRevisionFormData({ ...revisionFormData, upcoming_date: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       required
                     />

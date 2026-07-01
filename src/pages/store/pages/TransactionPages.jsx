@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { SectionCard } from "../components/StoreUi";
+import { SectionCard } from "../components/StoreUi";;
+import FormDateInput from "../../../components/FormDateInput";
+
 
 function RowEditor({ rows, setRows, items, mode }) {
   const update = (idx, field, value) => {
@@ -48,7 +50,7 @@ export function InwardPage({ data }) {
     <div className="space-y-4">
       <SectionCard title="Inward Entry">
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-2">
-          <input className="h-9 border border-gray-300 rounded px-2 text-sm" type="date" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
+          <FormDateInput className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.destinationStoreId} onChange={(e) => setHeader((p) => ({ ...p, destinationStoreId: e.target.value }))}>
             <option value="">Destination Store</option>
             {stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}
@@ -74,7 +76,7 @@ export function OutwardPage({ data }) {
     <div className="space-y-4">
       <SectionCard title="Outward / Issue Entry">
         <div className="grid grid-cols-2 xl:grid-cols-6 gap-2">
-          <input className="h-9 border border-gray-300 rounded px-2 text-sm" type="date" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
+          <FormDateInput className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.sourceStoreId} onChange={(e) => setHeader((p) => ({ ...p, sourceStoreId: e.target.value }))}>
             <option value="">Source Store</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}
           </select>
@@ -104,7 +106,7 @@ export function ReturnPage({ data }) {
     <div className="space-y-4">
       <SectionCard title="Return Entry">
         <div className="grid grid-cols-2 xl:grid-cols-5 gap-2">
-          <input className="h-9 border border-gray-300 rounded px-2 text-sm" type="date" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
+          <FormDateInput className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.sourceStoreId} onChange={(e) => setHeader((p) => ({ ...p, sourceStoreId: e.target.value }))}><option value="">Source Store</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}</select>
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.destinationStoreId} onChange={(e) => setHeader((p) => ({ ...p, destinationStoreId: e.target.value }))}><option value="">Destination Store</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}</select>
           <input className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.reason} onChange={(e) => setHeader((p) => ({ ...p, reason: e.target.value }))} />
@@ -130,7 +132,7 @@ export function TransferPage({ data }) {
     <div className="space-y-4">
       <SectionCard title="Transfer Entry">
         <div className="grid grid-cols-2 xl:grid-cols-6 gap-2">
-          <input className="h-9 border border-gray-300 rounded px-2 text-sm" type="date" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
+          <FormDateInput className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.date} onChange={(e) => setHeader((p) => ({ ...p, date: e.target.value }))} />
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.fromStoreId} onChange={(e) => setHeader((p) => ({ ...p, fromStoreId: e.target.value }))}><option value="">From Store</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}</select>
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.toStoreId} onChange={(e) => setHeader((p) => ({ ...p, toStoreId: e.target.value }))}><option value="">To Store</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}</select>
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.status} onChange={(e) => setHeader((p) => ({ ...p, status: e.target.value }))}>

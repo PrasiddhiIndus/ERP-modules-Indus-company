@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, isFleetCategoryAll } from './fleetLoadUtils';
 import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
-import FleetAttachmentUploader from './FleetAttachmentUploader';
+import FleetAttachmentUploader from './FleetAttachmentUploader';;
+import FormDateInput from "../../components/FormDateInput";
+
 import { 
   Car, 
   Plus, 
@@ -598,20 +600,14 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Date of Registration</label>
-                    <input
-                      type="date"
-                      value={formData.date_of_registration}
-                      onChange={(e) => setFormData({...formData, date_of_registration: e.target.value})}
+                    <FormDateInput value={formData.date_of_registration} onChange={(e) => setFormData({...formData, date_of_registration: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Date of validity of registry</label>
-                    <input
-                      type="date"
-                      value={formData.registry_validity_date}
-                      onChange={(e) => setFormData({ ...formData, registry_validity_date: e.target.value })}
+                    <FormDateInput value={formData.registry_validity_date} onChange={(e) => setFormData({ ...formData, registry_validity_date: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -753,20 +749,14 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Last Service Date</label>
-                    <input
-                      type="date"
-                      value={formData.last_service_date}
-                      onChange={(e) => setFormData({...formData, last_service_date: e.target.value})}
+                    <FormDateInput value={formData.last_service_date} onChange={(e) => setFormData({...formData, last_service_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Next Service Due</label>
-                    <input
-                      type="date"
-                      value={formData.next_service_due}
-                      onChange={(e) => setFormData({...formData, next_service_due: e.target.value})}
+                    <FormDateInput value={formData.next_service_due} onChange={(e) => setFormData({...formData, next_service_due: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>

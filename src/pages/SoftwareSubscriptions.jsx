@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatDateTimeDdMmYyyy, formatMonthYearLabel } from "../utils/dateDisplay";
 import {
   AlertTriangle,
   Bell,
@@ -21,6 +22,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { ROLES } from "../config/roles";
 import { supabase } from "../lib/supabase";
 import { apiUrl } from "../lib/apiBase";
+import FormDateInput from "../components/FormDateInput";
+
 
 const TABLE_NAME = "software_subscriptions";
 const INVOICE_FILES_TABLE = "software_subscription_invoice_files";
@@ -75,15 +78,7 @@ function formatRate(value) {
 
 function formatFxTimestamp(value) {
   if (!value) return "latest available";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "latest available";
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTimeDdMmYyyy(value) || "latest available";
 }
 
 function getInrRateForCurrency(currency, usdRates) {
@@ -222,9 +217,7 @@ function formatInvoiceMonthLabel(value) {
   const month = normalizeInvoiceMonth(value);
   if (!month) return "Unassigned month";
   const [year, mon] = month.split("-");
-  const date = new Date(Number(year), Number(mon) - 1, 1);
-  if (Number.isNaN(date.getTime())) return month;
-  return date.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+  return formatMonthYearLabel(year, mon) || month;
 }
 
 function groupAttachmentsByMonth(attachments) {
@@ -1157,10 +1150,7 @@ const SoftwareSubscriptions = () => {
               </select>
             </Field>
             <Field label="Next Payment Due">
-              <input
-                type="date"
-                value={form.next_payment_date}
-                onChange={(e) => handleChange("next_payment_date", e.target.value)}
+              <FormDateInput value={form.next_payment_date} onChange={(e) => handleChange("next_payment_date", e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               />
             </Field>

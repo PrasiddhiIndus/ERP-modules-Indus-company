@@ -46,6 +46,7 @@ import {
   loadBillingFormDraftPayloadWithLegacy,
 } from '../../utils/billingFormAutosave';
 import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
+import FormDateInput from "../../components/FormDateInput";
 import {
   TAX_INVOICE_PREFIX,
   formatTaxInvoiceNumberPrefix,
@@ -505,7 +506,7 @@ function formatBillingMonth(ymd) {
   return `${months[d.getMonth()]}-${d.getFullYear()}`;
 }
 
-/** YYYY-MM-DD in local timezone for `<input type="date">` (avoids UTC off-by-one). */
+/** YYYY-MM-DD in local timezone for `<FormDateInput >` (avoids UTC off-by-one). */
 function formatLocalDateInput(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -521,7 +522,7 @@ function getDefaultServicePeriodRange() {
   return { from: ymd, to: ymd };
 }
 
-/** Normalize stored/API dates to `YYYY-MM-DD` for `<input type="date">`. */
+/** Normalize stored/API dates to `YYYY-MM-DD` for `<FormDateInput >`. */
 function toDateInputValue(v) {
   if (!v) return '';
   const s = String(v);
@@ -3123,10 +3124,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   <label className="text-xs text-gray-500 whitespace-nowrap">
                     Invoice date <span className="text-red-600">*</span>
                   </label>
-                  <input
-                    type="date"
-                    value={invoiceDate}
-                    onChange={(e) => {
+                  <FormDateInput value={invoiceDate} onChange={(e) => {
                       setInvoiceDate(e.target.value);
                       if (invoiceDateError) setInvoiceDateError('');
                     }}
@@ -3148,19 +3146,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <label className="text-xs text-gray-500 whitespace-nowrap">Service period (from)</label>
-                  <input
-                    type="date"
-                    value={servicePeriodFrom}
-                    onChange={(e) => setServicePeriodFrom(e.target.value)}
+                  <FormDateInput value={servicePeriodFrom} onChange={(e) => setServicePeriodFrom(e.target.value)}
                     className="px-2 py-1.5 border border-gray-200 rounded-md bg-white text-gray-800 text-xs"
                   />
                 </div>
                 <div className="flex flex-col gap-0.5">
                   <label className="text-xs text-gray-500 whitespace-nowrap">Service period (to)</label>
-                  <input
-                    type="date"
-                    value={servicePeriodTo}
-                    onChange={(e) => setServicePeriodTo(e.target.value)}
+                  <FormDateInput value={servicePeriodTo} onChange={(e) => setServicePeriodTo(e.target.value)}
                     className="px-2 py-1.5 border border-gray-200 rounded-md bg-white text-gray-800 text-xs"
                   />
                 </div>

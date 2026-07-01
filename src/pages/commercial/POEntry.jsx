@@ -2,7 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { FileCheck, Plus, Search, Pencil, Trash2, History, Send } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';
+import { isValidDateInputValue, normalizeDateInputValue } from '../../utils/dateInput';;
+import FormDateInput from "../../components/FormDateInput";
+
 
 /** OC middle segment (shown after IFSPL- … -OC-YY/YY). Legacy PO rows may still use MANP etc. */
 const OC_LINE_OPTIONS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV'];
@@ -921,19 +923,13 @@ const POEntry = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                    <input
-                      type="date"
-                      value={formData.startDate}
-                      onChange={(e) => handleDateInputChange('startDate', e.target.value)}
+                    <FormDateInput value={formData.startDate} onChange={(e) => handleDateInputChange('startDate', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">End Date (Billing blocked if today &gt; End Date)</label>
-                    <input
-                      type="date"
-                      value={formData.endDate}
-                      onChange={(e) => handleDateInputChange('endDate', e.target.value)}
+                    <FormDateInput value={formData.endDate} onChange={(e) => handleDateInputChange('endDate', e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>

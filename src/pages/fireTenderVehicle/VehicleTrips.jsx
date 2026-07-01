@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
 import { uploadFleetFileToR2, buildFleetUploadSegment, presignFleetR2Get } from '../../lib/fleetR2';
-import FleetAttachmentUploader from './FleetAttachmentUploader';
+import FleetAttachmentUploader from './FleetAttachmentUploader';;
+import FormDateInput from "../../components/FormDateInput";
+
 import { 
   MapPin, 
   Plus, 
@@ -644,7 +646,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Date of Mobilisation *</label>
-                      <input type="date" value={formData.date_of_mobilisation} onChange={(e) => setFormData({ ...formData, date_of_mobilisation: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" required />
+                      <FormDateInput value={formData.date_of_mobilisation} onChange={(e) => setFormData({ ...formData, date_of_mobilisation: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" required />
                     </div>
 
                     <div>
@@ -659,12 +661,12 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Contract Period (Start)</label>
-                      <input type="date" value={formData.contract_start_date} onChange={(e) => setFormData({ ...formData, contract_start_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                      <FormDateInput value={formData.contract_start_date} onChange={(e) => setFormData({ ...formData, contract_start_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Contract Period (End)</label>
-                      <input type="date" value={formData.contract_end_date} onChange={(e) => setFormData({ ...formData, contract_end_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                      <FormDateInput value={formData.contract_end_date} onChange={(e) => setFormData({ ...formData, contract_end_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                     </div>
 
                     <div className="md:col-span-2">
@@ -730,7 +732,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Visit Date *</label>
-                      <input type="date" value={formData.visit_date} onChange={(e) => setFormData({ ...formData, visit_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" required />
+                      <FormDateInput value={formData.visit_date} onChange={(e) => setFormData({ ...formData, visit_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" required />
                     </div>
 
                     <div>

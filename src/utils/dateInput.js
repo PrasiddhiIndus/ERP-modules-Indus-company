@@ -41,12 +41,12 @@ export function normalizeDateInputValue(value) {
   return raw;
 }
 
-/** ISO YYYY-MM-DD → dd-mm-yyyy for manual entry display. */
+/** ISO YYYY-MM-DD → dd/mm/yyyy for manual entry display. */
 export function isoToDisplayDate(value) {
   const raw = String(value ?? "").trim();
   if (!isCompleteIsoDate(raw)) return "";
   const [year, month, day] = raw.split("-");
-  return `${day}-${month}-${year}`;
+  return `${day}/${month}/${year}`;
 }
 
 /**

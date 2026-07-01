@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FileWarning, ArrowRight, ClipboardList } from 'lucide-react';
 import { roundInvoiceAmount } from '../../../utils/invoiceRound';
+import { formatDateTimeDdMmYyyy } from '../../../utils/dateDisplay';
 
 const STATUS = {
   PENDING: 'pending',
@@ -19,7 +20,7 @@ function noteTypeLabel(inv) {
 function formatReqDt(iso) {
   if (!iso) return '–';
   try {
-    return new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+    return formatDateTimeDdMmYyyy(iso);
   } catch {
     return String(iso);
   }

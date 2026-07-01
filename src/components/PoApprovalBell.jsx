@@ -5,7 +5,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { isStagingSupabaseProject } from '../lib/stagingProject';
 import { getCommercialPOs as getCommercialPOsLocal } from '../data/billingStore';
-import { fetchCommercialPOs } from '../services/billingApi';
+import { fetchCommercialPOs } from '../services/billingApi';;
+import { formatDateTimeDdMmYyyy } from "../utils/dateDisplay";
+
 import {
   COMMERCIAL_MODULE_PROJECTS,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
@@ -289,7 +291,7 @@ const PoApprovalBell = () => {
                       </span>
                       {n.at ? (
                         <span className="mt-1 block text-[11px] text-slate-400">
-                          {new Date(n.at).toLocaleString('en-IN')}
+                          {formatDateTimeDdMmYyyy(n.at)}
                         </span>
                       ) : null}
                     </span>

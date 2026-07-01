@@ -13,7 +13,9 @@ import {
   buildLatestCostingMap,
 } from './utils/marketingQuotationUtils';
 import jsPDF from 'jspdf';
-import { INDUS_LOGO_SRC } from '../../constants/branding.js';
+import { INDUS_LOGO_SRC } from '../../constants/branding.js';;
+import FormDateInput from "../../components/FormDateInput";
+
 
 const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, hasRevisions }) => {
   const menuRef = useRef(null);
@@ -2277,10 +2279,7 @@ Marketing Team`;
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Upcoming Date (Follow-up Date) <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="date"
-                      value={revisionFormData.upcoming_date}
-                      onChange={(e) => setRevisionFormData({ ...revisionFormData, upcoming_date: e.target.value })}
+                    <FormDateInput value={revisionFormData.upcoming_date} onChange={(e) => setRevisionFormData({ ...revisionFormData, upcoming_date: e.target.value })}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       required
                     />

@@ -6,7 +6,9 @@ import { Drawer, ProfileTabs, DetailField, AmcStatusBadge } from "./components/A
 import { useAmcSelection } from "./hooks/useAmcList";
 import { useAmc } from "./contexts/AmcContext";
 import LinkedRecord from "./components/LinkedRecord";
-import { COMPLAINT_STATUS } from "./constants/workflows";
+import { COMPLAINT_STATUS } from "./constants/workflows";;
+import { formatDateTimeDdMmYyyy } from "../../utils/dateDisplay";
+
 
 export default function Complaints() {
   const { related, navigateTo, openRecord } = useAmc();
@@ -88,8 +90,8 @@ export default function Complaints() {
             )}
             {tab === "sla" && (
               <div className="grid grid-cols-2 gap-2">
-                <DetailField label="Response due" value={selected.response_due_at && new Date(selected.response_due_at).toLocaleString()} />
-                <DetailField label="Closure due" value={selected.closure_due_at && new Date(selected.closure_due_at).toLocaleString()} />
+                <DetailField label="Response due" value={selected.response_due_at && formatDateTimeDdMmYyyy(selected.response_due_at)} />
+                <DetailField label="Closure due" value={selected.closure_due_at && formatDateTimeDdMmYyyy(selected.closure_due_at)} />
               </div>
             )}
           </ProfileTabs>

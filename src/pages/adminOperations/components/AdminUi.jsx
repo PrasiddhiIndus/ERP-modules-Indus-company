@@ -4,6 +4,7 @@ import {
   prependSerialColumn,
   resolveSerialCellValue,
 } from "../../../utils/listTable";
+import FormDateInput from "../../../components/FormDateInput";
 
 export const SectionCard = ({ title, right, children, className = "" }) => (
   <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>
@@ -19,12 +20,28 @@ export const Badge = ({ children, tone = "bg-gray-100 text-gray-700" }) => (
   <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-medium ${tone}`}>{children}</span>
 );
 
-export const TinyInput = (props) => (
-  <input
-    {...props}
-    className={`h-8 border border-gray-300 rounded px-2 text-xs ${props.className || ""}`.trim()}
-  />
-);
+export const TinyInput = ({ type, value, onChange, className = "", ...rest }) => {
+  if (type === "date") {
+    return (
+      <FormDateInput
+        value={value}
+        onChange={onChange}
+        className={`h-8 ${className}`.trim()}
+        compact
+        {...rest}
+      />
+    );
+  }
+  return (
+    <input
+      {...rest}
+      type={type}
+      value={value}
+      onChange={onChange}
+      className={`h-8 border border-gray-300 rounded px-2 text-xs ${className}`.trim()}
+    />
+  );
+};
 
 export const TinySelect = ({ children, className = "", ...rest }) => (
   <select

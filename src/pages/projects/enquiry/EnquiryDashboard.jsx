@@ -511,7 +511,7 @@ export default function EnquiryDashboard() {
               value={filters.dateFrom}
               onChange={(v) => setFilter('dateFrom', v)}
               className={selectCls}
-              placeholder="dd-mm-yyyy"
+              placeholder="dd/mm/yyyy"
             />
           </label>
           <label className="block">
@@ -520,7 +520,7 @@ export default function EnquiryDashboard() {
               value={filters.dateTo}
               onChange={(v) => setFilter('dateTo', v)}
               className={selectCls}
-              placeholder="dd-mm-yyyy"
+              placeholder="dd/mm/yyyy"
             />
           </label>
           <label className="block">
