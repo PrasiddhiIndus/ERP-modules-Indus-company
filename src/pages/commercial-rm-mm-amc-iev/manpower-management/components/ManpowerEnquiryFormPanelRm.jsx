@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "../../../../lib/supabase";
+import { supabase } from "../../../../lib/supabase";;
+import FormDateInput from "../../../../components/FormDateInput";
+
 
 const META_PREFIX = "__META__:";
 const INDUSTRY_OPTIONS = ["Oil & Gas", "Refinery", "Chemical", "Power", "Construction", "Port", "Other"];
@@ -560,7 +562,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Enquiry Date</label>
-            <input type="date" name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass} />
+            <FormDateInput name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass}/>
           </div>
         </div>
       </div>
@@ -673,7 +675,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
       <div className={`${sectionClass} grid grid-cols-1 md:grid-cols-3 gap-4`}>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Min Wage Effective Date</label>
-          <input type="date" name="minWageEffectiveDate" value={formData.minWageEffectiveDate} onChange={handleChange} className={inputClass} />
+          <FormDateInput name="minWageEffectiveDate" value={formData.minWageEffectiveDate} onChange={handleChange} className={inputClass}/>
         </div>
         <div className="md:col-span-2">
           <label className="block text-sm font-medium text-gray-700 mb-2">Submission / Bid Deadline</label>
@@ -789,7 +791,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Payment Date</label>
-                <input type="date" name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass} />
+                <FormDateInput name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass}/>
               </div>
             </div>
           )}

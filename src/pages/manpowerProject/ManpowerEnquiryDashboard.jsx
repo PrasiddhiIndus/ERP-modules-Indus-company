@@ -371,7 +371,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                 value={filters.receivedFrom}
                 onChange={(v) => setFilter("receivedFrom", v)}
                 className={selectCls}
-                placeholder="dd-mm-yyyy"
+                placeholder="dd/mm/yyyy"
               />
             </label>
             <label>
@@ -380,7 +380,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                 value={filters.receivedTo}
                 onChange={(v) => setFilter("receivedTo", v)}
                 className={selectCls}
-                placeholder="dd-mm-yyyy"
+                placeholder="dd/mm/yyyy"
               />
             </label>
             <label>
@@ -389,7 +389,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                 value={filters.dueFrom}
                 onChange={(v) => setFilter("dueFrom", v)}
                 className={selectCls}
-                placeholder="dd-mm-yyyy"
+                placeholder="dd/mm/yyyy"
               />
             </label>
             <label>
@@ -398,7 +398,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                 value={filters.dueTo}
                 onChange={(v) => setFilter("dueTo", v)}
                 className={selectCls}
-                placeholder="dd-mm-yyyy"
+                placeholder="dd/mm/yyyy"
               />
             </label>
             <label>

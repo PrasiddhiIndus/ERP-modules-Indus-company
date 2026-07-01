@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { SectionCard } from "../components/StoreUi";
+import { SectionCard } from "../components/StoreUi";;
+import FormDateInput from "../../../components/FormDateInput";
+
 
 export default function ReconciliationPage({ data }) {
   const { stores, items, stockByStoreItem, addReconciliation, reconciliations } = data;
@@ -23,7 +25,7 @@ export default function ReconciliationPage({ data }) {
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={form.itemId} onChange={(e) => setForm((p) => ({ ...p, itemId: e.target.value }))}>
             <option value="">Item</option>{items.map((i) => <option key={i.id} value={i.id}>{i.itemName}</option>)}
           </select>
-          <input className="h-9 border border-gray-300 rounded px-2 text-sm" type="date" value={form.date} onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))} />
+          <FormDateInput className="h-9 border border-gray-300 rounded px-2 text-sm" value={form.date} onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))} />
           <div className="h-9 border border-gray-300 rounded px-2 text-sm flex items-center">System Qty: {systemQty}</div>
           <input className="h-9 border border-gray-300 rounded px-2 text-sm" type="number" placeholder="Physical Qty" value={form.physicalQty} onChange={(e) => setForm((p) => ({ ...p, physicalQty: Number(e.target.value || 0) }))} />
           <div className="h-9 border border-gray-300 rounded px-2 text-sm flex items-center">Variance: {variance}</div>

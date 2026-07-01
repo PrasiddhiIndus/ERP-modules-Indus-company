@@ -46,7 +46,7 @@ export default function EnquiryFieldInput({
         onChange={onChange}
         disabled={disabled || field.read_only}
         readOnly={field.read_only}
-        placeholder="dd-mm-yyyy"
+        placeholder="dd/mm/yyyy"
       />
     );
   }

@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { formatDateTimeDdMmYyyy } from '../utils/dateDisplay';
 import { supabase } from '../lib/supabase';
 import { Clock, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
@@ -11,19 +12,7 @@ function isoSinceHoursAgo(hours) {
 
 function fmtTime(ts) {
   if (!ts) return '';
-  try {
-    const d = new Date(ts);
-    return d.toLocaleString('en-IN', {
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  } catch {
-    return String(ts);
-  }
+  return formatDateTimeDdMmYyyy(ts) || String(ts);
 }
 
 function friendlyUserNameFromEmail(email) {

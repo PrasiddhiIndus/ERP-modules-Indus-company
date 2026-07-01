@@ -20,6 +20,7 @@ import {
   importDahejExcel,
 } from "../utils/dahejExpenseExcel";
 import { formatCurrency } from "../../data/mockOperationsData";
+import { formatMonthYearLabel } from "../../../../utils/dateDisplay";
 
 function monthOptions() {
   const opts = [];
@@ -27,7 +28,7 @@ function monthOptions() {
   for (let i = 0; i < 24; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+    const label = formatMonthYearLabel(d.getFullYear(), d.getMonth() + 1);
     opts.push({ key, label });
   }
   return opts;

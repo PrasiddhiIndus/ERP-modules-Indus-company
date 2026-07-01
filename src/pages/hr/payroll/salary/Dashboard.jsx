@@ -17,6 +17,8 @@ import { Badge } from '../../../adminOperations/components/AdminUi';
 import { getDashboardStats, ensurePayrollProfilesForActiveEmployees } from '../../../../services/payrollApi';
 import { SALARY_DASHBOARD_MODULES, salaryAppPath } from './salaryNav';
 import ActiveEmployeesModal from './components/ActiveEmployeesModal';
+import { formatMonthYearLabel } from "../../../../utils/dateDisplay";
+
 
 function monthInputDefault() {
   const d = new Date();
@@ -26,7 +28,7 @@ function monthInputDefault() {
 function formatMonthLabel(monthValue) {
   const [year, month] = monthValue.split('-').map(Number);
   if (!year || !month) return monthValue;
-  return new Date(year, month - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  return formatMonthYearLabel(year, month);
 }
 
 function runStatusTone(status) {

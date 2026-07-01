@@ -4,7 +4,9 @@ import { X, Plus, Edit2, Trash2, MoreVertical, Download, FileText, Upload } from
 import { exportToExcel } from './utils/excelExport';
 import NumberInput from './components/NumberInput';
 import { parseIndianNumber } from './utils/numberFormat';
-import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';;
+import FormDateInput from "../../components/FormDateInput";
+
 
 const PurchaseOrders = () => {
   const [contracts, setContracts] = useState([]);
@@ -449,10 +451,7 @@ const PurchaseOrders = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     PO Date <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
-                    value={formData.po_date}
-                    onChange={(e) => setFormData({ ...formData, po_date: e.target.value })}
+                  <FormDateInput value={formData.po_date} onChange={(e) => setFormData({ ...formData, po_date: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                     required
                   />
@@ -525,10 +524,7 @@ const PurchaseOrders = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Expected Delivery Date</label>
-                  <input
-                    type="date"
-                    value={formData.expected_delivery_date}
-                    onChange={(e) => setFormData({ ...formData, expected_delivery_date: e.target.value })}
+                  <FormDateInput value={formData.expected_delivery_date} onChange={(e) => setFormData({ ...formData, expected_delivery_date: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   />
                 </div>
@@ -564,10 +560,7 @@ const PurchaseOrders = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Awarded Date</label>
-                  <input
-                    type="date"
-                    value={formData.awarded_date}
-                    onChange={(e) => setFormData({ ...formData, awarded_date: e.target.value })}
+                  <FormDateInput value={formData.awarded_date} onChange={(e) => setFormData({ ...formData, awarded_date: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   />
                 </div>

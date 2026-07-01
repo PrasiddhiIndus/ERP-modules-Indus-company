@@ -1,4 +1,4 @@
-import { normalizeToIsoDate } from "../../../utils/dateDisplay";
+import { normalizeToIsoDate, formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
 
 export const inr = (n) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
 
@@ -19,27 +19,11 @@ export const slug = (s) =>
 
 /** Finance UI: dd/mm/yyyy */
 export function formatFinanceDate(value) {
-  const iso = normalizeToIsoDate(value);
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
+  return formatDateDdMmYyyy(value);
 }
 
 export function formatFinanceDateTime(iso) {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "";
-    const date = formatFinanceDate(d);
-    const time = d.toLocaleTimeString("en-GB", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    return `${date} ${time}`;
-  } catch {
-    return "";
-  }
+  return formatDateTimeDdMmYyyy(iso);
 }
 
 export function parseFinanceDateInput(text) {

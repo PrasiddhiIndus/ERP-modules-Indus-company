@@ -16,7 +16,9 @@ import {
   MOCK_ENGINEERS,
   MOCK_SETTINGS_MASTERS,
 } from "../data/mockAmcData";
-import { enrichAmcDataset, computeDashboardKpis } from "./amcEnrichment";
+import { enrichAmcDataset, computeDashboardKpis } from "./amcEnrichment";;
+import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
+
 
 const FORCE_MOCK = import.meta.env.VITE_AMC_USE_MOCK === "true";
 
@@ -89,7 +91,7 @@ async function fetchRawBundle() {
   if (activityRes.data?.length) {
     activity = activity.map((a) => ({
       title: a.action_summary || a.action_type,
-      meta: `${a.record_type} · ${new Date(a.action_at).toLocaleString()}`,
+      meta: `${a.record_type} · ${formatDateTimeDdMmYyyy(a.action_at)}`,
       actor: a.actor_name || "System",
       record_type: a.record_type,
       record_id: a.record_id,

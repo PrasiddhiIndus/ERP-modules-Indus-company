@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import ExcelCostingSheet from './ExcelCostingSheet';
-import { pickCanonicalCostingSheet } from '../utils/marketingQuotationUtils';
+import { pickCanonicalCostingSheet } from '../utils/marketingQuotationUtils';;
+import FormDateInput from "../../../components/FormDateInput";
+
 
 const QuotationForm = ({ 
   isOpen, 
@@ -919,10 +921,7 @@ const QuotationForm = ({
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Quotation Date <span className="text-red-500">*</span>
               </label>
-              <input
-                type="date"
-                value={formData.quotation_date}
-                onChange={(e) => setFormData({ ...formData, quotation_date: e.target.value })}
+              <FormDateInput value={formData.quotation_date} onChange={(e) => setFormData({ ...formData, quotation_date: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                 required
               />
@@ -930,10 +929,7 @@ const QuotationForm = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Valid Until</label>
-              <input
-                type="date"
-                value={formData.valid_until}
-                onChange={(e) => setFormData({ ...formData, valid_until: e.target.value })}
+              <FormDateInput value={formData.valid_until} onChange={(e) => setFormData({ ...formData, valid_until: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
               />
             </div>

@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
 import { uploadFleetFileToR2, buildFleetUploadSegment, parseFleetAttachmentKeys, presignFleetR2Get } from '../../lib/fleetR2';
-import FleetAttachmentUploader from './FleetAttachmentUploader';
+import FleetAttachmentUploader from './FleetAttachmentUploader';;
+import FormDateInput from "../../components/FormDateInput";
+
 import { 
   Wrench, 
   Plus, 
@@ -376,10 +378,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Service Date *</label>
-                    <input
-                      type="date"
-                      value={formData.service_date}
-                      onChange={(e) => setFormData({...formData, service_date: e.target.value})}
+                    <FormDateInput value={formData.service_date} onChange={(e) => setFormData({...formData, service_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     />
@@ -464,10 +463,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Next Service Due</label>
-                    <input
-                      type="date"
-                      value={formData.next_service_due}
-                      onChange={(e) => setFormData({...formData, next_service_due: e.target.value})}
+                    <FormDateInput value={formData.next_service_due} onChange={(e) => setFormData({...formData, next_service_due: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>

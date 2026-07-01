@@ -16,7 +16,9 @@ import {
   statusSeverity,
   subscribeLeaveWorkflowRealtime,
 } from "../../../lib/adminLeaveRequests";
-import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
+import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";;
+import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
+
 import {
   SectionCard,
   DenseTable,
@@ -57,7 +59,7 @@ function formatTs(v) {
   if (!v) return "—";
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return String(v).slice(0, 10);
-  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+  return formatDateTimeDdMmYyyy(d);
 }
 
 function statusDisplayLabel(status) {

@@ -30,7 +30,9 @@ import {
 import FireTenderNavbar from "./FireTenderNavbar";
 import { FIRE_TENDER_HUB_TENDER } from "./fireTenderRoutes";
 import { SortableHeader, useTableSort } from "../../components/SortableTableHeader";
-import { FIRE_TENDER_TEMPLATES, DEFAULT_FIRE_TENDER_TEMPLATE, normalizeTemplate } from "./fireTenderTemplates";
+import { FIRE_TENDER_TEMPLATES, DEFAULT_FIRE_TENDER_TEMPLATE, normalizeTemplate } from "./fireTenderTemplates";;
+import FormDateInput from "../../components/FormDateInput";
+
 
 /** Form controls — slate borders, red focus ring (Fire Tender) */
 const ftInput =
@@ -265,20 +267,13 @@ function TenderFormFields({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={ftLabel}>Publish date</label>
-                <input type="date" name="publishDate" value={formData.publishDate} onChange={handleChange} className={ftInput} />
+                <FormDateInput name="publishDate" value={formData.publishDate} onChange={handleChange} className={ftInput}/>
               </div>
               <div>
                 <label className={ftLabel}>
                   Due date <span className="text-red-600">*</span>
                 </label>
-                <input
-                  type="date"
-                  name="dueDate"
-                  value={formData.dueDate}
-                  onChange={handleChange}
-                  min={new Date().toISOString().split("T")[0]}
-                  className={ftInput}
-                />
+                <FormDateInput name="dueDate" value={formData.dueDate} onChange={handleChange} min={new Date().toISOString().split("T")[0]} className={ftInput}/>
               </div>
             </div>
             <div>
