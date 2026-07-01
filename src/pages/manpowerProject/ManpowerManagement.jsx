@@ -1180,7 +1180,7 @@ const ManpowerManagement = () => {
             <div className="flex items-start justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold sm:text-xl text-slate-900 truncate">{editingId ? "Edit Manpower Inquiry" : "Add Manpower Inquiry"}</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Fields match the Manpower Management Excel tracker.</p>
+                <p className="mt-0.5 text-xs text-slate-500">Common header fields plus Excel tracker follow-up columns.</p>
               </div>
               <button
                 type="button"

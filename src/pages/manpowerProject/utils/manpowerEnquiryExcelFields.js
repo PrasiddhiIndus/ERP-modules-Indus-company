@@ -9,6 +9,56 @@ export const MODE_OF_SUBMISSION_OPTIONS = [
   "Phone",
   "Other",
 ];
+export const SOURCE_TYPE_OPTIONS = ["Direct Mail", "Online Tender", "Verbal"];
+export const INDUSTRY_OPTIONS = ["Oil & Gas", "Refinery", "Chemical", "Power", "Construction", "Port", "Other"];
+export const WORKING_HOURS_OPTIONS = ["8 hrs", "12 hrs", "As per client"];
+export const ENQUIRY_SUBTYPE_OPTIONS = ["Regular", "Shutdown"];
+export const SERVICE_CATEGORY_OPTIONS = [
+  "Firefighting Manpower Only",
+  "Safety Manpower Only",
+  "Manpower + Fire Tender",
+  "Firefighting Manpower + Safety Manpower",
+  "Fire Tender (without Crew)",
+];
+export const CONTRACT_DURATION_UNITS = ["Days", "Months", "Years"];
+export const INDIA_STATES_UT = [
+  "Andaman and Nicobar Islands",
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chandigarh",
+  "Chhattisgarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jammu and Kashmir",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Ladakh",
+  "Lakshadweep",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Puducherry",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+];
 
 /** Inquiry fields previously stored inside authorization_to JSON — now use DB columns. */
 const INQUIRY_META_KEYS = [
@@ -17,17 +67,35 @@ const INQUIRY_META_KEYS = [
   "enquiryDate",
   "vertical",
   "modeOfSubmission",
+  "sourceType",
   "totalManpower",
   "location",
   "siteName",
+  "siteState",
+  "siteCity",
   "descriptionOfWork",
   "approxValue",
   "estimatedValueClient",
   "enquiryAssignedTo",
+  "receivedBy",
   "dueDate",
   "offerSubmittedOn",
   "remarks",
   "furtherAction",
+  "contactPersonName",
+  "contactPersonDesignation",
+  "contactPersonPhone",
+  "contactPersonEmail",
+  "industrySector",
+  "serviceCategory",
+  "enquirySubType",
+  "scopeInputType",
+  "contractDurationValue",
+  "contractDurationUnit",
+  "workingHoursShift",
+  "applicableStateMw",
+  "minWageEffectiveDate",
+  "submissionBidDeadline",
 ];
 
 export function parseAuthorizationMeta(value) {
@@ -64,6 +132,33 @@ function toInputDate(value) {
   return d.toISOString().split("T")[0];
 }
 
+export function toIsoDateTimeLocal(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const tzOffset = d.getTimezoneOffset() * 60000;
+  const local = new Date(d.getTime() - tzOffset);
+  return local.toISOString().slice(0, 16);
+}
+
+export function toIsoFromDateTimeLocal(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+function composeLocation(meta = {}, row = {}) {
+  return (
+    row?.location ||
+    meta.location ||
+    [meta.siteCity || row?.city, meta.siteState || row?.state, meta.siteName]
+      .filter(Boolean)
+      .join(", ") ||
+    meta.siteName ||
+    ""
+  );
+}
+
 function normalizeSrNo(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -78,12 +173,7 @@ function normalizeTotalManpower(value) {
 /** Map a DB row to the 14 Excel inquiry columns (DB columns first, meta/legacy fallback). */
 export function getExcelInquiryFields(row) {
   const { meta } = parseAuthorizationMeta(row?.authorization_to);
-  const location =
-    row?.location ||
-    meta.location ||
-    [meta.siteCity || row?.city, meta.siteState || row?.state].filter(Boolean).join(", ") ||
-    meta.siteName ||
-    "";
+  const location = composeLocation(meta, row);
 
   return {
     srNo: row?.sr_no ?? meta.srNo ?? null,
@@ -95,7 +185,7 @@ export function getExcelInquiryFields(row) {
     location,
     descriptionOfWork: row?.manpower_required || meta.descriptionOfWork || "",
     approxValue: row?.project_estimation ?? meta.approxValue ?? meta.estimatedValueClient ?? "",
-    enquiryAssignedTo: row?.handled_by || meta.enquiryAssignedTo || "",
+    enquiryAssignedTo: row?.handled_by || meta.enquiryAssignedTo || meta.receivedBy || "",
     dueDate: row?.due_date || meta.dueDate || null,
     offerSubmittedOn: row?.offer_submitted_on || meta.offerSubmittedOn || null,
     remarks: row?.remarks || meta.remarks || "",
@@ -103,24 +193,51 @@ export function getExcelInquiryFields(row) {
   };
 }
 
-export function excelFieldsToForm(row) {
-  const fields = getExcelInquiryFields(row);
+/** Map a DB row to common header + Excel tracker form fields. */
+export function inquiryRowToForm(row) {
+  const { meta } = parseAuthorizationMeta(row?.authorization_to);
+  const excel = getExcelInquiryFields(row);
+  const enquirySubType = meta.enquirySubType;
+  const normalizedSubType = Array.isArray(enquirySubType)
+    ? enquirySubType[0] || "Regular"
+    : enquirySubType || "Regular";
+
   return {
-    srNo: fields.srNo ?? "",
-    receivedDate: toInputDate(fields.receivedDate),
-    vertical: fields.vertical,
-    modeOfSubmission: fields.modeOfSubmission,
-    totalManpower: fields.totalManpower === "" || fields.totalManpower == null ? "" : String(fields.totalManpower),
-    clientName: fields.clientName,
-    location: fields.location,
-    descriptionOfWork: fields.descriptionOfWork,
-    approxValue: fields.approxValue === "" || fields.approxValue == null ? "" : String(fields.approxValue),
-    enquiryAssignedTo: fields.enquiryAssignedTo,
-    dueDate: toInputDate(fields.dueDate),
-    offerSubmittedOn: toInputDate(fields.offerSubmittedOn),
-    remarks: fields.remarks,
-    furtherAction: fields.furtherAction,
+    ...excel,
+    srNo: excel.srNo ?? "",
+    receivedDate: toInputDate(excel.receivedDate),
+    totalManpower: excel.totalManpower === "" || excel.totalManpower == null ? "" : String(excel.totalManpower),
+    approxValue: excel.approxValue === "" || excel.approxValue == null ? "" : String(excel.approxValue),
+    dueDate: toInputDate(excel.dueDate),
+    offerSubmittedOn: toInputDate(excel.offerSubmittedOn),
+    enquiryDate: toInputDate(meta.enquiryDate || excel.receivedDate),
+    receivedBy: meta.receivedBy || row?.handled_by || "",
+    enquiryAssignedTo: meta.enquiryAssignedTo || excel.enquiryAssignedTo || meta.receivedBy || row?.handled_by || "",
+    sourceType: meta.sourceType || row?.source || excel.modeOfSubmission || "Direct Mail",
+    contactPersonName: meta.contactPersonName || "",
+    contactPersonDesignation: meta.contactPersonDesignation || meta.clientDesignation || "",
+    contactPersonPhone: meta.contactPersonPhone || row?.phone || "",
+    contactPersonEmail: meta.contactPersonEmail || row?.email || "",
+    siteName: meta.siteName || "",
+    siteState: meta.siteState || row?.state || "",
+    siteCity: meta.siteCity || row?.city || "",
+    industrySector: meta.industrySector || "",
+    serviceCategory: meta.serviceCategory || "",
+    enquirySubType: normalizedSubType,
+    scopeInputType: meta.scopeInputType || "Text",
+    scopeOfWork: row?.manpower_required || meta.descriptionOfWork || "",
+    contractDurationValue: meta.contractDurationValue ?? "",
+    contractDurationUnit: meta.contractDurationUnit || "Months",
+    workingHoursShift: meta.workingHoursShift || "",
+    applicableStateMw: meta.applicableStateMw || "",
+    minWageEffectiveDate: toInputDate(meta.minWageEffectiveDate),
+    submissionBidDeadline: toIsoDateTimeLocal(meta.submissionBidDeadline || excel.dueDate),
+    enquiryNumber: row?.enquiry_number || "",
   };
+}
+
+export function excelFieldsToForm(row) {
+  return inquiryRowToForm(row);
 }
 
 /** Build Supabase row payload for insert/update from inquiry form. */
@@ -129,27 +246,68 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     form.srNo === "" || form.srNo == null ? existingMeta.srNo : form.srNo
   );
   const workflowMeta = extractWorkflowMeta(existingMeta);
-  if (form.location) {
-    workflowMeta.siteName = form.location;
+  const location =
+    form.location ||
+    [form.siteCity, form.siteState, form.siteName].filter((v) => String(v || "").trim()).join(", ") ||
+    null;
+  const scopeText = form.scopeOfWork || form.descriptionOfWork || null;
+  const submissionDeadlineIso = form.submissionBidDeadline
+    ? toIsoFromDateTimeLocal(form.submissionBidDeadline)
+    : null;
+  const dueDate =
+    (submissionDeadlineIso ? submissionDeadlineIso.split("T")[0] : null) ||
+    form.dueDate ||
+    null;
+
+  const headerMeta = {
+    enquiryDate: form.enquiryDate || form.receivedDate || null,
+    sourceType: form.sourceType || null,
+    receivedBy: form.receivedBy || null,
+    enquiryAssignedTo: form.enquiryAssignedTo || null,
+    contactPersonName: form.contactPersonName || "",
+    contactPersonDesignation: form.contactPersonDesignation || "",
+    contactPersonPhone: form.contactPersonPhone || "",
+    contactPersonEmail: form.contactPersonEmail || "",
+    siteName: form.siteName || "",
+    siteState: form.siteState || "",
+    siteCity: form.siteCity || "",
+    industrySector: form.industrySector || "",
+    serviceCategory: form.serviceCategory || "",
+    enquirySubType: form.enquirySubType || "Regular",
+    scopeInputType: form.scopeInputType || "Text",
+    contractDurationValue: form.contractDurationValue ?? "",
+    contractDurationUnit: form.contractDurationUnit || "Months",
+    workingHoursShift: form.workingHoursShift || "",
+    applicableStateMw: form.applicableStateMw || "",
+    minWageEffectiveDate: form.minWageEffectiveDate || null,
+    submissionBidDeadline: submissionDeadlineIso,
+    location,
+    descriptionOfWork: scopeText,
+  };
+
+  if (location) {
+    workflowMeta.siteName = form.siteName || location;
   }
 
   return {
     client: String(form.clientName || "").trim(),
+    phone: form.contactPersonPhone || null,
+    email: form.contactPersonEmail || null,
     sr_no: srNo,
-    received_date: form.receivedDate || null,
+    received_date: form.enquiryDate || form.receivedDate || null,
     vertical: form.vertical || null,
-    source: form.modeOfSubmission || null,
-    mode_of_submission: form.modeOfSubmission || null,
+    source: form.sourceType || form.modeOfSubmission || null,
+    mode_of_submission: form.modeOfSubmission || form.sourceType || null,
     total_manpower: normalizeTotalManpower(form.totalManpower),
-    location: form.location || null,
-    manpower_required: form.descriptionOfWork || null,
+    location,
+    manpower_required: scopeText,
     project_estimation: form.approxValue === "" || form.approxValue == null ? null : String(form.approxValue),
-    handled_by: form.enquiryAssignedTo || null,
-    due_date: form.dueDate || null,
+    handled_by: form.receivedBy || form.enquiryAssignedTo || null,
+    due_date: dueDate,
     offer_submitted_on: form.offerSubmittedOn || null,
     remarks: form.remarks || null,
     further_action: form.furtherAction || null,
-    authorization_to: buildAuthorizationValue(workflowMeta, ""),
+    authorization_to: buildAuthorizationValue({ ...workflowMeta, ...headerMeta }, ""),
   };
 }
 
