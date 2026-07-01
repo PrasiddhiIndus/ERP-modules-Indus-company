@@ -21,6 +21,10 @@ export const SERVICE_CATEGORY_OPTIONS = [
   "Fire Tender (without Crew)",
 ];
 export const CONTRACT_DURATION_UNITS = ["Days", "Months", "Years"];
+export const TENDER_PORTAL_OPTIONS = ["Ariba", "GeM", "eProcurement", "Custom"];
+export const EMD_FEE_STATUS_OPTIONS = ["Not Applicable", "Applicable - Pay", "Exempted"];
+export const PAYMENT_MODE_OPTIONS = ["Demand Draft", "NEFT", "Online"];
+export const PAYMENT_STATUS_OPTIONS = ["Pending", "Paid", "Refunded"];
 export const INDIA_STATES_UT = [
   "Andaman and Nicobar Islands",
   "Andhra Pradesh",
@@ -233,6 +237,26 @@ export function inquiryRowToForm(row) {
     minWageEffectiveDate: toInputDate(meta.minWageEffectiveDate),
     submissionBidDeadline: toIsoDateTimeLocal(meta.submissionBidDeadline || excel.dueDate),
     enquiryNumber: row?.enquiry_number || "",
+    portalNameOption: meta.portalNameOption || "",
+    portalNameCustom: meta.portalNameCustom || "",
+    tenderNumber: meta.tenderNumber || "",
+    estimatedValueClient:
+      meta.estimatedValueClient === "" || meta.estimatedValueClient == null
+        ? excel.approxValue === "" || excel.approxValue == null
+          ? ""
+          : String(excel.approxValue)
+        : String(meta.estimatedValueClient),
+    ourQuotedRate: meta.ourQuotedRate ?? "",
+    portalSubmissionDate: toIsoDateTimeLocal(meta.portalSubmissionDate),
+    portalProofAttachment: null,
+    tenderFeeApplicable: meta.tenderFeeApplicable || "Not Applicable",
+    tenderFeeAmount: meta.tenderFeeAmount ?? "",
+    emdFeeStatus: meta.emdFeeStatus || "Not Applicable",
+    paymentMode: meta.paymentMode || "",
+    paymentReferenceNo: meta.paymentReferenceNo || "",
+    paymentStatus: meta.paymentStatus || "",
+    paymentDate: toInputDate(meta.paymentDate),
+    portalProofPath: meta.portalProofPath || "",
   };
 }
 
@@ -289,6 +313,35 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     workflowMeta.siteName = form.siteName || location;
   }
 
+  const isOnlineTender = form.sourceType === "Online Tender";
+  const onlineTenderMeta = isOnlineTender
+    ? {
+        portalNameOption: form.portalNameOption || "",
+        portalNameCustom: form.portalNameCustom || "",
+        tenderNumber: form.tenderNumber || "",
+        estimatedValueClient: form.estimatedValueClient ?? "",
+        ourQuotedRate: form.ourQuotedRate ?? "",
+        portalSubmissionDate: form.portalSubmissionDate
+          ? toIsoFromDateTimeLocal(form.portalSubmissionDate)
+          : null,
+        portalProofPath: form.portalProofPath || workflowMeta.portalProofPath || null,
+        tenderFeeApplicable: form.tenderFeeApplicable || "Not Applicable",
+        tenderFeeAmount: form.tenderFeeAmount ?? "",
+        emdFeeStatus: form.emdFeeStatus || "Not Applicable",
+        paymentMode: form.paymentMode || "",
+        paymentReferenceNo: form.paymentReferenceNo || "",
+        paymentStatus: form.paymentStatus || "",
+        paymentDate: form.paymentDate || null,
+      }
+    : {};
+
+  const projectEstimation =
+    form.approxValue === "" || form.approxValue == null
+      ? form.estimatedValueClient === "" || form.estimatedValueClient == null
+        ? null
+        : String(form.estimatedValueClient)
+      : String(form.approxValue);
+
   return {
     client: String(form.clientName || "").trim(),
     phone: form.contactPersonPhone || null,
@@ -301,13 +354,17 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     total_manpower: normalizeTotalManpower(form.totalManpower),
     location,
     manpower_required: scopeText,
-    project_estimation: form.approxValue === "" || form.approxValue == null ? null : String(form.approxValue),
+    project_estimation: projectEstimation,
     handled_by: form.receivedBy || form.enquiryAssignedTo || null,
     due_date: dueDate,
     offer_submitted_on: form.offerSubmittedOn || null,
     remarks: form.remarks || null,
     further_action: form.furtherAction || null,
-    authorization_to: buildAuthorizationValue({ ...workflowMeta, ...headerMeta }, ""),
+    rfq_available: isOnlineTender,
+    authorization_to: buildAuthorizationValue(
+      { ...workflowMeta, ...headerMeta, ...onlineTenderMeta },
+      ""
+    ),
   };
 }
 
