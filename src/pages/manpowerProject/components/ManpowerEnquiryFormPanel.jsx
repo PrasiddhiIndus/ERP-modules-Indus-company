@@ -10,6 +10,10 @@ import {
   SERVICE_CATEGORY_OPTIONS,
   CONTRACT_DURATION_UNITS,
   INDIA_STATES_UT,
+  TENDER_PORTAL_OPTIONS,
+  EMD_FEE_STATUS_OPTIONS,
+  PAYMENT_MODE_OPTIONS,
+  PAYMENT_STATUS_OPTIONS,
   parseAuthorizationMeta,
   buildInquiryDbPayload,
   inquiryRowToForm,
@@ -46,6 +50,21 @@ const emptyForm = {
   applicableStateMw: "",
   minWageEffectiveDate: "",
   submissionBidDeadline: "",
+  portalNameOption: "",
+  portalNameCustom: "",
+  tenderNumber: "",
+  estimatedValueClient: "",
+  ourQuotedRate: "",
+  portalSubmissionDate: "",
+  portalProofAttachment: null,
+  portalProofPath: "",
+  tenderFeeApplicable: "Not Applicable",
+  tenderFeeAmount: "",
+  emdFeeStatus: "Not Applicable",
+  paymentMode: "",
+  paymentReferenceNo: "",
+  paymentStatus: "",
+  paymentDate: "",
   srNo: "",
   receivedDate: new Date().toISOString().split("T")[0],
   vertical: "",
@@ -61,6 +80,34 @@ const emptyForm = {
   furtherAction: "",
 };
 
+function FormSection({ number, title, hint, children, variant = "default" }) {
+  const isTender = variant === "tender";
+  return (
+    <div
+      className={`rounded-xl border p-4 sm:p-6 shadow-sm ${
+        isTender ? "border-blue-200 bg-blue-50/40" : "border-slate-200 bg-white"
+      }`}
+    >
+      <div className="flex flex-wrap items-start gap-2 mb-4">
+        {number && (
+          <span
+            className={`inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md px-1.5 text-xs font-bold ${
+              isTender ? "bg-blue-200 text-blue-900" : "bg-purple-100 text-purple-800"
+            }`}
+          >
+            {number}
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <h4 className={`text-base font-semibold ${isTender ? "text-blue-900" : "text-slate-900"}`}>{title}</h4>
+          {hint && <p className={`text-xs mt-0.5 ${isTender ? "text-blue-700/80" : "text-slate-500"}`}>{hint}</p>}
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [formData, setFormData] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
@@ -68,7 +115,12 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [srNoLoading, setSrNoLoading] = useState(false);
   const defaultAssigneeRef = useRef("");
   const existingDocumentsPathRef = useRef("");
+  const existingPortalProofPathRef = useRef("");
   const existingEnquiryNumberRef = useRef("");
+
+  const isOnlineTender = formData.sourceType === "Online Tender";
+  const isTenderFeeApplicable = formData.tenderFeeApplicable === "Applicable";
+  const isPaymentRequired = isTenderFeeApplicable || formData.emdFeeStatus === "Applicable - Pay";
 
   const initNewForm = useCallback(async () => {
     setSrNoLoading(true);
@@ -90,6 +142,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       srNo: nextSrNo,
     });
     existingDocumentsPathRef.current = "";
+    existingPortalProofPathRef.current = "";
     existingEnquiryNumberRef.current = "";
   }, []);
 
@@ -135,6 +188,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       if (!data) return;
       const nextForm = inquiryRowToForm(data);
       existingDocumentsPathRef.current = data.documents || "";
+      existingPortalProofPathRef.current = nextForm.portalProofPath || "";
       existingEnquiryNumberRef.current = data.enquiry_number || "";
       setFormData(nextForm);
       setAssignedToOptions((prev) =>
@@ -146,7 +200,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   }, [enquiryId, initNewForm]);
 
   const handleChange = (e) => {
-    const { name, value, files, type } = e.target;
+    const { name, value, files } = e.target;
     if (files) {
       setFormData((prev) => ({ ...prev, [name]: files[0] || null }));
       return;
@@ -154,9 +208,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = async () => {
-    if (submitting) return;
-
+  const validateForm = () => {
     const required = [
       ["enquiryDate", "Enquiry Date"],
       ["receivedBy", "Received By"],
@@ -179,7 +231,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     for (const [field, label] of required) {
       if (!String(formData[field] || "").trim()) {
         alert(`Please enter ${label}.`);
-        return;
+        return false;
       }
     }
 
@@ -188,7 +240,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       !String(formData.scopeOfWork || "").trim()
     ) {
       alert("Please enter Scope of Work.");
-      return;
+      return false;
     }
     if (
       (formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") &&
@@ -196,8 +248,61 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       !existingDocumentsPathRef.current
     ) {
       alert("Please upload the SOP document for Scope of Work.");
-      return;
+      return false;
     }
+
+    if (isOnlineTender) {
+      const portalName =
+        formData.portalNameOption === "Custom"
+          ? formData.portalNameCustom
+          : formData.portalNameOption;
+      if (!String(portalName || "").trim()) {
+        alert("Please select or enter Portal Name.");
+        return false;
+      }
+      const tenderRequired = [
+        ["tenderNumber", "Tender Number"],
+        ["estimatedValueClient", "Estimated Value (Client)"],
+        ["ourQuotedRate", "Our Quoted Rate"],
+        ["portalSubmissionDate", "Portal Submission Date"],
+        ["paymentStatus", "Payment Status"],
+      ];
+      for (const [field, label] of tenderRequired) {
+        if (!String(formData[field] || "").trim()) {
+          alert(`Please enter ${label} (Online Tender section).`);
+          return false;
+        }
+      }
+      if (!formData.portalProofAttachment && !existingPortalProofPathRef.current) {
+        alert("Please upload Portal Screenshot / Proof.");
+        return false;
+      }
+      if (isTenderFeeApplicable && !String(formData.tenderFeeAmount || "").trim()) {
+        alert("Please enter Tender Fee Amount.");
+        return false;
+      }
+      if (isPaymentRequired) {
+        if (!formData.paymentMode) {
+          alert("Please select Payment Mode.");
+          return false;
+        }
+        if (!String(formData.paymentReferenceNo || "").trim()) {
+          alert("Please enter DD / NEFT Reference No.");
+          return false;
+        }
+        if (!formData.paymentDate) {
+          alert("Please enter Payment Date.");
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    if (!validateForm()) return;
 
     try {
       setSubmitting(true);
@@ -229,9 +334,21 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         documentPath = data.path;
       }
 
+      let portalProofPath = existingPortalProofPathRef.current || null;
+      if (formData.portalProofAttachment) {
+        const { data, error } = await supabase.storage
+          .from("manpower-docs")
+          .upload(`portal-proof/${Date.now()}_${formData.portalProofAttachment.name}`, formData.portalProofAttachment);
+        if (error) throw error;
+        portalProofPath = data.path;
+      }
+
       const srNo = enquiryId ? existingMeta.srNo ?? formData.srNo : formData.srNo || (await getNextSrNo(supabase));
 
-      const payload = buildInquiryDbPayload({ ...formData, srNo }, existingMeta);
+      const payload = buildInquiryDbPayload(
+        { ...formData, srNo, portalProofPath: portalProofPath || "" },
+        existingMeta
+      );
       if (documentPath) {
         payload.documents = documentPath;
         if (formData.scopeInputType === "Attachment" && !String(formData.scopeOfWork || "").trim()) {
@@ -269,22 +386,217 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const inputClass =
     "w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent";
   const labelClass = "block text-sm font-medium text-gray-700 mb-2";
-  const sectionClass = "rounded-xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm";
-  const sectionTitleClass = "text-base font-semibold text-slate-900";
-  const sectionHintClass = "text-xs text-slate-500 mt-1";
+  const req = <span className="text-red-500">*</span>;
 
   const assigneeOptions = mergeAssignedToOptions(
     mergeAssignedToOptions(assignedToOptions, formData.receivedBy),
     formData.enquiryAssignedTo
   );
 
-  return (
-    <div className="max-h-[calc(95vh-140px)] overflow-y-auto overflow-x-hidden space-y-5 pr-1 pb-4">
-      <div className={sectionClass}>
-        <h4 className={sectionTitleClass}>Manpower Management Inquiry</h4>
-        <p className={sectionHintClass}>Common header fields for all enquiry types (Commercial — Manpower).</p>
+  const onlineTenderSection = isOnlineTender ? (
+    <FormSection
+      number="3.2"
+      title="Online Tender Fields"
+      hint="Shown when Source Type is Online Tender."
+      variant="tender"
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass}>Portal Name {req}</label>
+          <select name="portalNameOption" value={formData.portalNameOption} onChange={handleChange} className={inputClass}>
+            <option value="">Select portal</option>
+            {TENDER_PORTAL_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>
+            Custom Portal Name {formData.portalNameOption === "Custom" ? req : null}
+          </label>
+          <input
+            name="portalNameCustom"
+            value={formData.portalNameCustom}
+            onChange={handleChange}
+            className={inputClass}
+            placeholder="Enter portal name if Custom"
+            disabled={formData.portalNameOption !== "Custom"}
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Tender Number {req}</label>
+          <input name="tenderNumber" value={formData.tenderNumber} onChange={handleChange} className={inputClass} placeholder="As per portal" />
+        </div>
+        <div>
+          <label className={labelClass}>Estimated Value (Client) {req}</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+            <input
+              type="number"
+              min="0"
+              name="estimatedValueClient"
+              value={formData.estimatedValueClient}
+              onChange={handleChange}
+              placeholder="Published on portal"
+              className={`${inputClass} pl-12`}
+            />
+          </div>
+        </div>
+        <div>
+          <label className={labelClass}>Our Quoted Rate {req}</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+            <input
+              type="number"
+              min="0"
+              name="ourQuotedRate"
+              value={formData.ourQuotedRate}
+              onChange={handleChange}
+              placeholder="Rate submitted on portal"
+              className={`${inputClass} pl-12`}
+            />
+          </div>
+        </div>
+        <div>
+          <label className={labelClass}>Portal Submission Date {req}</label>
+          <input
+            type="datetime-local"
+            name="portalSubmissionDate"
+            value={formData.portalSubmissionDate}
+            onChange={handleChange}
+            className={inputClass}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <label className={labelClass}>Portal Screenshot / Proof {req}</label>
+          <input
+            type="file"
+            name="portalProofAttachment"
+            accept=".png,.pdf,image/png,application/pdf"
+            onChange={handleChange}
+            className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white"
+          />
+          <p className="mt-1 text-xs text-slate-500">PNG or PDF of submission confirmation.</p>
+          {existingPortalProofPathRef.current && !formData.portalProofAttachment && (
+            <p className="mt-1 text-xs text-green-700">Existing proof on file.</p>
+          )}
+        </div>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div className="mt-4 pt-4 border-t border-blue-200/60">
+        <p className="text-sm font-semibold text-blue-900 mb-3">Fees &amp; Payment</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>Tender Fee Applicable? {req}</label>
+            <div className="flex items-center gap-4 text-sm">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="tenderFeeApplicable"
+                  value="Applicable"
+                  checked={formData.tenderFeeApplicable === "Applicable"}
+                  onChange={handleChange}
+                />
+                Applicable
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="tenderFeeApplicable"
+                  value="Not Applicable"
+                  checked={formData.tenderFeeApplicable === "Not Applicable"}
+                  onChange={handleChange}
+                />
+                Not Applicable
+              </label>
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>EMD Fee</label>
+            <select name="emdFeeStatus" value={formData.emdFeeStatus} onChange={handleChange} className={inputClass}>
+              {EMD_FEE_STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {isTenderFeeApplicable && (
+          <div className="mt-4">
+            <label className={labelClass}>Tender Fee Amount {req}</label>
+            <div className="relative md:w-1/2">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+              <input
+                type="number"
+                min="0"
+                name="tenderFeeAmount"
+                value={formData.tenderFeeAmount}
+                onChange={handleChange}
+                className={`${inputClass} pl-12`}
+                placeholder="0"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4">
+          <label className={labelClass}>Payment Status {req}</label>
+          <select name="paymentStatus" value={formData.paymentStatus} onChange={handleChange} className={`${inputClass} md:w-1/2`}>
+            <option value="">Select</option>
+            {PAYMENT_STATUS_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {isPaymentRequired && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <label className={labelClass}>Payment Mode {req}</label>
+              <select name="paymentMode" value={formData.paymentMode} onChange={handleChange} className={inputClass}>
+                <option value="">Select</option>
+                {PAYMENT_MODE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>DD / NEFT Reference No. {req}</label>
+              <input
+                name="paymentReferenceNo"
+                value={formData.paymentReferenceNo}
+                onChange={handleChange}
+                className={inputClass}
+                placeholder="DD number or UTR number"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Payment Date {req}</label>
+              <input type="date" name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass} />
+            </div>
+          </div>
+        )}
+      </div>
+    </FormSection>
+  ) : null;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-5 px-4 py-4 sm:px-6 sm:py-5">
+      <FormSection
+        number="3.1"
+        title="Common Header — Enquiry Details"
+        hint="Shared fields for all enquiry types."
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>Enquiry ID</label>
             <input
@@ -298,15 +610,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Enquiry Date <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Enquiry Date {req}</label>
             <input type="date" name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>
-              Received By <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Received By {req}</label>
             <select name="receivedBy" value={formData.receivedBy} onChange={handleChange} className={inputClass}>
               <option value="">Select user</option>
               {assigneeOptions.map((opt) => (
@@ -317,9 +625,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
           <div>
-            <label className={labelClass}>
-              Source Type <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Source Type {req}</label>
             <select name="sourceType" value={formData.sourceType} onChange={handleChange} className={inputClass}>
               {SOURCE_TYPE_OPTIONS.map((opt) => (
                 <option key={opt} value={opt}>
@@ -328,16 +634,19 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               ))}
             </select>
           </div>
+        </div>
+      </FormSection>
+
+      {onlineTenderSection}
+
+      <FormSection title="Client &amp; Contact Person" hint="Primary client and point of contact details.">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>
-              Client Name <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Client Name {req}</label>
             <input name="clientName" value={formData.clientName} onChange={handleChange} className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>
-              Client Contact Person — Name <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Contact Person — Name {req}</label>
             <input name="contactPersonName" value={formData.contactPersonName} onChange={handleChange} className={inputClass} />
           </div>
           <div>
@@ -353,44 +662,41 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <label className={labelClass}>Phone</label>
             <input type="tel" name="contactPersonPhone" value={formData.contactPersonPhone} onChange={handleChange} className={inputClass} />
           </div>
-          <div>
+          <div className="md:col-span-2">
             <label className={labelClass}>Email</label>
             <input type="email" name="contactPersonEmail" value={formData.contactPersonEmail} onChange={handleChange} className={inputClass} />
           </div>
         </div>
+      </FormSection>
 
-        <div className="mt-4">
-          <h5 className="text-sm font-semibold text-gray-700 mb-2">
-            Site / Project Location <span className="text-red-500">*</span>
-          </h5>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">State</label>
-              <select name="siteState" value={formData.siteState} onChange={handleChange} className={inputClass}>
-                <option value="">Select state</option>
-                {INDIA_STATES_UT.map((state) => (
-                  <option key={state} value={state}>
-                    {state}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
-              <input name="siteCity" value={formData.siteCity} onChange={handleChange} className={inputClass} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Site Name</label>
-              <input name="siteName" value={formData.siteName} onChange={handleChange} className={inputClass} />
-            </div>
+      <FormSection title="Site / Project Location" hint="State, city, and site name.">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className={labelClass}>State {req}</label>
+            <select name="siteState" value={formData.siteState} onChange={handleChange} className={inputClass}>
+              <option value="">Select state</option>
+              {INDIA_STATES_UT.map((state) => (
+                <option key={state} value={state}>
+                  {state}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>City {req}</label>
+            <input name="siteCity" value={formData.siteCity} onChange={handleChange} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Site Name {req}</label>
+            <input name="siteName" value={formData.siteName} onChange={handleChange} className={inputClass} />
           </div>
         </div>
+      </FormSection>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <FormSection title="Service &amp; Category">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>
-              Industry / Sector <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Industry / Sector {req}</label>
             <select name="industrySector" value={formData.industrySector} onChange={handleChange} className={inputClass}>
               <option value="">Select industry</option>
               {INDUSTRY_OPTIONS.map((opt) => (
@@ -401,9 +707,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
           <div>
-            <label className={labelClass}>
-              Service Category <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Service Category {req}</label>
             <select name="serviceCategory" value={formData.serviceCategory} onChange={handleChange} className={inputClass}>
               <option value="">Select category</option>
               {SERVICE_CATEGORY_OPTIONS.map((opt) => (
@@ -414,11 +718,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
         </div>
-
         <div className="mt-4">
-          <label className={labelClass}>
-            Enquiry Sub-type <span className="text-red-500">*</span>
-          </label>
+          <label className={labelClass}>Enquiry Sub-type {req}</label>
           <div className="flex flex-wrap gap-4">
             {ENQUIRY_SUBTYPE_OPTIONS.map((opt) => (
               <label key={opt} className="inline-flex items-center gap-2 text-sm text-gray-700">
@@ -434,56 +735,53 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             ))}
           </div>
         </div>
+      </FormSection>
 
-        <div className="mt-4">
-          <label className={labelClass}>
-            Scope of Work <span className="text-red-500">*</span>
-          </label>
-          <div className="flex flex-wrap gap-4 mb-3 text-sm">
-            {["Text", "Attachment", "Both"].map((mode) => (
-              <label key={mode} className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="scopeInputType"
-                  value={mode}
-                  checked={formData.scopeInputType === mode}
-                  onChange={handleChange}
-                />
-                {mode}
-              </label>
-            ))}
-          </div>
-          {(formData.scopeInputType === "Text" || formData.scopeInputType === "Both") && (
-            <textarea
-              name="scopeOfWork"
-              value={formData.scopeOfWork}
-              onChange={handleChange}
-              rows={4}
-              className={inputClass}
-              placeholder="Enter scope details or SOP summary..."
-            />
-          )}
-          {(formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") && (
-            <div className="mt-3">
-              <label className="block text-sm font-medium text-gray-700 mb-2">SOP Document Upload</label>
+      <FormSection title="Scope of Work" hint="SOP document upload or text entry.">
+        <div className="flex flex-wrap gap-4 mb-3 text-sm">
+          {["Text", "Attachment", "Both"].map((mode) => (
+            <label key={mode} className="inline-flex items-center gap-2">
               <input
-                type="file"
-                name="scopeAttachment"
+                type="radio"
+                name="scopeInputType"
+                value={mode}
+                checked={formData.scopeInputType === mode}
                 onChange={handleChange}
-                className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white"
               />
-              {existingDocumentsPathRef.current && !formData.scopeAttachment && (
-                <p className="mt-1 text-xs text-green-700">Existing document on file.</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-          <div>
-            <label className={labelClass}>
-              Contract Duration <span className="text-red-500">*</span>
+              {mode}
             </label>
+          ))}
+        </div>
+        {(formData.scopeInputType === "Text" || formData.scopeInputType === "Both") && (
+          <textarea
+            name="scopeOfWork"
+            value={formData.scopeOfWork}
+            onChange={handleChange}
+            rows={4}
+            className={inputClass}
+            placeholder="Enter scope details or SOP summary..."
+          />
+        )}
+        {(formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") && (
+          <div className="mt-3">
+            <label className={labelClass}>SOP Document Upload {req}</label>
+            <input
+              type="file"
+              name="scopeAttachment"
+              onChange={handleChange}
+              className="w-full text-sm px-3 py-2 border border-gray-300 rounded-lg bg-white"
+            />
+            {existingDocumentsPathRef.current && !formData.scopeAttachment && (
+              <p className="mt-1 text-xs text-green-700">Existing document on file.</p>
+            )}
+          </div>
+        )}
+      </FormSection>
+
+      <FormSection title="Contract, Wage &amp; Deadline">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className={labelClass}>Contract Duration {req}</label>
             <div className="flex gap-2">
               <input
                 name="contractDurationValue"
@@ -509,9 +807,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </div>
           </div>
           <div>
-            <label className={labelClass}>
-              Working Hours / Shift <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Working Hours / Shift {req}</label>
             <select name="workingHoursShift" value={formData.workingHoursShift} onChange={handleChange} className={inputClass}>
               <option value="">Select</option>
               {WORKING_HOURS_OPTIONS.map((opt) => (
@@ -522,9 +818,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
           <div>
-            <label className={labelClass}>
-              Applicable State (for MW) <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Applicable State (for MW) {req}</label>
             <select name="applicableStateMw" value={formData.applicableStateMw} onChange={handleChange} className={inputClass}>
               <option value="">Select state</option>
               {INDIA_STATES_UT.map((state) => (
@@ -535,12 +829,9 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
         </div>
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
-            <label className={labelClass}>
-              Min Wage Effective Date (WEF) <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Min Wage Effective Date (WEF) {req}</label>
             <input
               type="date"
               name="minWageEffectiveDate"
@@ -550,9 +841,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             />
           </div>
           <div>
-            <label className={labelClass}>
-              Submission / Bid Deadline <span className="text-red-500">*</span>
-            </label>
+            <label className={labelClass}>Submission / Bid Deadline {req}</label>
             <input
               type="datetime-local"
               name="submissionBidDeadline"
@@ -563,13 +852,10 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <p className="mt-1 text-xs text-slate-500">Reminder alerts: T-7 and T-1 days.</p>
           </div>
         </div>
-      </div>
+      </FormSection>
 
-      <div className={sectionClass}>
-        <h4 className={sectionTitleClass}>Tracker &amp; Follow-up</h4>
-        <p className={sectionHintClass}>Excel tracker columns for internal commercial follow-up.</p>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <FormSection title="Tracker &amp; Follow-up" hint="Excel tracker columns for internal commercial follow-up.">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>Sr. No</label>
             <input
@@ -616,7 +902,13 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </div>
           <div>
             <label className={labelClass}>Location (summary)</label>
-            <input name="location" value={formData.location} onChange={handleChange} className={inputClass} placeholder="Auto-filled from site fields if blank" />
+            <input
+              name="location"
+              value={formData.location}
+              onChange={handleChange}
+              className={inputClass}
+              placeholder="Auto-filled from site fields if blank"
+            />
           </div>
           <div>
             <label className={labelClass}>Approx Value (WO Taxes)</label>
@@ -653,13 +945,14 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <textarea name="furtherAction" value={formData.furtherAction} onChange={handleChange} rows={2} className={inputClass} />
           </div>
         </div>
+      </FormSection>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6 flex justify-end gap-3">
+      <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 flex justify-end gap-3">
         <button
           type="button"
           onClick={onCancel}
-          className="px-6 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+          className="px-5 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors"
         >
           Cancel
         </button>
@@ -667,7 +960,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           type="button"
           onClick={handleSubmit}
           disabled={submitting}
-          className={`px-6 py-2.5 rounded-lg font-medium text-white bg-purple-600 hover:bg-purple-700 transition-colors ${
+          className={`px-5 py-2 text-sm font-medium rounded-lg text-white bg-purple-600 hover:bg-purple-700 transition-colors ${
             submitting ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >

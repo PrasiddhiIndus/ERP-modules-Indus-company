@@ -1175,12 +1175,12 @@ const ManpowerManagement = () => {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">
-          <div className="max-h-[95vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
-            <div className="h-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-orange-500" />
-            <div className="flex items-start justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+          <div className="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
+            <div className="h-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-orange-500 shrink-0" />
+            <div className="flex shrink-0 items-start justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold sm:text-xl text-slate-900 truncate">{editingId ? "Edit Manpower Inquiry" : "Add Manpower Inquiry"}</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Common header fields plus Excel tracker follow-up columns.</p>
+                <p className="mt-0.5 text-xs text-slate-500">Select Online Tender in Source Type to show tender fields below the header section.</p>
               </div>
               <button
                 type="button"
@@ -1191,7 +1191,7 @@ const ManpowerManagement = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-              <div className="bg-slate-50 px-4 py-4 sm:px-6 sm:py-5">
+            <div className="flex min-h-0 flex-1 flex-col bg-slate-50">
               <ManpowerEnquiryFormPanel key={editingId || "new"} enquiryId={editingId} onSaved={afterSave} onCancel={closeForm} />
             </div>
           </div>
