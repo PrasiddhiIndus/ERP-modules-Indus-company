@@ -765,7 +765,7 @@ export async function invokeAuthenticatedFunction(name, options = {}, accessToke
       : undefined
 
   try {
-    const fnTimeoutMs = 15000
+    const fnTimeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 15000
     const fetchSignal =
       typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
         ? AbortSignal.timeout(fnTimeoutMs)

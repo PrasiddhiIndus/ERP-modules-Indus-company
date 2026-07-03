@@ -14,6 +14,8 @@ import {
   demoQuotations,
   Login,
   Register,
+  ForgotPassword,
+  ResetPassword,
   Dashboard,
   FireTender,
   FireTenderDashboard,
@@ -280,6 +282,8 @@ function App() {
           {/* Public */}
           <Route path="/" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Protected with Layout */}
           <Route

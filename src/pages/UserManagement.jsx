@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { useAuth } from "../contexts/AuthContext";
 import { supabase, parseEdgeFunctionError } from "../lib/supabase";
 import { createUserAccount } from "../lib/userManagementCreateApi";
+import { bulkDeleteUsers } from "../lib/userManagementBulkApi";
 import {
   DEFAULT_USER_MGMT_FILTERS,
   fetchUserManagementProfiles,
@@ -28,7 +29,11 @@ import {
   saveEmployeeHierarchyManagers,
 } from "../lib/userManagementHierarchy";
 import { ManagerSearchSelect } from "../components/employee/ManagerSearchSelect";
-import { ROLES, TEAMS, MODULES, normalizeTeamModuleKey } from "../config/roles";
+import { ROLES, MODULES, resolveTeamModuleKey } from "../config/roles";
+import {
+  fetchEmployeeMasterDepartments,
+  mergeEmployeeMasterDepartments,
+} from "../lib/employeeMasterDepartments";
 import {
   Users,
   ChevronLeft,
@@ -41,7 +46,10 @@ import {
   Trash2,
   Search,
   RotateCcw,
+  FileSpreadsheet,
 } from "lucide-react";
+import { UserManagementBulkImportModal } from "./userManagement/UserManagementBulkImportModal";
+import { canCreateUsers as userCanCreateUsers } from "./userManagement/userManagementLabels";
 
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -54,12 +62,14 @@ const roleLabel = (role) => {
   return role || "—";
 };
 
-const teamLabel = (value) => TEAMS.find((t) => t.value === value)?.label ?? value ?? "—";
+const teamLabel = (value) => value ?? "—";
 const moduleLabel = (value) =>
   MODULES.find((m) => m.value === value)?.label ?? teamLabel(value);
 const selectableExtraModules = (team) => {
-  const teamKey = normalizeTeamModuleKey(team);
-  return MODULES.filter((m) => m.value !== "userManagement" && normalizeTeamModuleKey(m.value) !== teamKey);
+  const teamKey = resolveTeamModuleKey(team);
+  return MODULES.filter(
+    (m) => m.value !== "userManagement" && m.value !== teamKey
+  );
 };
 
 const UserManagement = () => {
@@ -76,6 +86,7 @@ const UserManagement = () => {
   const [error, setError] = useState("");
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({
+    username: "",
     employee_code: "",
     team: "",
     role: ROLES.EXECUTIVE,
@@ -106,10 +117,31 @@ const UserManagement = () => {
   const [managerCandidates, setManagerCandidates] = useState([]);
   const [editMasterLookup, setEditMasterLookup] = useState({ loading: false, name: "" });
   const [saveNotice, setSaveNotice] = useState("");
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState(() => new Map());
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
+  const [teamDepartments, setTeamDepartments] = useState(() =>
+    mergeEmployeeMasterDepartments([])
+  );
+  const [teamDepartmentsLoading, setTeamDepartmentsLoading] = useState(true);
 
   const canUseUserManagement =
     userProfile?.role === ROLES.SUPER_ADMIN ||
     userProfile?.role === ROLES.SUPER_ADMIN_PRO;
+
+  const canBulkManageUsers = userCanCreateUsers(userProfile);
+
+  const teamOptionsForSelect = useCallback(
+    (currentValue) => {
+      const cur = String(currentValue || "").trim();
+      if (!cur) return teamDepartments;
+      const exists = teamDepartments.some(
+        (d) => d.toLowerCase() === cur.toLowerCase()
+      );
+      return exists ? teamDepartments : [cur, ...teamDepartments];
+    },
+    [teamDepartments]
+  );
 
   const activeFilters = useMemo(
     () => ({ ...filters, search: searchDebounced }),
@@ -117,6 +149,26 @@ const UserManagement = () => {
   );
 
   const filtersActive = hasActiveUserMgmtFilters(activeFilters);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setTeamDepartmentsLoading(true);
+      try {
+        const fromDb = await fetchEmployeeMasterDepartments(supabase);
+        if (!cancelled) setTeamDepartments(fromDb);
+      } catch {
+        if (!cancelled) {
+          setTeamDepartments(mergeEmployeeMasterDepartments([]));
+        }
+      } finally {
+        if (!cancelled) setTeamDepartmentsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchDebounced(searchInput.trim()), SEARCH_DEBOUNCE_MS);
@@ -213,7 +265,50 @@ const UserManagement = () => {
   const tableColSpan =
     7 +
     (empCodeSupported !== false ? 1 : 0) +
-    (hierarchySupported !== false ? 2 : 0);
+    (hierarchySupported !== false ? 2 : 0) +
+    (canBulkManageUsers ? 1 : 0);
+
+  const pageUserIds = useMemo(
+    () => list.map((row) => row.id).filter(Boolean),
+    [list]
+  );
+
+  const allPageUsersSelected =
+    pageUserIds.length > 0 && pageUserIds.every((id) => selectedUsers.has(id));
+
+  const toggleSelectUser = (row) => {
+    if (!row?.id) return;
+    setSelectedUsers((prev) => {
+      const next = new Map(prev);
+      if (next.has(row.id)) {
+        next.delete(row.id);
+      } else {
+        next.set(row.id, {
+          email: row.email,
+          employee_code: row.employee_code || row.linked_employee_code || null,
+        });
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedUsers((prev) => {
+      const next = new Map(prev);
+      if (allPageUsersSelected) {
+        pageUserIds.forEach((id) => next.delete(id));
+      } else {
+        list.forEach((row) => {
+          if (!row?.id) return;
+          next.set(row.id, {
+            email: row.email,
+            employee_code: row.employee_code || row.linked_employee_code || null,
+          });
+        });
+      }
+      return next;
+    });
+  };
 
   const editManagerCandidates = useMemo(() => {
     const excludeId = editForm.employee_master_id;
@@ -272,7 +367,12 @@ const UserManagement = () => {
         const masterRow = await fetchEmployeeHierarchyByEmpCode(supabase, code);
         if (cancelled) return;
         const hierarchyFields = employeeMasterToEditHierarchyFields(masterRow);
-        setEditForm((f) => ({ ...f, ...hierarchyFields }));
+        const fullName = masterRow?.full_name ? String(masterRow.full_name).trim() : "";
+        setEditForm((f) => ({
+          ...f,
+          ...hierarchyFields,
+          ...(fullName ? { username: fullName } : {}),
+        }));
         setEditMasterLookup({
           loading: false,
           name: masterRow?.full_name ? String(masterRow.full_name).trim() : "",
@@ -290,6 +390,32 @@ const UserManagement = () => {
     };
   }, [editId, editForm.employee_code, hierarchySupported]);
 
+  useEffect(() => {
+    if (!createOpen) return undefined;
+    const code = String(createForm.employee_code || "").trim();
+    if (!code) {
+      setCreateForm((f) => ({ ...f, username: "" }));
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const masterRow = await fetchEmployeeHierarchyByEmpCode(supabase, code);
+        if (cancelled) return;
+        const fullName = masterRow?.full_name ? String(masterRow.full_name).trim() : "";
+        setCreateForm((f) => ({ ...f, username: fullName }));
+      } catch {
+        if (!cancelled) setCreateForm((f) => ({ ...f, username: "" }));
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [createOpen, createForm.employee_code]);
+
   const openEdit = (row) => {
     setEditMasterLookup({
       loading: false,
@@ -297,6 +423,7 @@ const UserManagement = () => {
     });
     setEditId(row.id);
     setEditForm({
+      username: row.username ?? "",
       employee_code: row.employee_code ?? "",
       team: row.team ?? "",
       role: row.role ?? ROLES.EXECUTIVE,
@@ -332,6 +459,17 @@ const UserManagement = () => {
     return enriched ?? [];
   };
 
+  const handleBulkOperationComplete = async (data) => {
+    const summary = data?.summary;
+    if (summary) {
+      const succeeded = summary.created ?? summary.deleted ?? 0;
+      const failed = summary.failed ?? 0;
+      setSaveNotice(`Bulk operation finished. Succeeded: ${succeeded}, failed: ${failed}.`);
+    }
+    setPage(1);
+    await reloadProfilesPage(1);
+  };
+
   const saveEdit = async () => {
     if (!editId) return;
     setSaving(true);
@@ -340,8 +478,10 @@ const UserManagement = () => {
     const warnings = [];
     try {
       const newEmpCode = String(editForm.employee_code || "").trim() || null;
+      const username = String(editForm.username || "").trim() || null;
       const profilePayload = {
         id: editId,
+        username,
         team: editForm.team || null,
         role: editForm.role,
         allowed_modules: editForm.allowed_modules,
@@ -399,6 +539,45 @@ const UserManagement = () => {
       setError(e?.message || "Unable to save.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const deleteSelectedUsers = async () => {
+    if (!selectedUsers.size) return;
+
+    const msg = `Permanently delete ${selectedUsers.size} selected user(s)? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+
+    setBulkDeleteBusy(true);
+    setError("");
+    try {
+      const users = Array.from(selectedUsers.values()).map((row, index) => ({
+        row: index + 1,
+        email: row.email || undefined,
+        employee_code: row.employee_code || undefined,
+      }));
+
+      const outcome = await bulkDeleteUsers(supabase, users, { dryRun: false });
+      if (!outcome.ok) {
+        setError(outcome.message || "Could not delete selected users.");
+        return;
+      }
+
+      const failed = (outcome.data?.results || []).filter((r) => !r.ok);
+      if (failed.length) {
+        setError(
+          failed
+            .map((r) => `${r.email || r.employee_code || `Row ${r.row}`}: ${r.error}`)
+            .join("\n")
+        );
+      }
+
+      setSelectedUsers(new Map());
+      await handleBulkOperationComplete(outcome.data);
+    } catch (e) {
+      setError(e?.message || "Could not delete selected users.");
+    } finally {
+      setBulkDeleteBusy(false);
     }
   };
 
@@ -492,6 +671,19 @@ const UserManagement = () => {
           <Plus className="w-4 h-4" />
           Create user
         </button>
+        {canBulkManageUsers ? (
+          <button
+            type="button"
+            onClick={() => {
+              setBulkImportOpen(true);
+              setError("");
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-600 text-emerald-700 hover:bg-emerald-50 text-sm font-semibold"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Bulk import
+          </button>
+        ) : null}
       </div>
 
       {empCodeSupported === false && (
@@ -579,9 +771,9 @@ const UserManagement = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               >
                 <option value="">All teams</option>
-                {TEAMS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
+                {teamDepartments.map((dept) => (
+                  <option key={dept} value={dept}>
+                    {dept}
                   </option>
                 ))}
               </select>
@@ -647,10 +839,39 @@ const UserManagement = () => {
           ) : null}
         </div>
 
+        {canBulkManageUsers && selectedUsers.size > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 border-b border-red-100 bg-red-50/60">
+            <p className="text-sm text-gray-700">
+              {selectedUsers.size} user{selectedUsers.size === 1 ? "" : "s"} selected
+            </p>
+            <button
+              type="button"
+              onClick={deleteSelectedUsers}
+              disabled={bulkDeleteBusy || saving}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 text-sm font-semibold"
+            >
+              <Trash2 className="w-4 h-4" />
+              {bulkDeleteBusy ? "Deleting…" : "Delete selected"}
+            </button>
+          </div>
+        ) : null}
+
         <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
               <tr>
+                {canBulkManageUsers ? (
+                  <th className="py-3 px-4 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allPageUsersSelected}
+                      onChange={toggleSelectAllOnPage}
+                      disabled={loading || list.length === 0}
+                      className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                      aria-label="Select all users on this page"
+                    />
+                  </th>
+                ) : null}
                 <th className="text-center py-3 px-4 font-semibold text-gray-700">S.No</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Username</th>
                 {empCodeSupported !== false && (
@@ -687,6 +908,17 @@ const UserManagement = () => {
               ) : (
                 list.map((row, idx) => (
                   <tr key={row.id} className="hover:bg-gray-50">
+                    {canBulkManageUsers ? (
+                      <td className="py-3 px-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedUsers.has(row.id)}
+                          onChange={() => toggleSelectUser(row)}
+                          className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                          aria-label={`Select ${row.email || row.username || "user"}`}
+                        />
+                      </td>
+                    ) : null}
                     <td className="py-3 px-4 text-center tabular-nums">
                       {rangeStart + idx}
                     </td>
@@ -849,16 +1081,32 @@ const UserManagement = () => {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input
+                  value={editForm.username}
+                  onChange={(e) => setEditForm((f) => ({ ...f, username: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder="Display name (Employee Master full name)"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Defaults from Employee Master full name when emp code is set.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Team (Employee Master department)
+                </label>
                 <select
                   value={editForm.team}
                   onChange={(e) => setEditForm((f) => ({ ...f, team: e.target.value }))}
+                  disabled={teamDepartmentsLoading}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="">Select team</option>
-                  {TEAMS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
+                  {teamOptionsForSelect(editForm.team).map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
                     </option>
                   ))}
                 </select>
@@ -1022,8 +1270,11 @@ const UserManagement = () => {
                     value={createForm.username}
                     onChange={(e) => setCreateForm((p) => ({ ...p, username: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                    placeholder="Display name"
+                    placeholder="Filled from Employee Master full name"
                   />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Auto-filled from Employee Master when emp code is entered.
+                  </p>
                 </div>
                 {empCodeSupported !== false ? (
                   <div>
@@ -1037,16 +1288,19 @@ const UserManagement = () => {
                   </div>
                 ) : null}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Team (Employee Master department)
+                  </label>
                   <select
                     value={createForm.team}
                     onChange={(e) => setCreateForm((p) => ({ ...p, team: e.target.value }))}
+                    disabled={teamDepartmentsLoading}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
                   >
                     <option value="">None</option>
-                    {TEAMS.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
+                    {teamOptionsForSelect(createForm.team).map((dept) => (
+                      <option key={dept} value={dept}>
+                        {dept}
                       </option>
                     ))}
                   </select>
@@ -1127,10 +1381,21 @@ const UserManagement = () => {
                       setError(EMP_CODE_MIGRATION_HINT);
                       return;
                     }
+                    let username = String(createForm.username || "").trim();
+                    if (!username && empCode) {
+                      const masterRow = await fetchEmployeeHierarchyByEmpCode(supabase, empCode);
+                      username = String(masterRow?.full_name || "").trim();
+                    }
+                    if (!username) {
+                      setError(
+                        "Username is required. Enter an employee code that exists on Employee Master."
+                      );
+                      return;
+                    }
                     const createResult = await createUserAccount(supabase, {
                       email,
                       password,
-                      username: createForm.username || undefined,
+                      username,
                       employee_code: empCode || undefined,
                       team: createForm.team || null,
                       role: createForm.role || ROLES.EXECUTIVE,
@@ -1167,6 +1432,15 @@ const UserManagement = () => {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {bulkImportOpen ? (
+        <UserManagementBulkImportModal
+          supabase={supabase}
+          departments={teamDepartments}
+          onClose={() => setBulkImportOpen(false)}
+          onComplete={handleBulkOperationComplete}
+        />
       ) : null}
     </div>
   );

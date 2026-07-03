@@ -52,6 +52,7 @@ export function normalizeAccessProfile(profile) {
     role,
     team: profile.team ?? null,
     allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
+    ...(profile.module_access_pending === true ? { module_access_pending: true } : {}),
   };
 }
 
@@ -65,6 +66,7 @@ export const TEAMS = [
   { value: "billing", label: "Billing" },
   { value: "tracking", label: "Tracking" },
   { value: "operations", label: "Operations" },
+  { value: "production", label: "Production " },
   { value: "projects", label: "Projects" },
   { value: "procurement", label: "Procurement" },
   { value: "amc", label: "AMC" },
@@ -179,6 +181,73 @@ const TEAM_VALUE_ALIASES = {
   "it-is": "itIs",
 };
 
+/** Employee Master department labels → ERP module keys (null = no app module for that department). */
+const DEPARTMENT_TO_MODULE_KEY = {
+  administration: "admin",
+  "administration-ftc": FIRE_TENDER_MODULE_KEY,
+  commercial: "commercialMt",
+  finance: "finance",
+  "finance/accounts": "finance",
+  hr: "hr",
+  "dahej-hr": "hr",
+  compliance: "compliance",
+  operations: "operations",
+  "information system": "itIs",
+  "information systems": "itIs",
+  management: "admin",
+  marketing: "marketing",
+  procurement: "procurement",
+  projects: "projects",
+  "r&m": "commercialRm",
+  "projects-ftc": FIRE_TENDER_MODULE_KEY,
+  "production-ftc": FIRE_TENDER_MODULE_KEY,
+  "emergency response team-ftc": FIRE_TENDER_MODULE_KEY,
+  "maintenance-ftc": FIRE_TENDER_MODULE_KEY,
+  billing: "billing",
+  tracking: "tracking",
+  amc: "amc",
+  sales: "sales",
+  "fire tender": FIRE_TENDER_MODULE_KEY,
+  "it/is": "itIs",
+  "indus lms / trainings": "indusLms",
+  "indus lms": "indusLms",
+  commercialmt: "commercialMt",
+  commercialrm: "commercialRm",
+};
+
+function normalizeDeptLabelKey(raw) {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function isRoutableModuleKey(key) {
+  return Boolean(key && MODULE_PATH_PREFIXES[key]);
+}
+
+/**
+ * Map profile `team` (Employee Master department label or legacy module key) to a routable module key.
+ * Returns null when the department has no connected ERP module.
+ */
+export function resolveTeamModuleKey(teamRaw) {
+  const label = String(teamRaw || "").trim();
+  if (!label) return null;
+
+  const deptKey = normalizeDeptLabelKey(label);
+  if (Object.prototype.hasOwnProperty.call(DEPARTMENT_TO_MODULE_KEY, deptKey)) {
+    const mapped = DEPARTMENT_TO_MODULE_KEY[deptKey];
+    return mapped && isRoutableModuleKey(mapped) ? mapped : null;
+  }
+
+  const normalized = normalizeTeamModuleKey(label);
+  return isRoutableModuleKey(normalized) ? normalized : null;
+}
+
+export function teamHasMappedModule(teamRaw) {
+  return Boolean(resolveTeamModuleKey(teamRaw));
+}
+
 /**
  * Canonical module key for routing/RLS (case-insensitive; fixes "Billing" vs "billing").
  */
@@ -192,7 +261,10 @@ export function normalizeTeamModuleKey(raw) {
 }
 
 function userHasFireTenderTeam(profile) {
-  return normalizeTeamModuleKey(profile?.team) === FIRE_TENDER_MODULE_KEY;
+  return (
+    resolveTeamModuleKey(profile?.team) === FIRE_TENDER_MODULE_KEY ||
+    normalizedAllowedModuleKeys(profile).includes(FIRE_TENDER_MODULE_KEY)
+  );
 }
 
 /**
@@ -212,16 +284,20 @@ function applyFireTenderModuleGate(profile, moduleSet) {
 function normalizedAllowedModuleKeys(profile) {
   return (profile?.allowed_modules || [])
     .map((m) => normalizeTeamModuleKey(m))
-    .filter(Boolean);
+    .filter((key) => isRoutableModuleKey(key));
+}
+
+function profileHasTeamAssignment(profile) {
+  return Boolean(String(profile?.team || "").trim());
 }
 
 function hasAssignedScopedModules(profile) {
-  return Boolean(normalizeTeamModuleKey(profile?.team) || normalizedAllowedModuleKeys(profile).length);
+  return Boolean(resolveTeamModuleKey(profile?.team) || normalizedAllowedModuleKeys(profile).length);
 }
 
 function buildScopedModuleSet(profile, { includeOverview = false } = {}) {
   const scoped = new Set(includeOverview ? ["overview", "settings"] : ["settings"]);
-  const teamKey = normalizeTeamModuleKey(profile?.team);
+  const teamKey = resolveTeamModuleKey(profile?.team);
   if (teamKey) scoped.add(teamKey);
   normalizedAllowedModuleKeys(profile).forEach((key) => scoped.add(key));
   SUPER_ADMIN_ONLY_MODULES.forEach((m) => scoped.delete(m));
@@ -245,10 +321,8 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
   const pickFirstPrefix = (modKey) => pickLanding(modKey);
 
   const role = normalizeAppRole(userProfile?.role);
-  const teamKey = normalizeTeamModuleKey(userProfile?.team);
-  const allowedKeys = (userProfile?.allowed_modules || [])
-    .map((m) => normalizeTeamModuleKey(m))
-    .filter(Boolean);
+  const teamKey = resolveTeamModuleKey(userProfile?.team);
+  const allowedKeys = normalizedAllowedModuleKeys(userProfile);
 
   const tryKey = (k) => {
     if (!k || !mods.has(k)) return null;
@@ -412,6 +486,11 @@ export function userCanEditInModules(userProfile, accessibleModules, moduleKeysA
  */
 export function getAccessibleModules(profile) {
   const normalized = normalizeAccessProfile(profile);
+
+  if (profile?.module_access_pending === true) {
+    return new Set(['settings']);
+  }
+
   const allModules = new Set([
     "overview",
     "settings",
@@ -446,17 +525,24 @@ export function getAccessibleModules(profile) {
   // Admin/HOD with configured modules is scoped to those modules, with dashboard access.
   // Legacy Admin profiles without team/modules keep broad operational access.
   if (normalized.role === ROLES.ADMIN) {
-    const adminSet = hasAssignedScopedModules(accessProfile)
-      ? buildScopedModuleSet(accessProfile, { includeOverview: true })
-      : new Set(allWithoutSuperAdminOnly);
+    if (!hasAssignedScopedModules(accessProfile)) {
+      if (profileHasTeamAssignment(accessProfile)) {
+        return new Set(["settings"]);
+      }
+      const adminSet = new Set(allWithoutSuperAdminOnly);
+      applyFireTenderModuleGate(accessProfile, adminSet);
+      return adminSet;
+    }
+    const adminSet = buildScopedModuleSet(accessProfile, { includeOverview: true });
     applyFireTenderModuleGate(accessProfile, adminSet);
     return adminSet;
   }
 
   if (SCOPED_ROLE_MODULES.has(normalized.role)) {
-    // If team metadata is missing, don't accidentally lock the user to dashboard-only access.
-    // Treat it like legacy access (except Super Admin-only modules).
     if (!hasAssignedScopedModules(accessProfile)) {
+      if (profileHasTeamAssignment(accessProfile)) {
+        return new Set(["settings"]);
+      }
       const legacyExec = new Set(allWithoutSuperAdminOnly);
       applyFireTenderModuleGate(accessProfile, legacyExec);
       return legacyExec;
