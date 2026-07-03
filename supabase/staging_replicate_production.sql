@@ -1,0 +1,55 @@
+-- =============================================================================
+-- STAGING: replicate PRODUCTION table structure (schema only — no company data)
+--
+-- STAGING project (run here ONLY):  xjzhlbpgnpcmbdlufhwo
+-- PRODUCTION (never run these steps): wbyzhknaqcjqqtwopupl
+--
+-- You already applied Marketing tables on staging — keep them; this flow adds
+-- Billing, Finance, HR, Admin, AMC, Fire Tender, Projects, Commercial, etc.
+-- =============================================================================
+--
+-- RUN ORDER (Supabase Dashboard → SQL Editor → New query → paste each file):
+--
+--   Step 1  supabase/staging_bootstrap.sql
+--           Core auth: profiles, app_users, erp_app_access_config, triggers
+--
+--   Step 2  supabase/legacy_fire_tender_manpower_base.sql  (or repo root: sql)
+--           Fire Tender base: tenders, costing_rows, moc_prices, main_components
+--
+--   Step 3  supabase/all_migrations.sql
+--           Full ERP schema: billing, marketing alters, employee master, AMC,
+--           finance, indus_one leave, HR payroll, projects, fleet, and all
+--           incremental migrations. Large file — allow 2–5 minutes to finish.
+--
+--   Step 4  supabase/staging_fix_403.sql
+--           Grants + RLS for login, profiles, erp_activity_log. All checks OK.
+--
+--   Step 5  supabase/staging_public_schema_all.sql
+--           Grants + RLS on EVERY public table (admin + ERP + marketing + all).
+--
+--   Step 5b supabase/staging_schema_grants.sql
+--           Grants + RLS on billing, finance, indus_one, projects schemas.
+--
+--   Step 6  Dashboard → Project Settings → API → Exposed schemas
+--           Enable: public, billing, finance, indus_one, projects
+--           (Required for PostgREST — without this you get HTTP 406.)
+--
+--   Step 7  supabase/staging_verify_public_tables.sql
+--           All public ERP/admin tables OK. Then staging_verify_all_modules.sql
+--           for billing, finance, indus_one, projects.
+--
+--   Compare with production (optional):
+--     Run production_list_public_tables.sql on PRODUCTION, copy table list,
+--     compare with staging_verify_public_tables.sql output — counts should match.
+--
+--   Step 8  supabase/staging_super_admin.sql  (or staging_promote_super_admin.sql)
+--           Set your staging login email to super_admin_pro, then sign out/in.
+--
+-- OPTIONAL (skip if Step 3 completed billing from all_migrations.sql):
+--   supabase/staging_billing_minimal.sql — minimal billing.po_wo only
+--
+-- DO NOT copy production ROW data to staging unless you have approval.
+-- Staging is for QA with test users and test records only.
+-- =============================================================================
+
+SELECT 'staging_replicate_production.sql is a runbook — run the files listed above in order' AS note;

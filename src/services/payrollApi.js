@@ -23,6 +23,49 @@ export async function listPayrollSites() {
   return data || [];
 }
 
+/** Site master list — includes inactive sites for HR configuration screens. */
+export async function listAllPayrollSites() {
+  const { data, error } = await supabase.from(T.sites).select('*').order('site_name');
+  if (error) throw error;
+  return data || [];
+}
+
+export function payrollSiteRowToForm(row = {}) {
+  return {
+    id: row.id || '',
+    siteCode: row.site_code || '',
+    siteName: row.site_name || '',
+    industryCategory: row.industry_category || '',
+    costCentre: row.cost_centre || '',
+    state: row.state || '',
+    siteAddress: row.site_address || '',
+    primaryClientContact: row.primary_client_contact || '',
+    contactPhoneEmail: row.contact_phone_email || '',
+    attendanceCycle: row.attendance_cycle || '1st to 31st',
+    formulaPackage: row.formula_package || 'Default',
+    otRate: row.ot_rate || 'Single Rate',
+    status: row.is_active === false ? 'Inactive' : 'Active',
+  };
+}
+
+export function buildPayrollSitePayload(form) {
+  return {
+    site_code: String(form.siteCode || '').trim().toUpperCase(),
+    site_name: String(form.siteName || '').trim(),
+    state: form.state || null,
+    industry_category: form.industryCategory || null,
+    cost_centre: form.costCentre || null,
+    site_address: form.siteAddress || null,
+    primary_client_contact: form.primaryClientContact || null,
+    contact_phone_email: form.contactPhoneEmail || null,
+    attendance_cycle: form.attendanceCycle || null,
+    formula_package: form.formulaPackage || 'Default',
+    ot_rate: form.otRate || null,
+    is_active: form.status !== 'Inactive',
+    payroll_applicable: form.status !== 'Inactive',
+  };
+}
+
 export async function upsertPayrollSite(payload) {
   const { data, error } = await supabase.from(T.sites).upsert(payload, { onConflict: 'site_code' }).select().single();
   if (error) throw error;
