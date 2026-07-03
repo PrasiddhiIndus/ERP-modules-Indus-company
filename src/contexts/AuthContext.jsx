@@ -47,6 +47,7 @@ function buildAuthProfile(authUser) {
     team: meta.team ?? null,
     role: normalizeAppRole(forcedRole || meta.role || null),
     allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+    module_access_pending: meta.module_access_pending === true,
   };
 }
 
@@ -487,7 +488,20 @@ export const AuthProvider = ({ children }) => {
       }
     });
     return { error };
-  }
+  };
+
+  const requestPasswordReset = async (email) => {
+    const normEmail = String(email || '').trim().toLowerCase();
+    const { error } = await supabase.auth.resetPasswordForEmail(normEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    return { error };
+  };
+
+  const completePasswordReset = async (password) => {
+    const { data, error } = await supabase.auth.updateUser({ password });
+    return { data, error };
+  };
 
   const signIn = async (email, password) => {
     const normEmail = String(email || "").trim().toLowerCase();
@@ -647,6 +661,7 @@ export const AuthProvider = ({ children }) => {
         team: profileRow.team ?? null,
         role: effectiveRole,
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
+        module_access_pending: user?.user_metadata?.module_access_pending === true,
       };
     }
 
@@ -687,7 +702,7 @@ export const AuthProvider = ({ children }) => {
   }, [profileLoading]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, clearInvalidSession, verifyEmailOtp, applyCachedProfile }}>
+    <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile }}>
       {children}
     </AuthContext.Provider>
   );

@@ -649,6 +649,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       team,
       role,
       allowed_modules: allowed,
+      module_access_pending: false,
       ...(employeeCode !== undefined ? { employee_code: employeeCode } : {}),
     })
 

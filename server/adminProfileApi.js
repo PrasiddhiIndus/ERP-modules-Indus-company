@@ -307,6 +307,8 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
   const team = body.team === '' ? null : (body.team ?? null);
   const role = body.role ?? null;
   const allowed = Array.isArray(body.allowed_modules) ? body.allowed_modules : [];
+  const setUsername = body.username !== undefined;
+  const username = setUsername ? normalizeEmployeeCode(body.username) : undefined;
   const setEmployeeCode =
     body.employee_code !== undefined || body.emp_code !== undefined;
   const employeeCode = setEmployeeCode
@@ -355,13 +357,29 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
   }
 
   if (profile?.id) {
+    if (setUsername) {
+      const { data: patched, error: userPatchErr } = await patchProfileViaRest(db, id, {
+        username: username ?? null,
+      });
+      if (patched?.id) {
+        profile = patched;
+      } else if (userPatchErr) {
+        logStep('username patch failed', { id, message: userPatchErr.message });
+        const err = new Error(userPatchErr.message || 'Could not save username.');
+        err.status = userPatchErr.status || 500;
+        throw err;
+      }
+    }
+
     try {
       const { error: metaErr } = await db.client.auth.admin.updateUserById(id, {
         user_metadata: {
           team,
           role,
           allowed_modules: allowed,
+          module_access_pending: false,
           ...(setEmployeeCode ? { employee_code: employeeCode } : {}),
+          ...(setUsername ? { username: username ?? null, full_name: username ?? null } : {}),
         },
       });
       if (metaErr) {

@@ -10,6 +10,7 @@ import {
   isPathAllowed,
   normalizeAccessProfile,
   normalizeTeamModuleKey,
+  resolveTeamModuleKey,
   ROLES,
   normalizeAppRole,
   MODULE_LANDING_PATHS,
@@ -41,6 +42,7 @@ export function buildProfileFromSession(session, quickProfile) {
       : Array.isArray(meta.allowed_modules)
         ? meta.allowed_modules
         : [],
+    module_access_pending: meta.module_access_pending === true,
   });
 }
 
@@ -148,7 +150,7 @@ export function resolveSafeLandingPath(userProfile, accessibleModules) {
     candidates.push(getLoginRedirectPath(userProfile, mods));
   }
 
-  const teamKey = normalizeTeamModuleKey(userProfile?.team);
+  const teamKey = resolveTeamModuleKey(userProfile?.team);
   if (teamKey && MODULE_LANDING_PATHS[teamKey]) {
     candidates.push(MODULE_LANDING_PATHS[teamKey]);
   }

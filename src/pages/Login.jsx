@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { isStagingSupabaseProject } from '../lib/stagingProject'
 import { markSupabaseSessionHydrated, clearSupabaseAuthStorage, isCachedAccessTokenExpired, readCachedAccessToken } from '../lib/authSessionUtils'
@@ -84,9 +84,19 @@ const Login = () => {
   const [verifyCode, setVerifyCode] = useState('')
   const [otpSendStatus, setOtpSendStatus] = useState('idle') // idle | sending | sent | failed | rate_limited
   const [statIndex, setStatIndex] = useState(0)
+  const [successMessage, setSuccessMessage] = useState('')
 
   const { signIn, verifyEmailOtp, resendConfirmation, user, userProfile, applyCachedProfile } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    const message = location.state?.message
+    if (message) {
+      setSuccessMessage(message)
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.state, location.pathname, navigate])
 
   useEffect(() => {
     validateTeamLandingPaths()
@@ -318,6 +328,12 @@ const Login = () => {
                   </div>
                   <span className="text-gray-400 text-xs shrink-0 hidden sm:block">Portal</span>
                 </div>
+
+                {successMessage && (
+                  <div className="rounded-xl p-3.5 text-sm mb-4 font-body bg-emerald-50 border border-emerald-200 text-emerald-800">
+                    {successMessage}
+                  </div>
+                )}
 
                 {error && (
                   <div

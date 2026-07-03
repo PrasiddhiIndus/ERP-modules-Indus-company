@@ -21,6 +21,7 @@ import {
 } from '../../lib/employeeHierarchy';
 import { ManagerSearchSelect } from '../../components/employee/ManagerSearchSelect';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../lib/employeeMasterDepartments';
 import * as XLSX from 'xlsx';;
 import FormDateInput from "../../components/FormDateInput";
 
@@ -208,31 +209,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   // Curated fallback list (used in the form so standard departments can always be
   // assigned even if no employee currently uses them). Live values from the
   // database are merged in below so the dropdowns reflect actual data.
-  const BASE_DEPARTMENTS = [
-    'Administration',
-    'Commercial',
-    'Finance',
-    'HR',
-    'Compliance',
-    'Dahej-HR',
-    'Operations',
-    'Information System',
-    'Management',
-    'Marketing',
-    'NFPA',
-    'Procurement',
-    'Production',
-    'Design',
-    'Projects',
-    'R&M',
-    'Technical',
-    'Projects-FTC',
-    'Production-FTC',
-    'Administration-FTC',
-    'Emergency Response Team-FTC',
-    'Maintenance-FTC',
-    'Other',
-  ];
+  const BASE_DEPARTMENTS = EMPLOYEE_MASTER_BASE_DEPARTMENTS;
 
   // Distinct department values that actually exist in the employee records.
   const departmentsFromData = useMemo(() => {

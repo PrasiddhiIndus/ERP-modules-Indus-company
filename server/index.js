@@ -20,6 +20,8 @@ import {
 } from './attendanceEtime.js';
 import { adminUpdateProfile } from './adminProfileApi.js';
 import { adminCreateUser } from './adminCreateUserApi.js';
+import { adminBulkCreateUsers } from './adminBulkCreateUserApi.js';
+import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -755,6 +757,70 @@ app.post('/api/admin/create-user', async (req, res) => {
       error: err?.message || String(err),
       hint: err?.hint ?? null,
       version: err?.version ?? 'server-create-2',
+    });
+  }
+});
+
+/** User Management bulk create — reuses adminCreateUser per row. */
+app.post('/api/admin/bulk-create-users', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+    if (!jwt) return res.status(401).json({ error: 'Missing Authorization Bearer token' });
+
+    const supabaseUrl = getSupabaseUrlForServer();
+    const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
+    const anonKey = getSupabaseAnonKeyForServer();
+    if (!supabaseUrl || !serviceRoleKey) {
+      return res.status(500).json({
+        error: 'Server missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (.env.server)',
+      });
+    }
+
+    const result = await adminBulkCreateUsers(req.body, jwt, supabaseUrl, serviceRoleKey, anonKey);
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[api/admin/bulk-create-users]', err?.message || err);
+    }
+    return res.status(status).json({
+      ok: false,
+      error: err?.message || String(err),
+      version: err?.version ?? 'server-bulk-create-1',
+    });
+  }
+});
+
+/** User Management bulk delete — auth + profiles cleanup per row. */
+app.post('/api/admin/bulk-delete-users', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+    if (!jwt) return res.status(401).json({ error: 'Missing Authorization Bearer token' });
+
+    const supabaseUrl = getSupabaseUrlForServer();
+    const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
+    const anonKey = getSupabaseAnonKeyForServer();
+    if (!supabaseUrl || !serviceRoleKey) {
+      return res.status(500).json({
+        error: 'Server missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (.env.server)',
+      });
+    }
+
+    const result = await adminBulkDeleteUsers(req.body, jwt, supabaseUrl, serviceRoleKey, anonKey);
+    return res.json(result);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[api/admin/bulk-delete-users]', err?.message || err);
+    }
+    return res.status(status).json({
+      ok: false,
+      error: err?.message || String(err),
+      version: err?.version ?? 'server-bulk-delete-1',
     });
   }
 });
