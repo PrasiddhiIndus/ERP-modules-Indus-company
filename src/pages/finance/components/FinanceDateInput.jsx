@@ -1,50 +1,41 @@
-import React, { useEffect, useState } from "react";
-import { formatFinanceDate, parseFinanceDateInput } from "../lib/formatters";
+import React from "react";
+import { DateInput } from "../../../components/DateInput";
 
-/** Text date field — display and entry as dd/mm/yyyy (stores ISO YYYY-MM-DD). */
+/** Date field with calendar picker — display/entry dd/mm/yyyy, stores ISO YYYY-MM-DD. */
 export function FinanceDateInput({
   value,
   onChange,
   className = "",
   placeholder = "dd/mm/yyyy",
-  ...rest
+  disabled,
+  readOnly,
+  required,
+  min,
+  max,
+  title,
+  compact,
+  id,
+  name,
+  "aria-label": ariaLabel,
 }) {
-  const [text, setText] = useState(() => formatFinanceDate(value));
-
-  useEffect(() => {
-    setText(formatFinanceDate(value));
-  }, [value]);
+  const iso = value ? String(value).slice(0, 10) : "";
 
   return (
-    <input
-      {...rest}
-      type="text"
-      inputMode="numeric"
+    <DateInput
+      value={iso}
+      onChange={(next) => onChange?.(next ? next : null)}
       className={className}
       placeholder={placeholder}
-      value={text}
-      onChange={(e) => {
-        const next = e.target.value;
-        setText(next);
-        if (!next.trim()) {
-          onChange?.(null);
-          return;
-        }
-        const iso = parseFinanceDateInput(next);
-        if (iso) onChange?.(iso);
-      }}
-      onBlur={() => {
-        const iso = parseFinanceDateInput(text);
-        if (iso) {
-          onChange?.(iso);
-          setText(formatFinanceDate(iso));
-        } else if (!text.trim()) {
-          onChange?.(null);
-          setText("");
-        } else {
-          setText(formatFinanceDate(value));
-        }
-      }}
+      disabled={disabled}
+      readOnly={readOnly}
+      required={required}
+      min={min}
+      max={max}
+      title={title}
+      compact={compact}
+      id={id}
+      name={name}
+      aria-label={ariaLabel}
     />
   );
 }

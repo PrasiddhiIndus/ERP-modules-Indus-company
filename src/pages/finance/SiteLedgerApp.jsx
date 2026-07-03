@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, savePeriodRecord, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
 import { FinanceDateInput } from "./components/FinanceDateInput";
-import { DateInput } from "../../components/DateInput";
 import FinanceTypographyStyles from "./components/FinanceTypographyStyles";
 import { SiteClientAutocomplete } from "./components/SiteClientAutocomplete";
 import { PlAuditPanel } from "./components/PlAuditPanel";
@@ -795,6 +794,16 @@ export default function SiteLedgerApp({ embedded = true }) {
     saveImmediate.current = true;
     setSites((prev) => prev.map((s) => s.id === id ? { ...s, ...patch } : s));
   }, []);
+  const deactivateSite = useCallback((id) => {
+    const site = stateRef.current.sites.find((s) => s.id === id);
+    if (!site || !isSiteActive(site)) return;
+    const label = site.name || id;
+    if (!window.confirm(`Mark "${label}" as inactive? It will be hidden from active lists and data entry.`)) return;
+    patchSite(id, { status: "inactive" });
+    setEditSite(null);
+    setShowAdd(false);
+    if (activeSite === id) setActiveSite(null);
+  }, [patchSite, activeSite]);
   const removeSite = useCallback((id) => {
     setSites((prev) => {
       const nextSites = prev.filter((s) => s.id !== id);
@@ -993,6 +1002,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               openSite={(id) => { setActiveSite(id); setView("site"); }}
               onEdit={(id) => { setActiveSite(id); setView("entry"); }}
               onEditSite={(id) => setEditSite(sitesEnriched.find((s) => s.id === id) || null)}
+              onDeactivate={deactivateSite}
               onConfig={(id) => { setActiveSite(id); setView("config"); }}
               onDelete={removeSite}
               onViewHistory={(group) => setHistoryGroup(group)}
@@ -1010,6 +1020,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               onEdit={() => setView("entry")}
               onConfig={() => setView("config")}
               onViewHistory={(group) => setHistoryGroup(group)}
+              onDeactivate={deactivateSite}
             />
           )}
           {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
@@ -1036,6 +1047,7 @@ export default function SiteLedgerApp({ embedded = true }) {
           editSite={editSite}
           existing={sitesEnriched}
           onClose={() => { setShowAdd(false); setEditSite(null); }}
+          onDeactivate={deactivateSite}
           onSave={(s) => {
             if (s.isEdit) {
               patchSite(s.id, {
@@ -1494,7 +1506,7 @@ function PendingMonthsCell({ site, records, uptoMk }) {
 function SitesTable({
   rows, records, month, sitesAll, activeSiteCount, query, setQuery,
   showHistorical, setShowHistorical, inactiveCount,
-  openSite, onEdit, onEditSite, onConfig, onDelete, onViewHistory, onAdd, mLabel,
+  openSite, onEdit, onEditSite, onConfig, onDelete, onDeactivate, onViewHistory, onAdd, mLabel,
 }) {
   const { warnMargin } = usePlMargins();
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
@@ -1738,6 +1750,7 @@ function SitesTable({
                         {isSiteActive(r) && (
                           <>
                             <button type="button" onClick={() => { onConfig(r.id); setMenuOpen(null); }}>Site setup</button>
+                            <button type="button" onClick={() => { onDeactivate(r.id); setMenuOpen(null); }}>Make inactive</button>
                             <button type="button" className="danger" onClick={() => { if (confirm(`Delete "${r.name}" (${versionLabel(r)}) and all its data?`)) onDelete(r.id); setMenuOpen(null); }}>Delete site</button>
                           </>
                         )}
@@ -1800,7 +1813,7 @@ function SitesTable({
 }
 
 /* ───────────────────────── SITE DETAIL (expandable parents) ───────────────────────── */
-function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onViewHistory }) {
+function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onViewHistory, onDeactivate }) {
   const [expanded, setExpanded] = useState(() => new Set());
   if (!site) return null;
   const historical = !isSiteActive(site);
@@ -1865,6 +1878,9 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
         <div className="site-head-right">
           <StatusPill margin={c.margin} profit={c.profit} />
           <button type="button" className="ghost-d" onClick={() => onViewHistory(site.siteGroup)}><History size={14} /> History</button>
+          {!historical && onDeactivate && (
+            <button type="button" className="ghost-d danger-text" onClick={() => onDeactivate(site.id)}>Make inactive</button>
+          )}
           {!historical && <button type="button" className="ghost-d" onClick={onConfig}><Sliders size={14} /> Setup</button>}
           {!historical && <button type="button" className="primary" onClick={onEdit}><Pencil size={14} /> Edit figures</button>}
         </div>
@@ -3447,7 +3463,7 @@ function ReportTable({ report, showTotals = true, dim }) {
 }
 
 /* ───────────────────────── MODALS ───────────────────────── */
-function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
+function AddSiteModal({ onClose, onSave, onDeactivate, existing, editSite = null }) {
   const isEdit = !!editSite;
   const [name, setName] = useState(editSite?.name || "");
   const [wo, setWo] = useState(editSite?.wo || "");
@@ -3524,18 +3540,18 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <label className="m-field" style={{ flex: 1 }}>
           <span>Contract start</span>
-          <DateInput
-            value={cStart || ""}
-            onChange={(v) => setCStart(v || null)}
+          <FinanceDateInput
             className="rounded-[9px] border border-[var(--line)] bg-[var(--paper)]"
+            value={cStart || ""}
+            onChange={setCStart}
           />
         </label>
         <label className="m-field" style={{ flex: 1 }}>
           <span>Contract end</span>
-          <DateInput
-            value={cEnd || ""}
-            onChange={(v) => setCEnd(v || null)}
+          <FinanceDateInput
             className="rounded-[9px] border border-[var(--line)] bg-[var(--paper)]"
+            value={cEnd || ""}
+            onChange={setCEnd}
           />
         </label>
       </div>
@@ -3543,7 +3559,23 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
         <p className="m-note">Structure will be copied from {versionLabel(priorActive)}. Adjust rates and heads in Site Setup after creating.</p>
       )}
       <p className="m-note">{isEdit ? "Update site details. Cost structure and estimates are managed in Site Setup." : <>Next, in Site Setup you can arrange parent → child lines (drag &amp; drop) and set the <b>estimate / budget</b>.</>}</p>
-      <div className="m-actions"><button className="ghost-d" onClick={onClose}>Cancel</button><button className="primary" onClick={submit}>{isEdit ? "Save changes" : isRenewal ? "Create new version" : "Add & configure"}</button></div>
+      <div className="m-actions">
+        {isEdit && isSiteActive(editSite) && onDeactivate ? (
+          <button
+            type="button"
+            className="ghost-d danger-text m-actions-left"
+            onClick={() => onDeactivate(editSite.id)}
+          >
+            Make inactive
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="m-actions-right">
+          <button className="ghost-d" onClick={onClose}>Cancel</button>
+          <button className="primary" onClick={submit}>{isEdit ? "Save changes" : isRenewal ? "Create new version" : "Add & configure"}</button>
+        </div>
+      </div>
     </Modal>
   );
 }
@@ -4128,7 +4160,13 @@ function Styles() {
     .modal-body{padding:18px 20px 20px;}
     .m-field{display:flex;flex-direction:column;gap:5px;margin-bottom:13px;}.m-field span{font-size:12px;color:var(--ink-soft);font-weight:500;}
     .m-field input{border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--body);font-size:14px;outline:none;background:var(--paper);color:var(--ink);}.m-field input:focus{border-color:var(--green);}
-    .m-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px;flex-wrap:wrap;}
+    .m-actions{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;}
+    .m-actions-right{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-left:auto;}
+    .m-actions-left{margin-right:auto;}
+    .danger-text{color:var(--loss) !important;border-color:#fecaca !important;}
+    .danger-text:hover{background:#fef2f2 !important;}
+    .sf .erp-date-input,.m-field .erp-date-input{width:100%;}
+    .sf .erp-date-input.sf-sel,.m-field .erp-date-input{border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);}
     .m-note{font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.5;}
     .m-divider{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;margin:18px 0 10px;border-top:1px solid var(--line);padding-top:14px;}
     .m-text{width:100%;height:120px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-family:var(--mono);font-size:12px;resize:vertical;outline:none;background:var(--paper);color:var(--ink);}.m-text:focus{border-color:var(--green);}
