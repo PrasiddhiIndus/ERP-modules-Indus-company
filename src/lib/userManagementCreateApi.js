@@ -1,17 +1,8 @@
 import { invokeAuthenticatedFunction, parseEdgeFunctionError } from "./supabase";
+import { getAdminApiAccessToken } from "./userManagementAuthToken";
 
 async function getAccessToken(supabase) {
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (!userErr && userData?.user) {
-    const { data: sess } = await supabase.auth.getSession();
-    if (sess?.session?.access_token) return sess.session.access_token;
-  }
-  const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
-  if (!refreshErr && refreshed?.session?.access_token) {
-    return refreshed.session.access_token;
-  }
-  const { data: sess } = await supabase.auth.getSession();
-  return sess?.session?.access_token ?? null;
+  return getAdminApiAccessToken(supabase);
 }
 
 function isNetworkUnreachable(error, status) {
@@ -54,6 +45,7 @@ export async function createUserAccount(supabase, payload) {
     role: payload.role,
     allowed_modules: payload.allowed_modules ?? [],
     ...(payload.employee_code ? { employee_code: payload.employee_code } : {}),
+    ...(payload.no_module_access ? { no_module_access: true } : {}),
   };
 
   const token = await getAccessToken(supabase);

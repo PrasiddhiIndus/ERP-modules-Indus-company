@@ -19,6 +19,8 @@ export { default as Layout } from "../contexts/Layout";
 // Public
 export const Login = lazy(() => import("../pages/Login"));
 export const Register = lazy(() => import("../pages/Register"));
+export const ForgotPassword = lazy(() => import("../pages/ForgotPassword"));
+export const ResetPassword = lazy(() => import("../pages/ResetPassword"));
 
 // Core
 export const Dashboard = lazy(() => import("../pages/Dashboard"));

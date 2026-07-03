@@ -88,6 +88,12 @@ function profileMatchesPayload(profile, payload) {
 
   }
 
+  if (payload.username !== undefined) {
+    const expected = normalizeCode(payload.username);
+    const actual = normalizeCode(profile.username);
+    if (expected !== actual) return false;
+  }
+
   const savedMods = JSON.stringify([...(profile.allowed_modules || [])].sort());
   const expectedMods = JSON.stringify([...(payload.allowed_modules || [])].sort());
   if (savedMods !== expectedMods) return false;
@@ -108,7 +114,7 @@ export async function persistUserProfile(
 
   supabase,
 
-  { id, team, role, allowed_modules, employee_code, includeEmployeeCode = true }
+  { id, team, role, allowed_modules, employee_code, username, includeEmployeeCode = true }
 
 ) {
 
@@ -125,6 +131,8 @@ export async function persistUserProfile(
     role,
 
     allowed_modules: Array.isArray(allowed_modules) ? allowed_modules : [],
+
+    username: username !== undefined ? normalizeCode(username) : undefined,
 
     employee_code:
 
@@ -159,6 +167,12 @@ export async function persistUserProfile(
   if (includeEmployeeCode) {
 
     body.employee_code = payload.employee_code;
+
+  }
+
+  if (payload.username !== undefined) {
+
+    body.username = payload.username;
 
   }
 

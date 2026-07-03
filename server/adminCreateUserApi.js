@@ -620,11 +620,24 @@ export async function adminCreateUser(body, jwt, supabaseUrl, serviceRoleKey, an
 
   const username = String(body?.username ?? '').trim() || email.split('@')[0];
 
+  const noModuleAccess = body?.no_module_access === true;
   const team = body?.team === '' ? null : (body?.team ?? null);
-
   const role = body?.role ?? 'executive';
+  const allowed = noModuleAccess
+    ? []
+    : Array.isArray(body?.allowed_modules)
+      ? body.allowed_modules
+      : [];
 
-  const allowed = Array.isArray(body?.allowed_modules) ? body.allowed_modules : [];
+  const authMetadata = {
+    full_name: username,
+    username,
+    employee_code: employeeCode,
+    team,
+    role,
+    allowed_modules: allowed,
+    module_access_pending: noModuleAccess,
+  };
 
 
 
@@ -712,21 +725,7 @@ export async function adminCreateUser(body, jwt, supabaseUrl, serviceRoleKey, an
 
     email_confirm: true,
 
-    user_metadata: {
-
-      full_name: username,
-
-      username,
-
-      employee_code: employeeCode,
-
-      team,
-
-      role,
-
-      allowed_modules: allowed,
-
-    },
+    user_metadata: authMetadata,
 
   });
 
@@ -793,7 +792,10 @@ export async function adminCreateUser(body, jwt, supabaseUrl, serviceRoleKey, an
 
       email_confirm: true,
 
-      user_metadata: profileFields,
+      user_metadata: {
+        ...profileFields,
+        module_access_pending: noModuleAccess,
+      },
 
     });
 
