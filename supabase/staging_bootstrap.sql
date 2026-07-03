@@ -3,7 +3,8 @@
 -- PROJECT: xjzhlbpgnpcmbdlufhwo ONLY (staging / QA)
 -- NEVER run on production: wbyzhknaqcjqqtwopupl (company data)
 --
--- After this file: run staging_fix_403.sql (grants + verify — all 3 checks must be OK)
+-- Full staging schema: see supabase/staging_replicate_production.sql (run order)
+-- After bootstrap: all_migrations.sql → staging_fix_403.sql → staging_schema_grants.sql
 -- =============================================================================
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
