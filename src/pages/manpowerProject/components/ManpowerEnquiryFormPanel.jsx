@@ -4,8 +4,6 @@ import FormDateInput from "../../../components/FormDateInput";
 import FormDateTimeInput from "../../../components/FormDateTimeInput";
 
 import {
-  VERTICAL_OPTIONS,
-  MODE_OF_SUBMISSION_OPTIONS,
   SOURCE_TYPE_OPTIONS,
   INDUSTRY_OPTIONS,
   WORKING_HOURS_OPTIONS,
@@ -299,7 +297,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const validateForm = () => {
     const required = [
       ["enquiryDate", "Enquiry Date"],
-      ["receivedBy", "Received By"],
+      ["receivedBy", "Assigned to"],
       ["sourceType", "Source Type"],
       ["clientName", "Client Name"],
       ["contactPersonName", "Client Contact Person (Name)"],
@@ -704,7 +702,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <FormDateInput name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass}/>
           </div>
           <div>
-            <label className={labelClass}>Received By {req}</label>
+            <label className={labelClass}>Assigned to {req}</label>
             <select name="receivedBy" value={formData.receivedBy} onChange={handleChange} className={inputClass}>
               <option value="">Select user</option>
               {assigneeOptions.map((opt) => (
@@ -858,6 +856,18 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       <FormSection title="Contract, Wage &amp; Deadline">
         <div className={gridThreeClass}>
           <div>
+            <label className={labelClass}>No. of Manpower</label>
+            <input
+              type="number"
+              min="0"
+              name="totalManpower"
+              value={formData.totalManpower}
+              onChange={handleChange}
+              className={inputClass}
+              placeholder="Enter count"
+            />
+          </div>
+          <div>
             <label className={labelClass}>Contract Duration {req}</label>
             <div className="flex gap-2">
               <input
@@ -926,99 +936,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               aria-label="Submission or bid deadline"
             />
           </Field>
-        </div>
-      </FormSection>
-
-      <FormSection title="Tracker &amp; Follow-up" hint="Excel tracker columns for internal commercial follow-up.">
-        <div className={gridClass}>
-          <div>
-            <label className={labelClass}>Sr. No</label>
-            <input
-              value={
-                srNoLoading
-                  ? "Loading…"
-                  : formData.srNo !== "" && formData.srNo != null
-                    ? String(formData.srNo)
-                    : "—"
-              }
-              readOnly
-              className={`${inputClass} bg-gray-50 text-gray-600`}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Received Date</label>
-            <FormDateInput name="receivedDate" value={formData.receivedDate} onChange={handleChange} className={inputClass}/>
-          </div>
-          <div>
-            <label className={labelClass}>Vertical</label>
-            <select name="vertical" value={formData.vertical} onChange={handleChange} className={inputClass}>
-              <option value="">Select vertical</option>
-              {VERTICAL_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Mode of Submission</label>
-            <select name="modeOfSubmission" value={formData.modeOfSubmission} onChange={handleChange} className={inputClass}>
-              <option value="">Select mode</option>
-              {MODE_OF_SUBMISSION_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Total No. of Manpower</label>
-            <input type="number" min="0" name="totalManpower" value={formData.totalManpower} onChange={handleChange} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Location (summary)</label>
-            <input
-              name="location"
-              value={formData.location}
-              onChange={handleChange}
-              className={inputClass}
-              placeholder="Auto-filled from site fields if blank"
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Approx Value (WO Taxes)</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
-              <input type="number" min="0" name="approxValue" value={formData.approxValue} onChange={handleChange} className={`${inputClass} pl-12`} />
-            </div>
-          </div>
-          <div>
-            <label className={labelClass}>Enquiry Assigned to</label>
-            <select name="enquiryAssignedTo" value={formData.enquiryAssignedTo} onChange={handleChange} className={inputClass}>
-              <option value="">Select Commercial team member</option>
-              {assigneeOptions.map((opt) => (
-                <option key={`assign-${opt.value}`} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>Due Date for Submission (if any)</label>
-            <FormDateInput name="dueDate" value={formData.dueDate} onChange={handleChange} className={inputClass}/>
-          </div>
-          <div>
-            <label className={labelClass}>Offer Submitted On</label>
-            <FormDateInput name="offerSubmittedOn" value={formData.offerSubmittedOn} onChange={handleChange} className={inputClass}/>
-          </div>
-          <div className="md:col-span-2">
-            <label className={labelClass}>Remarks</label>
-            <textarea name="remarks" value={formData.remarks} onChange={handleChange} rows={2} className={textareaClass} />
-          </div>
-          <div className="sm:col-span-2">
-            <label className={labelClass}>Further action / Follow up</label>
-            <textarea name="furtherAction" value={formData.furtherAction} onChange={handleChange} rows={2} className={textareaClass} />
-          </div>
         </div>
       </FormSection>
       </div>

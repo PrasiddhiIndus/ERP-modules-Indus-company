@@ -17,7 +17,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "preview:staging": "vite preview --mode staging",
-    "staging:create-rahul-admin": "node scripts/staging-create-rahul-admin.mjs"
+    "staging:create-rahul-admin": "node scripts/staging-create-rahul-admin.mjs",
+    "supabase:consolidate-migrations": "node scripts/consolidate-migrations.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",
