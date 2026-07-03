@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { loadLedgerStore, saveLedgerPartial, saveLedgerStore, savePeriodRecord, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
 import { FinanceDateInput } from "./components/FinanceDateInput";
+import { DateInput } from "../../components/DateInput";
 import FinanceTypographyStyles from "./components/FinanceTypographyStyles";
 import { SiteClientAutocomplete } from "./components/SiteClientAutocomplete";
 import { PlAuditPanel } from "./components/PlAuditPanel";
@@ -3521,8 +3522,22 @@ function AddSiteModal({ onClose, onSave, existing, editSite = null }) {
       <label className="m-field"><span>OC Number (client ref)</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
       <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract start</span><FinanceDateInput value={cStart} onChange={setCStart} /></label>
-        <label className="m-field" style={{ flex: 1 }}><span>Contract end</span><FinanceDateInput value={cEnd} onChange={setCEnd} /></label>
+        <label className="m-field" style={{ flex: 1 }}>
+          <span>Contract start</span>
+          <DateInput
+            value={cStart || ""}
+            onChange={(v) => setCStart(v || null)}
+            className="rounded-[9px] border border-[var(--line)] bg-[var(--paper)]"
+          />
+        </label>
+        <label className="m-field" style={{ flex: 1 }}>
+          <span>Contract end</span>
+          <DateInput
+            value={cEnd || ""}
+            onChange={(v) => setCEnd(v || null)}
+            className="rounded-[9px] border border-[var(--line)] bg-[var(--paper)]"
+          />
+        </label>
       </div>
       {!isEdit && isRenewal && priorActive && (
         <p className="m-note">Structure will be copied from {versionLabel(priorActive)}. Adjust rates and heads in Site Setup after creating.</p>
