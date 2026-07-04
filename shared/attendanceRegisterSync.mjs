@@ -91,7 +91,7 @@ export function canPunchSyncOverwriteExisting(existing) {
   if (String(existing.mark_remark ?? '').trim()) return false;
   if (!mark && !markSource) return true;
   if (isManualMarkSource(markSource)) return false;
-  if (isLeaveMarkSource(markSource, leaveRequestId)) return true;
+  if (isLeaveMarkSource(markSource, leaveRequestId)) return false;
   if (isPunchMarkSource(mark, markSource)) return true;
   if (mark === REGISTER_MARK_FROM_PUNCH) return true;
   if (mark === 'WO') {

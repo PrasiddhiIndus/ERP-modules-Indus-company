@@ -17,8 +17,8 @@ export function computePF({ pfWages, applicable = true, cap = DEFAULT_PF_CAP, ra
   const wages = round2(pfWages);
   const cappedWages = Math.min(wages, cap);
   const employeeContribution = round2(cappedWages * rate);
-  const employerContribution = round2(cappedWages * rate);
   const epsContribution = round2(cappedWages * 0.0833);
+  const employerContribution = round2(cappedWages * 0.0367);
   return {
     pfWages: wages,
     employeeContribution,
