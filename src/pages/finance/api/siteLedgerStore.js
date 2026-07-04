@@ -709,22 +709,59 @@ async function syncOnePeriodRecord(siteUuid, periodKey, rec, childIdByCode, revI
 
 /** Latest pending payload per site/month — coalesces rapid autosaves into one DB write. */
 const pendingPeriodRecords = new Map();
+const pendingPeriodContexts = new Map();
+
+function recordNeedsMissingChildHeads(rec, revIdByCode, childIdByCode) {
+  return Object.entries(rec || {}).some(
+    ([code, amount]) =>
+      typeof amount === "number" &&
+      Number(amount) &&
+      !revIdByCode[code] &&
+      !childIdByCode[code],
+  );
+}
+
+/** Ensure expense child heads exist before writing expense_entry_lines. */
+async function ensureHeadMapsForPeriodSave(siteCode, rec, context = {}) {
+  const revIdByCode = await upsertRevenueHeads();
+  const sites = context.sites || [];
+  const library = context.library || [];
+  const parents = context.parents || [];
+  const site = sites.find((s) => s.id === siteCode);
+
+  let { parentIdByCode, childIdByCode } = await loadHeadIdMaps();
+
+  const needsSync =
+    recordNeedsMissingChildHeads(rec, revIdByCode, childIdByCode) ||
+    (site && structureNeedsMasterSync(site.structure, parentIdByCode, childIdByCode));
+
+  if (needsSync && library.length && parents.length) {
+    parentIdByCode = await syncParents(parents);
+    childIdByCode = await syncLibrary(libraryForSitesPersist(library, sites), parentIdByCode);
+  }
+
+  return { revIdByCode, childIdByCode };
+}
 
 /** Fast path — persist one site/month entry (revenue, reimbursements, expenses) without full ledger sync. */
-export async function savePeriodRecord(siteCode, periodKey, rec) {
+export async function savePeriodRecord(siteCode, periodKey, rec, context = {}) {
   const compoundKey = `${siteCode}__${periodKey}`;
   const prev = pendingPeriodRecords.get(compoundKey);
   pendingPeriodRecords.set(compoundKey, mergePeriodEntry(prev || {}, rec));
+  if (context.sites?.length || context.library?.length || context.parents?.length) {
+    pendingPeriodContexts.set(compoundKey, context);
+  }
 
   return enqueueSave(async () => {
     const latest = pendingPeriodRecords.get(compoundKey);
+    const ctx = pendingPeriodContexts.get(compoundKey) || {};
     pendingPeriodRecords.delete(compoundKey);
+    pendingPeriodContexts.delete(compoundKey);
     if (!latest) return true;
 
     const siteUuid = await getSiteUuidByCode(siteCode);
     if (!siteUuid) throw new Error(`Site "${siteCode}" not found`);
-    const revIdByCode = await upsertRevenueHeads();
-    const { childIdByCode } = await loadHeadIdMaps();
+    const { childIdByCode, revIdByCode } = await ensureHeadMapsForPeriodSave(siteCode, latest, ctx);
     await syncOnePeriodRecord(siteUuid, periodKey, latest, childIdByCode, revIdByCode);
     invalidateFinanceCache();
     return true;
