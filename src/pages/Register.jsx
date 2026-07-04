@@ -43,8 +43,8 @@ const Register = () => {
       return
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long')
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters long')
       setLoading(false)
       return
     }
@@ -61,16 +61,14 @@ const Register = () => {
       return
     }
 
-    const normEmail = String(email || '').trim().toLowerCase()
-    const forcedRahul = normEmail === 'rahul.ifspl@gmail.com'
-    const effectiveRole = forcedRahul ? ROLES.SUPER_ADMIN_PRO : ROLES.EXECUTIVE
+    const effectiveRole = ROLES.EXECUTIVE;
 
     const { error: signUpError } = await signUpWithProfile(email, password, {
       username,
       team,
       role: effectiveRole,
-      allowed_modules: effectiveRole === ROLES.MANAGER ? allowedModules : [],
-    })
+      allowed_modules: [],
+    });
 
     if (signUpError) {
       setError(signUpError.message)

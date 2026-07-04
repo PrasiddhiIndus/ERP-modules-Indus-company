@@ -269,13 +269,12 @@ export async function runPayrollPreview(monthValue, { persist = false, runLabel 
   });
 
   const ptSlabs = (ptRules[0]?.slabs_json) || [];
-  const tdsRule = tdsRules.find((r) => r.regime === 'new') || tdsRules[0];
-  const statutoryConfig = {
-    ptSlabs,
-    tdsSlabs: tdsRule?.slabs_json || [],
-    standardDeduction: tdsRule?.standard_deduction,
-    cessRate: tdsRule?.cess_rate,
-  };
+  const tdsByRegime = new Map();
+  tdsRules.forEach((r) => {
+    const key = String(r.regime || 'new').toLowerCase();
+    if (!tdsByRegime.has(key)) tdsByRegime.set(key, r);
+  });
+  const defaultTdsRule = tdsByRegime.get('new') || tdsRules[0];
 
   const siteFormulaCache = new Map();
   const results = [];
@@ -305,6 +304,14 @@ export async function runPayrollPreview(monthValue, { persist = false, runLabel 
     if (!formulas.length) {
       formulas = toFormulaArray(loadMasterComponentFormulas(components));
     }
+    const empRegime = String(prof.tax_regime || 'new').toLowerCase();
+    const empTdsRule = tdsByRegime.get(empRegime) || defaultTdsRule;
+    const statutoryConfig = {
+      ptSlabs,
+      tdsSlabs: empTdsRule?.slabs_json || [],
+      standardDeduction: empTdsRule?.standard_deduction,
+      cessRate: empTdsRule?.cess_rate,
+    };
     const computed = computeEmployeePayroll({
       profile: prof,
       attendance: att,

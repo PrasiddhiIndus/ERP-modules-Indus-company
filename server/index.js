@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import multer from 'multer';
@@ -22,6 +24,7 @@ import { adminUpdateProfile } from './adminProfileApi.js';
 import { adminCreateUser } from './adminCreateUserApi.js';
 import { adminBulkCreateUsers } from './adminBulkCreateUserApi.js';
 import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
+import { createAuthMiddleware } from './authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -113,14 +116,6 @@ function getSupabaseAuthKeyForR2Presign() {
 
 let r2AnonAuthFallbackWarned = false;
 
-const app = express();
-// Render/Railway/Fly set PORT; local dev uses SERVER_PORT or 8787.
-const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 8787);
-const debugInvoiceSnapshots = new Map();
-
-app.use(cors());
-app.use(express.json({ limit: '2mb' }));
-
 class HttpError extends Error {
   constructor(status, message, details = {}) {
     super(message);
@@ -129,6 +124,55 @@ class HttpError extends Error {
     this.details = details;
   }
 }
+
+const app = express();
+const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 8787);
+const IS_PRODUCTION = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+const debugInvoiceSnapshots = new Map();
+const DEBUG_SNAPSHOT_MAX = 200;
+
+const corsOrigins = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+app.use(
+  cors({
+    origin: corsOrigins.length
+      ? (origin, cb) => {
+          if (!origin || corsOrigins.includes(origin)) cb(null, true);
+          else cb(new Error('CORS not allowed'));
+        }
+      : true,
+    credentials: true,
+  })
+);
+app.use(express.json({ limit: '2mb' }));
+
+const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin } = createAuthMiddleware({
+  getSupabaseUrl: getSupabaseUrlForServer,
+  getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
+  getAnonKey: getSupabaseAnonKeyForServer,
+  HttpError,
+});
+
+const apiRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const einvoiceRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', apiRateLimit);
 
 /** R2 object keys for software-subscriptions page; presign-get only signs keys under this prefix. */
 const R2_SOFTWARE_SUB_KEY_PREFIX = 'software-subscriptions/';
@@ -684,12 +728,15 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
 }
 
 app.get('/api/health', (_req, res) => {
+  if (IS_PRODUCTION) {
+    return res.json({ ok: true });
+  }
   const supabaseUrl = getSupabaseUrlForServer();
   const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
   const anonKey = getSupabaseAnonKeyForServer();
   res.json({
     ok: true,
-    service: 'whitebooks-einvoice-proxy',
+    service: 'indus-erp-api',
     supabase_url: supabaseUrl ? 'set' : 'missing',
     service_role_key: isSupabaseServiceRoleKey(serviceRoleKey) ? 'ok' : 'missing_or_invalid',
     anon_key: anonKey ? 'set' : 'missing',
@@ -825,7 +872,10 @@ app.post('/api/admin/bulk-delete-users', async (req, res) => {
   }
 });
 
-app.get('/api/debug/invoice/:id', (req, res) => {
+app.get('/api/debug/invoice/:id', requireAdmin, (req, res) => {
+  if (IS_PRODUCTION) {
+    return res.status(404).json({ message: 'Not found.' });
+  }
   const id = String(req.params.id || '').trim();
   const snap = id ? debugInvoiceSnapshots.get(id) : null;
   if (!snap) {
@@ -837,7 +887,7 @@ app.get('/api/debug/invoice/:id', (req, res) => {
   return res.json(snap);
 });
 
-app.get('/api/admin/attendance/status', (_req, res) => {
+app.get('/api/admin/attendance/status', requireHrOrAdmin, (_req, res) => {
   try {
     const c = etimeCfg(getRequiredEnv);
     res.json({
@@ -864,7 +914,7 @@ app.get('/api/admin/attendance/status', (_req, res) => {
   }
 });
 
-app.get('/api/admin/attendance/punches', async (req, res) => {
+app.get('/api/admin/attendance/punches', requireHrOrAdmin, async (req, res) => {
   try {
     const c = etimeCfg(getRequiredEnv);
     const empCode = String(req.query.empCode || req.query.Empcode || 'ALL').trim() || 'ALL';
@@ -916,14 +966,15 @@ app.get('/api/admin/attendance/punches', async (req, res) => {
   }
 });
 
-app.post('/api/admin/attendance/sync', async (req, res) => {
+app.post('/api/admin/attendance/sync', requireHrOrAdmin, async (req, res) => {
   try {
     const secret = String(process.env.ETIME_SYNC_SECRET || '').trim();
-    if (secret) {
-      const provided = String(req.headers['x-etime-sync-secret'] || req.body?.secret || '').trim();
-      if (provided !== secret) {
-        return res.status(401).json({ message: 'Invalid attendance sync secret.' });
-      }
+    if (!secret) {
+      return res.status(503).json({ message: 'Attendance sync is not configured (ETIME_SYNC_SECRET missing).' });
+    }
+    const provided = String(req.headers['x-etime-sync-secret'] || req.body?.secret || '').trim();
+    if (provided !== secret) {
+      return res.status(401).json({ message: 'Invalid attendance sync secret.' });
     }
 
     const empCode = String(req.body?.empCode || req.query?.empCode || 'ALL').trim() || 'ALL';
@@ -950,7 +1001,7 @@ app.post('/api/admin/attendance/sync', async (req, res) => {
   }
 });
 
-app.post('/api/billing/e-invoice/generate', async (req, res) => {
+app.post('/api/billing/e-invoice/generate', einvoiceRateLimit, requireBillingAccess, async (req, res) => {
   try {
     const { payload, billId, invoice } = req.body || {};
     if (!payload || typeof payload !== 'object') {
@@ -1013,6 +1064,10 @@ app.post('/api/billing/e-invoice/generate', async (req, res) => {
     console.log('Step4 - FINAL Pin being sent:', finalPayload.BuyerDtls?.Pin);
 
     if (billId != null) {
+      if (debugInvoiceSnapshots.size >= DEBUG_SNAPSHOT_MAX) {
+        const firstKey = debugInvoiceSnapshots.keys().next().value;
+        if (firstKey) debugInvoiceSnapshots.delete(firstKey);
+      }
       debugInvoiceSnapshots.set(String(billId), {
         buyerGstin: invoice?.buyerGstin || invoice?.buyer?.gstin || finalPayload?.BuyerDtls?.Gstin || null,
         buyerPin:
@@ -1118,7 +1173,7 @@ app.post('/api/billing/e-invoice/generate', async (req, res) => {
   }
 });
 
-app.post('/api/billing/e-invoice/cancel', async (req, res) => {
+app.post('/api/billing/e-invoice/cancel', einvoiceRateLimit, requireBillingAccess, async (req, res) => {
   try {
     const { irn, reason = 'Wrong entry', cancelReasonCode = '1' } = req.body || {};
     if (!irn) return res.status(400).json({ message: 'irn is required.' });
