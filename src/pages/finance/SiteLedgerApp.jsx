@@ -35,7 +35,7 @@ import {
   ArrowUpRight, ArrowDownRight, Copy, Download, X, Pencil,
   Trash2, CircleDot, Sliders, GripVertical, CalendarClock, Plus,
   Target, FileClock, ChevronRight, ChevronDown, RotateCcw, FileBarChart, AlertCircle, Settings, History,
-  Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock,
+  Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock, Check,
 } from "lucide-react";
 
 function contractPeriodFromDateInput(dateStr) {
@@ -687,6 +687,15 @@ export default function SiteLedgerApp({ embedded = true }) {
     setupPersistTimer.current = setTimeout(flushSetupPersist, SETUP_PERSIST_MS);
   }, [flushSetupPersist]);
 
+  /** Flush Site Setup changes immediately (e.g. after child head rename tick). */
+  const saveSetupNow = useCallback(async () => {
+    if (setupPersistTimer.current) {
+      clearTimeout(setupPersistTimer.current);
+      setupPersistTimer.current = null;
+    }
+    await flushSetupPersist();
+  }, [flushSetupPersist]);
+
   /** Optimistic Site Setup: UI updates instantly; DB write debounced + scoped. */
   const applySiteSetupChange = useCallback((updater, opts = {}) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -1123,8 +1132,8 @@ export default function SiteLedgerApp({ embedded = true }) {
               onDelete={removeSite}
             />
           )}
-          {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
-          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onSetParentColor={setParentColor} />}
+          {view === "entry" && <EntryForm sites={sitesL} library={library} parents={parents} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
+          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onSetParentColor={setParentColor} onSaveSetupNow={saveSetupNow} saveState={saveState} />}
           {view === "reports" && (
             <Reports
               sites={sitesL}
@@ -2144,7 +2153,7 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
 }
 
 /* ───────────────────────── SITE CONFIG (parent → child builder) ───────────────────────── */
-function SiteConfig({ sites, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onSetParentColor }) {
+function SiteConfig({ sites, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onSetParentColor, onSaveSetupNow, saveState }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
   const site = sites.find((s) => s.id === siteId);
@@ -2158,6 +2167,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   const [newPName, setNewPName] = useState("");
   const [newPColor, setNewPColor] = useState(PARENT_PALETTE[6]);
   const drag = useRef(null);
+  const childSaveTickRef = useRef(false);
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add a site to configure its parent &amp; child cost heads.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
   if (!site) return null;
 
@@ -2260,9 +2270,53 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
           } : s))
           : allSites,
       };
-    }, { scope: "masters", libraryChanged: true });
+    }, { scope: "masters", libraryChanged: true, siteCode: siteId });
     setEditingChild(null);
+    setEditChildVal("");
   };
+
+  const cancelChildHeadEdit = () => {
+    setEditingChild(null);
+    setEditChildVal("");
+  };
+
+  const saveChildHeadEdit = (key) => {
+    childSaveTickRef.current = true;
+    commitChildRename(key, editChildVal);
+    onSaveSetupNow?.();
+  };
+
+  const renderChildHeadEditor = (key) => (
+    <>
+      <input
+        className="chip-edit"
+        autoFocus
+        value={editChildVal}
+        onChange={(e) => setEditChildVal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") saveChildHeadEdit(key);
+          if (e.key === "Escape") cancelChildHeadEdit();
+        }}
+        onBlur={() => {
+          setTimeout(() => {
+            if (!childSaveTickRef.current && editingChild === key) cancelChildHeadEdit();
+            childSaveTickRef.current = false;
+          }, 120);
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      />
+      <button
+        type="button"
+        className="chip-act save"
+        title="Save cost line name"
+        aria-label="Save cost line name"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => saveChildHeadEdit(key)}
+      >
+        <Check size={12} />
+      </button>
+    </>
+  );
 
   const addCustom = () => {
     if (!newLabel.trim()) return;
@@ -2308,7 +2362,17 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
             ))}
           </select>
         </div>
-        <div className="cfg-hint"><GripVertical size={14} /> Components are site-specific — changes apply only to <b>{site.name}</b>.</div>
+        <div className="cfg-hint">
+          <GripVertical size={14} /> Components are site-specific — changes apply only to <b>{site.name}</b>.
+          {" "}Rename a cost line, then click <Check size={12} style={{ verticalAlign: "middle" }} /> to save.
+        </div>
+        {(saveState === "saving" || saveState === "saved" || saveState === "pending") && (
+          <div className={"save " + saveState} style={{ marginLeft: "auto" }}>
+            {saveState === "pending" && "Pending…"}
+            {saveState === "saving" && "Saving…"}
+            {saveState === "saved" && "✓ Saved"}
+          </div>
+        )}
       </div>
 
       <Card title="Available cost lines" right={<span className="muted-s">{available.length} unused · drag into a parent below</span>}>
@@ -2319,11 +2383,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
               <GripVertical size={13} className="grip" />
               <span className="cat-dot" style={{ background: parentColor(h.parent) }} title={parentLabel(h.parent)} />
               {editingChild === h.key ? (
-                <input className="chip-edit" autoFocus value={editChildVal}
-                  onChange={(e) => setEditChildVal(e.target.value)}
-                  onBlur={(e) => commitChildRename(h.key, e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(h.key, e.currentTarget.value); if (e.key === "Escape") setEditingChild(null); }}
-                  onMouseDown={(e) => e.stopPropagation()} />
+                renderChildHeadEditor(h.key)
               ) : (
                 <>
                   <span>{h.label}</span>
@@ -2371,11 +2431,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
                 <div key={k} className="dnd-chip on" draggable onDragStart={() => onDragStart(k, g.parent)} onDragEnd={onDragEnd} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDropInParent(e, g.parent, k)}>
                   <GripVertical size={13} className="grip" />
                   {editingChild === k ? (
-                    <input className="chip-edit" autoFocus value={editChildVal}
-                      onChange={(e) => setEditChildVal(e.target.value)}
-                      onBlur={(e) => commitChildRename(k, e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(k, e.currentTarget.value); if (e.key === "Escape") setEditingChild(null); }}
-                      onMouseDown={(e) => e.stopPropagation()} />
+                    renderChildHeadEditor(k)
                   ) : (
                     <>
                       <span>{libMap[k]?.label || k}</span>
@@ -2721,7 +2777,9 @@ function SiteSearchSelect({ sites, value, onChange, label = "Site", id = "site-s
   );
 }
 
-function EntryForm({ sites, library, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onPatchSite, onAdd, goConfig }) {
+const ENTRY_AUTOSAVE_MS = 800;
+
+function EntryForm({ sites, library, parents, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onPatchSite, onAdd, goConfig }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   const [mk, setMk] = useState(month || currentPeriodKey());
   const [form, setForm] = useState({});
@@ -2734,6 +2792,11 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
   const suppressRecordReload = useRef(false);
   const formLoadKey = useRef("");
   const persistGen = useRef(0);
+  const autosaveTimer = useRef(null);
+  const formDirtyRef = useRef(false);
+  const reimbDirtyRef = useRef(false);
+  formDirtyRef.current = formDirty;
+  reimbDirtyRef.current = reimbDirty;
   useEffect(() => {
     if (activeSite && sites.some((s) => s.id === activeSite)) {
       setSiteId(activeSite);
@@ -2768,6 +2831,10 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     }
   }, [siteId, mk, records]);
   const saveUiTimer = useRef(null);
+  const periodSaveContext = useMemo(
+    () => ({ sites, library, parents }),
+    [sites, library, parents],
+  );
   const persistForm = useCallback((data, { manual = false } = {}) => {
     const payload = data ?? formRef.current;
     const clean = entryRecordClean(payload);
@@ -2779,11 +2846,13 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     setMonth(mk);
     setActiveSite(siteId);
     setSaveUi("saving");
-    savePeriodRecord(siteId, mk, toPersist)
+    savePeriodRecord(siteId, mk, toPersist, periodSaveContext)
       .then(() => {
         if (gen !== persistGen.current) return;
         onRecordPersisted?.();
         setFormDirty(false);
+        setReimbDirty(false);
+        setReimbSaveUi("idle");
         setSaveUi(manual ? "saved" : "autosaved");
         if (saveUiTimer.current) clearTimeout(saveUiTimer.current);
         saveUiTimer.current = setTimeout(() => setSaveUi("idle"), manual ? 2500 : 1800);
@@ -2793,7 +2862,27 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
         console.error("Revenue save failed:", e);
         setSaveUi("error");
       });
-  }, [siteId, mk, records, onSave, onRecordPersisted, setMonth, setActiveSite]);
+  }, [siteId, mk, records, onSave, onRecordPersisted, setMonth, setActiveSite, periodSaveContext]);
+  const flushAutosaveNow = useCallback(() => {
+    if (autosaveTimer.current) {
+      clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+    if (formDirtyRef.current || reimbDirtyRef.current) {
+      persistForm(undefined, { manual: false });
+    }
+  }, [persistForm]);
+  useEffect(() => {
+    if (!formDirty && !reimbDirty) return undefined;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      autosaveTimer.current = null;
+      persistForm(undefined, { manual: false });
+    }, ENTRY_AUTOSAVE_MS);
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+  }, [form, formDirty, reimbDirty, persistForm]);
   const saveReimbursements = useCallback(() => {
     const existing = records[`${siteId}__${mk}`] || {};
     const merged = buildReimbursementSavePayload(existing, formRef.current.reimbursements || []);
@@ -2801,7 +2890,7 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     suppressRecordReload.current = true;
     onSave(siteId, mk, merged);
     setReimbSaveUi("saving");
-    savePeriodRecord(siteId, mk, merged)
+    savePeriodRecord(siteId, mk, merged, periodSaveContext)
       .then(() => {
         if (gen !== persistGen.current) return;
         onRecordPersisted?.();
@@ -2819,22 +2908,27 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
         console.error("Reimbursement save failed:", e);
         setReimbSaveUi("error");
       });
-  }, [siteId, mk, records, onSave, onRecordPersisted]);
+  }, [siteId, mk, records, onSave, onRecordPersisted, periodSaveContext]);
   useEffect(() => {
-    const flushForm = () => {
-      if (!formDirty) return;
-      persistForm(undefined, { manual: true });
+    const flushAll = () => {
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+      if (formDirtyRef.current || reimbDirtyRef.current) {
+        persistForm(undefined, { manual: false });
+      }
     };
     const onHide = () => {
-      if (document.visibilityState === "hidden") flushForm();
+      if (document.visibilityState === "hidden") flushAll();
     };
-    window.addEventListener("pagehide", flushForm);
+    window.addEventListener("pagehide", flushAll);
     window.addEventListener("visibilitychange", onHide);
     return () => {
-      window.removeEventListener("pagehide", flushForm);
+      window.removeEventListener("pagehide", flushAll);
       window.removeEventListener("visibilitychange", onHide);
     };
-  }, [formDirty, persistForm]);
+  }, [persistForm]);
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add your first site to start recording figures.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
   const site = sites.find((s) => s.id === siteId);
   if (!site) return <div className="empty"><Building2 size={30} /><h3>Site not found</h3><p>Pick another site from the list.</p></div>;
@@ -3010,17 +3104,22 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
     );
   };
   const periodStatus = records[`${siteId}__${mk}`] ? "✓ saved" : inContract(site, mk) && monthIdx(mk) <= monthIdx(month) ? "• pending" : "";
-  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Saved" : saveUi === "saving" ? "Saving…" : saveUi === "error" ? "Save failed — retry" : formDirty ? "Save figures" : "Save figures";
+  const saveLabel = saveUi === "saved" ? "✓ Saved" : saveUi === "autosaved" ? "✓ Auto-saved" : saveUi === "saving" ? "Saving…" : saveUi === "error" ? "Save failed — retry" : "Save figures";
+  const autosaveHint = (formDirty || reimbDirty) && saveUi === "idle"
+    ? "Auto-saving…"
+    : saveUi === "autosaved"
+      ? "✓ All figures saved to database"
+      : "";
   const periodAudit = records[`${siteId}__${mk}`]?._audit;
 
   return (
     <div className="entry">
       <div className="entry-bar">
         <div className="entry-bar-primary">
-          <SiteClientAutocomplete sites={sites} value={siteId} onChange={(id) => { setSiteId(id); setActiveSite(id); }} label="Site / Client" id="entry-site-search" />
+          <SiteClientAutocomplete sites={sites} value={siteId} onChange={(id) => { flushAutosaveNow(); setSiteId(id); setActiveSite(id); }} label="Site / Client" id="entry-site-search" />
           <div className="entry-sel entry-sel-period">
             <label>Period</label>
-            <PeriodDateSelect className="sl-period-pick" inputClassName="sl-period-sel" value={mk} onChange={setMk} />
+            <PeriodDateSelect className="sl-period-pick" inputClassName="sl-period-sel" value={mk} onChange={(v) => { flushAutosaveNow(); setMk(v); }} />
           </div>
         </div>
         <div className="entry-bar-tools">
@@ -3034,11 +3133,11 @@ function EntryForm({ sites, library, records, month, setMonth, activeSite, setAc
         <div className="entry-bar-save">
           <div className="entry-bar-save-row">
             {periodStatus && <span className="entry-period-st">{periodStatus}</span>}
-            <button type="button" className="primary entry-save-btn" onClick={save} disabled={saveUi === "saving"} title="Save all figures for this site and period">
+            <button type="button" className="primary entry-save-btn" onClick={save} disabled={saveUi === "saving"} title="Save all figures for this site and period (also auto-saves as you type)">
               {saveLabel}
             </button>
           </div>
-          {formDirty && saveUi !== "saving" && <span className="entry-unsaved">Unsaved changes</span>}
+          {autosaveHint && <span className="entry-unsaved">{autosaveHint}</span>}
         </div>
       </div>
       <PlAuditPanel audit={periodAudit} className="entry-audit" />
@@ -4255,6 +4354,7 @@ function Styles() {
     .cat-dot{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
     .chip-act{background:none;border:none;cursor:pointer;color:var(--muted);padding:2px;display:flex;border-radius:6px;flex-shrink:0;}
     .chip-act:hover{color:var(--accent);background:var(--paper);}.chip-act.danger:hover{color:var(--loss);}
+    .chip-act.save{color:var(--profit);}.chip-act.save:hover{color:var(--profit);background:rgba(16,185,129,.12);}
     .chip-edit{flex:1;min-width:60px;font-size:12.5px;border:1px solid var(--accent-mid);border-radius:6px;padding:2px 6px;outline:none;background:var(--surface);color:var(--ink);font-family:var(--body);}
     .dnd-empty{color:var(--muted);font-size:12.5px;text-align:center;padding:14px 10px;}.dnd-empty.sm{padding:8px;font-size:12px;}
     .add-head{display:flex;gap:8px;margin-top:12px;}.add-head input{flex:1;}
