@@ -404,6 +404,12 @@ function normalize(data) {
     structure = migrateStructureParents(structure);
     // ensure all referenced child keys exist in library
     structure.forEach((g) => g.children.forEach((k) => { if (!have.has(k)) { library.push({ key: k, label: k, parent: g.parent }); have.add(k); } }));
+    const savedCustomHeads = Array.isArray(s.customHeads) ? s.customHeads : [];
+    const customHeads = savedCustomHeads.length
+      ? savedCustomHeads
+      : library
+        .filter((h) => h.key.startsWith(`${s.id}_`))
+        .map((h) => ({ key: h.key, label: h.label, parent: h.parent, custom: true, siteScoped: true }));
     return {
       ...s,
       structure,
@@ -414,7 +420,7 @@ function normalize(data) {
       status: s.status || "active",
       siteGroup: s.siteGroup || null,
       version: s.version || 1,
-      customHeads: Array.isArray(s.customHeads) ? s.customHeads : [],
+      customHeads,
     };
   });
   return { sites: enrichSitesWithVersions(sites), records: data.records || {}, library };
@@ -518,11 +524,13 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editSite, setEditSite] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const [actionNotice, setActionNotice] = useState("");
   const [showHistorical, setShowHistorical] = useState(urlInit.showHistorical);
   const [historyGroup, setHistoryGroup] = useState(null);
   const saveTimer = useRef(null);
   const saveImmediate = useRef(false);
   const skipNextAutosave = useRef(false);
+  const skipAutosaveCountRef = useRef(0);
   const setupPersistTimer = useRef(null);
   const setupPersistPending = useRef(null);
   const lastSaveAt = useRef(0);
@@ -580,6 +588,12 @@ export default function SiteLedgerApp({ embedded = true }) {
   useEffect(() => {
     if (!loaded) return undefined;
     const flushToDb = () => {
+      if (setupPersistTimer.current) clearTimeout(setupPersistTimer.current);
+      const pending = setupPersistPending.current;
+      if (pending) {
+        setupPersistPending.current = null;
+        saveLedgerPartial(pending).catch(() => {});
+      }
       if (saveTimer.current) clearTimeout(saveTimer.current);
       const data = stateRef.current;
       saveLedgerPartial({ scope: "records", records: data.records }).catch(() => {});
@@ -614,6 +628,11 @@ export default function SiteLedgerApp({ embedded = true }) {
   useEffect(() => {
     stateRef.current = { sites, records, library, parents };
     if (!loaded) return;
+    if (skipAutosaveCountRef.current > 0) {
+      skipAutosaveCountRef.current -= 1;
+      skipNextAutosave.current = false;
+      return;
+    }
     if (skipNextAutosave.current) {
       skipNextAutosave.current = false;
       return;
@@ -804,19 +823,88 @@ export default function SiteLedgerApp({ embedded = true }) {
     setShowAdd(false);
     if (activeSite === id) setActiveSite(null);
   }, [patchSite, activeSite]);
-  const removeSite = useCallback((id) => {
-    setSites((prev) => {
-      const nextSites = prev.filter((s) => s.id !== id);
-      setRecords((prevRec) => {
-        const cp = { ...prevRec };
-        Object.keys(cp).forEach((k) => { if (k.startsWith(id + "__")) delete cp[k]; });
-        stateRef.current = { ...stateRef.current, sites: nextSites, records: cp };
-        return cp;
-      });
-      return nextSites;
+  const activateSite = useCallback((id) => {
+    const site = stateRef.current.sites.find((s) => s.id === id);
+    if (!site || isSiteActive(site)) return;
+    const label = site.name || id;
+    const group = site.siteGroup || site.id;
+    const hasActiveSibling = stateRef.current.sites.some(
+      (s) => s.id !== id && isSiteActive(s) && (s.siteGroup || s.id) === group
+    );
+    let msg = `Make "${label}" active?`;
+    if (hasActiveSibling) {
+      msg += " The current active version in this site group will be marked inactive.";
+    }
+    if (!window.confirm(msg)) return;
+    saveImmediate.current = true;
+    setSites((prev) =>
+      prev.map((s) => {
+        const inGroup = (s.siteGroup || s.id) === group;
+        if (s.id === id) return { ...s, status: "active" };
+        if (inGroup && isSiteActive(s)) return { ...s, status: "inactive" };
+        return s;
+      })
+    );
+    setEditSite(null);
+    setShowAdd(false);
+    setActiveSite(id);
+  }, []);
+  const removeSite = useCallback(async (id) => {
+    const site = stateRef.current.sites.find((s) => s.id === id);
+    if (!site) return false;
+    const label = site.name || id;
+
+    const nextSites = stateRef.current.sites.filter((s) => s.id !== id);
+    const nextRecords = { ...stateRef.current.records };
+    Object.keys(nextRecords).forEach((k) => {
+      if (k.startsWith(`${id}__`)) delete nextRecords[k];
     });
-    scheduleSetupPersist({ scope: "full", deletedSiteCodes: [id] });
-  }, [scheduleSetupPersist]);
+
+    skipNextAutosave.current = true;
+    skipAutosaveCountRef.current = 2;
+    saveImmediate.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (setupPersistTimer.current) clearTimeout(setupPersistTimer.current);
+    setupPersistPending.current = null;
+
+    stateRef.current = {
+      ...stateRef.current,
+      sites: nextSites,
+      records: nextRecords,
+    };
+    setSites(nextSites);
+    setRecords(nextRecords);
+    if (activeSite === id) setActiveSite(null);
+    setEditSite(null);
+    setShowAdd(false);
+
+    setSaveState("saving");
+    setActionNotice("");
+    try {
+      await saveLedgerPartial({
+        scope: "full",
+        sites: nextSites,
+        records: nextRecords,
+        library: stateRef.current.library,
+        parents: stateRef.current.parents,
+        deletedSiteCodes: [id],
+      });
+      lastSaveAt.current = Date.now();
+      setSaveState("saved");
+      setLoadError(null);
+      const successMsg = `"${label}" deleted successfully.`;
+      setActionNotice(successMsg);
+      window.setTimeout(() => {
+        setActionNotice((current) => (current === successMsg ? "" : current));
+      }, 5000);
+      return true;
+    } catch (e) {
+      setSaveState("local");
+      setLoadError(e?.message || "Could not delete site. Try again.");
+      await reloadLedger();
+      return false;
+    }
+  }, [activeSite, reloadLedger]);
   const saveRecord = useCallback((siteId, mk, rec) => {
     saveImmediate.current = true;
     const withAudit = { ...rec, _audit: buildPeriodAuditMeta(user) };
@@ -919,6 +1007,15 @@ export default function SiteLedgerApp({ embedded = true }) {
             <strong>Database setup required.</strong> {loadError}
           </div>
         )}
+        {actionNotice && (
+          <div className="sl-action-notice" role="status">
+            <CheckCircle size={16} />
+            <span>{actionNotice}</span>
+            <button type="button" className="sl-action-notice-close" onClick={() => setActionNotice("")} aria-label="Dismiss">
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <header className="topbar">
           <div className="topbar-left">
             <div>
@@ -1003,6 +1100,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               onEdit={(id) => { setActiveSite(id); setView("entry"); }}
               onEditSite={(id) => setEditSite(sitesEnriched.find((s) => s.id === id) || null)}
               onDeactivate={deactivateSite}
+              onActivate={activateSite}
               onConfig={(id) => { setActiveSite(id); setView("config"); }}
               onDelete={removeSite}
               onViewHistory={(group) => setHistoryGroup(group)}
@@ -1021,6 +1119,8 @@ export default function SiteLedgerApp({ embedded = true }) {
               onConfig={() => setView("config")}
               onViewHistory={(group) => setHistoryGroup(group)}
               onDeactivate={deactivateSite}
+              onActivate={activateSite}
+              onDelete={removeSite}
             />
           )}
           {view === "entry" && <EntryForm sites={sitesL} library={library} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
@@ -1048,6 +1148,7 @@ export default function SiteLedgerApp({ embedded = true }) {
           existing={sitesEnriched}
           onClose={() => { setShowAdd(false); setEditSite(null); }}
           onDeactivate={deactivateSite}
+          onActivate={activateSite}
           onSave={(s) => {
             if (s.isEdit) {
               patchSite(s.id, {
@@ -1506,7 +1607,7 @@ function PendingMonthsCell({ site, records, uptoMk }) {
 function SitesTable({
   rows, records, month, sitesAll, activeSiteCount, query, setQuery,
   showHistorical, setShowHistorical, inactiveCount,
-  openSite, onEdit, onEditSite, onConfig, onDelete, onDeactivate, onViewHistory, onAdd, mLabel,
+  openSite, onEdit, onEditSite, onConfig, onDelete, onDeactivate, onActivate, onViewHistory, onAdd, mLabel,
 }) {
   const { warnMargin } = usePlMargins();
   const [sort, setSort] = useState({ key: "name", dir: "asc" });
@@ -1734,6 +1835,20 @@ function SitesTable({
                     <button type="button" className="sm-act" title="Edit figures" onClick={() => onEdit(r.id)}><Pencil size={15} /></button>
                   )}
                   <button type="button" className="sm-act" title="Copy summary" onClick={() => copySiteSummary(r)}><Copy size={15} /></button>
+                  {!isSiteActive(r) && (
+                    <button type="button" className="sm-act sm-act-activate" title="Make active" onClick={() => onActivate(r.id)}><CheckCircle size={15} /></button>
+                  )}
+                  <button
+                    type="button"
+                    className="sm-act sm-act-danger"
+                    title="Delete site"
+                    onClick={async () => {
+                      if (!window.confirm(`Delete "${r.name}" (${versionLabel(r)}) and all its data?`)) return;
+                      await onDelete(r.id);
+                    }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
                   <div className="sm-more-wrap">
                     <button
                       type="button"
@@ -1747,12 +1862,13 @@ function SitesTable({
                       <div className="sm-more-menu" onClick={(e) => e.stopPropagation()}>
                         <button type="button" onClick={() => { onEditSite(r.id); setMenuOpen(null); }}>Edit site</button>
                         <button type="button" onClick={() => { onViewHistory(r.siteGroup); setMenuOpen(null); }}>Version history</button>
-                        {isSiteActive(r) && (
+                        {isSiteActive(r) ? (
                           <>
                             <button type="button" onClick={() => { onConfig(r.id); setMenuOpen(null); }}>Site setup</button>
                             <button type="button" onClick={() => { onDeactivate(r.id); setMenuOpen(null); }}>Make inactive</button>
-                            <button type="button" className="danger" onClick={() => { if (confirm(`Delete "${r.name}" (${versionLabel(r)}) and all its data?`)) onDelete(r.id); setMenuOpen(null); }}>Delete site</button>
                           </>
+                        ) : (
+                          <button type="button" onClick={() => { onActivate(r.id); setMenuOpen(null); }}>Make active</button>
                         )}
                       </div>
                     )}
@@ -1813,7 +1929,7 @@ function SitesTable({
 }
 
 /* ───────────────────────── SITE DETAIL (expandable parents) ───────────────────────── */
-function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onViewHistory, onDeactivate }) {
+function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onViewHistory, onDeactivate, onActivate, onDelete }) {
   const [expanded, setExpanded] = useState(() => new Set());
   if (!site) return null;
   const historical = !isSiteActive(site);
@@ -1878,6 +1994,21 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
         <div className="site-head-right">
           <StatusPill margin={c.margin} profit={c.profit} />
           <button type="button" className="ghost-d" onClick={() => onViewHistory(site.siteGroup)}><History size={14} /> History</button>
+          {historical && onActivate && (
+            <button type="button" className="ghost-d sm-act-activate-text" onClick={() => onActivate(site.id)}><CheckCircle size={14} /> Make active</button>
+          )}
+          {historical && onDelete && (
+            <button
+              type="button"
+              className="ghost-d danger-text"
+              onClick={async () => {
+                if (!window.confirm(`Delete "${site.name}" (${versionLabel(site)}) and all its data?`)) return;
+                await onDelete(site.id);
+              }}
+            >
+              <Trash2 size={14} /> Delete site
+            </button>
+          )}
           {!historical && onDeactivate && (
             <button type="button" className="ghost-d danger-text" onClick={() => onDeactivate(site.id)}>Make inactive</button>
           )}
@@ -2073,9 +2204,15 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   };
 
   const onDragStart = (childKey, fromParent) => { drag.current = { childKey, fromParent }; };
-  const onDropParent = (toParent) => { const d = drag.current; if (d) moveChild(d.childKey, d.fromParent, toParent, null); drag.current = null; };
-  const onDropChild = (toParent, beforeKey) => { const d = drag.current; if (d) moveChild(d.childKey, d.fromParent, toParent, beforeKey); drag.current = null; };
-  const onDropAvailable = () => { const d = drag.current; if (d && d.fromParent !== "__available__") removeChild(d.childKey); drag.current = null; };
+  const onDragEnd = () => { drag.current = null; };
+  const onDropInParent = (e, toParent, beforeKey = null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const d = drag.current;
+    if (!d) return;
+    moveChild(d.childKey, d.fromParent, toParent, beforeKey);
+    drag.current = null;
+  };
 
   const deleteHead = (key) => {
     const h = libMap[key];
@@ -2085,35 +2222,45 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
       removeChild(key);
       return;
     }
-    onApplySetupChange(({ sites: allSites }) => {
+    onApplySetupChange(({ sites: allSites, library: lib }) => {
       const target = allSites.find((s) => s.id === siteId);
       if (!target) return {};
       const nextStructure = displayStructure(target).map((g) => ({
         parent: g.parent,
         children: g.children.filter((k) => k !== key),
       }));
+      const nextLibrary = lib.filter((h) => h.key !== key);
       return {
+        library: nextLibrary,
         sites: allSites.map((s) => (s.id === siteId ? {
           ...s,
           customHeads: (s.customHeads || []).filter((x) => x.key !== key),
           structure: compactStructure(nextStructure),
         } : s)),
       };
-    }, { scope: "structure", siteCode: siteId });
+    }, { scope: "masters", libraryChanged: true, siteCode: siteId });
   };
 
-  const commitChildRename = (key) => {
-    const isSiteCustom = (site.customHeads || []).some((x) => x.key === key);
-    if (isSiteCustom) {
-      onApplySetupChange(({ sites: allSites }) => ({
-        sites: allSites.map((s) => (s.id === siteId ? {
-          ...s,
-          customHeads: (s.customHeads || []).map((h) => (h.key === key ? { ...h, label: (editChildVal && editChildVal.trim()) || h.label } : h)),
-        } : s)),
-      }), { scope: "structure", siteCode: siteId });
-    } else {
-      onRenameHead(key, editChildVal);
-    }
+  const commitChildRename = (key, rawLabel) => {
+    const newLabel = (rawLabel != null ? String(rawLabel).trim() : (editChildVal || "").trim()) || libMap[key]?.label || key;
+    if (!newLabel) return;
+    const isSiteCustom = (site.customHeads || []).some((x) => x.key === key) || key.startsWith(`${siteId}_`);
+    onApplySetupChange(({ sites: allSites, library: lib }) => {
+      const nextLibrary = lib.some((h) => h.key === key)
+        ? lib.map((h) => (h.key === key ? { ...h, label: newLabel } : h))
+        : [...lib, { key, label: newLabel, parent: libMap[key]?.parent || "adminMisc", custom: isSiteCustom, siteScoped: isSiteCustom }];
+      return {
+        library: nextLibrary,
+        sites: isSiteCustom
+          ? allSites.map((s) => (s.id === siteId ? {
+            ...s,
+            customHeads: (s.customHeads || []).some((x) => x.key === key)
+              ? (s.customHeads || []).map((h) => (h.key === key ? { ...h, label: newLabel } : h))
+              : [...(s.customHeads || []), { key, label: newLabel, parent: libMap[key]?.parent || "adminMisc", custom: true, siteScoped: true }],
+          } : s))
+          : allSites,
+      };
+    }, { scope: "masters", libraryChanged: true });
     setEditingChild(null);
   };
 
@@ -2123,20 +2270,22 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
     let n = 1;
     while (siteLib.some((h) => h.key === key)) key = `${siteId}_${slug(newLabel)}-${++n}`;
     const head = { key, label: newLabel.trim(), parent: newParent, custom: true, siteScoped: true };
-    onApplySetupChange(({ sites: allSites }) => {
+    onApplySetupChange(({ sites: allSites, library: lib }) => {
       const target = allSites.find((s) => s.id === siteId);
       if (!target) return {};
       const nextStructure = displayStructure(target).map((g) => (
         g.parent === newParent ? { parent: g.parent, children: [...g.children, key] } : g
       ));
+      const nextLibrary = lib.some((h) => h.key === key) ? lib : [...lib, head];
       return {
+        library: nextLibrary,
         sites: allSites.map((s) => (s.id === siteId ? {
           ...s,
           customHeads: [...(s.customHeads || []), head],
           structure: compactStructure(nextStructure),
         } : s)),
       };
-    }, { scope: "structure", siteCode: siteId });
+    }, { scope: "structure", siteCode: siteId, libraryChanged: true });
     setNewLabel("");
   };
 
@@ -2163,17 +2312,17 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
       </div>
 
       <Card title="Available cost lines" right={<span className="muted-s">{available.length} unused · drag into a parent below</span>}>
-        <div className="tray" onDragOver={(e) => e.preventDefault()} onDrop={onDropAvailable}>
-          {available.length === 0 && <div className="dnd-empty">Every cost line is assigned. Drag one back here to remove it from this site.</div>}
+        <div className="tray">
+          {available.length === 0 && <div className="dnd-empty">Every cost line is assigned. Use the × on a line below to remove it from this site.</div>}
           {available.map((h) => (
-            <div key={h.key} className="dnd-chip" draggable onDragStart={() => onDragStart(h.key, "__available__")}>
+            <div key={h.key} className="dnd-chip" draggable onDragStart={() => onDragStart(h.key, "__available__")} onDragEnd={onDragEnd}>
               <GripVertical size={13} className="grip" />
               <span className="cat-dot" style={{ background: parentColor(h.parent) }} title={parentLabel(h.parent)} />
               {editingChild === h.key ? (
                 <input className="chip-edit" autoFocus value={editChildVal}
                   onChange={(e) => setEditChildVal(e.target.value)}
-                  onBlur={() => commitChildRename(h.key)}
-                  onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(h.key); if (e.key === "Escape") setEditingChild(null); }}
+                  onBlur={(e) => commitChildRename(h.key, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(h.key, e.currentTarget.value); if (e.key === "Escape") setEditingChild(null); }}
                   onMouseDown={(e) => e.stopPropagation()} />
               ) : (
                 <>
@@ -2199,7 +2348,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
 
       <div className="parents-grid">
         {structure.map((g) => (
-          <div key={g.parent} className="pgroup" onDragOver={(e) => e.preventDefault()} onDrop={() => onDropParent(g.parent)}>
+          <div key={g.parent} className="pgroup" onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDropInParent(e, g.parent)}>
             <div className="pgroup-h" style={{ borderColor: parentColor(g.parent) }}>
               <button className="pdot-btn" title="Change colour" onClick={() => setColorEdit(colorEdit === g.parent ? null : g.parent)}><span className="pdot" style={{ background: parentColor(g.parent) }} /></button>
               {editing === g.parent ? (
@@ -2216,16 +2365,16 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
               <span className="pcount">{g.children.length}</span>
             </div>
             {colorEdit === g.parent && <div className="swatches inhdr">{PARENT_PALETTE.map((c) => <button key={c} className={"sw" + (parentColor(g.parent) === c ? " on" : "")} style={{ background: c }} onClick={() => { onSetParentColor(g.parent, c); setColorEdit(null); }} />)}</div>}
-            <div className="pchildren">
+            <div className="pchildren" onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDropInParent(e, g.parent)}>
               {g.children.length === 0 && <div className="dnd-empty sm">Drag cost lines here</div>}
               {g.children.map((k) => (
-                <div key={k} className="dnd-chip on" draggable onDragStart={() => onDragStart(k, g.parent)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.stopPropagation(); onDropChild(g.parent, k); }}>
+                <div key={k} className="dnd-chip on" draggable onDragStart={() => onDragStart(k, g.parent)} onDragEnd={onDragEnd} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDropInParent(e, g.parent, k)}>
                   <GripVertical size={13} className="grip" />
                   {editingChild === k ? (
                     <input className="chip-edit" autoFocus value={editChildVal}
                       onChange={(e) => setEditChildVal(e.target.value)}
-                      onBlur={() => commitChildRename(k)}
-                      onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(k); if (e.key === "Escape") setEditingChild(null); }}
+                      onBlur={(e) => commitChildRename(k, e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") commitChildRename(k, e.currentTarget.value); if (e.key === "Escape") setEditingChild(null); }}
                       onMouseDown={(e) => e.stopPropagation()} />
                   ) : (
                     <>
@@ -3463,7 +3612,7 @@ function ReportTable({ report, showTotals = true, dim }) {
 }
 
 /* ───────────────────────── MODALS ───────────────────────── */
-function AddSiteModal({ onClose, onSave, onDeactivate, existing, editSite = null }) {
+function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, editSite = null }) {
   const isEdit = !!editSite;
   const [name, setName] = useState(editSite?.name || "");
   const [wo, setWo] = useState(editSite?.wo || "");
@@ -3567,6 +3716,14 @@ function AddSiteModal({ onClose, onSave, onDeactivate, existing, editSite = null
             onClick={() => onDeactivate(editSite.id)}
           >
             Make inactive
+          </button>
+        ) : isEdit && !isSiteActive(editSite) && onActivate ? (
+          <button
+            type="button"
+            className="ghost-d sm-act-activate-text m-actions-left"
+            onClick={() => onActivate(editSite.id)}
+          >
+            Make active
           </button>
         ) : (
           <span />
@@ -4200,7 +4357,9 @@ function Styles() {
     .sm-search input{border:none;background:none;outline:none;font-size:13px;width:100%;color:var(--ink);}
     .sm-clear{align-self:flex-end;font-size:12px;padding:8px 12px;}
     .sm-hist{align-self:flex-end;margin-left:auto;}
-    .sm-table-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+    .sl-action-notice{display:flex;align-items:center;gap:8px;margin:12px 24px 0;padding:12px 14px;border-radius:8px;background:#ecfdf5;border:1px solid #bbf7d0;color:#166534;font-size:13px;line-height:1.5;}
+    .sl-action-notice-close{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;border:none;background:transparent;color:#166534;cursor:pointer;padding:2px;border-radius:4px;}
+    .sl-action-notice-close:hover{background:#d1fae5;}
     .sm-tbl thead th{background:#f9fafb;}
     .sm-site-link{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--ink);cursor:pointer;text-align:left;display:block;}
     .sm-site-link:hover{color:#2563eb;}
@@ -4213,6 +4372,12 @@ function Styles() {
     .sm-actions{display:flex;align-items:center;justify-content:flex-end;gap:2px;}
     .sm-act{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:none;border-radius:8px;background:transparent;color:var(--ink-soft);cursor:pointer;}
     .sm-act:hover{background:#f3f4f6;color:var(--ink);}
+    .sm-act-activate{color:var(--green);}
+    .sm-act-activate:hover{background:#ecfdf5;color:var(--green);}
+    .sm-act-activate-text{color:var(--green) !important;border-color:#bbf7d0 !important;}
+    .sm-act-activate-text:hover{background:#ecfdf5 !important;}
+    .sm-act-danger{color:var(--loss);}
+    .sm-act-danger:hover{background:#fef2f2;color:var(--loss);}
     .sm-more-wrap{position:relative;display:inline-flex;}
     .sm-more-menu{position:absolute;right:0;top:100%;z-index:20;min-width:160px;margin-top:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.1);padding:4px;}
     .sm-more-menu button{display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;}

@@ -29,6 +29,9 @@ export function serializeSiteMeta(site) {
     estContractStart: site.estContractStart ? String(site.estContractStart).trim() : "",
     estContractEnd: site.estContractEnd ? String(site.estContractEnd).trim() : "",
   };
+  if (Array.isArray(site.customHeads) && site.customHeads.length) {
+    meta.customHeads = site.customHeads;
+  }
   return `${SITE_META_PREFIX}${JSON.stringify(meta)}`;
 }
 
@@ -294,6 +297,7 @@ function buildSites(raw, parentById, childById) {
       status: s.status || "active",
       siteGroup: meta.siteGroup || s.code,
       version: meta.version || 1,
+      customHeads: Array.isArray(meta.customHeads) ? meta.customHeads : [],
       structure,
       spreads: spreadsBySite[s.id] || [],
       estimates: budgetsBySite[s.id] || [],
@@ -761,7 +765,11 @@ async function saveLedgerRecordsInner({ records }) {
 async function saveLedgerStoreInner({ sites, records, library, parents, pruneSites = false, deletedSiteCodes = [] }) {
   const revIdByCode = await upsertRevenueHeads();
   const parentIdByCode = await syncParents(parents);
-  const childIdByCode = await syncLibrary(library, parentIdByCode);
+  const normalizedSites = sites.map((s) => ({
+    ...s,
+    structure: dedupeSiteStructure(s.structure),
+  }));
+  const childIdByCode = await syncLibrary(libraryForSitesPersist(library, normalizedSites), parentIdByCode);
 
   if (pruneSites || deletedSiteCodes.length) {
     const existingSites = (await t("sites").select("id, code")).data || [];
@@ -775,11 +783,6 @@ async function saveLedgerStoreInner({ sites, records, library, parents, pruneSit
       }
     }
   }
-
-  const normalizedSites = sites.map((s) => ({
-    ...s,
-    structure: dedupeSiteStructure(s.structure),
-  }));
 
   for (let i = 0; i < normalizedSites.length; i++) {
     await syncSite(normalizedSites[i], parentIdByCode, childIdByCode, revIdByCode, i);
@@ -801,23 +804,57 @@ function structureNeedsMasterSync(structure, parentIdByCode, childIdByCode) {
   return false;
 }
 
+/** Include every site's custom heads so structure saves never drop or delete them. */
+function libraryWithAllSiteCustoms(library, sites) {
+  const merged = [...(library || [])];
+  const keys = new Set(merged.map((h) => h.key));
+  for (const site of sites || []) {
+    for (const h of site?.customHeads || []) {
+      if (!keys.has(h.key)) {
+        merged.push({ ...h, custom: true, siteScoped: true });
+        keys.add(h.key);
+      }
+    }
+  }
+  return merged;
+}
+
+/** Keep every assigned structure child + site customs in library before sync (prevents DB deletes). */
+function libraryForSitesPersist(library, sites) {
+  const merged = libraryWithAllSiteCustoms(library, sites);
+  const keys = new Set(merged.map((h) => h.key));
+  for (const site of sites || []) {
+    for (const grp of dedupeSiteStructure(site?.structure)) {
+      for (const ck of grp.children || []) {
+        if (!keys.has(ck)) {
+          const fromCustom = (site.customHeads || []).find((h) => h.key === ck);
+          merged.push(fromCustom || { key: ck, label: ck, parent: grp.parent, custom: true });
+          keys.add(ck);
+        }
+      }
+    }
+  }
+  return merged;
+}
+
 /**
  * Fast path for Site Setup drag-and-drop — structure for one site only (~5 API calls).
  */
 async function saveLedgerStructureInner({ siteCode, sites, library, parents, libraryChanged = false }) {
   const site = (sites || []).find((s) => s.id === siteCode);
   if (!site) throw new Error(`Site "${siteCode}" not found`);
+  const libraryForSync = libraryForSitesPersist(library, sites);
 
   let parentIdByCode;
   let childIdByCode;
   if (libraryChanged) {
     parentIdByCode = await syncParents(parents);
-    childIdByCode = await syncLibrary(library, parentIdByCode);
+    childIdByCode = await syncLibrary(libraryForSync, parentIdByCode);
   } else {
     ({ parentIdByCode, childIdByCode } = await loadHeadIdMaps());
     if (structureNeedsMasterSync(site.structure, parentIdByCode, childIdByCode)) {
       parentIdByCode = await syncParents(parents);
-      childIdByCode = await syncLibrary(library, parentIdByCode);
+      childIdByCode = await syncLibrary(libraryForSync, parentIdByCode);
     }
   }
 
@@ -826,6 +863,7 @@ async function saveLedgerStructureInner({ siteCode, sites, library, parents, lib
     const revIdByCode = await upsertRevenueHeads();
     siteUuid = await syncSite(site, parentIdByCode, childIdByCode, revIdByCode, 0);
   } else {
+    await t("sites").update({ remarks: serializeSiteMeta(site) }).eq("id", siteUuid);
     await syncSiteStructureBatch(siteUuid, site.structure, parentIdByCode, childIdByCode);
   }
 
@@ -838,15 +876,16 @@ async function saveLedgerStructureInner({ siteCode, sites, library, parents, lib
  */
 async function saveLedgerMastersInner({ sites, library, parents }) {
   const parentIdByCode = await syncParents(parents);
-  const childIdByCode = await syncLibrary(library, parentIdByCode);
   const normalizedSites = (sites || []).map((s) => ({
     ...s,
     structure: dedupeSiteStructure(s.structure),
   }));
+  const childIdByCode = await syncLibrary(libraryForSitesPersist(library, normalizedSites), parentIdByCode);
 
   for (const site of normalizedSites) {
     const siteUuid = await getSiteUuidByCode(site.id);
     if (siteUuid) {
+      await t("sites").update({ remarks: serializeSiteMeta(site) }).eq("id", siteUuid);
       await syncSiteStructureBatch(siteUuid, site.structure, parentIdByCode, childIdByCode);
     }
   }
