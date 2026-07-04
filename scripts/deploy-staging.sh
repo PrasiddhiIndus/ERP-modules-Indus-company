@@ -30,6 +30,15 @@ if [ ! -f .env.staging ]; then
   exit 1
 fi
 
+if [ ! -f .env.server ]; then
+  echo "ERROR: ${REPO_DIR}/.env.server missing. Copy from .env.server.example (Supabase + ETIME_AUTH_CREDENTIALS, SERVER_PORT=4001)."
+  exit 1
+fi
+
+if ! grep -q '^ETIME_AUTH_CREDENTIALS=.\+' .env.server 2>/dev/null; then
+  echo "WARNING: ETIME_AUTH_CREDENTIALS is missing in .env.server — Raw Attendance Data sync will not work until set."
+fi
+
 npm ci
 npm run build:staging
 
