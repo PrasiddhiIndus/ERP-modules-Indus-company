@@ -440,8 +440,8 @@ export async function isBillingDbAvailable() {
 // -----------------------------------------------------------------------------
 
 /**
- * Fetch POs with rate categories and contact log.
- * @param {{ moduleType?: string } | string} [options] - When set, same rows as DB but filtered (equivalent to GET ?module_type=).
+ * Fetch POs with rate categories and contact log (paginated).
+ * @param {{ moduleType?: string, limit?: number, offset?: number } | string} [options]
  */
 export async function fetchCommercialPOs(options) {
   // Staging: skip billing REST until staging_billing_minimal.sql + API "billing" schema exposed.
@@ -456,6 +456,10 @@ export async function fetchCommercialPOs(options) {
       : options && typeof options === 'object'
         ? options.moduleType
         : undefined;
+  const limit = Math.min(Math.max(1, Number(options?.limit) || 200), 500);
+  const offset = Math.max(0, Number(options?.offset) || 0);
+  const from = offset;
+  const to = from + limit - 1;
   const moduleContext =
     options && typeof options === 'object'
       ? options.moduleContext
@@ -464,7 +468,8 @@ export async function fetchCommercialPOs(options) {
 
   const { data: rows, error } = await table('po_wo')
     .select('*')
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .range(from, to);
   if (error) {
     const msg = String(error.message || '').toLowerCase();
     if (msg.includes('invalid schema') && msg.includes('billing')) return [];

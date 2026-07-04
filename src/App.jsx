@@ -281,7 +281,7 @@ function App() {
                 <Routes>
           {/* Public */}
           <Route path="/" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          {!import.meta.env.PROD && <Route path="/register" element={<Register />} />}
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
 

@@ -65,7 +65,8 @@ export function computeEmployeePayroll(input) {
       monthly = evaluateFormula(text, { ...ctx, fixedAmount: ctx.gross }, componentValues);
       finalVal = monthly;
       if (text.toLowerCase().includes('prorate') || /\/\s*MonthDays\s*\*/i.test(text)) {
-        finalVal = monthDays > 0 ? round2((monthly / monthDays) * presentDays) : monthly;
+        const daysForPay = paidDays > 0 ? paidDays : presentDays;
+        finalVal = monthDays > 0 ? round2((monthly / monthDays) * daysForPay) : monthly;
       } else if (/PresentDays|MonthDays/i.test(text)) {
         finalVal = evaluateFormula(text, ctx, componentValues);
       }

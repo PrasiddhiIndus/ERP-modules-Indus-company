@@ -600,7 +600,7 @@ export function EmployeeAttendanceDailyPage() {
 
       if (value) {
         const coCheck = validateCoMark(empYearRows, registerDate, value, {
-          dayMarkOnDate: value,
+          dayMarkOnDate: oldMark,
           holidayDates: holidayDatesInYear,
         });
         if (!coCheck.ok) warnings.push(coCheck.message);

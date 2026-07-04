@@ -514,10 +514,7 @@ export function getAccessibleModules(profile) {
   const accessProfile = { ...profile, ...normalized };
 
   if (!normalized.role) {
-    // no role / unknown role = legacy: allow all except Super Admin-only modules
-    const legacy = new Set(allWithoutSuperAdminOnly);
-    applyFireTenderModuleGate(accessProfile, legacy);
-    return legacy;
+    return always;
   }
   if (normalized.role === ROLES.SUPER_ADMIN_PRO) return allModules;
   if (normalized.role === ROLES.SUPER_ADMIN) return allModules;

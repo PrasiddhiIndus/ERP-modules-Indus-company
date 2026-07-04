@@ -32,21 +32,11 @@ function buildAuthProfile(authUser) {
   if (!authUser) return null;
   const email = String(authUser.email || '').trim().toLowerCase();
   const meta = authUser.user_metadata || {};
-  const superAdminEmailsRaw = String(import.meta.env.VITE_SUPER_ADMIN_EMAILS || '').trim();
-  const superAdminEmails = superAdminEmailsRaw
-    ? superAdminEmailsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-    : [];
-  const forcedRole =
-    email === 'rahul.ifspl@gmail.com'
-      ? 'super_admin_pro'
-      : superAdminEmails.includes(email)
-        ? 'super_admin'
-        : null;
   return {
     username: meta.username || meta.full_name || email.split('@')[0] || 'User',
-    team: meta.team ?? null,
-    role: normalizeAppRole(forcedRole || meta.role || null),
-    allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+    team: null,
+    role: normalizeAppRole('executive'),
+    allowed_modules: [],
     module_access_pending: meta.module_access_pending === true,
   };
 }
@@ -443,9 +433,7 @@ export const AuthProvider = ({ children }) => {
 
   // Register user + save role-based profile (username, team, role, allowed_modules for manager)
   const signUpWithProfile = async (email, password, profileData) => {
-    const normEmail = String(email || '').trim().toLowerCase();
-    const forcedRole = normEmail === 'rahul.ifspl@gmail.com' ? 'super_admin_pro' : null;
-    const safeRole = forcedRole || profileData?.role || "executive";
+    const safeRole = profileData?.role || 'executive';
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -640,26 +628,12 @@ export const AuthProvider = ({ children }) => {
 
   const userProfile = useMemo(() => {
     if (!user) return null;
-    const email = String(user?.email || '').trim().toLowerCase();
-    const isSuperAdminPro = email === 'rahul.ifspl@gmail.com';
-    const superAdminEmailsRaw = String(import.meta.env.VITE_SUPER_ADMIN_EMAILS || '').trim();
-    const superAdminEmails = superAdminEmailsRaw
-      ? superAdminEmailsRaw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-      : [];
-    const forcedSuperRole = isSuperAdminPro
-      ? 'super_admin_pro'
-      : (superAdminEmails.includes(email) ? 'super_admin' : null);
 
     if (profileRow) {
-      const dbRole = normalizeAppRole(profileRow.role);
-      const effectiveRole =
-        forcedSuperRole && dbRole !== ROLES.SUPER_ADMIN && dbRole !== ROLES.SUPER_ADMIN_PRO
-          ? forcedSuperRole
-          : (dbRole ?? forcedSuperRole);
       return {
-        username: profileRow.username ?? user?.email?.split("@")[0],
+        username: profileRow.username ?? user?.email?.split('@')[0],
         team: profileRow.team ?? null,
-        role: effectiveRole,
+        role: normalizeAppRole(profileRow.role),
         allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
         module_access_pending: user?.user_metadata?.module_access_pending === true,
       };
