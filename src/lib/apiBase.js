@@ -1,3 +1,6 @@
+import { supabase } from './supabase';
+import { getAdminApiAccessToken } from './userManagementAuthToken';
+
 export function getApiBaseUrl() {
   const fromEnv = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
   if (fromEnv) return fromEnv;
@@ -64,23 +67,53 @@ export async function fetchApiHealth(options = {}) {
   }
 }
 
-/** eTimeOffice proxy config on the server (no secrets). */
-export async function fetchAttendanceApiStatus(options = {}) {
-  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 8000;
+/** Authenticated fetch to the Node API (Bearer JWT from current session). */
+export async function fetchApiWithAuth(path, options = {}) {
+  const token = await getAdminApiAccessToken(supabase);
+  if (!token) {
+    return {
+      ok: false,
+      status: 401,
+      data: {},
+      error: 'Not signed in. Sign in again to use the API.',
+    };
+  }
+
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 60_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(apiUrl('/api/admin/attendance/status'), { signal: controller.signal });
+    const res = await fetch(apiUrl(path), {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+      },
+    });
     const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, status: res.status, data };
+    const errText = String(data?.error || data?.message || '').trim();
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      error: res.ok ? undefined : errText || `Request failed (${res.status})`,
+    };
   } catch (err) {
     const aborted = err?.name === 'AbortError';
     return {
       ok: false,
       status: 0,
-      error: aborted ? 'Attendance API check timed out.' : err?.message || 'Unable to reach API server.',
+      data: {},
+      error: aborted ? 'API request timed out.' : err?.message || 'Unable to reach API server.',
     };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** eTimeOffice proxy config on the server (no secrets). */
+export async function fetchAttendanceApiStatus(options = {}) {
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 8000;
+  return fetchApiWithAuth('/api/admin/attendance/status', { timeoutMs });
 }

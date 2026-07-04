@@ -41,7 +41,7 @@ import {
   mockSalaryInputs,
   mockExits,
 } from "../data/mockAdminData";
-import { apiUrl, fetchApiHealth, fetchAttendanceApiStatus } from "../../../lib/apiBase";
+import { fetchApiHealth, fetchApiWithAuth, fetchAttendanceApiStatus } from "../../../lib/apiBase";
 
 const tabs = ["Personal", "Employment", "Salary", "Compliance", "Documents", "Leave", "Attendance", "Exit status"];
 
@@ -254,21 +254,14 @@ const ATTENDANCE_SORT_OPTIONS = [
   { value: "employeeName", label: "Employee" },
 ];
 
-async function readJsonResponse(res) {
-  const text = await res.text();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { message: text.slice(0, 300) };
-  }
-}
-
 function formatAttendanceApiError(err, res, data) {
   if (err?.name === "AbortError") {
     return "eTimeOffice request timed out. Try a single date or fewer employees, then sync again.";
   }
-  const msg = String(err?.message || data?.message || "").trim();
+  const msg = String(err?.message || data?.message || data?.error || "").trim();
+  if (res?.status === 401 || res?.status === 403) {
+    return msg || "Session expired or insufficient access. Sign in as admin/HR and retry.";
+  }
   if (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(msg)) {
     return [
       "Cannot reach the ERP API server (eTimeOffice proxy).",
@@ -353,6 +346,20 @@ export function EmployeeAttendanceInputsPage() {
       }
       const status = await fetchAttendanceApiStatus();
       if (cancelled) return;
+      if (status.status === 401 || status.status === 403) {
+        setApiConnection({
+          checking: false,
+          reachable: true,
+          etimeConfigured: false,
+          message:
+            status.error ||
+            status.data?.error ||
+            "Sign in as admin or HR to use eTimeOffice sync.",
+          baseUrl: "",
+          punchEndpoint: "",
+        });
+        return;
+      }
       if (!status.ok || !status.data?.etimeConfigured) {
         setApiConnection({
           checking: false,
@@ -361,7 +368,7 @@ export function EmployeeAttendanceInputsPage() {
           message:
             status.data?.message ||
             status.error ||
-            "Node server is up but eTimeOffice credentials are missing on the server.",
+            "Node server is up but eTimeOffice credentials are missing on the server. Add ETIME_* to .env.server and restart Node.",
           baseUrl: status.data?.baseUrl || "",
           punchEndpoint: status.data?.punchEndpoint || "",
         });
@@ -464,10 +471,12 @@ export function EmployeeAttendanceInputsPage() {
             "eTimeOffice API is not configured. Fix server env (ETIME_AUTH_CREDENTIALS) and restart Node."
         );
       }
-      const res = await fetch(apiUrl(`/api/admin/attendance/punches?${params.toString()}`));
-      const data = await readJsonResponse(res);
-      if (!res.ok) {
-        throw new Error(formatAttendanceApiError(null, res, data));
+      const result = await fetchApiWithAuth(`/api/admin/attendance/punches?${params.toString()}`, {
+        timeoutMs: 120_000,
+      });
+      const data = result.data || {};
+      if (!result.ok) {
+        throw new Error(formatAttendanceApiError(null, { status: result.status }, data));
       }
       const apiRecords = Array.isArray(data?.records) ? data.records : [];
       const dbRows = apiRecords.map((record, index) => mapApiPunchToDbRow(record, index));
@@ -487,7 +496,7 @@ export function EmployeeAttendanceInputsPage() {
           ? `${upsertResult.stored} punch row(s) stored (${syncFromDate} → ${selectedDate}, overlap ${SYNC_OVERLAP_DAYS} day(s)).`
           : data?.message || "No punch rows with a valid date and employee code to store.",
       });
-      const result = await fetchAttendancePunchesPage(supabase, {
+      const reload = await fetchAttendancePunchesPage(supabase, {
         fromDate: selectedDate,
         toDate: selectedDate,
         empCode: resolveAttendanceEmpCodeFilter(empCode),
@@ -498,8 +507,8 @@ export function EmployeeAttendanceInputsPage() {
         sortDir,
       });
       setPage(1);
-      setRows(result.rows);
-      setTotalCount(result.total);
+      setRows(reload.rows);
+      setTotalCount(reload.total);
     } catch (err) {
       setError(formatAttendanceApiError(err));
     } finally {
