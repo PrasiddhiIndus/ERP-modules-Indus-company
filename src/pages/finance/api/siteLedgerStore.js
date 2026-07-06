@@ -35,6 +35,9 @@ export function serializeSiteMeta(site) {
   if (site.structureEmpty === true) {
     meta.structureEmpty = true;
   }
+  if (Array.isArray(site.excludedHeadKeys) && site.excludedHeadKeys.length) {
+    meta.excludedHeadKeys = site.excludedHeadKeys;
+  }
   return `${SITE_META_PREFIX}${JSON.stringify(meta)}`;
 }
 
@@ -302,6 +305,7 @@ function buildSites(raw, parentById, childById) {
       version: meta.version || 1,
       customHeads: Array.isArray(meta.customHeads) ? meta.customHeads : [],
       structureEmpty: meta.structureEmpty === true,
+      excludedHeadKeys: Array.isArray(meta.excludedHeadKeys) ? meta.excludedHeadKeys : [],
       structure,
       spreads: spreadsBySite[s.id] || [],
       estimates: budgetsBySite[s.id] || [],
