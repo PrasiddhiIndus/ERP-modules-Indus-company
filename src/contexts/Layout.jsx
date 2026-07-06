@@ -1121,7 +1121,7 @@ const Layout = () => {
             </NavLink>
             )}
 
-            {(can("softwareSubscriptions") || can("itIs")) && (
+            {(userProfile?.role === ROLES.SUPER_ADMIN || userProfile?.role === ROLES.SUPER_ADMIN_PRO) && (
             <NavLink to="software-subscriptions-reminders" className={topNavClass}>
               <Bell className="w-4 h-4 shrink-0" />
               <span className="text-sm font-medium">Software subscriptions/reminders</span>

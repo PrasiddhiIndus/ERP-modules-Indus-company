@@ -16,7 +16,7 @@ function hasValidCachedSession() {
 }
 
 const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, profileLoading, permissionsReady } = useAuth();
   const location = useLocation();
   const cachedUser = hasValidCachedSession() ? readCachedSessionUser() : null;
   const effectiveUser = user || cachedUser;
@@ -38,6 +38,14 @@ const ProtectedRoute = ({ children }) => {
       reason: "no-session",
     });
     return <Navigate to="/" replace state={{ from: location.pathname, reason: "session-required" }} />;
+  }
+
+  if (profileLoading || !permissionsReady) {
+    logLoginStage("route-guard-wait", {
+      path: location.pathname,
+      reason: "permissions-loading",
+    });
+    return <PageLoader fullScreen label="Loading permissions…" />;
   }
 
   logLoginStage("route-guard-allow", {

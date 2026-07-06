@@ -78,7 +78,11 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => readInitialAuthUser());
   const [profileRow, setProfileRow] = useState(() => readInitialProfileRow());
   const [loading, setLoading] = useState(false);
-  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(() => {
+    const authUser = readInitialAuthUser();
+    if (!authUser?.id) return false;
+    return !readCachedProfileRow(authUser.id);
+  });
   const userRef = useRef(null);
   const profileSyncAttemptedRef = useRef(null);
   const signInProfileSyncRef = useRef(false);
@@ -403,8 +407,10 @@ export const AuthProvider = ({ children }) => {
 
   const syncProfileInBackground = (accessToken, userId, authUser = null) => {
     if (!userId || !accessToken) return;
+    setProfileLoading(true);
     void (async () => {
       for (let attempt = 1; attempt <= PROFILE_SYNC_RETRIES; attempt += 1) {
+        setProfileLoading(true);
         const result = await fetchProfileViaLoginCheck(accessToken, userId, authUser, {
           background: true,
         });
@@ -413,6 +419,20 @@ export const AuthProvider = ({ children }) => {
           await new Promise((r) => setTimeout(r, 400 * attempt));
         }
       }
+      if (!readCachedProfileRow(userId)) {
+        const meta = authUser?.user_metadata || {};
+        const fallbackRow = {
+          id: userId,
+          email: authUser?.email ?? null,
+          username: meta.username || meta.full_name || authUser?.email?.split("@")[0] || "User",
+          team: meta.team ?? null,
+          role: meta.role ?? null,
+          allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+        };
+        writeCachedProfileRow(fallbackRow);
+        setProfileRow(fallbackRow);
+      }
+      setProfileLoading(false);
     })();
   };
 
@@ -423,13 +443,18 @@ export const AuthProvider = ({ children }) => {
       setProfileLoading(false);
       return;
     }
+    if (profileRow?.id === user.id) {
+      setProfileLoading(false);
+      return;
+    }
     if (signInProfileSyncRef.current) return;
     profileSyncAttemptedRef.current = user.id;
     const token = readCachedAccessToken();
     if (!token) return;
+    setProfileLoading(true);
     syncProfileInBackground(token, user.id, user);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, profileRow?.id]);
 
   // Register user + save role-based profile (username, team, role, allowed_modules for manager)
   const signUpWithProfile = async (email, password, profileData) => {
@@ -604,7 +629,39 @@ export const AuthProvider = ({ children }) => {
     const uid = userId || userRef.current;
     if (!uid) return;
     const row = readCachedProfileRow(uid);
-    if (row) setProfileRow(row);
+    if (row) {
+      setProfileRow(row);
+      setProfileLoading(false);
+    }
+  };
+
+  /** Apply authorization profile immediately after login (before navigation). */
+  const applyLoginProfile = (profile, userId = user?.id) => {
+    const uid = userId || userRef.current;
+    if (!uid || !profile) return;
+    const cached = readCachedProfileRow(uid);
+    const meta = user?.user_metadata || {};
+    const row = {
+      id: uid,
+      email: cached?.email ?? user?.email ?? null,
+      username:
+        cached?.username ??
+        profile.username ??
+        meta.username ??
+        meta.full_name ??
+        user?.email?.split("@")[0] ??
+        "User",
+      team: profile.team ?? cached?.team ?? null,
+      role: profile.role ?? cached?.role ?? null,
+      allowed_modules: Array.isArray(profile.allowed_modules)
+        ? profile.allowed_modules
+        : Array.isArray(cached?.allowed_modules)
+          ? cached.allowed_modules
+          : [],
+    };
+    writeCachedProfileRow(row);
+    setProfileRow(row);
+    setProfileLoading(false);
   };
 
   const clearInvalidSession = async () => {
@@ -626,21 +683,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const permissionsReady = useMemo(() => {
+    if (!user?.id) return true;
+    return profileRow?.id === user.id;
+  }, [user?.id, profileRow?.id]);
+
   const userProfile = useMemo(() => {
-    if (!user) return null;
+    if (!user?.id || !permissionsReady || !profileRow) return null;
 
-    if (profileRow) {
-      return {
-        username: profileRow.username ?? user?.email?.split('@')[0],
-        team: profileRow.team ?? null,
-        role: normalizeAppRole(profileRow.role),
-        allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
-        module_access_pending: user?.user_metadata?.module_access_pending === true,
-      };
-    }
-
-    return buildAuthProfile(user);
-  }, [user, profileRow]);
+    return {
+      username: profileRow.username ?? user?.email?.split('@')[0],
+      team: profileRow.team ?? null,
+      role: normalizeAppRole(profileRow.role),
+      allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
+      module_access_pending: user?.user_metadata?.module_access_pending === true,
+    };
+  }, [user, profileRow, permissionsReady]);
 
   const accessibleModules = useMemo(
     () => (userProfile ? getAccessibleModules(userProfile) : new Set()),
@@ -670,13 +728,30 @@ export const AuthProvider = ({ children }) => {
   }, [useProfilesTable, user?.id, userProfile?.role, profileRow?.role]);
 
   useEffect(() => {
-    if (!profileLoading) return undefined;
-    const t = setTimeout(() => setProfileLoading(false), PROFILE_FETCH_TIMEOUT_MS + 3000);
+    if (!profileLoading || permissionsReady) return undefined;
+    const t = setTimeout(() => {
+      if (!user?.id || profileRow?.id === user.id) {
+        setProfileLoading(false);
+        return;
+      }
+      const meta = user.user_metadata || {};
+      const fallbackRow = {
+        id: user.id,
+        email: user.email ?? null,
+        username: meta.username || meta.full_name || user.email?.split("@")[0] || "User",
+        team: meta.team ?? null,
+        role: meta.role ?? null,
+        allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+      };
+      writeCachedProfileRow(fallbackRow);
+      setProfileRow(fallbackRow);
+      setProfileLoading(false);
+    }, PROFILE_FETCH_TIMEOUT_MS + 3000);
     return () => clearTimeout(t);
-  }, [profileLoading]);
+  }, [profileLoading, permissionsReady, user, profileRow?.id]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, profileLoading, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile }}>
+    <AuthContext.Provider value={{ user, loading, profileLoading, permissionsReady, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile, applyLoginProfile }}>
       {children}
     </AuthContext.Provider>
   );

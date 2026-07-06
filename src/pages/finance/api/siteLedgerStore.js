@@ -32,6 +32,9 @@ export function serializeSiteMeta(site) {
   if (Array.isArray(site.customHeads) && site.customHeads.length) {
     meta.customHeads = site.customHeads;
   }
+  if (site.structureEmpty === true) {
+    meta.structureEmpty = true;
+  }
   return `${SITE_META_PREFIX}${JSON.stringify(meta)}`;
 }
 
@@ -298,6 +301,7 @@ function buildSites(raw, parentById, childById) {
       siteGroup: meta.siteGroup || s.code,
       version: meta.version || 1,
       customHeads: Array.isArray(meta.customHeads) ? meta.customHeads : [],
+      structureEmpty: meta.structureEmpty === true,
       structure,
       spreads: spreadsBySite[s.id] || [],
       estimates: budgetsBySite[s.id] || [],
