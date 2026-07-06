@@ -8,7 +8,6 @@ import {
   logLoginStage,
   validateTeamLandingPaths,
   resolveSafeLandingPath,
-  buildProfileFromSession,
 } from '../lib/loginFlow'
 import { getAccessibleModules } from '../config/roles'
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
@@ -86,7 +85,7 @@ const Login = () => {
   const [statIndex, setStatIndex] = useState(0)
   const [successMessage, setSuccessMessage] = useState('')
 
-  const { signIn, verifyEmailOtp, resendConfirmation, user, userProfile, applyCachedProfile } = useAuth()
+  const { signIn, verifyEmailOtp, resendConfirmation, user, userProfile, permissionsReady, applyLoginProfile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -112,12 +111,13 @@ const Login = () => {
   // Never keep an authenticated user on the login screen.
   useEffect(() => {
     if (!user?.id || !readCachedAccessToken() || isCachedAccessTokenExpired()) return
-    const profile = userProfile || buildProfileFromSession({ user }, null)
+    if (!permissionsReady || !userProfile) return
+    const profile = userProfile
     const mods = getAccessibleModules(profile)
     const path = resolveSafeLandingPath(profile, mods)
     logLoginStage('already-authenticated-redirect', { path, userId: user.id })
     navigate(path, { replace: true })
-  }, [user, userProfile, navigate])
+  }, [user, userProfile, permissionsReady, navigate])
 
   const sendVerificationCode = async () => {
     const trimmed = email.trim()
@@ -147,7 +147,7 @@ const Login = () => {
       setError(result.error)
       return false
     }
-    applyCachedProfile(session.user.id)
+    applyLoginProfile(result.profile, session.user.id)
     if (result.warning) {
       logLoginStage('redirect-warning', { warning: result.warning })
     }

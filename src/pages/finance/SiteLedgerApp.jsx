@@ -398,8 +398,12 @@ function normalize(data) {
   const sites = (data.sites || []).map((s) => {
     let structure = s.structure;
     if (!structure || !structure.length) {
-      const keys = (s.headKeys && s.headKeys.length) ? s.headKeys : [...DEFAULT_KEYS];
-      structure = structureFromKeys(keys);
+      if (s.structureEmpty) {
+        structure = [];
+      } else {
+        const keys = Array.isArray(s.headKeys) ? s.headKeys : [...DEFAULT_KEYS];
+        structure = keys.length ? structureFromKeys(keys) : [];
+      }
     }
     structure = migrateStructureParents(structure);
     // ensure all referenced child keys exist in library
@@ -2153,6 +2157,8 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
 }
 
 /* ───────────────────────── SITE CONFIG (parent → child builder) ───────────────────────── */
+const AVAILABLE_PREVIEW_COUNT = 8;
+
 function SiteConfig({ sites, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onSetParentColor, onSaveSetupNow, saveState }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
@@ -2166,6 +2172,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
   const [colorEdit, setColorEdit] = useState(null); // parent key whose colour swatches are open
   const [newPName, setNewPName] = useState("");
   const [newPColor, setNewPColor] = useState(PARENT_PALETTE[6]);
+  const [showAllAvailable, setShowAllAvailable] = useState(false);
   const drag = useRef(null);
   const childSaveTickRef = useRef(false);
   if (!sites.length) return <div className="empty"><Building2 size={30} /><h3>No sites yet</h3><p>Add a site to configure its parent &amp; child cost heads.</p><button className="primary" onClick={onAdd} style={{ marginTop: 12 }}><PlusCircle size={15} /> Add Site</button></div>;
@@ -2378,7 +2385,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
       <Card title="Available cost lines" right={<span className="muted-s">{available.length} unused · drag into a parent below</span>}>
         <div className="tray">
           {available.length === 0 && <div className="dnd-empty">Every cost line is assigned. Use the × on a line below to remove it from this site.</div>}
-          {available.map((h) => (
+          {(showAllAvailable ? available : available.slice(0, AVAILABLE_PREVIEW_COUNT)).map((h) => (
             <div key={h.key} className="dnd-chip" draggable onDragStart={() => onDragStart(h.key, "__available__")} onDragEnd={onDragEnd}>
               <GripVertical size={13} className="grip" />
               <span className="cat-dot" style={{ background: parentColor(h.parent) }} title={parentLabel(h.parent)} />
@@ -2394,6 +2401,18 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
             </div>
           ))}
         </div>
+        {available.length > AVAILABLE_PREVIEW_COUNT && (
+          <button
+            type="button"
+            className="link"
+            style={{ marginTop: 8, fontSize: 12.5 }}
+            onClick={() => setShowAllAvailable((v) => !v)}
+          >
+            {showAllAvailable
+              ? "Show less"
+              : `Load more (${available.length - AVAILABLE_PREVIEW_COUNT} more)`}
+          </button>
+        )}
         <div className="add-head">
           <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="New custom cost line (e.g. Night Shift Allowance)" onKeyDown={(e) => e.key === "Enter" && addCustom()} />
           <select value={newParent} onChange={(e) => setNewParent(e.target.value)}>{PARENTS.map((p) => <option key={p.key} value={p.key}>{parentLabel(p.key)}</option>)}</select>
@@ -3755,7 +3774,8 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
       ocNumber: ocNumber.trim() || (priorActive?.ocNumber || "").trim(),
       structure: isRenewal && priorActive?.structure?.length
         ? priorActive.structure.map((g) => ({ parent: g.parent, children: [...g.children] }))
-        : structureFromKeys(DEFAULT_KEYS),
+        : [],
+      structureEmpty: !(isRenewal && priorActive?.structure?.length),
       spreads: [],
       estimates: [],
       contractStart: contractPeriodFromDateInput(cStart),
