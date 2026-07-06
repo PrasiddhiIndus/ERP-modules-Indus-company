@@ -37,6 +37,26 @@ const LEAVE_TABS = [
   { id: "encash", label: "PL Encashment Preferences" },
 ];
 
+const LEDGER_SUB_TABS = [
+  { id: "opening", label: "Opening" },
+  { id: "used", label: "Used" },
+  { id: "balance", label: "Balance" },
+];
+
+const LEDGER_TAB_FIELD_KEYS = {
+  opening: ["opening_pl", "opening_sl", "opening_cl"],
+  used: ["used_pl", "used_sl", "used_cl"],
+  balance: [
+    "carried_pl",
+    "encashed_pl",
+    "expired_pl",
+    "carried_sl",
+    "expired_sl",
+    "carried_cl",
+    "expired_cl",
+  ],
+};
+
 function fmtNum(v) {
   const n = Number(v || 0);
   if (!Number.isFinite(n)) return "0";
@@ -220,6 +240,7 @@ export function EmployeeLeaveManagementPage() {
   const [encashPageSize, setEncashPageSize] = useState(25);
   const [balancesPage, setBalancesPage] = useState(1);
   const [balancesPageSize, setBalancesPageSize] = useState(25);
+  const [ledgerSubTab, setLedgerSubTab] = useState("opening");
   const [ledgerSearch, setLedgerSearch] = useState("");
   const [ledgerSort, setLedgerSort] = useState({ key: "empCode", direction: "asc" });
   const [ledgerEditRow, setLedgerEditRow] = useState(null);
@@ -398,6 +419,7 @@ export function EmployeeLeaveManagementPage() {
           expired_sl: b.expired_sl ?? 0,
           opening_cl: b.opening_cl ?? 0,
           used_cl: b.used_cl ?? 0,
+          carried_cl: b.carried_cl ?? 0,
           expired_cl: b.expired_cl ?? 0,
         };
       }),
@@ -406,25 +428,11 @@ export function EmployeeLeaveManagementPage() {
 
   const ledgerRows = useMemo(() => {
     const needle = ledgerSearch.trim().toLowerCase();
+    const tabFields = LEDGER_TAB_FIELD_KEYS[ledgerSubTab] || [];
     const filtered = !needle
       ? balancesRows
       : balancesRows.filter((row) => {
-          const hay = [
-            row.empCode,
-            row.employeeName,
-            row.opening_pl,
-            row.used_pl,
-            row.carried_pl,
-            row.encashed_pl,
-            row.expired_pl,
-            row.opening_sl,
-            row.used_sl,
-            row.carried_sl,
-            row.expired_sl,
-            row.opening_cl,
-            row.used_cl,
-            row.expired_cl,
-          ]
+          const hay = [row.empCode, row.employeeName, ...tabFields.map((k) => row[k])]
             .join(" ")
             .toLowerCase();
           return hay.includes(needle);
@@ -448,7 +456,18 @@ export function EmployeeLeaveManagementPage() {
     });
 
     return sorted;
-  }, [balancesRows, ledgerSearch, ledgerSort]);
+  }, [balancesRows, ledgerSearch, ledgerSort, ledgerSubTab]);
+
+  const ledgerTabTotals = useMemo(() => {
+    const fields = LEDGER_TAB_FIELD_KEYS[ledgerSubTab] || [];
+    const totals = Object.fromEntries(fields.map((k) => [k, 0]));
+    for (const row of balancesRows) {
+      for (const key of fields) {
+        totals[key] += Number(row[key] || 0);
+      }
+    }
+    return totals;
+  }, [balancesRows, ledgerSubTab]);
 
   const encashTotalPages = Math.max(1, Math.ceil(encashRows.length / encashPageSize));
   const encashCurrentPage = Math.min(encashPage, encashTotalPages);
@@ -476,7 +495,14 @@ export function EmployeeLeaveManagementPage() {
 
   useEffect(() => {
     setBalancesPage(1);
-  }, [ledgerSearch, ledgerSort.key, ledgerSort.direction]);
+  }, [ledgerSearch, ledgerSort.key, ledgerSort.direction, ledgerSubTab]);
+
+  useEffect(() => {
+    const validKeys = new Set(["empCode", "employeeName", ...(LEDGER_TAB_FIELD_KEYS[ledgerSubTab] || [])]);
+    if (!validKeys.has(ledgerSort.key)) {
+      setLedgerSort({ key: "empCode", direction: "asc" });
+    }
+  }, [ledgerSubTab, ledgerSort.key]);
 
   const toggleLedgerSort = useCallback((key) => {
     setLedgerSort((prev) => {
@@ -498,6 +524,114 @@ export function EmployeeLeaveManagementPage() {
     ),
     [ledgerSort.direction, ledgerSort.key, toggleLedgerSort]
   );
+
+  const numCol = useCallback(
+    (key, label, minW = "min-w-[100px]") => ({
+      key,
+      label: sortLabel(label, key),
+      render: (r) => fmtNum(r[key]),
+      headerClassName: minW,
+      cellClassName: `text-right tabular-nums ${minW}`,
+    }),
+    [sortLabel]
+  );
+
+  const ledgerEmployeeColumns = useMemo(
+    () => [
+      {
+        key: "empCode",
+        label: sortLabel("Employee code", "empCode"),
+        render: (r) => r.empCode || "—",
+        headerClassName: "min-w-[130px]",
+        cellClassName: "min-w-[130px]",
+      },
+      {
+        key: "employeeName",
+        label: sortLabel("Employee", "employeeName"),
+        render: (r) => r.employeeName || "—",
+        headerClassName: "min-w-[220px]",
+        cellClassName: "min-w-[220px]",
+      },
+    ],
+    [sortLabel]
+  );
+
+  const ledgerActionsColumn = useMemo(
+    () => ({
+      key: "actions",
+      label: "Actions",
+      headerClassName: "min-w-[88px]",
+      cellClassName: "min-w-[88px]",
+      render: (r) => (
+        <button
+          type="button"
+          onClick={() => setLedgerEditRow(r)}
+          disabled={!r.empCode || loading || importBusy}
+          className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50"
+        >
+          Edit
+        </button>
+      ),
+    }),
+    [importBusy, loading]
+  );
+
+  const ledgerColumnsByTab = useMemo(
+    () => ({
+      opening: [
+        ...ledgerEmployeeColumns,
+        numCol("opening_pl", "PL Opening"),
+        numCol("opening_sl", "SL Opening"),
+        numCol("opening_cl", "CL Opening"),
+        ledgerActionsColumn,
+      ],
+      used: [
+        ...ledgerEmployeeColumns,
+        numCol("used_pl", "PL Used"),
+        numCol("used_sl", "SL Used"),
+        numCol("used_cl", "CL Used"),
+        ledgerActionsColumn,
+      ],
+      balance: [
+        ...ledgerEmployeeColumns,
+        numCol("carried_pl", "PL Carried", "min-w-[105px]"),
+        numCol("encashed_pl", "PL Encashed", "min-w-[105px]"),
+        numCol("expired_pl", "PL Expired", "min-w-[105px]"),
+        numCol("carried_sl", "SL Carried", "min-w-[105px]"),
+        numCol("expired_sl", "SL Expired", "min-w-[105px]"),
+        numCol("carried_cl", "CL Carried", "min-w-[105px]"),
+        numCol("expired_cl", "CL Expired", "min-w-[105px]"),
+        ledgerActionsColumn,
+      ],
+    }),
+    [ledgerActionsColumn, ledgerEmployeeColumns, numCol]
+  );
+
+  const ledgerTabDescriptions = {
+    opening: "Opening balances carried forward from the previous year for each leave type.",
+    used: "Leave days consumed during the selected year, by leave type.",
+    balance: "Year-end outcomes after processing — carried forward, encashed, or expired balances.",
+  };
+
+  const ledgerTabMetricLabels = {
+    opening: [
+      { key: "opening_pl", label: "Total PL Opening", tone: "bg-blue-50/50" },
+      { key: "opening_sl", label: "Total SL Opening", tone: "bg-sky-50/50" },
+      { key: "opening_cl", label: "Total CL Opening", tone: "bg-indigo-50/50" },
+    ],
+    used: [
+      { key: "used_pl", label: "Total PL Used", tone: "bg-amber-50/50" },
+      { key: "used_sl", label: "Total SL Used", tone: "bg-orange-50/50" },
+      { key: "used_cl", label: "Total CL Used", tone: "bg-rose-50/50" },
+    ],
+    balance: [
+      { key: "carried_pl", label: "Total PL Carried", tone: "bg-blue-50/50" },
+      { key: "encashed_pl", label: "Total PL Encashed", tone: "bg-purple-50/50" },
+      { key: "expired_pl", label: "Total PL Expired", tone: "bg-rose-50/50" },
+      { key: "carried_sl", label: "Total SL Carried", tone: "bg-sky-50/50" },
+      { key: "expired_sl", label: "Total SL Expired", tone: "bg-orange-50/50" },
+    ],
+  };
 
   const downloadImportTemplate = useCallback(() => {
     const samples = filteredEmployees
@@ -572,6 +706,7 @@ export function EmployeeLeaveManagementPage() {
       "SL Expired": Number(r.expired_sl || 0),
       "CL Open": Number(r.opening_cl || 0),
       "CL Used": Number(r.used_cl || 0),
+      "CL Carried": Number(r.carried_cl || 0),
       "CL Expired": Number(r.expired_cl || 0),
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -761,21 +896,44 @@ export function EmployeeLeaveManagementPage() {
 
         {activeTab === "ledger" && (
           <SectionCard title={`Yearly Leave Balance Ledger (${year})`} right={null} className="mt-4">
+            <div className="mb-4 flex flex-wrap gap-1 border-b border-gray-200 pb-2">
+              {LEDGER_SUB_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setLedgerSubTab(tab.id)}
+                  className={`h-9 px-4 rounded-t-lg text-xs font-semibold border-b-2 transition ${
+                    ledgerSubTab === tab.id
+                      ? "border-[#1F3A8A] text-[#1F3A8A] bg-[#1F3A8A]/5"
+                      : "border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
             <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-5">
-              <MetricCard label="Total PL Expired" value={fmtNum(balanceTotals.expired_pl)} tone="bg-rose-50/50" />
-              <MetricCard label="Total SL Carried" value={fmtNum(balanceTotals.carried_sl)} tone="bg-sky-50/50" />
-              <MetricCard label="Total SL Expired" value={fmtNum(balanceTotals.expired_sl)} tone="bg-orange-50/50" />
-              <MetricCard label="Rows Loaded" value={balancesRows.length} />
+              {(ledgerTabMetricLabels[ledgerSubTab] || []).map((metric) => (
+                <MetricCard
+                  key={metric.key}
+                  label={metric.label}
+                  value={fmtNum(ledgerTabTotals[metric.key])}
+                  tone={metric.tone}
+                />
+              ))}
+              <MetricCard label="Employees" value={ledgerRows.length} />
               <MetricCard label="Data Year" value={year} />
             </div>
+
             <div className="space-y-3">
               <FilterBar>
                 <div className="flex flex-col gap-0.5">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase">Search in ledger</label>
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase">Search employee</label>
                   <TinyInput
                     value={ledgerSearch}
                     onChange={(e) => setLedgerSearch(e.target.value)}
-                    placeholder="Employee code, name, or any value..."
+                    placeholder="Code, name, or values in this tab..."
                     className="min-w-[280px]"
                   />
                 </div>
@@ -820,10 +978,7 @@ export function EmployeeLeaveManagementPage() {
                   {importMessage}
                 </div>
               ) : null}
-              <p className="text-[11px] text-gray-500">
-                Use the sample sheet for column headers. Bulk import upserts balances for the selected year. Edit
-                updates one employee at a time.
-              </p>
+              <p className="text-[11px] text-gray-500">{ledgerTabDescriptions[ledgerSubTab]}</p>
               <Pager
                 totalRows={ledgerRows.length}
                 pageSize={balancesPageSize}
@@ -835,51 +990,9 @@ export function EmployeeLeaveManagementPage() {
               <DenseTable
                 rows={balancesPageRows}
                 rowKey="id"
-                frozenColumnCount={0}
-                columns={[
-                  {
-                    key: "empCode",
-                    label: sortLabel("Employee code", "empCode"),
-                    render: (r) => r.empCode || "—",
-                    headerClassName: "min-w-[130px]",
-                    cellClassName: "min-w-[130px]",
-                  },
-                  {
-                    key: "employeeName",
-                    label: sortLabel("Employee", "employeeName"),
-                    render: (r) => r.employeeName || "—",
-                    headerClassName: "min-w-[220px]",
-                    cellClassName: "min-w-[220px]",
-                  },
-                  { key: "opening_pl", label: sortLabel("PL (open)", "opening_pl"), render: (r) => fmtNum(r.opening_pl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
-                  { key: "used_pl", label: sortLabel("PL (used)", "used_pl"), render: (r) => fmtNum(r.used_pl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
-                  { key: "carried_pl", label: sortLabel("PL (carried)", "carried_pl"), render: (r) => fmtNum(r.carried_pl), headerClassName: "min-w-[105px]", cellClassName: "text-right tabular-nums min-w-[105px]" },
-                  { key: "encashed_pl", label: sortLabel("PL (encash)", "encashed_pl"), render: (r) => fmtNum(r.encashed_pl), headerClassName: "min-w-[105px]", cellClassName: "text-right tabular-nums min-w-[105px]" },
-                  { key: "expired_pl", label: sortLabel("PL (expired)", "expired_pl"), render: (r) => fmtNum(r.expired_pl), headerClassName: "min-w-[105px]", cellClassName: "text-right tabular-nums min-w-[105px]" },
-                  { key: "opening_sl", label: sortLabel("SL (open)", "opening_sl"), render: (r) => fmtNum(r.opening_sl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
-                  { key: "used_sl", label: sortLabel("SL (used)", "used_sl"), render: (r) => fmtNum(r.used_sl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
-                  { key: "carried_sl", label: sortLabel("SL (carried)", "carried_sl"), render: (r) => fmtNum(r.carried_sl), headerClassName: "min-w-[105px]", cellClassName: "text-right tabular-nums min-w-[105px]" },
-                  { key: "expired_sl", label: sortLabel("SL (expired)", "expired_sl"), render: (r) => fmtNum(r.expired_sl), headerClassName: "min-w-[105px]", cellClassName: "text-right tabular-nums min-w-[105px]" },
-                  { key: "opening_cl", label: sortLabel("CL (open)", "opening_cl"), render: (r) => fmtNum(r.opening_cl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
-                  { key: "used_cl", label: sortLabel("CL (used)", "used_cl"), render: (r) => fmtNum(r.used_cl), headerClassName: "min-w-[95px]", cellClassName: "text-right tabular-nums min-w-[95px]" },
-                  { key: "expired_cl", label: sortLabel("CL (expired)", "expired_cl"), render: (r) => fmtNum(r.expired_cl), headerClassName: "min-w-[105px]", cellClassName: "text-right tabular-nums min-w-[105px]" },
-                  {
-                    key: "actions",
-                    label: "Actions",
-                    headerClassName: "min-w-[88px]",
-                    cellClassName: "min-w-[88px]",
-                    render: (r) => (
-                      <button
-                        type="button"
-                        onClick={() => setLedgerEditRow(r)}
-                        disabled={!r.empCode || loading || importBusy}
-                        className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50"
-                      >
-                        Edit
-                      </button>
-                    ),
-                  },
-                ]}
+                frozenColumnCount={2}
+                frozenColumnWidths={[130, 220]}
+                columns={ledgerColumnsByTab[ledgerSubTab] || []}
               />
               <LeaveLedgerEditModal
                 open={!!ledgerEditRow}

@@ -149,8 +149,9 @@ function migrateStructureParents(structure) {
 }
 
 function mergeSiteLibrary(site, globalLibrary) {
-  const custom = site?.customHeads || [];
-  const merged = [...globalLibrary];
+  const excluded = new Set(site?.excludedHeadKeys || []);
+  const custom = (site?.customHeads || []).filter((h) => !excluded.has(h.key));
+  const merged = globalLibrary.filter((h) => !excluded.has(h.key));
   custom.forEach((h) => {
     if (!merged.some((x) => x.key === h.key)) {
       merged.push({ ...h, custom: true, siteScoped: true });
@@ -425,6 +426,7 @@ function normalize(data) {
       siteGroup: s.siteGroup || null,
       version: s.version || 1,
       customHeads,
+      excludedHeadKeys: Array.isArray(s.excludedHeadKeys) ? s.excludedHeadKeys : [],
     };
   });
   return { sites: enrichSitesWithVersions(sites), records: data.records || {}, library };
@@ -2220,6 +2222,37 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
     }, { scope: "structure", siteCode: siteId });
   };
 
+  const excludeHeadFromSite = (key) => {
+    const isSiteCustom = (site.customHeads || []).some((x) => x.key === key) || key.startsWith(`${siteId}_`);
+    onApplySetupChange(({ sites: allSites }) => {
+      const target = allSites.find((s) => s.id === siteId);
+      if (!target) return {};
+      const stripEst = (est) => {
+        if (!est.expenses?.[key]) return est;
+        const { [key]: _removed, ...expenses } = est.expenses;
+        return { ...est, expenses };
+      };
+      const nextStructure = displayStructure(target).map((g) => ({
+        parent: g.parent,
+        children: g.children.filter((k) => k !== key),
+      }));
+      const nextExcluded = [...new Set([...(target.excludedHeadKeys || []), key])];
+      const nextSite = {
+        ...target,
+        excludedHeadKeys: nextExcluded,
+        structure: compactStructure(nextStructure),
+        spreads: (target.spreads || []).filter((sp) => sp.head !== key),
+        estimates: (target.estimates || []).map(stripEst),
+        customHeads: isSiteCustom
+          ? (target.customHeads || []).filter((x) => x.key !== key)
+          : (target.customHeads || []),
+      };
+      return { sites: allSites.map((s) => (s.id === siteId ? nextSite : s)) };
+    }, { scope: "structure", siteCode: siteId });
+    setEditingChild(null);
+    setEditChildVal("");
+  };
+
   const onDragStart = (childKey, fromParent) => { drag.current = { childKey, fromParent }; };
   const onDragEnd = () => { drag.current = null; };
   const onDropInParent = (e, toParent, beforeKey = null) => {
@@ -2229,33 +2262,6 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
     if (!d) return;
     moveChild(d.childKey, d.fromParent, toParent, beforeKey);
     drag.current = null;
-  };
-
-  const deleteHead = (key) => {
-    const h = libMap[key];
-    if (!h) return;
-    const isSiteCustom = (site.customHeads || []).some((x) => x.key === key);
-    if (!isSiteCustom) {
-      removeChild(key);
-      return;
-    }
-    onApplySetupChange(({ sites: allSites, library: lib }) => {
-      const target = allSites.find((s) => s.id === siteId);
-      if (!target) return {};
-      const nextStructure = displayStructure(target).map((g) => ({
-        parent: g.parent,
-        children: g.children.filter((k) => k !== key),
-      }));
-      const nextLibrary = lib.filter((h) => h.key !== key);
-      return {
-        library: nextLibrary,
-        sites: allSites.map((s) => (s.id === siteId ? {
-          ...s,
-          customHeads: (s.customHeads || []).filter((x) => x.key !== key),
-          structure: compactStructure(nextStructure),
-        } : s)),
-      };
-    }, { scope: "masters", libraryChanged: true, siteCode: siteId });
   };
 
   const commitChildRename = (key, rawLabel) => {
@@ -2293,7 +2299,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
     onSaveSetupNow?.();
   };
 
-  const renderChildHeadEditor = (key) => (
+  const renderChildHeadEditor = (key, { cancelRemovesFromSite = false } = {}) => (
     <>
       <input
         className="chip-edit"
@@ -2302,7 +2308,10 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
         onChange={(e) => setEditChildVal(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") saveChildHeadEdit(key);
-          if (e.key === "Escape") cancelChildHeadEdit();
+          if (e.key === "Escape") {
+            if (cancelRemovesFromSite) excludeHeadFromSite(key);
+            else cancelChildHeadEdit();
+          }
         }}
         onBlur={() => {
           setTimeout(() => {
@@ -2322,6 +2331,17 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
       >
         <Check size={12} />
       </button>
+      {cancelRemovesFromSite ? (
+        <button
+          type="button"
+          className="chip-act danger"
+          title="Remove from this site"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => excludeHeadFromSite(key)}
+        >
+          Cancel
+        </button>
+      ) : null}
     </>
   );
 
@@ -2390,12 +2410,12 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
               <GripVertical size={13} className="grip" />
               <span className="cat-dot" style={{ background: parentColor(h.parent) }} title={parentLabel(h.parent)} />
               {editingChild === h.key ? (
-                renderChildHeadEditor(h.key)
+                renderChildHeadEditor(h.key, { cancelRemovesFromSite: true })
               ) : (
                 <>
                   <span>{h.label}</span>
                   <button type="button" className="chip-act" title="Rename cost line" onMouseDown={(e) => e.stopPropagation()} onClick={() => { setEditingChild(h.key); setEditChildVal(h.label); }}><Pencil size={11} /></button>
-                  <button type="button" className="chip-act danger" title="Delete cost line" onMouseDown={(e) => e.stopPropagation()} onClick={() => deleteHead(h.key)}><X size={13} /></button>
+                  <button type="button" className="chip-act danger" title="Remove from this site" onMouseDown={(e) => e.stopPropagation()} onClick={() => excludeHeadFromSite(h.key)}>Cancel</button>
                 </>
               )}
             </div>
