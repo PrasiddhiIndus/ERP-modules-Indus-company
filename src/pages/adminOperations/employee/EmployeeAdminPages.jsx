@@ -352,6 +352,7 @@ export function EmployeeAttendanceInputsPage() {
           reachable: true,
           etimeConfigured: false,
           message:
+            status.data?.message ||
             status.error ||
             status.data?.error ||
             "Sign in as admin or HR to use eTimeOffice sync.",

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const ADMIN_ROLES = new Set(['super_admin', 'super_admin_pro', 'admin']);
 const HR_MODULES = new Set(['hr', 'payroll', 'admin']);
+const HR_TEAMS = new Set(['hr', 'admin']);
 const BILLING_MODULES = new Set(['billing', 'commercialMt', 'commercialRm', 'commercial']);
 const BILLING_TEAMS = new Set(['billing', 'commercial', 'commercialMt', 'commercialRm']);
 const BILLING_ROLES = new Set(['admin', 'billing']);
@@ -45,12 +46,23 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
 
     const svc = getServiceRoleKey();
     const url = getSupabaseUrl();
+    const profileSelect = 'id, role, team, allowed_modules, employee_code, email';
     let profile = null;
     if (url && svc) {
       const adminClient = createClient(url, svc, { auth: { persistSession: false } });
       const { data } = await adminClient
         .from('profiles')
-        .select('id, role, team, allowed_modules, employee_code, email')
+        .select(profileSelect)
+        .eq('id', userData.user.id)
+        .maybeSingle();
+      profile = data || null;
+    }
+
+    // Fallback: read own profile via user JWT + RLS (staging dev without matching service_role).
+    if (!profile) {
+      const { data } = await client
+        .from('profiles')
+        .select(profileSelect)
         .eq('id', userData.user.id)
         .maybeSingle();
       profile = data || null;
@@ -67,7 +79,10 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
         req.user = ctx.user;
         req.profile = ctx.profile;
         if (checkFn && !checkFn(ctx)) {
-          return res.status(403).json({ error: 'Forbidden.' });
+          const message = !ctx.profile
+            ? 'Could not load your profile on the API server. For staging, add SUPABASE_SERVICE_ROLE_KEY to .env.server.staging (matching .env.staging) and restart npm run dev:staging.'
+            : 'Admin or HR module access is required for this API.';
+          return res.status(403).json({ error: 'Forbidden.', message });
         }
         return next();
       } catch (err) {
@@ -84,8 +99,19 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
 
   function hasHrAccess(ctx) {
     if (isAdmin(ctx)) return true;
+    const team = String(ctx.profile?.team || '').trim();
+    if (HR_TEAMS.has(team)) return true;
     const modules = parseModules(ctx.profile?.allowed_modules);
     return hasModule(modules, HR_MODULES);
+  }
+
+  /** Matches SQL `current_user_has_attendance_admin_access()` for raw attendance / eTime sync. */
+  function hasAttendanceAdminAccess(ctx) {
+    if (isAdmin(ctx)) return true;
+    const team = String(ctx.profile?.team || '').trim();
+    if (HR_TEAMS.has(team)) return true;
+    const modules = parseModules(ctx.profile?.allowed_modules);
+    return modules.includes('hr') || modules.includes('admin');
   }
 
   function hasBillingAccess(ctx) {
@@ -102,6 +128,7 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     requireAuth: middleware(null),
     requireAdmin: middleware((ctx) => isAdmin(ctx)),
     requireHrOrAdmin: middleware((ctx) => hasHrAccess(ctx)),
+    requireAttendanceAdmin: middleware((ctx) => hasAttendanceAdminAccess(ctx)),
     requireBillingAccess: middleware((ctx) => hasBillingAccess(ctx)),
   };
 }
