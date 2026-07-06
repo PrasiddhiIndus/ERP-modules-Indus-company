@@ -42,13 +42,20 @@ function normalizeEnvValue(val) {
 }
 
 function mergeDotenvFiles() {
+  const isStaging = String(process.env.ERP_ENV || '').toLowerCase() === 'staging';
   const envSearchPaths = [
     path.join(repoRoot, '.env'),
     path.join(repoRoot, '.env.local'),
+  ];
+  if (isStaging) {
+    envSearchPaths.push(path.join(repoRoot, '.env.staging'));
+    envSearchPaths.push(path.join(repoRoot, '.env.server.staging'));
+  }
+  envSearchPaths.push(
     path.join(repoRoot, '.envserver'),
     path.join(repoRoot, '.env.server'),
-    path.join(__dirname, '.env.server'),
-  ];
+    path.join(__dirname, '.env.server')
+  );
   for (const filePath of envSearchPaths) {
     try {
       if (!fs.existsSync(filePath)) continue;
@@ -66,21 +73,58 @@ function mergeDotenvFiles() {
 
 mergeDotenvFiles();
 
+function getSupabaseProjectRefFromUrl(url) {
+  const m = String(url || '').match(/https?:\/\/([^.]+)\.supabase\.co/i);
+  return m ? m[1] : '';
+}
+
+function getSupabaseProjectRefFromJwt(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) return '';
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return String(payload?.ref || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function serviceRoleMatchesUrl(url, svcKey) {
+  if (!url || !svcKey || !isSupabaseServiceRoleKey(svcKey)) return false;
+  const urlRef = getSupabaseProjectRefFromUrl(url);
+  const keyRef = getSupabaseProjectRefFromJwt(svcKey);
+  return Boolean(urlRef && keyRef && urlRef === keyRef);
+}
+
+/** Staging dev: frontend uses .env.staging; prevent production SUPABASE_* in .env.server from winning. */
+function applyStagingSupabaseOverrides() {
+  if (String(process.env.ERP_ENV || '').toLowerCase() !== 'staging') return;
+  const url = normalizeEnvValue(process.env.VITE_SUPABASE_URL);
+  const anon = normalizeEnvValue(process.env.VITE_SUPABASE_ANON_KEY);
+  if (url) process.env.SUPABASE_URL = url;
+  if (anon) process.env.SUPABASE_ANON_KEY = anon;
+}
+
 function getSupabaseUrlForServer() {
   return normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
 }
 
 function getSupabaseServiceRoleKeyForServer() {
-  return normalizeEnvValue(
+  const raw = normalizeEnvValue(
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
       process.env.SUPABASE_SERVICE_KEY ||
       process.env.SERVICE_ROLE_KEY
   );
+  const url = getSupabaseUrlForServer();
+  if (raw && url && !serviceRoleMatchesUrl(url, raw)) return '';
+  return raw;
 }
 
 function getSupabaseAnonKeyForServer() {
   return normalizeEnvValue(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY);
 }
+
+applyStagingSupabaseOverrides();
 
 /** Supabase API keys are JWTs; service_role can read `profiles`, anon cannot (RLS). */
 function isSupabaseServiceRoleKey(key) {
@@ -153,7 +197,8 @@ app.use(
 );
 app.use(express.json({ limit: '2mb' }));
 
-const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin } = createAuthMiddleware({
+const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin, requireAttendanceAdmin } =
+  createAuthMiddleware({
   getSupabaseUrl: getSupabaseUrlForServer,
   getServiceRoleKey: getSupabaseServiceRoleKeyForServer,
   getAnonKey: getSupabaseAnonKeyForServer,
@@ -887,7 +932,7 @@ app.get('/api/debug/invoice/:id', requireAdmin, (req, res) => {
   return res.json(snap);
 });
 
-app.get('/api/admin/attendance/status', requireHrOrAdmin, (_req, res) => {
+app.get('/api/admin/attendance/status', (_req, res) => {
   try {
     const c = etimeCfg(getRequiredEnv);
     res.json({
@@ -914,7 +959,7 @@ app.get('/api/admin/attendance/status', requireHrOrAdmin, (_req, res) => {
   }
 });
 
-app.get('/api/admin/attendance/punches', requireHrOrAdmin, async (req, res) => {
+app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res) => {
   try {
     const c = etimeCfg(getRequiredEnv);
     const empCode = String(req.query.empCode || req.query.Empcode || 'ALL').trim() || 'ALL';
@@ -966,7 +1011,7 @@ app.get('/api/admin/attendance/punches', requireHrOrAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/attendance/sync', requireHrOrAdmin, async (req, res) => {
+app.post('/api/admin/attendance/sync', requireAttendanceAdmin, async (req, res) => {
   try {
     const secret = String(process.env.ETIME_SYNC_SECRET || '').trim();
     if (!secret) {
@@ -1401,6 +1446,19 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
       isSupabaseServiceRoleKey(svcKey) ? 'ok' : 'MISSING or not service_role — profile save will fail'
     }`
   );
+  const supabaseRef = getSupabaseProjectRefFromUrl(getSupabaseUrlForServer());
+  if (supabaseRef) {
+    // eslint-disable-next-line no-console
+    console.log(`[server] Supabase project: ${supabaseRef}${String(process.env.ERP_ENV || '').toLowerCase() === 'staging' ? ' (staging)' : ''}`);
+  }
+  try {
+    const etime = etimeCfg(getRequiredEnv);
+    // eslint-disable-next-line no-console
+    console.log(`[server] eTimeOffice: configured (${etime.punchEndpoint})`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[server] eTimeOffice: NOT configured — ${err?.message || err}`);
+  }
   startAttendanceSyncCron({
     getRequiredEnv,
     getSupabaseUrl: getSupabaseUrlForServer,

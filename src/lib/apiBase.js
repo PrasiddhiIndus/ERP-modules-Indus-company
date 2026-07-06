@@ -44,13 +44,28 @@ export async function fetchApiHealth(options = {}) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(apiUrl('/api/health'), { signal: controller.signal });
-    const data = await res.json().catch(() => ({}));
+    const text = await res.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text.slice(0, 200) };
+    }
     if (!res.ok) {
+      const proxyDown =
+        import.meta.env.DEV &&
+        res.status === 500 &&
+        (/ECONNREFUSED|proxy error|socket hang up/i.test(text) || !String(text || '').trim());
       return {
         ok: false,
         status: res.status,
         data,
-        error: formatApiHealthFailure(res.status),
+        error: proxyDown
+          ? formatApiHealthFailure(
+              0,
+              'Node API on port 8787 is not running. Stop any stale process, then run `npm run dev` (or `npm run dev:staging`) from the project root — not `vite` alone.'
+            )
+          : formatApiHealthFailure(res.status, data?.message || text.slice(0, 120)),
       };
     }
     return { ok: true, status: res.status, data };
@@ -115,5 +130,27 @@ export async function fetchApiWithAuth(path, options = {}) {
 /** eTimeOffice proxy config on the server (no secrets). */
 export async function fetchAttendanceApiStatus(options = {}) {
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 8000;
-  return fetchApiWithAuth('/api/admin/attendance/status', { timeoutMs });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(apiUrl('/api/admin/attendance/status'), { signal: controller.signal });
+    const data = await res.json().catch(() => ({}));
+    const errText = String(data?.error || data?.message || '').trim();
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      error: res.ok ? undefined : errText || `Attendance API status failed (${res.status})`,
+    };
+  } catch (err) {
+    const aborted = err?.name === 'AbortError';
+    return {
+      ok: false,
+      status: 0,
+      data: {},
+      error: aborted ? 'Attendance API check timed out.' : err?.message || 'Unable to reach API server.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
