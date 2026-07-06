@@ -47,7 +47,7 @@ mustInclude(
   [
     "app.post('/api/billing/e-invoice/generate', einvoiceRateLimit, requireBillingAccess",
     "app.post('/api/billing/e-invoice/cancel', einvoiceRateLimit, requireBillingAccess",
-    "app.get('/api/admin/attendance/punches', requireHrOrAdmin",
+    "app.get('/api/admin/attendance/punches', requireAttendanceAdmin",
     "import helmet from 'helmet'",
     'helmet({',
   ],
