@@ -6,6 +6,8 @@ import {
 
 export const USER_MGMT_PAGE_SIZES = [10, 25, 50];
 
+export const USER_MGMT_EXPORT_BATCH_SIZE = 1000;
+
 export const USER_MGMT_SORT_OPTIONS = [
   { value: "created_desc", label: "Newest first" },
   { value: "created_asc", label: "Oldest first" },
@@ -119,6 +121,54 @@ export async function fetchUserManagementProfiles(
 
   const result = await buildQuery(PROFILE_LIST_SELECT, false);
   return { ...result, empCodeSupported: false };
+}
+
+/**
+ * All profiles matching filters (for Excel export). Fetches in batches to avoid row limits.
+ */
+export async function fetchAllUserManagementProfiles(
+  supabase,
+  { filters = DEFAULT_USER_MGMT_FILTERS, preferEmpCode = true } = {}
+) {
+  const batchSize = USER_MGMT_EXPORT_BATCH_SIZE;
+  const allRows = [];
+  let from = 0;
+  let empCodeSupported = preferEmpCode;
+
+  while (true) {
+    const buildQuery = (selectCols, includeEmpCode) => {
+      let query = supabase.from("profiles").select(selectCols);
+      query = applyFilters(query, filters, includeEmpCode);
+      return query.range(from, from + batchSize - 1);
+    };
+
+    let result;
+    if (preferEmpCode && empCodeSupported !== false) {
+      result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP, true);
+      if (result.error && isMissingProfileEmpCodeError(result.error)) {
+        empCodeSupported = false;
+        result = await buildQuery(PROFILE_LIST_SELECT, false);
+      }
+    } else {
+      empCodeSupported = false;
+      result = await buildQuery(PROFILE_LIST_SELECT, false);
+    }
+
+    if (result.error) {
+      return { data: null, error: result.error, empCodeSupported: false };
+    }
+
+    const chunk = result.data ?? [];
+    allRows.push(...chunk);
+    if (chunk.length < batchSize) break;
+    from += batchSize;
+  }
+
+  return {
+    data: allRows,
+    error: null,
+    empCodeSupported: preferEmpCode && empCodeSupported !== false,
+  };
 }
 
 export function hasActiveUserMgmtFilters(filters) {
