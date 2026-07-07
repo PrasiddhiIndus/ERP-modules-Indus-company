@@ -151,7 +151,7 @@ function dedupeSiteStructure(structure) {
     .filter((g) => g.children.length > 0);
 }
 
-/** Serialize writes so concurrent drag-and-drop saves cannot interleave delete/insert. */
+/** Serialize master/structure writes so drag-and-drop saves cannot interleave. */
 let saveChain = Promise.resolve();
 function enqueueSave(task) {
   const run = saveChain.then(task);
@@ -159,52 +159,125 @@ function enqueueSave(task) {
   return run;
 }
 
+/** Figure saves use a separate queue so they are not blocked by site setup writes. */
+let periodSaveChain = Promise.resolve();
+function enqueuePeriodSave(task) {
+  const run = periodSaveChain.then(task);
+  periodSaveChain = run.catch(() => {});
+  return run;
+}
+
+const PERIOD_FLUSH_MS = 60;
+const periodFlushBuckets = new Map();
+
+let cachedRevIdByCode = null;
+let cachedHeadMaps = null;
+const siteUuidByCode = new Map();
+
+function invalidatePersistCaches() {
+  cachedRevIdByCode = null;
+  cachedHeadMaps = null;
+}
+
+function invalidateSiteUuidCache(siteCode) {
+  if (siteCode) siteUuidByCode.delete(siteCode);
+  else siteUuidByCode.clear();
+}
+
+async function getRevIdByCode() {
+  if (cachedRevIdByCode) return cachedRevIdByCode;
+  cachedRevIdByCode = await upsertRevenueHeads();
+  return cachedRevIdByCode;
+}
+
+async function getHeadMaps() {
+  if (cachedHeadMaps) return cachedHeadMaps;
+  cachedHeadMaps = await loadHeadIdMaps();
+  return cachedHeadMaps;
+}
+
+const FETCH_PAGE_SIZE = 1000;
+
+async function fetchAll(tableName, order) {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    let q = t(tableName).select("*");
+    if (order) {
+      q = q.order(order[0], order[1]);
+    }
+    const { data, error } = await q.range(from, from + FETCH_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < FETCH_PAGE_SIZE) break;
+    from += FETCH_PAGE_SIZE;
+  }
+  return rows;
+}
+
 async function fetchBundle() {
-  const [
-    sitesRes,
-    parentsRes,
-    childRes,
-    revenueRes,
-    structureRes,
-    budgetsRes,
-    budgetRevRes,
-    budgetExpRes,
-    periodsRes,
-    revLinesRes,
-    expLinesRes,
-    spreadsRes,
-  ] = await Promise.all([
-    t("sites").select("*").order("sort_order"),
-    t("expense_parent_heads").select("*").order("sort_order"),
-    t("expense_child_heads").select("*").order("sort_order"),
-    t("revenue_heads").select("*").order("sort_order"),
-    t("site_expense_structure").select("*").order("sort_order"),
-    t("budget_versions").select("*").order("effective_from"),
-    t("budget_revenue_lines").select("*"),
-    t("budget_expense_lines").select("*"),
-    t("period_entries").select("*"),
-    t("revenue_entry_lines").select("*"),
-    t("expense_entry_lines").select("*"),
-    t("cost_allocations").select("*").order("start_period"),
-  ]);
-  return {
-    sites: sitesRes.data || [],
-    parents: parentsRes.data || [],
-    children: childRes.data || [],
-    revenueHeads: revenueRes.data || [],
-    structure: structureRes.data || [],
-    budgets: budgetsRes.data || [],
-    budgetRev: budgetRevRes.data || [],
-    budgetExp: budgetExpRes.data || [],
-    periods: periodsRes.data || [],
-    revLines: revLinesRes.data || [],
-    expLines: expLinesRes.data || [],
-    spreads: spreadsRes.data || [],
-    errors: [
-      sitesRes, parentsRes, childRes, revenueRes, structureRes, budgetsRes,
-      budgetRevRes, budgetExpRes, periodsRes, revLinesRes, expLinesRes, spreadsRes,
-    ].filter((r) => r.error).map((r) => r.error?.message),
-  };
+  try {
+    const [
+      sites,
+      parents,
+      children,
+      revenueHeads,
+      structure,
+      budgets,
+      budgetRev,
+      budgetExp,
+      periods,
+      revLines,
+      expLines,
+      spreads,
+    ] = await Promise.all([
+      fetchAll("sites", ["sort_order", { ascending: true }]),
+      fetchAll("expense_parent_heads", ["sort_order", { ascending: true }]),
+      fetchAll("expense_child_heads", ["sort_order", { ascending: true }]),
+      fetchAll("revenue_heads", ["sort_order", { ascending: true }]),
+      fetchAll("site_expense_structure", ["sort_order", { ascending: true }]),
+      fetchAll("budget_versions", ["effective_from", { ascending: true }]),
+      fetchAll("budget_revenue_lines"),
+      fetchAll("budget_expense_lines"),
+      fetchAll("period_entries", ["period_key", { ascending: true }]),
+      fetchAll("revenue_entry_lines"),
+      fetchAll("expense_entry_lines"),
+      fetchAll("cost_allocations", ["start_period", { ascending: true }]),
+    ]);
+    return {
+      sites,
+      parents,
+      children,
+      revenueHeads,
+      structure,
+      budgets,
+      budgetRev,
+      budgetExp,
+      periods,
+      revLines,
+      expLines,
+      spreads,
+      errors: [],
+    };
+  } catch (e) {
+    const msg = e?.message || String(e);
+    return {
+      sites: [],
+      parents: [],
+      children: [],
+      revenueHeads: [],
+      structure: [],
+      budgets: [],
+      budgetRev: [],
+      budgetExp: [],
+      periods: [],
+      revLines: [],
+      expLines: [],
+      spreads: [],
+      errors: [msg],
+    };
+  }
 }
 
 function buildParents(rows, defaultParents) {
@@ -372,6 +445,14 @@ export async function loadLedgerStore(defaultParents, defaultLibrary) {
     const sites = buildSites(raw, parentById, childById);
     const records = buildRecords(raw, childById, revById);
 
+    cachedRevIdByCode = Object.fromEntries((raw.revenueHeads || []).map((r) => [r.code, r.id]));
+    cachedHeadMaps = {
+      parentIdByCode: Object.fromEntries((raw.parents || []).map((p) => [p.code, p.id])),
+      childIdByCode: Object.fromEntries((raw.children || []).map((c) => [c.code, c.id])),
+    };
+    siteUuidByCode.clear();
+    (raw.sites || []).forEach((s) => siteUuidByCode.set(s.code, s.id));
+
     return {
       data: { sites, records, library, parents },
       ok: true,
@@ -394,6 +475,7 @@ async function upsertRevenueHeads() {
 }
 
 async function syncParents(parents) {
+  invalidatePersistCaches();
   const existing = (await t("expense_parent_heads").select("id, code")).data || [];
   const keep = new Set(parents.map((p) => p.key));
   const out = {};
@@ -459,6 +541,7 @@ async function syncLibrary(library, parentIdByCode) {
       await removeChildHeadRow(row);
     }
   }
+  cachedHeadMaps = { parentIdByCode, childIdByCode: out };
   return out;
 }
 
@@ -743,6 +826,7 @@ async function syncOnePeriodRecord(
   await t("revenue_entry_lines").delete().eq("period_entry_id", pe.id);
   await t("expense_entry_lines").delete().eq("period_entry_id", pe.id);
 
+  const revRows = [];
   for (const [code, amount] of Object.entries(rec || {})) {
     if (
       code === "reimbursementType" ||
@@ -755,17 +839,23 @@ async function syncOnePeriodRecord(
       continue;
     }
     if (!Number(amount)) continue;
-    if (revIdByCode[code]) {
-      await t("revenue_entry_lines").insert({
+    const revId = revIdByCode[code];
+    if (revId) {
+      revRows.push({
         period_entry_id: pe.id,
-        revenue_head_id: revIdByCode[code],
+        revenue_head_id: revId,
         amount: Number(amount),
       });
     }
   }
+  if (revRows.length) {
+    const { error: revErr } = await t("revenue_entry_lines").insert(revRows);
+    if (revErr) throw revErr;
+  }
 
   const expenseSet = new Set(assignedExpenseKeys);
   const missingHeads = [];
+  const expRows = [];
   for (const code of assignedExpenseKeys) {
     const childId = childIdByCode[code];
     if (!childId) {
@@ -773,12 +863,11 @@ async function syncOnePeriodRecord(
       continue;
     }
     const amount = typeof rec?.[code] === "number" ? Number(rec[code]) || 0 : 0;
-    const { error: expErr } = await t("expense_entry_lines").insert({
+    expRows.push({
       period_entry_id: pe.id,
       child_head_id: childId,
       amount,
     });
-    if (expErr) throw expErr;
   }
 
   if (missingHeads.length) {
@@ -803,11 +892,15 @@ async function syncOnePeriodRecord(
     }
     const childId = childIdByCode[code];
     if (!childId) continue;
-    const { error: expErr } = await t("expense_entry_lines").insert({
+    expRows.push({
       period_entry_id: pe.id,
       child_head_id: childId,
       amount: Number(amount),
     });
+  }
+
+  if (expRows.length) {
+    const { error: expErr } = await t("expense_entry_lines").insert(expRows);
     if (expErr) throw expErr;
   }
 
@@ -830,14 +923,14 @@ function recordNeedsMissingChildHeads(rec, revIdByCode, childIdByCode) {
 
 /** Ensure expense child heads exist before writing expense_entry_lines. */
 async function ensureHeadMapsForPeriodSave(siteCode, rec, context = {}) {
-  const revIdByCode = await upsertRevenueHeads();
+  const revIdByCode = await getRevIdByCode();
   const sites = context.sites || [];
   const library = context.library || [];
   const parents = context.parents || [];
   const site = sites.find((s) => s.id === siteCode);
   const assignedExpenseKeys = site ? assignedExpenseHeadKeys(site) : [];
 
-  let { parentIdByCode, childIdByCode } = await loadHeadIdMaps();
+  let { parentIdByCode, childIdByCode } = await getHeadMaps();
 
   const missingAssigned = assignedExpenseKeys.some((k) => !childIdByCode[k]);
   const needsSync =
@@ -848,6 +941,7 @@ async function ensureHeadMapsForPeriodSave(siteCode, rec, context = {}) {
   if (needsSync && library.length && parents.length) {
     parentIdByCode = await syncParents(parents);
     childIdByCode = await syncLibrary(libraryForSitesPersist(library, sites), parentIdByCode);
+    cachedHeadMaps = { parentIdByCode, childIdByCode };
   }
 
   const stillMissing = assignedExpenseKeys.filter((k) => !childIdByCode[k]);
@@ -860,8 +954,122 @@ async function ensureHeadMapsForPeriodSave(siteCode, rec, context = {}) {
   return { revIdByCode, childIdByCode, assignedExpenseKeys };
 }
 
+/** Ensure site row exists in DB before writing period figures (new sites). */
+async function ensureSiteUuid(siteCode, context = {}) {
+  const cached = siteUuidByCode.get(siteCode);
+  if (cached) return cached;
+
+  const existing = await getSiteUuidByCode(siteCode);
+  if (existing) {
+    siteUuidByCode.set(siteCode, existing);
+    return existing;
+  }
+
+  const site = context.sites?.find((s) => s.id === siteCode);
+  if (!site) throw new Error(`Site "${siteCode}" not found`);
+
+  const parents = context.parents || [];
+  const library = context.library || [];
+  const allSites = context.sites || [];
+  if (!parents.length || !library.length) {
+    throw new Error(`Site "${siteCode}" is not saved yet — retry in a moment`);
+  }
+
+  const revIdByCode = await getRevIdByCode();
+  const parentIdByCode = await syncParents(parents);
+  const childIdByCode = await syncLibrary(libraryForSitesPersist(library, allSites), parentIdByCode);
+  cachedHeadMaps = { parentIdByCode, childIdByCode };
+  const index = allSites.findIndex((s) => s.id === siteCode);
+  const uuid = await syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index >= 0 ? index : 0);
+  siteUuidByCode.set(siteCode, uuid);
+  return uuid;
+}
+
+/** Persist site master rows (budgets, spreads, contract) without touching period figures. */
+export async function persistSitesNow({ sites, library, parents }) {
+  return enqueueSave(async () => {
+    const revIdByCode = await upsertRevenueHeads();
+    const parentIdByCode = await syncParents(parents || []);
+    const normalizedSites = (sites || []).map((s) => ({
+      ...s,
+      structure: dedupeSiteStructure(s.structure),
+    }));
+    const childIdByCode = await syncLibrary(
+      libraryForSitesPersist(library || [], normalizedSites),
+      parentIdByCode,
+    );
+    for (let i = 0; i < normalizedSites.length; i++) {
+      await syncSite(normalizedSites[i], parentIdByCode, childIdByCode, revIdByCode, i);
+    }
+    invalidateFinanceCache({ notify: false });
+    return true;
+  });
+}
+
 /** Fast path — persist one site/month entry (revenue, reimbursements, expenses) without full ledger sync. */
-export async function savePeriodRecord(siteCode, periodKey, rec, context = {}) {
+async function executePeriodFlush(compoundKey) {
+  const latest = pendingPeriodRecords.get(compoundKey);
+  const ctx = pendingPeriodContexts.get(compoundKey) || {};
+  pendingPeriodRecords.delete(compoundKey);
+  pendingPeriodContexts.delete(compoundKey);
+  if (!latest) return true;
+
+  const [siteCode, periodKey] = compoundKey.split("__");
+  const siteUuid = await ensureSiteUuid(siteCode, ctx);
+  const ctxSite = ctx.sites?.find((s) => s.id === siteCode);
+  const assignedExpenseKeys = ctxSite ? assignedExpenseHeadKeys(ctxSite) : [];
+  const prepared = preparePeriodRecordForSave(latest, assignedExpenseKeys);
+  const { childIdByCode, revIdByCode } = await ensureHeadMapsForPeriodSave(siteCode, prepared, ctx);
+  await syncOnePeriodRecord(
+    siteUuid,
+    periodKey,
+    prepared,
+    childIdByCode,
+    revIdByCode,
+    assignedExpenseKeys,
+  );
+  invalidateFinanceCache({ notify: false });
+  return true;
+}
+
+function schedulePeriodFlush(compoundKey) {
+  let bucket = periodFlushBuckets.get(compoundKey);
+  if (!bucket) {
+    let resolve;
+    let reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    bucket = { timer: null, resolve, reject, promise };
+    periodFlushBuckets.set(compoundKey, bucket);
+  }
+
+  if (bucket.timer) clearTimeout(bucket.timer);
+  bucket.timer = setTimeout(() => {
+    periodFlushBuckets.delete(compoundKey);
+    enqueuePeriodSave(() => executePeriodFlush(compoundKey))
+      .then(bucket.resolve)
+      .catch(bucket.reject);
+  }, PERIOD_FLUSH_MS);
+
+  return bucket.promise;
+}
+
+/** Flush pending figure save immediately (tab close / site switch). */
+export function flushPeriodRecordNow(siteCode, periodKey) {
+  const compoundKey = `${siteCode}__${periodKey}`;
+  const bucket = periodFlushBuckets.get(compoundKey);
+  if (bucket?.timer) {
+    clearTimeout(bucket.timer);
+    periodFlushBuckets.delete(compoundKey);
+    return enqueuePeriodSave(() => executePeriodFlush(compoundKey));
+  }
+  if (!pendingPeriodRecords.has(compoundKey)) return Promise.resolve(true);
+  return enqueuePeriodSave(() => executePeriodFlush(compoundKey));
+}
+
+export async function savePeriodRecord(siteCode, periodKey, rec, context = {}, opts = {}) {
   const compoundKey = `${siteCode}__${periodKey}`;
   const site = context.sites?.find((s) => s.id === siteCode);
   const expenseHeadKeys = site ? assignedExpenseHeadKeys(site) : [];
@@ -874,30 +1082,16 @@ export async function savePeriodRecord(siteCode, periodKey, rec, context = {}) {
     pendingPeriodContexts.set(compoundKey, context);
   }
 
-  return enqueueSave(async () => {
-    const latest = pendingPeriodRecords.get(compoundKey);
-    const ctx = pendingPeriodContexts.get(compoundKey) || {};
-    pendingPeriodRecords.delete(compoundKey);
-    pendingPeriodContexts.delete(compoundKey);
-    if (!latest) return true;
+  if (opts.immediate) {
+    const bucket = periodFlushBuckets.get(compoundKey);
+    if (bucket?.timer) {
+      clearTimeout(bucket.timer);
+      periodFlushBuckets.delete(compoundKey);
+    }
+    return enqueuePeriodSave(() => executePeriodFlush(compoundKey));
+  }
 
-    const siteUuid = await getSiteUuidByCode(siteCode);
-    if (!siteUuid) throw new Error(`Site "${siteCode}" not found`);
-    const ctxSite = ctx.sites?.find((s) => s.id === siteCode);
-    const assignedExpenseKeys = ctxSite ? assignedExpenseHeadKeys(ctxSite) : [];
-    const prepared = preparePeriodRecordForSave(latest, assignedExpenseKeys);
-    const { childIdByCode, revIdByCode } = await ensureHeadMapsForPeriodSave(siteCode, prepared, ctx);
-    await syncOnePeriodRecord(
-      siteUuid,
-      periodKey,
-      prepared,
-      childIdByCode,
-      revIdByCode,
-      assignedExpenseKeys,
-    );
-    invalidateFinanceCache();
-    return true;
-  });
+  return schedulePeriodFlush(compoundKey);
 }
 
 async function syncRecords(records, childIdByCode, revIdByCode, { pruneMissing = false, sites = [] } = {}) {
@@ -975,7 +1169,7 @@ async function saveLedgerRecordsInner({ records, sites = [], library = [], paren
     parents,
   );
   await syncRecords(records || {}, childIdByCode, revIdByCode, { pruneMissing: false, sites });
-  invalidateFinanceCache();
+  invalidateFinanceCache({ notify: false });
   return true;
 }
 
@@ -996,6 +1190,7 @@ async function saveLedgerStoreInner({ sites, records, library, parents, pruneSit
       const shouldDelete = explicitDeletes.has(row.code)
         || (pruneSites && !keepSiteCodes.has(row.code));
       if (shouldDelete) {
+        invalidateSiteUuidCache(row.code);
         await t("sites").delete().eq("id", row.id);
       }
     }
@@ -1114,6 +1309,24 @@ async function saveLedgerMastersInner({ sites, library, parents }) {
   return true;
 }
 
+async function saveLedgerSitesInner({ sites, library, parents }) {
+  const revIdByCode = await upsertRevenueHeads();
+  const parentIdByCode = await syncParents(parents || []);
+  const normalizedSites = (sites || []).map((s) => ({
+    ...s,
+    structure: dedupeSiteStructure(s.structure),
+  }));
+  const childIdByCode = await syncLibrary(
+    libraryForSitesPersist(library || [], normalizedSites),
+    parentIdByCode,
+  );
+  for (let i = 0; i < normalizedSites.length; i++) {
+    await syncSite(normalizedSites[i], parentIdByCode, childIdByCode, revIdByCode, i);
+  }
+  invalidateFinanceCache();
+  return true;
+}
+
 async function saveLedgerPartialInner(payload) {
   const { scope = "full" } = payload;
   if (scope === "structure") {
@@ -1121,6 +1334,9 @@ async function saveLedgerPartialInner(payload) {
   }
   if (scope === "masters") {
     return saveLedgerMastersInner(payload);
+  }
+  if (scope === "sites") {
+    return saveLedgerSitesInner(payload);
   }
   if (scope === "records") {
     return saveLedgerRecordsInner(payload);
