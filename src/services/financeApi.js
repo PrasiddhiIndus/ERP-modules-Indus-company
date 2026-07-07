@@ -82,12 +82,40 @@ export function subscribeFinanceRefresh(listener) {
   return () => financeRefreshListeners.delete(listener);
 }
 
-export function invalidateFinanceCache() {
+export function invalidateFinanceCache({ notify = true } = {}) {
   cache = null;
   cacheAt = 0;
+  if (!notify) return;
   financeRefreshListeners.forEach((fn) => {
     try { fn(); } catch { /* ignore listener errors */ }
   });
+}
+
+const FETCH_PAGE_SIZE = 1000;
+
+/** Paginate past PostgREST default row cap so period figures are not silently truncated. */
+async function fetchAllRows(name, options = {}) {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    let q = table(name).select(options.select || "*");
+    if (options.order) {
+      const [col, opts] = options.order;
+      q = q.order(col, opts);
+    }
+    if (options.eq) {
+      Object.entries(options.eq).forEach(([k, v]) => {
+        q = q.eq(k, v);
+      });
+    }
+    const { data, error } = await q.range(from, from + FETCH_PAGE_SIZE - 1);
+    if (error) return { data: null, error };
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < FETCH_PAGE_SIZE) break;
+    from += FETCH_PAGE_SIZE;
+  }
+  return { data: rows, error: null };
 }
 
 export async function fetchFinanceModuleData({ force = false } = {}) {
@@ -121,9 +149,9 @@ export async function fetchFinanceModuleData({ force = false } = {}) {
     fetchRows("budget_versions", { order: ["effective_from", { ascending: true }] }),
     fetchRows("budget_revenue_lines"),
     fetchRows("budget_expense_lines"),
-    fetchRows("period_entries", { order: ["period_key", { ascending: true }] }),
-    fetchRows("revenue_entry_lines"),
-    fetchRows("expense_entry_lines"),
+    fetchAllRows("period_entries", { order: ["period_key", { ascending: true }] }),
+    fetchAllRows("revenue_entry_lines"),
+    fetchAllRows("expense_entry_lines"),
     fetchRows("cost_allocations", { order: ["start_period", { ascending: true }] }),
     fetchRows("user_site_access"),
     fetchRows("import_export_logs", {
