@@ -70,13 +70,16 @@ function compareEmployeeSortField(a, b, field, direction) {
     return asc ? ad - bd : bd - ad;
   }
 
-  if (field === 'other_experience' || field === 'ifspl_experience' || field === 'years_of_experience') {
+  if (field === 'other_experience' || field === 'ifspl_experience' || field === 'years_of_experience' || field === 'age') {
     if (field === 'ifspl_experience') {
       av = computeIfsplExperienceYears(a?.date_of_joining);
       bv = computeIfsplExperienceYears(b?.date_of_joining);
     } else if (field === 'years_of_experience') {
       av = computeTotalExperienceYears(a?.date_of_joining, a?.other_experience);
       bv = computeTotalExperienceYears(b?.date_of_joining, b?.other_experience);
+    } else if (field === 'age') {
+      av = computeAgeFromDob(a?.date_of_birth);
+      bv = computeAgeFromDob(b?.date_of_birth);
     }
     const an = av == null || av === '' ? null : Number(av);
     const bn = bv == null || bv === '' ? null : Number(bv);
@@ -92,6 +95,20 @@ function compareEmployeeSortField(a, b, field, direction) {
   if (as === bs) return 0;
   if (as < bs) return asc ? -1 : 1;
   return asc ? 1 : -1;
+}
+
+/** Whole years from date_of_birth to today (null if DOB missing/invalid). */
+function computeAgeFromDob(dateOfBirth) {
+  if (!dateOfBirth) return null;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age -= 1;
+  }
+  return age >= 0 ? age : null;
 }
 
 const IfspEmployeeMaster = ({ embedded = false }) => {
@@ -270,7 +287,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     'employee_id',
     'employment_type',
     'employee_code',
-    'timestamp',
+    'age',
     'full_name',
     'gender',
     'date_of_joining',
@@ -990,6 +1007,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     if (field === 'years_of_experience') {
       return computeTotalExperienceYears(employee.date_of_joining, employee.other_experience) ?? '';
     }
+    if (field === 'age') {
+      const age = computeAgeFromDob(employee.date_of_birth);
+      return age != null ? age : '';
+    }
     let value = employee[field];
     if (value == null || value === '') return '';
     if (Array.isArray(value) || (typeof value === 'object' && value !== null)) {
@@ -1312,7 +1333,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 <SortableTh field="employee_id" label="Machine ID" />
                 <SortableTh field="employment_type" label="employment_type" />
                 <SortableTh field="employee_code" label="employee_code" />
-                <SortableTh field="timestamp" label="timestamp" />
+                <SortableTh field="age" label="age" />
                 <SortableTh field="full_name" label="full_name" />
                 <SortableTh field="gender" label="gender" />
                 <SortableTh field="date_of_joining" label="date_of_joining" />
@@ -1348,6 +1369,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               {currentEmployees.map((employee) => {
                 const ifsplExp = computeIfsplExperienceYears(employee.date_of_joining);
                 const totalExp = computeTotalExperienceYears(employee.date_of_joining, employee.other_experience);
+                const age = computeAgeFromDob(employee.date_of_birth);
                 return (
                   <tr key={employee.id} className="hover:bg-gray-50">
                     <td className={td} title={String(employee.id)}>{employee.id}</td>
@@ -1356,7 +1378,9 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                       {employmentTypeLabel(employee.employment_type || employee.employee_id)}
                     </td>
                     <td className={td} title={employee.employee_code || ''}>{employee.employee_code || '–'}</td>
-                    <td className={td} title={employee.timestamp || ''}>{employee.timestamp || '–'}</td>
+                    <td className={td} title={age != null ? String(age) : ''}>
+                      {age != null ? age : '–'}
+                    </td>
                     <td className={td} title={employee.full_name || ''}>{employee.full_name || '–'}</td>
                     <td className={td} title={employee.gender || ''}>{employee.gender || '–'}</td>
                     <td className={td}>{formatDateDdMmYyyy(employee.date_of_joining)}</td>
