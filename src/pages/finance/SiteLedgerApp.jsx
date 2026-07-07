@@ -540,6 +540,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   const setupPersistTimer = useRef(null);
   const setupPersistPending = useRef(null);
   const lastSaveAt = useRef(0);
+  const skipInitialAutosave = useRef(true);
   const stateRef = useRef({ sites: [], records: {}, library: [], parents: [] });
   const SETUP_PERSIST_MS = 400;
 
@@ -569,6 +570,7 @@ export default function SiteLedgerApp({ embedded = true }) {
     syncParents(ps); setParents(ps);
     stateRef.current = { sites: base.sites, records: base.records, library: base.library, parents: ps };
     setLoadError(ok ? null : (error || "Could not load Site Ledger from the database."));
+    skipInitialAutosave.current = true;
     setLoaded(true);
     return ok;
   }, []);
@@ -602,7 +604,13 @@ export default function SiteLedgerApp({ embedded = true }) {
       }
       if (saveTimer.current) clearTimeout(saveTimer.current);
       const data = stateRef.current;
-      saveLedgerPartial({ scope: "records", records: data.records }).catch(() => {});
+      saveLedgerPartial({
+        scope: "records",
+        records: data.records,
+        sites: data.sites,
+        library: data.library,
+        parents: data.parents,
+      }).catch(() => {});
     };
     const onHide = () => {
       if (document.visibilityState === "hidden") flushToDb();
@@ -634,6 +642,10 @@ export default function SiteLedgerApp({ embedded = true }) {
   useEffect(() => {
     stateRef.current = { sites, records, library, parents };
     if (!loaded) return;
+    if (skipInitialAutosave.current) {
+      skipInitialAutosave.current = false;
+      return;
+    }
     if (skipAutosaveCountRef.current > 0) {
       skipAutosaveCountRef.current -= 1;
       skipNextAutosave.current = false;
@@ -650,6 +662,7 @@ export default function SiteLedgerApp({ embedded = true }) {
     saveTimer.current = setTimeout(async () => {
       const result = await saveStore(stateRef.current);
       if (result.ok) {
+        lastSaveAt.current = Date.now();
         setSaveState("saved");
         setLoadError(null);
       } else {
@@ -657,7 +670,7 @@ export default function SiteLedgerApp({ embedded = true }) {
         setLoadError(result.error);
       }
     }, delay);
-  }, [sites, records, library, parents, loaded]);
+  }, [sites, library, parents, loaded]);
 
   const flushSetupPersist = useCallback(async () => {
     const pending = setupPersistPending.current;
@@ -690,7 +703,8 @@ export default function SiteLedgerApp({ embedded = true }) {
     skipNextAutosave.current = true;
     setSaveState("pending");
     if (setupPersistTimer.current) clearTimeout(setupPersistTimer.current);
-    setupPersistTimer.current = setTimeout(flushSetupPersist, SETUP_PERSIST_MS);
+    const delay = opts.immediate || opts.scope === "structure" ? 0 : SETUP_PERSIST_MS;
+    setupPersistTimer.current = setTimeout(flushSetupPersist, delay);
   }, [flushSetupPersist]);
 
   /** Flush Site Setup changes immediately (e.g. after child head rename tick). */
@@ -921,19 +935,38 @@ export default function SiteLedgerApp({ embedded = true }) {
     }
   }, [activeSite, reloadLedger]);
   const saveRecord = useCallback((siteId, mk, rec) => {
-    saveImmediate.current = true;
+    skipNextAutosave.current = true;
+    const site = stateRef.current.sites.find((s) => s.id === siteId);
+    const expenseHeadKeys = site ? siteChildKeys(site) : [];
     const withAudit = { ...rec, _audit: buildPeriodAuditMeta(user) };
     setRecords((prev) => {
       const key = `${siteId}__${mk}`;
       const existing = prev[key] || {};
-      const merged = mergePeriodEntry(existing, withAudit);
+      const merged = mergePeriodEntry(existing, withAudit, expenseHeadKeys);
       const next = { ...prev, [key]: merged };
       stateRef.current = { ...stateRef.current, records: next };
       return next;
     });
   }, [user]);
+  const revertRecord = useCallback((siteId, mk, prior) => {
+    skipNextAutosave.current = true;
+    setRecords((prev) => {
+      const key = `${siteId}__${mk}`;
+      const next = { ...prev };
+      if (prior && Object.keys(prior).length) next[key] = prior;
+      else delete next[key];
+      stateRef.current = { ...stateRef.current, records: next };
+      return next;
+    });
+  }, []);
   const onRecordPersisted = useCallback(() => {
     lastSaveAt.current = Date.now();
+    setSaveState("saved");
+    setLoadError(null);
+  }, []);
+  const onPeriodSaveError = useCallback((msg) => {
+    setSaveState("local");
+    setLoadError(msg || "Figure save failed — not saved to database");
   }, []);
   const renameLibraryHead = useCallback((key, label) => {
     applySiteSetupChange(({ library }) => ({
@@ -969,6 +1002,14 @@ export default function SiteLedgerApp({ embedded = true }) {
         records: nextRecords,
       };
     });
+    const data = stateRef.current;
+    saveLedgerPartial({
+      scope: "records",
+      records: data.records,
+      sites: data.sites,
+      library: data.library,
+      parents: data.parents,
+    }).catch((e) => setLoadError(e?.message || "Could not update figures after removing cost line"));
   }, [applySiteSetupChange]);
 
   const mLabel = monthLabelOf(month);
@@ -1138,7 +1179,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               onDelete={removeSite}
             />
           )}
-          {view === "entry" && <EntryForm sites={sitesL} library={library} parents={parents} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
+          {view === "entry" && <EntryForm sites={sitesL} library={library} parents={parents} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onRecordSaveFailed={revertRecord} onPeriodSaveError={onPeriodSaveError} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
           {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onSetParentColor={setParentColor} onSaveSetupNow={saveSetupNow} saveState={saveState} />}
           {view === "reports" && (
             <Reports
@@ -2262,6 +2303,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
     if (!d) return;
     moveChild(d.childKey, d.fromParent, toParent, beforeKey);
     drag.current = null;
+    onSaveSetupNow?.();
   };
 
   const commitChildRename = (key, rawLabel) => {
@@ -2283,7 +2325,7 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
           } : s))
           : allSites,
       };
-    }, { scope: "masters", libraryChanged: true, siteCode: siteId });
+    }, { scope: "masters", libraryChanged: true, siteCode: siteId, immediate: true });
     setEditingChild(null);
     setEditChildVal("");
   };
@@ -2315,9 +2357,17 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
         }}
         onBlur={() => {
           setTimeout(() => {
-            if (!childSaveTickRef.current && editingChild === key) cancelChildHeadEdit();
-            childSaveTickRef.current = false;
-          }, 120);
+            if (childSaveTickRef.current) {
+              childSaveTickRef.current = false;
+              return;
+            }
+            if (editingChild === key) {
+              const trimmed = (editChildVal || "").trim();
+              if (trimmed) saveChildHeadEdit(key);
+              else if (cancelRemovesFromSite) excludeHeadFromSite(key);
+              else cancelChildHeadEdit();
+            }
+          }, 200);
         }}
         onMouseDown={(e) => e.stopPropagation()}
       />
@@ -2366,8 +2416,9 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
           structure: compactStructure(nextStructure),
         } : s)),
       };
-    }, { scope: "structure", siteCode: siteId, libraryChanged: true });
+    }, { scope: "structure", siteCode: siteId, libraryChanged: true, immediate: true });
     setNewLabel("");
+    onSaveSetupNow?.();
   };
 
   return (
@@ -2670,8 +2721,9 @@ function recordToFormFields(raw) {
   return form;
 }
 
-function entryRecordClean(form) {
+function entryRecordClean(form, expenseHeadKeys = []) {
   const clean = {};
+  const expenseSet = new Set(expenseHeadKeys);
   const reimbursements = (form.reimbursements || [])
     .filter((it) => it.type)
     .map((it) => ({
@@ -2695,10 +2747,22 @@ function entryRecordClean(form) {
     ) {
       return;
     }
+    if (expenseSet.has(k)) {
+      if (v === undefined || v === null || String(v).trim() === "") {
+        clean[k] = 0;
+        return;
+      }
+      const n = parseEntryAmount(v);
+      if (!Number.isNaN(n)) clean[k] = n;
+      return;
+    }
     if (v === undefined || v === null || String(v).trim() === "") return;
     const n = parseEntryAmount(v);
     if (!Number.isNaN(n)) clean[k] = n;
   });
+  for (const key of expenseHeadKeys) {
+    if (!(key in clean)) clean[key] = 0;
+  }
   const remark = form.creditNoteRemark != null ? String(form.creditNoteRemark).trim() : "";
   if (remark) clean.creditNoteRemark = remark;
   return clean;
@@ -2818,7 +2882,7 @@ function SiteSearchSelect({ sites, value, onChange, label = "Site", id = "site-s
 
 const ENTRY_AUTOSAVE_MS = 800;
 
-function EntryForm({ sites, library, parents, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onPatchSite, onAdd, goConfig }) {
+function EntryForm({ sites, library, parents, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, onPatchSite, onAdd, goConfig }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   const [mk, setMk] = useState(month || currentPeriodKey());
   const [form, setForm] = useState({});
@@ -2876,9 +2940,12 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
   );
   const persistForm = useCallback((data, { manual = false } = {}) => {
     const payload = data ?? formRef.current;
-    const clean = entryRecordClean(payload);
+    const site = sites.find((s) => s.id === siteId);
+    const expenseHeadKeys = site ? siteChildKeys(site) : [];
+    const clean = entryRecordClean(payload, expenseHeadKeys);
     const existing = records[`${siteId}__${mk}`] || {};
-    const toPersist = mergePeriodEntry(existing, clean);
+    const prior = { ...existing };
+    const toPersist = mergePeriodEntry(existing, clean, expenseHeadKeys);
     const gen = ++persistGen.current;
     suppressRecordReload.current = true;
     onSave(siteId, mk, toPersist);
@@ -2898,10 +2965,13 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
       })
       .catch((e) => {
         if (gen !== persistGen.current) return;
-        console.error("Revenue save failed:", e);
+        console.error("Figure save failed:", e);
+        suppressRecordReload.current = true;
+        onRecordSaveFailed?.(siteId, mk, prior);
+        onPeriodSaveError?.(e?.message);
         setSaveUi("error");
       });
-  }, [siteId, mk, records, onSave, onRecordPersisted, setMonth, setActiveSite, periodSaveContext]);
+  }, [siteId, mk, records, sites, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, setMonth, setActiveSite, periodSaveContext]);
   const flushAutosaveNow = useCallback(() => {
     if (autosaveTimer.current) {
       clearTimeout(autosaveTimer.current);
@@ -2924,6 +2994,7 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
   }, [form, formDirty, reimbDirty, persistForm]);
   const saveReimbursements = useCallback(() => {
     const existing = records[`${siteId}__${mk}`] || {};
+    const prior = { ...existing };
     const merged = buildReimbursementSavePayload(existing, formRef.current.reimbursements || []);
     const gen = ++persistGen.current;
     suppressRecordReload.current = true;
@@ -2945,9 +3016,12 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
       .catch((e) => {
         if (gen !== persistGen.current) return;
         console.error("Reimbursement save failed:", e);
+        suppressRecordReload.current = true;
+        onRecordSaveFailed?.(siteId, mk, prior);
+        onPeriodSaveError?.(e?.message);
         setReimbSaveUi("error");
       });
-  }, [siteId, mk, records, onSave, onRecordPersisted, periodSaveContext]);
+  }, [siteId, mk, records, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, periodSaveContext]);
   useEffect(() => {
     const flushAll = () => {
       if (autosaveTimer.current) {

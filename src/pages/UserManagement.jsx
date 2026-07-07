@@ -5,6 +5,7 @@ import { createUserAccount } from "../lib/userManagementCreateApi";
 import { bulkDeleteUsers } from "../lib/userManagementBulkApi";
 import {
   DEFAULT_USER_MGMT_FILTERS,
+  fetchAllUserManagementProfiles,
   fetchUserManagementProfiles,
   hasActiveUserMgmtFilters,
   USER_MGMT_LINK_FILTER_OPTIONS,
@@ -19,6 +20,10 @@ import {
   setEmpCodeColumnSupported,
 } from "../lib/profileSelect";
 import { persistUserProfile } from "../lib/userManagementApi";
+import {
+  buildUserManagementExportRows,
+  exportUserManagementToExcel,
+} from "../lib/userManagementExcel";
 import {
   employeeMasterToEditHierarchyFields,
   enrichProfileWithHierarchy,
@@ -47,6 +52,7 @@ import {
   Search,
   RotateCcw,
   FileSpreadsheet,
+  Download,
 } from "lucide-react";
 import { UserManagementBulkImportModal } from "./userManagement/UserManagementBulkImportModal";
 import { canCreateUsers as userCanCreateUsers } from "./userManagement/userManagementLabels";
@@ -118,6 +124,7 @@ const UserManagement = () => {
   const [editMasterLookup, setEditMasterLookup] = useState({ loading: false, name: "" });
   const [saveNotice, setSaveNotice] = useState("");
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState(() => new Map());
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [teamDepartments, setTeamDepartments] = useState(() =>
@@ -346,6 +353,43 @@ const UserManagement = () => {
   const updateFilter = (patch) => {
     setFilters((prev) => ({ ...prev, ...patch }));
     setPage(1);
+  };
+
+  const handleExportExcel = async () => {
+    setExportBusy(true);
+    setError("");
+    try {
+      const result = await fetchAllUserManagementProfiles(supabase, {
+        filters: activeFilters,
+        preferEmpCode: empCodeSupported !== false,
+      });
+
+      if (result.error) {
+        setError(result.error.message || "Unable to export users.");
+        return;
+      }
+
+      const enriched = await enrichProfilesWithHierarchy(result.data ?? []);
+      const includeEmpCode =
+        empCodeSupported !== false && result.empCodeSupported !== false;
+      const rows = buildUserManagementExportRows(enriched, {
+        includeEmpCode,
+        includeHierarchy: hierarchySupported !== false,
+      });
+
+      if (!rows.length) {
+        setError("No users to export.");
+        return;
+      }
+
+      const suffix = filtersActive ? "filtered" : "all";
+      const stamp = new Date().toISOString().slice(0, 10);
+      exportUserManagementToExcel(rows, `users-export-${suffix}-${stamp}`);
+    } catch {
+      setError("Unable to export users.");
+    } finally {
+      setExportBusy(false);
+    }
   };
 
   useEffect(() => {
@@ -684,6 +728,15 @@ const UserManagement = () => {
             Bulk import
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          disabled={loading || exportBusy || total === 0}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Download className="w-4 h-4" />
+          {exportBusy ? "Exporting…" : "Export Excel"}
+        </button>
       </div>
 
       {empCodeSupported === false && (
