@@ -40,12 +40,29 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     const jwt = extractBearer(req);
     if (!jwt) throw new HttpError(401, 'Missing Authorization Bearer token.');
 
-    const client = createSupabaseWithJwt(jwt);
-    const { data: userData, error } = await client.auth.getUser(jwt);
-    if (error || !userData?.user) throw new HttpError(401, 'Invalid or expired session.');
-
-    const svc = getServiceRoleKey();
     const url = getSupabaseUrl();
+    const svc = getServiceRoleKey();
+    const anon = getAnonKey();
+    const key = svc || anon;
+    if (!url || !key) {
+      throw new HttpError(500, 'Server missing Supabase URL or API key.');
+    }
+
+    const validateClient = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: userData, error } = await validateClient.auth.getUser(jwt);
+    if (error || !userData?.user) {
+      const hint = String(error?.message || '').toLowerCase();
+      const message =
+        hint.includes('fetch') || hint.includes('network') || hint.includes('econnrefused')
+          ? 'Could not verify session with Supabase. Check server network and SUPABASE_URL.'
+          : 'Invalid or expired session. Sign out and sign in again.';
+      throw new HttpError(401, message);
+    }
+
+    const client = createSupabaseWithJwt(jwt);
+
     const profileSelect = 'id, role, team, allowed_modules, employee_code, email';
     let profile = null;
     if (url && svc) {

@@ -6,6 +6,8 @@ import {
   sessionMatchesConfiguredProject,
 } from './supabaseConfig';
 
+const REFRESH_SESSION_TIMEOUT_MS = 15000;
+
 /** Supabase auth storage key — must match `storageKey` in supabase.js */
 export const SUPABASE_AUTH_STORAGE_KEY = 'supabase.auth.token';
 
@@ -88,6 +90,45 @@ export async function directSignInWithPassword(email, password) {
         ? 'Login timed out. Check internet/VPN or confirm Supabase production project is active.'
         : err?.message || String(err);
     return { data: { session: null, user: null }, error: { message: msg } };
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
+/**
+ * Refresh access token via GoTrue REST (works when supabase-js session is not hydrated).
+ * @returns {Promise<object|null>} Updated session or null
+ */
+export async function refreshCachedAccessToken() {
+  const session = readCachedAuthSession();
+  const refreshToken = String(session?.refresh_token || '').trim();
+  if (!refreshToken) return null;
+
+  const supabaseUrl = getSupabaseUrl();
+  const anonKey = getSupabaseAnonKey();
+  if (!supabaseUrl || !anonKey) return null;
+
+  const base = supabaseUrl.replace(/\/+$/, '');
+  const url = `${base}/auth/v1/token?grant_type=refresh_token`;
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), REFRESH_SESSION_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      signal: controller.signal,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return null;
+    return persistAuthSession(body);
+  } catch {
+    return null;
   } finally {
     clearTimeout(tid);
   }
