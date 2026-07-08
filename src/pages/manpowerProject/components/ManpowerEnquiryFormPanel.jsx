@@ -41,13 +41,17 @@ const emptyForm = {
   siteName: "",
   industrySector: "",
   serviceCategory: "",
+  serviceCategoryCustom: "",
   enquirySubType: "Regular",
   scopeInputType: "Text",
   scopeOfWork: "",
   scopeAttachment: null,
   contractDurationValue: "",
   contractDurationUnit: "Months",
+  contractTimelineStart: "",
+  contractTimelineEnd: "",
   workingHoursShift: "",
+  customWorkingHours: "",
   applicableStateMw: "",
   minWageEffectiveDate: "",
   submissionBidDeadline: "",
@@ -207,6 +211,9 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const isTenderFeeApplicable = formData.tenderFeeApplicable === "Applicable";
   const isEmdFeePayable = formData.emdFeeStatus === "Applicable - Pay";
   const isPaymentRequired = isTenderFeeApplicable || isEmdFeePayable;
+  const isIndustryOther = formData.industrySector === "Other";
+  const isServiceCategoryManual = formData.serviceCategory === "Other (manual entry)";
+  const isAsPerClientHours = formData.workingHoursShift === "As per client";
 
   const initNewForm = useCallback(async () => {
     setSrNoLoading(true);
@@ -291,13 +298,22 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       setFormData((prev) => ({ ...prev, [name]: files[0] || null }));
       return;
     }
+    if (name === "industrySector" && value !== "Other") {
+      setFormData((prev) => ({
+        ...prev,
+        industrySector: value,
+        serviceCategory: prev.serviceCategory === "Other (manual entry)" ? "" : prev.serviceCategory,
+        serviceCategoryCustom: "",
+      }));
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const validateForm = () => {
     const required = [
       ["enquiryDate", "Enquiry Date"],
-      ["receivedBy", "Assigned to"],
+      ["receivedBy", "Received by"],
       ["sourceType", "Source Type"],
       ["clientName", "Client Name"],
       ["contactPersonName", "Client Contact Person (Name)"],
@@ -319,6 +335,16 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         alert(`Please enter ${label}.`);
         return false;
       }
+    }
+
+    if (isIndustryOther && isServiceCategoryManual && !String(formData.serviceCategoryCustom || "").trim()) {
+      alert("Please enter Service Category (manual entry).");
+      return false;
+    }
+
+    if (isAsPerClientHours && !String(formData.customWorkingHours || "").trim()) {
+      alert("Please enter working hours / shift details for As per client.");
+      return false;
     }
 
     if (
@@ -702,7 +728,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             <FormDateInput name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass}/>
           </div>
           <div>
-            <label className={labelClass}>Assigned to {req}</label>
+            <label className={labelClass}>Received by {req}</label>
             <select name="receivedBy" value={formData.receivedBy} onChange={handleChange} className={inputClass}>
               <option value="">Select user</option>
               {assigneeOptions.map((opt) => (
@@ -803,7 +829,19 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                   {opt}
                 </option>
               ))}
+              {isIndustryOther && (
+                <option value="Other (manual entry)">Other (manual entry)</option>
+              )}
             </select>
+            {isIndustryOther && isServiceCategoryManual && (
+              <input
+                name="serviceCategoryCustom"
+                value={formData.serviceCategoryCustom}
+                onChange={handleChange}
+                className={`${inputClass} mt-2`}
+                placeholder="Enter service category"
+              />
+            )}
           </div>
         </div>
         <div className="mt-5">
@@ -894,6 +932,26 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </div>
           </div>
           <div>
+            <label className={labelClass}>Timeline</label>
+            <div className="flex items-center gap-2">
+              <FormDateInput
+                name="contractTimelineStart"
+                value={formData.contractTimelineStart}
+                onChange={handleChange}
+                className={inputClass}
+                aria-label="Contract timeline start date"
+              />
+              <span className="shrink-0 text-xs font-medium text-slate-500">to</span>
+              <FormDateInput
+                name="contractTimelineEnd"
+                value={formData.contractTimelineEnd}
+                onChange={handleChange}
+                className={inputClass}
+                aria-label="Contract timeline end date"
+              />
+            </div>
+          </div>
+          <div>
             <label className={labelClass}>Working Hours / Shift {req}</label>
             <select name="workingHoursShift" value={formData.workingHoursShift} onChange={handleChange} className={inputClass}>
               <option value="">Select</option>
@@ -903,6 +961,15 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                 </option>
               ))}
             </select>
+            {isAsPerClientHours && (
+              <input
+                name="customWorkingHours"
+                value={formData.customWorkingHours}
+                onChange={handleChange}
+                className={`${inputClass} mt-2`}
+                placeholder="Enter working hours / shift as per client"
+              />
+            )}
           </div>
           <div>
             <label className={labelClass}>Applicable State (for MW) {req}</label>

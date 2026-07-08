@@ -92,11 +92,15 @@ const INQUIRY_META_KEYS = [
   "contactPersonEmail",
   "industrySector",
   "serviceCategory",
+  "serviceCategoryCustom",
   "enquirySubType",
   "scopeInputType",
   "contractDurationValue",
   "contractDurationUnit",
+  "contractTimelineStart",
+  "contractTimelineEnd",
   "workingHoursShift",
+  "customWorkingHours",
   "applicableStateMw",
   "minWageEffectiveDate",
   "submissionBidDeadline",
@@ -226,13 +230,24 @@ export function inquiryRowToForm(row) {
     siteState: meta.siteState || row?.state || "",
     siteCity: meta.siteCity || row?.city || "",
     industrySector: meta.industrySector || "",
-    serviceCategory: meta.serviceCategory || "",
+    serviceCategory: (() => {
+      const stored = meta.serviceCategory || "";
+      if (meta.serviceCategoryCustom) return "Other (manual entry)";
+      if (stored && !SERVICE_CATEGORY_OPTIONS.includes(stored)) return "Other (manual entry)";
+      return stored;
+    })(),
+    serviceCategoryCustom:
+      meta.serviceCategoryCustom ||
+      (meta.serviceCategory && !SERVICE_CATEGORY_OPTIONS.includes(meta.serviceCategory) ? meta.serviceCategory : ""),
     enquirySubType: normalizedSubType,
     scopeInputType: meta.scopeInputType || "Text",
     scopeOfWork: row?.manpower_required || meta.descriptionOfWork || "",
     contractDurationValue: meta.contractDurationValue ?? "",
     contractDurationUnit: meta.contractDurationUnit || "Months",
+    contractTimelineStart: toInputDate(meta.contractTimelineStart),
+    contractTimelineEnd: toInputDate(meta.contractTimelineEnd),
     workingHoursShift: meta.workingHoursShift || "",
+    customWorkingHours: meta.customWorkingHours || "",
     applicableStateMw: meta.applicableStateMw || "",
     minWageEffectiveDate: toInputDate(meta.minWageEffectiveDate),
     submissionBidDeadline: toIsoDateTimeLocal(meta.submissionBidDeadline || excel.dueDate),
@@ -297,12 +312,20 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     siteState: form.siteState || "",
     siteCity: form.siteCity || "",
     industrySector: form.industrySector || "",
-    serviceCategory: form.serviceCategory || "",
+    serviceCategory:
+      form.serviceCategory === "Other (manual entry)"
+        ? String(form.serviceCategoryCustom || "").trim()
+        : form.serviceCategory || "",
+    serviceCategoryCustom:
+      form.serviceCategory === "Other (manual entry)" ? String(form.serviceCategoryCustom || "").trim() : "",
     enquirySubType: form.enquirySubType || "Regular",
     scopeInputType: form.scopeInputType || "Text",
     contractDurationValue: form.contractDurationValue ?? "",
     contractDurationUnit: form.contractDurationUnit || "Months",
+    contractTimelineStart: form.contractTimelineStart || null,
+    contractTimelineEnd: form.contractTimelineEnd || null,
     workingHoursShift: form.workingHoursShift || "",
+    customWorkingHours: form.customWorkingHours || "",
     applicableStateMw: form.applicableStateMw || "",
     minWageEffectiveDate: form.minWageEffectiveDate || null,
     submissionBidDeadline: submissionDeadlineIso,
