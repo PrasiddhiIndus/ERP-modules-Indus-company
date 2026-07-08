@@ -5,6 +5,7 @@ import { supabase } from "../../../lib/supabase";
 import { normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import {
   downloadLeaveBalanceSampleSheet,
+  LEAVE_BALANCE_IMPORT_COLUMNS,
   LEAVE_BALANCE_SAMPLE_HEADERS,
   parseLeaveLedgerImportFile,
 } from "../../../lib/leaveLedgerExcel";
@@ -198,18 +199,22 @@ export function LeaveBalanceImportModal({ open, year, employees = [], onClose, o
                 <thead>
                   <tr className="border-b border-gray-200 bg-white text-left text-gray-500">
                     <th className="px-2 py-1.5">Code</th>
-                    <th className="px-2 py-1.5">PL Open</th>
-                    <th className="px-2 py-1.5">SL Open</th>
-                    <th className="px-2 py-1.5">CL Open</th>
+                    {LEAVE_BALANCE_IMPORT_COLUMNS.map((col) => (
+                      <th key={col.key} className="px-2 py-1.5">
+                        {col.label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {previewRows.map((row) => (
                     <tr key={`${row.employee_code}-${row.year}`} className="border-b border-gray-100">
                       <td className="px-2 py-1.5 font-medium text-gray-900">{row.employee_code}</td>
-                      <td className="px-2 py-1.5 tabular-nums">{row.opening_pl ?? 0}</td>
-                      <td className="px-2 py-1.5 tabular-nums">{row.opening_sl ?? 0}</td>
-                      <td className="px-2 py-1.5 tabular-nums">{row.opening_cl ?? 0}</td>
+                      {LEAVE_BALANCE_IMPORT_COLUMNS.map((col) => (
+                        <td key={col.key} className="px-2 py-1.5 tabular-nums">
+                          {row[col.opening] ?? 0}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>

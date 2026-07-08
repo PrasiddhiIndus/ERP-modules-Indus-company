@@ -33,16 +33,19 @@ ALTER TABLE indus_one.employee_leave_balances_yearly
   ADD COLUMN IF NOT EXISTS opening_splb numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS opening_splm numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS opening_paternity numeric NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS opening_coff numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS used_sbel numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS used_spla numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS used_splb numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS used_splm numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS used_paternity numeric NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS used_coff numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS unused_sbel numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS unused_spla numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS unused_splb numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS unused_splm numeric NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS unused_paternity numeric NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS unused_paternity numeric NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS unused_coff numeric NOT NULL DEFAULT 0;
 
 CREATE OR REPLACE FUNCTION indus_one.normalize_employment_type_for_leave(p_type text)
 RETURNS text
@@ -352,6 +355,11 @@ BEGIN
       0,
       coalesce(employee_leave_balances_yearly.opening_paternity, 0)
         - coalesce(employee_leave_balances_yearly.used_paternity, 0)
+    ),
+    unused_coff = GREATEST(
+      0,
+      coalesce(employee_leave_balances_yearly.opening_coff, 0)
+        - coalesce(employee_leave_balances_yearly.used_coff, 0)
     ),
     processed_at = now();
 END;

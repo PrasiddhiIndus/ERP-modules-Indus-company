@@ -55,6 +55,12 @@ function markWeightForPaternity(mark) {
   return 0;
 }
 
+function markWeightForCoff(mark) {
+  const m = String(mark || "").trim();
+  if (m === "CO") return 1;
+  return 0;
+}
+
 function clampNonNegative(n) {
   const x = Number(n || 0);
   return x < 0 ? 0 : x;
@@ -168,6 +174,7 @@ function emptyUsedLeaveTotals() {
     used_spla: 0,
     used_splb: 0,
     used_splm: 0,
+    used_coff: 0,
     used_paternity: 0,
   };
 }
@@ -186,6 +193,7 @@ function buildUsedLeaveTotalsByEmployee(registerRows) {
     const splaW = markWeightForSpla(m);
     const splbW = markWeightForSplb(m);
     const splmW = markWeightForSplm(m);
+    const coffW = markWeightForCoff(m);
     const paternityW = markWeightForPaternity(m);
 
     if (
@@ -196,6 +204,7 @@ function buildUsedLeaveTotalsByEmployee(registerRows) {
       splaW === 0 &&
       splbW === 0 &&
       splmW === 0 &&
+      coffW === 0 &&
       paternityW === 0
     ) {
       continue;
@@ -209,6 +218,7 @@ function buildUsedLeaveTotalsByEmployee(registerRows) {
     usedByEmp[emp_code].used_spla += splaW;
     usedByEmp[emp_code].used_splb += splbW;
     usedByEmp[emp_code].used_splm += splmW;
+    usedByEmp[emp_code].used_coff += coffW;
     usedByEmp[emp_code].used_paternity += paternityW;
   }
   return usedByEmp;
@@ -223,6 +233,25 @@ export async function fetchLeaveUsageFromDailyRegister(supabase, year) {
 
 function openingMinusUsed(opening, used) {
   return Math.max(0, Number(opening || 0) - Number(used || 0));
+}
+
+const EXTENDED_LEAVE_BALANCE_FIELDS = [
+  { opening: "opening_sbel", used: "used_sbel", unused: "unused_sbel" },
+  { opening: "opening_spla", used: "used_spla", unused: "unused_spla" },
+  { opening: "opening_splb", used: "used_splb", unused: "unused_splb" },
+  { opening: "opening_splm", used: "used_splm", unused: "unused_splm" },
+  { opening: "opening_coff", used: "used_coff", unused: "unused_coff" },
+  { opening: "opening_paternity", used: "used_paternity", unused: "unused_paternity" },
+];
+
+function readExtendedLeaveBalanceFields(input = {}) {
+  const out = {};
+  for (const field of EXTENDED_LEAVE_BALANCE_FIELDS) {
+    out[field.opening] = clampNonNegative(input[field.opening]);
+    out[field.used] = clampNonNegative(input[field.used]);
+    out[field.unused] = openingMinusUsed(out[field.opening], out[field.used]);
+  }
+  return out;
 }
 
 function valueFromCurrentOrFallback(current, key, fallback = 0) {
@@ -291,6 +320,7 @@ export async function processLeaveBalancesYear(supabase, year) {
         opening_spla: valueFromCurrentOrFallback(current, "opening_spla", 0),
         opening_splb: valueFromCurrentOrFallback(current, "opening_splb", 0),
         opening_splm: valueFromCurrentOrFallback(current, "opening_splm", 0),
+        opening_coff: valueFromCurrentOrFallback(current, "opening_coff", 0),
         opening_paternity: valueFromCurrentOrFallback(current, "opening_paternity", 0),
         used_pl: clampNonNegative(used.used_pl),
         used_sl: clampNonNegative(used.used_sl),
@@ -299,6 +329,7 @@ export async function processLeaveBalancesYear(supabase, year) {
         used_spla: clampNonNegative(used.used_spla),
         used_splb: clampNonNegative(used.used_splb),
         used_splm: clampNonNegative(used.used_splm),
+        used_coff: clampNonNegative(used.used_coff),
         used_paternity: clampNonNegative(used.used_paternity),
         processed_at: new Date().toISOString(),
       };
@@ -366,15 +397,12 @@ export async function processLeaveBalancesYear(supabase, year) {
       used_spla: Number(bal.used_spla || 0),
       used_splb: Number(bal.used_splb || 0),
       used_splm: Number(bal.used_splm || 0),
+      used_coff: Number(bal.used_coff || 0),
       used_paternity: Number(bal.used_paternity || 0),
       unused_pl,
       unused_sl,
       unused_cl,
-      unused_sbel: openingMinusUsed(bal.opening_sbel, bal.used_sbel),
-      unused_spla: openingMinusUsed(bal.opening_spla, bal.used_spla),
-      unused_splb: openingMinusUsed(bal.opening_splb, bal.used_splb),
-      unused_splm: openingMinusUsed(bal.opening_splm, bal.used_splm),
-      unused_paternity: openingMinusUsed(bal.opening_paternity, bal.used_paternity),
+      ...readExtendedLeaveBalanceFields(bal),
       carried_pl,
       carried_sl: slCarryAmount,
       carried_cl: clCarryAmount,
@@ -432,6 +460,7 @@ export function buildLeaveBalanceDbRow(input, year) {
   const unused_pl = openingMinusUsed(opening_pl, used_pl);
   const unused_sl = openingMinusUsed(opening_sl, used_sl);
   const unused_cl = openingMinusUsed(opening_cl, used_cl);
+  const extended = readExtendedLeaveBalanceFields(input);
 
   return {
     employee_code: emp_code,
@@ -448,6 +477,7 @@ export function buildLeaveBalanceDbRow(input, year) {
     unused_pl,
     unused_sl,
     unused_cl,
+    ...extended,
     carried_pl,
     carried_sl,
     carried_cl,
