@@ -105,6 +105,7 @@ import {
   EmployeeExitPage,
   EmployeeAttendanceDailyPage,
   EmployeeLeaveManagementPage,
+  NationalPublicHolidaysPage,
   StoreItemMasterPage,
   StoreMasterPage,
   StoreSiteStockPage,
@@ -417,6 +418,7 @@ function App() {
             <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
             <Route path="admin/employee/attendance-daily" element={<EmployeeAttendanceDailyPage />} />
+            <Route path="admin/employee/national-holidays" element={<NationalPublicHolidaysPage />} />
             <Route path="admin/employee/leave-management" element={<EmployeeLeaveManagementPage />} />
             <Route path="admin/employee/attendance-sheets" element={<EmployeeAttendanceSheetsPage />} />
             <Route path="admin/employee/leaves-permissions" element={<EmployeeLeavesPage />} />

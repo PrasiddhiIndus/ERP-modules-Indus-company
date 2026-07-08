@@ -116,6 +116,17 @@ const CHILD_HEADS = [
 ];
 const DEFAULT_KEYS = CHILD_HEADS.map((c) => c.key);
 
+// Default child components seeded into every newly added site (per parent head).
+// Labels are matched against the global library; missing heads are created.
+const DEFAULT_SITE_CHILD_TEMPLATE = [
+  { parent: "salaryCost", labels: ["Gross Salary", "Overtime Payment", "Voucher Payment", "Bonus"] },
+  { parent: "empBenefit", labels: ["PF", "ESIC", "GMC/GPA/WC", "Operational Cost", "Medical Reimbursement/PME"] },
+  { parent: "facilities", labels: ["House Rent", "Vehicle Rent", "Housekeeping & Furnishing Items", "Repair & Maint. Equipments"] },
+  { parent: "uniformPpe", labels: ["Uniform / PPE"] },
+  { parent: "adminMisc", labels: ["Communication Expenses", "Travelling & Conveyance Expenses", "Bank Charges/ BD/BG/Labour License Expense"] },
+  { parent: "fireTenderVehicle", labels: ["Fire Tender Rent", "Vehicle Repair & Maintenance", "FT/Vehicle EMI"] },
+];
+
 const TARGET_MARGIN = 12;
 const WARN_MARGIN = 8;
 
@@ -382,6 +393,27 @@ function structureFromKeys(keys) {
     const parent = def?.parent || PARENT_KEY_MIGRATE[def?.parent] || "adminMisc";
     return parent === p.key;
   }))).filter((g) => g.children.length);
+}
+
+/** Build the default structure for a brand-new site from DEFAULT_SITE_CHILD_TEMPLATE.
+ *  Reuses existing global library heads (matched by label); creates missing ones. */
+function defaultSiteSetup(library) {
+  const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const lib = [...library];
+  let libraryChanged = false;
+  const structure = DEFAULT_SITE_CHILD_TEMPLATE.map(({ parent, labels }) => ({
+    parent,
+    children: labels.map((label) => {
+      const hit = lib.find((h) => !h.siteScoped && norm(h.label) === norm(label));
+      if (hit) return hit.key;
+      let key = slug(label), n = 1;
+      while (lib.some((h) => h.key === key)) key = `${slug(label)}-${++n}`;
+      lib.push({ key, label, parent });
+      libraryChanged = true;
+      return key;
+    }),
+  }));
+  return { structure, library: lib, libraryChanged };
 }
 
 function emptyStore() {
@@ -1263,15 +1295,19 @@ export default function SiteLedgerApp({ embedded = true }) {
               setView("config");
               void persistSitesImmediate(next);
             } else {
+              const seeded = defaultSiteSetup(stateRef.current.library || library);
               const nextSite = {
                 ...s,
+                structure: seeded.structure,
+                structureEmpty: false,
                 siteGroup: s.siteGroup || slug(s.name),
                 version: s.version || 1,
                 status: s.status || "active",
               };
               const nextSites = [...sites, nextSite];
               setSites(nextSites);
-              stateRef.current = { ...stateRef.current, sites: nextSites };
+              if (seeded.libraryChanged) setLibrary(seeded.library);
+              stateRef.current = { ...stateRef.current, sites: nextSites, library: seeded.library };
               setShowAdd(false);
               setActiveSite(nextSite.id);
               setView("config");
@@ -3103,7 +3139,25 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
   const save = () => {
     persistForm(undefined, { manual: true, immediate: true });
   };
-  const renderField = (key, label) => (
+  // When a spread is active on a head, users expect to see / edit the *recognised* monthly
+  // amount (direct + spread). We store "direct" internally, and compute the display value.
+  const setRecognised = (key, rawValue, spreadPerMonth) => {
+    if (!(spreadPerMonth > 0)) {
+      set(key, rawValue);
+      return;
+    }
+    const typed = parseEntryAmount(rawValue);
+    const nextDirect = typed - (Number(spreadPerMonth) || 0);
+    set(key, String(nextDirect));
+  };
+  const fieldDisplayValue = (key, spreadPerMonth) => {
+    if (!(spreadPerMonth > 0)) return form[key] ?? "";
+    const direct = parseEntryAmount(form[key]);
+    const disp = direct + (Number(spreadPerMonth) || 0);
+    // Show the spread-per-month amount even if direct is blank/0, so the month auto-fills.
+    return String(disp || 0);
+  };
+  const renderField = (key, label, spreadPerMonth = 0) => (
     <label className="field" key={key}>
       <span>{label}</span>
       <div className="field-in">
@@ -3111,11 +3165,16 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
         <input
           type="text"
           inputMode="decimal"
-          value={form[key] ?? ""}
+          value={fieldDisplayValue(key, spreadPerMonth)}
           placeholder="0"
-          onChange={(e) => set(key, e.target.value)}
+          onChange={(e) => setRecognised(key, e.target.value, spreadPerMonth)}
         />
       </div>
+      {spreadPerMonth > 0 && (
+        <span className="field-spread" title="Recognised automatically from a spread cost — added to this line's monthly total">
+          <CalendarClock size={11} /> + {inr(spreadPerMonth)}/mo spread · line total {inr((c.ex.total[key] || 0))}
+        </span>
+      )}
     </label>
   );
   const renderDeductionField = () => (
@@ -3274,6 +3333,29 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
         : "";
   const periodAudit = records[`${siteId}__${mk}`]?._audit;
 
+  // If a user adds a spread and had typed the full total into the start month,
+  // clear the direct amount so the input shows the per-month recognised amount.
+  useEffect(() => {
+    const spreads = site?.spreads || [];
+    if (!spreads.length) return;
+    const startSpreads = spreads.filter((sp) => sp?.start === mk && sp?.head);
+    if (startSpreads.length === 0) return;
+    setForm((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      startSpreads.forEach((sp) => {
+        const key = sp.head;
+        const direct = parseEntryAmount(prev?.[key]);
+        const total = Number(sp.total) || 0;
+        if (total > 0 && direct === total) {
+          next[key] = "0";
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [site?.id, site?.spreads, mk]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="entry">
       <div className="entry-bar">
@@ -3369,7 +3451,7 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
         <div className="entry-col">
           <Card title="Expenses" right={<span className="muted-s">{siteChildKeys(site).length} lines · {structure.length} parents</span>}>
             {structure.length === 0 ? <div className="dnd-empty">No cost lines configured. <button className="link" onClick={() => goConfig(siteId)}>Set up the structure →</button></div> :
-              structure.map((g) => <div key={g.parent} className="fgroup"><div className="fgroup-h" style={{ color: parentColor(g.parent), display: "flex", justifyContent: "space-between" }}><span><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</span><span className="mono" style={{ color: "var(--muted)", fontWeight: 500 }}>{inr(parentSub(g))}</span></div><div className="fields">{g.children.map((k) => renderField(k, libMap[k]?.label || k))}</div></div>)}
+              structure.map((g) => <div key={g.parent} className="fgroup"><div className="fgroup-h" style={{ color: parentColor(g.parent), display: "flex", justifyContent: "space-between" }}><span><span className="pdot" style={{ background: parentColor(g.parent) }} />{parentLabel(g.parent)}</span><span className="mono" style={{ color: "var(--muted)", fontWeight: 500 }}>{inr(parentSub(g))}</span></div><div className="fields">{g.children.map((k) => renderField(k, libMap[k]?.label || k, c.ex.amort[k] || 0))}</div></div>)}
           </Card>
         </div>
       </div>
@@ -4457,6 +4539,8 @@ function Styles() {
     .pminihead{font-size:11.5px;font-weight:700;margin:6px 0 8px;display:flex;align-items:center;gap:7px;}
     .fields{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;}@media(max-width:560px){.fields{grid-template-columns:1fr;}}
     .field{display:flex;flex-direction:column;gap:4px;}.field>span{font-size:12px;color:var(--ink-soft);}
+    .field-spread{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-family:var(--mono);color:var(--gold);font-weight:600;}
+    .field-spread svg{flex-shrink:0;}
     .field-in{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--paper);overflow:hidden;}
     .field-in:focus-within{border-color:var(--accent-mid);}.field-in i{padding:0 8px;color:var(--muted);font-style:normal;font-family:var(--mono);font-size:13px;}
     .field-in input{border:none;background:none;outline:none;padding:8px 10px 8px 0;width:100%;font-family:var(--mono);font-size:13px;text-align:right;color:var(--ink);}

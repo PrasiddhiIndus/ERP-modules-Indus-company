@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import {
   SectionCard,
@@ -11,18 +11,15 @@ import {
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import { fetchActiveEmployees, normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
-import {
-  downloadLeaveLedgerImportTemplate,
-  ledgerDisplayRowToEditForm,
-  parseLeaveLedgerImportFile,
-} from "../../../lib/leaveLedgerExcel";
+import { ledgerDisplayRowToEditForm, downloadLeaveBalanceSampleSheet } from "../../../lib/leaveLedgerExcel";
+import { LeaveBalanceImportModal } from "./LeaveBalanceImportModal";
 import {
   fetchLeaveBalancesForYear,
+  fetchLeaveUsageFromDailyRegister,
   fetchPlEncashPrefs,
   getLeaveCarryForwardRules,
   processLeaveBalancesYear,
   upsertLeaveBalanceYearly,
-  upsertLeaveBalancesBatch,
   upsertLeaveCarryForwardRules,
   upsertPlEncashPrefs,
 } from "../../../lib/leaveManagement";
@@ -43,19 +40,41 @@ const LEDGER_SUB_TABS = [
   { id: "balance", label: "Balance" },
 ];
 
-const LEDGER_TAB_FIELD_KEYS = {
-  opening: ["opening_pl", "opening_sl", "opening_cl"],
-  used: ["used_pl", "used_sl", "used_cl"],
-  balance: [
-    "carried_pl",
-    "encashed_pl",
-    "expired_pl",
-    "carried_sl",
-    "expired_sl",
-    "carried_cl",
-    "expired_cl",
-  ],
+const LEDGER_LEAVE_TYPES = [
+  { key: "cl", label: "CL", opening: "opening_cl", used: "used_cl", balance: "unused_cl" },
+  { key: "pl", label: "PL", opening: "opening_pl", used: "used_pl", balance: "unused_pl" },
+  { key: "sl", label: "SL", opening: "opening_sl", used: "used_sl", balance: "unused_sl" },
+  { key: "sbel", label: "S BeL", opening: "opening_sbel", used: "used_sbel", balance: "unused_sbel" },
+  { key: "spla", label: "SPLA", opening: "opening_spla", used: "used_spla", balance: "unused_spla" },
+  { key: "splb", label: "SPLB", opening: "opening_splb", used: "used_splb", balance: "unused_splb" },
+  { key: "splm", label: "SPLM", opening: "opening_splm", used: "used_splm", balance: "unused_splm" },
+  { key: "coff", label: "C/OFF" },
+  { key: "paternity", label: "Paternity", opening: "opening_paternity", used: "used_paternity", balance: "unused_paternity" },
+];
+
+const LEDGER_TAB_PREFIX = {
+  opening: "opening",
+  used: "used",
+  balance: "balance",
 };
+
+const LEDGER_TAB_FIELD_KEYS = {
+  opening: LEDGER_LEAVE_TYPES.map((t) => `opening_${t.key}`),
+  used: LEDGER_LEAVE_TYPES.map((t) => `used_${t.key}`),
+  balance: LEDGER_LEAVE_TYPES.map((t) => `balance_${t.key}`),
+};
+
+function mapLedgerLeaveFields(b = {}) {
+  const out = {};
+  for (const t of LEDGER_LEAVE_TYPES) {
+    const opening = t.opening ? Number(b[t.opening] ?? 0) : 0;
+    const used = t.used ? Number(b[t.used] ?? 0) : 0;
+    out[`opening_${t.key}`] = opening;
+    out[`used_${t.key}`] = used;
+    out[`balance_${t.key}`] = t.balance ? Math.max(0, opening - used) : 0;
+  }
+  return out;
+}
 
 function fmtNum(v) {
   const n = Number(v || 0);
@@ -233,6 +252,7 @@ export function EmployeeLeaveManagementPage() {
 
   const [plEncashPrefs, setPlEncashPrefs] = useState({});
   const [balances, setBalances] = useState([]);
+  const [registerUsageByCode, setRegisterUsageByCode] = useState({});
   const [processingStatus, setProcessingStatus] = useState("");
 
   const [search, setSearch] = useState("");
@@ -245,17 +265,20 @@ export function EmployeeLeaveManagementPage() {
   const [ledgerSort, setLedgerSort] = useState({ key: "empCode", direction: "asc" });
   const [ledgerEditRow, setLedgerEditRow] = useState(null);
   const [ledgerEditSaving, setLedgerEditSaving] = useState(false);
-  const [importBusy, setImportBusy] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [realtimeLive, setRealtimeLive] = useState(false);
-  const importFileRef = useRef(null);
 
   const reloadBalances = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
-      const rows = await fetchLeaveBalancesForYear(supabase, year);
+      const [rows, usageByCode] = await Promise.all([
+        fetchLeaveBalancesForYear(supabase, year),
+        fetchLeaveUsageFromDailyRegister(supabase, year),
+      ]);
       setBalances(rows || []);
+      setRegisterUsageByCode(usageByCode || {});
     } catch (e) {
       setError(e?.message || "Failed to load balances");
     } finally {
@@ -354,8 +377,12 @@ export function EmployeeLeaveManagementPage() {
     setProcessingStatus("Processing…");
     try {
       await processLeaveBalancesYear(supabase, year);
-      const rows = await fetchLeaveBalancesForYear(supabase, year);
+      const [rows, usageByCode] = await Promise.all([
+        fetchLeaveBalancesForYear(supabase, year),
+        fetchLeaveUsageFromDailyRegister(supabase, year),
+      ]);
       setBalances(rows || []);
+      setRegisterUsageByCode(usageByCode || {});
       setProcessingStatus("Processed successfully");
     } catch (e) {
       setError(e?.message || "Failed to process leave balances");
@@ -403,11 +430,12 @@ export function EmployeeLeaveManagementPage() {
     () =>
       filteredEmployees.map((e) => {
         const code = normalizeAttendanceEmpCode(e.empCode);
-        const b = balanceByCode[code] || {};
+        const b = { ...(balanceByCode[code] || {}), ...(registerUsageByCode[code] || {}) };
         return {
           id: code || e.empCode || e.employeeId || e.employeeName || "unknown-employee",
           empCode: code || e.empCode,
           employeeName: e.employeeName,
+          ...mapLedgerLeaveFields(b),
           opening_pl: b.opening_pl ?? 0,
           used_pl: b.used_pl ?? 0,
           carried_pl: b.carried_pl ?? 0,
@@ -423,7 +451,7 @@ export function EmployeeLeaveManagementPage() {
           expired_cl: b.expired_cl ?? 0,
         };
       }),
-    [filteredEmployees, balanceByCode]
+    [filteredEmployees, balanceByCode, registerUsageByCode]
   );
 
   const ledgerRows = useMemo(() => {
@@ -566,111 +594,76 @@ export function EmployeeLeaveManagementPage() {
         <button
           type="button"
           onClick={() => setLedgerEditRow(r)}
-          disabled={!r.empCode || loading || importBusy}
+          disabled={!r.empCode || loading || importOpen}
           className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50"
         >
           Edit
         </button>
       ),
     }),
-    [importBusy, loading]
+    [importOpen, loading]
+  );
+
+  const ledgerLeaveColumnsForTab = useCallback(
+    (tabId) =>
+      LEDGER_LEAVE_TYPES.map((t) =>
+        numCol(`${LEDGER_TAB_PREFIX[tabId]}_${t.key}`, t.label, "min-w-[72px]")
+      ),
+    [numCol]
   );
 
   const ledgerColumnsByTab = useMemo(
     () => ({
-      opening: [
-        ...ledgerEmployeeColumns,
-        numCol("opening_pl", "PL Opening"),
-        numCol("opening_sl", "SL Opening"),
-        numCol("opening_cl", "CL Opening"),
-        ledgerActionsColumn,
-      ],
-      used: [
-        ...ledgerEmployeeColumns,
-        numCol("used_pl", "PL Used"),
-        numCol("used_sl", "SL Used"),
-        numCol("used_cl", "CL Used"),
-        ledgerActionsColumn,
-      ],
-      balance: [
-        ...ledgerEmployeeColumns,
-        numCol("carried_pl", "PL Carried", "min-w-[105px]"),
-        numCol("encashed_pl", "PL Encashed", "min-w-[105px]"),
-        numCol("expired_pl", "PL Expired", "min-w-[105px]"),
-        numCol("carried_sl", "SL Carried", "min-w-[105px]"),
-        numCol("expired_sl", "SL Expired", "min-w-[105px]"),
-        numCol("carried_cl", "CL Carried", "min-w-[105px]"),
-        numCol("expired_cl", "CL Expired", "min-w-[105px]"),
-        ledgerActionsColumn,
-      ],
+      opening: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("opening"), ledgerActionsColumn],
+      used: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("used"), ledgerActionsColumn],
+      balance: [...ledgerEmployeeColumns, ...ledgerLeaveColumnsForTab("balance"), ledgerActionsColumn],
     }),
-    [ledgerActionsColumn, ledgerEmployeeColumns, numCol]
+    [ledgerActionsColumn, ledgerEmployeeColumns, ledgerLeaveColumnsForTab]
   );
 
   const ledgerTabDescriptions = {
-    opening: "Opening balances carried forward from the previous year for each leave type.",
-    used: "Leave days consumed during the selected year, by leave type.",
-    balance: "Year-end outcomes after processing — carried forward, encashed, or expired balances.",
+    opening: "Opening leave balances by type (CL, PL, SL, and other leave categories).",
+    used: "Leave days used during the selected year, by leave type.",
+    balance: "Current leave balance by type (CL, PL, SL from ledger; other types shown when available).",
   };
 
   const ledgerTabMetricLabels = {
-    opening: [
-      { key: "opening_pl", label: "Total PL Opening", tone: "bg-blue-50/50" },
-      { key: "opening_sl", label: "Total SL Opening", tone: "bg-sky-50/50" },
-      { key: "opening_cl", label: "Total CL Opening", tone: "bg-indigo-50/50" },
-    ],
-    used: [
-      { key: "used_pl", label: "Total PL Used", tone: "bg-amber-50/50" },
-      { key: "used_sl", label: "Total SL Used", tone: "bg-orange-50/50" },
-      { key: "used_cl", label: "Total CL Used", tone: "bg-rose-50/50" },
-    ],
-    balance: [
-      { key: "carried_pl", label: "Total PL Carried", tone: "bg-blue-50/50" },
-      { key: "encashed_pl", label: "Total PL Encashed", tone: "bg-purple-50/50" },
-      { key: "expired_pl", label: "Total PL Expired", tone: "bg-rose-50/50" },
-      { key: "carried_sl", label: "Total SL Carried", tone: "bg-sky-50/50" },
-      { key: "expired_sl", label: "Total SL Expired", tone: "bg-orange-50/50" },
-    ],
+    opening: LEDGER_LEAVE_TYPES.map((t) => ({
+      key: `opening_${t.key}`,
+      label: `Total ${t.label} Opening`,
+      tone: "bg-blue-50/50",
+    })),
+    used: LEDGER_LEAVE_TYPES.map((t) => ({
+      key: `used_${t.key}`,
+      label: `Total ${t.label} Used`,
+      tone: "bg-amber-50/50",
+    })),
+    balance: LEDGER_LEAVE_TYPES.map((t) => ({
+      key: `balance_${t.key}`,
+      label: `Total ${t.label} Balance`,
+      tone: "bg-emerald-50/50",
+    })),
   };
 
-  const downloadImportTemplate = useCallback(() => {
-    const samples = filteredEmployees
-      .filter((e) => normalizeAttendanceEmpCode(e.empCode))
-      .slice(0, 50)
-      .map((e) => ({
-        empCode: normalizeAttendanceEmpCode(e.empCode),
-        employeeName: e.employeeName || "",
-      }));
-    downloadLeaveLedgerImportTemplate(year, samples);
-  }, [filteredEmployees, year]);
-
-  const handleBulkImport = useCallback(
-    async (file) => {
-      if (!file) return;
-      setImportBusy(true);
-      setError("");
-      setImportMessage("");
-      try {
-        const { rows: payloads, errors, skipped } = await parseLeaveLedgerImportFile(file, year);
-        if (!payloads.length) {
-          setError(errors.join(" ") || "No rows to import.");
-          return;
-        }
-        const { count } = await upsertLeaveBalancesBatch(supabase, payloads);
-        await reloadBalances();
-        const warn = errors.length ? ` Warnings: ${errors.slice(0, 5).join(" ")}` : "";
-        setImportMessage(
-          `Imported ${count} employee balance row(s).${skipped ? ` Skipped ${skipped}.` : ""}${warn}`
-        );
-      } catch (e) {
-        setError(e?.message || "Bulk import failed.");
-      } finally {
-        setImportBusy(false);
-        if (importFileRef.current) importFileRef.current.value = "";
-      }
+  const handleImportComplete = useCallback(
+    async (message) => {
+      setImportMessage(message);
+      setTimeout(() => setImportMessage(""), 6000);
+      await reloadBalances();
     },
-    [reloadBalances, year]
+    [reloadBalances]
   );
+
+  const downloadSampleSheet = useCallback(() => {
+    const rows = filteredEmployees
+      .filter((e) => e.employeeName || e.empCode)
+      .map((e) => ({
+        empCode: normalizeAttendanceEmpCode(e.empCode) || e.empCode || "",
+        employeeName: e.employeeName || "",
+        department: e.department || "",
+      }));
+    downloadLeaveBalanceSampleSheet(year, rows);
+  }, [filteredEmployees, year]);
 
   const saveLedgerEdit = useCallback(
     async (form) => {
@@ -692,28 +685,22 @@ export function EmployeeLeaveManagementPage() {
   );
 
   const exportLedgerToExcel = useCallback(() => {
-    const rows = ledgerRows.map((r) => ({
-      "Employee Code": r.empCode || "",
-      Employee: r.employeeName || "",
-      "PL Open": Number(r.opening_pl || 0),
-      "PL Used": Number(r.used_pl || 0),
-      "PL Carried": Number(r.carried_pl || 0),
-      "PL Encashed": Number(r.encashed_pl || 0),
-      "PL Expired": Number(r.expired_pl || 0),
-      "SL Open": Number(r.opening_sl || 0),
-      "SL Used": Number(r.used_sl || 0),
-      "SL Carried": Number(r.carried_sl || 0),
-      "SL Expired": Number(r.expired_sl || 0),
-      "CL Open": Number(r.opening_cl || 0),
-      "CL Used": Number(r.used_cl || 0),
-      "CL Carried": Number(r.carried_cl || 0),
-      "CL Expired": Number(r.expired_cl || 0),
-    }));
+    const tabPrefix = LEDGER_TAB_PREFIX[ledgerSubTab] || "opening";
+    const rows = ledgerRows.map((r) => {
+      const out = {
+        "Employee Code": r.empCode || "",
+        Employee: r.employeeName || "",
+      };
+      for (const t of LEDGER_LEAVE_TYPES) {
+        out[t.label] = Number(r[`${tabPrefix}_${t.key}`] || 0);
+      }
+      return out;
+    });
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `Leave Ledger ${year}`);
-    XLSX.writeFile(wb, `leave-balance-ledger-${year}.xlsx`);
-  }, [ledgerRows, year]);
+    XLSX.writeFile(wb, `leave-balance-ledger-${year}-${ledgerSubTab}.xlsx`);
+  }, [ledgerRows, ledgerSubTab, year]);
 
   const balanceTotals = useMemo(
     () =>
@@ -939,29 +926,20 @@ export function EmployeeLeaveManagementPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={downloadImportTemplate}
-                  className="h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold hover:bg-gray-50"
+                  onClick={downloadSampleSheet}
+                  disabled={loading}
+                  className="h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold hover:bg-gray-50 disabled:opacity-60"
                 >
-                  Download sample import sheet
+                  Download Sample Sheet
                 </button>
                 <button
                   type="button"
-                  onClick={() => importFileRef.current?.click()}
-                  disabled={importBusy || loading}
+                  onClick={() => setImportOpen(true)}
+                  disabled={loading}
                   className="h-8 px-3 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-900 text-xs font-semibold hover:bg-indigo-100 disabled:opacity-60"
                 >
-                  {importBusy ? "Importing…" : "Bulk import"}
+                  Import
                 </button>
-                <input
-                  ref={importFileRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleBulkImport(file);
-                  }}
-                />
                 <button
                   type="button"
                   onClick={exportLedgerToExcel}
@@ -1001,6 +979,13 @@ export function EmployeeLeaveManagementPage() {
                 saving={ledgerEditSaving}
                 onClose={() => setLedgerEditRow(null)}
                 onSave={saveLedgerEdit}
+              />
+              <LeaveBalanceImportModal
+                open={importOpen}
+                year={year}
+                employees={filteredEmployees}
+                onClose={() => setImportOpen(false)}
+                onImported={handleImportComplete}
               />
               <Pager
                 totalRows={ledgerRows.length}

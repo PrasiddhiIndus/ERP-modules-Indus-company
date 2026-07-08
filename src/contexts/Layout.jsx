@@ -406,6 +406,10 @@ const Layout = () => {
                         <Calendar className="h-4 w-4 shrink-0 text-teal-600" />
                         <span className="text-xs">Daily Attendance Register</span>
                       </NavLink>
+                      <NavLink to="admin/employee/national-holidays" className={subNavClass}>
+                        <CalendarDays className="h-4 w-4 shrink-0 text-orange-600" />
+                        <span className="text-xs">National / Public Holidays</span>
+                      </NavLink>
                       <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
                         <FileText className="h-4 w-4 shrink-0 text-blue-600" />
                         <span className="text-xs">Attendance Sheets</span>

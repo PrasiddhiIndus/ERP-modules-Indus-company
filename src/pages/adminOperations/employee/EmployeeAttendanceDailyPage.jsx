@@ -24,6 +24,7 @@ import {
   collectRegisterEmployeeCodes,
   syncRegisterMarksFromPunches,
   syncRegisterAutoWeekoffMarks,
+  syncRegisterAutoHolidayMarks,
   listAutoWeekoffDatesForMonthAndNext,
   computeRegisterSummaryFooter,
   ATTENDANCE_REGISTER_TABLE,
@@ -84,6 +85,11 @@ import {
 } from "../../../lib/attendanceLeaveLimits";
 import { subscribeTourWorkflowRealtime } from "../../../lib/adminTourRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
+import {
+  collectConfiguredHolidayDates,
+  fetchNationalPublicHolidayDatesInRange,
+  fetchNationalPublicHolidays,
+} from "../../../lib/nationalPublicHolidays";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 
@@ -224,6 +230,7 @@ export function EmployeeAttendanceDailyPage() {
   const [savingMark, setSavingMark] = useState(false);
   const [registerCodeWarning, setRegisterCodeWarning] = useState("");
   const [yearRegisterRows, setYearRegisterRows] = useState([]);
+  const [configuredHolidays, setConfiguredHolidays] = useState([]);
   const [leaveLimitWarning, setLeaveLimitWarning] = useState("");
   const [commentEditor, setCommentEditor] = useState({
     open: false,
@@ -268,6 +275,7 @@ export function EmployeeAttendanceDailyPage() {
     setYearLoading(true);
     setError("");
     setYearRegisterRows([]);
+    setConfiguredHolidays([]);
     try {
       const codeMapPromise = masterRegisterCodeMapRef.current
         ? Promise.resolve(masterRegisterCodeMapRef.current)
@@ -424,12 +432,34 @@ export function EmployeeAttendanceDailyPage() {
             { existingRegisterRows: monthRegisterRows }
           );
 
+          const holidayRangeTo =
+            weekoffDates.length > 0 ? weekoffDates[weekoffDates.length - 1] : monthMeta.toDate;
+          const holidayDates = await fetchNationalPublicHolidayDatesInRange(
+            supabase,
+            monthMeta.fromDate,
+            holidayRangeTo
+          );
+          const holidayResult = await syncRegisterAutoHolidayMarks(
+            supabase,
+            registerEmpCodes,
+            holidayDates,
+            masterCodeMap,
+            { existingRegisterRows: monthRegisterRows }
+          );
+
           if (loadGeneration !== loadGenerationRef.current) return;
 
           if (woResult.failed > 0) {
             setRegisterCodeWarning((prev) => {
               const woMsg = `${woResult.failed} auto weekoff cell(s) could not be saved — set employee_code on Employee Master (must match eTimeOffice / raw attendance).`;
               return prev ? `${prev} ${woMsg}` : woMsg;
+            });
+          }
+
+          if (holidayResult.failed > 0) {
+            setRegisterCodeWarning((prev) => {
+              const nhMsg = `${holidayResult.failed} auto NH/PH cell(s) could not be saved — set employee_code on Employee Master.`;
+              return prev ? `${prev} ${nhMsg}` : nhMsg;
             });
           }
 
@@ -480,9 +510,13 @@ export function EmployeeAttendanceDailyPage() {
 
       void (async () => {
         try {
-          const yearRows = await fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap);
+          const [yearRows, holidayRows] = await Promise.all([
+            fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap),
+            fetchNationalPublicHolidays(supabase, { year: monthMeta.year }),
+          ]);
           if (loadGeneration !== loadGenerationRef.current) return;
           setYearRegisterRows(yearRows);
+          setConfiguredHolidays(holidayRows || []);
         } catch (yearErr) {
           console.warn("Year register load failed:", yearErr);
         } finally {
@@ -495,6 +529,7 @@ export function EmployeeAttendanceDailyPage() {
       setManualMarks({});
       setManualRemarks({});
       setYearRegisterRows([]);
+      setConfiguredHolidays([]);
       setRegisterCodeWarning("");
       setError(formatAttendanceSupabaseError(err));
       setLoading(false);
@@ -581,10 +616,11 @@ export function EmployeeAttendanceDailyPage() {
     [yearRegisterRows]
   );
 
-  const holidayDatesInYear = useMemo(
-    () => collectRegisterHolidayDates(yearRegisterRows, calendarYear),
-    [yearRegisterRows, calendarYear]
-  );
+  const holidayDatesInYear = useMemo(() => {
+    const fromRegister = collectRegisterHolidayDates(yearRegisterRows, calendarYear);
+    const fromConfig = collectConfiguredHolidayDates(configuredHolidays, calendarYear);
+    return new Set([...fromRegister, ...fromConfig]);
+  }, [yearRegisterRows, calendarYear, configuredHolidays]);
 
   const handleMarkChange = useCallback(
     async (empCodeKey, day, value) => {
