@@ -179,6 +179,12 @@ const corsOrigins = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+
+function isLocalDevOrigin(origin) {
+  if (!origin) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin).trim());
+}
+
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -189,6 +195,7 @@ app.use(
     origin: corsOrigins.length
       ? (origin, cb) => {
           if (!origin || corsOrigins.includes(origin)) cb(null, true);
+          else if (!IS_PRODUCTION && isLocalDevOrigin(origin)) cb(null, true);
           else cb(new Error('CORS not allowed'));
         }
       : true,
@@ -1130,12 +1137,21 @@ app.post('/api/billing/e-invoice/generate', einvoiceRateLimit, requireBillingAcc
 
     const url = `${c.baseUrl}/einvoice/type/GENERATE/version/V1_03?email=${encodeURIComponent(c.email)}`;
     const sellerGstin = String(finalPayload?.SellerDtls?.Gstin || '').trim().toUpperCase();
-    const buyerGstin = String(finalPayload?.BuyerDtls?.Gstin || '').trim().toUpperCase();
+    let buyerGstin = String(finalPayload?.BuyerDtls?.Gstin || '').trim().toUpperCase();
     if (sellerGstin && buyerGstin && sellerGstin === buyerGstin) {
-      return res.status(422).json({
-        message:
-          'Buyer GSTIN cannot be same as Seller GSTIN. Please correct Buyer (Bill To) GSTIN in your invoice/PO data.',
-      });
+      // Invoice/PO data sometimes has seller GSTIN in buyer fields — generate as B2C (URP).
+      // eslint-disable-next-line no-console
+      console.warn(`Buyer GSTIN matched seller (${sellerGstin}); using B2C unregistered buyer (URP).`);
+      finalPayload.BuyerDtls = {
+        ...finalPayload.BuyerDtls,
+        Gstin: 'URP',
+      };
+      finalPayload.TranDtls = {
+        ...(finalPayload.TranDtls || {}),
+        TaxSch: finalPayload.TranDtls?.TaxSch || 'GST',
+        SupTyp: 'B2C',
+      };
+      buyerGstin = 'URP';
     }
 
     const callGenerate = async (bodyPayload) =>

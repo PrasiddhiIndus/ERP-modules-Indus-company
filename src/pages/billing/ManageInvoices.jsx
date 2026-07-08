@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
-import { generateEInvoice } from '../../services/eInvoiceApi';
+import { generateEInvoice, resolveBuyerGstinForBill } from '../../services/eInvoiceApi';
 import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 import { resolveInvoicePartyAddresses } from '../../utils/invoicePartyAddresses';
 import { resolveInvoicePartyPincodes } from '../../utils/poPincodeFields';
@@ -460,6 +460,20 @@ const ManageInvoices = ({ onNavigateTab }) => {
     setGeneratingEInvoiceId(inv.id);
     try {
       const po = commercialPOs.find((p) => p.id === inv.poId);
+      const buyerGstinResolved = resolveBuyerGstinForBill({
+        buyerGstin: inv.buyerGstin || inv.buyer_gstin,
+        clientGstin: inv.clientGstin || inv.client_gstin,
+        gstin: inv.gstin,
+        buyer: {
+          gstin:
+            inv.buyerGstin ||
+            inv.buyer_gstin ||
+            inv.clientGstin ||
+            inv.client_gstin ||
+            inv.gstin ||
+            '',
+        },
+      });
       const billShape = {
         id: inv.id,
         bill_number: inv.taxInvoiceNumber,
@@ -473,24 +487,13 @@ const ManageInvoices = ({ onNavigateTab }) => {
         buyerPin: resolved.pin || inv.buyerPin || inv.buyer_pin || inv.clientPincode || inv.client_pincode || '',
         clientPhone: inv.clientPhone || inv.client_phone || '',
         clientEmail: inv.clientEmail || inv.client_email || '',
-        gstin: inv.gstin,
-        buyerGstin:
-          inv.buyerGstin ||
-          inv.buyer_gstin ||
-          inv.clientGstin ||
-          inv.client_gstin ||
-          inv.gstin,
+        gstin: buyerGstinResolved,
+        buyerGstin: buyerGstinResolved,
         buyer: {
           pin: resolved.pin || inv.buyerPin || inv.buyer_pin || inv.clientPincode || inv.client_pincode || '',
           pinCode: resolved.pin || inv.buyerPincode || inv.buyer_pincode || inv.clientPincode || inv.client_pincode || '',
           city: inv.buyerCity || inv.buyer_city || inv.clientCity || inv.client_city || '',
-          gstin:
-            inv.buyerGstin ||
-            inv.buyer_gstin ||
-            inv.clientGstin ||
-            inv.client_gstin ||
-            inv.gstin ||
-            '',
+          gstin: buyerGstinResolved,
         },
         placeOfSupply: inv.placeOfSupply || inv.place_of_supply || po?.placeOfSupply || po?.place_of_supply || '',
         invoice_date: inv.invoiceDate || inv.created_at,
