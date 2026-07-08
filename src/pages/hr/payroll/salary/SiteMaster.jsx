@@ -3,7 +3,12 @@ import { Download, Pencil, Plus } from 'lucide-react';
 import { KpiTile, SectionCard, DenseTable, Badge, Modal } from '../../../adminOperations/components/AdminUi';
 import { listPayrollSites, payrollSiteRowToForm } from '../../../../services/payrollApi';
 import SiteMasterSetupForm from './components/SiteMasterSetupForm';
-import { createEmptySiteForm, SITE_FORM_REQUIRED } from './siteMasterOptions';
+import {
+  createEmptySiteForm,
+  formatAttendanceCycle,
+  resolveIndustryCategory,
+  validateSiteForm,
+} from './siteMasterOptions';
 
 const DEMO_SITES = [
   {
@@ -64,12 +69,12 @@ function formToSiteRow(form) {
     site_code: String(form.siteCode || '').trim().toUpperCase(),
     site_name: String(form.siteName || '').trim(),
     state: form.state || '',
-    industry_category: form.industryCategory || '',
+    industry_category: resolveIndustryCategory(form),
     cost_centre: form.costCentre || '',
     site_address: form.siteAddress || '',
     primary_client_contact: form.primaryClientContact || '',
     contact_phone_email: form.contactPhoneEmail || '',
-    attendance_cycle: form.attendanceCycle || '1st to 31st',
+    attendance_cycle: formatAttendanceCycle(form.attendanceCycleStartDay, form.attendanceCycleEndDay),
     formula_package: form.formulaPackage || 'Default',
     ot_rate: form.otRate || 'Single Rate',
     status: form.status || 'Active',
@@ -79,16 +84,12 @@ function formToSiteRow(form) {
 
 function siteRowToSetupForm(row) {
   if (!row) return createEmptySiteForm();
-  return payrollSiteRowToForm(row);
-}
-
-function validateSiteForm(form) {
-  for (const [field, label] of SITE_FORM_REQUIRED) {
-    if (!String(form[field] || '').trim()) {
-      return `Please enter ${label}.`;
-    }
-  }
-  return '';
+  const base = payrollSiteRowToForm(row);
+  return {
+    ...base,
+    attendanceCycleStartDay: base.attendanceCycleStartDay || '1',
+    attendanceCycleEndDay: base.attendanceCycleEndDay || '31',
+  };
 }
 
 export default function SiteMaster() {
