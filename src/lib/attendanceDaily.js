@@ -14,6 +14,7 @@ import {
 } from "../../shared/attendanceRegisterSync.mjs";
 
 export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
+export const REGISTER_MARK_SOURCE_AUTO_HOLIDAY = "auto_holiday";
 export const REGISTER_MARK_SOURCE_TOUR = "tour";
 
 export const INDUS_ONE_TOUR_TABLES = {
@@ -1783,6 +1784,94 @@ export async function syncRegisterAutoWeekoffMarks(
         month_key: register_date.slice(0, 7),
         mark: "WO",
         mark_source: REGISTER_MARK_SOURCE_AUTO_WO,
+        leave_request_id: null,
+        updated_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  if (!upserts.length) return { upserted: 0, failed };
+
+  let upserted = 0;
+  for (let i = 0; i < upserts.length; i += REGISTER_MARK_UPSERT_CHUNK) {
+    const chunk = upserts.slice(i, i + REGISTER_MARK_UPSERT_CHUNK);
+    try {
+      await upsertRegisterMarksBatch(supabase, chunk, { masterCodeMap });
+      upserted += chunk.length;
+    } catch {
+      for (const row of chunk) {
+        try {
+          await upsertRegisterMarksBatch(supabase, [row], { masterCodeMap });
+          upserted += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+    }
+  }
+  return { upserted, failed };
+}
+
+/**
+ * Whether configured NH/PH may be written on a holiday date.
+ * Replaces punch-only Present and auto weekoff; never overwrites leave or manual marks.
+ */
+export function canAutoHolidayApplyToExisting(existing) {
+  if (!existing?.mark) return true;
+  if (String(existing.mark_remark ?? "").trim()) return false;
+  if (isLeaveMarkSource(existing.mark_source, existing.leave_request_id)) return false;
+  if (isTourMarkSource(existing.mark_source, existing.tour_request_id)) return false;
+  const src = String(existing.mark_source ?? "").trim().toLowerCase();
+  if (isManualMarkSource(src)) return false;
+  const mark = String(existing.mark ?? "").trim();
+  if (isRegisterNhphMark(mark) && (src === REGISTER_MARK_SOURCE_AUTO_HOLIDAY || !src)) return true;
+  if (mark === "WO" && (src === REGISTER_MARK_SOURCE_AUTO_WO || !src)) return true;
+  if (isPunchMarkSource(mark, existing.mark_source)) return true;
+  if (mark === "P" || mark === "P(OD)" || mark === "T") return false;
+  return true;
+}
+
+/**
+ * Apply NH/PH on configured national/public holiday dates for every register employee.
+ */
+export async function syncRegisterAutoHolidayMarks(
+  supabase,
+  employeeCodes,
+  holidayDates,
+  masterCodeMap = null,
+  options = {}
+) {
+  const codes = [...new Set((employeeCodes || []).map(normalizeAttendanceEmpCode).filter(Boolean))];
+  const dates = [...new Set((holidayDates || []).map(normalizeDbDate).filter(Boolean))].sort();
+  if (!codes.length || !dates.length) return { upserted: 0, failed: 0 };
+
+  const fromDate = dates[0];
+  const toDate = dates[dates.length - 1];
+  const existingRows =
+    options.existingRegisterRows ??
+    (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
+
+  const existingByKey = new Map();
+  for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
+
+  const upserts = [];
+  let failed = 0;
+  for (const normCode of codes) {
+    if (masterCodeMap?.size && !masterCodeMap.has(normCode)) {
+      failed += dates.length;
+      continue;
+    }
+    const dbCode = toRegisterDbEmployeeCode(normCode, masterCodeMap);
+    if (!dbCode) continue;
+    for (const register_date of dates) {
+      const existing = lookupRegisterRow(existingByKey, normCode, dbCode, register_date);
+      if (!canAutoHolidayApplyToExisting(existing)) continue;
+      upserts.push({
+        employee_code: dbCode,
+        register_date,
+        month_key: register_date.slice(0, 7),
+        mark: REGISTER_MARK_NHPH,
+        mark_source: REGISTER_MARK_SOURCE_AUTO_HOLIDAY,
         leave_request_id: null,
         updated_at: new Date().toISOString(),
       });

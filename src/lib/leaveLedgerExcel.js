@@ -2,7 +2,24 @@ import * as XLSX from "xlsx";
 import { normalizeAttendanceEmpCode } from "./attendanceDaily";
 import { buildLeaveBalanceDbRow } from "./leaveManagement";
 
-/** Column headers for template, export, and import (first row). */
+/** Simple sample sheet for leave balance import (Admin → Leave Management). */
+export const LEAVE_BALANCE_SAMPLE_HEADERS = [
+  "Sr No",
+  "Employee Code",
+  "Employee Name",
+  "Department",
+  "CL",
+  "PL",
+  "SL",
+  "S BeL",
+  "SPLA",
+  "SPLB",
+  "SPLM",
+  "C/OFF",
+  "Paternity",
+];
+
+/** Legacy detailed ledger headers (still accepted on upload). */
 export const LEAVE_LEDGER_IMPORT_HEADERS = [
   "Year",
   "Employee Code",
@@ -21,7 +38,23 @@ export const LEAVE_LEDGER_IMPORT_HEADERS = [
   "CL Expired",
 ];
 
-const HEADER_ALIASES = {
+const SAMPLE_HEADER_ALIASES = {
+  sr_no: ["sr no", "sr. no", "s no", "s.no", "serial no"],
+  emp_code: ["employee code", "emp code", "employee_code", "emp_code", "code"],
+  employee_name: ["employee name", "employee", "name", "full name"],
+  department: ["department", "dept"],
+  cl: ["cl"],
+  pl: ["pl"],
+  sl: ["sl"],
+  sbel: ["s bel", "sbel", "s bel", "sb el"],
+  spla: ["spla"],
+  splb: ["splb"],
+  splm: ["splm"],
+  co: ["c/off", "c off", "co", "comp off", "compensatory off"],
+  paternity: ["paternity", "ptl", "paternity leave"],
+};
+
+const LEGACY_HEADER_ALIASES = {
   year: ["year", "calendar year", "balance year"],
   emp_code: ["employee code", "emp code", "employee_code", "emp_code", "code"],
   employee_name: ["employee name", "employee", "name", "full name"],
@@ -47,17 +80,18 @@ function normalizeHeader(h) {
     .replace(/[()]/g, "");
 }
 
-function buildHeaderFieldMap() {
+function buildHeaderFieldMap(aliases) {
   const map = {};
-  for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
-    for (const alias of aliases) {
+  for (const [field, keys] of Object.entries(aliases)) {
+    for (const alias of keys) {
       map[normalizeHeader(alias)] = field;
     }
   }
   return map;
 }
 
-const HEADER_FIELD_MAP = buildHeaderFieldMap();
+const SAMPLE_FIELD_MAP = buildHeaderFieldMap(SAMPLE_HEADER_ALIASES);
+const LEGACY_FIELD_MAP = buildHeaderFieldMap(LEGACY_HEADER_ALIASES);
 
 function parseNum(v) {
   if (v == null || v === "") return 0;
@@ -65,97 +99,200 @@ function parseNum(v) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function rowFromSheetObject(raw, defaultYear) {
-  const mapped = { emp_code: "", employee_name: "" };
+function mapRowByFieldMap(raw, fieldMap) {
+  const mapped = {};
   for (const [key, value] of Object.entries(raw || {})) {
-    const field = HEADER_FIELD_MAP[normalizeHeader(key)];
+    const field = fieldMap[normalizeHeader(key)];
     if (!field) continue;
-    if (field === "emp_code") {
+    if (field === "employee_name" || field === "department") {
+      mapped[field] = String(value ?? "").trim();
+    } else if (field === "emp_code") {
       mapped.emp_code = String(value ?? "").trim();
-    } else if (field === "employee_name") {
-      mapped.employee_name = String(value ?? "").trim();
+    } else if (field === "sr_no") {
+      const n = parseNum(value);
+      mapped.sr_no = Number.isFinite(n) ? n : null;
     } else if (field === "year") {
       const y = parseNum(value);
-      mapped.year = Number.isFinite(y) && y >= 1900 ? Math.round(y) : defaultYear;
+      mapped.year = Number.isFinite(y) && y >= 1900 ? Math.round(y) : null;
     } else {
       const n = parseNum(value);
       mapped[field] = Number.isFinite(n) ? n : 0;
     }
   }
+  return mapped;
+}
+
+function resolveEmployeeByName(name, department, employees = []) {
+  const n = String(name || "")
+    .trim()
+    .toLowerCase();
+  if (!n) return null;
+  const d = String(department || "")
+    .trim()
+    .toLowerCase();
+  const matches = (employees || []).filter(
+    (e) => String(e.employeeName || "").trim().toLowerCase() === n
+  );
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1 && d) {
+    const deptMatches = matches.filter(
+      (e) => String(e.department || "").trim().toLowerCase() === d
+    );
+    if (deptMatches.length === 1) return deptMatches[0];
+  }
+  return matches[0] || null;
+}
+
+function detectImportFormat(rawRows) {
+  if (!rawRows?.length) return "sample";
+  const keys = new Set(Object.keys(rawRows[0] || {}).map((k) => normalizeHeader(k)));
+  if (keys.has("pl open") || keys.has("sl open") || keys.has("cl open")) {
+    return "legacy";
+  }
+  return "sample";
+}
+
+function rowFromLegacySheetObject(raw, defaultYear) {
+  const mapped = mapRowByFieldMap(raw, LEGACY_FIELD_MAP);
+  mapped.emp_code = normalizeAttendanceEmpCode(mapped.emp_code || "");
   if (!mapped.year) mapped.year = defaultYear;
-  mapped.emp_code = normalizeAttendanceEmpCode(mapped.emp_code);
   return mapped;
 }
 
 /**
- * @param {Array<{ empCode?: string, employeeName?: string }>} sampleEmployees
+ * Map simple sample-sheet columns to yearly balance fields.
+ * PL-family balances roll into opening_pl; SL + S BeL into opening_sl.
  */
-export function downloadLeaveLedgerImportTemplate(year, sampleEmployees = []) {
-  const y = Number(year) || new Date().getFullYear();
-  const samples =
-    sampleEmployees.length > 0
-      ? sampleEmployees.slice(0, 3).map((e) => ({
-          Year: y,
-          "Employee Code": e.empCode || "",
-          "Employee Name": e.employeeName || "",
-          "PL Open": 0,
-          "PL Used": 0,
-          "PL Carried": 0,
-          "PL Encashed": 0,
-          "PL Expired": 0,
-          "SL Open": 0,
-          "SL Used": 0,
-          "SL Carried": 0,
-          "SL Expired": 0,
-          "CL Open": 0,
-          "CL Used": 0,
-          "CL Expired": 0,
-        }))
-      : [
-          {
-            Year: y,
-            "Employee Code": "10001",
-            "Employee Name": "Sample Employee",
-            "PL Open": 2,
-            "PL Used": 5,
-            "PL Carried": 7,
-            "PL Encashed": 0,
-            "PL Expired": 6,
-            "SL Open": 0,
-            "SL Used": 2,
-            "SL Carried": 6,
-            "SL Expired": 0,
-            "CL Open": 0,
-            "CL Used": 1,
-            "CL Expired": 7,
-          },
-        ];
+function rowFromSampleBalanceSheet(raw, defaultYear, employees = []) {
+  const mapped = mapRowByFieldMap(raw, SAMPLE_FIELD_MAP);
+  let emp_code = normalizeAttendanceEmpCode(mapped.emp_code || "");
+  let employee = null;
+  if (emp_code) {
+    employee = (employees || []).find(
+      (e) => normalizeAttendanceEmpCode(e.empCode) === emp_code
+    );
+  }
+  if (!emp_code) {
+    employee = resolveEmployeeByName(mapped.employee_name, mapped.department, employees);
+    emp_code = employee ? normalizeAttendanceEmpCode(employee.empCode) : "";
+  }
 
-  const instructions = [
-    {
-      Note: "Fill one row per employee for the selected year. Employee Code is required.",
-    },
-    {
-      Note: "Use Download sample import sheet for a blank template with your active employees.",
-    },
-    {
-      Note: "Numeric columns accept decimals (e.g. 0.5). Leave blank cells as 0.",
-    },
-  ];
+  const pl = Number(mapped.pl || 0);
+  const sl = Number(mapped.sl || 0);
+  const cl = Number(mapped.cl || 0);
+  const sbel = Number(mapped.sbel || 0);
+  const spla = Number(mapped.spla || 0);
+  const splb = Number(mapped.splb || 0);
+  const splm = Number(mapped.splm || 0);
+  const co = Number(mapped.co || 0);
+  const paternity = Number(mapped.paternity || 0);
 
-  const wsData = XLSX.utils.json_to_sheet(samples, { header: LEAVE_LEDGER_IMPORT_HEADERS });
-  const wsNotes = XLSX.utils.json_to_sheet(instructions);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, wsData, "Leave Ledger");
-  XLSX.utils.book_append_sheet(wb, wsNotes, "Instructions");
-  XLSX.writeFile(wb, `leave-ledger-import-template-${y}.xlsx`);
+  return {
+    emp_code,
+    employee_name: mapped.employee_name || employee?.employeeName || "",
+    department: mapped.department || employee?.department || "",
+    year: defaultYear,
+    opening_pl: pl + spla + splb + splm + co + paternity,
+    opening_sl: sl + sbel,
+    opening_cl: cl,
+    used_pl: 0,
+    used_sl: 0,
+    used_cl: 0,
+    carried_pl: 0,
+    carried_sl: 0,
+    carried_cl: 0,
+    expired_pl: 0,
+    expired_sl: 0,
+    expired_cl: 0,
+    encashed_pl: 0,
+  };
+}
+
+function blankSampleRow(srNo, employee) {
+  return {
+    "Sr No": srNo,
+    "Employee Code": employee.empCode || "",
+    "Employee Name": employee.employeeName || "",
+    Department: employee.department || "",
+    CL: "",
+    PL: "",
+    SL: "",
+    "S BeL": "",
+    SPLA: "",
+    SPLB: "",
+    SPLM: "",
+    "C/OFF": "",
+    Paternity: "",
+  };
 }
 
 /**
+ * @param {Array<{ empCode?: string, employeeName?: string, department?: string }>} employees
+ */
+export function downloadLeaveBalanceSampleSheet(year, employees = []) {
+  const y = Number(year) || new Date().getFullYear();
+  const rows =
+    employees.length > 0
+      ? employees.map((e, i) => blankSampleRow(i + 1, e))
+      : [
+          {
+            "Sr No": 1,
+            "Employee Code": "10001",
+            "Employee Name": "Sample Employee",
+            Department: "Operations",
+            CL: "",
+            PL: "",
+            SL: "",
+            "S BeL": "",
+            SPLA: "",
+            SPLB: "",
+            SPLM: "",
+            "C/OFF": "",
+            Paternity: "",
+          },
+        ];
+
+  const ws = XLSX.utils.json_to_sheet(rows, { header: LEAVE_BALANCE_SAMPLE_HEADERS });
+  ws["!cols"] = [
+    { wch: 8 },
+    { wch: 14 },
+    { wch: 28 },
+    { wch: 18 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 8 },
+    { wch: 10 },
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Leave Balances");
+  XLSX.writeFile(wb, `leave-balance-sample-${y}.xlsx`);
+}
+
+/** @deprecated Use downloadLeaveBalanceSampleSheet */
+export function downloadLeaveLedgerImportTemplate(year, sampleEmployees = []) {
+  downloadLeaveBalanceSampleSheet(
+    year,
+    sampleEmployees.map((e) => ({
+      empCode: e.empCode,
+      employeeName: e.employeeName,
+      department: e.department || "",
+    }))
+  );
+}
+
+/**
+ * @param {{ employees?: Array<{ empCode?: string, employeeName?: string, department?: string }> }} [options]
  * @returns {Promise<{ rows: object[], errors: string[], skipped: number }>}
  */
-export async function parseLeaveLedgerImportFile(file, defaultYear) {
+export async function parseLeaveLedgerImportFile(file, defaultYear, options = {}) {
   const errors = [];
+  const { employees = [] } = options;
   if (!file) {
     return { rows: [], errors: ["No file selected."], skipped: 0 };
   }
@@ -163,7 +300,10 @@ export async function parseLeaveLedgerImportFile(file, defaultYear) {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array" });
   const sheetName =
-    wb.SheetNames.find((n) => normalizeHeader(n) === "leave ledger") || wb.SheetNames[0];
+    wb.SheetNames.find((n) => {
+      const h = normalizeHeader(n);
+      return h === "leave balances" || h === "leave ledger";
+    }) || wb.SheetNames[0];
   const ws = wb.Sheets[sheetName];
   if (!ws) {
     return { rows: [], errors: ["No worksheet found in file."], skipped: 0 };
@@ -174,26 +314,42 @@ export async function parseLeaveLedgerImportFile(file, defaultYear) {
     return { rows: [], errors: ["Import sheet has no data rows."], skipped: 0 };
   }
 
+  const format = detectImportFormat(rawRows);
   const payloads = [];
   let skipped = 0;
 
   rawRows.forEach((raw, index) => {
     const rowNum = index + 2;
-    const mapped = rowFromSheetObject(raw, defaultYear);
-    if (!mapped.emp_code) {
-      const hasAny =
-        Object.values(raw).some((v) => String(v ?? "").trim() !== "") &&
-        !String(raw.Note || raw.note || "").trim();
-      if (hasAny) {
+    const hasAny = Object.values(raw).some((v) => String(v ?? "").trim() !== "");
+    if (!hasAny) return;
+
+    let mapped;
+    if (format === "legacy") {
+      mapped = rowFromLegacySheetObject(raw, defaultYear);
+      if (!mapped.emp_code) {
         errors.push(`Row ${rowNum}: missing Employee Code — skipped.`);
         skipped += 1;
+        return;
       }
-      return;
+    } else {
+      mapped = rowFromSampleBalanceSheet(raw, defaultYear, employees);
+      if (!mapped.emp_code && !mapped.employee_name) {
+        errors.push(`Row ${rowNum}: missing Employee Code and Employee Name — skipped.`);
+        skipped += 1;
+        return;
+      }
+      if (!mapped.emp_code) {
+        errors.push(
+          `Row ${rowNum}: could not match "${mapped.employee_name || "row"}" to an active employee — skipped.`
+        );
+        skipped += 1;
+        return;
+      }
     }
 
     const dbRow = buildLeaveBalanceDbRow(mapped, mapped.year || defaultYear);
     if (!dbRow) {
-      errors.push(`Row ${rowNum}: invalid row for ${mapped.emp_code}.`);
+      errors.push(`Row ${rowNum}: invalid row for ${mapped.emp_code || mapped.employee_name}.`);
       skipped += 1;
       return;
     }
@@ -201,7 +357,7 @@ export async function parseLeaveLedgerImportFile(file, defaultYear) {
   });
 
   if (!payloads.length && !errors.length) {
-    errors.push("No valid employee rows found. Check Employee Code column.");
+    errors.push("No valid employee rows found. Check Employee Name and balance columns.");
   }
 
   return { rows: payloads, errors, skipped };
