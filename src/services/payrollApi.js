@@ -1,9 +1,11 @@
 import { supabase } from '../lib/supabase';
 import {
+  costCentreToForm,
   formatAttendanceCycle,
   industryCategoryToForm,
   parseAttendanceCycle,
   resolveIndustryCategory,
+  resolveCostCentre,
 } from '../pages/hr/payroll/salary/siteMasterOptions';
 import { PAYROLL_TABLES, EMPLOYEE_MASTER_TABLE } from '../modules/payroll/integrations';
 import { fetchPresentDaysByEmployeeCode, fetchActiveEmployeesForPayroll } from './attendancePayrollApi';
@@ -38,13 +40,14 @@ export async function listAllPayrollSites() {
 
 export function payrollSiteRowToForm(row = {}) {
   const industry = industryCategoryToForm(row.industry_category || '');
+  const costCentre = costCentreToForm(row.cost_centre || '');
   const cycle = parseAttendanceCycle(row.attendance_cycle || '1st to 31st');
   return {
     id: row.id || '',
     siteCode: row.site_code || '',
     siteName: row.site_name || '',
     ...industry,
-    costCentre: row.cost_centre || '',
+    ...costCentre,
     state: row.state || '',
     siteAddress: row.site_address || '',
     primaryClientContact: row.primary_client_contact || '',
@@ -63,7 +66,7 @@ export function buildPayrollSitePayload(form) {
     site_name: String(form.siteName || '').trim(),
     state: form.state || null,
     industry_category: resolveIndustryCategory(form) || null,
-    cost_centre: form.costCentre || null,
+    cost_centre: resolveCostCentre(form) || null,
     site_address: form.siteAddress || null,
     primary_client_contact: form.primaryClientContact || null,
     contact_phone_email: form.contactPhoneEmail || null,

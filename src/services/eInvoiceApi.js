@@ -1,5 +1,7 @@
 import QRCode from 'qrcode';
 import { apiUrl } from '../lib/apiBase';
+import { supabase } from '../lib/supabase';
+import { getAdminApiAccessToken } from '../lib/userManagementAuthToken';
 import { resolveBuyerStateAndPin } from '../utils/gstStatePin';
 
 /**
@@ -32,6 +34,81 @@ function resolveEInvoiceApiBase() {
 const EINVOICE_API_BASE = resolveEInvoiceApiBase();
 const EINVOICE_PROVIDER = String(import.meta.env?.VITE_EINVOICE_PROVIDER || 'backend').toLowerCase();
 const WHITEBOOKS_BASE_URL = import.meta.env?.VITE_WHITEBOOKS_BASE_URL || 'https://api.whitebooks.in';
+
+function formatBackendEInvoiceError(rawText, status, endpoint) {
+  const text = String(rawText || '').trim();
+  if (/CORS not allowed/i.test(text)) {
+    return (
+      'E-invoice API server blocked this page (CORS). Stop any old Node process on port 8787, then run `npm run dev` again. ' +
+      'If Vite uses a different port (e.g. 5175), restart the API server so dev CORS allows all localhost ports.'
+    );
+  }
+  if (
+    status === 502 ||
+    status === 503 ||
+    /ECONNREFUSED|proxy error|socket hang up/i.test(text) ||
+    (!text && status >= 500)
+  ) {
+    return (
+      'Cannot reach the e-invoice API server (port 8787). Run `npm run dev` from the project root and confirm the terminal shows ' +
+      '"Whitebooks proxy listening on port 8787". If port 8787 is already in use, stop the other process and restart.'
+    );
+  }
+  if (/^\s*</.test(text)) {
+    return (
+      `E-invoice API returned HTML instead of JSON (HTTP ${status}). ` +
+      `Ensure /api is proxied to the Node server on port 8787, or set VITE_EINVOICE_API_URL to your backend base URL.`
+    );
+  }
+  return `E-invoice API returned invalid JSON (HTTP ${status}). ${text.slice(0, 200) || 'Empty body.'}`;
+}
+
+/** POST to our Node e-invoice proxy with the user's Supabase session JWT. */
+async function postBackendEInvoice(endpoint, body, { allowRetry = true } = {}) {
+  async function requestWithToken(token) {
+    let res;
+    try {
+      res = await fetch(`${EINVOICE_API_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      const msg = String(err?.message || err || '');
+      if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+        throw new Error(
+          'Cannot reach the e-invoice API server. Run `npm run dev` and ensure port 8787 is free (only one Node API process).'
+        );
+      }
+      throw err;
+    }
+    const rawText = await res.text();
+    let data = {};
+    try {
+      data = rawText && rawText.trim() ? JSON.parse(rawText) : {};
+    } catch {
+      throw new Error(formatBackendEInvoiceError(rawText, res.status, endpoint));
+    }
+    return { res, data };
+  }
+
+  let token = await getAdminApiAccessToken(supabase);
+  if (!token) {
+    throw new Error('Not signed in. Sign in again to generate e-invoice.');
+  }
+
+  let result = await requestWithToken(token);
+  if (allowRetry && result.res.status === 401) {
+    const refreshedToken = await getAdminApiAccessToken(supabase, { forceRefresh: true });
+    if (refreshedToken && refreshedToken !== token) {
+      result = await requestWithToken(refreshedToken);
+    }
+  }
+  return result;
+}
 
 /** Format date as DD/MM/YYYY for NIC schema */
 function formatDateNIC(d) {
@@ -77,6 +154,7 @@ function resolveBuyerGstin(bill, supplierGstin) {
   const candidates = [
     bill.buyerGstin,
     bill.buyer_gstin,
+    bill.buyer?.gstin,
     bill.clientGstin,
     bill.client_gstin,
     bill.billToGstin,
@@ -87,7 +165,21 @@ function resolveBuyerGstin(bill, supplierGstin) {
     .filter(Boolean);
   const supplier = normalizeGstin(supplierGstin);
   const nonSupplier = candidates.find((g) => g !== supplier);
-  return nonSupplier || candidates[0] || 'URP';
+  // Never use seller GSTIN as buyer — PO/invoice data sometimes stores it by mistake.
+  return nonSupplier || 'URP';
+}
+
+function getSupplierGstin() {
+  return (
+    import.meta.env?.VITE_SUPPLIER_GSTIN ||
+    import.meta.env?.VITE_WHITEBOOKS_GSTIN ||
+    '24AADCI2182H1ZS'
+  );
+}
+
+/** Resolve buyer GSTIN for e-invoice, excluding seller GSTIN mistaken in PO/invoice fields. */
+export function resolveBuyerGstinForBill(bill) {
+  return resolveBuyerGstin(bill, getSupplierGstin());
 }
 
 /**
@@ -95,10 +187,7 @@ function resolveBuyerGstin(bill, supplierGstin) {
  * Use HSN 998536 for fire manpower services; place of supply must be correct for IRP.
  */
 export function buildEInvoicePayload(bill, wopo = null) {
-  const supplierGstin =
-    import.meta.env?.VITE_SUPPLIER_GSTIN ||
-    import.meta.env?.VITE_WHITEBOOKS_GSTIN ||
-    '24AADCI2182H1ZS';
+  const supplierGstin = getSupplierGstin();
   const supplierName = import.meta.env?.VITE_SUPPLIER_LEGAL_NAME || 'Indus Fire Safety Pvt Ltd';
   const supplierTradeName = import.meta.env?.VITE_SUPPLIER_TRADE_NAME || supplierName;
   const supplierAddress = import.meta.env?.VITE_SUPPLIER_ADDRESS || 'Block No 501, Old NH-8, Opposite GSFC Main Gate, Vadodara, Dashrath, Vadodara';
@@ -284,39 +373,21 @@ export async function generateEInvoice(bill, wopo = null) {
       return await generateViaWhitebooks(payload);
     }
 
-    const res = await fetch(`${EINVOICE_API_BASE}/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        billId: bill.id,
-        payload,
-        invoice: {
-          buyerPin: bill.buyerPin ?? bill.clientPincode ?? bill.client_pincode,
-          buyerCity: bill.clientCity ?? bill.client_city,
-          buyerGstin: resolveBuyerGstin(bill, payload?.SellerDtls?.Gstin),
-          buyer: {
-            pin: bill.buyer?.pin ?? bill.clientPincode ?? bill.client_pincode,
-            pinCode: bill.buyer?.pinCode ?? bill.clientPincode ?? bill.client_pincode,
-            city: bill.buyer?.city ?? bill.clientCity ?? bill.client_city,
-            gstin: bill.buyer?.gstin ?? bill.buyerGstin ?? bill.clientGstin ?? bill.client_gstin,
-          },
+    const { res, data } = await postBackendEInvoice('/generate', {
+      billId: bill.id,
+      payload,
+      invoice: {
+        buyerPin: bill.buyerPin ?? bill.clientPincode ?? bill.client_pincode,
+        buyerCity: bill.clientCity ?? bill.client_city,
+        buyerGstin: resolveBuyerGstin(bill, payload?.SellerDtls?.Gstin),
+        buyer: {
+          pin: bill.buyer?.pin ?? bill.clientPincode ?? bill.client_pincode,
+          pinCode: bill.buyer?.pinCode ?? bill.clientPincode ?? bill.client_pincode,
+          city: bill.buyer?.city ?? bill.clientCity ?? bill.client_city,
+          gstin: bill.buyer?.gstin ?? bill.buyerGstin ?? bill.clientGstin ?? bill.client_gstin,
         },
-      }),
+      },
     });
-    const rawText = await res.text();
-    let data = {};
-    try {
-      data = rawText && rawText.trim() ? JSON.parse(rawText) : {};
-    } catch {
-      if (res.ok && /^\s*</.test(rawText)) {
-        throw new Error(
-          `E-invoice API returned a web page (HTML) instead of JSON. The browser called ${EINVOICE_API_BASE}/generate — on production, reverse-proxy /api to the Node e-invoice server, or set VITE_EINVOICE_API_URL to the full API base URL.`
-        );
-      }
-      throw new Error(
-        `E-invoice API returned invalid JSON (HTTP ${res.status}). ${rawText?.slice(0, 200) || 'Empty body.'}`
-      );
-    }
     if (res.ok) {
       const mapped = mapBackendResponse(data);
       if (!mapped?.irn || String(mapped.irn).startsWith('MOCK-IRN-')) {
@@ -676,12 +747,7 @@ function mockResponse(bill) {
  */
 export async function cancelEInvoice(irn, reason = 'Cancelled') {
   try {
-    const res = await fetch(`${EINVOICE_API_BASE}/cancel`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ irn, reason }),
-    });
-    const data = await res.json().catch(() => ({}));
+    const { res, data } = await postBackendEInvoice('/cancel', { irn, reason });
     if (res.ok) return data;
     throw new Error(data.message || data.error || `HTTP ${res.status}`);
   } catch (e) {

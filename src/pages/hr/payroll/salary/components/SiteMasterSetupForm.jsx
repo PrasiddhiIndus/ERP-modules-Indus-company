@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ATTENDANCE_CYCLE_DAY_OPTIONS,
-  COST_CENTRE_OPTIONS,
   INDUSTRY_CATEGORY_OPTIONS,
   OT_RATE_OPTIONS,
   SITE_STATUS_OPTIONS,
@@ -165,21 +164,20 @@ export default function SiteMasterSetupForm({ form, onChange, disabled = false }
               />
             ) : null}
           </Field>
-          <Field label="Cost Centre" required tag="master">
-            <select
+          <Field
+            label="Cost Centre"
+            required
+            tag="master"
+            hint="Enter financial ledger allocation / cost centre code."
+          >
+            <input
               name="costCentre"
               value={form.costCentre}
               onChange={handleChange}
               disabled={disabled}
-              className={selectClass}
-            >
-              <option value="">Select financial ledger allocation</option>
-              {COST_CENTRE_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+              className={inputClass}
+              placeholder="e.g. CC-1001 — Corporate Ops"
+            />
           </Field>
           <Field
             label="State"

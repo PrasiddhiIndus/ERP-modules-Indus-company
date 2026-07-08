@@ -7,6 +7,7 @@ import {
   createEmptySiteForm,
   formatAttendanceCycle,
   resolveIndustryCategory,
+  resolveCostCentre,
   validateSiteForm,
 } from './siteMasterOptions';
 
@@ -70,7 +71,7 @@ function formToSiteRow(form) {
     site_name: String(form.siteName || '').trim(),
     state: form.state || '',
     industry_category: resolveIndustryCategory(form),
-    cost_centre: form.costCentre || '',
+    cost_centre: resolveCostCentre(form),
     site_address: form.siteAddress || '',
     primary_client_contact: form.primaryClientContact || '',
     contact_phone_email: form.contactPhoneEmail || '',

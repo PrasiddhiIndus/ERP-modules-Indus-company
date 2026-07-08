@@ -94,6 +94,14 @@ export function resolveIndustryCategory(form) {
   return String(form.industryCategory || '').trim();
 }
 
+export function costCentreToForm(stored) {
+  return { costCentre: stored ? String(stored) : '' };
+}
+
+export function resolveCostCentre(form) {
+  return String(form.costCentre || '').trim();
+}
+
 export function createEmptySiteForm() {
   return {
     id: '',
