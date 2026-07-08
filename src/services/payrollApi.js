@@ -1,4 +1,10 @@
 import { supabase } from '../lib/supabase';
+import {
+  formatAttendanceCycle,
+  industryCategoryToForm,
+  parseAttendanceCycle,
+  resolveIndustryCategory,
+} from '../pages/hr/payroll/salary/siteMasterOptions';
 import { PAYROLL_TABLES, EMPLOYEE_MASTER_TABLE } from '../modules/payroll/integrations';
 import { fetchPresentDaysByEmployeeCode, fetchActiveEmployeesForPayroll } from './attendancePayrollApi';
 import { computeEmployeePayroll } from '../modules/payroll/calc/pipeline';
@@ -31,17 +37,20 @@ export async function listAllPayrollSites() {
 }
 
 export function payrollSiteRowToForm(row = {}) {
+  const industry = industryCategoryToForm(row.industry_category || '');
+  const cycle = parseAttendanceCycle(row.attendance_cycle || '1st to 31st');
   return {
     id: row.id || '',
     siteCode: row.site_code || '',
     siteName: row.site_name || '',
-    industryCategory: row.industry_category || '',
+    ...industry,
     costCentre: row.cost_centre || '',
     state: row.state || '',
     siteAddress: row.site_address || '',
     primaryClientContact: row.primary_client_contact || '',
     contactPhoneEmail: row.contact_phone_email || '',
-    attendanceCycle: row.attendance_cycle || '1st to 31st',
+    attendanceCycleStartDay: cycle.startDay,
+    attendanceCycleEndDay: cycle.endDay,
     formulaPackage: row.formula_package || 'Default',
     otRate: row.ot_rate || 'Single Rate',
     status: row.is_active === false ? 'Inactive' : 'Active',
@@ -53,12 +62,12 @@ export function buildPayrollSitePayload(form) {
     site_code: String(form.siteCode || '').trim().toUpperCase(),
     site_name: String(form.siteName || '').trim(),
     state: form.state || null,
-    industry_category: form.industryCategory || null,
+    industry_category: resolveIndustryCategory(form) || null,
     cost_centre: form.costCentre || null,
     site_address: form.siteAddress || null,
     primary_client_contact: form.primaryClientContact || null,
     contact_phone_email: form.contactPhoneEmail || null,
-    attendance_cycle: form.attendanceCycle || null,
+    attendance_cycle: formatAttendanceCycle(form.attendanceCycleStartDay, form.attendanceCycleEndDay),
     formula_package: form.formulaPackage || 'Default',
     ot_rate: form.otRate || null,
     is_active: form.status !== 'Inactive',

@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-  ATTENDANCE_CYCLE_OPTIONS,
+  ATTENDANCE_CYCLE_DAY_OPTIONS,
   COST_CENTRE_OPTIONS,
-  FORMULA_PACKAGE_OPTIONS,
   INDUSTRY_CATEGORY_OPTIONS,
   OT_RATE_OPTIONS,
   SITE_STATUS_OPTIONS,
   STATE_JURISDICTION_OPTIONS,
+  formatAttendanceCycle,
 } from '../siteMasterOptions';
 
 function MasterTag() {
@@ -75,8 +75,19 @@ const textareaClass =
   'w-full min-h-[88px] resize-y rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#1F3A8A] focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/20';
 
 export default function SiteMasterSetupForm({ form, onChange, disabled = false }) {
+  const isIndustryOther = form.industryCategory === 'Other';
+  const attendanceCyclePreview = formatAttendanceCycle(
+    form.attendanceCycleStartDay,
+    form.attendanceCycleEndDay
+  );
+
   const handleChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'industryCategory' && value !== 'Other') {
+      onChange(name, value);
+      onChange('industryCategoryCustom', '');
+      return;
+    }
     onChange(name, value);
   };
 
@@ -143,6 +154,16 @@ export default function SiteMasterSetupForm({ form, onChange, disabled = false }
                 </option>
               ))}
             </select>
+            {isIndustryOther ? (
+              <input
+                name="industryCategoryCustom"
+                value={form.industryCategoryCustom}
+                onChange={handleChange}
+                disabled={disabled}
+                className={`${inputClass} mt-2`}
+                placeholder="Enter industry category"
+              />
+            ) : null}
           </Field>
           <Field label="Cost Centre" required tag="master">
             <select
@@ -236,35 +257,61 @@ export default function SiteMasterSetupForm({ form, onChange, disabled = false }
         hint="Master rules linked directly to the payroll engine loops."
       >
         <div className={gridTwo}>
-          <Field label="Attendance Cycle" required tag="master">
-            <select
-              name="attendanceCycle"
-              value={form.attendanceCycle}
-              onChange={handleChange}
-              disabled={disabled}
-              className={selectClass}
-            >
-              {ATTENDANCE_CYCLE_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Formula Package" required tag="master">
-            <select
-              name="formulaPackage"
-              value={form.formulaPackage}
-              onChange={handleChange}
-              disabled={disabled}
-              className={selectClass}
-            >
-              {FORMULA_PACKAGE_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
+          <Field
+            label="Attendance Cycle"
+            required
+            tag="master"
+            hint="Select start and end day of month (1–31) for payroll attendance cut-off."
+            className="sm:col-span-2"
+          >
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+              <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
+                <div>
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Starting day
+                  </span>
+                  <select
+                    name="attendanceCycleStartDay"
+                    value={form.attendanceCycleStartDay}
+                    onChange={handleChange}
+                    disabled={disabled}
+                    className={selectClass}
+                    aria-label="Attendance cycle start day"
+                  >
+                    {ATTENDANCE_CYCLE_DAY_OPTIONS.map((day) => (
+                      <option key={`start-${day}`} value={day}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <span className="hidden pb-2.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-400 sm:block">
+                  to
+                </span>
+                <div>
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    End day
+                  </span>
+                  <select
+                    name="attendanceCycleEndDay"
+                    value={form.attendanceCycleEndDay}
+                    onChange={handleChange}
+                    disabled={disabled}
+                    className={selectClass}
+                    aria-label="Attendance cycle end day"
+                  >
+                    {ATTENDANCE_CYCLE_DAY_OPTIONS.map((day) => (
+                      <option key={`end-${day}`} value={day}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="mt-3 border-t border-slate-200 pt-3 text-center text-xs font-medium text-slate-600">
+                Cycle preview: <span className="text-[#1F3A8A]">{attendanceCyclePreview}</span>
+              </p>
+            </div>
           </Field>
           <Field label="Overtime (OT) Rate" required tag="master">
             <select name="otRate" value={form.otRate} onChange={handleChange} disabled={disabled} className={selectClass}>
