@@ -74,22 +74,39 @@ export const EMPLOYMENT_TYPES = {
   PERMANENT: 'permanent',
   CONSULTANT: 'consultant',
   VOUCHER: 'voucher',
+  PROBATION: 'probation',
+  CONTRACT: 'contract',
+  PIP: 'pip',
+  NOTICE_PERIOD: 'notice_period',
 };
 
 export const EMPLOYMENT_TYPE_OPTIONS = [
   { value: EMPLOYMENT_TYPES.PERMANENT, label: 'Permanent Employee' },
   { value: EMPLOYMENT_TYPES.CONSULTANT, label: 'Consultant' },
   { value: EMPLOYMENT_TYPES.VOUCHER, label: 'Voucher Employee' },
+  { value: EMPLOYMENT_TYPES.PROBATION, label: 'Probation' },
+  { value: EMPLOYMENT_TYPES.CONTRACT, label: 'Contract' },
+  { value: EMPLOYMENT_TYPES.PIP, label: 'PIP (Performance Improvement Plan)' },
+  { value: EMPLOYMENT_TYPES.NOTICE_PERIOD, label: 'Notice Period' },
 ];
+
+const KNOWN_EMPLOYMENT_TYPES = new Set(Object.values(EMPLOYMENT_TYPES));
 
 /** @param {string|null|undefined} value */
 export function normalizeEmploymentType(value) {
   const v = String(value || '')
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, '_');
+    .replace(/\s+/g, '_')
+    .replace(/[()]/g, '');
   if (v === 'consultant' || v === 'c') return EMPLOYMENT_TYPES.CONSULTANT;
   if (v === 'voucher' || v === 'voucher_employee' || v === 'v') return EMPLOYMENT_TYPES.VOUCHER;
+  if (v === 'probation' || v === 'probahtion') return EMPLOYMENT_TYPES.PROBATION;
+  if (v === 'contract') return EMPLOYMENT_TYPES.CONTRACT;
+  if (v === 'pip' || v === 'performance_improvement_plan') return EMPLOYMENT_TYPES.PIP;
+  if (v === 'notice_period' || v === 'notice') return EMPLOYMENT_TYPES.NOTICE_PERIOD;
+  if (v === 'permanent' || v === 'p') return EMPLOYMENT_TYPES.PERMANENT;
+  if (KNOWN_EMPLOYMENT_TYPES.has(v)) return v;
   return EMPLOYMENT_TYPES.PERMANENT;
 }
 

@@ -10,23 +10,48 @@ export const DEFAULT_ANNUAL_ENTITLEMENTS = {
 function markWeightForPl(mark) {
   const m = String(mark || "").trim();
   if (m === "PL") return 1;
-  if (m === "SPLA" || m === "SPLB") return 0.5;
-  if (m === "SPLM") return 1;
-  // PTL is treated as leave credit (prompt: PTL = -3)
-  if (m === "PTL") return -3;
   return 0;
 }
 
 function markWeightForSl(mark) {
   const m = String(mark || "").trim();
   if (m === "SL") return 1;
-  if (m === "SBEL") return 1;
   return 0;
 }
 
 function markWeightForCl(mark) {
   const m = String(mark || "").trim();
   if (m === "CL") return 1;
+  return 0;
+}
+
+function markWeightForSbel(mark) {
+  const m = String(mark || "").trim();
+  if (m === "SBEL") return 1;
+  return 0;
+}
+
+function markWeightForSpla(mark) {
+  const m = String(mark || "").trim();
+  if (m === "SPLA") return 0.5;
+  return 0;
+}
+
+function markWeightForSplb(mark) {
+  const m = String(mark || "").trim();
+  if (m === "SPLB") return 0.5;
+  return 0;
+}
+
+function markWeightForSplm(mark) {
+  const m = String(mark || "").trim();
+  if (m === "SPLM") return 1;
+  return 0;
+}
+
+function markWeightForPaternity(mark) {
+  const m = String(mark || "").trim();
+  if (m === "PTL") return 1;
   return 0;
 }
 
@@ -112,6 +137,101 @@ export async function fetchLeaveBalancesForYear(supabase, year) {
   return data || [];
 }
 
+export async function recalculateEmployeeLeaveEntitlements(supabase, employeeCode, year) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const y = Number(year);
+  if (!code || !Number.isFinite(y)) return;
+  const { error } = await supabase.schema("indus_one").rpc("recalculate_employee_leave_entitlements", {
+    p_employee_code: code,
+    p_year: y,
+  });
+  if (error) throw error;
+}
+
+export async function recalculateAllLeaveEntitlementsForYear(supabase, year) {
+  const y = Number(year);
+  if (!Number.isFinite(y) || y < 1900) return 0;
+  const { data, error } = await supabase.schema("indus_one").rpc(
+    "recalculate_all_leave_entitlements_for_year",
+    { p_year: y }
+  );
+  if (error) throw error;
+  return Number(data || 0);
+}
+
+function emptyUsedLeaveTotals() {
+  return {
+    used_pl: 0,
+    used_sl: 0,
+    used_cl: 0,
+    used_sbel: 0,
+    used_spla: 0,
+    used_splb: 0,
+    used_splm: 0,
+    used_paternity: 0,
+  };
+}
+
+function buildUsedLeaveTotalsByEmployee(registerRows) {
+  const usedByEmp = {};
+  for (const row of registerRows || []) {
+    const emp_code = normalizeAttendanceEmpCode(row.employee_code);
+    if (!emp_code) continue;
+    const m = row.mark;
+
+    const plW = markWeightForPl(m);
+    const slW = markWeightForSl(m);
+    const clW = markWeightForCl(m);
+    const sbelW = markWeightForSbel(m);
+    const splaW = markWeightForSpla(m);
+    const splbW = markWeightForSplb(m);
+    const splmW = markWeightForSplm(m);
+    const paternityW = markWeightForPaternity(m);
+
+    if (
+      plW === 0 &&
+      slW === 0 &&
+      clW === 0 &&
+      sbelW === 0 &&
+      splaW === 0 &&
+      splbW === 0 &&
+      splmW === 0 &&
+      paternityW === 0
+    ) {
+      continue;
+    }
+
+    if (!usedByEmp[emp_code]) usedByEmp[emp_code] = emptyUsedLeaveTotals();
+    usedByEmp[emp_code].used_pl += plW;
+    usedByEmp[emp_code].used_sl += slW;
+    usedByEmp[emp_code].used_cl += clW;
+    usedByEmp[emp_code].used_sbel += sbelW;
+    usedByEmp[emp_code].used_spla += splaW;
+    usedByEmp[emp_code].used_splb += splbW;
+    usedByEmp[emp_code].used_splm += splmW;
+    usedByEmp[emp_code].used_paternity += paternityW;
+  }
+  return usedByEmp;
+}
+
+export async function fetchLeaveUsageFromDailyRegister(supabase, year) {
+  const y = Number(year);
+  if (!Number.isFinite(y) || y < 1900) return {};
+  const registerRows = await fetchRegisterMarksForYear(supabase, y);
+  return buildUsedLeaveTotalsByEmployee(registerRows);
+}
+
+function openingMinusUsed(opening, used) {
+  return Math.max(0, Number(opening || 0) - Number(used || 0));
+}
+
+function valueFromCurrentOrFallback(current, key, fallback = 0) {
+  if (current && Object.prototype.hasOwnProperty.call(current, key)) {
+    return Number(current[key] || 0);
+  }
+  return Number(fallback || 0);
+}
+
 /**
  * Computes yearly balances in `indus_one.employee_leave_balances_yearly`.
  * - CL never carries forward (cap = 0).
@@ -143,52 +263,75 @@ export async function processLeaveBalancesYear(supabase, year) {
     prevByEmp[code] = r;
   }
 
-  const registerRows = await fetchRegisterMarksForYear(supabase, y);
+  const currentBalances = await fetchLeaveBalancesForYear(supabase, y);
+  const currentByEmp = {};
+  for (const row of currentBalances || []) {
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    if (!code) continue;
+    currentByEmp[code] = row;
+  }
 
-  const usedByEmp = {};
-  for (const row of registerRows || []) {
-    const emp_code = normalizeAttendanceEmpCode(row.employee_code);
-    if (!emp_code) continue;
-    const m = row.mark;
+  const usedByEmp = await fetchLeaveUsageFromDailyRegister(supabase, y);
 
-    const plW = markWeightForPl(m);
-    const slW = markWeightForSl(m);
-    const clW = markWeightForCl(m);
+  const usageRows = (employees || [])
+    .map((e) => {
+      const emp_code = normalizeAttendanceEmpCode(e.empCode);
+      if (!emp_code) return null;
+      const prev = prevByEmp[emp_code] || {};
+      const current = currentByEmp[emp_code] || null;
+      const used = usedByEmp[emp_code] || emptyUsedLeaveTotals();
 
-    if (plW === 0 && slW === 0 && clW === 0) continue;
+      return {
+        employee_code: emp_code,
+        year: y,
+        opening_pl: valueFromCurrentOrFallback(current, "opening_pl", prev.carried_pl),
+        opening_sl: valueFromCurrentOrFallback(current, "opening_sl", prev.carried_sl),
+        opening_cl: valueFromCurrentOrFallback(current, "opening_cl", prev.carried_cl),
+        opening_sbel: valueFromCurrentOrFallback(current, "opening_sbel", 0),
+        opening_spla: valueFromCurrentOrFallback(current, "opening_spla", 0),
+        opening_splb: valueFromCurrentOrFallback(current, "opening_splb", 0),
+        opening_splm: valueFromCurrentOrFallback(current, "opening_splm", 0),
+        opening_paternity: valueFromCurrentOrFallback(current, "opening_paternity", 0),
+        used_pl: clampNonNegative(used.used_pl),
+        used_sl: clampNonNegative(used.used_sl),
+        used_cl: clampNonNegative(used.used_cl),
+        used_sbel: clampNonNegative(used.used_sbel),
+        used_spla: clampNonNegative(used.used_spla),
+        used_splb: clampNonNegative(used.used_splb),
+        used_splm: clampNonNegative(used.used_splm),
+        used_paternity: clampNonNegative(used.used_paternity),
+        processed_at: new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
 
-    if (!usedByEmp[emp_code]) usedByEmp[emp_code] = { used_pl: 0, used_sl: 0, used_cl: 0 };
-    usedByEmp[emp_code].used_pl += plW;
-    usedByEmp[emp_code].used_sl += slW;
-    usedByEmp[emp_code].used_cl += clW;
+  if (usageRows.length) {
+    const { error: usageErr } = await supabase
+      .schema("indus_one")
+      .from("employee_leave_balances_yearly")
+      .upsert(usageRows, { onConflict: "employee_code,year" });
+    if (usageErr) throw usageErr;
+  }
+
+  await recalculateAllLeaveEntitlementsForYear(supabase, y);
+
+  const balances = await fetchLeaveBalancesForYear(supabase, y);
+  const balanceByCode = {};
+  for (const row of balances) {
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    if (!code) continue;
+    balanceByCode[code] = row;
   }
 
   const rowsToUpsert = (employees || [])
     .map((e) => {
     const emp_code = normalizeAttendanceEmpCode(e.empCode);
     if (!emp_code) return null;
-    const prev = prevByEmp[emp_code] || {};
+    const bal = balanceByCode[emp_code] || {};
 
-    const opening_pl = Number(prev.carried_pl || 0);
-    const opening_sl = Number(prev.carried_sl || 0);
-    const opening_cl = Number(prev.carried_cl || 0);
-
-    const used = usedByEmp[emp_code] || { used_pl: 0, used_sl: 0, used_cl: 0 };
-    const used_pl = clampNonNegative(used.used_pl);
-    const used_sl = clampNonNegative(used.used_sl);
-    const used_cl = clampNonNegative(used.used_cl);
-
-    const pl_entitlement = DEFAULT_ANNUAL_ENTITLEMENTS.PL;
-    const sl_entitlement = DEFAULT_ANNUAL_ENTITLEMENTS.SL;
-    const cl_entitlement = DEFAULT_ANNUAL_ENTITLEMENTS.CL;
-
-    const available_pl = opening_pl + pl_entitlement;
-    const available_sl = opening_sl + sl_entitlement;
-    const available_cl = opening_cl + cl_entitlement;
-
-    const unused_pl = Math.max(0, available_pl - used_pl);
-    const unused_sl = Math.max(0, available_sl - used_sl);
-    const unused_cl = Math.max(0, available_cl - used_cl);
+    const unused_pl = openingMinusUsed(bal.opening_pl, bal.used_pl);
+    const unused_sl = openingMinusUsed(bal.opening_sl, bal.used_sl);
+    const unused_cl = openingMinusUsed(bal.opening_cl, bal.used_cl);
 
     const plCarryCap = Number(rules.pl_carry_forward_max ?? 0);
     const slCarryCap = Number(rules.sl_carry_forward_max ?? 0);
@@ -205,18 +348,33 @@ export async function processLeaveBalancesYear(supabase, year) {
     return {
       employee_code: emp_code,
       year: y,
-      opening_pl,
-      opening_sl,
-      opening_cl,
-      pl_entitlement,
-      sl_entitlement,
-      cl_entitlement,
-      used_pl,
-      used_sl,
-      used_cl,
+      opening_pl: Number(bal.opening_pl || 0),
+      opening_sl: Number(bal.opening_sl || 0),
+      opening_cl: Number(bal.opening_cl || 0),
+      pl_entitlement: Number(bal.pl_entitlement || 0),
+      sl_entitlement: Number(bal.sl_entitlement || 0),
+      cl_entitlement: Number(bal.cl_entitlement || 0),
+      sbel_entitlement: Number(bal.sbel_entitlement || 0),
+      spla_entitlement: Number(bal.spla_entitlement || 0),
+      splb_entitlement: Number(bal.splb_entitlement || 0),
+      splm_entitlement: Number(bal.splm_entitlement || 0),
+      paternity_entitlement: Number(bal.paternity_entitlement || 0),
+      used_pl: Number(bal.used_pl || 0),
+      used_sl: Number(bal.used_sl || 0),
+      used_cl: Number(bal.used_cl || 0),
+      used_sbel: Number(bal.used_sbel || 0),
+      used_spla: Number(bal.used_spla || 0),
+      used_splb: Number(bal.used_splb || 0),
+      used_splm: Number(bal.used_splm || 0),
+      used_paternity: Number(bal.used_paternity || 0),
       unused_pl,
       unused_sl,
       unused_cl,
+      unused_sbel: openingMinusUsed(bal.opening_sbel, bal.used_sbel),
+      unused_spla: openingMinusUsed(bal.opening_spla, bal.used_spla),
+      unused_splb: openingMinusUsed(bal.opening_splb, bal.used_splb),
+      unused_splm: openingMinusUsed(bal.opening_splm, bal.used_splm),
+      unused_paternity: openingMinusUsed(bal.opening_paternity, bal.used_paternity),
       carried_pl,
       carried_sl: slCarryAmount,
       carried_cl: clCarryAmount,
@@ -239,7 +397,7 @@ export async function processLeaveBalancesYear(supabase, year) {
 
 /**
  * Build a full yearly balance row for manual edit / bulk import.
- * Recomputes unused_* from opening + entitlement − used.
+ * Recomputes unused_* from opening − used.
  */
 export function buildLeaveBalanceDbRow(input, year) {
   const emp_code = normalizeAttendanceEmpCode(
@@ -271,9 +429,9 @@ export function buildLeaveBalanceDbRow(input, year) {
   const expired_cl = clampNonNegative(input.expired_cl);
   const encashed_pl = clampNonNegative(input.encashed_pl);
 
-  const unused_pl = Math.max(0, opening_pl + pl_entitlement - used_pl);
-  const unused_sl = Math.max(0, opening_sl + sl_entitlement - used_sl);
-  const unused_cl = Math.max(0, opening_cl + cl_entitlement - used_cl);
+  const unused_pl = openingMinusUsed(opening_pl, used_pl);
+  const unused_sl = openingMinusUsed(opening_sl, used_sl);
+  const unused_cl = openingMinusUsed(opening_cl, used_cl);
 
   return {
     employee_code: emp_code,
@@ -315,6 +473,8 @@ export async function upsertLeaveBalancesBatch(supabase, payloads) {
 export async function upsertLeaveBalanceYearly(supabase, input, year) {
   const row = buildLeaveBalanceDbRow(input, year);
   if (!row) throw new Error("Employee code and year are required.");
-  return upsertLeaveBalancesBatch(supabase, [row]);
+  const result = await upsertLeaveBalancesBatch(supabase, [row]);
+  await recalculateEmployeeLeaveEntitlements(supabase, row.employee_code, year);
+  return result;
 }
 

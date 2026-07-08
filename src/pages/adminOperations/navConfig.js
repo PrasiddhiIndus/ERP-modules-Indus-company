@@ -12,6 +12,7 @@ export const ADMIN_OPS_NAV = [
       { label: "Onboarding", path: "employee-onboarding" },
       { label: "Raw Attendance Data", path: "employee-attendance-inputs" },
       { label: "Daily Attendance Register", path: "employee-attendance-daily" },
+      { label: "National / Public Holidays", path: "employee-national-holidays" },
       { label: "Attendance Sheets", path: "employee-attendance-sheets" },
       { label: "Leaves", path: "employee-leaves" },
       { label: "Permissions / Short Leave", path: "employee-permissions" },
