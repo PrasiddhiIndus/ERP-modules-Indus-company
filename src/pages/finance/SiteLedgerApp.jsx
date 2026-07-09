@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, persistSitesNow, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
+import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
 import { FinanceDateInput } from "./components/FinanceDateInput";
 import FinanceTypographyStyles from "./components/FinanceTypographyStyles";
 import { SiteClientAutocomplete } from "./components/SiteClientAutocomplete";
@@ -12,6 +13,7 @@ import {
   monthLabelOf as periodMonthLabelOf,
   periodAbsoluteIndex as monthIdx,
   periodKeysBetween,
+  comparePeriodKeys,
   indexToPeriodKey,
   prevPeriodKey,
   PERIOD_END_YEAR,
@@ -140,12 +142,66 @@ const SL_VALID_VIEWS = new Set(["overview", "sites", "site", "config", "entry", 
 function readSlStateFromUrl(searchParams) {
   const v = searchParams.get("slView");
   const cur = currentPeriodKey();
+  const month = searchParams.get("slMonth") || cur;
+  let periodFrom = searchParams.get("slFrom") || month;
+  let periodTo = searchParams.get("slTo") || month;
+  if (comparePeriodKeys(periodFrom, periodTo) > 0) {
+    const swap = periodFrom;
+    periodFrom = periodTo;
+    periodTo = swap;
+  }
   return {
     view: SL_VALID_VIEWS.has(v) ? v : "overview",
     activeSite: searchParams.get("slSite") || null,
-    month: searchParams.get("slMonth") || cur,
+    month: periodTo,
+    periodFrom,
+    periodTo,
     showHistorical: searchParams.get("slHist") === "1",
   };
+}
+
+function normalizePeriodRange(from, to) {
+  if (!from || !to) return { from: to || from, to: to || from };
+  if (comparePeriodKeys(from, to) > 0) return { from: to, to: from };
+  return { from, to };
+}
+
+function calcSiteOverPeriodKeys(site, periodKeys, records) {
+  const agg = (periodKeys || []).reduce(
+    (acc, mk) => {
+      const c = calcSite(site, mk, records);
+      return {
+        revenue: acc.revenue + c.revenue,
+        expense: acc.expense + c.expense,
+        profit: acc.profit + c.profit,
+      };
+    },
+    { revenue: 0, expense: 0, profit: 0 },
+  );
+  agg.margin = agg.revenue > 0 ? (agg.profit / agg.revenue) * 100 : 0;
+  return agg;
+}
+
+function estTotalsForPeriodKeys(site, periodKeys) {
+  let revenue = 0;
+  let expense = 0;
+  let profit = 0;
+  let any = false;
+  (periodKeys || []).forEach((mk) => {
+    const e = estTotals(estimateFor(site, mk));
+    if (!e) return;
+    any = true;
+    revenue += e.revenue;
+    expense += e.expense;
+    profit += e.profit;
+  });
+  if (!any) return null;
+  return { revenue, expense, profit, margin: revenue > 0 ? (profit / revenue) * 100 : 0 };
+}
+
+function formatPeriodRangeLabel(from, to) {
+  if (!from || !to || from === to) return monthLabelOf(from || to);
+  return `${formatPeriodDateDDMMYYYY(from)} – ${formatPeriodDateDDMMYYYY(to)}`;
 }
 
 /* ───────────────────────── MONTHS ───────────────────────── */
@@ -556,6 +612,8 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [view, setView] = useState(urlInit.view);
   const [activeSite, setActiveSite] = useState(urlInit.activeSite);
   const [month, setMonth] = useState(urlInit.month);
+  const [periodFrom, setPeriodFrom] = useState(urlInit.periodFrom);
+  const [periodTo, setPeriodTo] = useState(urlInit.periodTo);
   const [query, setQuery] = useState("");
   const [saveState, setSaveState] = useState("idle");
   const [loaded, setLoaded] = useState(false);
@@ -621,12 +679,34 @@ export default function SiteLedgerApp({ embedded = true }) {
       else next.delete("slSite");
       if (month && month !== currentPeriodKey()) next.set("slMonth", month);
       else next.delete("slMonth");
+      const cur = currentPeriodKey();
+      if (periodFrom !== cur || periodTo !== cur) {
+        next.set("slFrom", periodFrom);
+        next.set("slTo", periodTo);
+      } else {
+        next.delete("slFrom");
+        next.delete("slTo");
+      }
       if (showHistorical) next.set("slHist", "1");
       else next.delete("slHist");
       if (next.toString() === prev.toString()) return prev;
       return next;
     }, { replace: true });
-  }, [view, activeSite, month, showHistorical, setSearchParams]);
+  }, [view, activeSite, month, periodFrom, periodTo, showHistorical, setSearchParams]);
+
+  const setOverviewPeriodFrom = useCallback((nextFrom) => {
+    const { from, to } = normalizePeriodRange(nextFrom, periodTo);
+    setPeriodFrom(from);
+    setPeriodTo(to);
+    setMonth(to);
+  }, [periodTo]);
+
+  const setOverviewPeriodTo = useCallback((nextTo) => {
+    const { from, to } = normalizePeriodRange(periodFrom, nextTo);
+    setPeriodFrom(from);
+    setPeriodTo(to);
+    setMonth(to);
+  }, [periodFrom]);
 
   useEffect(() => {
     if (!loaded) return undefined;
@@ -855,7 +935,34 @@ export default function SiteLedgerApp({ embedded = true }) {
   });
   }, [sitesL, records, month, needsPortfolio]);
 
-  const prevKey = useMemo(() => prevPeriodKey(month, MONTHS), [month]);
+  const overviewPeriodKeys = useMemo(
+    () => periodKeysBetween(periodFrom, periodTo),
+    [periodFrom, periodTo],
+  );
+
+  const overviewChartMonths = useMemo(
+    () => MONTHS.filter((m) => overviewPeriodKeys.includes(m.key)),
+    [overviewPeriodKeys],
+  );
+
+  const periodRangeLabel = useMemo(
+    () => formatPeriodRangeLabel(periodFrom, periodTo),
+    [periodFrom, periodTo],
+  );
+
+  const overviewRows = useMemo(() => {
+    const keys = overviewPeriodKeys;
+    const refMonth = periodTo;
+    return sitesL.map((s) => {
+      const c = calcSiteOverPeriodKeys(s, keys, records);
+      const est = estTotalsForPeriodKeys(s, keys);
+      const profitVar = est ? c.profit - est.profit : null;
+      const pending = isPending(s, records, refMonth);
+      const pendingCount = pendingMonths(s, records, refMonth).length;
+      const hasData = keys.some((mk) => !!records[`${s.id}__${mk}`]);
+      return { ...s, ...c, est, profitVar, pending, pendingCount, hasData };
+    });
+  }, [sitesL, records, overviewPeriodKeys, periodTo]);
 
   const persistSitesImmediate = useCallback(async (nextSites) => {
     const data = stateRef.current;
@@ -1176,12 +1283,18 @@ export default function SiteLedgerApp({ embedded = true }) {
         <div className="scroll">
           {view === "overview" && (
             <Overview
-              rows={rows}
+              rows={overviewRows}
               sitesL={sitesL}
               sitesAll={sitesAllL}
               records={records}
-              month={month}
-              mLabel={mLabel}
+              month={periodTo}
+              periodFrom={periodFrom}
+              periodTo={periodTo}
+              setPeriodFrom={setOverviewPeriodFrom}
+              setPeriodTo={setOverviewPeriodTo}
+              mLabel={periodRangeLabel}
+              chartMonths={overviewChartMonths}
+              periodKeys={overviewPeriodKeys}
               activeMonths={activeMonths}
               siteCount={activeSiteCount}
               totalSiteCount={sitesEnriched.length}
@@ -1366,7 +1479,29 @@ function applyPortfolioFilters(rows, filters, month) {
   return list;
 }
 
-function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths, siteCount, totalSiteCount, showHistorical, setShowHistorical, openSite, goEntry, onViewHistory, marginCtx }) {
+function Overview({
+  rows,
+  sitesL,
+  sitesAll,
+  records,
+  month,
+  periodFrom,
+  periodTo,
+  setPeriodFrom,
+  setPeriodTo,
+  mLabel,
+  chartMonths,
+  periodKeys,
+  activeMonths,
+  siteCount,
+  totalSiteCount,
+  showHistorical,
+  setShowHistorical,
+  openSite,
+  goEntry,
+  onViewHistory,
+  marginCtx,
+}) {
   const { targetMargin, warnMargin } = marginCtx || usePlMargins();
   const [filters, setFilters] = useState(PORTFOLIO_FILTERS_INIT);
   const setF = (patch) => setFilters((prev) => ({ ...prev, ...patch }));
@@ -1404,17 +1539,29 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
   const lossCount = useMemo(() => withData.filter((r) => r.profit < 0).length, [withData]);
   const thinCount = useMemo(() => withData.filter((r) => r.profit >= 0 && r.margin < warnMargin).length, [withData, warnMargin]);
 
-  const prevKey = useMemo(() => prevPeriodKey(month, MONTHS), [month]);
+  const prevComparisonKeys = useMemo(() => {
+    if (periodFrom === periodTo) {
+      const pk = prevPeriodKey(periodFrom, MONTHS);
+      return pk ? [pk] : [];
+    }
+    const len = periodKeys.length;
+    const startIdx = monthIdx(periodFrom);
+    if (startIdx - len < 0) return [];
+    const prevTo = indexToPeriodKey(startIdx - 1);
+    const prevFrom = indexToPeriodKey(startIdx - len);
+    return periodKeysBetween(prevFrom, prevTo);
+  }, [periodFrom, periodTo, periodKeys]);
+
   const prevTotals = useMemo(() => {
-    if (!prevKey) return null;
+    if (!prevComparisonKeys.length) return null;
     const ids = new Set(filteredRows.map((r) => r.id));
     const arr = sitesL
       .filter((s) => ids.has(s.id))
-      .map((s) => calcSite(s, prevKey, records))
+      .map((s) => calcSiteOverPeriodKeys(s, prevComparisonKeys, records))
       .filter((c) => c.revenue || c.expense);
     if (!arr.length) return null;
     return arr.reduce((a, c) => ({ revenue: a.revenue + c.revenue, profit: a.profit + c.profit }), { revenue: 0, profit: 0 });
-  }, [filteredRows, sitesL, records, prevKey]);
+  }, [filteredRows, sitesL, records, prevComparisonKeys]);
 
   const revD = prevTotals && portfolioDelta(totals.revenue, prevTotals.revenue);
   const proD = prevTotals && portfolioDelta(totals.profit, prevTotals.profit);
@@ -1429,10 +1576,12 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
     return [...sorted.slice(0, 8), ...sorted.slice(-8)].map((r) => ({ name: r.name, profit: r.profit }));
   }, [withData]);
 
+  const trendMonths = chartMonths?.length ? chartMonths : activeMonths;
+
   const trendData = useMemo(() => {
     const ids = new Set(filteredRows.map((r) => r.id));
     const sites = sitesL.filter((s) => ids.has(s.id));
-    return activeMonths.map((m) => {
+    return trendMonths.map((m) => {
       const arr = sites.map((s) => calcSite(s, m.key, records)).filter((c) => c.revenue || c.expense);
       const t = arr.reduce(
         (a, c) => ({ revenue: a.revenue + c.revenue, expense: a.expense + c.expense, profit: a.profit + c.profit }),
@@ -1440,20 +1589,23 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
       );
       return { name: m.label, ...t };
     });
-  }, [activeMonths, filteredRows, sitesL, records]);
+  }, [trendMonths, filteredRows, sitesL, records]);
 
   const expenseBreakdown = useMemo(() => {
     const agg = Object.fromEntries(PARENTS.map((p) => [p.key, 0]));
+    const keys = periodKeys?.length ? periodKeys : [month];
     withData.forEach((r) => {
       const site = sitesL.find((s) => s.id === r.id);
       if (!site) return;
-      const pt = parentTotalsSite(site, month, records);
-      PARENTS.forEach((p) => { agg[p.key] += pt[p.key] || 0; });
+      keys.forEach((mk) => {
+        const pt = parentTotalsSite(site, mk, records);
+        PARENTS.forEach((p) => { agg[p.key] += pt[p.key] || 0; });
+      });
     });
     return PARENTS
       .map((p) => ({ name: parentLabel(p.key), value: agg[p.key], color: p.color }))
       .filter((d) => d.value > 0);
-  }, [withData, sitesL, records, month]);
+  }, [withData, sitesL, records, periodKeys, month]);
 
   const attention = useMemo(
     () => [...withData].filter((r) => r.profit < 0 || r.margin < warnMargin).sort((a, b) => a.profit - b.profit),
@@ -1468,12 +1620,18 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
     [rows],
   );
 
+  const rangeMonthCount = periodKeys?.length || 1;
+
   return (
     <>
       <div className="ov-hero">
         <div>
           <h2 className="ov-hero-title">Portfolio snapshot</h2>
-          <p className="ov-hero-sub">Period <b>{mLabel}</b> · Target margin {targetMargin}% · Warning below {warnMargin}%</p>
+          <p className="ov-hero-sub">
+            Period <b>{mLabel}</b>
+            {rangeMonthCount > 1 ? ` · ${rangeMonthCount} months aggregated` : ""}
+            {" · "}Target margin {targetMargin}% · Warning below {warnMargin}%
+          </p>
         </div>
         <div className="ov-margin-legend">
           <span className="ov-margin-chip target">Target {targetMargin}%</span>
@@ -1482,6 +1640,24 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
       </div>
 
       <div className="ov-filters ov-filters-modern">
+        <label className="ov-filter range">
+          <span>From month / year</span>
+          <PeriodMonthSelect
+            className="ov-period-pick"
+            selectClassName="ov-period-sel"
+            value={periodFrom}
+            onChange={setPeriodFrom}
+          />
+        </label>
+        <label className="ov-filter range">
+          <span>To month / year</span>
+          <PeriodMonthSelect
+            className="ov-period-pick"
+            selectClassName="ov-period-sel"
+            value={periodTo}
+            onChange={setPeriodTo}
+          />
+        </label>
         <div className="ov-filter ov-filter-ac">
           <SiteClientAutocomplete
             sites={siteOptions}
@@ -1553,13 +1729,13 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
         <Kpi icon={Wallet} label="Net Profit" value={inrShort(totals.profit)} tone={totals.profit >= 0 ? "profit" : "loss"} sub={proD ? `${proD.val >= 0 ? "+" : ""}${proD.val.toFixed(1)}% vs last period` : null} trend={proD?.dir} />
         <Kpi icon={Target} label="Profit vs Estimate" value={estVar == null ? "—" : `${estVar >= 0 ? "+" : ""}${inrShort(estVar)}`} tone={estVar == null ? "ink" : estVar >= 0 ? "profit" : "loss"} sub={estAgg ? `est ${inrShort(estAgg.profit)}${estVarPct != null ? ` · ${estVarPct >= 0 ? "+" : ""}${estVarPct.toFixed(0)}%` : ""}` : "no estimate set"} trend={estVar == null ? undefined : estVar >= 0 ? "up" : "down"} />
         <Kpi icon={AlertTriangle} label="Need attention" value={`${lossCount + thinCount}`} tone={lossCount ? "loss" : thinCount ? "warn" : "profit"} sub={`${lossCount} loss · ${thinCount} thin · ${belowEst} below est`} />
-        <Kpi icon={AlertCircle} label="Data pending" value={`${pendCount}`} tone={pendCount ? "warn" : "profit"} sub={pendCount ? `site${pendCount > 1 ? "s" : ""} missing ${mLabel}` : "all sites reported"} />
+        <Kpi icon={AlertCircle} label="Data pending" value={`${pendCount}`} tone={pendCount ? "warn" : "profit"} sub={pendCount ? `site${pendCount > 1 ? "s" : ""} missing data as of ${monthLabelOf(month)}` : "all sites reported"} />
       </div>
 
       {!withData.length && (
         <div className="ov-empty-hint">
           <Building2 size={20} />
-          <span>No figures for <b>{mLabel}</b> in the current filter. Change period above or enter figures in <b>Enter Figures</b>.</span>
+          <span>No figures for <b>{mLabel}</b> in the current filter. Adjust the period range above or enter figures in <b>Enter Figures</b>.</span>
         </div>
       )}
 
@@ -1626,7 +1802,7 @@ function Overview({ rows, sitesL, sitesAll, records, month, mLabel, activeMonths
         </Card>
       </div>
 
-      <Card title="Revenue · Expense · Profit Trend" right={<span className="muted-s">portfolio · filtered sites</span>}>
+      <Card title="Revenue · Expense · Profit Trend" right={<span className="muted-s">portfolio · filtered sites · {mLabel}</span>}>
         {trendData.some((d) => d.revenue || d.expense) ? (
           <>
             <ResponsiveContainer width="100%" height={300}>
