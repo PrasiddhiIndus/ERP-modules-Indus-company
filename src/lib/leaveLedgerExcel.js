@@ -159,9 +159,21 @@ function rowFromLegacySheetObject(raw, defaultYear) {
   return mapped;
 }
 
+/** Leave balance columns imported from the sample sheet (opening values). */
+export const LEAVE_BALANCE_IMPORT_COLUMNS = [
+  { key: "cl", label: "CL", opening: "opening_cl" },
+  { key: "pl", label: "PL", opening: "opening_pl" },
+  { key: "sl", label: "SL", opening: "opening_sl" },
+  { key: "sbel", label: "S BeL", opening: "opening_sbel" },
+  { key: "spla", label: "SPLA", opening: "opening_spla" },
+  { key: "splb", label: "SPLB", opening: "opening_splb" },
+  { key: "splm", label: "SPLM", opening: "opening_splm" },
+  { key: "coff", label: "C/OFF", opening: "opening_coff" },
+  { key: "paternity", label: "Paternity", opening: "opening_paternity" },
+];
+
 /**
- * Map simple sample-sheet columns to yearly balance fields.
- * PL-family balances roll into opening_pl; SL + S BeL into opening_sl.
+ * Map simple sample-sheet columns to yearly balance fields (one DB column per leave type).
  */
 function rowFromSampleBalanceSheet(raw, defaultYear, employees = []) {
   const mapped = mapRowByFieldMap(raw, SAMPLE_FIELD_MAP);
@@ -177,27 +189,29 @@ function rowFromSampleBalanceSheet(raw, defaultYear, employees = []) {
     emp_code = employee ? normalizeAttendanceEmpCode(employee.empCode) : "";
   }
 
-  const pl = Number(mapped.pl || 0);
-  const sl = Number(mapped.sl || 0);
-  const cl = Number(mapped.cl || 0);
-  const sbel = Number(mapped.sbel || 0);
-  const spla = Number(mapped.spla || 0);
-  const splb = Number(mapped.splb || 0);
-  const splm = Number(mapped.splm || 0);
-  const co = Number(mapped.co || 0);
-  const paternity = Number(mapped.paternity || 0);
-
   return {
     emp_code,
     employee_name: mapped.employee_name || employee?.employeeName || "",
     department: mapped.department || employee?.department || "",
     year: defaultYear,
-    opening_pl: pl + spla + splb + splm + co + paternity,
-    opening_sl: sl + sbel,
-    opening_cl: cl,
+    opening_cl: Number(mapped.cl || 0),
+    opening_pl: Number(mapped.pl || 0),
+    opening_sl: Number(mapped.sl || 0),
+    opening_sbel: Number(mapped.sbel || 0),
+    opening_spla: Number(mapped.spla || 0),
+    opening_splb: Number(mapped.splb || 0),
+    opening_splm: Number(mapped.splm || 0),
+    opening_coff: Number(mapped.co || 0),
+    opening_paternity: Number(mapped.paternity || 0),
     used_pl: 0,
     used_sl: 0,
     used_cl: 0,
+    used_sbel: 0,
+    used_spla: 0,
+    used_splb: 0,
+    used_splm: 0,
+    used_coff: 0,
+    used_paternity: 0,
     carried_pl: 0,
     carried_sl: 0,
     carried_cl: 0,

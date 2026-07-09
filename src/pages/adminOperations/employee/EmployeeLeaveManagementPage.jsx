@@ -48,7 +48,7 @@ const LEDGER_LEAVE_TYPES = [
   { key: "spla", label: "SPLA", opening: "opening_spla", used: "used_spla", balance: "unused_spla" },
   { key: "splb", label: "SPLB", opening: "opening_splb", used: "used_splb", balance: "unused_splb" },
   { key: "splm", label: "SPLM", opening: "opening_splm", used: "used_splm", balance: "unused_splm" },
-  { key: "coff", label: "C/OFF" },
+  { key: "coff", label: "C/OFF", opening: "opening_coff", used: "used_coff", balance: "unused_coff" },
   { key: "paternity", label: "Paternity", opening: "opening_paternity", used: "used_paternity", balance: "unused_paternity" },
 ];
 
