@@ -28,6 +28,8 @@ import {
   StatusChip,
   Modal,
   KpiTile,
+  PageTaskHeader,
+  CollapsibleHelp,
 } from "../components/AdminUi";
 
 const PAGE_SIZES = [25, 50, 100];
@@ -113,7 +115,6 @@ export function EmployeeLeavesPage() {
   const [modal, setModal] = useState(null);
   const [remarks, setRemarks] = useState("");
   const [acting, setActing] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
 
   const loadSeqRef = useRef(0);
   const pauseRealtimeRef = useRef(false);
@@ -365,25 +366,20 @@ export function EmployeeLeavesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-bold text-gray-900">Leave request approval</h1>
-          <p className="text-xs text-gray-600 mt-0.5">
-            Review leave workflow from admin_leave_requests · decisions sync to attendance automatically
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {realtimeLive ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Live
-            </span>
-          ) : null}
-          {refreshing ? (
-            <span className="text-[11px] text-gray-500 tabular-nums">Updating…</span>
-          ) : null}
-        </div>
-      </div>
+      <PageTaskHeader
+        title="Leave request approval"
+        subtitle="Review pending requests and approve or reject. Approved leave is reflected in the daily attendance register and employee leave balances."
+      >
+        {realtimeLive ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live updates
+          </span>
+        ) : null}
+        {refreshing ? (
+          <span className="text-[11px] text-gray-500 tabular-nums">Updating…</span>
+        ) : null}
+      </PageTaskHeader>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {STATUS_KPI.map((kpi) => (
@@ -496,21 +492,11 @@ export function EmployeeLeavesPage() {
           </button>
         </FilterBar>
 
-        <button
-          type="button"
-          onClick={() => setShowHelp((v) => !v)}
-          className="mt-2 text-[11px] font-medium text-[#1F3A8A] hover:underline"
-        >
-          {showHelp ? "Hide" : "Show"} workflow notes
-        </button>
-        {showHelp ? (
-          <p className="mt-2 text-[11px] text-gray-600 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
-            Data from <strong>indus_one.admin_leave_requests</strong> (workflow source of truth).
-            Employee details from <strong>admin_ifsp_employee_master</strong>. Approve/reject updates
-            admin_leave_requests (triggers write attendance marks) and syncs{" "}
-            <strong>indus_one.leave_requests</strong> for Indus One LMS.
-          </p>
-        ) : null}
+        <CollapsibleHelp label="workflow notes">
+          When you approve a request, the employee&apos;s attendance register is updated for those dates
+          and their leave balance is adjusted. The employee sees the outcome in Indus One. Rejecting or
+          cancelling a pending request does not change attendance.
+        </CollapsibleHelp>
 
         {error ? (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">

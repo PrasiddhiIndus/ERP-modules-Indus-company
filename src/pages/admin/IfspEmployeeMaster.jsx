@@ -24,7 +24,6 @@ import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../lib/employeeMasterDepartments';
 import * as XLSX from 'xlsx';;
 import FormDateInput from "../../components/FormDateInput";
-
 import { 
   Users, 
   Plus, 
@@ -55,8 +54,64 @@ import {
   Clock
 } from 'lucide-react';
 
-const th = 'px-2 py-2 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-tight whitespace-nowrap border-b border-gray-200';
-const td = 'px-2 py-2 text-xs text-gray-900 whitespace-nowrap max-w-[180px] truncate';
+/** Default list view — identify and act on employees without exposing the full master record. */
+const EMPLOYEE_LIST_SUMMARY_FIELDS = new Set([
+  "employee_id",
+  "employment_type",
+  "employee_code",
+  "full_name",
+  "age",
+  "date_of_joining",
+  "designation",
+  "department",
+  "status",
+]);
+
+const EMPLOYEE_FIELD_LABELS = {
+  employee_id: "Machine ID",
+  employment_type: "Employment type",
+  employee_code: "Employee code",
+  age: "Age",
+  full_name: "Full name",
+  gender: "Gender",
+  date_of_joining: "Date of joining",
+  designation: "Designation",
+  department: "Department",
+  location: "Location",
+  date_of_birth: "Date of birth",
+  date_of_anniversary: "Anniversary",
+  blood_group: "Blood group",
+  aadhar_no: "Aadhar",
+  pan_card_no: "PAN",
+  religion: "Religion",
+  father_name: "Father name",
+  mother_name: "Mother name",
+  spouse_name: "Spouse name",
+  son_details: "Son details",
+  daughter_details: "Daughter details",
+  address: "Address",
+  full_address: "Full address",
+  personal_no: "Personal phone",
+  emergency_no: "Emergency contact",
+  identification_mark: "Identification mark",
+  educational_qualification: "Qualification",
+  other_experience: "Other experience (yrs)",
+  ifspl_experience: "IFSPL experience (yrs)",
+  years_of_experience: "Total experience (yrs)",
+  date_of_leaving: "Date of leaving",
+  status: "Status",
+};
+
+const thBase =
+  'px-3 py-2.5 text-[10px] font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap border-b border-gray-200 align-middle';
+const th = `${thBase} text-left`;
+const thCenter = `${thBase} text-center`;
+const tdBase = 'px-3 py-2 text-xs text-gray-900 align-middle';
+const td = `${tdBase} whitespace-nowrap max-w-[200px] truncate`;
+const tdCenter = `${tdBase} text-center tabular-nums whitespace-nowrap`;
+const tdDate = `${tdBase} text-center whitespace-nowrap tabular-nums`;
+const filterInputClass =
+  'w-full h-10 px-3 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent';
 
 function compareEmployeeSortField(a, b, field, direction) {
   const asc = direction === 'asc';
@@ -129,6 +184,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [itemsPerPage] = useState(50);
   const [importBusy, setImportBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [showAllTableColumns, setShowAllTableColumns] = useState(false);
   const fileInputRef = useRef(null);
 
   const deleteAllEmployees = async () => {
@@ -981,16 +1037,17 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     setCurrentPage(1);
   };
 
-  const SortableTh = ({ field, label }) => {
+  const SortableTh = ({ field, label, center = false }) => {
     const active = sortField === field;
+    const cellClass = center ? thCenter : th;
     return (
       <th
-        className={`${th} cursor-pointer select-none hover:bg-gray-100`}
+        className={`${cellClass} cursor-pointer select-none hover:bg-gray-100`}
         onClick={() => handleSort(field)}
         title={`Sort by ${label}`}
         aria-sort={active ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
       >
-        <span className="inline-flex items-center gap-1">
+        <span className={`inline-flex items-center gap-1 ${center ? 'justify-center w-full' : ''}`}>
           {label}
           <span className={active ? 'text-gray-900' : 'text-gray-300'}>
             {active ? (sortDirection === 'asc' ? '↑' : '↓') : '↕'}
@@ -999,6 +1056,17 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       </th>
     );
   };
+
+  const showCol = (field) => showAllTableColumns || EMPLOYEE_LIST_SUMMARY_FIELDS.has(field);
+  const colLabel = (field) => EMPLOYEE_FIELD_LABELS[field] || String(field).replace(/_/g, " ");
+  const ListTh = ({ field, center = false }) =>
+    showCol(field) ? <SortableTh field={field} label={colLabel(field)} center={center} /> : null;
+  const ListTd = ({ field, title, children, className: cellClass = td, center = false }) =>
+    showCol(field) ? (
+      <td className={center ? tdCenter : cellClass} title={title}>
+        {children}
+      </td>
+    ) : null;
 
   const exportCellValue = (employee, field) => {
     if (field === 'ifspl_experience') {
@@ -1140,56 +1208,60 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     >
       <div className={`p-4 md:p-6 h-full w-full flex flex-col gap-4 ${embedded ? "" : "max-w-[1600px] mx-auto"}`}>
       {/* Header */}
-      <div className="flex items-start justify-between shrink-0 min-w-0 gap-3 flex-wrap">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-4 items-start shrink-0 min-w-0">
         <div className="min-w-0">
           <h1 className={`font-bold text-gray-900 ${embedded ? "text-lg" : "text-2xl"}`}>
             {embedded ? "Employee Master" : "IFSPL Employee Master"}
           </h1>
-          <p className="text-sm text-gray-600 mt-1">Complete employee database with Excel-like functionality</p>
+          <p className="text-sm text-gray-600 mt-1">
+            Find employees, open a record to edit full details, or import/export for bulk updates.
+          </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 max-w-full">
-          <div className="relative w-full sm:w-[320px]">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap xl:justify-end items-stretch sm:items-center gap-2 w-full xl:w-auto">
+          <div className="relative flex-1 sm:flex-none sm:w-[280px] xl:w-[300px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
             <input
               type="text"
               placeholder="Search anything…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              className="w-full h-10 pl-9 pr-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
             />
           </div>
-          <button
-            type="button"
-            onClick={openAddForm}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap"
-          >
-            <Plus className="h-5 w-5" />
-            <span>Add Employee</span>
-          </button>
-          <button
-            type="button"
-            onClick={deleteAllEmployees}
-            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 flex items-center gap-2 whitespace-nowrap"
-            title="Delete all rows"
-          >
-            <Trash2 className="h-5 w-5" />
-            <span>Delete All</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            disabled={exportBusy || !sortedFilteredEmployees.length}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-60 flex items-center gap-2 whitespace-nowrap"
-          >
-            <Download className="h-5 w-5" />
-            <span>{exportBusy ? 'Exporting…' : 'Export Excel'}</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={openAddForm}
+              className="h-10 bg-blue-600 text-white px-4 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add Employee</span>
+            </button>
+            <button
+              type="button"
+              onClick={deleteAllEmployees}
+              className="h-10 bg-red-600 text-white px-4 rounded-lg hover:bg-red-700 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
+              title="Delete all rows"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>Delete All</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={exportBusy || !sortedFilteredEmployees.length}
+              className="h-10 bg-green-600 text-white px-4 rounded-lg hover:bg-green-700 disabled:opacity-60 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
+            >
+              <Download className="h-4 w-4" />
+              <span>{exportBusy ? 'Exporting…' : 'Export Excel'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Filters and Search (section scroller) */}
+      {/* Filters */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full min-w-0 shrink-0">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm font-semibold text-gray-900">Filters</p>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -1204,7 +1276,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 setStatusFilter('All');
                 setCurrentPage(1);
               }}
-              className="bg-gray-600 text-white px-3 py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2 text-sm"
+              className="h-9 bg-gray-600 text-white px-3 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2 text-sm"
             >
               <Filter className="h-4 w-4" />
               <span>Reset</span>
@@ -1213,7 +1285,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               type="button"
               disabled={importBusy}
               onClick={() => fileInputRef.current?.click()}
-              className="bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+              className="h-9 bg-purple-600 text-white px-3 rounded-lg hover:bg-purple-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
             >
               <Upload className="h-4 w-4" />
               <span>{importBusy ? 'Importing…' : 'Import Excel'}</span>
@@ -1227,33 +1299,33 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             />
           </div>
         </div>
-        <div className="max-h-[170px] overflow-y-auto p-4 overflow-x-hidden">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 items-center">
             <input
               type="text"
               placeholder="Full name"
               value={filterFullName}
               onChange={(e) => setFilterFullName(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={filterInputClass}
             />
             <input
               type="text"
               placeholder="Machine ID"
               value={filterSystemId}
               onChange={(e) => setFilterSystemId(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={filterInputClass}
             />
             <input
               type="text"
               placeholder="Employee code"
               value={filterEmployeeCode}
               onChange={(e) => setFilterEmployeeCode(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={filterInputClass}
             />
             <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={filterInputClass}
             >
               <option value="All">All Departments</option>
               {departmentsFromData.map((dept) => (
@@ -1263,59 +1335,62 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             <select
               value={designationFilter}
               onChange={(e) => setDesignationFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={filterInputClass}
             >
               <option value="All">All Designations</option>
               {designations.map((d) => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-3">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className={filterInputClass}
             >
               <option value="All">All Status</option>
               {statusOptions.map((status) => (
                 <option key={status} value={status}>{status}</option>
               ))}
             </select>
-            <div className="lg:col-span-4 self-center">
-              <p className="text-[11px] text-gray-500">
-                Excel import expects backend column headers (snake_case) like <span className="font-mono">employee_id</span>, <span className="font-mono">full_name</span>, <span className="font-mono">date_of_joining</span>, etc. (legacy headers also accepted).
-              </p>
-            </div>
           </div>
+          <p className="text-[11px] text-gray-500 mt-3">
+            Excel import uses the standard employee template columns (employee code, name, dates, department, etc.).
+          </p>
         </div>
       </div>
 
       {/* Employee Database (section scroller; header + pagination fixed) */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full min-w-0 flex flex-col flex-1 min-h-0">
-        <div className="px-6 py-3 border-b border-gray-200 flex justify-between items-center shrink-0">
+        <div className="px-4 sm:px-6 py-3 border-b border-gray-200 flex flex-wrap justify-between items-center gap-3 shrink-0">
           <h3 className="text-lg font-semibold text-gray-900">
-            Employee Database ({sortedFilteredEmployees.length} records)
+            Employees ({sortedFilteredEmployees.length})
           </h3>
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-500">
-              Showing {sortedFilteredEmployees.length ? startIndex + 1 : 0}-{Math.min(endIndex, sortedFilteredEmployees.length)} of {sortedFilteredEmployees.length}
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setShowAllTableColumns((v) => !v)}
+              className="text-xs font-medium text-[#1F3A8A] hover:underline"
+            >
+              {showAllTableColumns ? "Show summary columns" : "Show all columns"}
+            </button>
+            <span className="text-sm text-gray-500 whitespace-nowrap">
+              Showing {sortedFilteredEmployees.length ? startIndex + 1 : 0}–{Math.min(endIndex, sortedFilteredEmployees.length)} of {sortedFilteredEmployees.length}
             </span>
-            <div className="flex space-x-2">
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1 border border-gray-300 rounded disabled:opacity-50"
+                className="h-8 px-3 text-sm border border-gray-300 rounded-lg disabled:opacity-50"
               >
                 Previous
               </button>
-              <span className="px-3 py-1 text-sm">
+              <span className="px-2 text-sm text-gray-600 whitespace-nowrap">
                 Page {currentPage} of {totalPages}
               </span>
               <button
                 onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1 border border-gray-300 rounded disabled:opacity-50"
+                className="h-8 px-3 text-sm border border-gray-300 rounded-lg disabled:opacity-50"
               >
                 Next
               </button>
@@ -1326,96 +1401,107 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         {/* Table scroller (vertical + horizontal) — only this section scrolls */}
         <div className="flex-1 min-h-0 overflow-auto">
           <div className="w-max min-w-full">
-            <table className="min-w-max divide-y divide-gray-200 border border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
               <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
-                <th className={th}>Sr No</th>
-                <SortableTh field="employee_id" label="Machine ID" />
-                <SortableTh field="employment_type" label="employment_type" />
-                <SortableTh field="employee_code" label="employee_code" />
-                <SortableTh field="age" label="age" />
-                <SortableTh field="full_name" label="full_name" />
-                <SortableTh field="gender" label="gender" />
-                <SortableTh field="date_of_joining" label="date_of_joining" />
-                <SortableTh field="designation" label="designation" />
-                <SortableTh field="department" label="department" />
-                <SortableTh field="location" label="location" />
-                <SortableTh field="date_of_birth" label="date_of_birth" />
-                <SortableTh field="date_of_anniversary" label="date_of_anniversary" />
-                <SortableTh field="blood_group" label="blood_group" />
-                <SortableTh field="aadhar_no" label="aadhar_no" />
-                <SortableTh field="pan_card_no" label="pan_card_no" />
-                <SortableTh field="religion" label="religion" />
-                <SortableTh field="father_name" label="father_name" />
-                <SortableTh field="mother_name" label="mother_name" />
-                <SortableTh field="spouse_name" label="spouse_name" />
-                <SortableTh field="son_details" label="son_details" />
-                <SortableTh field="daughter_details" label="daughter_details" />
-                <SortableTh field="address" label="address" />
-                <SortableTh field="full_address" label="full_address" />
-                <SortableTh field="personal_no" label="personal_no" />
-                <SortableTh field="emergency_no" label="emergency_no" />
-                <SortableTh field="identification_mark" label="identification_mark" />
-                <SortableTh field="educational_qualification" label="educational_qualification" />
-                <SortableTh field="other_experience" label="other_experience" />
-                <SortableTh field="ifspl_experience" label="ifspl_experience" />
-                <SortableTh field="years_of_experience" label="years_of_experience" />
-                <SortableTh field="date_of_leaving" label="date_of_leaving" />
-                <SortableTh field="status" label="status" />
-                <th className={th}>actions</th>
+                <th className={thCenter}>Sr No</th>
+                <ListTh field="employee_id" center />
+                <ListTh field="employment_type" />
+                <ListTh field="employee_code" center />
+                <ListTh field="full_name" />
+                <ListTh field="age" center />
+                <ListTh field="date_of_joining" center />
+                <ListTh field="designation" />
+                <ListTh field="department" />
+                <ListTh field="gender" />
+                <ListTh field="location" />
+                <ListTh field="date_of_birth" center />
+                <ListTh field="date_of_anniversary" center />
+                <ListTh field="blood_group" center />
+                <ListTh field="aadhar_no" />
+                <ListTh field="pan_card_no" />
+                <ListTh field="religion" />
+                <ListTh field="father_name" />
+                <ListTh field="mother_name" />
+                <ListTh field="spouse_name" />
+                <ListTh field="son_details" />
+                <ListTh field="daughter_details" />
+                <ListTh field="address" />
+                <ListTh field="full_address" />
+                <ListTh field="personal_no" />
+                <ListTh field="emergency_no" />
+                <ListTh field="identification_mark" />
+                <ListTh field="educational_qualification" />
+                <ListTh field="other_experience" center />
+                <ListTh field="ifspl_experience" center />
+                <ListTh field="years_of_experience" center />
+                <ListTh field="date_of_leaving" center />
+                <ListTh field="status" center />
+                <th className={thCenter}>Actions</th>
               </tr>
               </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {currentEmployees.map((employee) => {
+              {currentEmployees.map((employee, idx) => {
                 const ifsplExp = computeIfsplExperienceYears(employee.date_of_joining);
                 const totalExp = computeTotalExperienceYears(employee.date_of_joining, employee.other_experience);
                 const age = computeAgeFromDob(employee.date_of_birth);
+                const rowNo = startIndex + idx + 1;
                 return (
                   <tr key={employee.id} className="hover:bg-gray-50">
-                    <td className={td} title={String(employee.id)}>{employee.id}</td>
-                    <td className={td} title={employee.employee_id || ''}>{employee.employee_id || '–'}</td>
-                    <td className={td} title={employmentTypeLabel(employee.employment_type || employee.employee_id)}>
+                    <td className={tdCenter} title={String(employee.id)}>{rowNo}</td>
+                    <ListTd field="employee_id" title={employee.employee_id || ''} center>
+                      {employee.employee_id || '–'}
+                    </ListTd>
+                    <ListTd field="employment_type" title={employmentTypeLabel(employee.employment_type || employee.employee_id)}>
                       {employmentTypeLabel(employee.employment_type || employee.employee_id)}
-                    </td>
-                    <td className={td} title={employee.employee_code || ''}>{employee.employee_code || '–'}</td>
-                    <td className={td} title={age != null ? String(age) : ''}>
+                    </ListTd>
+                    <ListTd field="employee_code" title={employee.employee_code || ''} center>
+                      {employee.employee_code || '–'}
+                    </ListTd>
+                    <ListTd field="full_name" title={employee.full_name || ''}>{employee.full_name || '–'}</ListTd>
+                    <ListTd field="age" title={age != null ? String(age) : ''} center>
                       {age != null ? age : '–'}
-                    </td>
-                    <td className={td} title={employee.full_name || ''}>{employee.full_name || '–'}</td>
-                    <td className={td} title={employee.gender || ''}>{employee.gender || '–'}</td>
-                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_joining)}</td>
-                    <td className={td} title={employee.designation || ''}>{employee.designation || '–'}</td>
-                    <td className={td} title={employee.department || ''}>{employee.department || '–'}</td>
-                    <td className={td} title={employee.location || ''}>{employee.location || '–'}</td>
-                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_birth)}</td>
-                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_anniversary)}</td>
-                    <td className={td} title={employee.blood_group || ''}>{employee.blood_group || '–'}</td>
-                    <td className={td}>{employee.aadhar_no || '–'}</td>
-                    <td className={td}>{employee.pan_card_no || '–'}</td>
-                    <td className={td} title={employee.religion || ''}>{employee.religion || '–'}</td>
-                    <td className={td} title={employee.father_name || ''}>{employee.father_name || '–'}</td>
-                    <td className={td} title={employee.mother_name || ''}>{employee.mother_name || '–'}</td>
-                    <td className={td} title={employee.spouse_name || ''}>{employee.spouse_name || '–'}</td>
-                    <td className={td} title={employee.son_details || ''}>{employee.son_details || '–'}</td>
-                    <td className={td} title={employee.daughter_details || ''}>{employee.daughter_details || '–'}</td>
-                    <td className={td} title={employee.address || ''}>{employee.address || '–'}</td>
-                    <td className={td} title={employee.full_address || ''}>{employee.full_address || '–'}</td>
-                    <td className={td}>{employee.personal_no || '–'}</td>
-                    <td className={td}>{employee.emergency_no || '–'}</td>
-                    <td className={td} title={employee.identification_mark || ''}>{employee.identification_mark || '–'}</td>
-                    <td className={td} title={employee.educational_qualification || ''}>{employee.educational_qualification || '–'}</td>
-                    <td className={td}>{employee.other_experience != null ? employee.other_experience : '–'}</td>
-                    <td className={td}>{ifsplExp != null ? ifsplExp : '–'}</td>
-                    <td className={td} title="Previous experience + IFSPL experience">{totalExp != null ? totalExp : '–'}</td>
-                    <td className={td}>{formatDateDdMmYyyy(employee.date_of_leaving)}</td>
-                    <td className="px-2 py-2 whitespace-nowrap">
+                    </ListTd>
+                    <ListTd field="date_of_joining" className={tdDate}>
+                      {formatDateDdMmYyyy(employee.date_of_joining)}
+                    </ListTd>
+                    <ListTd field="designation" title={employee.designation || ''}>{employee.designation || '–'}</ListTd>
+                    <ListTd field="department" title={employee.department || ''}>{employee.department || '–'}</ListTd>
+                    <ListTd field="gender" title={employee.gender || ''}>{employee.gender || '–'}</ListTd>
+                    <ListTd field="location" title={employee.location || ''}>{employee.location || '–'}</ListTd>
+                    <ListTd field="date_of_birth" className={tdDate}>{formatDateDdMmYyyy(employee.date_of_birth)}</ListTd>
+                    <ListTd field="date_of_anniversary" className={tdDate}>{formatDateDdMmYyyy(employee.date_of_anniversary)}</ListTd>
+                    <ListTd field="blood_group" title={employee.blood_group || ''} center>{employee.blood_group || '–'}</ListTd>
+                    <ListTd field="aadhar_no">{employee.aadhar_no || '–'}</ListTd>
+                    <ListTd field="pan_card_no">{employee.pan_card_no || '–'}</ListTd>
+                    <ListTd field="religion" title={employee.religion || ''}>{employee.religion || '–'}</ListTd>
+                    <ListTd field="father_name" title={employee.father_name || ''}>{employee.father_name || '–'}</ListTd>
+                    <ListTd field="mother_name" title={employee.mother_name || ''}>{employee.mother_name || '–'}</ListTd>
+                    <ListTd field="spouse_name" title={employee.spouse_name || ''}>{employee.spouse_name || '–'}</ListTd>
+                    <ListTd field="son_details" title={employee.son_details || ''}>{employee.son_details || '–'}</ListTd>
+                    <ListTd field="daughter_details" title={employee.daughter_details || ''}>{employee.daughter_details || '–'}</ListTd>
+                    <ListTd field="address" title={employee.address || ''}>{employee.address || '–'}</ListTd>
+                    <ListTd field="full_address" title={employee.full_address || ''}>{employee.full_address || '–'}</ListTd>
+                    <ListTd field="personal_no">{employee.personal_no || '–'}</ListTd>
+                    <ListTd field="emergency_no">{employee.emergency_no || '–'}</ListTd>
+                    <ListTd field="identification_mark" title={employee.identification_mark || ''}>{employee.identification_mark || '–'}</ListTd>
+                    <ListTd field="educational_qualification" title={employee.educational_qualification || ''}>{employee.educational_qualification || '–'}</ListTd>
+                    <ListTd field="other_experience" center>{employee.other_experience != null ? employee.other_experience : '–'}</ListTd>
+                    <ListTd field="ifspl_experience" center>{ifsplExp != null ? ifsplExp : '–'}</ListTd>
+                    <ListTd field="years_of_experience" title="Previous experience + IFSPL experience" center>
+                      {totalExp != null ? totalExp : '–'}
+                    </ListTd>
+                    <ListTd field="date_of_leaving" className={tdDate}>{formatDateDdMmYyyy(employee.date_of_leaving)}</ListTd>
+                    {showCol('status') ? (
+                    <td className="px-3 py-2 whitespace-nowrap text-center align-middle">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${getStatusColor(employee.status)}`}>
                         {getStatusIcon(employee.status)}
                         <span className="ml-1">{employee.status}</span>
                       </span>
                     </td>
-                    <td className="px-2 py-2 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
+                    ) : null}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-center align-middle">
+                      <div className="inline-flex items-center justify-center gap-2">
                         <button type="button" onClick={() => handleEdit(employee)} className="text-blue-600 hover:text-blue-900" title="Edit">
                           <Edit className="h-4 w-4" />
                         </button>

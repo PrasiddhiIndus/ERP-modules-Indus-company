@@ -9,6 +9,7 @@ import {
   StatusChip,
   Drawer,
   KpiTile,
+  CollapsibleHelp,
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import {
@@ -83,6 +84,7 @@ import {
   projectLeaveUsageAfterMark,
   validateCoMark,
 } from "../../../lib/attendanceLeaveLimits";
+import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
 import { subscribeTourWorkflowRealtime } from "../../../lib/adminTourRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 import {
@@ -221,6 +223,7 @@ export function EmployeeAttendanceDailyPage() {
   const [bulkDateFrom, setBulkDateFrom] = useState("");
   const [bulkDateTo, setBulkDateTo] = useState("");
   const [bulkOverwrite, setBulkOverwrite] = useState(false);
+  const [bulkToolsOpen, setBulkToolsOpen] = useState(false);
   const [bulkPickerMark, setBulkPickerMark] = useState(null);
   const [bulkSelectedCodes, setBulkSelectedCodes] = useState([]);
   const [bulkEmployeeSearch, setBulkEmployeeSearch] = useState("");
@@ -354,8 +357,12 @@ export function EmployeeAttendanceDailyPage() {
         punches: punchRows,
         monthKey: monthMeta.monthKey,
       });
+      const punchCodes = (punchRows || []).map((p) => p.empCode || p.employee_code).filter(Boolean);
+      const leaveCodes = Object.keys(approvedLeaveMarks || {});
       const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveForMonth, {
         masterCodeMap,
+        punchCodes,
+        registerCodes: [...collectRegisterEmployeeCodes(employeesWithCode), ...leaveCodes, ...collectRegisterEmployeeCodes(inactiveForMonth)],
       });
       const registerEmpCodes = collectRegisterEmployeeCodes(registerEmployees);
       const weekoffDates = listAutoWeekoffDatesForMonthAndNext(monthMeta);
@@ -553,6 +560,69 @@ export function EmployeeAttendanceDailyPage() {
     let debounce = null;
     let cancelled = false;
 
+    const refreshLeaves = async () => {
+      if (cancelled) return;
+      try {
+        const approvedLeaveMarks = await fetchApprovedLeaveMarksForMonth(
+          supabase,
+          monthMeta.fromDate,
+          monthMeta.toDate
+        );
+        approvedLeaveMarksRef.current = approvedLeaveMarks;
+
+        const monthRegisterRows = monthRegisterRowsRef.current || [];
+        const masterCodeMap = masterRegisterCodeMapRef.current;
+        const punchRows = punchesRef.current || [];
+
+        const registerView = buildRegisterMonthViewFromPrefetched(
+          monthMeta,
+          monthRegisterRows,
+          masterCodeMap
+        );
+        const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(registerView.marks, approvedLeaveMarks, {
+          punches: punchRows,
+          monthKey: monthMeta.monthKey,
+        });
+
+        const tourData = await fetchApprovedTourMarksForMonth(
+          supabase,
+          monthMeta.fromDate,
+          monthMeta.toDate
+        );
+
+        const finalized = finalizeRegisterMarksAndRemarks({
+          marks: afterLeave,
+          remarks: registerView.remarks || {},
+          tourData,
+          registerRows: monthRegisterRows,
+          masterCodeMap,
+          punches: punchRows,
+          monthKey: monthMeta.monthKey,
+        });
+
+        // Ensure register shows any employee codes that appear due to leave overlay.
+        const employeesWithCode = (activeEmployeesCacheRef.current || []).filter((e) => e.empCode);
+        const inactiveWithLeaving = inactiveLeavingCacheRef.current || [];
+        const inactiveForMonth = (inactiveWithLeaving || []).filter((e) =>
+          isInactiveEmployeeRelevantForRegisterMonth(e.dateOfLeaving, monthMeta.fromDate, monthMeta.toDate)
+        );
+        const punchCodes = (punchRows || []).map((p) => p.empCode || p.employee_code).filter(Boolean);
+        const leaveCodes = Object.keys(approvedLeaveMarks || {});
+        const registerEmployees = buildRegisterEmployeeList(employeesWithCode, inactiveForMonth, {
+          masterCodeMap,
+          punchCodes,
+          registerCodes: [...leaveCodes],
+        });
+
+        if (cancelled) return;
+        setActiveEmployees(registerEmployees);
+        setManualMarks(finalized.marks);
+        setManualRemarks(finalized.remarks);
+      } catch (err) {
+        console.warn("Leave realtime refresh failed:", err);
+      }
+    };
+
     const refreshTours = async () => {
       if (cancelled) return;
       try {
@@ -576,17 +646,20 @@ export function EmployeeAttendanceDailyPage() {
     const schedule = () => {
       if (debounce) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
+        void refreshLeaves();
         void refreshTours();
       }, 400);
     };
 
     const unsubscribe = subscribeTourWorkflowRealtime(schedule);
+    const unsubscribeLeaves = subscribeLeaveWorkflowRealtime(schedule);
     setTourRealtimeLive(isSupabaseRealtimeEnabled());
 
     return () => {
       cancelled = true;
       if (debounce) window.clearTimeout(debounce);
       unsubscribe();
+      unsubscribeLeaves();
     };
   }, [monthMeta?.fromDate, monthMeta?.toDate, monthMeta?.monthKey]);
 
@@ -1382,8 +1455,8 @@ export function EmployeeAttendanceDailyPage() {
                   : savingMark
                     ? "Saving…"
                     : yearLoading
-                      ? `${dayFilteredRows.length} employee(s) · loading leave limits`
-                      : `${dayFilteredRows.length} employee(s) · Supabase${tourRealtimeLive ? " · tours live" : ""}`
+                      ? `${dayFilteredRows.length} employee(s) · checking leave limits`
+                      : `${dayFilteredRows.length} employee(s)${tourRealtimeLive ? " · tours updated live" : ""}`
             }
             severity={loading || syncing || savingMark ? "warning" : "info"}
           />
@@ -1553,12 +1626,19 @@ export function EmployeeAttendanceDailyPage() {
         )}
 
         <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2">
-          <p className="text-[11px] font-semibold text-gray-700 mb-2">
-            Bulk mark — select employees, then apply across the date range (horizontal)
-          </p>
-          <p className="text-[10px] text-gray-500 mb-2">
-            Days with no punch and no approved leave stay <strong>blank</strong>. Bulk actions never apply to all employees
-            unless you select them.
+          <button
+            type="button"
+            onClick={() => setBulkToolsOpen((v) => !v)}
+            className="text-[11px] font-semibold text-gray-800 hover:text-[#1F3A8A]"
+            aria-expanded={bulkToolsOpen}
+          >
+            {bulkToolsOpen ? "Hide bulk mark tools" : "Bulk mark tools (advanced)"}
+          </button>
+          {bulkToolsOpen ? (
+          <>
+          <p className="text-[10px] text-gray-500 mt-2 mb-2">
+            Select employees, then apply a mark across a date range. Days with no punch and no approved leave stay{" "}
+            <strong>blank</strong>. Bulk actions apply only to employees you select.
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[11px] text-gray-600">
@@ -1687,15 +1767,17 @@ export function EmployeeAttendanceDailyPage() {
               </div>
             </div>
           ) : null}
+          </>
+          ) : null}
         </div>
 
         {gridRows.length === 0 && !loading && !error && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            No employees in master, or no data for this month. Sync punches from{" "}
+            No employees in master, or no data for this month. Import punches from{" "}
             <Link to="/app/admin/employee/attendance-inputs" className="font-medium underline">
               Raw Attendance Data
             </Link>{" "}
-            — Present (P) is written to the register table and shown here when punches exist for that day.
+            — Present (P) appears here when punch data exists for that day.
           </div>
         )}
 
@@ -1767,11 +1849,11 @@ export function EmployeeAttendanceDailyPage() {
         </div>
         )}
 
-        <p className="mt-3 text-[11px] text-gray-500">
-          Marks are saved in <code className="text-[10px]">{ATTENDANCE_REGISTER_TABLE}</code> (Supabase). Present from
-          punches uses <code className="text-[10px]">erp_attendance_punches</code>. Use{" "}
-          <code className="text-[10px]">fetchMonthlyRegisterPayrollTotals</code> for salary month totals.
-        </p>
+        <CollapsibleHelp label="how marks are saved">
+          Attendance marks you enter here are saved to the company register. Present (P) from machine
+          punches takes priority over approved leave on the same day. Blank cells mean no punch and no
+          approved leave for that date. Payroll reports use this register for the selected month.
+        </CollapsibleHelp>
       </SectionCard>
 
       {commentEditor.open && (
