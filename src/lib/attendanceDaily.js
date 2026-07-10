@@ -981,39 +981,72 @@ function addLeaveMark(marks, employeeCode, registerDate, mark) {
 
 /**
  * Fetch approved leave marks for the daily register (read-only).
- * Source: indus_one.admin_leave_attendance_marks, then approved admin_leave_requests.
+ * Only fully approved admin_leave_requests / their attendance marks are included.
  * Punch priority is applied later via mergeApprovedLeaveMarksIntoManualMarks.
  */
 export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate) {
   const marks = {};
   if (!fromDate || !toDate) return marks;
 
-  const { data: applied, error: appliedErr } = await supabase
-    .schema("indus_one")
-    .from("admin_leave_attendance_marks")
-    .select("employee_code, register_date, applied_mark")
-    .eq("reverted", false)
-    .gte("register_date", fromDate)
-    .lte("register_date", toDate);
+  const isFullyApproved = (row) => {
+    const overall = String(row?.overall_status ?? "")
+      .trim()
+      .toLowerCase();
+    const status = String(row?.status ?? "")
+      .trim()
+      .toLowerCase();
+    return (overall || status) === "approved";
+  };
 
-  if (!appliedErr && applied?.length) {
-    for (const row of applied) {
-      addLeaveMark(marks, row.employee_code, row.register_date, row.applied_mark);
-    }
-    return marks;
-  }
+  const codesMatch = (a, b) => {
+    const left = normalizeAttendanceEmpCode(a);
+    const right = normalizeAttendanceEmpCode(b);
+    return left && right && left === right;
+  };
 
-  const { data: approved, error: approvedErr } = await supabase
+  const { data: approvedReqs, error: reqErr } = await supabase
     .schema("indus_one")
     .from("admin_leave_requests")
-    .select("employee_code, leave_type_code, from_date, to_date")
-    .eq("status", "approved")
+    .select("id, employee_code, leave_type_code, from_date, to_date, status, overall_status")
     .lte("from_date", toDate)
     .gte("to_date", fromDate);
 
-  if (approvedErr) throw approvedErr;
+  if (reqErr) throw reqErr;
 
-  for (const req of approved || []) {
+  const approvedById = new Map();
+  for (const req of approvedReqs || []) {
+    if (!isFullyApproved(req)) continue;
+    const code = normalizeAttendanceEmpCode(req.employee_code);
+    if (!code) continue;
+    approvedById.set(req.id, { ...req, employee_code: code });
+  }
+
+  if (!approvedById.size) return marks;
+
+  const approvedIds = [...approvedById.keys()];
+
+  const { data: applied, error: appliedErr } = await supabase
+    .schema("indus_one")
+    .from("admin_leave_attendance_marks")
+    .select("leave_request_id, employee_code, register_date, applied_mark")
+    .eq("reverted", false)
+    .in("leave_request_id", approvedIds)
+    .gte("register_date", fromDate)
+    .lte("register_date", toDate);
+
+  if (appliedErr) throw appliedErr;
+
+  const coveredRequestIds = new Set();
+
+  for (const row of applied || []) {
+    const req = approvedById.get(row.leave_request_id);
+    if (!req || !codesMatch(req.employee_code, row.employee_code)) continue;
+    addLeaveMark(marks, req.employee_code, row.register_date, row.applied_mark);
+    coveredRequestIds.add(req.id);
+  }
+
+  for (const req of approvedById.values()) {
+    if (coveredRequestIds.has(req.id)) continue;
     const mark = registerMarkFromApprovedLeaveType(req.leave_type_code);
     const reqFrom = normalizeDbDate(req.from_date);
     const reqTo = normalizeDbDate(req.to_date);
@@ -3209,7 +3242,7 @@ export function formatAttendanceSupabaseError(err) {
   const details = String(err?.details || "");
 
   if (code === "PGRST205" || /schema cache|relation.*does not exist/i.test(msg)) {
-    return `Attendance table is missing. Run Supabase migrations for ${ATTENDANCE_PUNCH_TABLE} and ${ATTENDANCE_REGISTER_TABLE}, then reload.`;
+    return "Attendance register is not available yet. Contact your system administrator.";
   }
 
   if (

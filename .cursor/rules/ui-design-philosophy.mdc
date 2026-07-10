@@ -1,0 +1,51 @@
+---
+description: ERP UI design philosophy — task-first screens, progressive disclosure, no schema jargon
+globs: src/**/*.{jsx,tsx,js,css}
+alwaysApply: true
+---
+
+# ERP UI Design Philosophy
+
+North star: **Show users only what they need, when they need it, for the task they are performing.**
+
+## Before building or changing any screen
+
+1. **Primary user** — who uses this screen?
+2. **Single task** — one purpose per route/view.
+3. **Essential only** — hide fields that do not help that task now.
+4. **Progressive disclosure** — tabs, accordions, drawers, modals for secondary/advanced data.
+5. **Role-based views** — same data, different projections per role.
+6. **Visual hierarchy** — primary action/data prominent; context muted; rare data hidden.
+
+## Entry vs display
+
+- **Data entry** (forms): minimal fields, one focus, short steps.
+- **Data display** (lists, dashboards): summaries, filters, drill-down — not full DB rows.
+
+The database schema must **never** dictate visible columns. Store everything; display a task-specific projection.
+
+## Components & consistency
+
+Prefer existing Admin Ops primitives from `src/pages/adminOperations/components/AdminUi.jsx`:
+
+- `PageTaskHeader`, `SectionCard`, `FilterBar`, `KpiTile`, `DenseTable`, `Modal`, `Drawer`, `StatusChip`, `CollapsibleHelp`
+
+## User-facing copy
+
+- **Never** show table names, schema names, triggers, RPC names, or migration paths in the UI.
+- Use business language (e.g. “Approved leave updates the attendance register” not `admin_leave_requests`).
+- Technical errors: user-friendly message in UI; log details to console if needed.
+
+## Large grids
+
+- Default to **summary columns** + search/filter/pagination.
+- Full columns / bulk edit behind toggle or export.
+- Edit in **modal or drawer**, not inline clutter, when it improves clarity.
+
+## Checklist before merge
+
+- [ ] One primary user and one primary task
+- [ ] Non-essential fields hidden or progressive
+- [ ] No schema/API jargon in UI
+- [ ] Uses AdminUi patterns where applicable
+- [ ] Functionality unchanged unless task requires it
