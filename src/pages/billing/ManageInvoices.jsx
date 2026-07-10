@@ -244,7 +244,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
       isTrainingVertical || billingTypeFilter === 'All'
         ? hydratedInvoices.filter((inv) => !inv.isAddOn)
         : hydratedInvoices.filter((inv) => !inv.isAddOn && getInvoiceBillingType(inv) === billingTypeFilter);
-    if (dateFilterMode !== 'all') {
+    if (dateFilterMode === 'today') {
+      list = list.filter((inv) => invoiceDateInputValue(inv) === todayForDateFilter);
+    } else if (dateFilterMode === 'range') {
       const rangeStart = dateFrom && dateTo && dateFrom > dateTo ? dateTo : dateFrom;
       const rangeEnd = dateFrom && dateTo && dateFrom > dateTo ? dateFrom : dateTo;
       list = list.filter((inv) => {
@@ -265,7 +267,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
       );
     }
     return sortInvoicesNewestFirst(list);
-  }, [hydratedInvoices, commercialPOs, billingTypeFilter, dateFilterMode, dateFrom, dateTo, searchTerm, isTrainingVertical]);
+  }, [hydratedInvoices, commercialPOs, billingTypeFilter, dateFilterMode, dateFrom, dateTo, searchTerm, isTrainingVertical, todayForDateFilter]);
 
   const addOnInvoices = useMemo(() => {
     let list = hydratedInvoices.filter((inv) => !!inv.isAddOn && !inv.isCancelled);
@@ -654,8 +656,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
       </div>
 
       {manageTab !== 'issued-cndn' ? (
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
+          <div className="relative flex-1 min-w-[12rem]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
@@ -669,6 +671,77 @@ const ManageInvoices = ({ onNavigateTab }) => {
               className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
             />
           </div>
+          {manageTab === 'billing-types' ? (
+            <div className="flex items-center gap-1.5 shrink-0 self-stretch">
+              <div
+                className="inline-flex h-[42px] items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5"
+                role="group"
+                aria-label="Filter by invoice date"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFilterMode('all');
+                    setPage(1);
+                  }}
+                  className={`h-full rounded-md px-2.5 text-xs font-semibold transition-colors ${
+                    dateFilterMode === 'all'
+                      ? 'bg-white text-red-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom(todayForDateFilter);
+                    setDateTo(todayForDateFilter);
+                    setDateFilterMode('today');
+                    setPage(1);
+                  }}
+                  className={`h-full rounded-md px-2.5 text-xs font-semibold transition-colors ${
+                    dateFilterMode === 'today'
+                      ? 'bg-white text-red-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Today
+                </button>
+              </div>
+              {dateFilterMode !== 'today' ? (
+                <div className="inline-flex h-[42px] items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
+                  <FormDateInput
+                    id="manage-inv-date-from"
+                    compact
+                    value={dateFrom}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      setDateFilterMode('range');
+                      setPage(1);
+                    }}
+                    aria-label="From date"
+                    className="!w-[6.5rem] shrink-0 border-0 bg-transparent shadow-none"
+                  />
+                  <span className="text-slate-400 text-xs select-none" aria-hidden>
+                    –
+                  </span>
+                  <FormDateInput
+                    id="manage-inv-date-to"
+                    compact
+                    value={dateTo}
+                    onChange={(e) => {
+                      setDateTo(e.target.value);
+                      setDateFilterMode('range');
+                      setPage(1);
+                    }}
+                    aria-label="To date"
+                    className="!w-[6.5rem] shrink-0 border-0 bg-transparent shadow-none"
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <select
             value={manageTab === 'add-on-invoices' ? addOnSortConfig.key : mainSortConfig.key}
             onChange={(e) => {
@@ -866,61 +939,11 @@ const ManageInvoices = ({ onNavigateTab }) => {
       {manageTab === 'billing-types' ? (
       <>
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-4 sm:px-6 py-2 border-b border-gray-100 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="px-4 sm:px-6 py-2 border-b border-gray-100 flex items-center justify-between gap-3">
             <p className="text-sm font-medium text-gray-600">Billing type</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-gray-500">
-                {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''}
-              </span>
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
-                <label className="text-[11px] font-medium text-slate-500" htmlFor="manage-inv-date-from">
-                  From
-                </label>
-                <FormDateInput id="manage-inv-date-from" value={dateFrom} onChange={(e) => {
-                    setDateFrom(e.target.value);
-                    setDateFilterMode('range');
-                    setPage(1);
-                  }}
-                  className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700"
-                />
-                <label className="text-[11px] font-medium text-slate-500" htmlFor="manage-inv-date-to">
-                  To
-                </label>
-                <FormDateInput id="manage-inv-date-to" value={dateTo} onChange={(e) => {
-                    setDateTo(e.target.value);
-                    setDateFilterMode('range');
-                    setPage(1);
-                  }}
-                  className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDateFrom(todayForDateFilter);
-                    setDateTo(todayForDateFilter);
-                    setDateFilterMode('range');
-                    setPage(1);
-                  }}
-                  className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Today
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDateFilterMode('all');
-                    setPage(1);
-                  }}
-                  className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${
-                    dateFilterMode === 'all'
-                      ? 'border-red-200 bg-red-50 text-red-700'
-                      : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  All
-                </button>
-              </div>
-            </div>
+            <span className="text-sm text-gray-500 tabular-nums">
+              {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''}
+            </span>
           </div>
           {!isTrainingVertical ? (
           <div className="flex gap-1 px-4 sm:px-6 border-t border-gray-100 overflow-x-auto">

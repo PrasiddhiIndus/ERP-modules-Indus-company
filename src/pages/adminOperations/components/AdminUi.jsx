@@ -6,6 +6,42 @@ import {
 } from "../../../utils/listTable";
 import FormDateInput from "../../../components/FormDateInput";
 
+/** Page title block: one primary task per screen (UI design philosophy). */
+export function PageTaskHeader({ title, subtitle, children, className = "" }) {
+  return (
+    <div className={`flex flex-wrap items-start justify-between gap-3 ${className}`.trim()}>
+      <div className="min-w-0">
+        <h1 className="text-lg font-bold text-gray-900">{title}</h1>
+        {subtitle ? <p className="text-xs text-gray-600 mt-0.5 max-w-3xl">{subtitle}</p> : null}
+      </div>
+      {children ? <div className="flex flex-wrap items-center gap-2 shrink-0">{children}</div> : null}
+    </div>
+  );
+}
+
+/** Secondary help — hidden until the user asks (progressive disclosure). */
+export function CollapsibleHelp({ label = "How this works", children, defaultOpen = false }) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  if (!children) return null;
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[11px] font-medium text-[#1F3A8A] hover:underline"
+        aria-expanded={open}
+      >
+        {open ? "Hide" : "Show"} {label}
+      </button>
+      {open ? (
+        <div className="mt-2 text-[11px] text-gray-600 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export const SectionCard = ({ title, right, children, className = "" }) => (
   <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>
     <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between gap-2 min-h-[44px]">

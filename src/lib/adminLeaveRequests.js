@@ -40,12 +40,13 @@ export const LEAVE_STATUS_FILTER_OPTIONS = [
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
   { value: "cancelled", label: "Cancelled" },
+  { value: "withdrawn", label: "Withdrawn" },
 ];
 
 /** LMS leave_requests statuses treated as awaiting a decision. */
 const PENDING_LMS_STATUSES = ["pending", "draft", "submitted", "pending_approval"];
 
-const TERMINAL_STATUSES = ["approved", "rejected", "cancelled"];
+const TERMINAL_STATUSES = ["approved", "rejected", "cancelled", "withdrawn"];
 
 function lmsLeaveRequestsTable() {
   return supabase.schema(INDUS_ONE).from(LMS_LEAVE_TABLE);
@@ -116,10 +117,22 @@ function normalizeWorkflowStatus(status) {
     .toLowerCase();
 }
 
+/** Effective rollup used by DB triggers (overall_status when set, else status). */
+export function effectiveLeaveWorkflowStatus(row) {
+  const overall = normalizeWorkflowStatus(row?.overall_status);
+  const status = normalizeWorkflowStatus(row?.status);
+  return overall || status;
+}
+
+export function isLeaveFullyApproved(row) {
+  return effectiveLeaveWorkflowStatus(row) === "approved";
+}
+
 /** LMS draft / submitted → admin pending (admin table has no draft status). */
 function adminStatusFromLms(status) {
   const s = normalizeWorkflowStatus(status);
   if (s === "draft" || s === "submitted" || s === "pending_approval") return "pending";
+  if (s === "withdraw" || s === "withdrawn") return "withdrawn";
   return s;
 }
 
@@ -339,6 +352,7 @@ async function ensureAdminLeaveRequestMirror(lmsRow) {
       days: lmsRow.days,
       reason: lmsRow.reason ?? "",
       status: adminStatusFromLms(lmsRow.status),
+      overall_status: adminStatusFromLms(lmsRow.overall_status ?? lmsRow.status),
       approver_user_id: lmsRow.approver_user_id,
       approver_name: lmsRow.approver_name,
       remarks: lmsRow.remarks,
@@ -400,6 +414,7 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
 
   const patch = {
     status: targetStatus,
+    overall_status: targetStatus,
     ...decisionPayload({ ...decision, ...approverMeta }),
   };
 
@@ -691,6 +706,24 @@ export async function cancelApprovedLeaveRequest(id, decision) {
   });
 }
 
+export async function withdrawLeaveRequest(id, decision) {
+  return applyLeaveDecision(id, {
+    lmsExpectedStatuses: PENDING_LMS_STATUSES,
+    adminExpectedStatus: "pending",
+    newStatus: "withdrawn",
+    decision,
+  });
+}
+
+export async function withdrawApprovedLeaveRequest(id, decision) {
+  return applyLeaveDecision(id, {
+    lmsExpectedStatuses: ["approved"],
+    adminExpectedStatus: "approved",
+    newStatus: "withdrawn",
+    decision,
+  });
+}
+
 export async function rejectApprovedLeaveRequest(id, decision) {
   return applyLeaveDecision(id, {
     lmsExpectedStatuses: ["approved"],
@@ -715,6 +748,8 @@ export function statusSeverity(status) {
     case "rejected":
       return "critical";
     case "cancelled":
+      return "high";
+    case "withdrawn":
       return "high";
     default:
       return "info";

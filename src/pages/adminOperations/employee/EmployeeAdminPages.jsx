@@ -12,6 +12,7 @@ import {
   StatusChip,
   LinkedChip,
   Timeline,
+  CollapsibleHelp,
 } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
 import {
@@ -445,10 +446,10 @@ export function EmployeeAttendanceInputsPage() {
     } catch (err) {
       setRows([]);
       setTotalCount(0);
-      const msg = err?.message || "Unable to fetch attendance punches from Supabase.";
+      const msg = err?.message || "Unable to load attendance punches.";
       setError(
         msg.includes("erp_attendance_punches") || err?.code === "PGRST205"
-          ? "Attendance table is missing. Run the Supabase migration for erp_attendance_punches, then reload."
+          ? "Attendance data is not set up yet. Contact your system administrator."
           : msg
       );
     } finally {
@@ -584,7 +585,7 @@ export function EmployeeAttendanceInputsPage() {
       title="Raw attendance data (admin)"
       right={
         <StatusChip
-          label={syncing ? "Syncing eTimeOffice" : loading ? "Loading Supabase" : "Supabase table"}
+          label={syncing ? "Syncing from eTimeOffice" : loading ? "Loading punches" : "Ready"}
           severity={syncing || loading ? "warning" : "info"}
         />
       }
@@ -642,7 +643,7 @@ export function EmployeeAttendanceInputsPage() {
           title={
             !apiConnection.etimeConfigured && !apiConnection.checking
               ? apiConnection.message || "eTimeOffice API not ready"
-              : "Fetch punches from eTimeOffice into Supabase"
+              : "Import punches from eTimeOffice for the selected date"
           }
           className="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs disabled:opacity-60"
         >
@@ -658,14 +659,11 @@ export function EmployeeAttendanceInputsPage() {
         </button>
       </FilterBar>
 
-      <p className="mt-2 text-[11px] text-gray-600 rounded-lg border border-blue-100 bg-blue-50/80 px-3 py-2">
-        <span className="font-medium text-blue-900">Display is from Supabase</span> (table{" "}
-        <code className="text-[10px]">erp_attendance_punches</code>). eTimeOffice data is{" "}
-        <span className="font-medium">not loaded automatically</span> — click{" "}
-        <span className="font-medium">Sync eTimeOffice</span> to pull punches for the selected date into Supabase, then the grid reloads.
-        {" "}
-        <span className="font-medium">Daily view</span> shows first punch as Punch in and last as Punch out per employee per day.
-      </p>
+      <CollapsibleHelp label="how sync works">
+        This grid shows punch data stored for the selected date. eTimeOffice is not loaded automatically
+        — click <strong>Sync eTimeOffice</strong> to import punches for that date, then reload. Daily view
+        shows the first punch as in and the last as out for each employee.
+      </CollapsibleHelp>
 
       {apiConnection.checking ? (
         <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
@@ -735,8 +733,8 @@ export function EmployeeAttendanceInputsPage() {
               <dt className="font-medium text-gray-800">Source</dt>
               <dd className="mt-px break-words text-gray-500">
                 {apiConnection.etimeConfigured
-                  ? `Supabase · ${apiConnection.punchEndpoint || "API"}`
-                  : "Supabase · eTimeOffice"}
+                  ? `Connected · ${apiConnection.punchEndpoint || "eTimeOffice"}`
+                  : "Connected · eTimeOffice"}
               </dd>
             </div>
             <div>

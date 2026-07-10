@@ -887,8 +887,7 @@ const Layout = () => {
                                   key={item.id}
                                   to={operationsNavHref(item.path)}
                                   end={!item.path}
-                                  className={subNavClass}
-                                  isActive={(_, { location }) => operationsNavIsActive(item, location.pathname)}
+                                  className={() => subNavClass({ isActive: operationsNavIsActive(item, pathname) })}
                                 >
                                   {Icon && <Icon className="w-4 h-4 shrink-0 text-[#1F3A8A]" />}
                                   <span className="text-xs">{item.label}</span>
@@ -901,8 +900,7 @@ const Layout = () => {
                             key={entry.id}
                             to={operationsNavHref(entry.path)}
                             end={!entry.path}
-                            className={subNavClass}
-                            isActive={(_, { location }) => operationsNavIsActive(entry, location.pathname)}
+                            className={() => subNavClass({ isActive: operationsNavIsActive(entry, pathname) })}
                           >
                             {entry.icon && <entry.icon className="w-4 h-4 shrink-0 text-[#1F3A8A]" />}
                             <span className="text-xs">{entry.label}</span>

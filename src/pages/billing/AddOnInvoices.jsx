@@ -55,6 +55,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
   const {
     commercialPOs,
     invoices,
+    setInvoices,
     upsertInvoice,
     billingVerticalFilter,
     billingPoBasisFilter,

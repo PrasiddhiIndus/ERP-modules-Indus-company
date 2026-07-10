@@ -246,8 +246,7 @@ const EXTENDED_LEAVE_BALANCE_FIELDS = [
 
 function readExtendedLeaveBalanceFields(input = {}) {
   const out = {};
-  for (const field of EXTENDED_LEAVE_BALANCE_FIELDS) {
-    out[field.opening] = clampNonNegative(input[field.opening]);
+  for (const field of EXTENDED_LEAVE_BALANCE_FIELDS) {      out[field.opening] = clampNonNegative(input[field.opening]);
     out[field.used] = clampNonNegative(input[field.used]);
     out[field.unused] = openingMinusUsed(out[field.opening], out[field.used]);
   }
