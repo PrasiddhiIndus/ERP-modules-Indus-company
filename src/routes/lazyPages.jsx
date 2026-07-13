@@ -260,6 +260,7 @@ export const AMC = lazy(() => import("../pages/amc/AMC"));
 export const Settings = lazy(() => import("../pages/Settings"));
 export const UserManagement = lazy(() => import("../pages/UserManagement"));
 export const SoftwareSubscriptions = lazy(() => import("../pages/SoftwareSubscriptions"));
+export const ApiHealthDashboard = lazy(() => import("../pages/apiMonitoring/ApiHealthDashboard"));
 export const IndusLmsTrainings = lazy(() => import("../pages/IndusLmsTrainings"));
 
 // Marketing

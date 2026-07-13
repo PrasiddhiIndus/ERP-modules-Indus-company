@@ -131,7 +131,7 @@ export const MODULE_PATH_PREFIXES = {
   userManagement: ["/app/user-management"],
   softwareSubscriptions: ["/app/software-subscriptions-reminders"],
   /** IT/IS team home — same routes as software subscriptions (not Super Admin–only module key). */
-  itIs: ["/app/software-subscriptions-reminders"],
+  itIs: ["/app/software-subscriptions-reminders", "/app/api-health"],
 };
 
 /**

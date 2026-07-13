@@ -484,12 +484,21 @@ function childLabel(site, key) {
   return formatFinanceLabel(raw);
 }
 
-// Estimate (budget) in force for a month
-function estimateFor(site, mk) {
+/** Fixed estimated budget for a contract (one per site/contract version). */
+function contractBudgetFor(site) {
   const versions = (site.estimates || []).slice().sort((a, b) => monthIdx(a.effectiveFrom) - monthIdx(b.effectiveFrom));
-  let chosen = null;
-  versions.forEach((v) => { if (monthIdx(v.effectiveFrom) <= monthIdx(mk)) chosen = v; });
-  return chosen || versions[0] || null;
+  if (!versions.length) return null;
+  const cs = site.contractStart;
+  if (cs) {
+    const atStart = versions.find((v) => v.effectiveFrom === cs);
+    if (atStart) return atStart;
+  }
+  return versions[0];
+}
+
+// Estimate (budget) in force for a month — fixed for the contract's full duration
+function estimateFor(site, _mk) {
+  return contractBudgetFor(site);
 }
 function estTotals(est) {
   if (!est) return null;
@@ -700,6 +709,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [actionNotice, setActionNotice] = useState("");
   const [showHistorical, setShowHistorical] = useState(urlInit.showHistorical);
   const [historyGroup, setHistoryGroup] = useState(null);
+  const [budgetViewSiteId, setBudgetViewSiteId] = useState(null);
   const [siteBackView, setSiteBackView] = useState("overview");
   const saveTimer = useRef(null);
   const saveImmediate = useRef(false);
@@ -1094,6 +1104,29 @@ export default function SiteLedgerApp({ embedded = true }) {
     saveImmediate.current = true;
     setSites((prev) => prev.map((s) => s.id === id ? { ...s, ...patch } : s));
   }, []);
+
+  const saveSiteBudget = useCallback(async (siteId, estimates) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    skipNextAutosave.current = true;
+    const nextSites = stateRef.current.sites.map((s) => (
+      s.id === siteId ? { ...s, estimates } : s
+    ));
+    stateRef.current = { ...stateRef.current, sites: nextSites };
+    setSites(nextSites);
+    setSaveState("saving");
+    try {
+      const result = await saveSitesStore(stateRef.current);
+      if (!result.ok) throw new Error(result.error || "Save failed");
+      lastSaveAt.current = Date.now();
+      setSaveState("saved");
+      setLoadError(null);
+      return true;
+    } catch (e) {
+      setSaveState("local");
+      setLoadError(e?.message || "Could not save estimated budget.");
+      return false;
+    }
+  }, []);
   const deactivateSite = useCallback((id) => {
     const site = stateRef.current.sites.find((s) => s.id === id);
     if (!site || !isSiteActive(site)) return;
@@ -1446,8 +1479,8 @@ export default function SiteLedgerApp({ embedded = true }) {
               onDelete={removeSite}
             />
           )}
-          {view === "entry" && <EntryForm sites={sitesL} library={library} parents={parents} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onRecordSaveFailed={revertRecord} onPeriodSaveError={onPeriodSaveError} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} />}
-          {view === "config" && <SiteConfig sites={sitesL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onSetParentColor={setParentColor} onSaveSetupNow={saveSetupNow} saveState={saveState} />}
+          {view === "entry" && <EntryForm sites={sitesL} sitesAll={sitesAllL} library={library} parents={parents} records={records} month={month} setMonth={setMonth} activeSite={activeSite} setActiveSite={setActiveSite} libMap={libMap} onSave={saveRecord} onRecordPersisted={onRecordPersisted} onRecordSaveFailed={revertRecord} onPeriodSaveError={onPeriodSaveError} onPatchSite={patchSite} onAdd={() => setShowAdd(true)} goConfig={(id) => { setActiveSite(id); setView("config"); }} onViewBudget={setBudgetViewSiteId} />}
+          {view === "config" && <SiteConfig sites={sitesL} sitesAll={sitesAllL} library={library} parents={parents} activeSite={activeSite} setActiveSite={setActiveSite} records={records} month={month} onPatchSite={patchSite} onApplySetupChange={applySiteSetupChange} onRemoveHead={removeLibraryHead} onRenameHead={renameLibraryHead} onAdd={() => setShowAdd(true)} onRenameParent={renameParent} onSetParentColor={setParentColor} onSaveSetupNow={saveSetupNow} saveState={saveState} onViewBudget={setBudgetViewSiteId} onSaveBudget={saveSiteBudget} />}
           {view === "reports" && (
             <Reports
               sites={sitesL}
@@ -1526,6 +1559,14 @@ export default function SiteLedgerApp({ embedded = true }) {
           }}
         />
       )}
+      {budgetViewSiteId && (
+        <EstimatedBudgetViewModal
+          sites={sitesAllL}
+          library={library}
+          initialSiteId={budgetViewSiteId}
+          onClose={() => setBudgetViewSiteId(null)}
+        />
+      )}
       {historyGroup && (
         <SiteVersionHistoryModal
           siteGroup={historyGroup}
@@ -1534,6 +1575,7 @@ export default function SiteLedgerApp({ embedded = true }) {
           month={month}
           onClose={() => setHistoryGroup(null)}
           onOpenSite={(id) => { setActiveSite(id); setView("site"); setHistoryGroup(null); }}
+          onViewBudget={(id) => { setBudgetViewSiteId(id); setHistoryGroup(null); }}
         />
       )}
     </div>
@@ -2617,10 +2659,11 @@ function SiteDetail({
 /* ───────────────────────── SITE CONFIG (parent → child builder) ───────────────────────── */
 const AVAILABLE_PREVIEW_COUNT = 8;
 
-function SiteConfig({ sites, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onSetParentColor, onSaveSetupNow, saveState }) {
+function SiteConfig({ sites, sitesAll, library, parents, activeSite, setActiveSite, records, month, onPatchSite, onApplySetupChange, onRemoveHead, onRenameHead, onAdd, onRenameParent, onSetParentColor, onSaveSetupNow, saveState, onViewBudget, onSaveBudget }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   useEffect(() => { if (activeSite) setSiteId(activeSite); }, [activeSite]);
-  const site = sites.find((s) => s.id === siteId);
+  const sitePool = sitesAll || sites;
+  const site = sitePool.find((s) => s.id === siteId) || sites.find((s) => s.id === siteId);
   const [newLabel, setNewLabel] = useState("");
   const [newParent, setNewParent] = useState(PARENTS[0].key);
   const [editing, setEditing] = useState(null); // parent key being renamed
@@ -2951,50 +2994,136 @@ function SiteConfig({ sites, library, parents, activeSite, setActiveSite, record
         ))}
       </div>
 
-      <ContractBudgetEditor site={site} library={library} onPatchSite={onPatchSite} />
+      {(() => {
+        const group = site.siteGroup || site.id;
+        const versions = sitesInGroup(sitePool, group);
+        if (versions.length <= 1) return null;
+        return (
+          <div className="contract-timeline-row" style={{ marginBottom: 12 }}>
+            <label className="sf" style={{ flex: 1, minWidth: 280 }}>
+              <span>Contract timeline</span>
+              <select
+                className="sf-sel"
+                value={siteId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setSiteId(id);
+                  setActiveSite(id);
+                }}
+              >
+                {versions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {versionLabel(v)}
+                    {v.contractStart && v.contractEnd ? ` · ${monthLabelOf(v.contractStart)}–${monthLabelOf(v.contractEnd)}` : ""}
+                    {!isSiteActive(v) ? " (Historical)" : " (Active)"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        );
+      })()}
+
+      <ContractBudgetEditor site={site} library={library} onPatchSite={onPatchSite} onViewBudget={onViewBudget} onSaveBudget={onSaveBudget} />
     </>
   );
 }
 
-function ContractBudgetEditor({ site, library, onPatchSite }) {
+function ContractBudgetEditor({ site, library, onPatchSite, onViewBudget, onSaveBudget }) {
   const libMap = Object.fromEntries(library.map((h) => [h.key, h]));
   const structure = displayStructure(site).filter((g) => g.children.length);
-  const estimates = (site.estimates || []).slice().sort((a, b) => monthIdx(a.effectiveFrom) - monthIdx(b.effectiveFrom));
+  const budget = contractBudgetFor(site);
+  const estimates = budget ? [budget] : [];
+  const isHistorical = !isSiteActive(site);
+  const canEditBudget = isSiteActive(site);
   const [editing, setEditing] = useState(false);
-  const [effFrom, setEffFrom] = useState(site.contractStart || "2025-04");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [note, setNote] = useState("");
   const [rev, setRev] = useState({});
   const [exp, setExp] = useState({});
-  const startEdit = (base) => { setEditing(true); setEffFrom(base?.effectiveFrom || site.contractStart || "2025-04"); setNote(base?.note || ""); setRev(base?.revenue ? { ...base.revenue } : {}); setExp(base?.expenses ? { ...base.expenses } : {}); };
-  const saveEst = () => { const clean = (o) => { const r = {}; Object.entries(o).forEach(([k, v]) => { if (Number(v)) r[k] = Number(v); }); return r; }; const ver = { id: "est" + Date.now(), effectiveFrom: effFrom, note: note.trim(), revenue: clean(rev), expenses: clean(exp) }; const others = (site.estimates || []).filter((e) => e.effectiveFrom !== effFrom); onPatchSite(site.id, { estimates: [...others, ver] }); setEditing(false); };
-  const delEst = (id) => onPatchSite(site.id, { estimates: (site.estimates || []).filter((e) => e.id !== id) });
+  const startEdit = (base = budget) => {
+    if (!canEditBudget) return;
+    setSaveError("");
+    setEditing(true);
+    setNote(base?.note || `Contract budget · ${versionLabel(site)}`);
+    setRev(base?.revenue ? { ...base.revenue } : {});
+    setExp(base?.expenses ? { ...base.expenses } : {});
+  };
+  const saveEst = async () => {
+    if (!canEditBudget || saving) return;
+    const clean = (o) => {
+      const r = {};
+      Object.entries(o).forEach(([k, v]) => { if (Number(v)) r[k] = Number(v); });
+      return r;
+    };
+    const effectiveFrom = budget?.effectiveFrom || site.contractStart || currentPeriodKey();
+    const ver = {
+      id: budget?.id || ("est" + Date.now()),
+      effectiveFrom,
+      note: note.trim() || `Contract budget · ${versionLabel(site)}`,
+      revenue: clean(rev),
+      expenses: clean(exp),
+    };
+    setSaving(true);
+    setSaveError("");
+    try {
+      let ok = false;
+      if (onSaveBudget) {
+        ok = await onSaveBudget(site.id, [ver]);
+      } else {
+        onPatchSite(site.id, { estimates: [ver] });
+        ok = true;
+      }
+      if (ok) setEditing(false);
+      else setSaveError("Could not save estimated budget. Please try again.");
+    } catch (e) {
+      setSaveError(e?.message || "Could not save estimated budget.");
+    } finally {
+      setSaving(false);
+    }
+  };
   const setContract = (patch) => onPatchSite(site.id, patch);
 
   return (
-    <Card title="Contract & Estimate (Budget)" right={<span className="muted-s">monthly actuals are compared to the estimate in force</span>}>
+    <Card title="Contract & Estimate (Budget)" right={<span className="muted-s">one estimate per contract · compared to monthly actuals</span>}>
       <div className="contract-row">
-        <label className="sf"><span>Estimated contract start</span><FinanceDateInput className="sf-sel" value={contractDateInputValue(site.estContractStart)} onChange={(v) => setContract({ estContractStart: v || null })} /></label>
-        <label className="sf"><span>Estimated contract end</span><FinanceDateInput className="sf-sel" value={contractDateInputValue(site.estContractEnd)} onChange={(v) => setContract({ estContractEnd: v || null })} /></label>
+        <label className="sf"><span>Estimated contract start</span><FinanceDateInput className="sf-sel" value={contractDateInputValue(site.estContractStart)} onChange={(v) => setContract({ estContractStart: v || null })} disabled={isHistorical} /></label>
+        <label className="sf"><span>Estimated contract end</span><FinanceDateInput className="sf-sel" value={contractDateInputValue(site.estContractEnd)} onChange={(v) => setContract({ estContractEnd: v || null })} disabled={isHistorical} /></label>
         <div className="contract-note">Used for variance comparison and to spread mid-contract costs across remaining months.</div>
       </div>
-      {estimates.length > 0 && (
+      {isHistorical && (
+        <p className="m-note warn" style={{ marginTop: 8 }}>Historical contract — estimated budget is read-only. Create a new contract version to set a new budget.</p>
+      )}
+      {budget && (
         <table className="tbl" style={{ margin: "6px 0 14px" }}>
-          <thead><tr><th>Estimate version</th><th>Effective from</th><th className="r">Est. Revenue</th><th className="r">Est. Expense</th><th className="r">Est. Profit</th><th className="r">Margin</th><th></th></tr></thead>
-          <tbody>{estimates.map((e) => { const t = estTotals(e); return (<tr key={e.id}><td className="strong">{e.note || "Estimate"}</td><td className="mono">{monthLabelOf(e.effectiveFrom)}</td><td className="r mono">{inr(t.revenue)}</td><td className="r mono">{inr(t.expense)}</td><td className="r mono" style={{ color: t.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>{inr(t.profit)}</td><td className="r mono">{pct(t.margin)}</td><td className="r nowrap"><button className="icon-btn" title="Edit / revise" onClick={() => startEdit(e)}><Pencil size={13} /></button><button className="icon-btn danger" onClick={() => delEst(e.id)}><Trash2 size={13} /></button></td></tr>); })}</tbody>
+          <thead><tr><th>Contract budget</th><th>Effective from</th><th>Contract period</th><th className="r">Est. Revenue</th><th className="r">Est. Expense</th><th className="r">Est. Profit</th><th className="r">Margin</th></tr></thead>
+          <tbody>{estimates.map((e) => { const t = estTotals(e); return (<tr key={e.id}><td className="strong">{e.note || "Estimate"}</td><td className="mono">{monthLabelOf(e.effectiveFrom)}</td><td className="mono muted-s">{site.contractStart && site.contractEnd ? `${monthLabelOf(site.contractStart)}–${monthLabelOf(site.contractEnd)}` : "—"}</td><td className="r mono">{inr(t.revenue)}</td><td className="r mono">{inr(t.expense)}</td><td className="r mono" style={{ color: t.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>{inr(t.profit)}</td><td className="r mono">{pct(t.margin)}</td></tr>); })}</tbody>
         </table>
       )}
       {!editing ? (
-        <div className="m-actions" style={{ justifyContent: "flex-start" }}>
-          <button className="primary sm" onClick={() => startEdit(estimates[estimates.length - 1])}><Plus size={14} /> {estimates.length ? "Revise estimate (renewal)" : "Set estimate / budget"}</button>
-          {estimates.length > 0 && <span className="muted-s" style={{ alignSelf: "center" }}>Revising creates a new version from the chosen month — earlier months keep comparing to the prior estimate.</span>}
+        <div className="m-actions" style={{ justifyContent: "flex-start", flexWrap: "wrap", gap: 8 }}>
+          {canEditBudget && !budget ? (
+            <button type="button" className="primary sm" onClick={() => startEdit()}><Plus size={14} /> Set estimate / budget</button>
+          ) : null}
+          {canEditBudget && budget ? (
+            <button type="button" className="primary sm" onClick={() => startEdit(budget)}><Pencil size={14} /> Edit estimated budget</button>
+          ) : null}
+          {budget && onViewBudget ? (
+            <button type="button" className="ghost-d sm" onClick={() => onViewBudget(site.id)}><Eye size={14} /> View estimated budget</button>
+          ) : null}
         </div>
       ) : (
         <div className="est-editor">
           <div className="est-bar">
-            <label className="sf"><span>Effective from</span><PeriodDateSelect inputClassName="sf-sel" value={effFrom} onChange={setEffFrom} showFormattedHint={false} /></label>
-            <label className="sf" style={{ flex: 2 }}><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason for this estimate / revision (e.g. Renewal FY26)" /></label>
-            <button className="primary sm" onClick={saveEst}>Save estimate</button><button className="ghost-d" onClick={() => setEditing(false)}>Cancel</button>
+            <label className="sf"><span>Effective from</span><input className="sf-sel" value={monthLabelOf(site.contractStart || currentPeriodKey())} readOnly disabled /></label>
+            <label className="sf" style={{ flex: 2 }}><span>Note</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Contract budget label" /></label>
+            <button type="button" className="primary sm" onClick={saveEst} disabled={saving}>{saving ? "Saving…" : (budget ? "Save changes" : "Save estimate")}</button>
+            <button type="button" className="ghost-d" onClick={() => { setEditing(false); setSaveError(""); }} disabled={saving}>Cancel</button>
           </div>
+          {saveError ? (
+            <p className="m-note warn" style={{ marginTop: 8 }}>{saveError}</p>
+          ) : null}
           <div className="fgroup-h" style={{ color: "var(--green)" }}>Estimated Revenue</div>
           <div className="fields">{REVENUE_ITEMS.map((it) => (<label className="field" key={it.key}><span>{it.label}</span><div className="field-in"><i>₹</i><input type="number" value={rev[it.key] ?? ""} placeholder="0" onChange={(e) => setRev((s) => ({ ...s, [it.key]: e.target.value }))} /></div></label>))}</div>
           <div className="fgroup-h" style={{ color: "var(--loss)", marginTop: 14 }}>Estimated Expenses (by parent → line)</div>
@@ -3297,7 +3426,7 @@ function SiteSearchSelect({ sites, value, onChange, label = "Site", id = "site-s
 
 const ENTRY_AUTOSAVE_MS = 100;
 
-function EntryForm({ sites, library, parents, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, onPatchSite, onAdd, goConfig }) {
+function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth, activeSite, setActiveSite, libMap, onSave, onRecordPersisted, onRecordSaveFailed, onPeriodSaveError, onPatchSite, onAdd, goConfig, onViewBudget }) {
   const [siteId, setSiteId] = useState(activeSite || sites[0]?.id || "");
   const [mk, setMk] = useState(month || currentPeriodKey());
   const [form, setForm] = useState({});
@@ -3702,6 +3831,7 @@ function EntryForm({ sites, library, parents, records, month, setMonth, activeSi
           </div>
         </div>
         <div className="entry-bar-tools">
+          <button type="button" className="ghost-d" onClick={() => onViewBudget?.(siteId)}><Eye size={14} /> View Estimated Budget</button>
           <button type="button" className="ghost-d" onClick={() => goConfig(siteId)}><Sliders size={14} /> Structure</button>
         </div>
         <div className="entry-live">
@@ -4289,6 +4419,140 @@ function ReportTable({ report, showTotals = true, dim }) {
   );
 }
 
+/* ───────────────────────── ESTIMATED BUDGET VIEW ───────────────────────── */
+function EstimatedBudgetViewModal({ sites, library, initialSiteId, onClose }) {
+  const [siteId, setSiteId] = useState(initialSiteId || sites[0]?.id || "");
+  useEffect(() => {
+    if (initialSiteId) setSiteId(initialSiteId);
+  }, [initialSiteId]);
+  const site = sites.find((s) => s.id === siteId) || null;
+  const siteLib = site ? mergeSiteLibrary(site, library) : library;
+  const libMap = Object.fromEntries(siteLib.map((h) => [h.key, h]));
+  const budget = site ? contractBudgetFor(site) : null;
+  const totals = estTotals(budget);
+  const structure = site ? displayStructure(site).filter((g) => g.children.length) : [];
+  const group = site?.siteGroup || site?.id;
+  const versions = group ? sitesInGroup(sites, group) : [];
+  const contractLabel = site?.contractStart && site?.contractEnd
+    ? `${monthLabelOf(site.contractStart)} – ${monthLabelOf(site.contractEnd)}`
+    : "—";
+
+  return (
+    <Modal onClose={onClose} title="Estimated Budget" wide>
+      {versions.length > 1 && (
+        <div className="contract-timeline-row">
+          <label className="sf" style={{ flex: 1, minWidth: 280 }}>
+            <span>Contract timeline</span>
+            <select className="sf-sel" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {versionLabel(v)}
+                  {v.wo ? ` · ${v.wo}` : ""}
+                  {v.contractStart && v.contractEnd ? ` · ${monthLabelOf(v.contractStart)}–${monthLabelOf(v.contractEnd)}` : ""}
+                  {!isSiteActive(v) ? " (Historical)" : " (Active)"}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+      {!site ? (
+        <p className="muted-s">Select a site to view its estimated budget.</p>
+      ) : !budget ? (
+        <p className="muted-s">No estimated budget has been set for {versionLabel(site)} ({contractLabel}). Set one in Site Setup → Contract &amp; Estimate.</p>
+      ) : (
+        <>
+          <div className="budget-view-meta">
+            <div><span className="muted-s">Site</span><strong>{site.name}</strong></div>
+            <div><span className="muted-s">Contract</span><strong>{versionLabel(site)}</strong> <span className={"pill " + (isSiteActive(site) ? "pill-ok" : "pill-inactive")}>{isSiteActive(site) ? "Active" : "Historical"}</span></div>
+            <div><span className="muted-s">Period</span><span className="mono">{contractLabel}</span></div>
+            <div><span className="muted-s">Budget label</span><span>{budget.note || "Estimate"}</span></div>
+          </div>
+          <p className="m-note" style={{ marginTop: 0 }}>Read-only view — estimated values are fixed for this contract&apos;s full duration.</p>
+
+          <div className="fgroup-h" style={{ color: "var(--green)", marginTop: 12 }}>Estimated Revenue</div>
+          <table className="tbl budget-view-tbl">
+            <thead><tr><th>Revenue line</th><th className="r">Estimated value</th></tr></thead>
+            <tbody>
+              {REVENUE_ITEMS.map((it) => {
+                const val = Number(budget.revenue?.[it.key]) || 0;
+                return (
+                  <tr key={it.key}>
+                    <td>{it.label}</td>
+                    <td className="r mono">{inr(it.sign * val)}</td>
+                  </tr>
+                );
+              })}
+              <tr className="vtot green">
+                <td className="strong">Total Estimated Revenue</td>
+                <td className="r mono strong">{inr(totals.revenue)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div className="fgroup-h" style={{ color: "var(--loss)", marginTop: 16 }}>Estimated Expenses</div>
+          {structure.length === 0 ? (
+            <p className="muted-s">No cost structure configured for this contract.</p>
+          ) : (
+            <table className="tbl budget-view-tbl">
+              <thead><tr><th>Parent head</th><th>Cost component</th><th className="r">Estimated value</th></tr></thead>
+              <tbody>
+                {structure.map((g) => {
+                  const rows = g.children
+                    .map((k) => ({ key: k, label: libMap[k]?.label || childLabel(site, k), val: Number(budget.expenses?.[k]) || 0 }));
+                  if (!rows.length) return null;
+                  const parentSub = rows.reduce((a, r) => a + r.val, 0);
+                  return (
+                    <React.Fragment key={g.parent}>
+                      {rows.map((r, idx) => (
+                        <tr key={r.key}>
+                          <td className={idx === 0 ? "strong" : ""} style={{ color: idx === 0 ? parentColor(g.parent) : undefined }}>
+                            {idx === 0 ? parentLabel(g.parent) : ""}
+                          </td>
+                          <td>{r.label}</td>
+                          <td className="r mono">{inr(r.val)}</td>
+                        </tr>
+                      ))}
+                      <tr className="budget-parent-sub">
+                        <td colSpan={2} className="r muted-s">{parentLabel(g.parent)} subtotal</td>
+                        <td className="r mono">{inr(parentSub)}</td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
+                <tr className="vtot">
+                  <td colSpan={2} className="strong">Total Estimated Expense</td>
+                  <td className="r mono strong">{inr(totals.expense)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+
+          <table className="tbl budget-view-tbl" style={{ marginTop: 14 }}>
+            <tbody>
+              <tr className="vtot green">
+                <td className="strong">Total Estimated Cost (Expense)</td>
+                <td className="r mono strong">{inr(totals.expense)}</td>
+              </tr>
+              <tr>
+                <td className="strong">Estimated Profit</td>
+                <td className="r mono strong" style={{ color: totals.profit >= 0 ? "var(--profit)" : "var(--loss)" }}>{inr(totals.profit)}</td>
+              </tr>
+              <tr>
+                <td className="muted-s">Estimated Margin</td>
+                <td className="r mono">{pct(totals.margin)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </>
+      )}
+      <div className="m-actions" style={{ marginTop: 16 }}>
+        <button type="button" className="ghost-d" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ───────────────────────── MODALS ───────────────────────── */
 function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, editSite = null }) {
   const isEdit = !!editSite;
@@ -4416,7 +4680,7 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
   );
 }
 
-function SiteVersionHistoryModal({ siteGroup, sites, records, month, onClose, onOpenSite }) {
+function SiteVersionHistoryModal({ siteGroup, sites, records, month, onClose, onOpenSite, onViewBudget }) {
   const versions = useMemo(() => sitesInGroup(sites, siteGroup), [sites, siteGroup]);
   const siteName = versions[0]?.name || "Site";
   const clientLabel = versions[0]?.ocNumber || versions[0]?.wo || siteName;
@@ -4444,11 +4708,14 @@ function SiteVersionHistoryModal({ siteGroup, sites, records, month, onClose, on
           {hasData ? inr(c.profit) : "—"}
         </td>
         <td className="r mono muted-s">{estCount || "—"}</td>
-        <td className="r">
+        <td className="r nowrap">
+          {onViewBudget && contractBudgetFor(s) ? (
+            <button type="button" className="link" onClick={() => onViewBudget(s.id)}>View budget</button>
+          ) : null}
           {readOnly ? (
-            <span className="muted-s">Read-only</span>
+            <span className="muted-s" style={{ marginLeft: 8 }}>Read-only</span>
           ) : (
-            <button type="button" className="link" onClick={() => onOpenSite(s.id)}>View P&L →</button>
+            <button type="button" className="link" style={{ marginLeft: 8 }} onClick={() => onOpenSite(s.id)}>View P&L →</button>
           )}
         </td>
       </tr>
@@ -4588,6 +4855,11 @@ function Styles() {
     .hist-acc-body{padding:14px;}
     .hist-section-label{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
     .hist-expand-btn{display:inline-flex;align-items:center;gap:6px;margin:14px 0 8px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:12.5px;cursor:pointer;}
+    .contract-timeline-row{margin-bottom:12px}
+    .budget-view-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px 16px;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;margin-bottom:8px}
+    .budget-view-meta strong{display:block;font-size:13px;margin-top:2px}
+    .budget-view-tbl{margin-top:6px}
+    .budget-parent-sub td{background:#fafbfc;font-size:12px}
     .hist-tbl-arch{opacity:.92;}
     .sm-ac-wrap{min-width:240px;flex:1;}
     .ov-filter-ac{min-width:240px;flex:1;max-width:320px;}

@@ -660,23 +660,38 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
     }
   }
 
-  const existingBudgets = (await t("budget_versions").select("id, external_id").eq("site_id", siteId)).data || [];
-  const keepEst = new Set((site.estimates || []).map((e) => e.id));
-  for (const bv of existingBudgets) {
-    if (!keepEst.has(bv.external_id || bv.id)) {
-      await t("budget_versions").delete().eq("id", bv.id);
-    }
-  }
+  const existingBudgets = (await t("budget_versions").select("id, external_id, effective_from").eq("site_id", siteId)).data || [];
+  const keptBudgetVersionIds = new Set();
+
   for (const est of site.estimates || []) {
     if (!est.id) continue;
+    const effectiveFrom = est.effectiveFrom || site.contractStart || null;
+    if (!effectiveFrom) continue;
+
     const bvPayload = {
       site_id: siteId,
-      effective_from: est.effectiveFrom,
+      effective_from: effectiveFrom,
       note: est.note || null,
       status: "active",
       external_id: est.id,
     };
-    const { data: existingBv } = await t("budget_versions").select("id").eq("external_id", est.id).maybeSingle();
+
+    let existingBv = null;
+    const { data: byExternal } = await t("budget_versions").select("id").eq("external_id", est.id).maybeSingle();
+    if (byExternal?.id) existingBv = byExternal;
+    if (!existingBv?.id && /^[0-9a-f-]{36}$/i.test(String(est.id))) {
+      const { data: byUuid } = await t("budget_versions").select("id").eq("id", est.id).maybeSingle();
+      if (byUuid?.id) existingBv = byUuid;
+    }
+    if (!existingBv?.id) {
+      const { data: byEffective } = await t("budget_versions")
+        .select("id")
+        .eq("site_id", siteId)
+        .eq("effective_from", effectiveFrom)
+        .maybeSingle();
+      if (byEffective?.id) existingBv = byEffective;
+    }
+
     let bvId = existingBv?.id;
     if (bvId) {
       const { error: updErr } = await t("budget_versions").update(bvPayload).eq("id", bvId);
@@ -686,28 +701,36 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
       if (insErr) throw insErr;
       bvId = inserted.id;
     }
-    const bv = { id: bvId };
+    keptBudgetVersionIds.add(bvId);
 
-    await t("budget_revenue_lines").delete().eq("budget_version_id", bv.id);
-    await t("budget_expense_lines").delete().eq("budget_version_id", bv.id);
+    await t("budget_revenue_lines").delete().eq("budget_version_id", bvId);
+    await t("budget_expense_lines").delete().eq("budget_version_id", bvId);
 
     for (const [code, amount] of Object.entries(est.revenue || {})) {
       const rhId = revIdByCode[code];
       if (!rhId || !Number(amount)) continue;
-      await t("budget_revenue_lines").insert({
-        budget_version_id: bv.id,
+      const { error: revErr } = await t("budget_revenue_lines").insert({
+        budget_version_id: bvId,
         revenue_head_id: rhId,
         amount: Number(amount),
       });
+      if (revErr) throw revErr;
     }
     for (const [code, amount] of Object.entries(est.expenses || {})) {
       const chId = childIdByCode[code];
       if (!chId || !Number(amount)) continue;
-      await t("budget_expense_lines").insert({
-        budget_version_id: bv.id,
+      const { error: expErr } = await t("budget_expense_lines").insert({
+        budget_version_id: bvId,
         child_head_id: chId,
         amount: Number(amount),
       });
+      if (expErr) throw expErr;
+    }
+  }
+
+  for (const bv of existingBudgets) {
+    if (!keptBudgetVersionIds.has(bv.id)) {
+      await t("budget_versions").delete().eq("id", bv.id);
     }
   }
 
