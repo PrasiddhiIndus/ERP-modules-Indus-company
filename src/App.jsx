@@ -128,6 +128,7 @@ import {
   Settings,
   UserManagement,
   SoftwareSubscriptions,
+  ApiHealthDashboard,
   IndusLmsTrainings,
   MarketingDashboard,
   EnquiryMaster,
@@ -583,6 +584,7 @@ function App() {
             {/* Super Admin-only modules */}
             <Route path="user-management" element={<UserManagement />} />
             <Route path="software-subscriptions-reminders" element={<SoftwareSubscriptions />} />
+            <Route path="api-health" element={<ApiHealthDashboard />} />
 
             {/* Settings */}
             <Route path="settings" element={<Settings />} />
