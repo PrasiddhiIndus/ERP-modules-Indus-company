@@ -25,7 +25,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
 import ManpowerEnquiryDashboard from "./ManpowerEnquiryDashboard";
-import { formatDateDdMmYyyy } from "../../utils/dateDisplay";;
+import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import FormDateInput from "../../components/FormDateInput";
 
 import {
@@ -67,7 +67,7 @@ const tableMinWidth =
   INQUIRY_TABLE_COLUMNS.reduce((sum, col) => sum + col.width, 0) + ACTION_COL_WIDTH;
 const INQUIRY_MULTILINE_COLUMNS = new Set(["descriptionOfWork", "remarks", "furtherAction"]);
 const STICKY_ACTION_CELL =
-  "manpower-inquiry-action-cell sticky right-0 border-l border-gray-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-red-50/35";
+  "manpower-inquiry-action-cell sticky right-0 border-l border-slate-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-purple-50/80";
 const STICKY_ACTION_HEAD =
   "manpower-inquiry-action-head sticky right-0 top-0 border-l border-red-100 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
 
@@ -578,33 +578,35 @@ const ManpowerManagement = () => {
   };
 
   return (
-    <div className="w-full h-screen overflow-y-auto p-2 sm:p-3 md:p-4 lg:p-6">
-      <div className="mt-4 bg-white shadow p-3 sm:p-4 md:p-6 rounded-lg mb-4 md:mb-6 max-w-[1600px] mx-auto">
-        <div className="flex flex-col gap-4 mb-4 md:mb-6">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Manpower Management</h1>
-              <p className="text-sm sm:text-base text-gray-600 mt-1">
+    <div className="min-h-screen bg-slate-50">
+      <div className="mx-auto w-full max-w-[1680px] px-3 py-4 sm:px-4 md:px-6 lg:py-6">
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Enquiry Master List</h1>
+              <p className="mt-1 text-sm text-slate-600 sm:text-base">
                 {isDashboardView
                   ? "Dashboard analytics, charts, and filtered summaries for manpower enquiries."
-                  : "Manpower Management inquiry tracker — columns aligned with Excel"}
+                  : "Track commercial manpower, fire tender, and training enquiries in one place."}
               </p>
               {listError && !isDashboardView && (
-                <p className="mt-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 Could not load enquiries: {listError}. Run migrations{" "}
                 <code className="text-xs">20260414120000_manpower_enquiries_and_storage.sql</code> and{" "}
                 <code className="text-xs">20260619120000_manpower_enquiries_inquiry_columns.sql</code> in Supabase SQL Editor.
                 </p>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
               <button
                 type="button"
                 onClick={openNew}
                 className="inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
               >
                 <Plus className="w-4 h-4" />
-                <span>New Enquiry</span>
+                <span>Add Enquiry</span>
               </button>
               {!isDashboardView && (
                 <>
@@ -646,14 +648,14 @@ const ManpowerManagement = () => {
             </div>
           </div>
 
-          <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+          <div className="flex gap-1 overflow-x-auto border-t border-slate-100 pt-1">
             <button
               type="button"
               onClick={() => switchTab("dashboard")}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              className={`whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
                 isDashboardView
                   ? "border-purple-600 text-purple-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
               }`}
             >
               Dashboard
@@ -661,22 +663,25 @@ const ManpowerManagement = () => {
             <button
               type="button"
               onClick={() => switchTab("list")}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+              className={`whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
                 !isDashboardView
                   ? "border-purple-600 text-purple-700"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
               }`}
             >
-              Enquiry List
+              Enquiry Master List
             </button>
           </div>
         </div>
+        </div>
 
           {isDashboardView ? (
+            <div className="p-4 sm:p-6">
             <ManpowerEnquiryDashboard embedded />
+            </div>
           ) : (
-          <>
-          <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 sm:p-4 space-y-3">
+          <div className="space-y-4 p-4 sm:p-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-4">
             <div className="flex flex-col lg:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -789,9 +794,9 @@ const ManpowerManagement = () => {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
-              <span>
-                {sorted.length} of {enquiries.length} inquiries
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+              <span className="font-medium">
+                {sorted.length} of {enquiries.length} enquiries
                 {sortConfig.key ? ` · Sorted by ${INQUIRY_TABLE_COLUMNS.find((c) => c.id === sortConfig.key)?.label || sortConfig.key} (${sortConfig.dir})` : ""}
               </span>
             </div>
@@ -809,30 +814,30 @@ const ManpowerManagement = () => {
             ) : null}
           </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">
-              <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600" />
-              <p className="mt-2 text-sm">Loading…</p>
+            <div className="p-10 text-center text-slate-500">
+              <div className="inline-block h-6 w-6 animate-spin rounded-full border-b-2 border-purple-600" />
+              <p className="mt-2 text-sm">Loading enquiries…</p>
             </div>
           ) : sorted.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <FileText className="w-10 h-10 mx-auto text-gray-400 mb-2" />
-              <p className="text-base font-medium text-gray-700">{enquiries.length === 0 ? "No enquiries yet" : "No matches"}</p>
-              <p className="text-xs mt-1 text-gray-500">
-                {enquiries.length === 0 ? "Use New Enquiry to add a row." : "Try another search or filter."}
+            <div className="p-10 text-center text-slate-500">
+              <FileText className="mx-auto mb-2 h-10 w-10 text-slate-400" />
+              <p className="text-base font-medium text-slate-700">{enquiries.length === 0 ? "No enquiries yet" : "No matches"}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {enquiries.length === 0 ? "Use Add Enquiry to create the first record." : "Try another search or filter."}
               </p>
             </div>
           ) : (
             <div
               className="manpower-inquiry-table-scroll overflow-auto max-h-[min(68vh,720px)]"
-              style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(220, 38, 38, 0.45) #f3f4f6" }}
+              style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(124, 58, 237, 0.35) #f8fafc" }}
             >
               <style>{`
                 .manpower-inquiry-table-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
-                .manpower-inquiry-table-scroll::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 4px; }
-                .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.45); border-radius: 4px; }
-                .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(220, 38, 38, 0.65); }
+                .manpower-inquiry-table-scroll::-webkit-scrollbar-track { background: #f8fafc; border-radius: 4px; }
+                .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb { background: rgba(124, 58, 237, 0.35); border-radius: 4px; }
+                .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(124, 58, 237, 0.55); }
                 .manpower-inquiry-table { border-collapse: separate; border-spacing: 0; }
                 .manpower-inquiry-table tbody td {
                   overflow: hidden;
@@ -846,16 +851,15 @@ const ManpowerManagement = () => {
                   overflow: visible;
                   vertical-align: middle;
                   box-sizing: border-box;
-                  /* Fully opaque — no clip/transparency so rows never show through */
-                  background-color: #fffbeb !important;
-                  background-image: linear-gradient(90deg, #fef2f2 0%, #fffbeb 100%) !important;
-                  box-shadow: 0 1px 0 0 #fecaca;
+                  background-color: #faf5ff !important;
+                  background-image: linear-gradient(90deg, #f5f3ff 0%, #faf5ff 100%) !important;
+                  box-shadow: 0 1px 0 0 #e9d5ff;
                 }
                 .manpower-inquiry-table thead th.manpower-inquiry-action-head {
                   z-index: 20;
-                  background-color: #fffbeb !important;
-                  background-image: linear-gradient(90deg, #fef2f2 0%, #fffbeb 100%) !important;
-                  box-shadow: -5px 0 8px -4px rgba(15, 23, 42, 0.1), 0 1px 0 0 #fecaca;
+                  background-color: #faf5ff !important;
+                  background-image: linear-gradient(90deg, #f5f3ff 0%, #faf5ff 100%) !important;
+                  box-shadow: -5px 0 8px -4px rgba(15, 23, 42, 0.1), 0 1px 0 0 #e9d5ff;
                 }
                 .manpower-inquiry-table tbody td {
                   position: relative;
@@ -872,7 +876,7 @@ const ManpowerManagement = () => {
                     ))}
                     <col style={{ width: ACTION_COL_WIDTH }} />
                   </colgroup>
-                  <thead className="border-b border-red-100">
+                  <thead className="border-b border-purple-100">
                     <tr>
                       {INQUIRY_TABLE_COLUMNS.map((col) => {
                         const isSorted = sortConfig.key === col.id;
@@ -880,7 +884,7 @@ const ManpowerManagement = () => {
                         return (
                           <th
                             key={col.id}
-                            className={`max-w-0 px-2 py-2.5 text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle ${
+                            className={`max-w-0 px-3 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-700 align-middle ${
                               col.align === "center" ? "text-center" : col.align === "right" ? "text-right" : "text-left"
                             }`}
                           >
@@ -898,17 +902,17 @@ const ManpowerManagement = () => {
                           </th>
                         );
                       })}
-                      <th className={`px-2 py-2.5 text-center text-[11px] font-bold text-gray-700 uppercase tracking-wider align-middle ${STICKY_ACTION_HEAD}`}>
+                      <th className={`px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-700 align-middle ${STICKY_ACTION_HEAD}`}>
                         Action
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-100">
+                  <tbody className="divide-y divide-slate-100 bg-white">
                     {paginated.map((e) => {
                       const rejectionRemark = getRejectionRemark(e);
                       const fields = getExcelInquiryFields(e);
                       return (
-                        <tr key={e.id} className="group hover:bg-red-50/35 transition-colors">
+                        <tr key={e.id} className="group transition-colors hover:bg-purple-50/40">
                           {INQUIRY_TABLE_COLUMNS.map((col) => {
                             const raw = fields[col.id];
                             const display = formatInquiryCellValue(raw, col.valueType, formatDateDdMmYyyy);
@@ -931,7 +935,7 @@ const ManpowerManagement = () => {
                             return (
                               <td
                                 key={col.id}
-                                className={`max-w-0 px-2 py-2.5 align-middle text-xs text-gray-600 ${alignClass} ${typeClass}`}
+                                className={`max-w-0 px-3 py-3 align-middle text-xs text-slate-700 ${alignClass} ${typeClass}`}
                               >
                                 {isMultiline ? (
                                   <span
@@ -948,7 +952,7 @@ const ManpowerManagement = () => {
                               </td>
                             );
                           })}
-                          <td className={`px-2 py-2.5 align-middle ${STICKY_ACTION_CELL}`}>
+                          <td className={`px-3 py-3 align-middle ${STICKY_ACTION_CELL}`}>
                             <div className="flex justify-center items-center gap-1.5">
                               {canApproveEnquiries ? (
                                 <>
@@ -1008,7 +1012,7 @@ const ManpowerManagement = () => {
         </div>
 
         {!loading && sorted.length > 0 && (
-          <div className="mt-3 flex flex-col sm:flex-row items-center justify-between gap-3 px-2 py-3 border-t border-gray-100 bg-gray-50/50 rounded-b-lg">
+          <div className="flex flex-col items-center justify-between gap-3 rounded-b-xl border-t border-slate-200 bg-slate-50/80 px-4 py-3 sm:flex-row">
             <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
               <span>
                 Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sorted.length)} of {sorted.length}
@@ -1067,8 +1071,9 @@ const ManpowerManagement = () => {
             </div>
           </div>
         )}
-          </>
+          </div>
           )}
+      </div>
       </div>
 
       {importPreview ? (
@@ -1175,8 +1180,7 @@ const ManpowerManagement = () => {
             <div className="h-1.5 bg-gradient-to-r from-red-600 via-rose-600 to-orange-500 shrink-0" />
             <div className="flex shrink-0 items-start justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
               <div className="min-w-0">
-                <h2 className="text-lg font-semibold sm:text-xl text-slate-900 truncate">{editingId ? "Edit Manpower Inquiry" : "Add Manpower Inquiry"}</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Select Online Tender in Source Type to show tender fields below the header section.</p>
+                <h2 className="truncate text-lg font-semibold text-slate-900 sm:text-xl">{editingId ? "Edit Enquiry" : "Add Enquiry"}</h2>
               </div>
               <button
                 type="button"

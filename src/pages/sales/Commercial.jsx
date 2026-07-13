@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { Settings2 } from 'lucide-react';
 import { BillingProvider, useBilling } from '../../contexts/BillingContext';
 import { supabase } from '../../lib/supabase';
 import { COMMERCIAL_MODULE_MANPOWER_TRAINING } from '../../constants/commercialModuleType';
+import {
+  DEFAULT_BID_DEADLINE_REMINDER_DAYS,
+  formatReminderDaysLabel,
+  getCommercialTimelineSettings,
+  saveCommercialTimelineSettings,
+} from '../manpowerProject/utils/commercialTimelineSettings';
 import POEntry from './POEntry';
 import ContactLog from './ContactLog';
 
@@ -22,6 +29,9 @@ const CommercialDashboard = () => {
     pending: 0,
   });
   const [manpowerError, setManpowerError] = useState('');
+  const [timelineSettings, setTimelineSettings] = useState(() => getCommercialTimelineSettings());
+  const [timelineDraft, setTimelineDraft] = useState(() => getCommercialTimelineSettings().reminderDays.join(', '));
+  const [timelineMessage, setTimelineMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +94,30 @@ const CommercialDashboard = () => {
     { label: 'Manpower Pending', value: manpowerStats.pending, tone: 'bg-amber-50 text-amber-700 border-amber-100' },
   ];
 
+  const handleSaveTimelineSettings = () => {
+    const parsedDays = timelineDraft
+      .split(/[,\s]+/)
+      .map((part) => Number(part.trim()))
+      .filter((day) => Number.isFinite(day) && day > 0);
+
+    if (!parsedDays.length) {
+      setTimelineMessage('Enter at least one reminder day (for example: 7, 1).');
+      return;
+    }
+
+    const saved = saveCommercialTimelineSettings({ reminderDays: parsedDays });
+    setTimelineSettings(saved);
+    setTimelineDraft(saved.reminderDays.join(', '));
+    setTimelineMessage(`Timeline reminders saved: ${formatReminderDaysLabel(saved.reminderDays)}.`);
+  };
+
+  const handleResetTimelineSettings = () => {
+    const saved = saveCommercialTimelineSettings({ reminderDays: DEFAULT_BID_DEADLINE_REMINDER_DAYS });
+    setTimelineSettings(saved);
+    setTimelineDraft(saved.reminderDays.join(', '));
+    setTimelineMessage(`Reset to default reminders: ${formatReminderDaysLabel(saved.reminderDays)}.`);
+  };
+
   return (
     <div className="p-4 sm:p-6">
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 sm:p-6">
@@ -105,6 +139,57 @@ const CommercialDashboard = () => {
             <p className="mt-2 text-3xl font-bold">{card.value}</p>
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 bg-white border border-gray-200 rounded-xl shadow-sm p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <div className="inline-flex items-center gap-2 text-gray-900">
+              <Settings2 className="h-5 w-5 text-purple-600" />
+              <h3 className="text-lg font-semibold">Timeline Setting</h3>
+            </div>
+            <p className="text-sm text-gray-600 mt-1">
+              Configure bid-deadline reminder days for manpower enquiries. Current alerts: {formatReminderDaysLabel(timelineSettings.reminderDays)}.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
+          <label className="text-sm text-gray-700">
+            <span className="block mb-1.5 font-medium">Reminder days before deadline</span>
+            <input
+              type="text"
+              value={timelineDraft}
+              onChange={(e) => {
+                setTimelineDraft(e.target.value);
+                setTimelineMessage('');
+              }}
+              placeholder="7, 1"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200"
+            />
+            <span className="mt-1.5 block text-xs text-gray-500">Enter comma-separated days (example: 7, 3, 1).</span>
+          </label>
+          <button
+            type="button"
+            onClick={handleSaveTimelineSettings}
+            className="h-10 rounded-lg bg-purple-600 px-4 text-sm font-medium text-white hover:bg-purple-700"
+          >
+            Save Timeline
+          </button>
+          <button
+            type="button"
+            onClick={handleResetTimelineSettings}
+            className="h-10 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Reset Default
+          </button>
+        </div>
+
+        {timelineMessage ? (
+          <p className="mt-3 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">
+            {timelineMessage}
+          </p>
+        ) : null}
       </div>
     </div>
   );
