@@ -1130,6 +1130,15 @@ const Layout = () => {
             </NavLink>
             )}
 
+            {(userProfile?.role === ROLES.SUPER_ADMIN ||
+              userProfile?.role === ROLES.SUPER_ADMIN_PRO ||
+              can("itIs")) && (
+            <NavLink to="api-health" className={topNavClass}>
+              <Activity className="w-4 h-4 shrink-0" />
+              <span className="text-sm font-medium">API Health</span>
+            </NavLink>
+            )}
+
             {can("settings") && (
             <NavLink to="settings" className={topNavClass}>
               <Settings className="w-4 h-4 shrink-0" />
