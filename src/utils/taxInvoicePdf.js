@@ -27,6 +27,7 @@ import {
   summarizePreGstLegacyTotals,
 } from './billingPoInvoiceFields.js';
 import { invoicePincodeDisplayLine, resolveInvoicePartyPincodes } from './poPincodeFields.js';
+import { resolveBillToStateDisplay } from './gstStatePin.js';
 
 let companyLogoDataUrlPromise = null;
 
@@ -452,6 +453,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const showMaterialCode = poRequiresMaterialCode(viewInv) || poRequiresMaterialCode(options.po);
   const showHsnSacColumn = !showMaterialCode;
   const placeOfSupply = viewInv.placeOfSupply || viewInv.place_of_supply || 'Gujarat';
+  const billToState = resolveBillToStateDisplay(viewInv, options.po);
   const irn = viewInv.e_invoice_irn || viewInv.eInvoiceIrn;
   const ackNo = viewInv.e_invoice_ack_no || viewInv.eInvoiceAckNo;
   const ackDt = viewInv.e_invoice_ack_dt || viewInv.eInvoiceAckDt;
@@ -767,10 +769,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   const partyColTextW = colW - 5;
   const buyerAddressLines = doc.splitTextToSize(buyerAddress, partyColTextW);
   const shipAddressLines = doc.splitTextToSize(shipAddress, partyColTextW);
-  const shipStatePosLines = doc.splitTextToSize(
-    `State Name: ${SELLER.state}, Code: ${SELLER.stateCode}, Place of Supply: ${placeOfSupply}`,
-    partyColTextW
-  );
+  const shipPlaceOfSupplyLines = doc.splitTextToSize(`Place of Supply: ${placeOfSupply}`, partyColTextW);
   const billHeight =
     LH(FONT.body) + // name
     buyerAddressLines.length * LH(FONT.body) +
@@ -782,7 +781,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
     shipAddressLines.length * LH(FONT.body) +
     LH(FONT.body) + // pincode
     LH(FONT.body) + // gstin
-    shipStatePosLines.length * LH(FONT.body); // state + place of supply (one block)
+    shipPlaceOfSupplyLines.length * LH(FONT.body); // place of supply
   const partyContentHeight = Math.max(billHeight, shipHeight);
   const partyBottom = partyInnerTop + partyContentHeight + 2.2;
   const partyBoxH = Math.max(27, partyBottom - partyTop);
@@ -816,7 +815,7 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   yBill += LH(FONT.body);
   doc.text('GSTIN: ' + buyerGstin, partyColXLeft, yBill);
   yBill += LH(FONT.body);
-  doc.text(`State Name: ${SELLER.state}, Code: ${SELLER.stateCode}`, partyColXLeft, yBill);
+  doc.text(`State Name: ${billToState.stateName}, Code: ${billToState.stateCode}`, partyColXLeft, yBill);
   yBill += LH(FONT.body);
 
   doc.setFont(undefined, 'bold');
@@ -829,8 +828,8 @@ function buildTaxInvoiceDoc(inv, options = {}) {
   yShip += LH(FONT.body);
   doc.text('GSTIN: ' + buyerGstin, partyColXRight, yShip);
   yShip += LH(FONT.body);
-  doc.text(shipStatePosLines, partyColXRight, yShip);
-  yShip += shipStatePosLines.length * LH(FONT.body);
+  doc.text(shipPlaceOfSupplyLines, partyColXRight, yShip);
+  yShip += shipPlaceOfSupplyLines.length * LH(FONT.body);
 
   y = partyTop + partyBoxH + BOX_GAP;
   ensureSpace(18);

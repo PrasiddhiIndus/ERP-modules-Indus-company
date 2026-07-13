@@ -199,6 +199,83 @@ function estTotalsForPeriodKeys(site, periodKeys) {
   return { revenue, expense, profit, margin: revenue > 0 ? (profit / revenue) * 100 : 0 };
 }
 
+function resolveSitePeriodKeys(periodFrom, periodTo, month) {
+  const from = periodFrom || month;
+  const to = periodTo || month;
+  if (!from || !to) return month ? [month] : [];
+  if (from === to) return [to];
+  return periodKeysBetween(from, to);
+}
+
+function revBreakForPeriod(site, periodKeys, records) {
+  const lastMk = periodKeys[periodKeys.length - 1];
+  const lastRec = lastMk ? (records[`${site.id}__${lastMk}`] || {}) : {};
+  return REVENUE_ITEMS.map((it) => {
+    let raw = 0;
+    let est = 0;
+    periodKeys.forEach((mk) => {
+      const rec = records[`${site.id}__${mk}`] || {};
+      const estVer = estimateFor(site, mk);
+      if (it.key === "esicBill") raw += reimbursementTotal(rec);
+      else raw += parseEntryAmount(rec[it.key]);
+      est += Number(estVer?.revenue?.[it.key]) || 0;
+    });
+    if (it.key === "esicBill") {
+      const lines = reimbursementDisplayLines(lastRec);
+      return {
+        ...it,
+        label: periodKeys.length === 1 && lines.length === 1
+          ? `Reimbursement · ${lines[0].label}`
+          : reimbursementRowLabel(lastRec),
+        raw,
+        est,
+      };
+    }
+    return { ...it, label: it.label, raw, est };
+  });
+}
+
+function expenseTreeForPeriod(site, periodKeys, records) {
+  const childAgg = new Map();
+  displayStructure(site).forEach((g) => {
+    g.children.forEach((ck) => {
+      if (!childAgg.has(ck)) {
+        childAgg.set(ck, { key: ck, label: childLabel(site, ck), actual: 0, amort: 0, est: 0 });
+      }
+    });
+  });
+  periodKeys.forEach((mk) => {
+    const ex = recognizedExpenses(site, mk, records);
+    const estByHead = estimateFor(site, mk)?.expenses || {};
+    childAgg.forEach((ch, ck) => {
+      ch.actual += ex.total[ck] || 0;
+      ch.amort += ex.amort[ck] || 0;
+      ch.est += Number(estByHead[ck]) || 0;
+    });
+  });
+  return displayStructure(site).map((g) => {
+    const children = g.children.map((ck) => childAgg.get(ck) || {
+      key: ck,
+      label: childLabel(site, ck),
+      actual: 0,
+      amort: 0,
+      est: 0,
+    });
+    const actual = children.reduce((a, c) => a + c.actual, 0);
+    const est = children.reduce((a, c) => a + c.est, 0);
+    const amort = children.reduce((a, c) => a + c.amort, 0);
+    return {
+      parent: g.parent,
+      label: parentLabel(g.parent),
+      color: parentColor(g.parent),
+      children,
+      actual,
+      est,
+      amort,
+    };
+  });
+}
+
 function formatPeriodRangeLabel(from, to) {
   if (!from || !to || from === to) return monthLabelOf(from || to);
   return `${formatPeriodDateDDMMYYYY(from)} – ${formatPeriodDateDDMMYYYY(to)}`;
@@ -623,6 +700,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   const [actionNotice, setActionNotice] = useState("");
   const [showHistorical, setShowHistorical] = useState(urlInit.showHistorical);
   const [historyGroup, setHistoryGroup] = useState(null);
+  const [siteBackView, setSiteBackView] = useState("overview");
   const saveTimer = useRef(null);
   const saveImmediate = useRef(false);
   const skipNextAutosave = useRef(false);
@@ -923,17 +1001,28 @@ export default function SiteLedgerApp({ embedded = true }) {
     return list.length ? list : MONTHS.filter((m) => monthIdx(m.key) <= capIdx).slice(-6);
   }, [records, sites, needsPortfolio]);
 
+  const sitePeriodKeys = useMemo(
+    () => resolveSitePeriodKeys(periodFrom, periodTo, month),
+    [periodFrom, periodTo, month],
+  );
+
   const rows = useMemo(() => {
     if (!needsPortfolio) return [];
+    const keys = sitePeriodKeys.length ? sitePeriodKeys : [month];
     return sitesL.map((s) => {
-    const c = calcSite(s, month, records);
-    const est = estTotals(estimateFor(s, month));
+    const c = keys.length > 1
+      ? calcSiteOverPeriodKeys(s, keys, records)
+      : calcSite(s, month, records);
+    const est = keys.length > 1
+      ? estTotalsForPeriodKeys(s, keys)
+      : estTotals(estimateFor(s, month));
     const profitVar = est ? c.profit - est.profit : null;
     const pending = isPending(s, records, month);
     const pendingCount = pendingMonths(s, records, month).length;
-    return { ...s, ...c, est, profitVar, pending, pendingCount, hasData: !!records[`${s.id}__${month}`] };
+    const hasData = keys.some((mk) => !!records[`${s.id}__${mk}`]);
+    return { ...s, ...c, est, profitVar, pending, pendingCount, hasData };
   });
-  }, [sitesL, records, month, needsPortfolio]);
+  }, [sitesL, records, month, sitePeriodKeys, needsPortfolio]);
 
   const overviewPeriodKeys = useMemo(
     () => periodKeysBetween(periodFrom, periodTo),
@@ -1177,6 +1266,10 @@ export default function SiteLedgerApp({ embedded = true }) {
   }, [applySiteSetupChange]);
 
   const mLabel = monthLabelOf(month);
+  const siteDetailLabel = useMemo(
+    () => formatPeriodRangeLabel(periodFrom, periodTo),
+    [periodFrom, periodTo],
+  );
   const titles = { overview: "Portfolio Overview", sites: "All Sites", config: "Site Setup", entry: "Enter / Edit Figures", reports: "Reports", site: sitesAllL.find((s) => s.id === activeSite)?.name || "Site" };
   const pageTitle = titles[view] || "Portfolio Overview";
   const ledgerNavItems = useMemo(() => [
@@ -1300,7 +1393,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               totalSiteCount={sitesEnriched.length}
               showHistorical={showHistorical}
               setShowHistorical={setShowHistorical}
-              openSite={(id) => { setActiveSite(id); setView("site"); }}
+              openSite={(id) => { setActiveSite(id); setSiteBackView("overview"); setView("site"); }}
               goEntry={(id) => {
                 const nextId = id || (activeSite && sitesL.some((s) => s.id === activeSite) ? activeSite : sitesL[0]?.id);
                 if (nextId) setActiveSite(nextId);
@@ -1322,7 +1415,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               showHistorical={showHistorical}
               setShowHistorical={setShowHistorical}
               inactiveCount={sitesEnriched.length - activeSiteCount}
-              openSite={(id) => { setActiveSite(id); setView("site"); }}
+              openSite={(id) => { setActiveSite(id); setSiteBackView("sites"); setView("site"); }}
               onEdit={(id) => { setActiveSite(id); setView("entry"); }}
               onEditSite={(id) => setEditSite(sitesEnriched.find((s) => s.id === id) || null)}
               onDeactivate={deactivateSite}
@@ -1331,16 +1424,20 @@ export default function SiteLedgerApp({ embedded = true }) {
               onDelete={removeSite}
               onViewHistory={(group) => setHistoryGroup(group)}
               onAdd={() => setShowAdd(true)}
-              mLabel={mLabel}
+              mLabel={siteDetailLabel}
             />
           )}
           {view === "site" && activeSite && (
             <SiteDetail
               site={sitesAllL.find((s) => s.id === activeSite)}
               records={records}
-              month={month}
-              mLabel={mLabel}
-              back={() => setView("overview")}
+              periodKeys={sitePeriodKeys.length ? sitePeriodKeys : [month]}
+              periodFrom={periodFrom}
+              periodTo={periodTo}
+              setPeriodFrom={setOverviewPeriodFrom}
+              setPeriodTo={setOverviewPeriodTo}
+              mLabel={siteDetailLabel}
+              back={() => setView(siteBackView)}
               onEdit={() => setView("entry")}
               onConfig={() => setView("config")}
               onViewHistory={(group) => setHistoryGroup(group)}
@@ -2241,36 +2338,73 @@ function SitesTable({
 }
 
 /* ───────────────────────── SITE DETAIL (expandable parents) ───────────────────────── */
-function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onViewHistory, onDeactivate, onActivate, onDelete }) {
+function SiteDetail({
+  site,
+  records,
+  periodKeys,
+  periodFrom,
+  periodTo,
+  setPeriodFrom,
+  setPeriodTo,
+  mLabel,
+  back,
+  onEdit,
+  onConfig,
+  onViewHistory,
+  onDeactivate,
+  onActivate,
+  onDelete,
+}) {
   const [expanded, setExpanded] = useState(() => new Set());
   if (!site) return null;
+  const keys = periodKeys?.length ? periodKeys : [];
+  const refMonth = keys[keys.length - 1] || periodTo || periodFrom;
   const historical = !isSiteActive(site);
-  const rec = records[`${site.id}__${month}`];
-  const c = calcSite(site, month, records);
-  const estVer = estimateFor(site, month);
-  const est = estTotals(estVer);
-  const revBreak = REVENUE_ITEMS.map((it) => {
-    if (it.key === "esicBill") {
-      const lines = reimbursementDisplayLines(rec || {});
+  const hasPeriodData = keys.some((mk) => !!records[`${site.id}__${mk}`]);
+  const c = keys.length > 1
+    ? calcSiteOverPeriodKeys(site, keys, records)
+    : calcSite(site, refMonth, records);
+  const est = keys.length > 1
+    ? estTotalsForPeriodKeys(site, keys)
+    : estTotals(estimateFor(site, refMonth));
+  const estVer = estimateFor(site, refMonth);
+  const revBreak = keys.length > 1
+    ? revBreakForPeriod(site, keys, records)
+    : REVENUE_ITEMS.map((it) => {
+      const rec = records[`${site.id}__${refMonth}`] || {};
+      if (it.key === "esicBill") {
+        const lines = reimbursementDisplayLines(rec);
+        return {
+          ...it,
+          label: lines.length === 1 ? `Reimbursement · ${lines[0].label}` : reimbursementRowLabel(rec),
+          raw: reimbursementTotal(rec),
+          est: Number(estVer?.revenue?.[it.key]) || 0,
+        };
+      }
       return {
         ...it,
-        label: lines.length === 1 ? `Reimbursement · ${lines[0].label}` : reimbursementRowLabel(rec || {}),
-        raw: reimbursementTotal(rec || {}),
+        label: it.label,
+        raw: Number(rec[it.key]) || 0,
         est: Number(estVer?.revenue?.[it.key]) || 0,
       };
-    }
-    return {
-      ...it,
-      label: it.label,
-      raw: Number(rec?.[it.key]) || 0,
-      est: Number(estVer?.revenue?.[it.key]) || 0,
-    };
+    });
+  const tree = (keys.length > 1
+    ? expenseTreeForPeriod(site, keys, records)
+    : expenseTree(site, refMonth, records, estVer)
+  ).filter((g) => g.actual !== 0 || g.est !== 0);
+  const cats = PARENTS.reduce((acc, p) => ({ ...acc, [p.key]: 0 }), {});
+  keys.forEach((mk) => {
+    const pt = parentTotalsSite(site, mk, records);
+    PARENTS.forEach((p) => { cats[p.key] += pt[p.key] || 0; });
   });
-  const tree = expenseTree(site, month, records, estVer).filter((g) => g.actual !== 0 || g.est !== 0);
-  const cats = parentTotalsSite(site, month, records);
   const catData = PARENTS.map((p) => ({ name: parentLabel(p.key), value: cats[p.key] || 0, color: p.color })).filter((d) => d.value > 0);
   const siteTrend = MONTHS.filter((m) => { const cc = calcSite(site, m.key, records); return cc.revenue || cc.expense; }).map((m) => { const cc = calcSite(site, m.key, records); const e = estTotals(estimateFor(site, m.key)); return { name: m.label, profit: cc.profit, estProfit: e ? e.profit : null }; });
   const profitVar = est ? c.profit - est.profit : null;
+  const hasFigureContent = hasPeriodData
+    || tree.length > 0
+    || revBreak.some((it) => it.raw || it.est)
+    || !!(est && (est.revenue || est.expense));
+  const rangeMonthCount = keys.length;
   const toggle = (k) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const allExpanded = tree.length > 0 && tree.every((g) => expanded.has(g.parent));
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(tree.map((g) => g.parent)));
@@ -2300,8 +2434,33 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
             {site.contractStart && (
               <span>Contract: <b>{monthLabelOf(site.contractStart)} – {monthLabelOf(site.contractEnd)}</b></span>
             )}
-            <span>Period: <b>{mLabel}</b></span>
+            <span>
+              Period: <b>{mLabel}</b>
+              {rangeMonthCount > 1 ? ` · ${rangeMonthCount} months aggregated` : ""}
+            </span>
           </div>
+          {setPeriodFrom && setPeriodTo && (
+            <div className="site-head-period ov-filters ov-filters-modern">
+              <label className="ov-filter range">
+                <span>From month / year</span>
+                <PeriodMonthSelect
+                  className="ov-period-pick"
+                  selectClassName="ov-period-sel"
+                  value={periodFrom}
+                  onChange={setPeriodFrom}
+                />
+              </label>
+              <label className="ov-filter range">
+                <span>To month / year</span>
+                <PeriodMonthSelect
+                  className="ov-period-pick"
+                  selectClassName="ov-period-sel"
+                  value={periodTo}
+                  onChange={setPeriodTo}
+                />
+              </label>
+            </div>
+          )}
         </div>
         <div className="site-head-right">
           <StatusPill margin={c.margin} profit={c.profit} />
@@ -2335,7 +2494,7 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
         <Kpi icon={Target} label="Profit vs Estimate" value={profitVar == null ? "—" : `${profitVar >= 0 ? "+" : ""}${inrShort(profitVar)}`} tone={profitVar == null ? "ink" : profitVar >= 0 ? "profit" : "loss"} sub={profitVar == null ? "no estimate" : profitVar >= 0 ? "favourable" : "adverse"} trend={profitVar == null ? undefined : profitVar >= 0 ? "up" : "down"} />
         <Kpi icon={Percent} label="Margin" value={pct(c.margin)} tone={c.margin >= TARGET_MARGIN ? "profit" : c.margin >= WARN_MARGIN ? "warn" : "loss"} sub={est ? `est ${pct(est.margin)}` : `target ${TARGET_MARGIN}%`} />
       </div>
-      {!rec && tree.length === 0 ? <div className="empty"><Receipt size={30} /><h3>No figures for {mLabel}</h3><p>Click <b>Edit figures</b> to add this period.</p></div> : (
+      {!hasFigureContent ? <div className="empty"><Receipt size={30} /><h3>No figures for {mLabel}</h3><p>Click <b>Edit figures</b> to add this period, or adjust the period range above.</p></div> : (
         <>
           <Card
             title="Income – Expenditure · Actual vs Estimate"
@@ -2433,8 +2592,8 @@ function SiteDetail({ site, records, month, mLabel, back, onEdit, onConfig, onVi
             <div className="stack">
               {site.spreads && site.spreads.length > 0 && (
                 <Card title="Active Spread Costs">
-                  <div className="spread-list">{site.spreads.map((sp) => { const si = monthIdx(sp.start); const active = monthIdx(month) >= si && monthIdx(month) < si + Number(sp.months); return (
-                    <div className={"spread-item" + (active ? " on" : "")} key={sp.id}><CalendarClock size={15} /><div><div className="spread-name">{childLabel(site, sp.head)}</div><div className="spread-meta">{inr(sp.total)} ÷ {sp.months}m from {monthLabelOf(sp.start)} · {inr(sp.total / sp.months)}/mo</div></div><span className="spread-state">{active ? "active" : monthIdx(month) < si ? "upcoming" : "ended"}</span></div>
+                  <div className="spread-list">{site.spreads.map((sp) => { const si = monthIdx(sp.start); const active = monthIdx(refMonth) >= si && monthIdx(refMonth) < si + Number(sp.months); return (
+                    <div className={"spread-item" + (active ? " on" : "")} key={sp.id}><CalendarClock size={15} /><div><div className="spread-name">{childLabel(site, sp.head)}</div><div className="spread-meta">{inr(sp.total)} ÷ {sp.months}m from {monthLabelOf(sp.start)} · {inr(sp.total / sp.months)}/mo</div></div><span className="spread-state">{active ? "active" : monthIdx(refMonth) < si ? "upcoming" : "ended"}</span></div>
                   ); })}</div>
                 </Card>
               )}
