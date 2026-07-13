@@ -1061,18 +1061,63 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
   return marks;
 }
 
+function buildApprovedLeaveDaySet(approvedLeaveMarks) {
+  const byCode = new Map();
+  for (const [empCode, days] of Object.entries(approvedLeaveMarks || {})) {
+    const code = normalizeAttendanceEmpCode(empCode);
+    if (!code) continue;
+    const daySet = new Set();
+    for (const dayKey of Object.keys(days || {})) {
+      const day = Number(dayKey);
+      if (Number.isFinite(day)) daySet.add(day);
+    }
+    byCode.set(code, daySet);
+  }
+  return byCode;
+}
+
+function buildLeaveSourcedDaySet(registerRows, masterCodeMap = null) {
+  const byCode = new Map();
+  for (const row of registerRows || []) {
+    if (!isLeaveMarkSource(row?.mark_source, row?.leave_request_id)) continue;
+    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
+    const day = dayOfMonthFromIsoDate(row.register_date);
+    if (!code || !day) continue;
+    if (!byCode.has(code)) byCode.set(code, new Set());
+    byCode.get(code).add(day);
+  }
+  return byCode;
+}
+
 /**
  * Merge approved leave into register marks. Machine punch (P) always wins over leave.
+ * Strips leave-sourced cells that no longer have a fully approved leave (DB is source of truth).
  */
 export function mergeApprovedLeaveMarksIntoManualMarks(
   manualMarks,
   approvedLeaveMarks,
-  { punches = [], monthKey } = {}
+  { punches = [], monthKey, registerRows = null, masterCodeMap = null } = {}
 ) {
   const presentKeys = buildPresentKeysFromPunches(punches);
+  const approvedByCode = buildApprovedLeaveDaySet(approvedLeaveMarks);
+  const leaveSourcedByCode = buildLeaveSourcedDaySet(registerRows, masterCodeMap);
+
   const next = {};
   for (const [code, days] of Object.entries(manualMarks || {})) {
-    next[code] = { ...(days || {}) };
+    const approvedDays = approvedByCode.get(code);
+    const leaveSourcedDays = leaveSourcedByCode.get(code);
+    const kept = {};
+    for (const [dayKey, mark] of Object.entries(days || {})) {
+      const day = Number(dayKey);
+      if (!Number.isFinite(day)) continue;
+      const leaveSourced = leaveSourcedDays?.has(day);
+      const unapprovedLeave =
+        leaveSourced ||
+        (!registerRows?.length && isRegisterLeaveMark(mark) && !approvedDays?.has(day));
+      if (unapprovedLeave && !approvedDays?.has(day)) continue;
+      kept[day] = mark;
+    }
+    if (Object.keys(kept).length) next[code] = kept;
   }
 
   for (const [empCode, days] of Object.entries(approvedLeaveMarks || {})) {
@@ -1442,7 +1487,12 @@ export async function refreshApprovedToursOnRegister(supabase, monthMeta, option
   const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(
     registerData?.marks || {},
     approvedLeaveMarks,
-    { punches, monthKey: monthMeta.monthKey }
+    {
+      punches,
+      monthKey: monthMeta.monthKey,
+      registerRows,
+      masterCodeMap,
+    }
   );
   const merged = finalizeRegisterMarksAndRemarks({
     marks: afterLeave,
