@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Plus, Trash2, Paperclip, X } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import FormDateInput from "../../../components/FormDateInput";
 import FormDateTimeInput from "../../../components/FormDateTimeInput";
@@ -14,24 +15,25 @@ import {
   TENDER_PORTAL_OPTIONS,
   EMD_FEE_STATUS_OPTIONS,
   PAYMENT_MODE_OPTIONS,
-  PAYMENT_STATUS_OPTIONS,
+  VERTICAL_OPTIONS,
   parseAuthorizationMeta,
   buildInquiryDbPayload,
   inquiryRowToForm,
   getNextSrNo,
   getNextEnquiryNumber,
+  emptyContactRow,
+  formatAssignedToList,
 } from "../utils/manpowerEnquiryExcelFields";
-import {
-  fetchCommercialAssigneeOptions,
-  mergeAssignedToOptions,
-} from "../utils/commercialInquiryAssignees";
-
 const emptyForm = {
   enquiryNumber: "",
   enquiryDate: new Date().toISOString().split("T")[0],
   receivedBy: "",
+  assignedToList: [],
+  vertical: "",
+  submissionRemark: "",
   sourceType: "Direct Mail",
   clientName: "",
+  contacts: [emptyContactRow()],
   contactPersonName: "",
   contactPersonDesignation: "",
   contactPersonPhone: "",
@@ -45,7 +47,8 @@ const emptyForm = {
   enquirySubType: "Regular",
   scopeInputType: "Text",
   scopeOfWork: "",
-  scopeAttachment: null,
+  scopeAttachments: [],
+  scopeAttachmentPaths: [],
   contractDurationValue: "",
   contractDurationUnit: "Months",
   contractTimelineStart: "",
@@ -60,7 +63,6 @@ const emptyForm = {
   tenderNumber: "",
   estimatedValueClient: "",
   ourQuotedRate: "",
-  portalSubmissionDate: "",
   portalProofAttachment: null,
   portalProofPath: "",
   tenderFeeApplicable: "Not Applicable",
@@ -69,11 +71,9 @@ const emptyForm = {
   emdFeeAmount: "",
   paymentMode: "",
   paymentReferenceNo: "",
-  paymentStatus: "",
   paymentDate: "",
   srNo: "",
   receivedDate: new Date().toISOString().split("T")[0],
-  vertical: "",
   modeOfSubmission: "",
   totalManpower: "",
   location: "",
@@ -197,15 +197,75 @@ function FeeEntryPanel({ title, children }) {
   );
 }
 
+function MultiAssigneeField({ label, required, values, draft, onDraftChange, onAdd, onRemove, inputClass }) {
+  const commitDraft = () => {
+    const next = String(draft || "").trim();
+    if (!next) return;
+    onAdd(next);
+    onDraftChange("");
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      commitDraft();
+      return;
+    }
+    if (e.key === "Backspace" && !draft && values.length) {
+      onRemove(values.length - 1);
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1.5">
+        {label}
+        {required && <span className="text-red-500 normal-case tracking-normal ml-0.5">*</span>}
+      </label>
+      <div
+        className={`flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2 py-1.5 focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/30 ${inputClass ? "" : ""}`}
+      >
+        {values.map((name, index) => (
+          <span
+            key={`${name}-${index}`}
+            className="inline-flex max-w-full items-center gap-1 rounded-md bg-purple-100 px-2 py-1 text-sm text-purple-900"
+          >
+            <span className="truncate">{name}</span>
+            <button
+              type="button"
+              onClick={() => onRemove(index)}
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-purple-700 hover:bg-purple-200 hover:text-purple-900"
+              aria-label={`Remove ${name}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={commitDraft}
+          className="min-w-[140px] flex-1 border-0 bg-transparent px-1 py-1 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+          placeholder={values.length ? "Add another name…" : "Type name and press Enter"}
+        />
+      </div>
+      <p className="mt-1.5 text-xs text-slate-500">Press Enter or comma to add each person. Click × to remove.</p>
+    </div>
+  );
+}
+
 const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [formData, setFormData] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
-  const [assignedToOptions, setAssignedToOptions] = useState([]);
+  const [assignedToDraft, setAssignedToDraft] = useState("");
   const [srNoLoading, setSrNoLoading] = useState(false);
   const defaultAssigneeRef = useRef("");
-  const existingDocumentsPathRef = useRef("");
+  const existingScopeAttachmentPathsRef = useRef([]);
   const existingPortalProofPathRef = useRef("");
   const existingEnquiryNumberRef = useRef("");
+  const scopeFileInputRef = useRef(null);
 
   const isOnlineTender = formData.sourceType === "Online Tender";
   const isTenderFeeApplicable = formData.tenderFeeApplicable === "Applicable";
@@ -226,44 +286,48 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       setSrNoLoading(false);
     }
     const today = new Date().toISOString().split("T")[0];
+    const defaultAssignee = defaultAssigneeRef.current || "";
     setFormData({
       ...emptyForm,
       enquiryDate: today,
       receivedDate: today,
-      receivedBy: defaultAssigneeRef.current || "",
-      enquiryAssignedTo: defaultAssigneeRef.current || "",
+      assignedToList: defaultAssignee ? [defaultAssignee] : [],
+      receivedBy: defaultAssignee,
+      enquiryAssignedTo: defaultAssignee,
       srNo: nextSrNo,
     });
-    existingDocumentsPathRef.current = "";
+    setAssignedToDraft("");
+    existingScopeAttachmentPathsRef.current = [];
     existingPortalProofPathRef.current = "";
     existingEnquiryNumberRef.current = "";
   }, []);
 
   useEffect(() => {
-    const loadCommercialEmployees = async () => {
+    const loadDefaultAssignee = async () => {
       try {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        const options = await fetchCommercialAssigneeOptions(supabase);
-
         if (user?.email) {
-          const self = options.find((opt) => opt.value.toLowerCase() === user.email.toLowerCase());
-          if (self) defaultAssigneeRef.current = self.value;
+          defaultAssigneeRef.current = user.email;
+          setFormData((prev) => {
+            const hasAssignees = (prev.assignedToList || []).length > 0;
+            const assignedToList = hasAssignees ? prev.assignedToList : [user.email];
+            const assignedToText = formatAssignedToList(assignedToList);
+            return {
+              ...prev,
+              assignedToList,
+              receivedBy: prev.receivedBy || assignedToText,
+              enquiryAssignedTo: prev.enquiryAssignedTo || assignedToText,
+            };
+          });
         }
-
-        setAssignedToOptions(options);
-        setFormData((prev) => ({
-          ...prev,
-          receivedBy: prev.receivedBy || defaultAssigneeRef.current || "",
-          enquiryAssignedTo: prev.enquiryAssignedTo || defaultAssigneeRef.current || "",
-        }));
       } catch (err) {
-        console.error("Failed to load Commercial department employees:", err);
+        console.error("Failed to load default assignee:", err);
       }
     };
 
-    loadCommercialEmployees();
+    loadDefaultAssignee();
   }, []);
 
   useEffect(() => {
@@ -280,13 +344,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       }
       if (!data) return;
       const nextForm = inquiryRowToForm(data);
-      existingDocumentsPathRef.current = data.documents || "";
+      existingScopeAttachmentPathsRef.current = nextForm.scopeAttachmentPaths || [];
       existingPortalProofPathRef.current = nextForm.portalProofPath || "";
       existingEnquiryNumberRef.current = data.enquiry_number || "";
       setFormData(nextForm);
-      setAssignedToOptions((prev) =>
-        mergeAssignedToOptions(mergeAssignedToOptions(prev, nextForm.receivedBy), nextForm.enquiryAssignedTo)
-      );
+      setAssignedToDraft("");
     };
 
     fetchEnquiry();
@@ -310,13 +372,96 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const syncAssignedToFields = (assignedToList) => {
+    const assignedToText = formatAssignedToList(assignedToList);
+    return {
+      assignedToList,
+      receivedBy: assignedToText,
+      enquiryAssignedTo: assignedToText,
+    };
+  };
+
+  const getResolvedAssignedToList = (draftValue = assignedToDraft) => {
+    const pending = String(draftValue || "").trim();
+    const list = [...(formData.assignedToList || [])];
+    if (pending && !list.some((item) => item.toLowerCase() === pending.toLowerCase())) {
+      list.push(pending);
+    }
+    return list;
+  };
+
+  const addAssignedToName = (rawName) => {
+    const name = String(rawName || "").trim();
+    if (!name) return;
+    setFormData((prev) => {
+      const current = Array.isArray(prev.assignedToList) ? prev.assignedToList : [];
+      if (current.some((item) => item.toLowerCase() === name.toLowerCase())) {
+        return prev;
+      }
+      return { ...prev, ...syncAssignedToFields([...current, name]) };
+    });
+  };
+
+  const removeAssignedToName = (index) => {
+    setFormData((prev) => {
+      const current = Array.isArray(prev.assignedToList) ? prev.assignedToList : [];
+      const next = current.filter((_, idx) => idx !== index);
+      return { ...prev, ...syncAssignedToFields(next) };
+    });
+  };
+
+  const handleContactChange = (index, field, value) => {
+    setFormData((prev) => {
+      const nextContacts = [...(prev.contacts || [])];
+      nextContacts[index] = { ...(nextContacts[index] || emptyContactRow()), [field]: value };
+      return { ...prev, contacts: nextContacts };
+    });
+  };
+
+  const addContactRow = () => {
+    setFormData((prev) => ({
+      ...prev,
+      contacts: [...(prev.contacts || []), emptyContactRow()],
+    }));
+  };
+
+  const removeContactRow = (index) => {
+    setFormData((prev) => {
+      const nextContacts = (prev.contacts || []).filter((_, idx) => idx !== index);
+      return { ...prev, contacts: nextContacts.length ? nextContacts : [emptyContactRow()] };
+    });
+  };
+
+  const handleScopeFilesSelected = (files) => {
+    const nextFiles = files ? Array.from(files) : [];
+    if (!nextFiles.length) return;
+    setFormData((prev) => ({
+      ...prev,
+      scopeAttachments: [...(prev.scopeAttachments || []), ...nextFiles],
+    }));
+  };
+
+  const removeNewScopeAttachment = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      scopeAttachments: (prev.scopeAttachments || []).filter((_, idx) => idx !== index),
+    }));
+  };
+
+  const removeExistingScopeAttachment = (index) => {
+    existingScopeAttachmentPathsRef.current = existingScopeAttachmentPathsRef.current.filter((_, idx) => idx !== index);
+    setFormData((prev) => ({
+      ...prev,
+      scopeAttachmentPaths: existingScopeAttachmentPathsRef.current,
+    }));
+  };
+
   const validateForm = () => {
     const required = [
       ["enquiryDate", "Enquiry Date"],
-      ["receivedBy", "Received by"],
+      ["vertical", "Vertical"],
       ["sourceType", "Source Type"],
       ["clientName", "Client Name"],
-      ["contactPersonName", "Client Contact Person (Name)"],
       ["siteName", "Site / Project Location (Site Name)"],
       ["siteState", "Site / Project Location (State)"],
       ["siteCity", "Site / Project Location (City)"],
@@ -326,7 +471,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       ["contractDurationValue", "Contract Duration"],
       ["workingHoursShift", "Working Hours / Shift"],
       ["applicableStateMw", "Applicable State (for MW)"],
-      ["minWageEffectiveDate", "Min Wage Effective Date"],
       ["submissionBidDeadline", "Submission / Bid Deadline"],
     ];
 
@@ -335,6 +479,27 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         alert(`Please enter ${label}.`);
         return false;
       }
+    }
+
+    const assignedToList = getResolvedAssignedToList();
+    if (!assignedToList.length) {
+      alert("Please add at least one person in Assigned To.");
+      return false;
+    }
+
+    const filledContacts = (formData.contacts || []).filter(
+      (c) => String(c?.name || "").trim() || String(c?.email || "").trim() || String(c?.phone || "").trim()
+    );
+    if (!filledContacts.length) {
+      alert("Please add at least one contact person with Name, Email, or Phone.");
+      return false;
+    }
+    const invalidContact = filledContacts.find(
+      (c) => !String(c?.name || "").trim() || !String(c?.email || "").trim() || !String(c?.phone || "").trim()
+    );
+    if (invalidContact) {
+      alert("Each contact person must have Name, Email, and Phone Number.");
+      return false;
     }
 
     if (isIndustryOther && isServiceCategoryManual && !String(formData.serviceCategoryCustom || "").trim()) {
@@ -356,10 +521,10 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     }
     if (
       (formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") &&
-      !formData.scopeAttachment &&
-      !existingDocumentsPathRef.current
+      !(formData.scopeAttachments || []).length &&
+      !existingScopeAttachmentPathsRef.current.length
     ) {
-      alert("Please upload the SOP document for Scope of Work.");
+      alert("Please upload at least one SOP document for Scope of Work.");
       return false;
     }
 
@@ -376,8 +541,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         ["tenderNumber", "Tender Number"],
         ["estimatedValueClient", "Estimated Value (Client)"],
         ["ourQuotedRate", "Our Quoted Rate"],
-        ["portalSubmissionDate", "Portal Submission Date"],
-        ["paymentStatus", "Payment Status"],
       ];
       for (const [field, label] of tenderRequired) {
         if (!String(formData[field] || "").trim()) {
@@ -438,17 +601,20 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         if (existingError) throw existingError;
         existingMeta = parseAuthorizationMeta(existing?.authorization_to).meta;
         if (existing?.sr_no != null) existingMeta.srNo = existing.sr_no;
-        existingDocumentsPathRef.current = existing?.documents || existingDocumentsPathRef.current;
+        if (!existingScopeAttachmentPathsRef.current.length && existing?.documents) {
+          existingScopeAttachmentPathsRef.current = [existing.documents];
+        }
       }
 
-      let documentPath = existingDocumentsPathRef.current || null;
-      if (formData.scopeAttachment) {
+      const uploadedScopePaths = [...existingScopeAttachmentPathsRef.current];
+      for (const file of formData.scopeAttachments || []) {
         const { data, error } = await supabase.storage
           .from("manpower-docs")
-          .upload(`documents/${Date.now()}_${formData.scopeAttachment.name}`, formData.scopeAttachment);
+          .upload(`documents/${Date.now()}_${file.name}`, file);
         if (error) throw error;
-        documentPath = data.path;
+        uploadedScopePaths.push(data.path);
       }
+      const documentPath = uploadedScopePaths[0] || null;
 
       let portalProofPath = existingPortalProofPathRef.current || null;
       if (formData.portalProofAttachment) {
@@ -461,8 +627,16 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
       const srNo = enquiryId ? existingMeta.srNo ?? formData.srNo : formData.srNo || (await getNextSrNo(supabase));
 
+      const assignedToList = getResolvedAssignedToList();
+      const submitForm = { ...formData, ...syncAssignedToFields(assignedToList) };
+
       const payload = buildInquiryDbPayload(
-        { ...formData, srNo, portalProofPath: portalProofPath || "" },
+        {
+          ...submitForm,
+          srNo,
+          portalProofPath: portalProofPath || "",
+          scopeAttachmentPaths: uploadedScopePaths,
+        },
         existingMeta
       );
       if (documentPath) {
@@ -511,10 +685,12 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const labelClass = "block text-xs font-semibold uppercase tracking-wide text-slate-600 mb-1.5";
   const req = <span className="text-red-500">*</span>;
 
-  const assigneeOptions = mergeAssignedToOptions(
-    mergeAssignedToOptions(assignedToOptions, formData.receivedBy),
-    formData.enquiryAssignedTo
-  );
+  const filledContactCount = (formData.contacts || []).filter(
+    (c) => String(c?.name || "").trim() || String(c?.email || "").trim() || String(c?.phone || "").trim()
+  ).length;
+
+  const contactCellInputClass =
+    "w-full min-w-0 border-0 bg-transparent px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-purple-400";
 
   const onlineTenderSection = isOnlineTender ? (
     <FormSection
@@ -551,15 +727,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             onChange={handleChange}
             className={inputClass}
             placeholder="As per portal"
-          />
-        </Field>
-        <Field label="Portal Submission Date" required>
-          <FormDateTimeInput
-            name="portalSubmissionDate"
-            value={formData.portalSubmissionDate}
-            onChange={handleChange}
-            className={inputClass}
-            aria-label="Portal submission date and time"
           />
         </Field>
         <Field label="Estimated Value (Client)" required>
@@ -654,19 +821,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </FeeEntryPanel>
         </div>
 
-        <div className="mt-5">
-          <Field label="Payment Status" required>
-            <select name="paymentStatus" value={formData.paymentStatus} onChange={handleChange} className={`${selectClass} sm:max-w-xs`}>
-              <option value="">Select status</option>
-              {PAYMENT_STATUS_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-
         {isPaymentRequired && (
           <div className="mt-5 rounded-lg border border-amber-200/80 bg-amber-50/40 p-4 sm:p-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 mb-4">Payment Details</p>
@@ -727,13 +881,24 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </label>
             <FormDateInput name="enquiryDate" value={formData.enquiryDate} onChange={handleChange} className={inputClass}/>
           </div>
+          <div className="sm:col-span-2">
+            <MultiAssigneeField
+              label="Assigned To"
+              required
+              values={formData.assignedToList || []}
+              draft={assignedToDraft}
+              onDraftChange={setAssignedToDraft}
+              onAdd={addAssignedToName}
+              onRemove={removeAssignedToName}
+            />
+          </div>
           <div>
-            <label className={labelClass}>Received by {req}</label>
-            <select name="receivedBy" value={formData.receivedBy} onChange={handleChange} className={inputClass}>
-              <option value="">Select user</option>
-              {assigneeOptions.map((opt) => (
-                <option key={`recv-${opt.value}`} value={opt.value}>
-                  {opt.label}
+            <label className={labelClass}>Vertical {req}</label>
+            <select name="vertical" value={formData.vertical} onChange={handleChange} className={inputClass}>
+              <option value="">Select vertical</option>
+              {VERTICAL_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
                 </option>
               ))}
             </select>
@@ -748,38 +913,121 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               ))}
             </select>
           </div>
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Submission Remark</label>
+            <textarea
+              name="submissionRemark"
+              value={formData.submissionRemark}
+              onChange={handleChange}
+              rows={2}
+              className={textareaClass}
+              placeholder="Enter submission notes or remarks..."
+            />
+          </div>
         </div>
       </FormSection>
 
       {onlineTenderSection}
 
-      <FormSection title="Client &amp; Contact Person" hint="Primary client and point of contact details.">
-        <div className={gridClass}>
-          <div>
-            <label className={labelClass}>Client Name {req}</label>
-            <input name="clientName" value={formData.clientName} onChange={handleChange} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Contact Person — Name {req}</label>
-            <input name="contactPersonName" value={formData.contactPersonName} onChange={handleChange} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Designation</label>
-            <input
-              name="contactPersonDesignation"
-              value={formData.contactPersonDesignation}
-              onChange={handleChange}
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Phone</label>
-            <input type="tel" name="contactPersonPhone" value={formData.contactPersonPhone} onChange={handleChange} className={inputClass} />
-          </div>
-          <div className="md:col-span-2">
-            <label className={labelClass}>Email</label>
-            <input type="email" name="contactPersonEmail" value={formData.contactPersonEmail} onChange={handleChange} className={inputClass} />
-          </div>
+      <FormSection
+        title="Client &amp; Contact Person"
+        hint="Enter client name, then add contact rows like an Excel sheet — one person per line."
+      >
+        <div className="mb-5 max-w-xl">
+          <label className={labelClass}>Client Name {req}</label>
+          <input name="clientName" value={formData.clientName} onChange={handleChange} className={inputClass} />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Contact persons</p>
+          <span className="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-medium text-purple-800">
+            {filledContactCount} row{filledContactCount === 1 ? "" : "s"} filled
+          </span>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-300 bg-slate-100">
+                <th className="w-12 border-r border-slate-300 px-2 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                  #
+                </th>
+                <th className="min-w-[180px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                  Name {req}
+                </th>
+                <th className="min-w-[200px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                  Email {req}
+                </th>
+                <th className="min-w-[140px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                  Phone {req}
+                </th>
+                <th className="w-20 px-2 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {(formData.contacts || []).map((contact, index) => (
+                <tr key={`contact-row-${index}`} className="border-b border-slate-200 hover:bg-purple-50/25">
+                  <td className="border-r border-slate-200 bg-slate-50 px-2 py-0 text-center text-xs font-medium tabular-nums text-slate-500">
+                    {index + 1}
+                  </td>
+                  <td className="border-r border-slate-200 p-0">
+                    <input
+                      value={contact?.name || ""}
+                      onChange={(e) => handleContactChange(index, "name", e.target.value)}
+                      className={contactCellInputClass}
+                      placeholder="Full name"
+                    />
+                  </td>
+                  <td className="border-r border-slate-200 p-0">
+                    <input
+                      type="email"
+                      value={contact?.email || ""}
+                      onChange={(e) => handleContactChange(index, "email", e.target.value)}
+                      className={contactCellInputClass}
+                      placeholder="email@company.com"
+                    />
+                  </td>
+                  <td className="border-r border-slate-200 p-0">
+                    <input
+                      type="tel"
+                      value={contact?.phone || ""}
+                      onChange={(e) => handleContactChange(index, "phone", e.target.value)}
+                      className={contactCellInputClass}
+                      placeholder="Phone number"
+                    />
+                  </td>
+                  <td className="px-2 py-1 text-center">
+                    {(formData.contacts || []).length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeContactRow(index)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-rose-600 hover:bg-rose-50"
+                        title="Remove row"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              <tr className="bg-slate-50/80">
+                <td colSpan={5} className="px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={addContactRow}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-purple-700 hover:text-purple-800"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add a line
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </FormSection>
 
@@ -876,17 +1124,75 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           />
         )}
         {(formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") && (
-          <div className="mt-3">
+          <div className="mt-3 space-y-3">
             <label className={labelClass}>SOP Document Upload {req}</label>
+
+            {(formData.scopeAttachmentPaths || []).length > 0 ? (
+              <div className="space-y-2">
+                {(formData.scopeAttachmentPaths || []).map((path, index) => (
+                  <div
+                    key={`existing-scope-${path}-${index}`}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2"
+                  >
+                    <div className="min-w-0 flex items-center gap-2 text-sm text-emerald-800">
+                      <Paperclip className="h-4 w-4 shrink-0" />
+                      <span className="truncate" title={path}>
+                        {path.split("/").pop() || path}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeExistingScopeAttachment(index)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 hover:text-rose-700"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {(formData.scopeAttachments || []).map((file, index) => (
+              <div
+                key={`new-scope-${file.name}-${index}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+              >
+                <div className="min-w-0 flex items-center gap-2 text-sm text-slate-700">
+                  <Paperclip className="h-4 w-4 shrink-0 text-slate-500" />
+                  <span className="truncate" title={file.name}>
+                    {file.name}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeNewScopeAttachment(index)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 hover:text-rose-700"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Remove
+                </button>
+              </div>
+            ))}
+
             <input
+              ref={scopeFileInputRef}
               type="file"
-              name="scopeAttachment"
-              onChange={handleChange}
-              className={fileClass}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                handleScopeFilesSelected(e.target.files);
+                e.target.value = "";
+              }}
             />
-            {existingDocumentsPathRef.current && !formData.scopeAttachment && (
-              <p className="mt-1 text-xs text-green-700">Existing document on file.</p>
-            )}
+            <button
+              type="button"
+              onClick={() => scopeFileInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
+            >
+              <Plus className="h-4 w-4" />
+              Add Attachment
+            </button>
           </div>
         )}
       </FormSection>
@@ -983,17 +1289,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </select>
           </div>
         </div>
-        <div className={`${gridClass} mt-5`}>
-          <div>
-            <label className={labelClass}>
-              Min Wage Effective Date (WEF) <span className="text-red-500">*</span>
-            </label>
-            <FormDateInput name="minWageEffectiveDate" value={formData.minWageEffectiveDate} onChange={handleChange} className={inputClass}/>
-          </div>
+        <div className="mt-5">
           <Field
             label="Submission / Bid Deadline"
             required
-            hint="Reminder alerts: T-7 and T-1 days."
+            hint="Reminder alerts use Timeline Settings on the Commercial Dashboard."
           >
             <FormDateTimeInput
               name="submissionBidDeadline"

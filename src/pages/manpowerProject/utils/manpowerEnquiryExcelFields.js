@@ -1,6 +1,6 @@
 export const META_PREFIX = "__META__:";
 
-export const VERTICAL_OPTIONS = ["Fire Tender", "Manpower", "Training"];
+export const VERTICAL_OPTIONS = ["Manpower", "Fire Tender", "Training"];
 export const MODE_OF_SUBMISSION_OPTIONS = [
   "Email",
   "Online Portal",
@@ -82,6 +82,7 @@ const INQUIRY_META_KEYS = [
   "estimatedValueClient",
   "enquiryAssignedTo",
   "receivedBy",
+  "assignedToList",
   "dueDate",
   "offerSubmittedOn",
   "remarks",
@@ -90,6 +91,8 @@ const INQUIRY_META_KEYS = [
   "contactPersonDesignation",
   "contactPersonPhone",
   "contactPersonEmail",
+  "submissionRemark",
+  "scopeAttachmentPaths",
   "industrySector",
   "serviceCategory",
   "serviceCategoryCustom",
@@ -178,6 +181,59 @@ function normalizeTotalManpower(value) {
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : null;
 }
 
+export function emptyContactRow() {
+  return { name: "", email: "", phone: "" };
+}
+
+export function parseAssignedToList(value, meta = {}) {
+  if (Array.isArray(meta?.assignedToList)) {
+    return meta.assignedToList.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  const raw = value || meta?.receivedBy || meta?.enquiryAssignedTo || "";
+  if (!raw) return [];
+  return String(raw)
+    .split(/[,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function formatAssignedToList(list = []) {
+  return (Array.isArray(list) ? list : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function normalizeContactsFromRow(row, meta = {}) {
+  const fromColumn = Array.isArray(row?.contacts) ? row.contacts : [];
+  const cleaned = fromColumn
+    .map((c) => ({
+      name: String(c?.name || "").trim(),
+      email: String(c?.email || "").trim(),
+      phone: String(c?.phone || "").trim(),
+    }))
+    .filter((c) => c.name || c.email || c.phone);
+
+  if (cleaned.length) return cleaned;
+
+  const legacyName = String(meta.contactPersonName || "").trim();
+  const legacyEmail = String(meta.contactPersonEmail || row?.email || "").trim();
+  const legacyPhone = String(meta.contactPersonPhone || row?.phone || "").trim();
+  if (legacyName || legacyEmail || legacyPhone) {
+    return [{ name: legacyName, email: legacyEmail, phone: legacyPhone }];
+  }
+
+  return [emptyContactRow()];
+}
+
+function normalizeScopeAttachmentPaths(row, meta = {}) {
+  if (Array.isArray(meta.scopeAttachmentPaths) && meta.scopeAttachmentPaths.length) {
+    return meta.scopeAttachmentPaths.filter(Boolean);
+  }
+  if (row?.documents) return [row.documents];
+  return [];
+}
+
 /** Map a DB row to the 14 Excel inquiry columns (DB columns first, meta/legacy fallback). */
 export function getExcelInquiryFields(row) {
   const { meta } = parseAuthorizationMeta(row?.authorization_to);
@@ -193,7 +249,10 @@ export function getExcelInquiryFields(row) {
     location,
     descriptionOfWork: row?.manpower_required || meta.descriptionOfWork || "",
     approxValue: row?.project_estimation ?? meta.approxValue ?? meta.estimatedValueClient ?? "",
-    enquiryAssignedTo: row?.handled_by || meta.enquiryAssignedTo || meta.receivedBy || "",
+    enquiryAssignedTo: (() => {
+      const list = parseAssignedToList(row?.handled_by, meta);
+      return list.length ? formatAssignedToList(list) : row?.handled_by || meta.enquiryAssignedTo || meta.receivedBy || "";
+    })(),
     dueDate: row?.due_date || meta.dueDate || null,
     offerSubmittedOn: row?.offer_submitted_on || meta.offerSubmittedOn || null,
     remarks: row?.remarks || meta.remarks || "",
@@ -219,13 +278,18 @@ export function inquiryRowToForm(row) {
     dueDate: toInputDate(excel.dueDate),
     offerSubmittedOn: toInputDate(excel.offerSubmittedOn),
     enquiryDate: toInputDate(meta.enquiryDate || excel.receivedDate),
-    receivedBy: meta.receivedBy || row?.handled_by || "",
-    enquiryAssignedTo: meta.enquiryAssignedTo || excel.enquiryAssignedTo || meta.receivedBy || row?.handled_by || "",
+    receivedBy: formatAssignedToList(parseAssignedToList(meta.receivedBy || row?.handled_by, meta)),
+    enquiryAssignedTo: formatAssignedToList(
+      parseAssignedToList(meta.enquiryAssignedTo || meta.receivedBy || row?.handled_by, meta)
+    ),
+    assignedToList: parseAssignedToList(row?.handled_by || meta.receivedBy, meta),
     sourceType: meta.sourceType || row?.source || excel.modeOfSubmission || "Direct Mail",
+    contacts: normalizeContactsFromRow(row, meta),
     contactPersonName: meta.contactPersonName || "",
     contactPersonDesignation: meta.contactPersonDesignation || meta.clientDesignation || "",
     contactPersonPhone: meta.contactPersonPhone || row?.phone || "",
     contactPersonEmail: meta.contactPersonEmail || row?.email || "",
+    submissionRemark: meta.submissionRemark || "",
     siteName: meta.siteName || "",
     siteState: meta.siteState || row?.state || "",
     siteCity: meta.siteCity || row?.city || "",
@@ -242,6 +306,8 @@ export function inquiryRowToForm(row) {
     enquirySubType: normalizedSubType,
     scopeInputType: meta.scopeInputType || "Text",
     scopeOfWork: row?.manpower_required || meta.descriptionOfWork || "",
+    scopeAttachmentPaths: normalizeScopeAttachmentPaths(row, meta),
+    scopeAttachments: [],
     contractDurationValue: meta.contractDurationValue ?? "",
     contractDurationUnit: meta.contractDurationUnit || "Months",
     contractTimelineStart: toInputDate(meta.contractTimelineStart),
@@ -299,15 +365,46 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     form.dueDate ||
     null;
 
+  const contacts = (Array.isArray(form.contacts) ? form.contacts : [])
+    .map((c) => ({
+      name: String(c?.name || "").trim(),
+      email: String(c?.email || "").trim(),
+      phone: String(c?.phone || "").trim(),
+    }))
+    .filter((c) => c.name || c.email || c.phone);
+  const primaryContact = contacts[0] || {
+    name: form.contactPersonName || "",
+    email: form.contactPersonEmail || "",
+    phone: form.contactPersonPhone || "",
+  };
+
+  const existingScopePaths = Array.isArray(form.scopeAttachmentPaths)
+    ? form.scopeAttachmentPaths.filter(Boolean)
+    : Array.isArray(existingMeta.scopeAttachmentPaths)
+      ? existingMeta.scopeAttachmentPaths.filter(Boolean)
+      : existingMeta.documents || existingMeta.scopeAttachmentPath
+        ? [existingMeta.documents || existingMeta.scopeAttachmentPath].filter(Boolean)
+        : [];
+
+  const assignedToList = (Array.isArray(form.assignedToList) ? form.assignedToList : parseAssignedToList(
+    form.receivedBy || form.enquiryAssignedTo,
+    { receivedBy: form.receivedBy, enquiryAssignedTo: form.enquiryAssignedTo, assignedToList: form.assignedToList }
+  ))
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  const assignedToText = formatAssignedToList(assignedToList);
+
   const headerMeta = {
     enquiryDate: form.enquiryDate || form.receivedDate || null,
     sourceType: form.sourceType || null,
-    receivedBy: form.receivedBy || null,
-    enquiryAssignedTo: form.enquiryAssignedTo || null,
-    contactPersonName: form.contactPersonName || "",
+    receivedBy: assignedToText || null,
+    enquiryAssignedTo: assignedToText || null,
+    assignedToList,
+    submissionRemark: form.submissionRemark || "",
+    contactPersonName: primaryContact.name || "",
     contactPersonDesignation: form.contactPersonDesignation || "",
-    contactPersonPhone: form.contactPersonPhone || "",
-    contactPersonEmail: form.contactPersonEmail || "",
+    contactPersonPhone: primaryContact.phone || "",
+    contactPersonEmail: primaryContact.email || "",
     siteName: form.siteName || "",
     siteState: form.siteState || "",
     siteCity: form.siteCity || "",
@@ -320,6 +417,7 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
       form.serviceCategory === "Other (manual entry)" ? String(form.serviceCategoryCustom || "").trim() : "",
     enquirySubType: form.enquirySubType || "Regular",
     scopeInputType: form.scopeInputType || "Text",
+    scopeAttachmentPaths: existingScopePaths,
     contractDurationValue: form.contractDurationValue ?? "",
     contractDurationUnit: form.contractDurationUnit || "Months",
     contractTimelineStart: form.contractTimelineStart || null,
@@ -369,8 +467,9 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
 
   return {
     client: String(form.clientName || "").trim(),
-    phone: form.contactPersonPhone || null,
-    email: form.contactPersonEmail || null,
+    phone: primaryContact.phone || null,
+    email: primaryContact.email || null,
+    contacts,
     sr_no: srNo,
     received_date: form.enquiryDate || form.receivedDate || null,
     vertical: form.vertical || null,
@@ -380,7 +479,7 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     location,
     manpower_required: scopeText,
     project_estimation: projectEstimation,
-    handled_by: form.receivedBy || form.enquiryAssignedTo || null,
+    handled_by: assignedToText || null,
     due_date: dueDate,
     offer_submitted_on: form.offerSubmittedOn || null,
     remarks: form.remarks || null,
@@ -460,7 +559,7 @@ export const INQUIRY_TABLE_COLUMNS = [
   { id: "location", label: "Location", width: 124, valueType: "text", dbColumn: "location" },
   { id: "descriptionOfWork", label: "Description of Work", width: 208, valueType: "text", dbColumn: "manpower_required" },
   { id: "approxValue", label: "Approx Value (WO Taxes)", width: 116, align: "right", valueType: "currency", dbColumn: "project_estimation" },
-  { id: "enquiryAssignedTo", label: "Enquiry Assigned to", width: 168, valueType: "text", dbColumn: "handled_by" },
+  { id: "enquiryAssignedTo", label: "Assigned To", width: 168, valueType: "text", dbColumn: "handled_by" },
   { id: "dueDate", label: "Due Date for Submission (if any)", width: 124, valueType: "date", dbColumn: "due_date" },
   { id: "offerSubmittedOn", label: "Offer Submitted On", width: 116, valueType: "date", dbColumn: "offer_submitted_on" },
   { id: "remarks", label: "Remarks", width: 144, valueType: "text", dbColumn: "remarks" },
