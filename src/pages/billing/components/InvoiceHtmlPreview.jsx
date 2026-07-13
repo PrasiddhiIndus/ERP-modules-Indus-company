@@ -23,6 +23,7 @@ import {
   shouldShowHsnSacAboveLineItems,
 } from '../../../utils/billingPoInvoiceFields';
 import { invoicePincodeDisplayLine, resolveInvoicePartyPincodes } from '../../../utils/poPincodeFields';
+import { resolveBillToStateDisplay } from '../../../utils/gstStatePin';
 import { INDUS_LOGO_SRC } from '../../../constants/branding.js';
 
 const PDF_RS = 'Rs.';
@@ -118,6 +119,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
   const shipToPinLine = invoicePincodeDisplayLine(partyPins.shipToPin);
 
   const placeOfSupply = viewInv.placeOfSupply || viewInv.place_of_supply || 'Gujarat';
+  const billToState = resolveBillToStateDisplay(viewInv, po);
 
   const cin = preferredTextValue(viewInv.sellerCin, viewInv.seller_cin, PDF_SELLER.cin, DEFAULT_SELLER_CIN);
   const sellerGstin = preferredTextValue(viewInv.sellerGstin, viewInv.seller_gstin, PDF_SELLER.gstin);
@@ -362,7 +364,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                 <p className="mt-0.5 whitespace-pre-wrap">{buyerAddress}</p>
                 <p className="mt-0.5">{billToPinLine}</p>
                 <p className="mt-0.5">GSTIN: {buyerGstin}</p>
-                <p>State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}</p>
+                <p>State Name: {billToState.stateName}, Code: {billToState.stateCode}</p>
               </div>
               <div className="px-2 py-2 text-[8.5px]">
                 <p className="font-bold uppercase text-[#1a3a6c] border-b border-[#bbb] pb-1 mb-1">CONSIGNEE (SHIP TO)</p>
@@ -370,9 +372,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                 <p className="mt-0.5 whitespace-pre-wrap">{shipAddress}</p>
                 <p className="mt-0.5">{shipToPinLine}</p>
                 <p className="mt-0.5">GSTIN: {buyerGstin}</p>
-                <p>
-                  State Name: {PDF_SELLER.state}, Code: {PDF_SELLER.stateCode}, Place of Supply: {placeOfSupply}
-                </p>
+                <p>Place of Supply: {placeOfSupply}</p>
               </div>
             </div>
           </div>

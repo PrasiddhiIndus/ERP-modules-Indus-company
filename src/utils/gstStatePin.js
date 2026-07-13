@@ -111,3 +111,37 @@ export function resolveBuyerStateAndPin({ gstin, placeOfSupply, billingAddress, 
   };
 }
 
+/** Bill-to state for invoice preview/PDF — buyer GSTIN, PO place of supply, or billing address. */
+export function resolveBillToStateDisplay(inv = {}, po = null) {
+  const gstin = inv.gstin ?? po?.gstin ?? '';
+  const placeOfSupply =
+    inv.placeOfSupply ?? inv.place_of_supply ?? po?.placeOfSupply ?? po?.place_of_supply ?? '';
+  const billingAddress =
+    inv.clientAddress ??
+    inv.client_address ??
+    inv.billingAddress ??
+    inv.billing_address ??
+    po?.billingAddress ??
+    po?.billing_address ??
+    '';
+  const existingPin =
+    inv.buyerPin ??
+    inv.buyer_pin ??
+    inv.buyerPincode ??
+    inv.buyer_pincode ??
+    inv.clientPincode ??
+    inv.client_pincode ??
+    po?.pincode ??
+    null;
+  const savedCode = String(inv.buyerStateCode ?? inv.buyer_state_code ?? '').trim();
+  const derived = resolveBuyerStateAndPin({
+    gstin,
+    placeOfSupply,
+    billingAddress,
+    existingPin,
+  });
+  const stateCode = savedCode || derived.stateCode;
+  const stateName = STATE_CODE_TO_NAME[stateCode] || derived.stateName || placeOfSupply || '–';
+  return { stateCode, stateName };
+}
+

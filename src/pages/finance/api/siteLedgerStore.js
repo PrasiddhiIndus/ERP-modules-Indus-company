@@ -334,7 +334,7 @@ function buildSites(raw, parentById, childById) {
       });
     budgetsBySite[bv.site_id].push({
       id: bv.external_id || bv.id,
-      effectiveFrom: bv.effective_from,
+      effectiveFrom: periodFromDate(bv.effective_from) || bv.effective_from,
       note: bv.note || "",
       revenue,
       expenses,

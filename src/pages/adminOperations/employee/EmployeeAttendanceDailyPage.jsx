@@ -346,7 +346,12 @@ export function EmployeeAttendanceDailyPage() {
       const afterLeaveMarks = mergeApprovedLeaveMarksIntoManualMarks(
         registerData?.marks || {},
         approvedLeaveMarks,
-        { punches: punchRows, monthKey: monthMeta.monthKey }
+        {
+          punches: punchRows,
+          monthKey: monthMeta.monthKey,
+          registerRows: monthRegisterRows,
+          masterCodeMap,
+        }
       );
       const mergedRegister = finalizeRegisterMarksAndRemarks({
         marks: afterLeaveMarks,
@@ -406,6 +411,8 @@ export function EmployeeAttendanceDailyPage() {
             const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(refreshed.marks, approvedLeaveMarks, {
               punches: punchRows,
               monthKey: monthMeta.monthKey,
+              registerRows: refreshedRows,
+              masterCodeMap,
             });
             const merged = finalizeRegisterMarksAndRemarks({
               marks: afterLeave,
@@ -490,7 +497,12 @@ export function EmployeeAttendanceDailyPage() {
           const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(
             registerView.marks,
             approvedLeaveMarks,
-            { punches: punchRows, monthKey: monthMeta.monthKey }
+            {
+              punches: punchRows,
+              monthKey: monthMeta.monthKey,
+              registerRows: refreshedRows,
+              masterCodeMap,
+            }
           );
           const finalized = finalizeRegisterMarksAndRemarks({
             marks: afterLeave,
@@ -563,16 +575,21 @@ export function EmployeeAttendanceDailyPage() {
     const refreshLeaves = async () => {
       if (cancelled) return;
       try {
-        const approvedLeaveMarks = await fetchApprovedLeaveMarksForMonth(
-          supabase,
-          monthMeta.fromDate,
-          monthMeta.toDate
-        );
-        approvedLeaveMarksRef.current = approvedLeaveMarks;
-
-        const monthRegisterRows = monthRegisterRowsRef.current || [];
         const masterCodeMap = masterRegisterCodeMapRef.current;
         const punchRows = punchesRef.current || [];
+
+        const [approvedLeaveMarks, monthRegisterRows] = await Promise.all([
+          fetchApprovedLeaveMarksForMonth(supabase, monthMeta.fromDate, monthMeta.toDate),
+          fetchRegisterMarkRowsInRange(supabase, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+            monthKey: monthMeta.monthKey,
+          }),
+        ]);
+        if (cancelled) return;
+
+        approvedLeaveMarksRef.current = approvedLeaveMarks;
+        monthRegisterRowsRef.current = monthRegisterRows;
 
         const registerView = buildRegisterMonthViewFromPrefetched(
           monthMeta,
@@ -582,6 +599,8 @@ export function EmployeeAttendanceDailyPage() {
         const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(registerView.marks, approvedLeaveMarks, {
           punches: punchRows,
           monthKey: monthMeta.monthKey,
+          registerRows: monthRegisterRows,
+          masterCodeMap,
         });
 
         const tourData = await fetchApprovedTourMarksForMonth(
@@ -646,8 +665,10 @@ export function EmployeeAttendanceDailyPage() {
     const schedule = () => {
       if (debounce) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
-        void refreshLeaves();
-        void refreshTours();
+        void (async () => {
+          await refreshLeaves();
+          await refreshTours();
+        })();
       }, 400);
     };
 
