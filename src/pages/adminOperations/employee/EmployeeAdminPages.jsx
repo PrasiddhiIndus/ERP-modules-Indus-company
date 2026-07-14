@@ -276,8 +276,14 @@ function formatAttendanceApiError(err, res, data) {
   if (res?.status === 500 && /ETIME_AUTH_CREDENTIALS/i.test(msg)) {
     return `${msg} Add ETIME_* variables to .env.server and restart the Node server.`;
   }
-  if (res?.status === 502 || /cannot reach etimeoffice|eTimeOffice network/i.test(msg)) {
-    return msg || "Cannot reach eTimeOffice. Check network/firewall/VPN and .env.server credentials.";
+  if (
+    res?.status === 502 ||
+    /etimeoffice returned an error|cannot reach etimeoffice|eTimeOffice network/i.test(msg)
+  ) {
+    return (
+      msg ||
+      "eTimeOffice rejected the request. Confirm ETIME_AUTH_CREDENTIALS in .env.server, then restart npm run dev."
+    );
   }
   return msg || "Unable to sync attendance punches from eTimeOffice.";
 }
