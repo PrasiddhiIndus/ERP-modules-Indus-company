@@ -374,17 +374,32 @@ export async function fetchEtimePunchesForIsoRange(c, empCode, fromIso, toIso) {
     const toSlash = isoDateToEtimeDateTime(chunk.toDate, true);
     const result = await fetchEtimePunchDataMerged(c, empCode, fromSlash, toSlash);
     if (!result.providerRes?.ok) {
+      const providerStatus = Number(result.providerRes?.status) || 0;
       const msg =
         result.providerData?.Msg ||
         result.providerData?.Message ||
         result.providerData?.message ||
         result.providerData?.Error ||
         (typeof result.providerData?.raw === 'string' ? result.providerData.raw.slice(0, 200) : '') ||
-        `eTimeOffice fetch failed (HTTP ${result.providerRes?.status}).`;
-      throw new HttpError(result.providerRes?.status || 502, msg, {
-        chunk,
-        endpoint: result.endpoint,
-      });
+        `eTimeOffice fetch failed (HTTP ${providerStatus || 'unknown'}).`;
+      // Never mirror provider 5xx as our 500 — that looks like an ERP bug in the browser.
+      const status =
+        providerStatus === 401 || providerStatus === 403
+          ? 502
+          : providerStatus >= 400 && providerStatus < 500
+            ? providerStatus
+            : 502;
+      throw new HttpError(
+        status,
+        providerStatus >= 500 || !providerStatus
+          ? `eTimeOffice returned an error (${providerStatus || 'network'}). Check ETIME_AUTH_CREDENTIALS and try a shorter date range. ${msg}`
+          : msg,
+        {
+          chunk,
+          endpoint: result.endpoint,
+          providerStatus,
+        }
+      );
     }
     (result.endpointsUsed || [result.endpoint]).forEach((e) => endpointsUsed.add(e));
     allRecords.push(...(result.records || []));

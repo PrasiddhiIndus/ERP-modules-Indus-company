@@ -780,19 +780,28 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
 }
 
 app.get('/api/health', (_req, res) => {
-  if (IS_PRODUCTION) {
-    return res.json({ ok: true });
-  }
   const supabaseUrl = getSupabaseUrlForServer();
   const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
   const anonKey = getSupabaseAnonKeyForServer();
-  res.json({
+  const projectRef = getSupabaseProjectRefFromUrl(supabaseUrl);
+  // Always expose non-secret readiness flags (needed to debug prod vs local auth mismatches).
+  const body = {
     ok: true,
     service: 'indus-erp-api',
+    supabase_project: projectRef || null,
     supabase_url: supabaseUrl ? 'set' : 'missing',
     service_role_key: isSupabaseServiceRoleKey(serviceRoleKey) ? 'ok' : 'missing_or_invalid',
     anon_key: anonKey ? 'set' : 'missing',
-  });
+  };
+  if (IS_PRODUCTION) {
+    return res.json({
+      ok: true,
+      service: body.service,
+      supabase_project: body.supabase_project,
+      service_role_key: body.service_role_key,
+    });
+  }
+  return res.json(body);
 });
 
 /** User Management profile save — service role on server; avoids edge JWT / RLS issues in local dev. */
@@ -989,12 +998,14 @@ app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res
       toDate = normalizeEtimeDate(toIso || '2026-05-12', true);
       const result = await fetchEtimePunchDataMerged(c, empCode, fromDate, toDate);
       if (!result.providerRes?.ok) {
-        return res.status(result.providerRes?.status || 502).json({
+        const providerStatus = Number(result.providerRes?.status) || 502;
+        return res.status(providerStatus >= 500 ? 502 : providerStatus).json({
           message:
             result.providerData?.Msg ||
             result.providerData?.Message ||
             result.providerData?.message ||
-            `eTimeOffice attendance fetch failed (${result.providerRes?.status}).`,
+            `eTimeOffice attendance fetch failed (${providerStatus}).`,
+          providerStatus,
         });
       }
       records = result.records || [];
@@ -1012,8 +1023,11 @@ app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res
     });
   } catch (err) {
     const status = Number(err?.status) || 500;
+    // eslint-disable-next-line no-console
+    console.error('[attendance/punches]', status, err?.message || err);
     res.status(status).json({
       message: err?.message || 'Failed to fetch eTimeOffice attendance.',
+      providerStatus: err?.details?.providerStatus,
     });
   }
 });
@@ -1459,13 +1473,24 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
   // eslint-disable-next-line no-console
   console.log(
     `[server] Supabase URL: ${getSupabaseUrlForServer() ? 'set' : 'MISSING'}; service_role key: ${
-      isSupabaseServiceRoleKey(svcKey) ? 'ok' : 'MISSING or not service_role — profile save will fail'
+      isSupabaseServiceRoleKey(svcKey) ? 'ok' : 'MISSING or not service_role — authenticated /api/admin/* will fail session checks'
     }`
   );
   const supabaseRef = getSupabaseProjectRefFromUrl(getSupabaseUrlForServer());
   if (supabaseRef) {
     // eslint-disable-next-line no-console
     console.log(`[server] Supabase project: ${supabaseRef}${String(process.env.ERP_ENV || '').toLowerCase() === 'staging' ? ' (staging)' : ''}`);
+  }
+  const rawSvc = normalizeEnvValue(
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_SERVICE_KEY ||
+      process.env.SERVICE_ROLE_KEY
+  );
+  if (rawSvc && getSupabaseUrlForServer() && !serviceRoleMatchesUrl(getSupabaseUrlForServer(), rawSvc)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[server] SUPABASE_SERVICE_ROLE_KEY project (${getSupabaseProjectRefFromJwt(rawSvc) || '?'}) does not match SUPABASE_URL (${supabaseRef || '?'}). Key ignored — fix .env.server and restart.`
+    );
   }
   try {
     const etime = etimeCfg(getRequiredEnv);

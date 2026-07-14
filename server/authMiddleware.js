@@ -16,6 +16,22 @@ function hasModule(modules, allowed) {
   return modules.some((m) => allowed.has(m));
 }
 
+function projectRefFromUrl(url) {
+  const m = String(url || '').match(/https?:\/\/([^.]+)\.supabase\.co/i);
+  return m ? m[1] : '';
+}
+
+function projectRefFromJwt(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) return '';
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    return String(payload?.ref || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAnonKey, HttpError }) {
   function extractBearer(req) {
     const authHeader = req.headers.authorization || '';
@@ -48,6 +64,19 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       throw new HttpError(500, 'Server missing Supabase URL or API key.');
     }
 
+    const serverRef = projectRefFromUrl(url);
+    const sessionRef = projectRefFromJwt(jwt);
+    if (serverRef && sessionRef && serverRef !== sessionRef) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[auth] JWT project "${sessionRef}" does not match server SUPABASE_URL project "${serverRef}". Fix .env.server on the API host.`
+      );
+      throw new HttpError(
+        401,
+        `API server is linked to a different Supabase project than this login. Update SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the production .env.server (must match the website), then restart the API.`
+      );
+    }
+
     const validateClient = createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -57,7 +86,9 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       const message =
         hint.includes('fetch') || hint.includes('network') || hint.includes('econnrefused')
           ? 'Could not verify session with Supabase. Check server network and SUPABASE_URL.'
-          : 'Invalid or expired session. Sign out and sign in again.';
+          : !svc
+            ? 'Invalid or expired session (API missing a valid SUPABASE_SERVICE_ROLE_KEY matching SUPABASE_URL). Sign out and sign in again, or fix production .env.server and restart the API.'
+            : 'Invalid or expired session. Sign out and sign in again.';
       throw new HttpError(401, message);
     }
 
