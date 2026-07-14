@@ -17,7 +17,7 @@ const COLORS = {
   brandRed: [180, 30, 40],
   grey: [90, 90, 90],
   muted: [110, 110, 110],
-  yellow: [255, 242, 0],
+  yellow: [255, 255, 0],
   tableHead: [210, 220, 230],
   tableTotal: [230, 238, 245],
   black: [0, 0, 0],
@@ -62,13 +62,138 @@ function stripBullet(line) {
   return line.replace(/^([•\-\u2013\u2014*]|\(?[a-zA-Z0-9]+\)|[0-9]+\.)\s+/, '').trim();
 }
 
+function isPaymentHeading(line) {
+  const t = stripBullet(String(line || '').trim());
+  return /^payment\s+terms?\b/i.test(t);
+}
+
+/** Advance / balance / % payment lines (real Payment Terms bullets). */
+function isPaymentItemLine(line) {
+  const t = stripBullet(String(line || '').trim());
+  if (!t) return false;
+  if (isPaymentHeading(t)) return false;
+  return (
+    /\b\d+\s*%\s*(advance|balance)?\s*payment\b/i.test(t) ||
+    /\b(advance|balance)\s+payment\b/i.test(t) ||
+    /^\d+\s*%\b/.test(t)
+  );
+}
+
+/** T&C points that must never appear under Payment Terms. */
+function isNonPaymentTechnicalLine(line) {
+  const t = stripBullet(String(line || '').trim());
+  if (!t) return false;
+  if (isPaymentItemLine(t) || isPaymentHeading(t)) return false;
+  return /^(gst\b|warranty\b|delivery\b|installation\b|note\b|time\s*period\b|mobilization\b|scaffolding\b|electricity\b|boarding\b|lodging\b|security\b|storage\b|lift\b|company\s+will\b|site\s+cleaning\b|statutory\b)/i.test(
+    t
+  );
+}
+
+/** True when a string looks like payment-terms content (not costing remarks). */
+function looksLikePaymentTermsContent(text) {
+  const s = String(text || '');
+  if (!s.trim()) return false;
+  return (
+    /payment\s+terms?\b/i.test(s) ||
+    /\badvance\s+payment\b/i.test(s) ||
+    /\bbalance\s+payment\b/i.test(s) ||
+    /\b\d+\s*%\s*(advance|balance|payment)/i.test(s)
+  );
+}
+
 /**
- * Split terms text into titled sections (yellow-header boxes).
- * Section titles = non-bullet lines that look like headings.
+ * Resolve terms + payment text from this quotation only.
+ * Prefer live form edits; fall back to DB fields on the same quotation.
  */
-export function parseTermsSections(rawText) {
-  const lines = String(rawText || '')
+export function resolveQuotationTermsSources(formData = {}, quotation = {}) {
+  const termsText =
+    formData?.terms_and_conditions ||
+    quotation?.terms_and_conditions ||
+    '';
+
+  // marketing_quotations.payment_terms is often used as costing description —
+  // only treat it as Payment Terms when the content clearly is payment terms.
+  const paymentCandidates = [formData?.payment_terms, quotation?.payment_terms];
+  let extraPaymentText = '';
+  for (const c of paymentCandidates) {
+    if (looksLikePaymentTermsContent(c)) {
+      extraPaymentText = String(c);
+      break;
+    }
+  }
+
+  return { termsText, extraPaymentText };
+}
+
+/**
+ * Build payment bullets from the Payment Terms block only:
+ * - keep advance/balance/% lines from this quotation
+ * - merge wrapped continuations into the previous bullet
+ * - drop Delivery Period / Warranty / etc. from that block
+ */
+function buildPaymentItemsFromBlock(paymentBody) {
+  const lines = String(paymentBody || '')
     .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const items = [];
+  lines.forEach((line) => {
+    const bare = stripBullet(line);
+    if (!bare || isPaymentHeading(bare)) return;
+    if (isNonPaymentTechnicalLine(bare)) return;
+
+    const startsNew =
+      isPaymentItemLine(bare) ||
+      isBulletLine(line) ||
+      /^\(?[a-z0-9]+\)[.\s]/i.test(line.trim());
+
+    if (items.length && !startsNew) {
+      items[items.length - 1] = `${items[items.length - 1]} ${sanitizePdfText(bare)}`.trim();
+      return;
+    }
+
+    // Only start a new Payment Terms bullet when it is clearly a payment point
+    if (!isPaymentItemLine(bare) && !looksLikePaymentTermsContent(bare)) return;
+    const clean = sanitizePdfText(bare);
+    if (clean && !items.includes(clean)) items.push(clean);
+  });
+
+  return items.filter((item) => looksLikePaymentTermsContent(item) || isPaymentItemLine(item));
+}
+
+/**
+ * Split THIS quotation's terms into yellow T&C boxes + Payment Terms bullets.
+ * Only points present in the quotation text are shown.
+ */
+export function parseTermsSections(rawText, extraPaymentText = '') {
+  const fullText = String(rawText || '').replace(/\r\n/g, '\n');
+
+  // Cut out only the "Payment Terms" block from this quotation's terms
+  const paymentHeadingRe =
+    /(^|\n)\s*(?:[•\-\u2013\u2014*]|\(?[a-zA-Z0-9]+\)|[0-9]+\.)?\s*payment\s+terms?\s*:?\s*/i;
+  const payMatch = fullText.match(paymentHeadingRe);
+
+  let beforeText = fullText;
+  let paymentBody = '';
+
+  if (payMatch) {
+    const headingStart = payMatch.index + (payMatch[1] === '\n' ? 1 : 0);
+    const bodyStart = payMatch.index + payMatch[0].length;
+    beforeText = fullText.slice(0, headingStart).trimEnd();
+    paymentBody = fullText.slice(bodyStart);
+
+    // If another Terms & Condition section appears after Payment Terms, keep it in T&C
+    const nextTc = paymentBody.match(/(^|\n)\s*(?:[•\-\u2013\u2014*])?\s*terms?\s*&?\s*condition/i);
+    if (nextTc) {
+      const cutAt = nextTc.index + (nextTc[1] === '\n' ? 1 : 0);
+      beforeText = `${beforeText}\n${paymentBody.slice(cutAt)}`.trim();
+      paymentBody = paymentBody.slice(0, cutAt).trim();
+    }
+  }
+
+  const lines = beforeText
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '');
@@ -76,29 +201,368 @@ export function parseTermsSections(rawText) {
   const sections = [];
   let current = null;
 
-  const isLikelyHeader = (line) => {
+  const isSectionHeader = (line) => {
+    const bare = stripBullet(line);
+    if (isPaymentHeading(bare)) return false;
+    if (isNonPaymentTechnicalLine(bare)) return false;
+    if (isPaymentItemLine(bare)) return false;
     if (isBulletLine(line)) return false;
-    if (/^terms?\b/i.test(line) || /condition/i.test(line) || /^payment\s+terms/i.test(line)) {
+    if (/^terms?\b/i.test(bare) || /condition/i.test(bare)) return true;
+    // Short title-only lines (no long sentence after colon)
+    if (bare.length <= 70 && !/[.!?]$/.test(bare) && /^[A-Z]/.test(bare)) {
+      const afterColon = bare.includes(':') ? bare.split(':').slice(1).join(':').trim() : '';
+      if (afterColon.length > 20) return false;
       return true;
     }
-    if (line.length <= 90 && !/[.!?]$/.test(line) && /^[A-Z]/.test(line)) return true;
     return false;
   };
 
   for (const line of lines) {
-    if (isLikelyHeader(line)) {
-      current = { title: sanitizePdfText(line), items: [], isPayment: /^payment\s+terms/i.test(line) };
+    const bare = stripBullet(line);
+    if (isPaymentHeading(bare)) continue;
+
+    if (isSectionHeader(line)) {
+      current = { title: sanitizePdfText(bare), items: [], isPayment: false };
       sections.push(current);
       continue;
     }
+
     if (!current) {
       current = { title: 'Terms & Conditions', items: [], isPayment: false };
       sections.push(current);
     }
-    current.items.push(sanitizePdfText(stripBullet(line)));
+
+    // Payment points that appear outside the Payment Terms block still go there later
+    if (isPaymentItemLine(bare)) continue;
+
+    current.items.push(sanitizePdfText(bare));
   }
 
-  return sections;
+  let paymentItems = buildPaymentItemsFromBlock(paymentBody);
+
+  // Also collect any advance/balance lines left in T&C text (rare)
+  lines.forEach((line) => {
+    const bare = stripBullet(line);
+    if (!isPaymentItemLine(bare)) return;
+    const clean = sanitizePdfText(bare);
+    if (clean && !paymentItems.includes(clean)) paymentItems.push(clean);
+  });
+
+  // Optional dedicated payment field — only when it is real payment terms for this quotation
+  if (extraPaymentText && looksLikePaymentTermsContent(extraPaymentText)) {
+    buildPaymentItemsFromBlock(extraPaymentText).forEach((item) => {
+      if (!paymentItems.includes(item)) paymentItems.push(item);
+    });
+  }
+
+  const out = sections.filter((s) => (s.items && s.items.length) || s.title);
+  if (paymentItems.length) {
+    out.push({ title: 'Payment Terms', items: paymentItems, isPayment: true });
+  }
+  return out;
+}
+
+/**
+ * Parse Line Description into annexure table blocks.
+ * - Lines starting with ANNEXURE ... become the yellow title bar
+ * - Following lines become bordered description rows (continuations merge)
+ * Multiple ANNEXURE headings => multiple boxed sections (A, B, C...).
+ */
+export function parseAnnexureBlocks(rawText) {
+  const lines = String(rawText || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (!lines.length) return [];
+
+  const isAnnexureTitle = (line) => /^annexure\b/i.test(stripBullet(line));
+  const isNewPoint = (line) => {
+    const t = String(line || '').trim();
+    if (isAnnexureTitle(t)) return false;
+    if (/^([•\-\u2013\u2014*]|\d+[.)]|[A-Za-z][.)]|\(?[a-zA-Z0-9]+\)[.\s])\s*/.test(t)) return true;
+    const colon = t.indexOf(':');
+    if (colon > 2 && colon < 90 && t.slice(colon + 1).trim().length > 0) return true;
+    return false;
+  };
+
+  const blocks = [];
+  let current = null;
+
+  const ensureBlock = () => {
+    if (!current) {
+      current = { title: '', items: [] };
+      blocks.push(current);
+    }
+  };
+
+  lines.forEach((line) => {
+    const bare = stripBullet(line);
+    if (isAnnexureTitle(bare)) {
+      current = { title: sanitizePdfText(bare), items: [] };
+      blocks.push(current);
+      return;
+    }
+    ensureBlock();
+    const clean = sanitizePdfText(bare);
+    if (!clean) return;
+    if (current.items.length && !isNewPoint(line)) {
+      current.items[current.items.length - 1] = `${current.items[current.items.length - 1]} ${clean}`.trim();
+    } else {
+      current.items.push(clean);
+    }
+  });
+
+  return blocks.filter((b) => b.title || (b.items && b.items.length));
+}
+
+/** Split "Title: body" for bold title rendering inside annexure cells. */
+function splitAnnexureItemLabel(item) {
+  const text = sanitizePdfText(item);
+  const colon = text.indexOf(':');
+  if (colon > 1 && colon < 100) {
+    return {
+      label: text.slice(0, colon + 1).trim(),
+      body: text.slice(colon + 1).trim(),
+    };
+  }
+  // Letter prefixes like "A. Something" — bold letter+dot
+  const letter = text.match(/^([A-Za-z]\.|[A-Za-z]\))\s+(.*)$/);
+  if (letter) {
+    return { label: letter[1], body: letter[2] };
+  }
+  return { label: '', body: text };
+}
+
+/**
+ * Draw annexure blocks like the Indus demo:
+ * yellow title bar + bordered Sr.No / Description rows, bold labels.
+ */
+function drawAnnexureBlocks(doc, blocks, marginLeft, marginRight, contentW, contentTop, footerReserve, yPos, ensureSpace) {
+  let srCounter = 0;
+  const srColW = 14;
+  const descColW = contentW - srColW;
+  const pad = 2.4;
+  const lineH = 3.9;
+
+  const measureItemHeight = (item) => {
+    const { label, body } = splitAnnexureItemLabel(item);
+    doc.setFontSize(8);
+    if (label && body) {
+      doc.setFont('helvetica', 'bold');
+      const labelW = doc.getTextWidth(`${label} `);
+      doc.setFont('helvetica', 'normal');
+      const firstW = Math.max(20, descColW - pad * 2 - labelW);
+      const words = body.split(/\s+/).filter(Boolean);
+      let lines = 1;
+      let cur = '';
+      let useFirst = true;
+      words.forEach((w) => {
+        const cand = cur ? `${cur} ${w}` : w;
+        const limit = useFirst ? firstW : descColW - pad * 2;
+        if (doc.getTextWidth(cand) > limit && cur) {
+          lines += 1;
+          cur = w;
+          useFirst = false;
+        } else {
+          cur = cand;
+        }
+      });
+      return Math.max(11, lines * lineH + pad * 2);
+    }
+    doc.setFont('helvetica', 'normal');
+    const wrapped = doc.splitTextToSize(sanitizePdfText(item), descColW - pad * 2);
+    return Math.max(11, wrapped.length * lineH + pad * 2);
+  };
+
+  const drawYellowTitle = (title, atY) => {
+    const titleLines = doc.splitTextToSize(title, contentW - 6);
+    const titleH = Math.max(8, 4 + titleLines.length * 3.5);
+    doc.setFillColor(...COLORS.yellow);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.35);
+    doc.rect(marginLeft, atY, contentW, titleH, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...COLORS.black);
+    let ty = atY + 5;
+    titleLines.slice(0, 3).forEach((ln) => {
+      doc.text(ln, marginLeft + contentW / 2, ty, { align: 'center' });
+      ty += 3.5;
+    });
+    return atY + titleH;
+  };
+
+  blocks.forEach((block) => {
+    if (!block.items.length && !block.title) return;
+
+    if (block.title) {
+      yPos = ensureSpace(yPos, 16);
+      yPos = drawYellowTitle(block.title, yPos);
+    }
+
+    const items = block.items.length ? block.items : ['-'];
+
+    items.forEach((item) => {
+      srCounter += 1;
+      const drawH = measureItemHeight(item);
+
+      // New page when the full box does not fit
+      if (yPos + drawH > contentMaxY()) {
+        doc.addPage();
+        yPos = contentTop;
+        if (block.title) {
+          yPos = drawYellowTitle(block.title, yPos);
+        }
+      }
+
+      const boxY = yPos;
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.35);
+      doc.setFillColor(255, 255, 255);
+      doc.rect(marginLeft, boxY, srColW, drawH, 'FD');
+      doc.rect(marginLeft + srColW, boxY, descColW, drawH, 'FD');
+
+      // Sr. No.
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.black);
+      doc.text(String(srCounter), marginLeft + srColW / 2, boxY + pad + 3.6, { align: 'center' });
+
+      // Description
+      const { label, body } = splitAnnexureItemLabel(item);
+      let tx = marginLeft + srColW + pad;
+      let ty = boxY + pad + 3.4;
+      const maxW = descColW - pad * 2;
+
+      if (label && body) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        const labelText = `${label} `;
+        const labelW = doc.getTextWidth(labelText);
+        doc.text(labelText, tx, ty);
+
+        doc.setFont('helvetica', 'normal');
+        const words = body.split(/\s+/).filter(Boolean);
+        let line = '';
+        let first = true;
+        let avail = Math.max(20, maxW - labelW);
+
+        const flush = (isFirst) => {
+          if (!line) return;
+          doc.text(line, isFirst ? tx + labelW : tx, ty);
+          ty += lineH;
+          line = '';
+          avail = maxW;
+        };
+
+        words.forEach((word) => {
+          const candidate = line ? `${line} ${word}` : word;
+          if (doc.getTextWidth(candidate) > avail && line) {
+            flush(first);
+            first = false;
+            line = word;
+          } else {
+            line = candidate;
+          }
+        });
+        if (line) flush(first);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.splitTextToSize(sanitizePdfText(item), maxW).forEach((ln) => {
+          doc.text(ln, tx, ty);
+          ty += lineH;
+        });
+      }
+
+      yPos = boxY + drawH;
+    });
+
+    yPos += 3;
+  });
+
+  return yPos;
+}
+
+
+function drawPaymentTermsBlock(doc, items, marginLeft, contentW, yPos, ensureSpace) {
+  yPos = ensureSpace(yPos, 22);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(...COLORS.black);
+  doc.text('Payment Terms:', marginLeft, yPos);
+  yPos += 5.5;
+
+  const bulletX = marginLeft;
+  const textX = marginLeft + 4;
+  const textW = contentW - 4;
+
+  items.forEach((rawItem) => {
+    const item = sanitizePdfText(rawItem);
+    if (!item) return;
+    yPos = ensureSpace(yPos, 10);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text('-', bulletX, yPos);
+
+    const colonIdx = item.indexOf(':');
+    const hasLabel = colonIdx > 0 && colonIdx < 55;
+    const label = hasLabel ? item.slice(0, colonIdx + 1).trim() : '';
+    const rest = hasLabel ? item.slice(colonIdx + 1).trim() : item;
+
+    if (hasLabel && rest) {
+      doc.setFont('helvetica', 'bold');
+      const labelText = `${label} `;
+      doc.text(labelText, textX, yPos);
+      const labelW = doc.getTextWidth(labelText);
+      doc.setFont('helvetica', 'normal');
+
+      // First line continues after bold label; remaining lines full width under textX
+      const words = rest.split(/\s+/).filter(Boolean);
+      let line = '';
+      let x = textX + labelW;
+      let avail = textW - labelW;
+
+      const flush = (isFirst) => {
+        if (!line) return;
+        doc.text(line, isFirst ? textX + labelW : textX, yPos);
+        yPos += 4.2;
+        yPos = ensureSpace(yPos, 5);
+        line = '';
+        x = textX;
+        avail = textW;
+      };
+
+      let first = true;
+      words.forEach((word) => {
+        const candidate = line ? `${line} ${word}` : word;
+        if (doc.getTextWidth(candidate) > avail && line) {
+          flush(first);
+          first = false;
+          line = word;
+        } else {
+          line = candidate;
+        }
+      });
+      if (line) {
+        doc.text(line, first ? textX + labelW : textX, yPos);
+        yPos += 4.2;
+      }
+    } else {
+      const wrapped = doc.splitTextToSize(item, textW);
+      wrapped.forEach((ln, i) => {
+        if (i > 0) yPos = ensureSpace(yPos, 5);
+        doc.text(ln, textX, yPos);
+        yPos += 4.2;
+      });
+    }
+    yPos += 1.8;
+  });
+
+  return yPos + 2;
 }
 
 function drawBrandHeader(doc, logoBase64) {
@@ -444,14 +908,19 @@ export function buildMarketingInternalQuotationPdf(opts) {
   doc.line(marginLeft, yPos + 1.2, marginLeft + tcW, yPos + 1.2);
   yPos += 6;
 
-  const allSections = parseTermsSections(formData?.terms_and_conditions || '');
+  const { termsText, extraPaymentText } = resolveQuotationTermsSources(formData, quotation);
+  const allSections = parseTermsSections(termsText, extraPaymentText);
   const paymentSections = allSections.filter((s) => s.isPayment);
   const termSections = allSections.filter((s) => !s.isPayment);
 
   termSections.forEach((section) => {
-    if (!section.items.length && !section.title) return;
+    // Remove stray empty "Payment Terms" rows from yellow boxes
+    const bodyItems = (section.items || []).filter(
+      (item) => !/^payment\s+terms\s*:?\s*$/i.test(String(item || '').trim())
+    );
+    if (!bodyItems.length && !section.title) return;
     yPos = ensureSpace(yPos, 18);
-    const bodyRows = (section.items.length ? section.items : ['-']).map((item) => [item]);
+    const bodyRows = (bodyItems.length ? bodyItems : ['-']).map((item) => [item]);
     autoTable(doc, {
       startY: yPos,
       head: [[section.title]],
@@ -490,29 +959,12 @@ export function buildMarketingInternalQuotationPdf(opts) {
     yPos = (doc.lastAutoTable?.finalY || yPos) + 5;
   });
 
-  // --- Payment terms (bullets, demo style) ---
-  if (paymentSections.length) {
-    yPos = ensureSpace(yPos, 20);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('Payment Terms:', marginLeft, yPos);
-    yPos += 5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    paymentSections.forEach((sec) => {
-      sec.items.forEach((item) => {
-        yPos = ensureSpace(yPos, 10);
-        const bullet = `- ${item}`;
-        const wrapped = doc.splitTextToSize(bullet, contentW - 2);
-        wrapped.forEach((ln) => {
-          yPos = ensureSpace(yPos, 5);
-          doc.text(ln, marginLeft, yPos);
-          yPos += 4;
-        });
-        yPos += 1;
-      });
-    });
-    yPos += 3;
+  // --- Payment terms (after all yellow T&C boxes, demo bullet style) ---
+  const paymentItems = paymentSections.flatMap((s) => s.items || []);
+  if (paymentItems.length) {
+    // Prefer a fresh page so Payment Terms sits cleanly like the demo
+    yPos = ensureSpace(yPos, 36);
+    yPos = drawPaymentTermsBlock(doc, paymentItems, marginLeft, contentW, yPos, ensureSpace);
   }
 
   // --- Closing ---
@@ -554,6 +1006,32 @@ export function buildMarketingInternalQuotationPdf(opts) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.text('Authorized Signatory', marginLeft, yPos);
+  yPos += 8;
+
+  // --- Annexure tables (only Line Description / Annexure Template data) ---
+  const annexureBlocks = parseAnnexureBlocks(
+    formData?.annexure_description || quotation?.annexure_description || ''
+  );
+
+  if (annexureBlocks.length) {
+    yPos = ensureSpace(yPos, 20);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.35);
+    doc.line(marginLeft, yPos, PAGE_W - marginRight, yPos);
+    yPos += 5;
+
+    yPos = drawAnnexureBlocks(
+      doc,
+      annexureBlocks,
+      marginLeft,
+      marginRight,
+      contentW,
+      contentTop,
+      footerReserve,
+      yPos,
+      ensureSpace
+    );
+  }
 
   applyChromeToAllPages(doc, logoBase64);
   return doc;
