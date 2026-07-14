@@ -24,6 +24,9 @@ const REPLACEMENTS = [
   [/\u00E6|\u00C6/g, 'ae'],
   [/\u0153|\u0152/g, 'oe'],
   [/\u0192/g, 'f'],
+  // Common mojibake / Word paste that broke Helvetica PDFs into "ð" / "Â" glitches
+  [/\u00F0|\u00D0/g, ''],
+  [/\u00C2|\u00A2/g, ''],
 ];
 
 function decodeHtmlEntities(text) {
@@ -54,7 +57,7 @@ export function sanitizePdfText(text) {
     out = out.replace(pattern, replacement);
   });
   out = out.replace(/\s+/g, ' ').trim();
-  // Keep printable ASCII + common Latin-1; replace other chars
-  out = out.replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, ' ');
+  // Helvetica WinAnsi: keep printable ASCII only (avoids garbled ð / Â junk on PDF pages)
+  out = out.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' ');
   return out.replace(/\s+/g, ' ').trim();
 }
