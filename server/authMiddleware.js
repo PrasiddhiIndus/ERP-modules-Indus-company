@@ -26,7 +26,12 @@ function projectRefFromJwt(token) {
     const parts = String(token || '').split('.');
     if (parts.length < 2) return '';
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    return String(payload?.ref || '').trim();
+    const fromRef = String(payload?.ref || '').trim();
+    if (fromRef) return fromRef;
+    // Access tokens often omit `ref`; iss is https://<project>.supabase.co/auth/v1
+    const iss = String(payload?.iss || '').trim();
+    const fromIss = iss.match(/https?:\/\/([^.]+)\.supabase\.co/i);
+    return fromIss ? fromIss[1] : '';
   } catch {
     return '';
   }

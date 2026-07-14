@@ -351,6 +351,21 @@ export function EmployeeAttendanceInputsPage() {
         });
         return;
       }
+      const healthWarning = String(health.data?.warning || "").trim();
+      const serviceRoleBad = health.data?.service_role_key === "missing_or_invalid";
+      if (healthWarning || serviceRoleBad) {
+        setApiConnection({
+          checking: false,
+          reachable: true,
+          etimeConfigured: false,
+          message:
+            healthWarning ||
+            "Attendance sync API is not linked to the same login environment as this website. Ask an administrator to fix the production API Supabase URL and service role key, then restart the API.",
+          baseUrl: "",
+          punchEndpoint: "",
+        });
+        return;
+      }
       const status = await fetchAttendanceApiStatus();
       if (cancelled) return;
       if (status.status === 401 || status.status === 403) {
