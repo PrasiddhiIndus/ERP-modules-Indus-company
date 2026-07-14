@@ -83,11 +83,19 @@ function getSupabaseProjectRefFromJwt(token) {
     const parts = String(token || '').split('.');
     if (parts.length < 2) return '';
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    return String(payload?.ref || '').trim();
+    const fromRef = String(payload?.ref || '').trim();
+    if (fromRef) return fromRef;
+    const iss = String(payload?.iss || '').trim();
+    const fromIss = iss.match(/https?:\/\/([^.]+)\.supabase\.co/i);
+    return fromIss ? fromIss[1] : '';
   } catch {
     return '';
   }
 }
+
+/** Live website (indus-erp.in) — must never share the staging Supabase project. */
+const PRODUCTION_SUPABASE_PROJECT_REF = 'wbyzhknaqcjqqtwopupl';
+const STAGING_SUPABASE_PROJECT_REF = 'xjzhlbpgnpcmbdlufhwo';
 
 function serviceRoleMatchesUrl(url, svcKey) {
   if (!url || !svcKey || !isSupabaseServiceRoleKey(svcKey)) return false;
@@ -784,21 +792,35 @@ app.get('/api/health', (_req, res) => {
   const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
   const anonKey = getSupabaseAnonKeyForServer();
   const projectRef = getSupabaseProjectRefFromUrl(supabaseUrl);
+  const erpEnv = String(process.env.ERP_ENV || '').toLowerCase() || null;
+  const corsHasProductionSite = corsOrigins.some((o) => /indus-erp\.in/i.test(o));
+  const projectMismatchWarning =
+    corsHasProductionSite && projectRef === STAGING_SUPABASE_PROJECT_REF
+      ? 'API CORS includes indus-erp.in but SUPABASE_URL is the staging project. Fix .env.server SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to production (wbyzhknaqcjqqtwopupl) and restart.'
+      : corsHasProductionSite &&
+          projectRef &&
+          projectRef !== PRODUCTION_SUPABASE_PROJECT_REF
+        ? `API CORS includes indus-erp.in but SUPABASE_URL project is "${projectRef}" (expected ${PRODUCTION_SUPABASE_PROJECT_REF}).`
+        : null;
   // Always expose non-secret readiness flags (needed to debug prod vs local auth mismatches).
   const body = {
     ok: true,
     service: 'indus-erp-api',
+    erp_env: erpEnv,
     supabase_project: projectRef || null,
     supabase_url: supabaseUrl ? 'set' : 'missing',
     service_role_key: isSupabaseServiceRoleKey(serviceRoleKey) ? 'ok' : 'missing_or_invalid',
     anon_key: anonKey ? 'set' : 'missing',
+    warning: projectMismatchWarning,
   };
   if (IS_PRODUCTION) {
     return res.json({
       ok: true,
       service: body.service,
+      erp_env: body.erp_env,
       supabase_project: body.supabase_project,
       service_role_key: body.service_role_key,
+      warning: body.warning,
     });
   }
   return res.json(body);
@@ -1477,9 +1499,10 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
     }`
   );
   const supabaseRef = getSupabaseProjectRefFromUrl(getSupabaseUrlForServer());
+  const erpEnvLabel = String(process.env.ERP_ENV || '').toLowerCase();
   if (supabaseRef) {
     // eslint-disable-next-line no-console
-    console.log(`[server] Supabase project: ${supabaseRef}${String(process.env.ERP_ENV || '').toLowerCase() === 'staging' ? ' (staging)' : ''}`);
+    console.log(`[server] Supabase project: ${supabaseRef}${erpEnvLabel === 'staging' ? ' (staging)' : ''}`);
   }
   const rawSvc = normalizeEnvValue(
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -1490,6 +1513,15 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
     // eslint-disable-next-line no-console
     console.warn(
       `[server] SUPABASE_SERVICE_ROLE_KEY project (${getSupabaseProjectRefFromJwt(rawSvc) || '?'}) does not match SUPABASE_URL (${supabaseRef || '?'}). Key ignored — fix .env.server and restart.`
+    );
+  }
+  const corsHasProductionSite = corsOrigins.some((o) => /indus-erp\.in/i.test(o));
+  if (corsHasProductionSite && supabaseRef === STAGING_SUPABASE_PROJECT_REF) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[server] CRITICAL: CORS allows indus-erp.in but SUPABASE_URL is staging (${STAGING_SUPABASE_PROJECT_REF}). ` +
+        `Raw Attendance /admin APIs will 401 for production logins. Set SUPABASE_URL=https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co ` +
+        `and matching SUPABASE_SERVICE_ROLE_KEY in .env.server, unset ERP_ENV=staging if set, then restart.`
     );
   }
   try {
