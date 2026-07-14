@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
-import { ArrowLeft } from "lucide-react";
+
+const TEMPLATE_TYPES = ["Subject", "Terms & Condition", "Annexure"];
+
+const emptyForm = () => ({
+  name: "",
+  template_type: "Subject",
+  subject_title: "",
+  subject_content: "",
+  terms_and_conditions: "",
+  annexure_description: "",
+});
 
 const QuotationTemplatePage = () => {
-  const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -12,15 +20,8 @@ const QuotationTemplatePage = () => {
   const [isViewMode, setIsViewMode] = useState(false);
   const [editId, setEditId] = useState(null);
 
-  const [formData, setFormData] = useState({
-    name: "",
-    template_type: "Subject",
-    subject_title: "",
-    subject_content: "",
-    terms_and_conditions: "",
-  });
+  const [formData, setFormData] = useState(emptyForm);
 
-  // Load templates from database
   useEffect(() => {
     loadTemplates();
   }, []);
@@ -28,8 +29,11 @@ const QuotationTemplatePage = () => {
   const loadTemplates = async () => {
     setLoading(true);
     try {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
       if (userError) {
         console.error("User error:", userError);
         alert("Authentication error. Please login again.");
@@ -37,7 +41,6 @@ const QuotationTemplatePage = () => {
         return;
       }
 
-      // Load templates from marketing_mail_templates table
       const { data, error } = await supabase
         .from("marketing_mail_templates")
         .select("*")
@@ -45,14 +48,19 @@ const QuotationTemplatePage = () => {
 
       if (error) {
         console.error("Query error:", error);
-        if (error.message.includes("marketing_mail_templates") && error.message.includes("schema cache")) {
-          alert("⚠️ Table 'marketing_mail_templates' not found!\n\nPlease run the SQL migration file:\n'marketing_mail_templates_schema.sql'\n\nin your Supabase SQL Editor to create the table.");
+        if (
+          error.message.includes("marketing_mail_templates") &&
+          error.message.includes("schema cache")
+        ) {
+          alert(
+            "⚠️ Table 'marketing_mail_templates' not found!\n\nPlease run the SQL migration file:\n'marketing_mail_templates_schema.sql'\n\nin your Supabase SQL Editor to create the table."
+          );
         } else {
           alert("Error loading templates: " + error.message);
         }
         throw error;
       }
-      
+
       setTemplates(data || []);
     } catch (err) {
       console.error("Error loading templates:", err);
@@ -63,16 +71,23 @@ const QuotationTemplatePage = () => {
   };
 
   const resetForm = () => {
-    setFormData({
-      name: "",
-      template_type: "Subject",
-      subject_title: "",
-      subject_content: "",
-      terms_and_conditions: "",
-    });
+    setFormData(emptyForm());
     setEditId(null);
     setIsViewMode(false);
   };
+
+  const toFormState = (template) => ({
+    name: template.name || "",
+    template_type: template.template_type || "Subject",
+    subject_title: template.subject_title || "",
+    subject_content: template.subject_content || "",
+    terms_and_conditions: template.terms_and_conditions || "",
+    // Annexure description is stored in subject_content
+    annexure_description:
+      template.template_type === "Annexure"
+        ? template.subject_content || template.terms_and_conditions || ""
+        : "",
+  });
 
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this template?")) return;
@@ -94,15 +109,41 @@ const QuotationTemplatePage = () => {
     }
   };
 
+  const buildPayloadFields = () => {
+    if (formData.template_type === "Subject") {
+      return {
+        subject_title: formData.subject_title || null,
+        subject_content: formData.subject_content || null,
+        terms_and_conditions: null,
+      };
+    }
+    if (formData.template_type === "Terms & Condition") {
+      return {
+        subject_title: null,
+        subject_content: null,
+        terms_and_conditions: formData.terms_and_conditions || null,
+      };
+    }
+    // Annexure — single description (stored in subject_content)
+    return {
+      subject_title: null,
+      subject_content: formData.annexure_description || null,
+      terms_and_conditions: null,
+    };
+  };
+
   const handleSave = async () => {
     if (!formData.name) return alert("Name is required");
-    
-    // Validate based on template type
+
     if (formData.template_type === "Subject") {
       if (!formData.subject_title) return alert("Subject Title is required for Subject Template");
       if (!formData.subject_content) return alert("Subject Content is required for Subject Template");
     } else if (formData.template_type === "Terms & Condition") {
       if (!formData.terms_and_conditions) return alert("Terms and Conditions content is required");
+    } else if (formData.template_type === "Annexure") {
+      if (!formData.annexure_description?.trim()) {
+        return alert("Description is required for Annexure Template");
+      }
     }
 
     try {
@@ -116,24 +157,16 @@ const QuotationTemplatePage = () => {
         return;
       }
 
+      const typeFields = buildPayloadFields();
+
       if (editId) {
-        // Update existing template
         const updateData = {
           name: formData.name,
           template_type: formData.template_type,
           updated_at: new Date().toISOString(),
           updated_by: user.id,
+          ...typeFields,
         };
-
-        if (formData.template_type === "Subject") {
-          updateData.subject_title = formData.subject_title || null;
-          updateData.subject_content = formData.subject_content || null;
-          updateData.terms_and_conditions = null;
-        } else {
-          updateData.terms_and_conditions = formData.terms_and_conditions || null;
-          updateData.subject_title = null;
-          updateData.subject_content = null;
-        }
 
         const { data: updatedData, error } = await supabase
           .from("marketing_mail_templates")
@@ -144,26 +177,15 @@ const QuotationTemplatePage = () => {
 
         if (error) throw error;
 
-        setTemplates(
-          templates.map((t) =>
-            t.id === editId ? updatedData : t
-          )
-        );
+        setTemplates(templates.map((t) => (t.id === editId ? updatedData : t)));
       } else {
-        // Add new template
         const insertData = {
           name: formData.name,
           template_type: formData.template_type,
           created_by: user.id,
           updated_by: user.id,
+          ...typeFields,
         };
-
-        if (formData.template_type === "Subject") {
-          insertData.subject_title = formData.subject_title || null;
-          insertData.subject_content = formData.subject_content || null;
-        } else {
-          insertData.terms_and_conditions = formData.terms_and_conditions || null;
-        }
 
         const { data, error } = await supabase
           .from("marketing_mail_templates")
@@ -187,16 +209,38 @@ const QuotationTemplatePage = () => {
   };
 
   const handleEdit = (template) => {
-    setFormData(template);
+    setFormData(toFormState(template));
     setEditId(template.id);
     setIsFormOpen(true);
     setIsViewMode(false);
   };
 
   const handleView = (template) => {
-    setFormData(template);
+    setFormData(toFormState(template));
     setIsFormOpen(true);
     setIsViewMode(true);
+  };
+
+  const previewText = (t) => {
+    if (t.template_type === "Subject") return t.subject_title || "N/A";
+    if (t.template_type === "Terms & Condition") {
+      return t.terms_and_conditions?.substring(0, 50) || "N/A";
+    }
+    if (t.template_type === "Annexure") {
+      return (
+        t.subject_content?.substring(0, 80) ||
+        t.terms_and_conditions?.substring(0, 80) ||
+        "N/A"
+      );
+    }
+    return "N/A";
+  };
+
+  const typeBadgeClass = (type) => {
+    if (type === "Subject") return "bg-green-100 text-green-800";
+    if (type === "Terms & Condition") return "bg-orange-100 text-orange-800";
+    if (type === "Annexure") return "bg-blue-100 text-blue-800";
+    return "bg-gray-100 text-gray-800";
   };
 
   return (
@@ -227,7 +271,7 @@ const QuotationTemplatePage = () => {
                   <tr className="bg-gray-100 text-left">
                     <th className="px-4 py-2 border">Name</th>
                     <th className="px-4 py-2 border">Template Type</th>
-                    <th className="px-4 py-2 border">Subject</th>
+                    <th className="px-4 py-2 border">Preview</th>
                     <th className="px-4 py-2 border">Actions</th>
                   </tr>
                 </thead>
@@ -243,15 +287,15 @@ const QuotationTemplatePage = () => {
                       <tr key={t.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2 border">{t.name}</td>
                         <td className="px-4 py-2 border">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            t.template_type === "Subject" ? "bg-green-100 text-green-800" :
-                            t.template_type === "Terms & Condition" ? "bg-orange-100 text-orange-800" :
-                            "bg-gray-100 text-gray-800"
-                          }`}>
+                          <span
+                            className={`px-2 py-1 rounded text-xs font-medium ${typeBadgeClass(
+                              t.template_type
+                            )}`}
+                          >
                             {t.template_type || "N/A"}
                           </span>
                         </td>
-                        <td className="px-4 py-2 border">{t.subject_title || t.terms_and_conditions?.substring(0, 50) || "N/A"}</td>
+                        <td className="px-4 py-2 border">{previewText(t)}</td>
                         <td className="px-4 py-2 border">
                           <div className="flex gap-2">
                             <button
@@ -288,16 +332,13 @@ const QuotationTemplatePage = () => {
             {isViewMode
               ? `View ${formData.template_type} Template`
               : editId
-              ? `Edit ${formData.template_type} Template`
-              : `New ${formData.template_type} Template`}
+                ? `Edit ${formData.template_type} Template`
+                : `New ${formData.template_type} Template`}
           </h3>
-          
-          {/* Template Type Indicator */}
+
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
             <div className="flex items-center">
-              <span className="text-sm font-medium text-red-800">
-                Template Type: 
-              </span>
+              <span className="text-sm font-medium text-red-800">Template Type:</span>
               <span className="ml-2 px-2 py-1 bg-red-100 text-red-800 rounded text-sm font-medium">
                 {formData.template_type}
               </span>
@@ -309,9 +350,7 @@ const QuotationTemplatePage = () => {
             <input
               type="text"
               value={formData.name}
-              onChange={(e) =>
-                setFormData({ ...formData, name: e.target.value })
-              }
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               disabled={isViewMode}
               className="w-full border rounded px-3 py-2"
             />
@@ -322,31 +361,32 @@ const QuotationTemplatePage = () => {
             <select
               value={formData.template_type}
               onChange={(e) =>
-                setFormData({ 
-                  ...formData, 
+                setFormData({
+                  ...emptyForm(),
+                  name: formData.name,
                   template_type: e.target.value,
-                  subject_title: "",
-                  subject_content: "",
-                  terms_and_conditions: ""
                 })
               }
               disabled={isViewMode}
               className="w-full border rounded px-3 py-2"
             >
-              <option value="Subject">Subject</option>
-              <option value="Terms & Condition">Terms & Condition</option>
+              {TEMPLATE_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
             </select>
           </div>
 
-          {/* Subject Template Fields */}
           {formData.template_type === "Subject" && (
             <>
               <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-sm text-green-800">
-                  <strong>Subject Template:</strong> This template will be used to populate the Subject Title and Subject Content fields in internal quotations.
+                  <strong>Subject Template:</strong> Used for Subject Title and Subject Content
+                  on internal quotations.
                 </p>
               </div>
-              
+
               <div className="mb-4">
                 <label className="block mb-1">Subject Title *</label>
                 <input
@@ -359,9 +399,8 @@ const QuotationTemplatePage = () => {
                   className="w-full border rounded px-3 py-2"
                   placeholder="Enter subject title/header"
                 />
-                <p className="text-xs text-gray-500 mt-1">This will populate the Subject Title field in quotations</p>
               </div>
-              
+
               <div className="mb-4">
                 <label className="block mb-1">Subject Content *</label>
                 <textarea
@@ -374,20 +413,19 @@ const QuotationTemplatePage = () => {
                   className="w-full border rounded px-3 py-2"
                   placeholder="Enter subject content/description"
                 />
-                <p className="text-xs text-gray-500 mt-1">This will populate the Subject (description) field in quotations</p>
               </div>
             </>
           )}
 
-          {/* Terms & Conditions Template Fields */}
           {formData.template_type === "Terms & Condition" && (
             <>
               <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
                 <p className="text-sm text-orange-800">
-                  <strong>Terms & Conditions Template:</strong> This template will be used to populate the Terms and Conditions field in quotations.
+                  <strong>Terms & Conditions Template:</strong> Used for Terms and Conditions on
+                  quotations.
                 </p>
               </div>
-              
+
               <div className="mb-4">
                 <label className="block mb-1">Terms and Conditions *</label>
                 <textarea
@@ -400,7 +438,34 @@ const QuotationTemplatePage = () => {
                   className="w-full border rounded px-3 py-2"
                   placeholder="Enter terms and conditions content"
                 />
-                <p className="text-xs text-gray-500 mt-1">This will populate the Terms and Conditions field in quotations</p>
+              </div>
+            </>
+          )}
+
+          {formData.template_type === "Annexure" && (
+            <>
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Annexure Template:</strong> Only a description line is required. Create,
+                  edit, and delete annexure text the same way as other templates.
+                </p>
+              </div>
+
+              <div className="mb-4">
+                <label className="block mb-1">Description *</label>
+                <textarea
+                  value={formData.annexure_description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, annexure_description: e.target.value })
+                  }
+                  disabled={isViewMode}
+                  rows={6}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder={'ANNEXURE "A" - Civil Work (SOW)\n1. First point description...\n2. Second point description...\n\nANNEXURE "B" - Technical Specification\n1. Spec details...'}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Only the description is saved for this template type.
+                </p>
               </div>
             </>
           )}
@@ -431,4 +496,3 @@ const QuotationTemplatePage = () => {
 };
 
 export default QuotationTemplatePage;
-

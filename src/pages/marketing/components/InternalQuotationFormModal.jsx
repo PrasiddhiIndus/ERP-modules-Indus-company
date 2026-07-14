@@ -27,8 +27,10 @@ const InternalQuotationFormModal = ({
   const [templates, setTemplates] = useState([]);
   const [subjectTemplates, setSubjectTemplates] = useState([]);
   const [termsTemplates, setTermsTemplates] = useState([]);
+  const [annexureTemplates, setAnnexureTemplates] = useState([]);
   const [selectedSubjectTemplate, setSelectedSubjectTemplate] = useState('');
   const [selectedTermsTemplate, setSelectedTermsTemplate] = useState('');
+  const [selectedAnnexureTemplate, setSelectedAnnexureTemplate] = useState('');
   const [loading, setLoading] = useState(false);
   const [signatureSrc, setSignatureSrc] = useState(null);
   const [signatureFile, setSignatureFile] = useState(null);
@@ -41,6 +43,8 @@ const InternalQuotationFormModal = ({
     subject_title: '',
     subject: '',
     terms_and_conditions: '',
+    payment_terms: '',
+    annexure_description: '',
     gst_percentage: 18,
     gst_type: 'IGST',
     signed_by: '',
@@ -150,9 +154,13 @@ const InternalQuotationFormModal = ({
       const termsTemps = (templatesData || []).filter(t => 
         t.template_type === 'Terms & Condition'
       );
+      const annexureTemps = (templatesData || []).filter(t =>
+        t.template_type === 'Annexure'
+      );
 
       setSubjectTemplates(subjectTemps);
       setTermsTemplates(termsTemps);
+      setAnnexureTemplates(annexureTemps);
       setTemplates(templatesData || []);
     } catch (error) {
       console.error('Error fetching templates:', error);
@@ -198,6 +206,8 @@ const InternalQuotationFormModal = ({
         subject_title: quotationData.subject_title || quotationData.subject || '',
         subject: quotationData.subject || '',
         terms_and_conditions: quotationData.terms_and_conditions || '',
+        payment_terms: quotationData.payment_terms || '',
+        annexure_description: quotationData.annexure_description || '',
         gst_percentage: quotationData.gst_percentage || 18,
         gst_type: quotationData.gst_type || 'IGST',
         signed_by: quotationData.signed_by || '',
@@ -270,6 +280,19 @@ const InternalQuotationFormModal = ({
       setFormData({
         ...formData,
         terms_and_conditions: template.terms_and_conditions || '',
+      });
+    }
+  };
+
+  const handleAnnexureTemplateChange = (templateId) => {
+    setSelectedAnnexureTemplate(templateId);
+    const template = annexureTemplates.find((t) => t.id === templateId);
+    if (template) {
+      // Annexure description is stored in subject_content on mail templates
+      setFormData({
+        ...formData,
+        annexure_description:
+          template.subject_content || template.terms_and_conditions || '',
       });
     }
   };
@@ -465,6 +488,20 @@ const InternalQuotationFormModal = ({
           console.log('signed_by update skipped (field may not exist in schema):', e);
         }
       }
+
+      // annexure_description (run migration if missing)
+      try {
+        const { error: annexureError } = await supabase
+          .from('marketing_quotations')
+          .update({ annexure_description: formData.annexure_description || null })
+          .eq('id', quotationId);
+
+        if (annexureError) {
+          console.log('Warning: annexure_description field may not exist in schema:', annexureError);
+        }
+      } catch (e) {
+        console.log('annexure_description update skipped (field may not exist in schema):', e);
+      }
       
       // signature_path (may not exist in schema)
       if (signaturePath || signatureRemoved) {
@@ -516,12 +553,15 @@ const InternalQuotationFormModal = ({
       subject_title: '',
       subject: '',
       terms_and_conditions: '',
+      payment_terms: '',
+      annexure_description: '',
       gst_percentage: 18,
       gst_type: 'IGST',
       signed_by: '',
     });
     setSelectedSubjectTemplate('');
     setSelectedTermsTemplate('');
+    setSelectedAnnexureTemplate('');
     
     // Clean up blob URLs before clearing state
     if (signatureSrc && signatureSrc.startsWith('blob:')) {
@@ -585,7 +625,14 @@ const InternalQuotationFormModal = ({
     return buildMarketingInternalQuotationPdf({
       quotation,
       client,
-      formData: { ...formData, final_amount: finalAmount },
+      formData: {
+        ...formData,
+        // Always bind PDF terms to this open quotation (+ any unsaved form edits)
+        terms_and_conditions:
+          formData.terms_and_conditions || quotation?.terms_and_conditions || '',
+        payment_terms: formData.payment_terms || quotation?.payment_terms || '',
+        final_amount: finalAmount,
+      },
       costingTableItems,
       costingData,
       getCostingValue,
@@ -1030,6 +1077,53 @@ const InternalQuotationFormModal = ({
                       </div>
                     ) : null}
                   </div>
+                </div>
+              </div>
+
+              {/* Annexure — below Signature */}
+              <div className="mb-6 pt-6 border-t border-gray-200">
+                <h3 className="text-sm font-medium text-gray-700 mb-4">Annexure</h3>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Annexure Template
+                  </label>
+                  <select
+                    value={selectedAnnexureTemplate}
+                    onChange={(e) => handleAnnexureTemplateChange(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Select Annexure Template</option>
+                    {annexureTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Templates from Marketing Mail Templates (type: Annexure)
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Line Description
+                  </label>
+                  <textarea
+                    value={formData.annexure_description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, annexure_description: e.target.value })
+                    }
+                    rows={5}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    placeholder={'ANNEXURE "A" - Civil Work (SOW)\n1. Dismantling of Roof Concrete: ...\n2. Next point...'}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Selecting a template fills this box; you can edit it anytime. For the PDF yellow
+                    title, start a block with a line like{" "}
+                    <span className="font-medium text-gray-700">
+                      ANNEXURE &quot;A&quot; - Civil Work (SOW)
+                    </span>
+                    , then put each point on its own line.
+                  </p>
                 </div>
               </div>
 
