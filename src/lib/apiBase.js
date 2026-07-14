@@ -82,18 +82,7 @@ export async function fetchApiHealth(options = {}) {
   }
 }
 
-/** Authenticated fetch to the Node API (Bearer JWT from current session). */
-export async function fetchApiWithAuth(path, options = {}) {
-  const token = await getAdminApiAccessToken(supabase);
-  if (!token) {
-    return {
-      ok: false,
-      status: 401,
-      data: {},
-      error: 'Not signed in. Sign in again to use the API.',
-    };
-  }
-
+async function fetchApiWithBearer(path, token, options = {}) {
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 60_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -125,6 +114,31 @@ export async function fetchApiWithAuth(path, options = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Authenticated fetch to the Node API (Bearer JWT from current session). */
+export async function fetchApiWithAuth(path, options = {}) {
+  const token = await getAdminApiAccessToken(supabase);
+  if (!token) {
+    return {
+      ok: false,
+      status: 401,
+      data: {},
+      error: 'Not signed in. Sign in again to use the API.',
+    };
+  }
+
+  let result = await fetchApiWithBearer(path, token, options);
+
+  // Stale cached JWT can look valid client-side but fail server getUser (same as e-invoice).
+  if (result.status === 401) {
+    const refreshed = await getAdminApiAccessToken(supabase, { forceRefresh: true });
+    if (refreshed && refreshed !== token) {
+      result = await fetchApiWithBearer(path, refreshed, options);
+    }
+  }
+
+  return result;
 }
 
 /** eTimeOffice proxy config on the server (no secrets). */
