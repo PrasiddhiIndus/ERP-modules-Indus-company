@@ -1,6 +1,8 @@
 /**
  * eTimeOffice attendance fetch, normalization, overlap sync → erp_attendance_punches.
  */
+import https from 'node:https';
+import { URL } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import {
   ATTENDANCE_PUNCH_TABLE,
@@ -15,6 +17,8 @@ import {
   normalizeDbTime,
   splitIsoDateRange,
 } from '../shared/attendancePunchSync.mjs';
+
+const etimeHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 8 });
 
 export class HttpError extends Error {
   constructor(status, message, details = {}) {
@@ -75,10 +79,17 @@ export function normalizeEtimeDate(value, endOfDay = false) {
 
 export function formatEtimeNetworkError(err) {
   const code = err?.cause?.code || err?.code || '';
-  if (err?.name === 'AbortError') {
+  if (err?.name === 'AbortError' || code === 'ETIME_ABORT') {
     return 'eTimeOffice request timed out. Try a shorter date range or increase ETIME_TIMEOUT_MS.';
   }
-  if (code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ENOTFOUND' || code === 'ECONNREFUSED') {
+  if (
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ENOTFOUND' ||
+    code === 'ECONNREFUSED' ||
+    code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    code === 'ETIME_CONNECT_TIMEOUT'
+  ) {
     return [
       `Cannot reach eTimeOffice API (${code || 'network error'}).`,
       'Check internet access, firewall, and VPN.',
@@ -87,6 +98,100 @@ export function formatEtimeNetworkError(err) {
     ].join(' ');
   }
   return `eTimeOffice network error: ${err?.message || String(err)}`;
+}
+
+function isTransientEtimeNetworkError(err) {
+  const code = err?.cause?.code || err?.code || '';
+  // Do not retry AbortError / full ETIME_TIMEOUT_MS aborts — that would multiply wait time.
+  if (err?.name === 'AbortError' || code === 'ETIME_ABORT') return false;
+  return (
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNREFUSED' ||
+    code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    code === 'ETIME_CONNECT_TIMEOUT' ||
+    /fetch failed|Connect Timeout/i.test(String(err?.message || ''))
+  );
+}
+
+/**
+ * HTTPS GET for eTimeOffice. Avoids Node undici fetch's default 10s connect timeout,
+ * which fails often when api.etimeoffice.com (Cloudflare) is slow to accept TCP.
+ */
+function httpsGetEtime(urlString, { headers, timeoutMs, signal }) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlString);
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+    const succeed = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const req = https.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: `${url.pathname}${url.search}`,
+        method: 'GET',
+        headers,
+        agent: etimeHttpsAgent,
+        // Prefer IPv4 — dual-stack can hang past undici's old 10s connect timeout.
+        family: 4,
+        servername: url.hostname,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const status = Number(res.statusCode) || 0;
+          succeed({
+            ok: status >= 200 && status < 300,
+            status,
+            text: async () => text,
+          });
+        });
+        res.on('error', fail);
+      }
+    );
+
+    const onAbort = () => {
+      const err = new Error('eTimeOffice request aborted');
+      err.name = 'AbortError';
+      err.code = 'ETIME_ABORT';
+      req.destroy(err);
+      fail(err);
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    req.on('timeout', () => {
+      const err = new Error('eTimeOffice connect/request timed out');
+      err.code = 'ETIME_CONNECT_TIMEOUT';
+      req.destroy(err);
+      fail(err);
+    });
+    req.on('error', fail);
+    req.end();
+  });
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function pickField(row, keys) {
@@ -295,29 +400,47 @@ function parseEtimeProviderText(text) {
 
 export async function requestEtimePunchEndpoint(c, endpoint, empCode, fromDate, toDate) {
   const url = buildEtimePunchUrl(c.baseUrl, endpoint, empCode, fromDate, toDate);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), c.timeoutMs);
-  try {
-    const providerRes = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-      headers: {
-        Authorization: `Basic ${Buffer.from(c.authCredentials).toString('base64')}`,
-        accept: 'application/json',
-      },
-    });
-    const text = await providerRes.text();
-    return {
-      endpoint,
-      providerRes,
-      providerData: parseEtimeProviderText(text),
-    };
-  } catch (err) {
-    if (err instanceof HttpError) throw err;
-    throw new HttpError(502, formatEtimeNetworkError(err), { endpoint, url: url.toString() });
-  } finally {
-    clearTimeout(timeout);
+  const headers = {
+    Authorization: `Basic ${Buffer.from(c.authCredentials).toString('base64')}`,
+    accept: 'application/json',
+  };
+  const maxAttempts = Math.max(1, Number(process.env.ETIME_FETCH_RETRIES || 3));
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), c.timeoutMs);
+    try {
+      const providerRes = await httpsGetEtime(url.toString(), {
+        headers,
+        timeoutMs: c.timeoutMs,
+        signal: controller.signal,
+      });
+      const text = await providerRes.text();
+      return {
+        endpoint,
+        providerRes,
+        providerData: parseEtimeProviderText(text),
+      };
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      lastErr = err;
+      const retryable = isTransientEtimeNetworkError(err) && attempt < maxAttempts;
+      if (retryable) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[attendance/etime] ${endpoint} attempt ${attempt}/${maxAttempts} failed (${err?.code || err?.name}): ${err?.message}; retrying…`
+        );
+        await sleep(1000 * attempt);
+        continue;
+      }
+      throw new HttpError(502, formatEtimeNetworkError(err), { endpoint, url: url.toString() });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  throw new HttpError(502, formatEtimeNetworkError(lastErr), { endpoint, url: url.toString() });
 }
 
 export async function fetchEtimePunchData(c, empCode, fromDate, toDate) {
