@@ -128,6 +128,37 @@ function t(name) {
   return supabase.schema(SCHEMA).from(name);
 }
 
+/** Legacy parent codes from older Site Ledger versions. */
+const PARENT_KEY_MIGRATE = {
+  vehicle: "fireTenderVehicle",
+  maintenance: "fireTenderVehicle",
+  admin: "adminMisc",
+};
+
+function migrateParentKey(key) {
+  const raw = String(key || "").trim();
+  if (!raw) return raw;
+  return PARENT_KEY_MIGRATE[raw] || raw;
+}
+
+function resolveParentId(parentKey, parentIdByCode) {
+  const key = migrateParentKey(parentKey);
+  return (
+    parentIdByCode?.[key] ||
+    parentIdByCode?.adminMisc ||
+    parentIdByCode?.admin ||
+    Object.values(parentIdByCode || {})[0] ||
+    null
+  );
+}
+
+/** Parse amounts entered with commas / currency noise (matches Site Ledger entry parsing). */
+export function parseBudgetAmount(v) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(String(v).replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : null;
+}
+
 function periodFromDate(val) {
   if (!val) return null;
   const s = String(val);
@@ -511,13 +542,18 @@ async function syncParents(parents) {
 
 async function syncLibrary(library, parentIdByCode) {
   const existing = (await t("expense_child_heads").select("id, code")).data || [];
+  const existingByCode = Object.fromEntries(existing.map((r) => [r.code, r.id]));
   const keep = new Set(library.map((c) => c.key));
   const out = {};
 
   for (let i = 0; i < library.length; i++) {
     const c = library[i];
-    const parentId = parentIdByCode[c.parent];
-    if (!parentId) continue;
+    const parentId = resolveParentId(c.parent, parentIdByCode);
+    if (!parentId) {
+      // Still expose an existing child id so budget/period lines are not silently dropped.
+      if (existingByCode[c.key]) out[c.key] = existingByCode[c.key];
+      continue;
+    }
     const { data, error } = await t("expense_child_heads")
       .upsert(
         {
@@ -559,13 +595,16 @@ async function loadHeadIdMaps() {
 }
 
 async function syncSiteStructureBatch(siteId, structure, parentIdByCode, childIdByCode) {
-  const deduped = dedupeSiteStructure(structure);
+  const deduped = dedupeSiteStructure(structure).map((g) => ({
+    ...g,
+    parent: migrateParentKey(g.parent),
+  }));
   const rows = [];
   const missingKeys = [];
   let sort = 0;
   const insertedChildIds = new Set();
   for (const grp of deduped) {
-    const parentId = parentIdByCode[grp.parent];
+    const parentId = resolveParentId(grp.parent, parentIdByCode);
     if (!parentId) {
       missingKeys.push(...grp.children.map((k) => `${grp.parent}/${k}`));
       continue;
@@ -607,7 +646,7 @@ async function getSiteUuidByCode(siteCode) {
   return data?.id || null;
 }
 
-async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index) {
+async function upsertSiteRow(site, index) {
   const { data: siteRow, error } = await t("sites")
     .upsert(
       {
@@ -628,18 +667,18 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
     .select("id")
     .single();
   if (error) throw error;
-  const siteId = siteRow.id;
+  return siteRow.id;
+}
 
-  await syncSiteStructureBatch(siteId, site.structure, parentIdByCode, childIdByCode);
-
+async function syncSiteSpreads(siteId, spreads, childIdByCode) {
   const existingSpreads = (await t("cost_allocations").select("id, external_id").eq("site_id", siteId)).data || [];
-  const keepSpreads = new Set((site.spreads || []).map((s) => s.id));
+  const keepSpreads = new Set((spreads || []).map((s) => s.id));
   for (const sp of existingSpreads) {
     if (!keepSpreads.has(sp.external_id || sp.id)) {
       await t("cost_allocations").delete().eq("id", sp.id);
     }
   }
-  for (const sp of site.spreads || []) {
+  for (const sp of spreads || []) {
     const childId = childIdByCode[sp.head];
     if (!childId || !sp.id) continue;
     const payload = {
@@ -659,7 +698,9 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
       await t("cost_allocations").insert(payload);
     }
   }
+}
 
+async function syncSiteBudgets(siteId, site, childIdByCode, revIdByCode) {
   const existingBudgets = (await t("budget_versions").select("id, external_id, effective_from").eq("site_id", siteId)).data || [];
   const keptBudgetVersionIds = new Set();
 
@@ -692,6 +733,47 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
       if (byEffective?.id) existingBv = byEffective;
     }
 
+    const revenueRows = [];
+    const expenseRows = [];
+    const skippedRevenue = [];
+    const skippedExpense = [];
+
+    for (const [code, rawAmount] of Object.entries(est.revenue || {})) {
+      const amount = parseBudgetAmount(rawAmount);
+      if (amount == null || amount === 0) continue;
+      const rhId = revIdByCode[code];
+      if (!rhId) {
+        skippedRevenue.push(code);
+        continue;
+      }
+      revenueRows.push({
+        revenue_head_id: rhId,
+        amount,
+      });
+    }
+    for (const [code, rawAmount] of Object.entries(est.expenses || {})) {
+      const amount = parseBudgetAmount(rawAmount);
+      if (amount == null || amount === 0) continue;
+      const chId = childIdByCode[code];
+      if (!chId) {
+        skippedExpense.push(code);
+        continue;
+      }
+      expenseRows.push({
+        child_head_id: chId,
+        amount,
+      });
+    }
+
+    if (skippedRevenue.length || skippedExpense.length) {
+      const parts = [];
+      if (skippedRevenue.length) parts.push(`revenue: ${skippedRevenue.join(", ")}`);
+      if (skippedExpense.length) parts.push(`expenses: ${skippedExpense.join(", ")}`);
+      throw new Error(
+        `Some contract budget amounts could not be saved (${parts.join("; ")}). Check cost-line setup for this site, then try again.`,
+      );
+    }
+
     let bvId = existingBv?.id;
     if (bvId) {
       const { error: updErr } = await t("budget_versions").update(bvPayload).eq("id", bvId);
@@ -706,24 +788,16 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
     await t("budget_revenue_lines").delete().eq("budget_version_id", bvId);
     await t("budget_expense_lines").delete().eq("budget_version_id", bvId);
 
-    for (const [code, amount] of Object.entries(est.revenue || {})) {
-      const rhId = revIdByCode[code];
-      if (!rhId || !Number(amount)) continue;
-      const { error: revErr } = await t("budget_revenue_lines").insert({
-        budget_version_id: bvId,
-        revenue_head_id: rhId,
-        amount: Number(amount),
-      });
+    if (revenueRows.length) {
+      const { error: revErr } = await t("budget_revenue_lines").insert(
+        revenueRows.map((r) => ({ ...r, budget_version_id: bvId })),
+      );
       if (revErr) throw revErr;
     }
-    for (const [code, amount] of Object.entries(est.expenses || {})) {
-      const chId = childIdByCode[code];
-      if (!chId || !Number(amount)) continue;
-      const { error: expErr } = await t("budget_expense_lines").insert({
-        budget_version_id: bvId,
-        child_head_id: chId,
-        amount: Number(amount),
-      });
+    if (expenseRows.length) {
+      const { error: expErr } = await t("budget_expense_lines").insert(
+        expenseRows.map((r) => ({ ...r, budget_version_id: bvId })),
+      );
       if (expErr) throw expErr;
     }
   }
@@ -733,8 +807,50 @@ async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index)
       await t("budget_versions").delete().eq("id", bv.id);
     }
   }
+}
 
+async function syncSite(site, parentIdByCode, childIdByCode, revIdByCode, index) {
+  const siteId = await upsertSiteRow(site, index);
+  await syncSiteStructureBatch(siteId, site.structure, parentIdByCode, childIdByCode);
+  await syncSiteSpreads(siteId, site.spreads, childIdByCode);
+  await syncSiteBudgets(siteId, site, childIdByCode, revIdByCode);
   return siteId;
+}
+
+function resolveOneSiteInclude(include) {
+  if (!include) {
+    return { meta: true, structure: true, spreads: true, budgets: true };
+  }
+  return {
+    meta: !!include.meta,
+    structure: !!include.structure,
+    spreads: !!include.spreads,
+    budgets: !!include.budgets,
+  };
+}
+
+function siteNeedsHeadMaps(site, flags, parentIdByCode, childIdByCode, revIdByCode) {
+  if (flags.structure && structureNeedsMasterSync(site.structure, parentIdByCode, childIdByCode)) {
+    return true;
+  }
+  if (flags.spreads) {
+    for (const sp of site.spreads || []) {
+      if (sp?.head && !childIdByCode[sp.head]) return true;
+    }
+  }
+  if (flags.budgets) {
+    for (const est of site.estimates || []) {
+      for (const code of Object.keys(est?.expenses || {})) {
+        const amount = parseBudgetAmount(est.expenses[code]);
+        if (amount != null && amount !== 0 && !childIdByCode[code]) return true;
+      }
+      for (const code of Object.keys(est?.revenue || {})) {
+        const amount = parseBudgetAmount(est.revenue[code]);
+        if (amount != null && amount !== 0 && !revIdByCode[code]) return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** Child head codes assigned to a site structure (Site Setup → Enter Figures expenses). */
@@ -1259,20 +1375,161 @@ function libraryWithAllSiteCustoms(library, sites) {
 
 /** Keep every assigned structure child + site customs in library before sync (prevents DB deletes). */
 function libraryForSitesPersist(library, sites) {
-  const merged = libraryWithAllSiteCustoms(library, sites);
-  const keys = new Set(merged.map((h) => h.key));
+  const merged = libraryWithAllSiteCustoms(library, sites).map((h) => ({
+    ...h,
+    parent: migrateParentKey(h.parent),
+  }));
+  const byKey = new Map(merged.map((h) => [h.key, h]));
+
+  // Prefer the site structure parent when a head is assigned (fixes stale library.parent after renames).
+  const parentByChild = {};
   for (const site of sites || []) {
     for (const grp of dedupeSiteStructure(site?.structure)) {
+      const parent = migrateParentKey(grp.parent);
       for (const ck of grp.children || []) {
-        if (!keys.has(ck)) {
-          const fromCustom = (site.customHeads || []).find((h) => h.key === ck);
-          merged.push(fromCustom || { key: ck, label: ck, parent: grp.parent, custom: true });
-          keys.add(ck);
+        parentByChild[ck] = parent;
+      }
+    }
+    // Include estimate expense keys so budget sync never loses lines for unlisted heads.
+    for (const est of site?.estimates || []) {
+      for (const code of Object.keys(est?.expenses || {})) {
+        if (!parentByChild[code]) parentByChild[code] = "adminMisc";
+      }
+    }
+  }
+
+  for (const [ck, parent] of Object.entries(parentByChild)) {
+    const existing = byKey.get(ck);
+    if (existing) {
+      byKey.set(ck, { ...existing, parent });
+    } else {
+      const fromCustom = (sites || [])
+        .flatMap((s) => s.customHeads || [])
+        .find((h) => h.key === ck);
+      byKey.set(
+        ck,
+        fromCustom
+          ? { ...fromCustom, parent: migrateParentKey(fromCustom.parent) || parent, custom: true }
+          : { key: ck, label: ck, parent, custom: true },
+      );
+    }
+  }
+
+  return [...byKey.values()];
+}
+
+/**
+ * Fast path for Site Setup field edits (contract dates, spreads, budgets, status) — one site only.
+ * Prefer this over scope "sites" / full syncSite loop whenever a single site changed.
+ * Structure drag-and-drop should keep using scope "structure" (~5 API calls).
+ * Use full scope "sites" only for bulk/migration saves that must touch every site.
+ */
+async function saveLedgerOneSiteInner({
+  siteCode,
+  sites,
+  library,
+  parents,
+  libraryChanged = false,
+  include,
+}) {
+  const site = (sites || []).find((s) => s.id === siteCode);
+  if (!site) throw new Error(`Site "${siteCode}" not found`);
+
+  const flags = resolveOneSiteInclude(include);
+  const allSites = sites || [];
+  const index = allSites.findIndex((s) => s.id === siteCode);
+  const libraryForSync = libraryForSitesPersist(library, allSites);
+
+  const needsHeads = flags.structure || flags.spreads || flags.budgets;
+  let parentIdByCode = {};
+  let childIdByCode = {};
+  let revIdByCode = {};
+
+  if (needsHeads) {
+    if (flags.budgets) {
+      revIdByCode = await getRevIdByCode();
+    }
+    if (libraryChanged) {
+      parentIdByCode = await syncParents(parents || []);
+      childIdByCode = await syncLibrary(libraryForSync, parentIdByCode);
+      cachedHeadMaps = { parentIdByCode, childIdByCode };
+    } else {
+      ({ parentIdByCode, childIdByCode } = await getHeadMaps());
+      if (siteNeedsHeadMaps(site, flags, parentIdByCode, childIdByCode, revIdByCode)) {
+        parentIdByCode = await syncParents(parents || []);
+        childIdByCode = await syncLibrary(libraryForSync, parentIdByCode);
+        cachedHeadMaps = { parentIdByCode, childIdByCode };
+        if (flags.budgets) {
+          cachedRevIdByCode = null;
+          revIdByCode = await getRevIdByCode();
         }
       }
     }
   }
-  return merged;
+
+  let siteUuid = siteUuidByCode.get(siteCode) || (await getSiteUuidByCode(siteCode));
+  if (!siteUuid) {
+    // New site — full syncSite writes meta + structure + spreads + budgets.
+    if (!flags.budgets) revIdByCode = await getRevIdByCode();
+    if (!needsHeads) {
+      ({ parentIdByCode, childIdByCode } = await getHeadMaps());
+      if (siteNeedsHeadMaps(
+        site,
+        { meta: true, structure: true, spreads: true, budgets: true },
+        parentIdByCode,
+        childIdByCode,
+        revIdByCode,
+      )) {
+        parentIdByCode = await syncParents(parents || []);
+        childIdByCode = await syncLibrary(libraryForSync, parentIdByCode);
+        cachedHeadMaps = { parentIdByCode, childIdByCode };
+      }
+    }
+    siteUuid = await syncSite(
+      site,
+      parentIdByCode,
+      childIdByCode,
+      revIdByCode,
+      index >= 0 ? index : 0,
+    );
+  } else {
+    if (flags.meta) {
+      siteUuid = await upsertSiteRow(site, index >= 0 ? index : 0);
+    }
+    if (flags.structure) {
+      await syncSiteStructureBatch(siteUuid, site.structure, parentIdByCode, childIdByCode);
+    }
+    if (flags.spreads) {
+      await syncSiteSpreads(siteUuid, site.spreads, childIdByCode);
+    }
+    if (flags.budgets) {
+      await syncSiteBudgets(siteUuid, site, childIdByCode, revIdByCode);
+    }
+  }
+
+  siteUuidByCode.set(siteCode, siteUuid);
+  invalidateFinanceCache({ notify: false });
+  return true;
+}
+
+/** Persist one site now (Site Setup). Same queue as saveLedgerPartial — does not loop all sites. */
+export async function persistOneSiteNow(payload) {
+  return enqueueSave(async () => {
+    try {
+      const codes = payload.siteCodes?.length
+        ? [...new Set(payload.siteCodes.filter(Boolean))]
+        : payload.siteCode
+          ? [payload.siteCode]
+          : [];
+      if (!codes.length) throw new Error("No site selected to save");
+      for (const siteCode of codes) {
+        await saveLedgerOneSiteInner({ ...payload, siteCode });
+      }
+      return true;
+    } catch (e) {
+      throw new Error(financeErrorMsg(e, "Save Site Ledger"));
+    }
+  });
 }
 
 /**
@@ -1354,6 +1611,18 @@ async function saveLedgerPartialInner(payload) {
   const { scope = "full" } = payload;
   if (scope === "structure") {
     return saveLedgerStructureInner(payload);
+  }
+  if (scope === "site") {
+    const codes = payload.siteCodes?.length
+      ? [...new Set(payload.siteCodes.filter(Boolean))]
+      : payload.siteCode
+        ? [payload.siteCode]
+        : [];
+    if (!codes.length) throw new Error("No site selected to save");
+    for (const siteCode of codes) {
+      await saveLedgerOneSiteInner({ ...payload, siteCode });
+    }
+    return true;
   }
   if (scope === "masters") {
     return saveLedgerMastersInner(payload);
