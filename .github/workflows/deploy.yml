@@ -78,4 +78,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           debug: true
+          envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY
           script: /root/deploy.sh
+        env:
+          PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
+          PROD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}

@@ -35,32 +35,56 @@ git checkout "${BRANCH}"
 git pull origin "${BRANCH}"
 
 if [ ! -f .env.server ]; then
-  echo "ERROR: ${REPO_DIR}/.env.server missing. Copy from .env.server.example and set production Supabase + ETIME_*."
-  exit 1
+  if [ -f .env.server.example ]; then
+    echo "==> .env.server missing — creating from .env.server.example"
+    cp .env.server.example .env.server
+  else
+    echo "ERROR: ${REPO_DIR}/.env.server missing and no .env.server.example found."
+    exit 1
+  fi
 fi
 
 if grep -qiE '^ERP_ENV[[:space:]]*=[[:space:]]*staging' .env.server 2>/dev/null; then
-  echo "ERROR: .env.server has ERP_ENV=staging — that points the API at the staging Supabase project."
-  echo "        Remove ERP_ENV (or set production) so Raw Attendance sync works on indus-erp.in."
-  exit 1
+  echo "==> Removing ERP_ENV=staging from .env.server (production must not use staging)"
+  sed -i '/^ERP_ENV[[:space:]]*=[[:space:]]*staging/d' .env.server
 fi
 
-# Prefer SUPABASE_URL; fall back to VITE_SUPABASE_URL from merged server env files.
-SUPABASE_URL_LINE="$(grep -E '^(SUPABASE_URL|VITE_SUPABASE_URL)=' .env.server | tail -n1 || true)"
-if echo "${SUPABASE_URL_LINE}" | grep -q "${STAGING_PROJECT_REF}"; then
-  echo "ERROR: .env.server Supabase URL is staging (${STAGING_PROJECT_REF})."
-  echo "        Production API must use https://${PROD_PROJECT_REF}.supabase.co and matching service_role key."
-  exit 1
+# Auto-fix SUPABASE_URL from CI secret if missing or wrong
+EXPECTED_SUPABASE_URL="https://${PROD_PROJECT_REF}.supabase.co"
+CURRENT_URL="$(grep -E '^SUPABASE_URL=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'"'" || true)"
+
+if [ -z "${CURRENT_URL}" ] || echo "${CURRENT_URL}" | grep -q "${STAGING_PROJECT_REF}"; then
+  if [ -n "${PROD_SUPABASE_URL:-}" ]; then
+    echo "==> Fixing SUPABASE_URL in .env.server (was: '${CURRENT_URL:-<missing>}')"
+    sed -i '/^SUPABASE_URL=/d' .env.server
+    echo "SUPABASE_URL=${PROD_SUPABASE_URL}" >> .env.server
+  elif [ -z "${CURRENT_URL}" ]; then
+    echo "==> SUPABASE_URL missing — adding production default"
+    echo "SUPABASE_URL=${EXPECTED_SUPABASE_URL}" >> .env.server
+  else
+    echo "ERROR: .env.server SUPABASE_URL is staging (${STAGING_PROJECT_REF}) and PROD_SUPABASE_URL secret not set in CI."
+    exit 1
+  fi
 fi
 
-if ! echo "${SUPABASE_URL_LINE}" | grep -q "${PROD_PROJECT_REF}"; then
+# Auto-fix SUPABASE_SERVICE_ROLE_KEY from CI secret if missing
+if ! grep -qE '^SUPABASE_SERVICE_ROLE_KEY=.{20,}' .env.server 2>/dev/null; then
+  if [ -n "${PROD_SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+    echo "==> Fixing SUPABASE_SERVICE_ROLE_KEY in .env.server (was missing or invalid)"
+    sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server
+    echo "SUPABASE_SERVICE_ROLE_KEY=${PROD_SUPABASE_SERVICE_ROLE_KEY}" >> .env.server
+  else
+    echo "ERROR: SUPABASE_SERVICE_ROLE_KEY missing in .env.server and PROD_SUPABASE_SERVICE_ROLE_KEY secret not set in CI."
+    echo "       Add it to GitHub → Settings → Secrets → PROD_SUPABASE_SERVICE_ROLE_KEY"
+    exit 1
+  fi
+fi
+
+# Verify final state
+FINAL_URL="$(grep -E '^SUPABASE_URL=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'"'" || true)"
+if ! echo "${FINAL_URL}" | grep -q "${PROD_PROJECT_REF}"; then
   echo "WARNING: Could not confirm production Supabase project (${PROD_PROJECT_REF}) in .env.server."
-  echo "         Current line: ${SUPABASE_URL_LINE:-<missing>}"
-fi
-
-if ! grep -qE '^SUPABASE_SERVICE_ROLE_KEY=.+' .env.server 2>/dev/null; then
-  echo "ERROR: SUPABASE_SERVICE_ROLE_KEY missing in .env.server — /api/admin/attendance/* will return 401."
-  exit 1
+  echo "         Current: ${FINAL_URL:-<missing>}"
 fi
 
 if ! grep -qE '^ETIME_AUTH_CREDENTIALS=.+' .env.server 2>/dev/null; then
