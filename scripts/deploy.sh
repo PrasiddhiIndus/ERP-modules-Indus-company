@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Copy to /root/deploy.sh on the DigitalOcean droplet and chmod +x.
 # GitHub Actions (deploy.yml → main) runs this on every push to main.
+# IMPORTANT: After updating this file, re-copy to server:
+#   scp scripts/deploy.sh root@<server>:/root/deploy.sh
 #
 # One-time server setup:
 #   mkdir -p /var/www/indus-erp
@@ -79,6 +81,49 @@ fi
 
 pm2 save
 
+echo "==> Waiting for API to start..."
+sleep 4
+
+API_PORT="$(grep -E '^SERVER_PORT=' .env.server 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '[:space:]"'"'"'")"
+API_PORT="${API_PORT:-8787}"
+HEALTH_URL="http://127.0.0.1:${API_PORT}/api/health"
+
+HEALTH_JSON="$(curl -sf --max-time 10 "${HEALTH_URL}" 2>/dev/null || true)"
+if [ -z "${HEALTH_JSON}" ]; then
+  echo "ERROR: API did not respond at ${HEALTH_URL} within 10s."
+  echo "       Check: pm2 logs ${PM2_NAME} --lines 40"
+  exit 1
+fi
+
+HEALTH_PROJECT="$(echo "${HEALTH_JSON}" | grep -oP '"supabase_project"\s*:\s*"\K[^"]+' || true)"
+HEALTH_SRK="$(echo "${HEALTH_JSON}" | grep -oP '"service_role_key"\s*:\s*"\K[^"]+' || true)"
+HEALTH_WARNING="$(echo "${HEALTH_JSON}" | grep -oP '"warning"\s*:\s*"\K[^"]+' || true)"
+
+DEPLOY_OK=true
+
+if [ "${HEALTH_PROJECT}" != "${PROD_PROJECT_REF}" ]; then
+  echo "ERROR: API supabase_project is '${HEALTH_PROJECT}' — expected '${PROD_PROJECT_REF}'."
+  echo "       The .env.server SUPABASE_URL must be https://${PROD_PROJECT_REF}.supabase.co"
+  DEPLOY_OK=false
+fi
+
+if [ "${HEALTH_SRK}" != "ok" ]; then
+  echo "ERROR: API service_role_key is '${HEALTH_SRK}' — expected 'ok'."
+  echo "       Set SUPABASE_SERVICE_ROLE_KEY in .env.server (Dashboard → Project Settings → API)."
+  DEPLOY_OK=false
+fi
+
+if [ -n "${HEALTH_WARNING}" ]; then
+  echo "WARNING from API: ${HEALTH_WARNING}"
+  DEPLOY_OK=false
+fi
+
+if [ "${DEPLOY_OK}" != "true" ]; then
+  echo ""
+  echo "DEPLOY FAILED: API started but Supabase credentials are wrong."
+  echo "Fix .env.server and run: pm2 restart ${PM2_NAME} --update-env"
+  exit 1
+fi
+
 echo "==> Production deploy complete: ${APP_DIR}"
-echo "==> Verify: curl -s https://indus-erp.in/api/health"
-echo "    Expect supabase_project=${PROD_PROJECT_REF} and service_role_key=ok"
+echo "==> Health verified: supabase_project=${HEALTH_PROJECT}, service_role_key=${HEALTH_SRK}"
