@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, persistSitesNow, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
+import { loadLedgerStore, saveLedgerPartial, savePeriodRecord, flushPeriodRecordNow, persistSitesNow, persistOneSiteNow, mergePeriodEntry, REIMBURSEMENT_TYPES, REIMBURSEMENT_OTHER_KEY, newReimbursementId, normalizeReimbursementsFromRecord, reimbursementTotal, reimbursementRowLabel, reimbursementDisplayLines } from "./api/siteLedgerStore";
 import { PeriodDateSelect, formatPeriodDateDDMMYYYY } from "./components/PeriodDateSelect";
 import { PeriodMonthSelect } from "./components/PeriodMonthSelect";
 import { FinanceDateInput } from "./components/FinanceDateInput";
@@ -621,6 +621,7 @@ async function loadStore() {
   }
   return { data: normalize(defaults), ok: false, error: result.error || null };
 }
+/** Legacy all-sites save — prefer persistOneSite / scope "site" for Site Setup edits. */
 async function saveSitesStore(data) {
   try {
     await saveLedgerPartial({
@@ -634,6 +635,17 @@ async function saveSitesStore(data) {
     console.error("Finance site save failed:", e);
     return { ok: false, error: e?.message || "Save failed" };
   }
+}
+
+function mergeSetupInclude(a, b) {
+  // undefined include = full one-site sync; keep that when coalescing.
+  if (!a || !b) return undefined;
+  return {
+    meta: !!(a.meta || b.meta),
+    structure: !!(a.structure || b.structure),
+    spreads: !!(a.spreads || b.spreads),
+    budgets: !!(a.budgets || b.budgets),
+  };
 }
 
 /* ───────────────────────── SMALL UI ───────────────────────── */
@@ -882,7 +894,14 @@ export default function SiteLedgerApp({ embedded = true }) {
     setupPersistPending.current = null;
     setSaveState("saving");
     try {
-      await saveLedgerPartial(pending);
+      // Always flush latest in-memory state (pending may have been scheduled mid-keystroke).
+      await saveLedgerPartial({
+        ...pending,
+        sites: stateRef.current.sites,
+        records: stateRef.current.records,
+        library: stateRef.current.library,
+        parents: stateRef.current.parents,
+      });
       lastSaveAt.current = Date.now();
       setSaveState("saved");
       setLoadError(null);
@@ -893,21 +912,53 @@ export default function SiteLedgerApp({ embedded = true }) {
   }, [loaded]);
 
   const scheduleSetupPersist = useCallback((opts = {}) => {
+    // Cancel the all-sites autosave so it cannot overwrite a newer single-site write.
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveImmediate.current = false;
+
+    const prev = setupPersistPending.current;
+    const siteCodes = new Set(prev?.siteCodes || []);
+    if (prev?.siteCode) siteCodes.add(prev.siteCode);
+    if (opts.siteCode) siteCodes.add(opts.siteCode);
+    (opts.siteCodes || []).forEach((c) => { if (c) siteCodes.add(c); });
+
+    let scope = opts.scope || "masters";
+    let include = opts.include;
+    // Coalesce rapid structure ↔ site edits into one one-site sync (avoids dropping contract/meta).
+    if (prev && (prev.scope === "site" || prev.scope === "structure") && (scope === "site" || scope === "structure")) {
+      if (prev.scope !== scope || (siteCodes.size > 1 && scope === "structure")) {
+        scope = "site";
+        include = undefined; // full one-site sync for touched sites
+      } else if (scope === "site") {
+        include = mergeSetupInclude(prev.include, opts.include);
+      }
+    } else if (prev?.scope === "masters" || scope === "masters") {
+      scope = "masters";
+      include = undefined;
+    } else if (prev?.scope === "full" || scope === "full") {
+      scope = "full";
+      include = undefined;
+    }
+
     setupPersistPending.current = {
       sites: stateRef.current.sites,
       records: stateRef.current.records,
       library: stateRef.current.library,
       parents: stateRef.current.parents,
-      scope: opts.scope || "masters",
-      siteCode: opts.siteCode,
-      libraryChanged: !!opts.libraryChanged,
-      deletedSiteCodes: opts.deletedSiteCodes,
-      pruneSites: !!opts.pruneSites,
+      scope,
+      siteCode: opts.siteCode || prev?.siteCode || [...siteCodes][0],
+      siteCodes: [...siteCodes],
+      include,
+      libraryChanged: !!(opts.libraryChanged || prev?.libraryChanged),
+      deletedSiteCodes: opts.deletedSiteCodes || prev?.deletedSiteCodes,
+      pruneSites: !!(opts.pruneSites || prev?.pruneSites),
     };
     skipNextAutosave.current = true;
     setSaveState("pending");
     if (setupPersistTimer.current) clearTimeout(setupPersistTimer.current);
-    const delay = opts.immediate || opts.scope === "structure" ? 0 : SETUP_PERSIST_MS;
+    const delay = opts.immediate || opts.scope === "structure"
+      ? 0
+      : SETUP_PERSIST_MS;
     setupPersistTimer.current = setTimeout(flushSetupPersist, delay);
   }, [flushSetupPersist]);
 
@@ -1063,16 +1114,34 @@ export default function SiteLedgerApp({ embedded = true }) {
     });
   }, [sitesL, records, overviewPeriodKeys, periodTo]);
 
-  const persistSitesImmediate = useCallback(async (nextSites) => {
+  const persistSitesImmediate = useCallback(async (nextSites, opts = {}) => {
     const data = stateRef.current;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (setupPersistTimer.current) clearTimeout(setupPersistTimer.current);
+    setupPersistPending.current = null;
     skipNextAutosave.current = true;
     setSaveState("saving");
     try {
-      await persistSitesNow({
-        sites: nextSites ?? data.sites,
-        library: data.library,
-        parents: data.parents,
-      });
+      const siteCodes = opts.siteCodes?.length
+        ? opts.siteCodes
+        : opts.siteCode
+          ? [opts.siteCode]
+          : null;
+      if (siteCodes?.length) {
+        await persistOneSiteNow({
+          siteCodes,
+          sites: nextSites ?? data.sites,
+          library: data.library,
+          parents: data.parents,
+          include: opts.include,
+        });
+      } else {
+        await persistSitesNow({
+          sites: nextSites ?? data.sites,
+          library: data.library,
+          parents: data.parents,
+        });
+      }
       lastSaveAt.current = Date.now();
       setSaveState("saved");
       setLoadError(null);
@@ -1101,12 +1170,28 @@ export default function SiteLedgerApp({ embedded = true }) {
     });
   }, []);
   const patchSite = useCallback((id, patch) => {
-    saveImmediate.current = true;
-    setSites((prev) => prev.map((s) => s.id === id ? { ...s, ...patch } : s));
-  }, []);
+    const keys = Object.keys(patch || {});
+    let include;
+    if (keys.length && keys.every((k) => k === "estimates")) {
+      include = { meta: true, budgets: true };
+    } else if (keys.length && keys.every((k) => k === "spreads")) {
+      include = { meta: true, spreads: true };
+    } else if (
+      keys.length
+      && !keys.some((k) => k === "spreads" || k === "estimates" || k === "structure" || k === "customHeads")
+    ) {
+      include = { meta: true };
+    }
+    applySiteSetupChange(({ sites: allSites }) => ({
+      sites: allSites.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    }), { scope: "site", siteCode: id, include });
+  }, [applySiteSetupChange]);
 
   const saveSiteBudget = useCallback(async (siteId, estimates) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (setupPersistTimer.current) clearTimeout(setupPersistTimer.current);
+    const pending = setupPersistPending.current;
+    setupPersistPending.current = null;
     skipNextAutosave.current = true;
     const nextSites = stateRef.current.sites.map((s) => (
       s.id === siteId ? { ...s, estimates } : s
@@ -1115,16 +1200,40 @@ export default function SiteLedgerApp({ embedded = true }) {
     setSites(nextSites);
     setSaveState("saving");
     try {
-      const result = await saveSitesStore(stateRef.current);
-      if (!result.ok) throw new Error(result.error || "Save failed");
+      const codes = new Set([siteId]);
+      if (pending?.siteCode) codes.add(pending.siteCode);
+      (pending?.siteCodes || []).forEach((c) => { if (c) codes.add(c); });
+
+      if (pending?.scope === "masters" || pending?.scope === "full") {
+        await saveLedgerPartial({
+          ...pending,
+          sites: nextSites,
+          records: stateRef.current.records,
+          library: stateRef.current.library,
+          parents: stateRef.current.parents,
+        });
+      }
+
+      // Pending structure/site edits → full one-site sync so nothing is dropped.
+      const include = pending && pending.scope !== "masters" && pending.scope !== "full"
+        ? undefined
+        : { meta: true, budgets: true };
+      await persistOneSiteNow({
+        siteCodes: [...codes],
+        sites: nextSites,
+        library: stateRef.current.library,
+        parents: stateRef.current.parents,
+        include,
+      });
       lastSaveAt.current = Date.now();
       setSaveState("saved");
       setLoadError(null);
       return true;
     } catch (e) {
       setSaveState("local");
-      setLoadError(e?.message || "Could not save estimated budget.");
-      return false;
+      const msg = e?.message || "Could not save estimated budget.";
+      setLoadError(msg);
+      throw e instanceof Error ? e : new Error(msg);
     }
   }, []);
   const deactivateSite = useCallback((id) => {
@@ -1150,19 +1259,24 @@ export default function SiteLedgerApp({ embedded = true }) {
       msg += " The current active version in this site group will be marked inactive.";
     }
     if (!window.confirm(msg)) return;
-    saveImmediate.current = true;
-    setSites((prev) =>
-      prev.map((s) => {
+    const touched = [id];
+    for (const s of stateRef.current.sites) {
+      if (s.id !== id && isSiteActive(s) && (s.siteGroup || s.id) === group) {
+        touched.push(s.id);
+      }
+    }
+    applySiteSetupChange(({ sites: allSites }) => ({
+      sites: allSites.map((s) => {
         const inGroup = (s.siteGroup || s.id) === group;
         if (s.id === id) return { ...s, status: "active" };
         if (inGroup && isSiteActive(s)) return { ...s, status: "inactive" };
         return s;
-      })
-    );
+      }),
+    }), { scope: "site", siteCodes: touched, include: { meta: true }, immediate: true });
     setEditSite(null);
     setShowAdd(false);
     setActiveSite(id);
-  }, []);
+  }, [applySiteSetupChange]);
   const removeSite = useCallback(async (id) => {
     const site = stateRef.current.sites.find((s) => s.id === id);
     if (!site) return false;
@@ -1523,20 +1637,26 @@ export default function SiteLedgerApp({ embedded = true }) {
               setSites(nextSites);
               stateRef.current = { ...stateRef.current, sites: nextSites };
               setEditSite(null);
-              void persistSitesImmediate(nextSites);
+              void persistSitesImmediate(nextSites, { siteCode: s.id, include: { meta: true } });
               return;
             }
             if (s.isRenewal) {
-              saveImmediate.current = true;
               const beforeIds = new Set(sites.map((x) => x.id));
+              const prevActiveInGroup = sites
+                .filter((x) => isSiteActive(x) && (
+                  (x.siteGroup || x.id) === (s.siteGroup || slug(s.name))
+                  || x.name.trim().toLowerCase() === s.name.trim().toLowerCase()
+                ))
+                .map((x) => x.id);
               const next = prepareNewSiteVersion(sites, s);
               const newSite = next.find((x) => !beforeIds.has(x.id)) || next[next.length - 1];
+              const touched = [...new Set([...prevActiveInGroup, newSite.id])];
               setSites(next);
               stateRef.current = { ...stateRef.current, sites: next };
               setShowAdd(false);
               setActiveSite(newSite.id);
               setView("config");
-              void persistSitesImmediate(next);
+              void persistSitesImmediate(next, { siteCodes: touched });
             } else {
               const seeded = defaultSiteSetup(stateRef.current.library || library);
               const nextSite = {
@@ -1554,7 +1674,7 @@ export default function SiteLedgerApp({ embedded = true }) {
               setShowAdd(false);
               setActiveSite(nextSite.id);
               setView("config");
-              void persistSitesImmediate(nextSites);
+              void persistSitesImmediate(nextSites, { siteCode: nextSite.id });
             }
           }}
         />
@@ -3054,7 +3174,10 @@ function ContractBudgetEditor({ site, library, onPatchSite, onViewBudget, onSave
     if (!canEditBudget || saving) return;
     const clean = (o) => {
       const r = {};
-      Object.entries(o).forEach(([k, v]) => { if (Number(v)) r[k] = Number(v); });
+      Object.entries(o).forEach(([k, v]) => {
+        const n = Number(String(v ?? "").replace(/,/g, "").trim());
+        if (Number.isFinite(n) && n !== 0) r[k] = n;
+      });
       return r;
     };
     const effectiveFrom = budget?.effectiveFrom || site.contractStart || currentPeriodKey();
