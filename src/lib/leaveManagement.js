@@ -10,18 +10,21 @@ export const DEFAULT_ANNUAL_ENTITLEMENTS = {
 function markWeightForPl(mark) {
   const m = String(mark || "").trim();
   if (m === "PL") return 1;
+  if (m === "P/PL") return 0.5;
   return 0;
 }
 
 function markWeightForSl(mark) {
   const m = String(mark || "").trim();
   if (m === "SL") return 1;
+  if (m === "P/SL") return 0.5;
   return 0;
 }
 
 function markWeightForCl(mark) {
   const m = String(mark || "").trim();
   if (m === "CL") return 1;
+  if (m === "P/CL") return 0.5;
   return 0;
 }
 

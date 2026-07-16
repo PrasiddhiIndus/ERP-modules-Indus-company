@@ -12,6 +12,9 @@ import {
   punchesToPresentRegisterRows,
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
+import { timeToMinutes } from "../../shared/attendancePunchSync.mjs";
+
+export { timeToMinutes };
 
 export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
 export const REGISTER_MARK_SOURCE_AUTO_HOLIDAY = "auto_holiday";
@@ -59,7 +62,7 @@ export const REGISTER_STATUS_OPTIONS = [
 
 /** Leave types under L in the register mark picker submenu. */
 export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
-  { value: "PL", label: "PL — Paid Leave" },
+  { value: "PL", label: "PL — Privilege Leave" },
   { value: "CL", label: "CL — Casual Leave" },
   { value: "SL", label: "SL — Sick Leave" },
   { value: "SPLA", label: "SPLA" },
@@ -67,6 +70,20 @@ export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
   { value: "SBEL", label: "SBEL" },
   { value: "PTL", label: "PTL — Paternity Leave" },
   { value: "ML", label: "ML — Maternity Leave" },
+];
+
+/**
+ * Half-day composite marks: 0.5 Present + 0.5 typed leave (Option A).
+ * Session order is Present first only (P/SL, P/CL, P/PL).
+ */
+export const REGISTER_HALF_DAY_COMPOSITE_MARKS = new Set(["P/SL", "P/CL", "P/PL"]);
+
+/** Half Day submenu under the register mark picker. */
+export const REGISTER_HALF_DAY_SUBMENU_OPTIONS = [
+  { value: "HD", label: "HD — Half Day" },
+  { value: "P/SL", label: "Present + Sick Leave" },
+  { value: "P/CL", label: "Present + Casual Leave" },
+  { value: "P/PL", label: "Present + Privilege Leave" },
 ];
 
 /** Marks that use the red closed-cell box (L + leave submenu codes only). */
@@ -84,20 +101,33 @@ export const REGISTER_LEAVE_RED_CELL_MARKS = new Set([
   "LWP",
 ]);
 
-/** Primary register mark picker rows (Leave opens submenu). */
+/** Primary register mark picker rows (Leave / Half Day open submenus). */
 export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: "", label: "—" },
   { value: "P", label: "P — Present" },
   { value: "P(OD)", label: "P(OD) — Present on Duty" },
   { value: "L", label: "L — Leave", hasSubmenu: true },
+  { value: "HD", label: "Half Day", hasSubmenu: true, submenuKey: "halfDay" },
   { value: "LWP", label: "LWP — Leave Without Pay" },
   { value: "WO", label: "WO — Weekly Off" },
   { value: REGISTER_MARK_NHPH, label: "NH/PH" },
   { value: "CO", label: "CO — Compensatory Off" },
-  { value: "HD", label: "HD — Half Day" },
   { value: "WFH", label: "WFH — Work From Home" },
   { value: REGISTER_MARK_LEFT, label: "Left — Left organization" },
 ];
+
+export function isRegisterCompositeHalfDayMark(mark) {
+  return REGISTER_HALF_DAY_COMPOSITE_MARKS.has(String(mark ?? "").trim());
+}
+
+/** Leave type half of a composite mark (e.g. P/SL → SL), or null. */
+export function compositeLeaveTypeFromMark(mark) {
+  const m = String(mark ?? "").trim();
+  if (m === "P/SL") return "SL";
+  if (m === "P/CL") return "CL";
+  if (m === "P/PL") return "PL";
+  return null;
+}
 
 /** Tour marks are stored as T but displayed like P(OD) in the register grid. */
 export function isRegisterTourMark(mark) {
@@ -116,10 +146,12 @@ export function registerMarkOptionLabel(value) {
   if (!value) return "—";
   if (isRegisterLeftMark(value)) return "Left";
   if (isRegisterTourMark(value)) return "P(OD) — Present on Duty";
-  const primary = REGISTER_PRIMARY_MARK_OPTIONS.find((o) => o.value === value);
-  if (primary) return primary.label;
+  const halfDay = REGISTER_HALF_DAY_SUBMENU_OPTIONS.find((o) => o.value === value);
+  if (halfDay) return halfDay.label;
   const leave = REGISTER_LEAVE_SUBMENU_OPTIONS.find((o) => o.value === value);
   if (leave) return leave.label;
+  const primary = REGISTER_PRIMARY_MARK_OPTIONS.find((o) => o.value === value);
+  if (primary) return primary.label;
   return String(value);
 }
 
@@ -150,21 +182,22 @@ export function isRegisterSummaryLeaveMark(mark) {
   if (!m) return false;
   if (m === "A") return true;
   if (m === "HD" || isRegisterLwpMark(m)) return true;
+  if (isRegisterCompositeHalfDayMark(m)) return true;
   if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return true;
   return false;
 }
 
-/** Leave-day credit for register summary (HD = 0.5). */
+/** Leave-day credit for register summary (HD / P/SL|P/CL|P/PL = 0.5). */
 export function registerSummaryLeaveCredit(mark) {
   const m = String(mark ?? "").trim();
   if (!isRegisterSummaryLeaveMark(m)) return 0;
-  if (m === "HD") return 0.5;
+  if (m === "HD" || isRegisterCompositeHalfDayMark(m)) return 0.5;
   return 1;
 }
 
 /**
  * Present-day credit for one register cell (0, 0.5, or 1).
- * P-types, all leave types except LWP (HD = 0.5); WO / NH/PH do not.
+ * P-types, all leave types except LWP (HD / composites = 0.5); WO / NH/PH do not.
  */
 export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
@@ -174,7 +207,7 @@ export function registerPresentDayCredit(mark) {
   const canonical = normalizeRegisterMarkForDb(raw);
   if (canonical && REGISTER_PRESENT_CREDIT_MARKS.has(canonical)) return 1;
   if (isRegisterLwpMark(raw)) return 0;
-  if (raw === "HD") return 0.5;
+  if (raw === "HD" || isRegisterCompositeHalfDayMark(raw)) return 0.5;
   if (isRegisterSummaryLeaveMark(raw)) return 1;
   return 0;
 }
@@ -277,6 +310,9 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
   "ML",
   "LWP",
   REGISTER_MARK_LEFT,
+  "P/SL",
+  "P/CL",
+  "P/PL",
 ]);
 
 /**
@@ -311,6 +347,7 @@ export const REGISTER_LEAVE_MARKS = new Set([
   "HD",
   "LWP",
   ...REGISTER_LEAVE_RED_CELL_MARKS,
+  ...REGISTER_HALF_DAY_COMPOSITE_MARKS,
 ]);
 
 /** Shared palette — closed cell box + bulk Mark P/L/WO/NH/PH buttons. */
@@ -344,6 +381,10 @@ export const REGISTER_MARK_CELL_COLORS = {
   NHPH: { bg: "#F58220", border: "#d9741d", text: "white" },
   CO: { bg: "#059669", border: "#047857", text: "white" },
   HD: { bg: "#d97706", border: "#b45309", text: "white" },
+  /** Dual-state: present half (green) + leave half (red). */
+  "P/SL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
+  "P/CL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
+  "P/PL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
   WFH: { bg: "#2563eb", border: "#1d4ed8", text: "white" },
   [REGISTER_MARK_LEFT]: { bg: "#6b7280", border: "#4b5563", text: "white" },
 };
@@ -352,6 +393,7 @@ export function resolveRegisterMarkCellColors(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
   if (m === "T") return REGISTER_MARK_CELL_COLORS["P(OD)"];
+  if (isRegisterCompositeHalfDayMark(m)) return REGISTER_MARK_CELL_COLORS[m];
   if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return REGISTER_MARK_CELL_COLORS.L;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_CELL_COLORS[REGISTER_MARK_NHPH];
   if (REGISTER_MARK_CELL_COLORS[m]) return REGISTER_MARK_CELL_COLORS[m];
@@ -398,6 +440,12 @@ export function registerMarkSelectTextClass(value) {
 export function registerMarkCellInlineStyle(value) {
   const colors = resolveRegisterMarkCellColors(value);
   if (!colors) return undefined;
+  if (colors.dual) {
+    return {
+      backgroundImage: "linear-gradient(90deg, #008D62 50%, #D62828 50%)",
+      borderColor: colors.border,
+    };
+  }
   return { backgroundColor: colors.bg, borderColor: colors.border };
 }
 
@@ -1984,7 +2032,7 @@ export async function syncRegisterAutoHolidayMarks(
 }
 
 /**
- * Upsert Present (P) from punches into the register.
+ * Upsert Present (P) or Half Day (HD) from punches into the register.
  * With `respectManualMarks`, only overwrites blank, punch-sourced, and WO cells.
  */
 export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
@@ -2791,12 +2839,6 @@ export function normalizeDirection(value) {
   return "";
 }
 
-export function timeToMinutes(timeStr) {
-  const m = String(timeStr || "").match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return null;
-  return Number(m[1]) * 60 + Number(m[2]);
-}
-
 export function formatWorkedMinutes(minutes) {
   if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return "—";
   const h = Math.floor(minutes / 60);
@@ -3308,7 +3350,7 @@ export function formatAttendanceSupabaseError(err) {
   }
 
   if (code === "23514" || /admin_attendance_register_mark_check/i.test(msg)) {
-    return "Invalid attendance mark. Allowed values: P, P(OD), L, WO, NH/PH.";
+    return "Invalid attendance mark. Check the selected mark and try again.";
   }
 
   if (code === "409" && /employee_code_fkey/i.test(msg)) {

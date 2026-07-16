@@ -26,6 +26,9 @@ export const REGISTER_MARK_DAY_FRACTION = {
   HD: 0.5,
   SPLA: 0.5,
   SPLB: 0.5,
+  "P/SL": 0.5,
+  "P/CL": 0.5,
+  "P/PL": 0.5,
 };
 
 export const LEAVE_LIMIT_ALERTS_STORAGE_KEY = "adminAttendance.leaveLimitSeen";
@@ -44,6 +47,9 @@ export function leaveLimitTypeForMark(mark) {
   const m = normalizeRegisterMarkForDb(mark);
   // PTL is a credit applied against PL usage (prompt: PTL = -3).
   if (m === "PTL") return "PL";
+  if (m === "P/SL") return "SL";
+  if (m === "P/CL") return "CL";
+  if (m === "P/PL") return "PL";
   if (m && REGISTER_LEAVE_ANNUAL_LIMITS[m] != null) return m;
   return null;
 }

@@ -50,6 +50,11 @@ const REGISTER_MARKS_DB_ALLOWED = new Set([
   'CO',
   'PTL',
   'ML',
+  'LWP',
+  'Left',
+  'P/SL',
+  'P/CL',
+  'P/PL',
 ]);
 
 function normalizeRegisterMarkForDb(mark) {
@@ -57,6 +62,7 @@ function normalizeRegisterMarkForDb(mark) {
   if (!m) return null;
   if (m === 'NHPH' || m === 'NH/PH') return 'NH/PH';
   if (m === 'P(OD)') return 'P(OD)';
+  if (m === 'Left') return 'Left';
   if (m === 'A') return 'L';
   if (REGISTER_MARKS_DB_ALLOWED.has(m)) return m;
   return 'L';
@@ -92,8 +98,7 @@ async function upsertRegisterBatch(supabase, rows) {
  * @param {Array<{ empCode?: string, employee_code?: string, punchDate?: string, punch_date?: string }>} punches
  */
 export async function syncRegisterMarksFromPunches(supabase, punches, options = {}) {
-  // Always protect manual/leave/non-punch entries. Punch sync must only write 'P'
-  // where the cell is blank or already punch-sourced — never over a manual fill.
+  // Protect manual/composite marks. Punch sync writes P or HD only where allowed.
   const { respectManualMarks = true, fromDate: fromOverride, toDate: toOverride } = options;
   const candidateRows = punchesToPresentRegisterRows(punches);
   if (!candidateRows.length) {
