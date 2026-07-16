@@ -2,11 +2,10 @@ import * as XLSX from "xlsx";
 import {
   INQUIRY_TABLE_COLUMNS,
   buildInquiryDbPayload,
-  formatInquiryCellValue,
-  getExcelInquiryFields,
   getNextEnquiryNumber,
   getNextSrNo,
 } from "./manpowerEnquiryExcelFields";
+import { exportManpowerInquiriesFormattedExcel } from "./manpowerInquiryExcelExport";
 
 const INQUIRY_HEADER_ALIASES = {
   srNo: ["Sr. No", "Sr No", "S.No", "S No", "Serial No", "Serial Number"],
@@ -274,24 +273,8 @@ function mapImportRow(rawRow) {
   return mapped;
 }
 
-function exportRowFromEnquiry(row, formatDate) {
-  const fields = getExcelInquiryFields(row);
-  const out = {};
-  INQUIRY_TABLE_COLUMNS.forEach((col) => {
-    out[col.label] = formatInquiryCellValue(fields[col.id], col.valueType, formatDate);
-    if (out[col.label] === "—") out[col.label] = "";
-  });
-  return out;
-}
-
-export function exportManpowerInquiriesToExcel(enquiries, formatDate) {
-  const rows = (enquiries || []).map((row) => exportRowFromEnquiry(row, formatDate));
-  const headers = INQUIRY_TABLE_COLUMNS.map((col) => col.label);
-  const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Manpower Inquiries");
-  const stamp = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `manpower-inquiries-${stamp}.xlsx`);
+export async function exportManpowerInquiriesToExcel(enquiries, formatDate, options = {}) {
+  await exportManpowerInquiriesFormattedExcel(enquiries, formatDate, options);
 }
 
 export function downloadManpowerInquiryImportTemplate() {

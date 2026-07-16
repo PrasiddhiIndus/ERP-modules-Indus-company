@@ -2,6 +2,7 @@ import {
   formatInquiryCellValue,
   getExcelInquiryFields,
   INQUIRY_TABLE_COLUMNS,
+  INQUIRY_LIST_DISPLAY_COLUMNS,
 } from "./manpowerEnquiryExcelFields";
 
 export const INQUIRY_STATUS_OPTIONS = ["Pending", "Approved", "Rejected", "Quoted"];
@@ -15,6 +16,15 @@ export const EMPTY_INQUIRY_FILTERS = {
   receivedFrom: "",
   receivedTo: "",
 };
+
+function getSortableFields(row) {
+  const fields = getExcelInquiryFields(row);
+  return {
+    ...fields,
+    enquiryNumber: row?.enquiry_number || "",
+    status: row?.status || "Pending",
+  };
+}
 
 export function inquiryMatchesMasterSearch(row, query, formatDate) {
   const q = String(query || "").trim().toLowerCase();
@@ -61,7 +71,15 @@ export function applyInquiryFilters(enquiries, { searchQuery, filters }, formatD
   });
 }
 
-function sortValue(fields, col, row) {
+function resolveSortColumn(key) {
+  return (
+    INQUIRY_LIST_DISPLAY_COLUMNS.find((c) => c.id === key) ||
+    INQUIRY_TABLE_COLUMNS.find((c) => c.id === key) ||
+    INQUIRY_LIST_DISPLAY_COLUMNS[0]
+  );
+}
+
+function sortValue(fields, col) {
   const raw = fields[col.id];
   if (col.valueType === "number" || col.valueType === "currency") {
     const n = Number(raw);
@@ -79,15 +97,15 @@ function sortValue(fields, col, row) {
 }
 
 export function sortInquiries(enquiries, sortConfig) {
-  const col = INQUIRY_TABLE_COLUMNS.find((c) => c.id === sortConfig?.key) || INQUIRY_TABLE_COLUMNS[0];
+  const col = resolveSortColumn(sortConfig?.key);
   const dir = sortConfig?.dir === "asc" ? 1 : -1;
   const list = [...(enquiries || [])];
 
   list.sort((a, b) => {
-    const fa = getExcelInquiryFields(a);
-    const fb = getExcelInquiryFields(b);
-    const av = sortValue(fa, col, a);
-    const bv = sortValue(fb, col, b);
+    const fa = getSortableFields(a);
+    const fb = getSortableFields(b);
+    const av = sortValue(fa, col);
+    const bv = sortValue(fb, col);
 
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
