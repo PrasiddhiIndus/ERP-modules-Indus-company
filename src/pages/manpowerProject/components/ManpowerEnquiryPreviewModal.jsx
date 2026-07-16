@@ -472,6 +472,27 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
               </Field>
             </div>
           </FormSection>
+
+          {(form.enquiryAttachmentPaths || []).length > 0 ? (
+            <FormSection
+              title="Additional Attachments"
+              hint="Supporting files attached with this enquiry."
+            >
+              <div className="space-y-2">
+                {(form.enquiryAttachmentPaths || []).map((path, index) => (
+                  <div
+                    key={`enquiry-attach-${path}-${index}`}
+                    className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+                  >
+                    <Paperclip className="h-4 w-4 shrink-0" />
+                    <span className="truncate" title={path}>
+                      {String(path).split("/").pop() || path}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </FormSection>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-6">
