@@ -548,7 +548,7 @@ export async function getNextEnquiryNumber(supabase) {
   return `ENQ-${year}-${String(maxSequence + 1).padStart(4, "0")}`;
 }
 
-/** Table layout: column widths and value types aligned to inquiry field data. */
+/** Table layout: column widths and value types aligned to inquiry field data (Excel export). */
 export const INQUIRY_TABLE_COLUMNS = [
   { id: "srNo", label: "Sr. No", width: 56, align: "center", valueType: "number", dbColumn: "sr_no" },
   { id: "receivedDate", label: "Received Date", width: 108, valueType: "date", dbColumn: "received_date" },
@@ -564,6 +564,21 @@ export const INQUIRY_TABLE_COLUMNS = [
   { id: "offerSubmittedOn", label: "Offer Submitted On", width: 116, valueType: "date", dbColumn: "offer_submitted_on" },
   { id: "remarks", label: "Remarks", width: 144, valueType: "text", dbColumn: "remarks" },
   { id: "furtherAction", label: "Further action/Follow up", width: 168, valueType: "text", dbColumn: "further_action" },
+];
+
+/** Summary columns for Enquiry Master List UI (full detail in preview). */
+export const INQUIRY_LIST_DISPLAY_COLUMNS = [
+  { id: "enquiryNumber", label: "Enquiry No", width: 118, valueType: "text", sortable: true },
+  { id: "receivedDate", label: "Received On", width: 108, valueType: "date", sortable: true },
+  { id: "vertical", label: "Vertical", width: 110, valueType: "chip", sortable: true },
+  { id: "modeOfSubmission", label: "Mode", width: 100, valueType: "text", sortable: true },
+  { id: "clientName", label: "Client Name", width: 148, valueType: "text", sortable: true },
+  { id: "location", label: "Location", width: 132, valueType: "text", sortable: true },
+  { id: "descriptionOfWork", label: "Description of Work", width: 200, valueType: "text", sortable: true },
+  { id: "approxValue", label: "Approx. Value (₹)", width: 128, align: "right", valueType: "currency", sortable: true },
+  { id: "status", label: "Status", width: 110, valueType: "status", sortable: true },
+  { id: "enquiryAssignedTo", label: "Assigned To", width: 140, valueType: "text", sortable: true },
+  { id: "offerSubmittedOn", label: "Offer Submission", width: 118, valueType: "date", sortable: true },
 ];
 
 export function formatInquiryCellValue(value, valueType, formatDate) {
@@ -596,6 +611,13 @@ export const INQUIRY_DB_COLUMNS = [
   "enquiry_number",
   "status",
   "authorization_to",
+  "contacts",
+  "phone",
+  "email",
+  "city",
+  "state",
+  "source",
+  "documents",
   "created_at",
   "updated_at",
 ];
