@@ -93,6 +93,7 @@ const INQUIRY_META_KEYS = [
   "contactPersonEmail",
   "submissionRemark",
   "scopeAttachmentPaths",
+  "enquiryAttachmentPaths",
   "industrySector",
   "serviceCategory",
   "serviceCategoryCustom",
@@ -234,6 +235,13 @@ function normalizeScopeAttachmentPaths(row, meta = {}) {
   return [];
 }
 
+function normalizeEnquiryAttachmentPaths(meta = {}) {
+  if (Array.isArray(meta.enquiryAttachmentPaths) && meta.enquiryAttachmentPaths.length) {
+    return meta.enquiryAttachmentPaths.filter(Boolean);
+  }
+  return [];
+}
+
 /** Map a DB row to the 14 Excel inquiry columns (DB columns first, meta/legacy fallback). */
 export function getExcelInquiryFields(row) {
   const { meta } = parseAuthorizationMeta(row?.authorization_to);
@@ -308,6 +316,8 @@ export function inquiryRowToForm(row) {
     scopeOfWork: row?.manpower_required || meta.descriptionOfWork || "",
     scopeAttachmentPaths: normalizeScopeAttachmentPaths(row, meta),
     scopeAttachments: [],
+    enquiryAttachmentPaths: normalizeEnquiryAttachmentPaths(meta),
+    enquiryAttachments: [],
     contractDurationValue: meta.contractDurationValue ?? "",
     contractDurationUnit: meta.contractDurationUnit || "Months",
     contractTimelineStart: toInputDate(meta.contractTimelineStart),
@@ -386,6 +396,12 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
         ? [existingMeta.documents || existingMeta.scopeAttachmentPath].filter(Boolean)
         : [];
 
+  const existingEnquiryAttachmentPaths = Array.isArray(form.enquiryAttachmentPaths)
+    ? form.enquiryAttachmentPaths.filter(Boolean)
+    : Array.isArray(existingMeta.enquiryAttachmentPaths)
+      ? existingMeta.enquiryAttachmentPaths.filter(Boolean)
+      : [];
+
   const assignedToList = (Array.isArray(form.assignedToList) ? form.assignedToList : parseAssignedToList(
     form.receivedBy || form.enquiryAssignedTo,
     { receivedBy: form.receivedBy, enquiryAssignedTo: form.enquiryAssignedTo, assignedToList: form.assignedToList }
@@ -418,6 +434,7 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     enquirySubType: form.enquirySubType || "Regular",
     scopeInputType: form.scopeInputType || "Text",
     scopeAttachmentPaths: existingScopePaths,
+    enquiryAttachmentPaths: existingEnquiryAttachmentPaths,
     contractDurationValue: form.contractDurationValue ?? "",
     contractDurationUnit: form.contractDurationUnit || "Months",
     contractTimelineStart: form.contractTimelineStart || null,
