@@ -49,6 +49,8 @@ const emptyForm = {
   scopeOfWork: "",
   scopeAttachments: [],
   scopeAttachmentPaths: [],
+  enquiryAttachments: [],
+  enquiryAttachmentPaths: [],
   contractDurationValue: "",
   contractDurationUnit: "Months",
   contractTimelineStart: "",
@@ -263,9 +265,11 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const [srNoLoading, setSrNoLoading] = useState(false);
   const defaultAssigneeRef = useRef("");
   const existingScopeAttachmentPathsRef = useRef([]);
+  const existingEnquiryAttachmentPathsRef = useRef([]);
   const existingPortalProofPathRef = useRef("");
   const existingEnquiryNumberRef = useRef("");
   const scopeFileInputRef = useRef(null);
+  const enquiryFileInputRef = useRef(null);
 
   const isOnlineTender = formData.sourceType === "Online Tender";
   const isTenderFeeApplicable = formData.tenderFeeApplicable === "Applicable";
@@ -298,6 +302,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     });
     setAssignedToDraft("");
     existingScopeAttachmentPathsRef.current = [];
+    existingEnquiryAttachmentPathsRef.current = [];
     existingPortalProofPathRef.current = "";
     existingEnquiryNumberRef.current = "";
   }, []);
@@ -345,6 +350,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       if (!data) return;
       const nextForm = inquiryRowToForm(data);
       existingScopeAttachmentPathsRef.current = nextForm.scopeAttachmentPaths || [];
+      existingEnquiryAttachmentPathsRef.current = nextForm.enquiryAttachmentPaths || [];
       existingPortalProofPathRef.current = nextForm.portalProofPath || "";
       existingEnquiryNumberRef.current = data.enquiry_number || "";
       setFormData(nextForm);
@@ -453,6 +459,30 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     setFormData((prev) => ({
       ...prev,
       scopeAttachmentPaths: existingScopeAttachmentPathsRef.current,
+    }));
+  };
+
+  const handleEnquiryFilesSelected = (files) => {
+    const nextFiles = files ? Array.from(files) : [];
+    if (!nextFiles.length) return;
+    setFormData((prev) => ({
+      ...prev,
+      enquiryAttachments: [...(prev.enquiryAttachments || []), ...nextFiles],
+    }));
+  };
+
+  const removeNewEnquiryAttachment = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      enquiryAttachments: (prev.enquiryAttachments || []).filter((_, idx) => idx !== index),
+    }));
+  };
+
+  const removeExistingEnquiryAttachment = (index) => {
+    existingEnquiryAttachmentPathsRef.current = existingEnquiryAttachmentPathsRef.current.filter((_, idx) => idx !== index);
+    setFormData((prev) => ({
+      ...prev,
+      enquiryAttachmentPaths: existingEnquiryAttachmentPathsRef.current,
     }));
   };
 
@@ -625,6 +655,15 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         portalProofPath = data.path;
       }
 
+      const uploadedEnquiryAttachmentPaths = [...existingEnquiryAttachmentPathsRef.current];
+      for (const file of formData.enquiryAttachments || []) {
+        const { data, error } = await supabase.storage
+          .from("manpower-docs")
+          .upload(`enquiry-attachments/${Date.now()}_${file.name}`, file);
+        if (error) throw error;
+        uploadedEnquiryAttachmentPaths.push(data.path);
+      }
+
       const srNo = enquiryId ? existingMeta.srNo ?? formData.srNo : formData.srNo || (await getNextSrNo(supabase));
 
       const assignedToList = getResolvedAssignedToList();
@@ -636,6 +675,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           srNo,
           portalProofPath: portalProofPath || "",
           scopeAttachmentPaths: uploadedScopePaths,
+          enquiryAttachmentPaths: uploadedEnquiryAttachmentPaths,
         },
         existingMeta
       );
@@ -1303,6 +1343,83 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
               aria-label="Submission or bid deadline"
             />
           </Field>
+        </div>
+      </FormSection>
+
+      <FormSection
+        title="Additional Attachments"
+        hint="Optional — add any supporting files (images, PDFs, documents, etc.). You can attach multiple files."
+      >
+        <div className="space-y-3">
+          {(formData.enquiryAttachmentPaths || []).length > 0 ? (
+            <div className="space-y-2">
+              {(formData.enquiryAttachmentPaths || []).map((path, index) => (
+                <div
+                  key={`existing-enquiry-${path}-${index}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2"
+                >
+                  <div className="min-w-0 flex items-center gap-2 text-sm text-emerald-800">
+                    <Paperclip className="h-4 w-4 shrink-0" />
+                    <span className="truncate" title={path}>
+                      {path.split("/").pop() || path}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeExistingEnquiryAttachment(index)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 hover:text-rose-700"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {(formData.enquiryAttachments || []).map((file, index) => (
+            <div
+              key={`new-enquiry-${file.name}-${index}`}
+              className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+            >
+              <div className="min-w-0 flex items-center gap-2 text-sm text-slate-700">
+                <Paperclip className="h-4 w-4 shrink-0 text-slate-500" />
+                <span className="truncate" title={file.name}>
+                  {file.name}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeNewEnquiryAttachment(index)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 hover:text-rose-700"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Remove
+              </button>
+            </div>
+          ))}
+
+          <input
+            ref={enquiryFileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              handleEnquiryFilesSelected(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => enquiryFileInputRef.current?.click()}
+            className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
+          >
+            <Plus className="h-4 w-4" />
+            Add Attachment
+          </button>
+          {!((formData.enquiryAttachmentPaths || []).length || (formData.enquiryAttachments || []).length) ? (
+            <p className="text-xs text-slate-500">No files attached yet. This section is optional.</p>
+          ) : null}
         </div>
       </FormSection>
       </div>
