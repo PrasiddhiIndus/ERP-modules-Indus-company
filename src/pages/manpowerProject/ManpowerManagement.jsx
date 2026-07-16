@@ -19,11 +19,16 @@ import {
   ChevronsUpDown,
   AlertTriangle,
   Loader2,
+  Eye,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
+import ManpowerEnquiryPreviewModal, {
+  statusTone,
+  verticalTone,
+} from "./components/ManpowerEnquiryPreviewModal";
 import ManpowerEnquiryDashboard from "./ManpowerEnquiryDashboard";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import FormDateInput from "../../components/FormDateInput";
@@ -34,6 +39,7 @@ import {
   formatInquiryCellValue,
   getExcelInquiryFields,
   INQUIRY_DB_COLUMNS,
+  INQUIRY_LIST_DISPLAY_COLUMNS,
   INQUIRY_TABLE_COLUMNS,
   MODE_OF_SUBMISSION_OPTIONS,
   VERTICAL_OPTIONS,
@@ -60,20 +66,45 @@ import {
 } from "./utils/commercialInquiryAssignees";
 
 const DEFAULT_PAGE_SIZE = 10;
-const DEFAULT_SORT = { key: "srNo", dir: "desc" };
+const DEFAULT_SORT = { key: "receivedDate", dir: "desc" };
 const MANPOWER_BASE = "/app/commercial/manpower-training/manpower-management";
-const ACTION_COL_WIDTH = 112;
+const ACTION_COL_WIDTH = 168;
 const tableMinWidth =
-  INQUIRY_TABLE_COLUMNS.reduce((sum, col) => sum + col.width, 0) + ACTION_COL_WIDTH;
+  INQUIRY_LIST_DISPLAY_COLUMNS.reduce((sum, col) => sum + col.width, 0) + ACTION_COL_WIDTH;
 const INQUIRY_MULTILINE_COLUMNS = new Set(["descriptionOfWork", "remarks", "furtherAction"]);
 const STICKY_ACTION_CELL =
   "manpower-inquiry-action-cell sticky right-0 border-l border-slate-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-purple-50/80";
 const STICKY_ACTION_HEAD =
-  "manpower-inquiry-action-head sticky right-0 top-0 border-l border-red-100 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
+  "manpower-inquiry-action-head sticky right-0 top-0 border-l border-purple-100 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
 
 function getRejectionRemark(row) {
   const { meta } = parseAuthorizationMeta(row.authorization_to);
   return String(meta.rejectionRemark || "").trim();
+}
+
+function getListRowFields(row) {
+  const excel = getExcelInquiryFields(row);
+  return {
+    ...excel,
+    enquiryNumber: row?.enquiry_number || "",
+    status: row?.status || "Pending",
+  };
+}
+
+function buildPageItems(currentPage, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const pages = new Set([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+  if (currentPage <= 3) [2, 3, 4].forEach((p) => pages.add(p));
+  if (currentPage >= totalPages - 2) [totalPages - 3, totalPages - 2, totalPages - 1].forEach((p) => pages.add(p));
+  const sorted = [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+  const items = [];
+  sorted.forEach((page, idx) => {
+    if (idx > 0 && page - sorted[idx - 1] > 1) items.push("…");
+    items.push(page);
+  });
+  return items;
 }
 
 const IMPORT_PREVIEW_COLUMNS = [
@@ -257,6 +288,7 @@ const ManpowerManagement = () => {
   const [editingId, setEditingId] = useState(null);
   const [rejectDialog, setRejectDialog] = useState({ open: false, row: null, remark: "", error: "", submitting: false });
   const [remarkDialog, setRemarkDialog] = useState({ open: false, row: null, remark: "" });
+  const [previewRow, setPreviewRow] = useState(null);
 
   const fetchEnquiries = async () => {
     setLoading(true);
@@ -275,6 +307,7 @@ const ManpowerManagement = () => {
       }
     } catch (e) {
       console.error(e);
+      setListError(e?.message || String(e));
       setEnquiries([]);
     } finally {
       setLoading(false);
@@ -345,14 +378,16 @@ const ManpowerManagement = () => {
     setSearchQuery("");
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!sorted.length) {
       alert("No inquiries to export for the current search and filters.");
       return;
     }
     setExportBusy(true);
     try {
-      exportManpowerInquiriesToExcel(sorted, formatDateDdMmYyyy);
+      const updatedBy =
+        userProfile?.username || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
+      await exportManpowerInquiriesToExcel(sorted, formatDateDdMmYyyy, { updatedBy });
     } catch (error) {
       console.error(error);
       alert(error?.message || "Export failed.");
@@ -446,14 +481,14 @@ const ManpowerManagement = () => {
   };
 
   const openEdit = (enquiryId) => {
+    setPreviewRow(null);
     setEditingId(enquiryId);
     setShowForm(true);
     navigate(`${MANPOWER_BASE}/${enquiryId}`, { replace: false });
   };
 
-  const switchTab = (tab) => {
-    if (tab === "dashboard") navigate(`${MANPOWER_BASE}/dashboard`);
-    else navigate(MANPOWER_BASE);
+  const openPreview = (row) => {
+    setPreviewRow(row);
   };
 
   const afterSave = () => {
@@ -577,25 +612,28 @@ const ManpowerManagement = () => {
     fetchEnquiries();
   };
 
+  const pageItems = buildPageItems(currentPage, totalPages);
+  const sortLabel =
+    INQUIRY_LIST_DISPLAY_COLUMNS.find((c) => c.id === sortConfig.key)?.label ||
+    INQUIRY_TABLE_COLUMNS.find((c) => c.id === sortConfig.key)?.label ||
+    sortConfig.key;
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto w-full max-w-[1680px] px-3 py-4 sm:px-4 md:px-6 lg:py-6">
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
-        <div className="flex flex-col gap-4">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-5 sm:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Enquiry Master List</h1>
               <p className="mt-1 text-sm text-slate-600 sm:text-base">
                 {isDashboardView
                   ? "Dashboard analytics, charts, and filtered summaries for manpower enquiries."
-                  : "Track commercial manpower, fire tender, and training enquiries in one place."}
+                  : "Track and manage commercial manpower, fire tender and training enquiries."}
               </p>
               {listError && !isDashboardView && (
                 <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                Could not load enquiries: {listError}. Run migrations{" "}
-                <code className="text-xs">20260414120000_manpower_enquiries_and_storage.sql</code> and{" "}
-                <code className="text-xs">20260619120000_manpower_enquiries_inquiry_columns.sql</code> in Supabase SQL Editor.
+                  Could not load enquiries. Please refresh and try again. If the problem continues, contact your administrator.
                 </p>
               )}
             </div>
@@ -603,76 +641,50 @@ const ManpowerManagement = () => {
               <button
                 type="button"
                 onClick={openNew}
-                className="inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-purple-700 sm:px-4"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="h-4 w-4" />
                 <span>Add Enquiry</span>
               </button>
               {!isDashboardView && (
                 <>
-              <button
-                type="button"
-                onClick={handleExport}
-                disabled={exportBusy || !sorted.length}
-                className="inline-flex items-center justify-center gap-2 px-3 py-2 border border-emerald-300 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 text-sm disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                {exportBusy ? "Exporting…" : "Export"}
-              </button>
-              <button
-                type="button"
-                onClick={() => downloadManpowerInquiryImportTemplate()}
-                className="inline-flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50 text-sm"
-              >
-                <Download className="w-4 h-4" />
-                Template
-              </button>
-              <button
-                type="button"
-                onClick={() => importFileRef.current?.click()}
-                disabled={importBusy}
-                className="inline-flex items-center justify-center gap-2 px-3 py-2 border border-blue-300 bg-blue-50 text-blue-800 rounded-lg hover:bg-blue-100 text-sm disabled:opacity-50"
-              >
-                <Upload className="w-4 h-4" />
-                {importBusy ? "Reading…" : "Import"}
-              </button>
-              <input
-                ref={importFileRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={(e) => handleImportFile(e.target.files?.[0])}
-              />
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    disabled={exportBusy || !sorted.length}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    <Download className="h-4 w-4 text-emerald-600" />
+                    {exportBusy ? "Exporting…" : "Export"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadManpowerInquiryImportTemplate()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Download className="h-4 w-4 text-slate-500" />
+                    Template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => importFileRef.current?.click()}
+                    disabled={importBusy}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                  >
+                    <Upload className="h-4 w-4 text-blue-600" />
+                    {importBusy ? "Reading…" : "Import"}
+                  </button>
+                  <input
+                    ref={importFileRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={(e) => handleImportFile(e.target.files?.[0])}
+                  />
                 </>
               )}
             </div>
           </div>
-
-          <div className="flex gap-1 overflow-x-auto border-t border-slate-100 pt-1">
-            <button
-              type="button"
-              onClick={() => switchTab("dashboard")}
-              className={`whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                isDashboardView
-                  ? "border-purple-600 text-purple-700"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Dashboard
-            </button>
-            <button
-              type="button"
-              onClick={() => switchTab("list")}
-              className={`whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                !isDashboardView
-                  ? "border-purple-600 text-purple-700"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              Enquiry Master List
-            </button>
-          </div>
-        </div>
         </div>
 
           {isDashboardView ? (
@@ -681,36 +693,36 @@ const ManpowerManagement = () => {
             </div>
           ) : (
           <div className="space-y-4 p-4 sm:p-6">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 space-y-4">
-            <div className="flex flex-col lg:flex-row gap-3">
+          <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Master search across all inquiry columns, status, enquiry no…"
+                  placeholder="Search by Enquiry No, Client Name, Location, Description..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                  className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowFilters((v) => !v)}
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${
-                    showFilters ? "border-purple-300 bg-purple-50 text-purple-800" : "border-gray-300 bg-white text-gray-700"
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium ${
+                    showFilters ? "border-purple-300 bg-purple-50 text-purple-800" : "border-slate-300 bg-white text-slate-700"
                   }`}
                 >
-                  <Filter className="w-4 h-4" />
+                  <Filter className="h-4 w-4" />
                   Filters
                 </button>
                 {(hasActiveInquiryFilters(filters) || searchQuery.trim()) && (
                   <button
                     type="button"
                     onClick={clearFilters}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm hover:bg-gray-50"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50"
                   >
-                    <RotateCcw className="w-4 h-4" />
+                    <RotateCcw className="h-4 w-4" />
                     Clear
                   </button>
                 )}
@@ -718,13 +730,13 @@ const ManpowerManagement = () => {
             </div>
 
             {showFilters && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-                <label className="text-xs text-gray-600">
-                  <span className="block mb-1 font-medium">Vertical</span>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                <label className="text-xs text-slate-600">
+                  <span className="mb-1 block font-medium">Vertical</span>
                   <select
                     value={filters.vertical}
                     onChange={(e) => setFilters((prev) => ({ ...prev, vertical: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">All</option>
                     {VERTICAL_OPTIONS.map((opt) => (
@@ -734,12 +746,12 @@ const ManpowerManagement = () => {
                     ))}
                   </select>
                 </label>
-                <label className="text-xs text-gray-600">
-                  <span className="block mb-1 font-medium">Mode of Submission</span>
+                <label className="text-xs text-slate-600">
+                  <span className="mb-1 block font-medium">Mode of Submission</span>
                   <select
                     value={filters.modeOfSubmission}
                     onChange={(e) => setFilters((prev) => ({ ...prev, modeOfSubmission: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">All</option>
                     {MODE_OF_SUBMISSION_OPTIONS.map((opt) => (
@@ -749,12 +761,12 @@ const ManpowerManagement = () => {
                     ))}
                   </select>
                 </label>
-                <label className="text-xs text-gray-600">
-                  <span className="block mb-1 font-medium">Assigned To</span>
+                <label className="text-xs text-slate-600">
+                  <span className="mb-1 block font-medium">Assigned To</span>
                   <select
                     value={filters.enquiryAssignedTo}
                     onChange={(e) => setFilters((prev) => ({ ...prev, enquiryAssignedTo: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">All</option>
                     {mergeAssignedToOptions(commercialAssigneeOptions, filters.enquiryAssignedTo).map((opt) => (
@@ -764,12 +776,12 @@ const ManpowerManagement = () => {
                     ))}
                   </select>
                 </label>
-                <label className="text-xs text-gray-600">
-                  <span className="block mb-1 font-medium">Status</span>
+                <label className="text-xs text-slate-600">
+                  <span className="mb-1 block font-medium">Status</span>
                   <select
                     value={filters.status}
                     onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">All</option>
                     {[...new Set([...INQUIRY_STATUS_OPTIONS, ...filterOptions.status])].map((opt) => (
@@ -779,26 +791,32 @@ const ManpowerManagement = () => {
                     ))}
                   </select>
                 </label>
-                <label className="text-xs text-gray-600">
-                  <span className="block mb-1 font-medium">Received From</span>
-                  <FormDateInput value={filters.receivedFrom} onChange={(e) => setFilters((prev) => ({ ...prev, receivedFrom: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                <label className="text-xs text-slate-600">
+                  <span className="mb-1 block font-medium">Received From</span>
+                  <FormDateInput
+                    value={filters.receivedFrom}
+                    onChange={(e) => setFilters((prev) => ({ ...prev, receivedFrom: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   />
                 </label>
-                <label className="text-xs text-gray-600">
-                  <span className="block mb-1 font-medium">Received To</span>
-                  <FormDateInput value={filters.receivedTo} onChange={(e) => setFilters((prev) => ({ ...prev, receivedTo: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm"
+                <label className="text-xs text-slate-600">
+                  <span className="mb-1 block font-medium">Received To</span>
+                  <FormDateInput
+                    value={filters.receivedTo}
+                    onChange={(e) => setFilters((prev) => ({ ...prev, receivedTo: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   />
                 </label>
               </div>
             )}
 
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-              <span className="font-medium">
-                {sorted.length} of {enquiries.length} enquiries
-                {sortConfig.key ? ` · Sorted by ${INQUIRY_TABLE_COLUMNS.find((c) => c.id === sortConfig.key)?.label || sortConfig.key} (${sortConfig.dir})` : ""}
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+              <span className="font-medium text-slate-800">Total Enquiries: {sorted.length}</span>
+              {sortConfig.key ? (
+                <span className="text-xs text-slate-500">
+                  Sorted by {sortLabel} ({sortConfig.dir})
+                </span>
+              ) : null}
             </div>
 
             {importMessage ? (
@@ -871,14 +889,14 @@ const ManpowerManagement = () => {
               `}</style>
                 <table className="manpower-inquiry-table w-full text-xs" style={{ minWidth: tableMinWidth, tableLayout: "fixed" }}>
                   <colgroup>
-                    {INQUIRY_TABLE_COLUMNS.map((col) => (
+                    {INQUIRY_LIST_DISPLAY_COLUMNS.map((col) => (
                       <col key={col.id} style={{ width: col.width }} />
                     ))}
                     <col style={{ width: ACTION_COL_WIDTH }} />
                   </colgroup>
                   <thead className="border-b border-purple-100">
                     <tr>
-                      {INQUIRY_TABLE_COLUMNS.map((col) => {
+                      {INQUIRY_LIST_DISPLAY_COLUMNS.map((col) => {
                         const isSorted = sortConfig.key === col.id;
                         const SortIcon = isSorted ? (sortConfig.dir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
                         return (
@@ -903,19 +921,19 @@ const ManpowerManagement = () => {
                         );
                       })}
                       <th className={`px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wider text-slate-700 align-middle ${STICKY_ACTION_HEAD}`}>
-                        Action
+                        Actions
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {paginated.map((e) => {
                       const rejectionRemark = getRejectionRemark(e);
-                      const fields = getExcelInquiryFields(e);
+                      const fields = getListRowFields(e);
                       return (
                         <tr key={e.id} className="group transition-colors hover:bg-purple-50/40">
-                          {INQUIRY_TABLE_COLUMNS.map((col) => {
+                          {INQUIRY_LIST_DISPLAY_COLUMNS.map((col) => {
                             const raw = fields[col.id];
-                            const display = formatInquiryCellValue(raw, col.valueType, formatDateDdMmYyyy);
+                            const display = formatInquiryCellValue(raw, col.valueType === "chip" || col.valueType === "status" ? "text" : col.valueType, formatDateDdMmYyyy);
                             const alignClass =
                               col.align === "center"
                                 ? "text-center"
@@ -926,51 +944,73 @@ const ManpowerManagement = () => {
                               col.valueType === "number" || col.valueType === "currency" ? "tabular-nums" : "";
                             const cellTitle = display === "—" ? undefined : display;
                             const isMultiline = INQUIRY_MULTILINE_COLUMNS.has(col.id);
-                            const spanAlignClass =
-                              col.align === "center"
-                                ? "text-center"
-                                : col.align === "right"
-                                  ? "text-right"
-                                  : "text-left";
                             return (
                               <td
                                 key={col.id}
                                 className={`max-w-0 px-3 py-3 align-middle text-xs text-slate-700 ${alignClass} ${typeClass}`}
                               >
-                                {isMultiline ? (
+                                {col.valueType === "chip" ? (
+                                  display === "—" ? (
+                                    <span className="text-slate-400">—</span>
+                                  ) : (
+                                    <span className={`inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[11px] font-medium ${verticalTone(display)}`} title={cellTitle}>
+                                      {display}
+                                    </span>
+                                  )
+                                ) : col.valueType === "status" ? (
+                                  display === "—" ? (
+                                    <span className="text-slate-400">—</span>
+                                  ) : (
+                                    <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${statusTone(display)}`} title={cellTitle}>
+                                      {display}
+                                    </span>
+                                  )
+                                ) : col.id === "enquiryNumber" ? (
+                                  <span className="block truncate font-medium text-purple-700 leading-snug" title={cellTitle}>
+                                    {display}
+                                  </span>
+                                ) : isMultiline ? (
                                   <span
-                                    className={`block whitespace-normal break-words line-clamp-2 leading-snug ${spanAlignClass}`}
+                                    className="block whitespace-normal break-words line-clamp-2 leading-snug text-left"
                                     title={cellTitle}
                                   >
                                     {display}
                                   </span>
                                 ) : (
-                                  <span className={`block truncate leading-snug ${spanAlignClass}`} title={cellTitle}>
+                                  <span className={`block truncate leading-snug ${alignClass}`} title={cellTitle}>
                                     {display}
                                   </span>
                                 )}
                               </td>
                             );
                           })}
-                          <td className={`px-3 py-3 align-middle ${STICKY_ACTION_CELL}`}>
-                            <div className="flex justify-center items-center gap-1.5">
+                          <td className={`px-2 py-3 align-middle ${STICKY_ACTION_CELL}`}>
+                            <div className="flex justify-center items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openPreview(e)}
+                                title="Preview"
+                                className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-purple-200 bg-white text-purple-600 hover:bg-purple-50 transition-colors"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
                               {canApproveEnquiries ? (
                                 <>
                                   <button
                                     type="button"
                                     onClick={() => handleApprove(e.id)}
                                     title="Approve"
-                                    className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                                    className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600 hover:bg-emerald-50 transition-colors"
                                   >
-                                    <CheckCircle2 className="w-4 h-4" />
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => openRejectDialog(e)}
                                     title="Regret with remark"
-                                    className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors"
+                                    className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 transition-colors"
                                   >
-                                    <XCircle className="w-4 h-4" />
+                                    <XCircle className="w-3.5 h-3.5" />
                                   </button>
                                 </>
                               ) : null}
@@ -979,26 +1019,26 @@ const ManpowerManagement = () => {
                                   type="button"
                                   onClick={() => openRemarkDialog(e)}
                                   title="View regret remark"
-                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                                  className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-sky-200 bg-white text-sky-600 hover:bg-sky-50 transition-colors"
                                 >
-                                  <MessageSquare className="w-4 h-4" />
+                                  <MessageSquare className="w-3.5 h-3.5" />
                                 </button>
                               ) : null}
                               <button
                                 type="button"
                                 onClick={() => openEdit(e.id)}
                                 title="Edit"
-                                className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                                className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-amber-200 bg-white text-amber-600 hover:bg-amber-50 transition-colors"
                               >
-                                <Pencil className="w-4 h-4" />
+                                <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDelete(e.id)}
                                 title="Delete"
-                                className="h-7 w-7 inline-flex items-center justify-center rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                                className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 transition-colors"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
@@ -1012,17 +1052,17 @@ const ManpowerManagement = () => {
         </div>
 
         {!loading && sorted.length > 0 && (
-          <div className="flex flex-col items-center justify-between gap-3 rounded-b-xl border-t border-slate-200 bg-slate-50/80 px-4 py-3 sm:flex-row">
-            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
+          <div className="flex flex-col items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
               <span>
-                Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sorted.length)} of {sorted.length}
+                Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, sorted.length)} of {sorted.length} entries
               </span>
               <label className="inline-flex items-center gap-2">
                 <span>Rows per page</span>
                 <select
                   value={pageSize}
                   onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="px-2 py-1 border border-gray-300 rounded-md bg-white text-xs"
+                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
                 >
                   {INQUIRY_PAGE_SIZE_OPTIONS.map((size) => (
                     <option key={size} value={size}>
@@ -1032,12 +1072,12 @@ const ManpowerManagement = () => {
                 </select>
               </label>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
-                className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 disabled:opacity-50"
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
               >
                 First
               </button>
@@ -1045,18 +1085,35 @@ const ManpowerManagement = () => {
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-200 text-gray-700 disabled:opacity-50"
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
               >
                 Previous
               </button>
-              <span className="text-xs text-gray-600 min-w-[88px] text-center">
-                Page {currentPage} of {totalPages}
-              </span>
+              {pageItems.map((item, idx) =>
+                item === "…" ? (
+                  <span key={`ellipsis-${idx}`} className="px-1 text-xs text-slate-400">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setCurrentPage(item)}
+                    className={`min-w-[32px] rounded-md border px-2.5 py-1.5 text-xs font-medium ${
+                      currentPage === item
+                        ? "border-purple-600 bg-purple-50 text-purple-700"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                )
+              )}
               <button
                 type="button"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
-                className="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-200 text-gray-700 disabled:opacity-50"
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
               >
                 Next
               </button>
@@ -1064,7 +1121,7 @@ const ManpowerManagement = () => {
                 type="button"
                 onClick={() => setCurrentPage(totalPages)}
                 disabled={currentPage >= totalPages}
-                className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 disabled:opacity-50"
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
               >
                 Last
               </button>
@@ -1082,6 +1139,14 @@ const ManpowerManagement = () => {
           confirming={importConfirming}
           onConfirm={handleConfirmImport}
           onCancel={closeImportPreview}
+        />
+      ) : null}
+
+      {previewRow ? (
+        <ManpowerEnquiryPreviewModal
+          row={previewRow}
+          onClose={() => setPreviewRow(null)}
+          onEdit={openEdit}
         />
       ) : null}
 
