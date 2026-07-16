@@ -1,9 +1,36 @@
 import { supabase } from './supabase';
 import { apiUrl } from './apiBase';
+import { getAdminApiAccessToken } from './userManagementAuthToken';
 
 function fleetR2Url(subpath) {
   const sub = subpath.startsWith('/') ? subpath : `/${subpath}`;
   return apiUrl(`/api/fleet/r2${sub}`);
+}
+
+/** Bearer fetch to fleet R2 routes; refreshes JWT on 401 (same as fetchApiWithAuth). */
+async function fleetR2Fetch(subpath, init = {}) {
+  let token = await getAdminApiAccessToken(supabase);
+  if (!token) {
+    throw new Error('You must be signed in to use fleet file storage.');
+  }
+
+  const doFetch = (accessToken) =>
+    fetch(fleetR2Url(subpath), {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+  let res = await doFetch(token);
+  if (res.status === 401) {
+    const refreshed = await getAdminApiAccessToken(supabase, { forceRefresh: true });
+    if (refreshed && refreshed !== token) {
+      res = await doFetch(refreshed);
+    }
+  }
+  return res;
 }
 
 /**
@@ -12,15 +39,6 @@ function fleetR2Url(subpath) {
  * @returns {Promise<string>} R2 object key (store in Supabase)
  */
 export async function uploadFleetFileToR2({ file, scope, segment }) {
-  const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
-  if (sessionError) throw sessionError;
-  if (!session?.access_token) {
-    throw new Error('You must be signed in to upload files.');
-  }
-
   const formData = new FormData();
   formData.append('scope', scope);
   formData.append('segment', segment);
@@ -28,11 +46,8 @@ export async function uploadFleetFileToR2({ file, scope, segment }) {
   if (file.type) formData.append('contentType', file.type);
   formData.append('file', file);
 
-  const res = await fetch(fleetR2Url('/upload'), {
+  const res = await fleetR2Fetch('/upload', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-    },
     body: formData,
   });
   const body = await res.json().catch(() => ({}));
@@ -45,17 +60,10 @@ export async function uploadFleetFileToR2({ file, scope, segment }) {
 }
 
 export async function presignFleetR2Get(objectKey) {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('You must be signed in to open this file.');
-  }
-  const res = await fetch(fleetR2Url('/presign-get'), {
+  const res = await fleetR2Fetch('/presign-get', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
     },
     body: JSON.stringify({ objectKey }),
   });
