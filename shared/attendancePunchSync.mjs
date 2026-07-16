@@ -49,6 +49,13 @@ export function normalizeDbTime(value) {
   return `${hh}:${mm}:${ss}`;
 }
 
+/** HH:MM or HH:MM:SS → minutes since midnight (shared by register sync and daily grid). */
+export function timeToMinutes(timeStr) {
+  const m = String(timeStr || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
 function pickField(row, keys) {
   if (!row || typeof row !== 'object') return '';
   for (const key of keys) {

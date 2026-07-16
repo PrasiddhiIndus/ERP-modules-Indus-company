@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  REGISTER_HALF_DAY_SUBMENU_OPTIONS,
   REGISTER_LEAVE_SUBMENU_OPTIONS,
   REGISTER_PRIMARY_MARK_OPTIONS,
   registerMarkCellInlineStyle,
@@ -13,7 +14,7 @@ const MENU_ITEM_CLASS =
   "w-full px-2.5 py-1.5 text-left text-gray-800 hover:bg-gray-100 focus:bg-gray-100 outline-none";
 
 const MENU_MIN_WIDTH = 168;
-const MENU_EST_HEIGHT = 220;
+const MENU_EST_HEIGHT = 260;
 const VIEWPORT_PAD = 8;
 
 function getScrollParents(node) {
@@ -50,9 +51,27 @@ function computeMenuPosition(anchorEl, menuHeight = MENU_EST_HEIGHT) {
   return { top, left, minWidth };
 }
 
+function SubmenuFlyout({ options, onPick }) {
+  return (
+    <div className="absolute left-full top-0 z-[10000] ml-0.5 min-w-[12rem] rounded-md border border-gray-300 bg-white py-1 shadow-lg">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          className={`block ${MENU_ITEM_CLASS}`}
+          onClick={() => onPick(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
   const [open, setOpen] = useState(false);
   const [leaveSubmenuOpen, setLeaveSubmenuOpen] = useState(false);
+  const [halfDaySubmenuOpen, setHalfDaySubmenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
   const rootRef = useRef(null);
   const buttonRef = useRef(null);
@@ -85,7 +104,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
     if (!open || !menuRef.current) return undefined;
     updateMenuPos();
     return undefined;
-  }, [open, leaveSubmenuOpen, updateMenuPos]);
+  }, [open, leaveSubmenuOpen, halfDaySubmenuOpen, updateMenuPos]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -95,6 +114,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
       if (!inRoot && !inMenu) {
         setOpen(false);
         setLeaveSubmenuOpen(false);
+        setHalfDaySubmenuOpen(false);
       }
     };
     document.addEventListener("mousedown", onDoc);
@@ -104,6 +124,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
   const close = () => {
     setOpen(false);
     setLeaveSubmenuOpen(false);
+    setHalfDaySubmenuOpen(false);
   };
 
   const pick = (next) => {
@@ -123,6 +144,9 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
   };
 
   const display = registerMarkDisplayValue(value);
+  const displayClass = `${registerMarkSelectTextClass(value)} ${
+    String(value || "").includes("/") ? "text-[10px]" : "text-[11px]"
+  }`;
 
   const menu =
     open && menuPos
@@ -141,12 +165,42 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
             onMouseDown={(e) => e.stopPropagation()}
           >
             {REGISTER_PRIMARY_MARK_OPTIONS.map((opt) => {
+              if (opt.hasSubmenu && opt.submenuKey === "halfDay") {
+                return (
+                  <div
+                    key={opt.value}
+                    className="relative"
+                    onMouseEnter={() => {
+                      setHalfDaySubmenuOpen(true);
+                      setLeaveSubmenuOpen(false);
+                    }}
+                    onMouseLeave={() => setHalfDaySubmenuOpen(false)}
+                  >
+                    <button
+                      type="button"
+                      className={`flex items-center justify-between gap-2 ${MENU_ITEM_CLASS}`}
+                      onClick={() => pick("HD")}
+                    >
+                      <span>{opt.label}</span>
+                      <span className="text-gray-400" aria-hidden>
+                        ›
+                      </span>
+                    </button>
+                    {halfDaySubmenuOpen && (
+                      <SubmenuFlyout options={REGISTER_HALF_DAY_SUBMENU_OPTIONS} onPick={pick} />
+                    )}
+                  </div>
+                );
+              }
               if (opt.hasSubmenu) {
                 return (
                   <div
                     key={opt.value}
                     className="relative"
-                    onMouseEnter={() => setLeaveSubmenuOpen(true)}
+                    onMouseEnter={() => {
+                      setLeaveSubmenuOpen(true);
+                      setHalfDaySubmenuOpen(false);
+                    }}
                     onMouseLeave={() => setLeaveSubmenuOpen(false)}
                   >
                     <button
@@ -160,18 +214,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
                       </span>
                     </button>
                     {leaveSubmenuOpen && (
-                      <div className="absolute left-full top-0 z-[10000] ml-0.5 min-w-[11rem] rounded-md border border-gray-300 bg-white py-1 shadow-lg">
-                        {REGISTER_LEAVE_SUBMENU_OPTIONS.map((leave) => (
-                          <button
-                            key={leave.value}
-                            type="button"
-                            className={`block ${MENU_ITEM_CLASS}`}
-                            onClick={() => pick(leave.value)}
-                          >
-                            {leave.label}
-                          </button>
-                        ))}
-                      </div>
+                      <SubmenuFlyout options={REGISTER_LEAVE_SUBMENU_OPTIONS} onPick={pick} />
                     )}
                   </div>
                 );
@@ -197,7 +240,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
       {readOnly ? (
         <span
           aria-label={registerMarkOptionLabel(value)}
-          className={`${registerMarkSelectTextClass(value)} block w-full h-8 px-1 text-[11px] font-semibold text-center leading-8 cursor-default`}
+          className={`${displayClass} block w-full h-8 px-1 font-semibold text-center leading-8 cursor-default`}
         >
           {display}
         </span>
@@ -210,7 +253,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
           onClick={toggleOpen}
           onMouseDown={(e) => e.stopPropagation()}
           style={registerMarkCellInlineStyle(value)}
-          className={`${registerMarkSelectTextClass(value)} w-full h-8 px-1 text-[11px] font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
+          className={`${displayClass} w-full h-8 px-1 font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
         >
           {display}
         </button>
