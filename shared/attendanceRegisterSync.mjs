@@ -45,16 +45,14 @@ function derivePunchInOut(sortedPunches) {
 
 /**
  * Register mark from first/last punch of the day.
- * Half Day when: (1) first punch at or after cutoff, or (2) last punch on/before cutoff.
- * Single punch before cutoff with no out yet stays Present.
+ * Half Day when last punch is on/before cutoff.
+ * Single punch with no out yet stays Present.
  */
 export function registerMarkFromPunchWindow({ punchIn, punchOut, cutoff = HALF_DAY_CUTOFF }) {
   if (!punchIn) return null;
   const cutoffMin = timeToMinutes(cutoff);
   const inMin = timeToMinutes(punchIn);
   if (inMin == null || cutoffMin == null) return null;
-
-  if (inMin >= cutoffMin) return 'HD';
 
   if (punchOut) {
     const outMin = timeToMinutes(punchOut);
