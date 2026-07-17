@@ -252,6 +252,10 @@ const Layout = () => {
 
               {hrAdminOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
+                  <NavLink to="hr/dashboard" className={subNavClass}>
+                    <LayoutDashboard className="w-4 h-4 shrink-0 text-[#1F3A8A]" />
+                    <span className="text-xs">Dashboard</span>
+                  </NavLink>
                   <NavLink
                     to="hr/employee-master"
                     className={() => {

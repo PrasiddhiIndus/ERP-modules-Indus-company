@@ -60,6 +60,7 @@ export const Attendance = lazy(() => import("../pages/attendance/Attendance"));
 export const Salary = lazy(() => import("../pages/salary/Salary"));
 export const StoreInventory = lazy(() => import("../pages/store/StoreInventory"));
 export const HR = lazy(() => import("../pages/hr/HR"));
+export const HrDashboard = lazy(() => import("../pages/hr/HrDashboard"));
 export const HrEmployeeMaster = lazy(() => import("../pages/hr/HrEmployeeMaster"));
 export const HrSalaryInputs = lazy(() => import("../pages/hr/HrSalaryInputs"));
 export const Procurement = lazy(() => import("../pages/procurement/Procurement"));
