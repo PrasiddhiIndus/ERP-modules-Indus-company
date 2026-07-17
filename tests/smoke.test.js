@@ -18,9 +18,9 @@ describe('registerMarkFromPunchWindow', () => {
     expect(registerMarkFromPunchWindow({ punchIn: '08:30', punchOut: '18:00' })).toBe('P');
   });
 
-  it('marks half day when in is after cutoff', () => {
-    expect(registerMarkFromPunchWindow({ punchIn: '13:15', punchOut: '18:00' })).toBe('HD');
-    expect(registerMarkFromPunchWindow({ punchIn: '13:15', punchOut: '' })).toBe('HD');
+  it('keeps late punch-in as present when out is after cutoff', () => {
+    expect(registerMarkFromPunchWindow({ punchIn: '13:15', punchOut: '18:00' })).toBe('P');
+    expect(registerMarkFromPunchWindow({ punchIn: '13:15', punchOut: '' })).toBe('P');
   });
 
   it('keeps single morning punch as present', () => {
