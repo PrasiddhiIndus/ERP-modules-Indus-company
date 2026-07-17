@@ -45,6 +45,7 @@ import {
   Attendance,
   StoreInventory,
   HR,
+  HrDashboard,
   HrEmployeeMaster,
   HrSalaryInputs,
   Procurement,
@@ -337,6 +338,7 @@ function App() {
             {/* Reorganized Module Routes */}
             
             {/* HR & Admin */}
+            <Route path="hr/dashboard" element={<HrDashboard />} />
             <Route path="hr" element={<HR />}>
               <Route index element={<Navigate to="employee-master" replace />} />
               <Route path="employee-master" element={<HrEmployeeMaster />} />
