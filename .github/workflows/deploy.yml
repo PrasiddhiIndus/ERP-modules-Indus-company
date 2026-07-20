@@ -79,7 +79,16 @@ jobs:
           port: 22
           debug: true
           envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY
-          script: /root/deploy.sh
+          # Always run the in-repo script after pull so deploy fixes ship with the app
+          # (avoids a stale /root/deploy.sh copy missing env auto-repair).
+          script: |
+            set -euo pipefail
+            REPO_DIR="${REPO_DIR:-/root/indus-erp}"
+            cd "${REPO_DIR}"
+            git fetch origin main
+            git checkout main
+            git pull origin main
+            bash scripts/deploy.sh
         env:
           PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
           PROD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
