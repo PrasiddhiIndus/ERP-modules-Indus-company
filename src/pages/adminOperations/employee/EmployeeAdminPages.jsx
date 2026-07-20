@@ -340,32 +340,28 @@ export function EmployeeAttendanceInputsPage() {
       setApiConnection((prev) => ({ ...prev, checking: true }));
       const health = await fetchApiHealth();
       if (cancelled) return;
+
+      // Never block Raw Attendance on env/health mismatch — punches load from Supabase in the browser.
+      // Env issues are logged for ops; sync is probed separately and only affects the Sync button.
+      if (health.data?.warning || health.data?.service_role_key === "missing_or_invalid") {
+        console.warn("[Raw Attendance] API health notice:", health.data?.warning || "service_role_key missing_or_invalid", {
+          supabase_project: health.data?.supabase_project,
+          erp_env: health.data?.erp_env,
+        });
+      }
+
       if (!health.ok) {
         setApiConnection({
           checking: false,
           reachable: false,
           etimeConfigured: false,
-          message: health.error || `API health check failed (${health.status || "offline"}).`,
+          message: "",
           baseUrl: "",
           punchEndpoint: "",
         });
         return;
       }
-      const healthWarning = String(health.data?.warning || "").trim();
-      const serviceRoleBad = health.data?.service_role_key === "missing_or_invalid";
-      if (healthWarning || serviceRoleBad) {
-        setApiConnection({
-          checking: false,
-          reachable: true,
-          etimeConfigured: false,
-          message:
-            healthWarning ||
-            "Attendance sync API is not linked to the same login environment as this website. Ask an administrator to fix the production API Supabase URL and service role key, then restart the API.",
-          baseUrl: "",
-          punchEndpoint: "",
-        });
-        return;
-      }
+
       const status = await fetchAttendanceApiStatus();
       if (cancelled) return;
       if (status.status === 401 || status.status === 403) {
@@ -373,11 +369,7 @@ export function EmployeeAttendanceInputsPage() {
           checking: false,
           reachable: true,
           etimeConfigured: false,
-          message:
-            status.data?.message ||
-            status.error ||
-            status.data?.error ||
-            "Sign in as admin or HR to use eTimeOffice sync.",
+          message: "",
           baseUrl: "",
           punchEndpoint: "",
         });
@@ -388,10 +380,7 @@ export function EmployeeAttendanceInputsPage() {
           checking: false,
           reachable: true,
           etimeConfigured: false,
-          message:
-            status.data?.message ||
-            status.error ||
-            "Node server is up but eTimeOffice credentials are missing on the server. Add ETIME_* to .env.server and restart Node.",
+          message: "",
           baseUrl: status.data?.baseUrl || "",
           punchEndpoint: status.data?.punchEndpoint || "",
         });
@@ -488,12 +477,6 @@ export function EmployeeAttendanceInputsPage() {
     setSyncing(true);
     setError("");
     try {
-      if (!apiConnection.etimeConfigured && !apiConnection.checking) {
-        throw new Error(
-          apiConnection.message ||
-            "eTimeOffice API is not configured. Fix server env (ETIME_AUTH_CREDENTIALS) and restart Node."
-        );
-      }
       const result = await fetchApiWithAuth(`/api/admin/attendance/punches?${params.toString()}`, {
         timeoutMs: 120_000,
       });
@@ -660,12 +643,8 @@ export function EmployeeAttendanceInputsPage() {
         <button
           type="button"
           onClick={syncAttendanceFromApi}
-          disabled={syncing || loading || apiConnection.checking || !apiConnection.etimeConfigured}
-          title={
-            !apiConnection.etimeConfigured && !apiConnection.checking
-              ? apiConnection.message || "eTimeOffice API not ready"
-              : "Import punches from eTimeOffice for the selected date"
-          }
+          disabled={syncing || loading || apiConnection.checking}
+          title="Import punches from eTimeOffice for the selected date"
           className="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs disabled:opacity-60"
         >
           {syncing ? "Syncing..." : "Sync eTimeOffice"}
@@ -686,21 +665,6 @@ export function EmployeeAttendanceInputsPage() {
         shows the first punch as in and the last as out for each employee.
       </CollapsibleHelp>
 
-      {apiConnection.checking ? (
-        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
-          Checking connection to eTimeOffice proxy…
-        </div>
-      ) : null}
-      {!apiConnection.checking && !apiConnection.reachable ? (
-        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 whitespace-pre-wrap">
-          {apiConnection.message}
-        </div>
-      ) : null}
-      {!apiConnection.checking && apiConnection.reachable && !apiConnection.etimeConfigured ? (
-        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 whitespace-pre-wrap">
-          {apiConnection.message}
-        </div>
-      ) : null}
       {!apiConnection.checking && apiConnection.etimeConfigured ? (
         <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
           eTimeOffice proxy ready

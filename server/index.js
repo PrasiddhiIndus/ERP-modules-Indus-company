@@ -114,13 +114,59 @@ function serviceRoleMatchesUrl(url, svcKey) {
   return Boolean(urlRef && keyRef && urlRef === keyRef);
 }
 
-/** Staging dev: frontend uses .env.staging; prevent production SUPABASE_* in .env.server from winning. */
-function applyStagingSupabaseOverrides() {
-  if (String(process.env.ERP_ENV || '').toLowerCase() !== 'staging') return;
-  const url = normalizeEnvValue(process.env.VITE_SUPABASE_URL);
-  const anon = normalizeEnvValue(process.env.VITE_SUPABASE_ANON_KEY);
-  if (url) process.env.SUPABASE_URL = url;
-  if (anon) process.env.SUPABASE_ANON_KEY = anon;
+function getRawSupabaseServiceRoleKey() {
+  return normalizeEnvValue(
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_SERVICE_KEY ||
+      process.env.SERVICE_ROLE_KEY
+  );
+}
+
+function isStagingErpEnv() {
+  return String(process.env.ERP_ENV || '').toLowerCase() === 'staging';
+}
+
+/**
+ * Keep production and staging Supabase completely separate.
+ * - Staging (ERP_ENV=staging): prefer VITE_* staging URL/anon from .env.staging.
+ * - Production / default: if the service_role JWT is for production, pin SUPABASE_URL to
+ *   production even when .env.server accidentally still has the staging URL.
+ */
+function applyEnvironmentSupabasePin() {
+  if (isStagingErpEnv()) {
+    const url = normalizeEnvValue(process.env.VITE_SUPABASE_URL);
+    const anon = normalizeEnvValue(process.env.VITE_SUPABASE_ANON_KEY);
+    if (url) process.env.SUPABASE_URL = url;
+    if (anon) process.env.SUPABASE_ANON_KEY = anon;
+    return;
+  }
+
+  const rawKey = getRawSupabaseServiceRoleKey();
+  const keyRef = getSupabaseProjectRefFromJwt(rawKey);
+  const currentUrl = normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+  const urlRef = getSupabaseProjectRefFromUrl(currentUrl);
+  const productionUrl = `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`;
+
+  // Production key wins: align URL so attendance auth never rejects a valid prod key.
+  if (keyRef === PRODUCTION_SUPABASE_PROJECT_REF && urlRef !== PRODUCTION_SUPABASE_PROJECT_REF) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[server] Auto-pinning SUPABASE_URL to production (${PRODUCTION_SUPABASE_PROJECT_REF}); ` +
+        `was "${urlRef || 'missing'}" but service_role key is production.`
+    );
+    process.env.SUPABASE_URL = productionUrl;
+    return;
+  }
+
+  // Accidental staging URL on a non-staging host without a staging key → pin to production.
+  if (urlRef === STAGING_SUPABASE_PROJECT_REF && keyRef !== STAGING_SUPABASE_PROJECT_REF) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[server] Auto-pinning SUPABASE_URL to production (${PRODUCTION_SUPABASE_PROJECT_REF}); ` +
+        `non-staging host had staging URL.`
+    );
+    process.env.SUPABASE_URL = productionUrl;
+  }
 }
 
 function getSupabaseUrlForServer() {
@@ -128,16 +174,16 @@ function getSupabaseUrlForServer() {
 }
 
 function getSupabaseServiceRoleKeyForServer() {
-  const raw = normalizeEnvValue(
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.SUPABASE_SERVICE_KEY ||
-      process.env.SERVICE_ROLE_KEY
-  );
+  const raw = getRawSupabaseServiceRoleKey();
   const url = getSupabaseUrlForServer();
   if (raw && url && !serviceRoleMatchesUrl(url, raw)) {
     const keyRef = getSupabaseProjectRefFromJwt(raw);
     const urlRef = getSupabaseProjectRefFromUrl(url);
-    const keySource = _envSourceMap['SUPABASE_SERVICE_ROLE_KEY'] || _envSourceMap['SUPABASE_SERVICE_KEY'] || _envSourceMap['SERVICE_ROLE_KEY'] || 'unknown';
+    const keySource =
+      _envSourceMap['SUPABASE_SERVICE_ROLE_KEY'] ||
+      _envSourceMap['SUPABASE_SERVICE_KEY'] ||
+      _envSourceMap['SERVICE_ROLE_KEY'] ||
+      'unknown';
     const urlSource = _envSourceMap['SUPABASE_URL'] || _envSourceMap['VITE_SUPABASE_URL'] || 'unknown';
     // eslint-disable-next-line no-console
     console.error(
@@ -154,7 +200,7 @@ function getSupabaseAnonKeyForServer() {
   return normalizeEnvValue(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY);
 }
 
-applyStagingSupabaseOverrides();
+applyEnvironmentSupabasePin();
 
 /** Supabase API keys are JWTs; service_role can read `profiles`, anon cannot (RLS). */
 function isSupabaseServiceRoleKey(key) {
@@ -809,21 +855,42 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
   return safe;
 }
 
+function buildSupabaseEnvWarning(projectRef, serviceRoleOk) {
+  // Staging hosts are allowed to use the staging project; never warn them about production.
+  if (isStagingErpEnv()) {
+    if (projectRef && projectRef !== STAGING_SUPABASE_PROJECT_REF) {
+      return (
+        'Staging API SUPABASE_URL is not the staging project. ' +
+        `Set ERP_ENV=staging and staging SUPABASE_URL (${STAGING_SUPABASE_PROJECT_REF}).`
+      );
+    }
+    return null;
+  }
+
+  // Production / default — after auto-pin these should be rare; keep for ops logs/health only.
+  if (projectRef === STAGING_SUPABASE_PROJECT_REF) {
+    return (
+      'Attendance sync API is still on the staging Supabase project. ' +
+      `Set production SUPABASE_URL (${PRODUCTION_SUPABASE_PROJECT_REF}) and matching service_role key, then restart.`
+    );
+  }
+  if (!serviceRoleOk) {
+    return (
+      'Attendance sync API is missing a valid SUPABASE_SERVICE_ROLE_KEY matching SUPABASE_URL. ' +
+      'Fix .env.server and restart the API.'
+    );
+  }
+  return null;
+}
+
 app.get('/api/health', (_req, res) => {
   const supabaseUrl = getSupabaseUrlForServer();
   const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
   const anonKey = getSupabaseAnonKeyForServer();
   const projectRef = getSupabaseProjectRefFromUrl(supabaseUrl);
   const erpEnv = String(process.env.ERP_ENV || '').toLowerCase() || null;
-  const corsHasProductionSite = corsOrigins.some((o) => /indus-erp\.in/i.test(o));
-  const projectMismatchWarning =
-    corsHasProductionSite && projectRef === STAGING_SUPABASE_PROJECT_REF
-      ? 'API CORS includes indus-erp.in but SUPABASE_URL is the staging project. Fix .env.server SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY to production (wbyzhknaqcjqqtwopupl) and restart.'
-      : corsHasProductionSite &&
-          projectRef &&
-          projectRef !== PRODUCTION_SUPABASE_PROJECT_REF
-        ? `API CORS includes indus-erp.in but SUPABASE_URL project is "${projectRef}" (expected ${PRODUCTION_SUPABASE_PROJECT_REF}).`
-        : null;
+  const serviceRoleOk = isSupabaseServiceRoleKey(serviceRoleKey);
+  const projectMismatchWarning = buildSupabaseEnvWarning(projectRef, serviceRoleOk);
   // Always expose non-secret readiness flags (needed to debug prod vs local auth mismatches).
   const body = {
     ok: true,
@@ -831,7 +898,7 @@ app.get('/api/health', (_req, res) => {
     erp_env: erpEnv,
     supabase_project: projectRef || null,
     supabase_url: supabaseUrl ? 'set' : 'missing',
-    service_role_key: isSupabaseServiceRoleKey(serviceRoleKey) ? 'ok' : 'missing_or_invalid',
+    service_role_key: serviceRoleOk ? 'ok' : 'missing_or_invalid',
     anon_key: anonKey ? 'set' : 'missing',
     warning: projectMismatchWarning,
   };
@@ -1527,59 +1594,15 @@ function logEnvSourceDiagnostics() {
   }
 }
 
-function validateProductionSupabaseOrExit() {
-  const corsHasProductionSite = corsOrigins.some((o) => /indus-erp\.in/i.test(o));
-  if (!corsHasProductionSite) return;
-
+function warnIfSupabaseEnvMisaligned() {
   const supabaseUrl = getSupabaseUrlForServer();
   const svcKey = getSupabaseServiceRoleKeyForServer();
   const projectRef = getSupabaseProjectRefFromUrl(supabaseUrl);
-  const errors = [];
-
-  if (!supabaseUrl) {
-    errors.push('SUPABASE_URL is missing. Set it in .env.server.');
-  } else if (projectRef === STAGING_SUPABASE_PROJECT_REF) {
-    const src = _envSourceMap['SUPABASE_URL'] || _envSourceMap['VITE_SUPABASE_URL'] || 'unknown';
-    errors.push(
-      `SUPABASE_URL points to STAGING project (${STAGING_SUPABASE_PROJECT_REF}) — loaded from "${src}". ` +
-        `Production must use https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`
-    );
-  } else if (projectRef !== PRODUCTION_SUPABASE_PROJECT_REF) {
-    errors.push(
-      `SUPABASE_URL project "${projectRef}" is not the production project (${PRODUCTION_SUPABASE_PROJECT_REF}).`
-    );
-  }
-
-  if (!svcKey || !isSupabaseServiceRoleKey(svcKey)) {
-    const rawExists = normalizeEnvValue(
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.SERVICE_ROLE_KEY
-    );
-    if (rawExists && !isSupabaseServiceRoleKey(rawExists)) {
-      errors.push('SUPABASE_SERVICE_ROLE_KEY exists but is not a valid service_role JWT (check Supabase Dashboard → API).');
-    } else if (rawExists) {
-      const keyRef = getSupabaseProjectRefFromJwt(rawExists);
-      errors.push(
-        `SUPABASE_SERVICE_ROLE_KEY is for project "${keyRef}" but SUPABASE_URL is "${projectRef}". ` +
-          `Both must be from the SAME Supabase project. Key source: ${_envSourceMap['SUPABASE_SERVICE_ROLE_KEY'] || 'unknown'}, ` +
-          `URL source: ${_envSourceMap['SUPABASE_URL'] || _envSourceMap['VITE_SUPABASE_URL'] || 'unknown'}.`
-      );
-    } else {
-      errors.push('SUPABASE_SERVICE_ROLE_KEY is missing. Copy it from Supabase Dashboard → Project Settings → API.');
-    }
-  }
-
-  if (errors.length) {
-    // eslint-disable-next-line no-console
-    console.error(
-      `\n${'='.repeat(72)}\n` +
-        `[server] PRODUCTION STARTUP BLOCKED — Supabase credentials are invalid.\n` +
-        `CORS includes indus-erp.in so this is a production API instance.\n\n` +
-        errors.map((e, i) => `  ${i + 1}. ${e}`).join('\n') +
-        `\n\nFix .env.server in the repo root on this server, then: pm2 restart ${process.env.PM2_NAME || 'indus-erp-backend'} --update-env\n` +
-        `${'='.repeat(72)}\n`
-    );
-    process.exit(1);
-  }
+  const serviceRoleOk = isSupabaseServiceRoleKey(svcKey);
+  const warning = buildSupabaseEnvWarning(projectRef, serviceRoleOk);
+  if (!warning) return;
+  // eslint-disable-next-line no-console
+  console.warn(`[server] Supabase env notice (API stays up): ${warning}`);
 }
 
 const httpServer = app.listen(PORT, '0.0.0.0', () => {
@@ -1602,7 +1625,7 @@ const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] Supabase project: ${supabaseRef}${erpEnvLabel === 'staging' ? ' (staging)' : ''}`);
   }
 
-  validateProductionSupabaseOrExit();
+  warnIfSupabaseEnvMisaligned();
   try {
     const etime = etimeCfg(getRequiredEnv);
     // eslint-disable-next-line no-console
