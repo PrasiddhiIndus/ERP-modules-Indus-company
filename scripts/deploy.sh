@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Copy to /root/deploy.sh on the DigitalOcean droplet and chmod +x.
-# GitHub Actions (deploy.yml → main) runs this on every push to main.
-# IMPORTANT: After updating this file, re-copy to server:
-#   scp scripts/deploy.sh root@<server>:/root/deploy.sh
+# Production deploy. Prefer running from the repo after git pull:
+#   bash scripts/deploy.sh
+# GitHub Actions should invoke this in-repo script (not a stale /root/deploy.sh copy).
 #
 # One-time server setup:
 #   mkdir -p /var/www/indus-erp
@@ -25,6 +24,8 @@ BRANCH="${BRANCH:-main}"
 PM2_NAME="${PM2_NAME:-indus-erp-backend}"
 PROD_PROJECT_REF="wbyzhknaqcjqqtwopupl"
 STAGING_PROJECT_REF="xjzhlbpgnpcmbdlufhwo"
+EXPECTED_SUPABASE_URL="https://${PROD_PROJECT_REF}.supabase.co"
+EXPECTED_CORS="https://indus-erp.in,http://localhost:5173"
 
 echo "==> Deploy production from ${REPO_DIR} (branch ${BRANCH})"
 
@@ -49,42 +50,55 @@ if grep -qiE '^ERP_ENV[[:space:]]*=[[:space:]]*staging' .env.server 2>/dev/null;
   sed -i '/^ERP_ENV[[:space:]]*=[[:space:]]*staging/d' .env.server
 fi
 
-# Auto-fix SUPABASE_URL from CI secret if missing or wrong
-EXPECTED_SUPABASE_URL="https://${PROD_PROJECT_REF}.supabase.co"
+# Always pin SUPABASE_URL to production (overwrite staging / wrong / missing).
 CURRENT_URL="$(grep -E '^SUPABASE_URL=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'"'" || true)"
-
-if [ -z "${CURRENT_URL}" ] || echo "${CURRENT_URL}" | grep -q "${STAGING_PROJECT_REF}"; then
-  if [ -n "${PROD_SUPABASE_URL:-}" ]; then
-    echo "==> Fixing SUPABASE_URL in .env.server (was: '${CURRENT_URL:-<missing>}')"
-    sed -i '/^SUPABASE_URL=/d' .env.server
-    echo "SUPABASE_URL=${PROD_SUPABASE_URL}" >> .env.server
-  elif [ -z "${CURRENT_URL}" ]; then
-    echo "==> SUPABASE_URL missing — adding production default"
-    echo "SUPABASE_URL=${EXPECTED_SUPABASE_URL}" >> .env.server
-  else
-    echo "ERROR: .env.server SUPABASE_URL is staging (${STAGING_PROJECT_REF}) and PROD_SUPABASE_URL secret not set in CI."
+TARGET_URL="${PROD_SUPABASE_URL:-${EXPECTED_SUPABASE_URL}}"
+if [ -z "${CURRENT_URL}" ] || ! echo "${CURRENT_URL}" | grep -q "${PROD_PROJECT_REF}"; then
+  if echo "${TARGET_URL}" | grep -q "${STAGING_PROJECT_REF}"; then
+    echo "ERROR: PROD_SUPABASE_URL secret points at staging (${STAGING_PROJECT_REF}). Use production project ${PROD_PROJECT_REF}."
     exit 1
   fi
+  echo "==> Setting SUPABASE_URL in .env.server (was: '${CURRENT_URL:-<missing>}' → '${TARGET_URL}')"
+  sed -i '/^SUPABASE_URL=/d' .env.server
+  echo "SUPABASE_URL=${TARGET_URL}" >> .env.server
 fi
 
-# Auto-fix SUPABASE_SERVICE_ROLE_KEY from CI secret if missing
-if ! grep -qE '^SUPABASE_SERVICE_ROLE_KEY=.{20,}' .env.server 2>/dev/null; then
-  if [ -n "${PROD_SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
-    echo "==> Fixing SUPABASE_SERVICE_ROLE_KEY in .env.server (was missing or invalid)"
+# Prefer CI secret for service role; also replace when key looks missing/short.
+CURRENT_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'"'" || true)"
+if [ -n "${PROD_SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+  if [ "${CURRENT_SRK}" != "${PROD_SUPABASE_SERVICE_ROLE_KEY}" ]; then
+    echo "==> Updating SUPABASE_SERVICE_ROLE_KEY in .env.server from CI secret"
     sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server
     echo "SUPABASE_SERVICE_ROLE_KEY=${PROD_SUPABASE_SERVICE_ROLE_KEY}" >> .env.server
+  fi
+elif ! echo "${CURRENT_SRK}" | grep -qE '.{40,}'; then
+  echo "ERROR: SUPABASE_SERVICE_ROLE_KEY missing/invalid in .env.server and PROD_SUPABASE_SERVICE_ROLE_KEY secret not set in CI."
+  echo "       Add it to GitHub → Settings → Secrets → PROD_SUPABASE_SERVICE_ROLE_KEY"
+  exit 1
+fi
+
+# Ensure production site is in CORS (health + startup validation depend on this).
+CURRENT_CORS="$(grep -E '^CORS_ORIGINS=' .env.server | tail -1 | cut -d= -f2- || true)"
+if [ -z "${CURRENT_CORS}" ] || ! echo "${CURRENT_CORS}" | grep -qi 'indus-erp\.in'; then
+  echo "==> Ensuring CORS_ORIGINS includes https://indus-erp.in"
+  sed -i '/^CORS_ORIGINS=/d' .env.server
+  if [ -n "${CURRENT_CORS}" ] && ! echo "${CURRENT_CORS}" | grep -qi 'indus-erp\.in'; then
+    echo "CORS_ORIGINS=https://indus-erp.in,${CURRENT_CORS}" >> .env.server
   else
-    echo "ERROR: SUPABASE_SERVICE_ROLE_KEY missing in .env.server and PROD_SUPABASE_SERVICE_ROLE_KEY secret not set in CI."
-    echo "       Add it to GitHub → Settings → Secrets → PROD_SUPABASE_SERVICE_ROLE_KEY"
-    exit 1
+    echo "CORS_ORIGINS=${EXPECTED_CORS}" >> .env.server
   fi
 fi
 
-# Verify final state
+# Verify final state before build/restart
 FINAL_URL="$(grep -E '^SUPABASE_URL=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'"'" || true)"
 if ! echo "${FINAL_URL}" | grep -q "${PROD_PROJECT_REF}"; then
-  echo "WARNING: Could not confirm production Supabase project (${PROD_PROJECT_REF}) in .env.server."
-  echo "         Current: ${FINAL_URL:-<missing>}"
+  echo "ERROR: Could not confirm production Supabase project (${PROD_PROJECT_REF}) in .env.server."
+  echo "       Current: ${FINAL_URL:-<missing>}"
+  exit 1
+fi
+if echo "${FINAL_URL}" | grep -q "${STAGING_PROJECT_REF}"; then
+  echo "ERROR: .env.server SUPABASE_URL still points at staging after fix attempt."
+  exit 1
 fi
 
 if ! grep -qE '^ETIME_AUTH_CREDENTIALS=.+' .env.server 2>/dev/null; then

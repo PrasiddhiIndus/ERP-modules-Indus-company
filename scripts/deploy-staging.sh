@@ -35,6 +35,13 @@ if [ ! -f .env.server ]; then
   exit 1
 fi
 
+# Staging must opt in so the API never auto-pins to the production Supabase project.
+if ! grep -qiE '^ERP_ENV[[:space:]]*=[[:space:]]*staging' .env.server 2>/dev/null; then
+  echo "==> Setting ERP_ENV=staging in .env.server (keeps staging/production Supabase isolated)"
+  sed -i '/^ERP_ENV=/d' .env.server
+  echo "ERP_ENV=staging" >> .env.server
+fi
+
 if ! grep -q '^ETIME_AUTH_CREDENTIALS=.\+' .env.server 2>/dev/null; then
   echo "WARNING: ETIME_AUTH_CREDENTIALS is missing in .env.server — Raw Attendance Data sync will not work until set."
 fi
