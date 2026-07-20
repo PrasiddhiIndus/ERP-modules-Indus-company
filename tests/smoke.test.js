@@ -76,6 +76,11 @@ describe('canPunchSyncOverwriteExisting', () => {
   it('allows overwrite on empty cell', () => {
     expect(canPunchSyncOverwriteExisting(null)).toBe(true);
   });
+
+  it('allows punch sync to replace auto WO and auto holiday', () => {
+    expect(canPunchSyncOverwriteExisting({ mark: 'WO', mark_source: 'auto_wo' })).toBe(true);
+    expect(canPunchSyncOverwriteExisting({ mark: 'NH/PH', mark_source: 'auto_holiday' })).toBe(true);
+  });
 });
 
 describe('isLeaveMarkSource', () => {

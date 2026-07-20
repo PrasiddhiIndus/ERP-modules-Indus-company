@@ -14,6 +14,10 @@ import {
 } from "./attendanceDaily";
 import { normalizeManagerCode } from "./employeeHierarchy";
 import { employeeCodeForUserId } from "./employeeCode";
+import {
+  reconcileLeaveBalanceForRequest,
+  validateLeaveRequestMonthlyBalance,
+} from "./leaveManagement";
 
 export const INDUS_ONE_SCHEMA = "indus_one";
 
@@ -418,7 +422,18 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
     ...decisionPayload({ ...decision, ...approverMeta }),
   };
 
+  await ensureAdminLeaveRequestMirror(lmsRow);
+
+  const adminRow = await fetchAdminLeaveRow(id);
+  const adminStatus = normalizeWorkflowStatus(adminRow?.status);
+  const expectedAdmin = normalizeWorkflowStatus(adminExpectedStatus);
+
+  if (targetStatus === "approved" && lmsRow.status !== targetStatus) {
+    await validateLeaveRequestMonthlyBalance(supabase, adminRow || lmsRow);
+  }
+
   if (lmsRow.status === targetStatus) {
+    await reconcileLeaveBalanceForRequest(supabase, adminRow || lmsRow);
     return finishDecisionRow(lmsRow);
   }
 
@@ -428,12 +443,6 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
     );
   }
 
-  await ensureAdminLeaveRequestMirror(lmsRow);
-
-  const adminRow = await fetchAdminLeaveRow(id);
-  const adminStatus = normalizeWorkflowStatus(adminRow?.status);
-  const expectedAdmin = normalizeWorkflowStatus(adminExpectedStatus);
-
   if (adminStatus === targetStatus) {
     const lmsSynced = await syncLmsLeaveStatus(id, lmsOpenStatuses, patch);
     if (!lmsSynced) {
@@ -441,6 +450,7 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
         "Attendance was already updated but LMS status is out of sync. Refresh, or contact support."
       );
     }
+    await reconcileLeaveBalanceForRequest(supabase, adminRow || lmsSynced);
     return finishDecisionRow(lmsSynced);
   }
 
@@ -472,6 +482,7 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
     );
   }
 
+  await reconcileLeaveBalanceForRequest(supabase, adminUpdated);
   return finishDecisionRow(lmsSynced);
 }
 

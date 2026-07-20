@@ -161,11 +161,10 @@ export function canPunchSyncOverwriteExisting(existing) {
   if (isPunchMarkSource(mark, markSource)) return true;
   if (PUNCH_DERIVED_REGISTER_MARKS.has(markUpper)) return true;
   if (mark === REGISTER_MARK_FROM_PUNCH) return true;
-  if (mark === 'WO') {
+  if (mark === 'WO' || markUpper === 'NH/PH' || markUpper === 'NHPH') {
     const src = String(markSource ?? '').trim().toLowerCase();
     if (isManualMarkSource(src)) return false;
-    if (src === 'auto_wo') return false;
-    return true;
+    return src === 'auto_wo' || src === 'auto_holiday' || !src;
   }
   return false;
 }
