@@ -502,11 +502,347 @@ export async function upsertLeaveBalancesBatch(supabase, payloads) {
   return { count: rows.length };
 }
 
-export async function upsertLeaveBalanceYearly(supabase, input, year) {
+export async function upsertLeaveBalanceYearly(supabase, input, year, { skipEntitlementRecalc = false } = {}) {
   const row = buildLeaveBalanceDbRow(input, year);
   if (!row) throw new Error("Employee code and year are required.");
   const result = await upsertLeaveBalancesBatch(supabase, [row]);
-  await recalculateEmployeeLeaveEntitlements(supabase, row.employee_code, year);
+  if (!skipEntitlementRecalc) {
+    await recalculateEmployeeLeaveEntitlements(supabase, row.employee_code, year);
+  }
   return result;
+}
+
+const DEDUCTIBLE_LEAVE_TYPES = new Set(["PL", "SL", "CL"]);
+
+const LEAVE_TYPE_BALANCE_FIELDS = {
+  PL: { opening: "opening_pl", entitlement: "pl_entitlement", used: "used_pl", unused: "unused_pl" },
+  SL: { opening: "opening_sl", entitlement: "sl_entitlement", used: "used_sl", unused: "unused_sl" },
+  CL: { opening: "opening_cl", entitlement: "cl_entitlement", used: "used_cl", unused: "unused_cl" },
+};
+
+function monthNumberFromIsoDate(dateStr) {
+  const m = Number(String(dateStr || "").slice(5, 7));
+  return Number.isFinite(m) && m >= 1 && m <= 12 ? m : null;
+}
+
+function yearNumberFromIsoDate(dateStr) {
+  const y = Number(String(dateStr || "").slice(0, 4));
+  return Number.isFinite(y) && y >= 1900 ? y : null;
+}
+
+function entitlementAccruedThroughMonth(entitlement, month) {
+  const ent = Number(entitlement || 0);
+  const m = Number(month || 0);
+  if (!Number.isFinite(ent) || ent <= 0 || !Number.isFinite(m) || m < 1) return 0;
+  return ent * (Math.min(m, 12) / 12);
+}
+
+function buildUsedTotalsThroughMonth(registerRows, throughMonth) {
+  const filtered = (registerRows || []).filter((row) => {
+    const month = monthNumberFromIsoDate(row.register_date);
+    return month != null && month <= throughMonth;
+  });
+  return buildUsedLeaveTotalsByEmployee(filtered);
+}
+
+export function computeMonthlyAvailableBalance(balanceRow, leaveTypeCode, month, usedTotals = {}) {
+  const code = String(leaveTypeCode || "")
+    .trim()
+    .toUpperCase();
+  const fields = LEAVE_TYPE_BALANCE_FIELDS[code];
+  if (!fields || !month) return null;
+
+  const opening = Number(balanceRow?.[fields.opening] || 0);
+  const entitlement = Number(
+    balanceRow?.[fields.entitlement] ?? DEFAULT_ANNUAL_ENTITLEMENTS[code] ?? 0
+  );
+  const used = Number(usedTotals?.[fields.used] || 0);
+  const pool = opening + entitlementAccruedThroughMonth(entitlement, month);
+  return Math.max(0, pool - used);
+}
+
+export function allocateLeaveDaysByMonth(fromDate, toDate, totalDays) {
+  const from = String(fromDate || "").slice(0, 10);
+  const to = String(toDate || "").slice(0, 10);
+  const days = Number(totalDays || 0);
+  if (!from || !to || days <= 0) return {};
+
+  const start = new Date(`${from}T12:00:00`);
+  const end = new Date(`${to}T12:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return {};
+
+  const counts = {};
+  let calendarDays = 0;
+  for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    calendarDays += 1;
+    const key = `${cursor.getFullYear()}-${cursor.getMonth() + 1}`;
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  if (!calendarDays) return {};
+
+  const out = {};
+  for (const [key, count] of Object.entries(counts)) {
+    out[key] = (days * count) / calendarDays;
+  }
+  return out;
+}
+
+function allocateActualLeaveDaysByMonth(fromDate, toDate, totalDays, excludedDates = new Set()) {
+  const from = String(fromDate || "").slice(0, 10);
+  const to = String(toDate || "").slice(0, 10);
+  const days = Number(totalDays || 0);
+  if (!from || !to || days <= 0) return {};
+
+  const start = new Date(`${from}T12:00:00`);
+  const end = new Date(`${to}T12:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return {};
+
+  const counts = {};
+  let eligibleDays = 0;
+  for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    const iso = cursor.toISOString().slice(0, 10);
+    if (excludedDates.has(iso)) continue;
+    eligibleDays += 1;
+    const key = `${cursor.getFullYear()}-${cursor.getMonth() + 1}`;
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  if (!eligibleDays) return {};
+
+  const out = {};
+  for (const [key, count] of Object.entries(counts)) {
+    out[key] = (days * count) / eligibleDays;
+  }
+  return out;
+}
+
+function yearsSpannedByDateRange(fromDate, toDate) {
+  const startYear = yearNumberFromIsoDate(fromDate);
+  const endYear = yearNumberFromIsoDate(toDate);
+  if (!startYear) return [];
+  if (!endYear || endYear === startYear) return [startYear];
+  const years = [];
+  for (let y = startYear; y <= endYear; y += 1) years.push(y);
+  return years;
+}
+
+function buildSyncedYearlyBalanceRow(current, used, emp_code, year) {
+  const extended = readExtendedLeaveBalanceFields({
+    opening_sbel: current.opening_sbel,
+    opening_spla: current.opening_spla,
+    opening_splb: current.opening_splb,
+    opening_splm: current.opening_splm,
+    opening_coff: current.opening_coff,
+    opening_paternity: current.opening_paternity,
+    used_sbel: used.used_sbel,
+    used_spla: used.used_spla,
+    used_splb: used.used_splb,
+    used_splm: used.used_splm,
+    used_coff: used.used_coff,
+    used_paternity: used.used_paternity,
+  });
+
+  return {
+    employee_code: emp_code,
+    year,
+    opening_pl: Number(current.opening_pl || 0),
+    opening_sl: Number(current.opening_sl || 0),
+    opening_cl: Number(current.opening_cl || 0),
+    pl_entitlement: Number(current.pl_entitlement || 0),
+    sl_entitlement: Number(current.sl_entitlement || 0),
+    cl_entitlement: Number(current.cl_entitlement || 0),
+    sbel_entitlement: Number(current.sbel_entitlement || 0),
+    spla_entitlement: Number(current.spla_entitlement || 0),
+    splb_entitlement: Number(current.splb_entitlement || 0),
+    splm_entitlement: Number(current.splm_entitlement || 0),
+    paternity_entitlement: Number(current.paternity_entitlement || 0),
+    used_pl: clampNonNegative(used.used_pl),
+    used_sl: clampNonNegative(used.used_sl),
+    used_cl: clampNonNegative(used.used_cl),
+    used_sbel: clampNonNegative(used.used_sbel),
+    used_spla: clampNonNegative(used.used_spla),
+    used_splb: clampNonNegative(used.used_splb),
+    used_splm: clampNonNegative(used.used_splm),
+    used_coff: clampNonNegative(used.used_coff),
+    used_paternity: clampNonNegative(used.used_paternity),
+    unused_pl: openingMinusUsed(current.opening_pl, used.used_pl),
+    unused_sl: openingMinusUsed(current.opening_sl, used.used_sl),
+    unused_cl: openingMinusUsed(current.opening_cl, used.used_cl),
+    ...extended,
+    carried_pl: Number(current.carried_pl || 0),
+    carried_sl: Number(current.carried_sl || 0),
+    carried_cl: Number(current.carried_cl || 0),
+    expired_pl: Number(current.expired_pl || 0),
+    expired_sl: Number(current.expired_sl || 0),
+    expired_cl: Number(current.expired_cl || 0),
+    encashed_pl: Number(current.encashed_pl || 0),
+    processed_at: new Date().toISOString(),
+  };
+}
+
+export async function syncEmployeeYearlyLeaveFromRegister(supabase, employeeCode, year) {
+  const emp_code = normalizeAttendanceEmpCode(employeeCode);
+  const y = Number(year);
+  if (!emp_code || !Number.isFinite(y) || y < 1900) return false;
+
+  const [balances, registerRows] = await Promise.all([
+    fetchLeaveBalancesForYear(supabase, y),
+    fetchRegisterMarksForYear(supabase, y),
+  ]);
+
+  const current = (balances || []).find(
+    (row) => normalizeAttendanceEmpCode(row.employee_code) === emp_code
+  );
+  if (!current) return false;
+
+  const usedByEmp = buildUsedLeaveTotalsByEmployee(
+    (registerRows || []).filter(
+      (row) => normalizeAttendanceEmpCode(row.employee_code) === emp_code
+    )
+  );
+  const used = usedByEmp[emp_code] || emptyUsedLeaveTotals();
+  await upsertLeaveBalancesBatch(supabase, [buildSyncedYearlyBalanceRow(current, used, emp_code, y)]);
+  return true;
+}
+
+export async function syncYearlyLeaveBalancesFromRegister(supabase, year) {
+  const y = Number(year);
+  if (!Number.isFinite(y) || y < 1900) return 0;
+
+  const [employees, balances, registerRows] = await Promise.all([
+    fetchActiveEmployees(supabase),
+    fetchLeaveBalancesForYear(supabase, y),
+    fetchRegisterMarksForYear(supabase, y),
+  ]);
+
+  const usedByEmp = buildUsedLeaveTotalsByEmployee(registerRows);
+  const currentByEmp = {};
+  for (const row of balances || []) {
+    const code = normalizeAttendanceEmpCode(row.employee_code);
+    if (code) currentByEmp[code] = row;
+  }
+
+  const rows = (employees || [])
+    .map((employee) => {
+      const emp_code = normalizeAttendanceEmpCode(employee.empCode);
+      if (!emp_code) return null;
+      const current = currentByEmp[emp_code];
+      if (!current) return null;
+      const used = usedByEmp[emp_code] || emptyUsedLeaveTotals();
+      return buildSyncedYearlyBalanceRow(current, used, emp_code, y);
+    })
+    .filter(Boolean);
+
+  if (!rows.length) return 0;
+  await upsertLeaveBalancesBatch(supabase, rows);
+  return rows.length;
+}
+
+export async function reconcileLeaveBalanceForRegisterMark(supabase, employeeCode, registerDate) {
+  const year = yearNumberFromIsoDate(registerDate);
+  if (!year) return false;
+  return syncEmployeeYearlyLeaveFromRegister(supabase, employeeCode, year);
+}
+
+export async function reconcileLeaveBalanceForRequest(supabase, requestRow) {
+  const empCode =
+    normalizeAttendanceEmpCode(requestRow?.employee_code) ||
+    normalizeAttendanceEmpCode(requestRow?.emp_code);
+  const years = yearsSpannedByDateRange(requestRow?.from_date, requestRow?.to_date);
+  if (!empCode || !years.length) return;
+
+  await Promise.all(years.map((y) => syncEmployeeYearlyLeaveFromRegister(supabase, empCode, y)));
+}
+
+export async function validateLeaveRequestMonthlyBalance(supabase, requestRow) {
+  const leaveType = String(requestRow?.leave_type_code || requestRow?.leave_type || "")
+    .trim()
+    .toUpperCase();
+  if (!DEDUCTIBLE_LEAVE_TYPES.has(leaveType)) return;
+
+  const empCode =
+    normalizeAttendanceEmpCode(requestRow?.employee_code) ||
+    normalizeAttendanceEmpCode(requestRow?.emp_code);
+  const fromDate = String(requestRow?.from_date || "").slice(0, 10);
+  const toDate = String(requestRow?.to_date || fromDate).slice(0, 10);
+  const totalDays = Number(requestRow?.days || 0);
+  if (!empCode || !fromDate || totalDays <= 0) return;
+
+  const monthKeys = Object.keys(allocateLeaveDaysByMonth(fromDate, toDate, totalDays));
+  if (!monthKeys.length) return;
+
+  const years = [...new Set(monthKeys.map((key) => Number(key.split("-")[0])))];
+  const registerByYear = {};
+  await Promise.all(
+    years.map(async (year) => {
+      registerByYear[year] = await fetchRegisterMarksForYear(supabase, year);
+    })
+  );
+
+  const excludedPunchPresentDates = new Set();
+  for (const year of years) {
+    for (const row of registerByYear[year] || []) {
+      const code = normalizeAttendanceEmpCode(row.employee_code);
+      const date = String(row.register_date || "").slice(0, 10);
+      const mark = String(row.mark || "").trim().toUpperCase();
+      const source = String(row.mark_source || "").trim().toLowerCase();
+      if (code !== empCode) continue;
+      if (date < fromDate || date > toDate) continue;
+      if (mark === "P" && source === "punch") {
+        excludedPunchPresentDates.add(date);
+      }
+    }
+  }
+
+  const actualDaysByMonth = allocateActualLeaveDaysByMonth(
+    fromDate,
+    toDate,
+    totalDays,
+    excludedPunchPresentDates
+  );
+  if (!Object.keys(actualDaysByMonth).length) return;
+
+  for (const [monthKey, neededDays] of Object.entries(actualDaysByMonth)) {
+    if (neededDays <= 0) continue;
+    const [yearPart, monthPart] = monthKey.split("-");
+    const year = Number(yearPart);
+    const month = Number(monthPart);
+    if (!year || !month) continue;
+
+    const balances = await fetchLeaveBalancesForYear(supabase, year);
+    const balanceRow = (balances || []).find(
+      (row) => normalizeAttendanceEmpCode(row.employee_code) === empCode
+    );
+    if (!balanceRow) {
+      throw new Error(`No leave balance record for ${empCode} in ${year}.`);
+    }
+
+    const registerRows = (registerByYear[year] || []).filter(
+      (row) => normalizeAttendanceEmpCode(row.employee_code) === empCode
+    );
+    const usedThroughMonth = buildUsedTotalsThroughMonth(registerRows, month)[empCode] || emptyUsedLeaveTotals();
+    const available = computeMonthlyAvailableBalance(balanceRow, leaveType, month, usedThroughMonth);
+    if (available == null) continue;
+    if (available + 1e-9 < neededDays) {
+      const monthLabel = new Date(year, month - 1, 1).toLocaleString("en-IN", { month: "short" });
+      throw new Error(
+        `Insufficient ${leaveType} balance for ${monthLabel} ${year} (need ${neededDays.toFixed(1)}, available ${available.toFixed(1)}).`
+      );
+    }
+  }
+}
+
+export function registerMarkAffectsLeaveBalance(mark) {
+  const m = String(mark || "").trim();
+  return (
+    markWeightForPl(m) > 0 ||
+    markWeightForSl(m) > 0 ||
+    markWeightForCl(m) > 0 ||
+    markWeightForSbel(m) > 0 ||
+    markWeightForSpla(m) > 0 ||
+    markWeightForSplb(m) > 0 ||
+    markWeightForSplm(m) > 0 ||
+    markWeightForPaternity(m) > 0 ||
+    markWeightForCoff(m) > 0
+  );
 }
 

@@ -601,10 +601,10 @@ export function buildMonthlyRegisterGrid(
       const manual = overrides[day];
       if (manual != null && manual !== "") {
         mark = manual;
-      } else if (isAutoWeekoffDate(iso)) {
-        mark = "WO";
       } else if (presentKeys.has(`${code}|${iso}`)) {
         mark = "P";
+      } else if (isAutoWeekoffDate(iso)) {
+        mark = "WO";
       }
       if (applyLeavingDisplay && dateOfLeaving && isRegisterDayAfterLeaving(iso, dateOfLeaving)) {
         mark = REGISTER_MARK_LEFT;
@@ -1794,6 +1794,7 @@ export async function fetchRegisterMarksForYear(supabase, year, masterCodeMap = 
     employee_code: resolveRegisterGridEmpCode(row.employee_code, masterCodeMap),
     register_date: String(normalizeDbDate(row.register_date) || "").slice(0, 10),
     mark: row.mark,
+    mark_source: row.mark_source ?? null,
     mark_remark: row.mark_remark ?? null,
   }));
 }
@@ -2062,6 +2063,32 @@ export async function syncRegisterMarksFromPunches(supabase, punches, options = 
 
   if (toUpsert.length) {
     await upsertRegisterMarksBatch(supabase, toUpsert, { masterCodeMap });
+
+    // Reconcile leave balances for unique (employee, year) pairs — run serially in background
+    // to avoid flooding the browser with parallel requests when many employees are punched at once.
+    const affectedPairs = new Map();
+    for (const row of toUpsert) {
+      const code = normalizeAttendanceEmpCode(row.employee_code);
+      const date = normalizeDbDate(row.register_date);
+      if (!code || !date) continue;
+      const year = date.slice(0, 4);
+      if (!affectedPairs.has(code)) affectedPairs.set(code, new Set());
+      affectedPairs.get(code).add(year);
+    }
+    if (affectedPairs.size > 0) {
+      (async () => {
+        try {
+          const { syncEmployeeYearlyLeaveFromRegister } = await import("./leaveManagement");
+          for (const [code, years] of affectedPairs) {
+            for (const year of years) {
+              await syncEmployeeYearlyLeaveFromRegister(supabase, code, Number(year));
+            }
+          }
+        } catch (err) {
+          console.warn("Leave balance sync after punch register sync failed:", err);
+        }
+      })();
+    }
   }
 
   return {
@@ -2186,6 +2213,12 @@ export async function upsertRegisterMark(
       [{ employee_code: normCode, register_date: date }],
       masterCodeMap
     );
+    try {
+      const { reconcileLeaveBalanceForRegisterMark } = await import("./leaveManagement");
+      await reconcileLeaveBalanceForRegisterMark(supabase, normCode, date);
+    } catch (err) {
+      console.warn("Leave balance sync after register mark clear failed:", err);
+    }
     return;
   }
   await upsertRegisterMarksBatch(
@@ -2204,6 +2237,17 @@ export async function upsertRegisterMark(
     ],
     { masterCodeMap }
   );
+
+  try {
+    const { registerMarkAffectsLeaveBalance, reconcileLeaveBalanceForRegisterMark } = await import(
+      "./leaveManagement"
+    );
+    if (registerMarkAffectsLeaveBalance(canonical)) {
+      await reconcileLeaveBalanceForRegisterMark(supabase, normCode, date);
+    }
+  } catch (err) {
+    console.warn("Leave balance sync after register mark failed:", err);
+  }
 }
 
 /** One-time: copy browser marks to Supabase when DB is empty for the month. */
