@@ -59,6 +59,10 @@ const ENTITY_LABELS = {
   marketing_quotations: 'Marketing quotation',
   marketing_clients: 'Marketing client',
   marketing_products: 'Marketing product line',
+  maintenance_enquiries: 'Maintenance enquiry',
+  maintenance_quotations: 'Maintenance quotation',
+  maintenance_clients: 'Maintenance client',
+  maintenance_products: 'Maintenance product line',
   credit_debit_note: 'Credit/debit note',
   payment_advice: 'Payment advice',
   tenders: 'Fire tender',
@@ -83,6 +87,7 @@ const ACTIVITY_IGNORE_TABLES = new Set([
   'invoice_attachment',
   'attachments',
   'marketing_enquiry_documents',
+  'maintenance_enquiry_documents',
   'software_subscription_invoice_files',
   'po_rate_category',
   'po_contact_log',
@@ -113,6 +118,7 @@ function screenHint(route) {
   }
   if (r.includes('/commercial/') && r.includes('manpower-management')) return 'Commercial · Manpower enquiries'
   if (r.includes('/marketing/')) return 'Marketing'
+  if (r.includes('/maintenance/')) return 'Maintenance'
   if (r.includes('/manpower')) return 'Manpower (Commercial MT)'
   if (r.includes('/fire-tender')) return 'Fire tender'
   if (r.includes('/indus-lms-trainings')) return 'Indus LMS / trainings'
