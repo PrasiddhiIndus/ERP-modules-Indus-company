@@ -59,10 +59,10 @@ export const DISCOVERED_APIS = [
     endpoint: "/api/admin/attendance/status",
     httpMethod: "GET",
     authType: "none",
-    checkKey: "node_get",
+    checkKey: "node_attendance_status",
     degradedThresholdMs: 3000,
     sourceFiles: ["server/index.js", "src/lib/apiBase.js"],
-    callLocations: ["server/index.js:942", "src/lib/apiBase.js:136", "src/pages/adminOperations/employee/EmployeeAdminPages.jsx"],
+    callLocations: ["server/index.js:1062", "src/lib/apiBase.js:145", "src/pages/adminOperations/employee/EmployeeAdminPages.jsx"],
   },
   {
     id: "admin-attendance-punches",
@@ -79,7 +79,7 @@ export const DISCOVERED_APIS = [
     checkKey: "node_auth_probe_get",
     degradedThresholdMs: 5000,
     sourceFiles: ["server/index.js", "server/attendanceEtime.js", "src/pages/adminOperations/employee/EmployeeAdminPages.jsx"],
-    callLocations: ["server/index.js:969", "src/pages/adminOperations/employee/EmployeeAdminPages.jsx:476"],
+    callLocations: ["server/index.js:1089", "src/pages/adminOperations/employee/EmployeeAdminPages.jsx"],
   },
   {
     id: "admin-attendance-sync",

@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
-import { API_TYPES } from "../config/apiRegistry";
+import { API_STATUS, API_TYPES } from "../config/apiRegistry";
 import { getHistoryForApi, chartDataFromHistory } from "../services/apiHealthService";
 import {
   StatusBadge,
@@ -71,6 +71,24 @@ export default function ApiDetailPanel({
     [apiDef?.id, snapshot?.checkedAt]
   );
   const chartData = useMemo(() => chartDataFromHistory(history, 30), [history]);
+
+  const issueDetail = useMemo(() => {
+    if (!snapshot) return null;
+    if (snapshot.errorMessage) return snapshot.errorMessage;
+    if (snapshot.status === API_STATUS.degraded) {
+      const last = history[history.length - 1];
+      if (last?.errorMessage) return last.errorMessage;
+      if (last?.latencyMs > apiDef.degradedThresholdMs) {
+        return `Response time ${formatMs(last.latencyMs)} exceeded threshold ${formatMs(apiDef.degradedThresholdMs)}.`;
+      }
+      return "Health is below expected level — review latency and recent check history.";
+    }
+    if (snapshot.status === API_STATUS.offline) {
+      const lastFail = [...history].reverse().find((row) => row.status === API_STATUS.offline);
+      return lastFail?.errorMessage || "Latest check could not reach this API.";
+    }
+    return null;
+  }, [snapshot, history, apiDef.degradedThresholdMs]);
 
   if (!apiDef) return null;
 
@@ -153,10 +171,18 @@ export default function ApiDetailPanel({
         </div>
       ) : null}
 
-      {snapshot?.errorMessage ? (
+      {issueDetail && snapshot?.status !== API_STATUS.online ? (
         <div className={`rounded-lg border px-3 py-2.5 text-xs flex gap-2 ${t.errorBanner}`}>
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{snapshot.errorMessage}</span>
+          <div className="min-w-0 space-y-1">
+            <p className="font-medium">
+              {snapshot.status === API_STATUS.offline ? "Issue detected" : "Performance or configuration issue"}
+            </p>
+            <p className="whitespace-pre-wrap break-words">{issueDetail}</p>
+            {snapshot.httpStatus ? (
+              <p className={`text-[10px] ${t.muted}`}>Last HTTP status: {snapshot.httpStatus}</p>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

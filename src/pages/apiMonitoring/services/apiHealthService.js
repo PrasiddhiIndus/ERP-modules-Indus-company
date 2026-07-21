@@ -1,8 +1,48 @@
 import { API_STATUS } from "../config/apiConstants";
 import { MONITORED_APIS } from "../config/apiRegistry";
+import { resetHealthCheckTokenCache } from "../config/apiCheckHandlers";
 
 const HISTORY_STORAGE_KEY = "erp_api_health_history_v1";
-const MAX_HISTORY_PER_API = 80;
+const SNAPSHOT_CACHE_KEY = "erp_api_health_snapshots_v1";
+const MAX_HISTORY_PER_API = 40;
+const DEFAULT_BATCH_SIZE = 4;
+const BATCH_DELAY_MS = 60;
+const SNAPSHOT_CACHE_TTL_MS = 45_000;
+
+/** Fast checks first so the table fills in quickly; slow probes last. */
+const CHECK_PRIORITY = {
+  node_health: 1,
+  supabase_rest: 1,
+  supabase_auth_health: 1,
+  node_attendance_status: 1,
+  node_get: 2,
+  indirect_etime_status: 2,
+  node_auth_probe_get: 3,
+  node_auth_probe_post: 3,
+  node_auth_probe_post_bulk: 3,
+  node_auth_probe_post_einvoice: 3,
+  node_auth_probe_post_r2_presign: 3,
+  node_auth_probe_post_fleet_presign: 3,
+  indirect_whitebooks: 3,
+  supabase_edge_function: 4,
+  supabase_edge_function_named: 4,
+  external_get: 4,
+  supabase_realtime_ws: 5,
+};
+
+function apiCheckPriority(apiDef) {
+  const key = apiDef.checkKey || apiDef.id;
+  return CHECK_PRIORITY[key] ?? 3;
+}
+
+function sortedApisForRun(apis = MONITORED_APIS) {
+  return [...apis].sort((a, b) => {
+    const pa = apiCheckPriority(a);
+    const pb = apiCheckPriority(b);
+    if (pa !== pb) return pa - pb;
+    return String(a.name).localeCompare(String(b.name));
+  });
+}
 
 /**
  * @typedef {Object} CheckResult
@@ -37,18 +77,11 @@ const MAX_HISTORY_PER_API = 80;
  * @property {number} uptimePercent
  */
 
-/**
- * @typedef {Object} HistoryEntry
- * @property {string} id
- * @property {string} apiId
- * @property {string} status
- * @property {number} httpStatus
- * @property {number} latencyMs
- * @property {string|null} errorMessage
- * @property {string} checkedAt
- */
+/** In-memory history — one sessionStorage write per batch instead of per API. */
+let historyStoreCache = null;
+let historyDirty = false;
 
-function loadHistoryStore() {
+function loadHistoryStoreFromDisk() {
   try {
     const raw = sessionStorage.getItem(HISTORY_STORAGE_KEY);
     if (!raw) return {};
@@ -59,11 +92,23 @@ function loadHistoryStore() {
   }
 }
 
-function saveHistoryStore(store) {
+function getHistoryStore() {
+  if (!historyStoreCache) historyStoreCache = loadHistoryStoreFromDisk();
+  return historyStoreCache;
+}
+
+function saveHistoryStoreToDisk(store) {
   try {
     sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(store));
   } catch {
     /* ignore quota errors */
+  }
+}
+
+function flushHistoryStoreIfDirty() {
+  if (historyDirty && historyStoreCache) {
+    saveHistoryStoreToDisk(historyStoreCache);
+    historyDirty = false;
   }
 }
 
@@ -92,21 +137,57 @@ function deriveTimestamps(entries) {
 }
 
 function appendHistory(apiId, entry) {
-  const store = loadHistoryStore();
+  const store = getHistoryStore();
   const list = Array.isArray(store[apiId]) ? store[apiId] : [];
-  const next = [...list, entry].slice(-MAX_HISTORY_PER_API);
-  store[apiId] = next;
-  saveHistoryStore(store);
+  const last = list[list.length - 1];
+  const unchanged =
+    last &&
+    last.status === entry.status &&
+    last.httpStatus === entry.httpStatus &&
+    last.errorMessage === entry.errorMessage &&
+    Math.abs((last.latencyMs || 0) - (entry.latencyMs || 0)) < 50;
+  const next = unchanged ? list : [...list, entry].slice(-MAX_HISTORY_PER_API);
+  if (!unchanged) {
+    store[apiId] = next;
+    historyDirty = true;
+  }
   return next;
 }
 
 export function getHistoryForApi(apiId) {
-  const store = loadHistoryStore();
+  const store = getHistoryStore();
   return Array.isArray(store[apiId]) ? store[apiId] : [];
 }
 
 export function getAllHistory() {
-  return loadHistoryStore();
+  return getHistoryStore();
+}
+
+/** Last cached snapshots for instant paint while a refresh runs. */
+export function loadCachedSnapshots() {
+  try {
+    const raw = sessionStorage.getItem(SNAPSHOT_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.snapshots || typeof parsed.snapshots !== "object") return null;
+    return {
+      snapshots: parsed.snapshots,
+      cachedAt: parsed.cachedAt || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedSnapshots(snapshots) {
+  try {
+    sessionStorage.setItem(
+      SNAPSHOT_CACHE_KEY,
+      JSON.stringify({ cachedAt: new Date().toISOString(), snapshots })
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -154,10 +235,48 @@ export async function runApiHealthCheck(apiDef) {
   };
 }
 
-/** Run checks for all registered APIs (parallel). */
+/**
+ * Run checks in small batches — fast APIs first, minimal UI/storage churn.
+ * @param {(batchResults: Record<string, ApiHealthSnapshot>, meta: object) => void} [onBatchComplete]
+ */
+export async function runAllApiHealthChecksBatched(onBatchComplete, options = {}) {
+  const batchSize = Number(options.batchSize) > 0 ? Number(options.batchSize) : DEFAULT_BATCH_SIZE;
+  const delayMs = Number(options.delayMs) >= 0 ? Number(options.delayMs) : BATCH_DELAY_MS;
+  const apis = sortedApisForRun(options.apis || MONITORED_APIS);
+  const allResults = {};
+  resetHealthCheckTokenCache();
+
+  for (let i = 0; i < apis.length; i += batchSize) {
+    const batch = apis.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map((api) => runApiHealthCheck(api)));
+    const batchMap = {};
+    for (const result of batchResults) {
+      allResults[result.apiId] = result;
+      batchMap[result.apiId] = result;
+    }
+    flushHistoryStoreIfDirty();
+    if (onBatchComplete) {
+      onBatchComplete(batchMap, {
+        batchIndex: Math.floor(i / batchSize),
+        isFirstBatch: i === 0,
+        isLastBatch: i + batchSize >= apis.length,
+        total: apis.length,
+        completed: Math.min(i + batchSize, apis.length),
+      });
+    }
+    if (i + batchSize < apis.length && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  flushHistoryStoreIfDirty();
+  saveCachedSnapshots(allResults);
+  return allResults;
+}
+
+/** Run checks for all registered APIs (batched). */
 export async function runAllApiHealthChecks() {
-  const results = await Promise.all(MONITORED_APIS.map((api) => runApiHealthCheck(api)));
-  return Object.fromEntries(results.map((r) => [r.apiId, r]));
+  return runAllApiHealthChecksBatched();
 }
 
 export function buildSummary(snapshots, apiDefs = MONITORED_APIS) {
@@ -191,3 +310,5 @@ export function chartDataFromHistory(history, limit = 24) {
     httpStatus: entry.httpStatus,
   }));
 }
+
+export { SNAPSHOT_CACHE_TTL_MS };
