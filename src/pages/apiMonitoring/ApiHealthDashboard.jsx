@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -16,9 +16,11 @@ import {
 } from "./config/apiRegistry";
 import { UNMONITORABLE_APIS } from "./config/unmonitorableApisReport";
 import {
-  runAllApiHealthChecks,
+  runAllApiHealthChecksBatched,
   runApiHealthCheck,
   buildSummary,
+  loadCachedSnapshots,
+  SNAPSHOT_CACHE_TTL_MS,
 } from "./services/apiHealthService";
 import { useMonitoringTheme } from "./components/useMonitoringTheme";
 import {
@@ -41,61 +43,145 @@ const REFRESH_OPTIONS = [
   { value: "60000", label: "60 sec" },
 ];
 
+function mergeSnapshots(prev, batch) {
+  if (!batch || !Object.keys(batch).length) return prev;
+  let changed = false;
+  const next = { ...prev };
+  for (const [id, snap] of Object.entries(batch)) {
+    const existing = prev[id];
+    if (
+      !existing ||
+      existing.status !== snap.status ||
+      existing.checkedAt !== snap.checkedAt ||
+      existing.latencyMs !== snap.latencyMs
+    ) {
+      next[id] = snap;
+      changed = true;
+    }
+  }
+  return changed ? next : prev;
+}
+
 export default function ApiHealthDashboard() {
   const { theme, toggleTheme, t, reducedMotion } = useMonitoringTheme();
 
-  const [snapshots, setSnapshots] = useState({});
-  const [loading, setLoading] = useState(true);
+  const cached = useMemo(() => loadCachedSnapshots(), []);
+  const [snapshots, setSnapshots] = useState(() => cached?.snapshots || {});
+  const [loading, setLoading] = useState(() => !cached?.snapshots || Object.keys(cached.snapshots).length === 0);
   const [refreshing, setRefreshing] = useState(false);
-  const [lastRefreshAt, setLastRefreshAt] = useState(null);
+  const [lastRefreshAt, setLastRefreshAt] = useState(cached?.cachedAt || null);
   const [error, setError] = useState(null);
 
   const [typeFilter, setTypeFilter] = useState("all");
   const [envFilter, setEnvFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [autoRefreshMs, setAutoRefreshMs] = useState("30000");
+  const [autoRefreshMs, setAutoRefreshMs] = useState("60000");
   const [autoRefreshPaused, setAutoRefreshPaused] = useState(false);
   const [mobileDrawerApiId, setMobileDrawerApiId] = useState(null);
 
-  const runChecks = useCallback(async ({ silent = false } = {}) => {
+  const runInFlightRef = useRef(false);
+  const pendingBatchRef = useRef(null);
+  const rafRef = useRef(null);
+  const lastRefreshAtRef = useRef(cached?.cachedAt || null);
+
+  const flushPendingBatches = useCallback(() => {
+    rafRef.current = null;
+    const batch = pendingBatchRef.current;
+    if (!batch) return;
+    pendingBatchRef.current = null;
+    setSnapshots((prev) => mergeSnapshots(prev, batch));
+  }, []);
+
+  const queueBatchUpdate = useCallback(
+    (batch) => {
+      pendingBatchRef.current = { ...(pendingBatchRef.current || {}), ...batch };
+      if (!rafRef.current) {
+        rafRef.current = requestAnimationFrame(flushPendingBatches);
+      }
+    },
+    [flushPendingBatches]
+  );
+
+  const runChecks = useCallback(async ({ silent = false, force = false } = {}) => {
+    if (runInFlightRef.current) return;
+    if (!force && silent && lastRefreshAtRef.current) {
+      const age = Date.now() - new Date(lastRefreshAtRef.current).getTime();
+      if (age >= 0 && age < SNAPSHOT_CACHE_TTL_MS) return;
+    }
+
+    runInFlightRef.current = true;
     if (!silent) setRefreshing(true);
     setError(null);
+
     try {
-      const results = await runAllApiHealthChecks();
-      setSnapshots(results);
-      setLastRefreshAt(new Date().toISOString());
+      await runAllApiHealthChecksBatched((batch, meta) => {
+        queueBatchUpdate(batch);
+        if (meta?.isFirstBatch) setLoading(false);
+      });
+      flushPendingBatches();
+      lastRefreshAtRef.current = new Date().toISOString();
+      setLastRefreshAt(lastRefreshAtRef.current);
     } catch (err) {
       setError(err?.message || "Failed to run health checks");
     } finally {
       setLoading(false);
       setRefreshing(false);
+      runInFlightRef.current = false;
     }
-  }, []);
+  }, [flushPendingBatches, queueBatchUpdate]);
 
   const runSingleCheck = useCallback(async (apiId) => {
     const def = getApiById(apiId);
-    if (!def) return;
+    if (!def || runInFlightRef.current) return;
+    runInFlightRef.current = true;
     setRefreshing(true);
     try {
       const result = await runApiHealthCheck(def);
-      setSnapshots((prev) => ({ ...prev, [apiId]: result }));
-      setLastRefreshAt(new Date().toISOString());
+      setSnapshots((prev) => mergeSnapshots(prev, { [apiId]: result }));
+      lastRefreshAtRef.current = new Date().toISOString();
+      setLastRefreshAt(lastRefreshAtRef.current);
+    } catch (err) {
+      setError(err?.message || `Failed to check ${def.name}`);
     } finally {
       setRefreshing(false);
+      runInFlightRef.current = false;
     }
   }, []);
 
   useEffect(() => {
-    runChecks();
-  }, [runChecks]);
+    runChecks({ silent: Boolean(cached?.snapshots && Object.keys(cached.snapshots).length) });
+  }, [runChecks]); // eslint-disable-line react-hooks/exhaustive-deps -- mount refresh only
 
   useEffect(() => {
     const ms = Number(autoRefreshMs);
     if (!ms || autoRefreshPaused) return undefined;
-    const id = setInterval(() => runChecks({ silent: true }), ms);
+
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      runChecks({ silent: true });
+    };
+
+    const id = setInterval(tick, ms);
     return () => clearInterval(id);
   }, [autoRefreshMs, autoRefreshPaused, runChecks]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (!document.hidden && autoRefreshMs !== "0" && !autoRefreshPaused) {
+        runChecks({ silent: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [autoRefreshMs, autoRefreshPaused, runChecks]);
+
+  useEffect(
+    () => () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    },
+    []
+  );
 
   const filteredApis = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -154,6 +240,16 @@ export default function ApiHealthDashboard() {
     [filteredApis, snapshots]
   );
 
+  const quickOverviewRows = useMemo(
+    () =>
+      MONITORED_APIS.map((api) => ({
+        id: api.id,
+        name: api.name,
+        snap: snapshots[api.id],
+      })),
+    [snapshots]
+  );
+
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (typeFilter !== "all") n += 1;
@@ -186,7 +282,7 @@ export default function ApiHealthDashboard() {
         autoRefreshPaused={autoRefreshPaused}
         onAutoRefreshChange={(e) => setAutoRefreshMs(e.target.value)}
         onTogglePause={() => setAutoRefreshPaused((v) => !v)}
-        onRefreshAll={() => runChecks()}
+        onRefreshAll={() => runChecks({ force: true })}
         refreshOptions={REFRESH_OPTIONS}
         lastRefreshAt={lastRefreshAt}
       />
@@ -236,8 +332,7 @@ export default function ApiHealthDashboard() {
       <div className="grid sm:grid-cols-2 gap-3">
         <SectionCard title="Quick status overview" t={t}>
           <ul className="space-y-2.5">
-            {MONITORED_APIS.map((api) => {
-              const snap = snapshots[api.id];
+            {quickOverviewRows.map(({ id, name, snap }) => {
               const status = snap?.status || API_STATUS.offline;
               const StatusIcon =
                 status === API_STATUS.online
@@ -252,9 +347,9 @@ export default function ApiHealthDashboard() {
                     ? "text-amber-500"
                     : "text-red-500";
               return (
-                <li key={api.id} className="flex items-center gap-3 text-xs">
+                <li key={id} className="flex items-center gap-3 text-xs">
                   <StatusIcon className={`w-3.5 h-3.5 shrink-0 ${iconColor}`} aria-hidden />
-                  <span className={`flex-1 truncate font-medium ${t.text}`}>{api.name}</span>
+                  <span className={`flex-1 truncate font-medium ${t.text}`}>{name}</span>
                   <span className={`tabular-nums shrink-0 w-14 text-right ${t.muted}`}>
                     {snap?.latencyMs != null ? formatMs(snap.latencyMs) : "—"}
                   </span>

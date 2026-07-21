@@ -22,6 +22,7 @@ export const MONITORED_APIS = DISCOVERED_APIS.map((entry) => ({
   endpoint: entry.endpoint,
   httpMethod: entry.httpMethod,
   authType: entry.authType,
+  checkKey: entry.checkKey,
   sourceFiles: entry.sourceFiles,
   callLocations: entry.callLocations,
   degradedThresholdMs: entry.degradedThresholdMs,
