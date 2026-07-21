@@ -62,6 +62,7 @@ export const TEAMS = [
   { value: "admin", label: "Admin" },
   { value: "sales", label: "Sales" },
   { value: "marketing", label: "Marketing" },
+  { value: "maintenance", label: "Maintenance" },
   { value: "commercial", label: "Commercial" },
   { value: "billing", label: "Billing" },
   { value: "tracking", label: "Tracking" },
@@ -83,6 +84,7 @@ export const MODULES = [
   { value: "admin", label: "Admin" },
   { value: "sales", label: "Sales" },
   { value: "marketing", label: "Marketing" },
+  { value: "maintenance", label: "Maintenance" },
   // Commercial is split into two nav sub-modules
   { value: "commercialMt", label: "Commercial \u2014 Manpower / Training" },
   { value: "commercialRm", label: "Commercial \u2014 R&M / M&M / AMC / IEV" },
@@ -107,6 +109,7 @@ export const MODULE_PATH_PREFIXES = {
   // Keep this broad so refresh/deep-links don't get redirected to /app/dashboard.
   sales: ["/app/manpower", "/app/commercial"],
   marketing: ["/app/marketing"],
+  maintenance: ["/app/maintenance"],
   /** Commercial — Manpower / Training (includes legacy manpower module routes) */
   commercialMt: ["/app/commercial/manpower-training", "/app/commercial/manpower", "/app/manpower"],
   /** Commercial — R&M / M&M / AMC / IEV */
@@ -146,6 +149,7 @@ export const MODULE_LANDING_PATHS = {
   admin: "/app/admin/dashboard",
   sales: "/app/manpower",
   marketing: "/app/marketing",
+  maintenance: "/app/maintenance",
   commercialMt: "/app/commercial/manpower-training/po-entry",
   commercialRm: "/app/commercial/rm-mm-amc-iev/po-entry",
   billing: "/app/billing",
@@ -196,13 +200,14 @@ const DEPARTMENT_TO_MODULE_KEY = {
   "information systems": "itIs",
   management: "admin",
   marketing: "marketing",
+  maintenance: "maintenance",
   procurement: "procurement",
   projects: "projects",
   "r&m": "commercialRm",
   "projects-ftc": FIRE_TENDER_MODULE_KEY,
   "production-ftc": FIRE_TENDER_MODULE_KEY,
   "emergency response team-ftc": FIRE_TENDER_MODULE_KEY,
-  "maintenance-ftc": FIRE_TENDER_MODULE_KEY,
+  "maintenance-ftc": "maintenance",
   billing: "billing",
   tracking: "tracking",
   amc: "amc",

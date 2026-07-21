@@ -12,6 +12,7 @@ export const EMPLOYEE_MASTER_BASE_DEPARTMENTS = [
   'Information System',
   'Management',
   'Marketing',
+  'Maintenance',
   'NFPA',
   'Procurement',
   'Production',
