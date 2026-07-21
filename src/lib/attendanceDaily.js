@@ -116,17 +116,32 @@ export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: REGISTER_MARK_LEFT, label: "Left — Left organization" },
 ];
 
+/** Canonical P/SL | P/CL | P/PL (case-insensitive leave half). */
+export function canonicalRegisterCompositeMark(mark) {
+  const m = String(mark ?? "").trim();
+  const match = m.match(/^P\/(SL|CL|PL)$/i);
+  if (!match) return null;
+  return `P/${match[1].toUpperCase()}`;
+}
+
 export function isRegisterCompositeHalfDayMark(mark) {
-  return REGISTER_HALF_DAY_COMPOSITE_MARKS.has(String(mark ?? "").trim());
+  return canonicalRegisterCompositeMark(mark) != null;
 }
 
 /** Leave type half of a composite mark (e.g. P/SL → SL), or null. */
 export function compositeLeaveTypeFromMark(mark) {
-  const m = String(mark ?? "").trim();
-  if (m === "P/SL") return "SL";
-  if (m === "P/CL") return "CL";
-  if (m === "P/PL") return "PL";
-  return null;
+  const canonical = canonicalRegisterCompositeMark(mark);
+  if (!canonical) return null;
+  return canonical.slice(2);
+}
+
+/** Present + leave halves for dual register cells (e.g. P/CL → P + CL). */
+export function registerMarkCompositeDisplayParts(mark) {
+  const combined = canonicalRegisterCompositeMark(mark);
+  if (!combined) return null;
+  const leave = compositeLeaveTypeFromMark(combined);
+  if (!leave) return null;
+  return { present: "P", leave, combined };
 }
 
 /** Tour marks are stored as T but displayed like P(OD) in the register grid. */
@@ -139,6 +154,8 @@ export function registerMarkDisplayValue(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return "-";
   if (isRegisterTourMark(m)) return "P(OD)";
+  const composite = canonicalRegisterCompositeMark(m);
+  if (composite) return composite;
   return m;
 }
 
@@ -323,6 +340,8 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
 export function normalizeRegisterMarkForDb(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
+  const composite = canonicalRegisterCompositeMark(m);
+  if (composite) return composite;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_NHPH;
   if (isRegisterLeftMark(m)) return REGISTER_MARK_LEFT;
   if (m === "P(OD)") return "P(OD)";
@@ -393,7 +412,8 @@ export function resolveRegisterMarkCellColors(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
   if (m === "T") return REGISTER_MARK_CELL_COLORS["P(OD)"];
-  if (isRegisterCompositeHalfDayMark(m)) return REGISTER_MARK_CELL_COLORS[m];
+  const composite = canonicalRegisterCompositeMark(m);
+  if (composite) return REGISTER_MARK_CELL_COLORS[composite];
   if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return REGISTER_MARK_CELL_COLORS.L;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_CELL_COLORS[REGISTER_MARK_NHPH];
   if (REGISTER_MARK_CELL_COLORS[m]) return REGISTER_MARK_CELL_COLORS[m];
@@ -1124,10 +1144,17 @@ function buildApprovedLeaveDaySet(approvedLeaveMarks) {
   return byCode;
 }
 
+function isRegisterHalfDayAttendanceMark(mark) {
+  const m = String(mark ?? "").trim();
+  return m === "HD" || isRegisterCompositeHalfDayMark(m);
+}
+
 function buildLeaveSourcedDaySet(registerRows, masterCodeMap = null) {
   const byCode = new Map();
   for (const row of registerRows || []) {
     if (!isLeaveMarkSource(row?.mark_source, row?.leave_request_id)) continue;
+    const mark = normalizeRegisterMarkForDb(row.mark);
+    if (isRegisterHalfDayAttendanceMark(mark)) continue;
     const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
     const day = dayOfMonthFromIsoDate(row.register_date);
     if (!code || !day) continue;
@@ -1160,8 +1187,9 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       if (!Number.isFinite(day)) continue;
       const leaveSourced = leaveSourcedDays?.has(day);
       const unapprovedLeave =
-        leaveSourced ||
-        (!registerRows?.length && isRegisterLeaveMark(mark) && !approvedDays?.has(day));
+        !isRegisterHalfDayAttendanceMark(mark) &&
+        (leaveSourced ||
+          (!registerRows?.length && isRegisterLeaveMark(mark) && !approvedDays?.has(day)));
       if (unapprovedLeave && !approvedDays?.has(day)) continue;
       kept[day] = mark;
     }
@@ -1179,7 +1207,7 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
       if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = next[code][day];
-      if (existing === "P" || existing === "P(OD)") continue;
+      if (existing === "P" || existing === "P(OD)" || isRegisterHalfDayAttendanceMark(existing)) continue;
       if (existing && !isRegisterLeaveMark(existing) && existing !== "") continue;
       next[code][day] = canonical;
     }
