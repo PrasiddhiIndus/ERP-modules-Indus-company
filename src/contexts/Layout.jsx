@@ -116,6 +116,7 @@ const Layout = () => {
   const [amcOpen, setAmcOpen] = useState(false);
   const [financeOpen, setFinanceOpen] = useState(false);
   const [marketingOpen, setMarketingOpen] = useState(false);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [adminEmployeeOpen, setAdminEmployeeOpen] = useState(false);
   const [adminStoreOpen, setAdminStoreOpen] = useState(false);
   const [adminGateOpen, setAdminGateOpen] = useState(false);
@@ -133,6 +134,7 @@ const Layout = () => {
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/admin/payroll")) setAdminPayrollOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
+    if (pathname.startsWith("/app/maintenance")) setMaintenanceOpen(true);
     if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial/manpower-training")) setCommercialMtOpen(true);
     if (pathname.startsWith("/app/commercial/rm-mm-amc-iev")) setCommercialRmOpen(true);
     if (pathname.startsWith("/app/manpower/configuration")) setManpowerConfigOpen(true);
@@ -754,6 +756,75 @@ const Layout = () => {
                     <span className="text-xs">Marketing Mail Template</span>
                   </NavLink>
                   <NavLink to="/app/marketing/reports-analytics" className={subNavClass}>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Reports & Analytics</span>
+                  </NavLink>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Maintenance */}
+            {can("maintenance") && (
+            <div>
+              <button
+                onClick={() => setMaintenanceOpen(!maintenanceOpen)}
+                className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${pathname.startsWith("/app/maintenance") ? "bg-red-50 text-red-800 shadow-sm" : "text-gray-700"}`}
+              >
+                <span className="flex items-center space-x-2.5">
+                  <Wrench className="w-4 h-4 shrink-0" />
+                  <span className="text-sm font-medium">Maintenance</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
+                    maintenanceOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {maintenanceOpen && (
+                <div className="ml-5 mt-1 space-y-0.5 border-l border-slate-200 pl-2">
+                  <NavLink to="/app/maintenance" className={subNavClass}>
+                    <BarChart3 className="w-4 h-4 shrink-0 text-purple-600" />
+                    <span className="text-xs">Maintenance Dashboard</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/enquiry-master" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Enquiry Master</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/quotation-tracker" className={subNavClass}>
+                    <RupeeIcon className="w-4 h-4 shrink-0 text-green-600" />
+                    <span className="text-xs">Quotation Tracker</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/follow-up-planner" className={subNavClass}>
+                    <Calendar className="w-4 h-4 shrink-0 text-orange-600" />
+                    <span className="text-xs">Follow-up Planner</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/client-master" className={subNavClass}>
+                    <Users className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <span className="text-xs">Client Master</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/product-catalog" className={subNavClass}>
+                    <Package className="w-4 h-4 shrink-0 text-yellow-600" />
+                    <span className="text-xs">Product Catalog</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/purchase-orders" className={subNavClass}>
+                    <ShoppingCart className="w-4 h-4 shrink-0 text-pink-600" />
+                    <span className="text-xs">Purchase Orders</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/expo-seminar" className={subNavClass}>
+                    <MapPin className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Expo & Seminar</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/gst-upload" className={subNavClass}>
+                    <Receipt className="w-4 h-4 shrink-0 text-teal-600" />
+                    <span className="text-xs">GST Documents</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/mail-templates" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-red-600" />
+                    <span className="text-xs">Maintenance Mail Template</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/reports-analytics" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-red-600" />
                     <span className="text-xs">Reports & Analytics</span>
                   </NavLink>

@@ -146,6 +146,21 @@ import {
   ExpoSeminar,
   GSTUpload,
   MarketingReports,
+  MaintenanceDashboard,
+  MaintenanceEnquiryMaster,
+  MaintenanceQuotationTracker,
+  MaintenanceCostingSheetList,
+  MaintenanceCostingSheetDetail,
+  MaintenanceInternalQuotationList,
+  MaintenanceInternalQuotationForm,
+  MaintenanceQuotationTemplatePage,
+  MaintenanceFollowUpPlanner,
+  MaintenanceClientMaster,
+  MaintenanceProductCatalog,
+  MaintenancePurchaseOrders,
+  MaintenanceExpoSeminar,
+  MaintenanceGSTUpload,
+  MaintenanceReports,
 } from "./routes/lazyPages";
 
 import {
@@ -582,6 +597,23 @@ function App() {
             <Route path="marketing/expo-seminar" element={<ExpoSeminar />} />
             <Route path="marketing/gst-upload" element={<GSTUpload />} />
             <Route path="marketing/reports-analytics" element={<MarketingReports />} />
+
+            {/* Maintenance Module Routes */}
+            <Route path="maintenance" element={<MaintenanceDashboard />} />
+            <Route path="maintenance/enquiry-master" element={<MaintenanceEnquiryMaster />} />
+            <Route path="maintenance/quotation-tracker" element={<MaintenanceQuotationTracker />} />
+            <Route path="maintenance/quotation-tracker/costing" element={<MaintenanceCostingSheetList />} />
+            <Route path="maintenance/quotation-tracker/costing/:id" element={<MaintenanceCostingSheetDetail />} />
+            <Route path="maintenance/quotation-tracker/internal-quotation" element={<MaintenanceInternalQuotationList />} />
+            <Route path="maintenance/quotation-tracker/internal-quotation/:id" element={<MaintenanceInternalQuotationForm />} />
+            <Route path="maintenance/mail-templates" element={<MaintenanceQuotationTemplatePage />} />
+            <Route path="maintenance/follow-up-planner" element={<MaintenanceFollowUpPlanner />} />
+            <Route path="maintenance/client-master" element={<MaintenanceClientMaster />} />
+            <Route path="maintenance/product-catalog" element={<MaintenanceProductCatalog />} />
+            <Route path="maintenance/purchase-orders" element={<MaintenancePurchaseOrders />} />
+            <Route path="maintenance/expo-seminar" element={<MaintenanceExpoSeminar />} />
+            <Route path="maintenance/gst-upload" element={<MaintenanceGSTUpload />} />
+            <Route path="maintenance/reports-analytics" element={<MaintenanceReports />} />
 
             {/* Super Admin-only modules */}
             <Route path="user-management" element={<UserManagement />} />

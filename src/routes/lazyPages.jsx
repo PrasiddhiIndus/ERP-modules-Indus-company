@@ -280,3 +280,20 @@ export const PurchaseOrders = lazy(() => import("../pages/marketing/PurchaseOrde
 export const ExpoSeminar = lazy(() => import("../pages/marketing/ExpoSeminar"));
 export const GSTUpload = lazy(() => import("../pages/marketing/GSTUpload"));
 export const MarketingReports = lazy(() => import("../pages/marketing/MarketingReports"));
+
+// Maintenance
+export const MaintenanceDashboard = lazy(() => import("../pages/maintenance/MaintenanceDashboard"));
+export const MaintenanceEnquiryMaster = lazy(() => import("../pages/maintenance/EnquiryMaster"));
+export const MaintenanceQuotationTracker = lazy(() => import("../pages/maintenance/QuotationTracker"));
+export const MaintenanceCostingSheetList = lazy(() => import("../pages/maintenance/CostingSheetList"));
+export const MaintenanceCostingSheetDetail = lazy(() => import("../pages/maintenance/CostingSheetDetail"));
+export const MaintenanceInternalQuotationList = lazy(() => import("../pages/maintenance/InternalQuotationList"));
+export const MaintenanceInternalQuotationForm = lazy(() => import("../pages/maintenance/InternalQuotationForm"));
+export const MaintenanceQuotationTemplatePage = lazy(() => import("../pages/maintenance/QuotationTemplatePage"));
+export const MaintenanceFollowUpPlanner = lazy(() => import("../pages/maintenance/FollowUpPlanner"));
+export const MaintenanceClientMaster = lazy(() => import("../pages/maintenance/ClientMaster"));
+export const MaintenanceProductCatalog = lazy(() => import("../pages/maintenance/ProductCatalog"));
+export const MaintenancePurchaseOrders = lazy(() => import("../pages/maintenance/PurchaseOrders"));
+export const MaintenanceExpoSeminar = lazy(() => import("../pages/maintenance/ExpoSeminar"));
+export const MaintenanceGSTUpload = lazy(() => import("../pages/maintenance/GSTUpload"));
+export const MaintenanceReports = lazy(() => import("../pages/maintenance/MaintenanceReports"));
