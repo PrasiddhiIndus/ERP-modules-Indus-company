@@ -1165,8 +1165,10 @@ function buildLeaveSourcedDaySet(registerRows, masterCodeMap = null) {
 }
 
 /**
- * Merge approved leave into register marks. Machine punch (P) always wins over leave.
- * Strips leave-sourced cells that no longer have a fully approved leave (DB is source of truth).
+ * Merge approved leave into register marks for Daily Attendance Register display.
+ * When register rows are loaded, leave marks already stored on admin_attendance_register
+ * are kept as-is (register table is the display source of truth).
+ * Approved leave only fills blank cells. Machine punch (P) still wins over leave overlay.
  */
 export function mergeApprovedLeaveMarksIntoManualMarks(
   manualMarks,
@@ -1176,6 +1178,7 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
   const presentKeys = buildPresentKeysFromPunches(punches);
   const approvedByCode = buildApprovedLeaveDaySet(approvedLeaveMarks);
   const leaveSourcedByCode = buildLeaveSourcedDaySet(registerRows, masterCodeMap);
+  const preferRegisterMarks = Array.isArray(registerRows) && registerRows.length > 0;
 
   const next = {};
   for (const [code, days] of Object.entries(manualMarks || {})) {
@@ -1185,11 +1188,15 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
     for (const [dayKey, mark] of Object.entries(days || {})) {
       const day = Number(dayKey);
       if (!Number.isFinite(day)) continue;
+      // Keep leave (and all other marks) already fetched from admin_attendance_register.
+      if (preferRegisterMarks) {
+        kept[day] = mark;
+        continue;
+      }
       const leaveSourced = leaveSourcedDays?.has(day);
       const unapprovedLeave =
         !isRegisterHalfDayAttendanceMark(mark) &&
-        (leaveSourced ||
-          (!registerRows?.length && isRegisterLeaveMark(mark) && !approvedDays?.has(day)));
+        (leaveSourced || (isRegisterLeaveMark(mark) && !approvedDays?.has(day)));
       if (unapprovedLeave && !approvedDays?.has(day)) continue;
       kept[day] = mark;
     }
@@ -1208,6 +1215,8 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = next[code][day];
       if (existing === "P" || existing === "P(OD)" || isRegisterHalfDayAttendanceMark(existing)) continue;
+      // Do not overwrite leave (or any mark) already present from the register table.
+      if (preferRegisterMarks && existing) continue;
       if (existing && !isRegisterLeaveMark(existing) && existing !== "") continue;
       next[code][day] = canonical;
     }

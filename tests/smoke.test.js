@@ -102,14 +102,14 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('PL');
   });
 
-  it('strips leave-sourced register marks that are no longer approved', () => {
+  it('keeps leave marks from admin_attendance_register for display', () => {
     const registerRows = [
       {
         employee_code: '101',
         register_date: '2026-07-10',
         mark: 'PL',
         mark_source: 'leave',
-        leave_request_id: 'req-rejected',
+        leave_request_id: 'req-1',
       },
     ];
     const merged = mergeApprovedLeaveMarksIntoManualMarks(
@@ -117,7 +117,25 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       {},
       { monthKey, registerRows }
     );
-    expect(merged['101']).toBeUndefined();
+    expect(merged['101'][10]).toBe('PL');
+  });
+
+  it('does not overwrite register leave with approved leave overlay', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'CL',
+        mark_source: 'leave',
+        leave_request_id: 'req-1',
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'CL' } },
+      { '101': { 10: 'PL' } },
+      { monthKey, registerRows }
+    );
+    expect(merged['101'][10]).toBe('CL');
   });
 
   it('restores non-leave marks from fresh register rows after rejection', () => {
