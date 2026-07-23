@@ -7,7 +7,7 @@ import DateRangeCalendar from './components/DateRangeCalendar';
 import { parseIndianNumber } from './utils/numberFormat';
 import NumberInput from './components/NumberInput';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { isValidDateInputValue, normalizeDateInputValue, resolveNativeDateInputChange } from '../../utils/dateInput';;
+import { isValidDateInputValue, normalizeDateInputValue, resolveNativeDateInputChange } from '../../utils/dateInput';
 import FormDateInput from "../../components/FormDateInput";
 
 import {
@@ -1077,7 +1077,7 @@ const EnquiryMaster = () => {
 
             <form onSubmit={handleSubmit} className="p-4 sm:p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Enquiry Date <span className="text-red-500">*</span>
                   </label>
@@ -1087,7 +1087,7 @@ const EnquiryMaster = () => {
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Source <span className="text-red-500">*</span>
                   </label>
@@ -1106,36 +1106,36 @@ const EnquiryMaster = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Client <span className="text-red-500">*</span>
-                  </label>
-                  <div className="flex space-x-2">
-                    <select
-                      value={formData.client_id}
-                      onChange={(e) => handleClientChange(e.target.value)}
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
-                    >
-                      <option value="">Select a client</option>
-                      {clients.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.client_name}
-                        </option>
-                      ))}
-                    </select>
+                <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Client <span className="text-red-500">*</span>
+                    </label>
                     <button
                       type="button"
                       onClick={() => navigate('/app/maintenance/client-master')}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center space-x-1"
+                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-purple-600 text-white rounded-md hover:bg-purple-700"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-3.5 h-3.5" />
                       <span>New Client</span>
                     </button>
                   </div>
+                  <select
+                    value={formData.client_id}
+                    onChange={(e) => handleClientChange(e.target.value)}
+                    className="w-full min-w-0 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Select a client</option>
+                    {clients.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.client_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Contact Person</label>
                   <input
                     type="text"
@@ -1145,7 +1145,7 @@ const EnquiryMaster = () => {
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Contact Number</label>
                   <input
                     type="text"
@@ -1155,15 +1155,16 @@ const EnquiryMaster = () => {
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Primary Email</label>
                   <input
                     type="text"
                     value={formData.contact_email}
                     onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Primary email (shown on quotations). Comma-separated: first is primary, rest are secondary."
+                    placeholder="Primary email (shown on quotations)"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Comma-separated: first is primary, rest are secondary.</p>
                 </div>
 
                 <div className="md:col-span-2">
