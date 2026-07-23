@@ -5,6 +5,7 @@ import {
   REGISTER_LEAVE_SUBMENU_OPTIONS,
   REGISTER_PRIMARY_MARK_OPTIONS,
   registerMarkCellInlineStyle,
+  registerMarkCompositeDisplayParts,
   registerMarkDisplayValue,
   registerMarkOptionLabel,
   registerMarkSelectTextClass,
@@ -144,9 +145,22 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
   };
 
   const display = registerMarkDisplayValue(value);
+  const compositeParts = registerMarkCompositeDisplayParts(value);
   const displayClass = `${registerMarkSelectTextClass(value)} ${
-    String(value || "").includes("/") ? "text-[10px]" : "text-[11px]"
+    compositeParts ? "text-[10px]" : String(value || "").includes("/") ? "text-[10px]" : "text-[11px]"
   }`;
+
+  const renderMarkLabel = () => {
+    if (compositeParts) {
+      return (
+        <span className="flex w-full items-center justify-between px-0.5 leading-none">
+          <span className="flex-1 text-center">{compositeParts.present}</span>
+          <span className="flex-1 text-center">{compositeParts.leave}</span>
+        </span>
+      );
+    }
+    return display;
+  };
 
   const menu =
     open && menuPos
@@ -242,7 +256,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
           aria-label={registerMarkOptionLabel(value)}
           className={`${displayClass} block w-full h-8 px-1 font-semibold text-center leading-8 cursor-default`}
         >
-          {display}
+          {renderMarkLabel()}
         </span>
       ) : (
         <button
@@ -255,7 +269,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
           style={registerMarkCellInlineStyle(value)}
           className={`${displayClass} w-full h-8 px-1 font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
         >
-          {display}
+          {renderMarkLabel()}
         </button>
       )}
       {!readOnly && menu}

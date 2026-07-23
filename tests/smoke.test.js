@@ -7,7 +7,7 @@ import {
   registerMarkFromPunchWindow,
 } from '../shared/attendanceRegisterSync.mjs';
 import { createAuthMiddleware } from '../server/authMiddleware.js';
-import { mergeApprovedLeaveMarksIntoManualMarks } from '../src/lib/attendanceDaily.js';
+import { mergeApprovedLeaveMarksIntoManualMarks, normalizeRegisterMarkForDb, registerMarkCompositeDisplayParts } from '../src/lib/attendanceDaily.js';
 
 describe('registerMarkFromPunchWindow', () => {
   it('marks half day when out is on cutoff', () => {
@@ -102,14 +102,14 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('PL');
   });
 
-  it('strips leave-sourced register marks that are no longer approved', () => {
+  it('keeps leave marks from admin_attendance_register for display', () => {
     const registerRows = [
       {
         employee_code: '101',
         register_date: '2026-07-10',
         mark: 'PL',
         mark_source: 'leave',
-        leave_request_id: 'req-rejected',
+        leave_request_id: 'req-1',
       },
     ];
     const merged = mergeApprovedLeaveMarksIntoManualMarks(
@@ -117,7 +117,25 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       {},
       { monthKey, registerRows }
     );
-    expect(merged['101']).toBeUndefined();
+    expect(merged['101'][10]).toBe('PL');
+  });
+
+  it('does not overwrite register leave with approved leave overlay', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'CL',
+        mark_source: 'leave',
+        leave_request_id: 'req-1',
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'CL' } },
+      { '101': { 10: 'PL' } },
+      { monthKey, registerRows }
+    );
+    expect(merged['101'][10]).toBe('CL');
   });
 
   it('restores non-leave marks from fresh register rows after rejection', () => {
@@ -164,6 +182,73 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       { monthKey, punches }
     );
     expect(merged['101'][10]).toBe('P');
+  });
+
+  it('keeps punch-derived HD from register even with stale leave_request_id', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'HD',
+        mark_source: 'punch',
+        leave_request_id: 'req-rejected',
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'HD' } },
+      {},
+      { monthKey, registerRows, punches: [{ empCode: '101', punchDate: '2026-07-10' }] }
+    );
+    expect(merged['101'][10]).toBe('HD');
+  });
+
+  it('does not overwrite manual HD with approved leave', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'HD',
+        mark_source: 'manual',
+        leave_request_id: null,
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'HD' } },
+      { '101': { 10: 'PL' } },
+      { monthKey, registerRows }
+    );
+    expect(merged['101'][10]).toBe('HD');
+  });
+
+  it('normalizes composite register marks case-insensitively', () => {
+    expect(normalizeRegisterMarkForDb('P/Cl')).toBe('P/CL');
+    expect(normalizeRegisterMarkForDb('p/pl')).toBe('P/PL');
+  });
+
+  it('keeps leave-sourced P/CL from register for display', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-10',
+        mark: 'P/Cl',
+        mark_source: 'leave',
+        leave_request_id: 'req-1',
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 10: 'P/CL' } },
+      { '101': { 10: 'CL' } },
+      { monthKey, registerRows, punches: [{ empCode: '101', punchDate: '2026-07-10' }] }
+    );
+    expect(merged['101'][10]).toBe('P/CL');
+  });
+
+  it('splits composite marks into present and leave display parts', () => {
+    expect(registerMarkCompositeDisplayParts('P/Cl')).toEqual({
+      present: 'P',
+      leave: 'CL',
+      combined: 'P/CL',
+    });
   });
 });
 
