@@ -293,14 +293,18 @@ const EnquiryMaster = () => {
           );
         });
 
+      // marketing_enquiries has contact_email only (no contact_emails column in production).
+      // Keep secondary addresses in contact_email as comma-separated values.
+      const contactEmailStored =
+        [primaryEmail, ...secondaryEmails].filter(Boolean).join(', ') || null;
+
       const enquiryPayload = {
         enquiry_date: formData.enquiry_date || null,
         source: formData.source || 'Email',
         client_id: formData.client_id || null,
         contact_person: (formData.contact_person || '').trim() || null,
         contact_number: (formData.contact_number || '').trim() || null,
-        contact_email: primaryEmail,
-        contact_emails: secondaryEmails.length > 0 ? JSON.stringify(secondaryEmails) : null,
+        contact_email: contactEmailStored,
         site_location: (formData.site_location || '').trim() || null,
         description: (formData.description || '').trim() || null,
         estimated_value: formData.estimated_value ? parseIndianNumber(String(formData.estimated_value)) : null,
@@ -631,6 +635,15 @@ const EnquiryMaster = () => {
         return u ? (u.username?.trim() ? `${u.username} (${u.email})` : u.email) : id;
       });
       const assignedTo = [...customNames, ...userLabels].join('; ') || '-';
+      const emailParts = parseCommaSeparatedEmails(enquiry.contact_email);
+      const primaryEmailDisplay = emailParts[0] || (enquiry.contact_email || '').trim() || '-';
+      const secondaryEmailDisplay = [
+        ...parseEnquirySecondaryEmails(enquiry.contact_emails),
+        ...emailParts.slice(1),
+      ]
+        .filter((email, idx, arr) => email && arr.findIndex((e) => e.toLowerCase() === email.toLowerCase()) === idx)
+        .filter((email) => email.toLowerCase() !== primaryEmailDisplay.toLowerCase())
+        .join(', ') || '-';
       return {
         'Enquiry Number': enquiry.enquiry_number,
         'Enquiry Date': enquiry.enquiry_date,
@@ -638,8 +651,8 @@ const EnquiryMaster = () => {
         'Client': enquiry.marketing_clients?.client_name || '-',
         'Contact Person': enquiry.contact_person || '-',
         'Contact Number': enquiry.contact_number || '-',
-        'Contact Email (Primary)': enquiry.contact_email || '-',
-        'Secondary Emails': parseEnquirySecondaryEmails(enquiry.contact_emails).join(', ') || '-',
+        'Contact Email (Primary)': primaryEmailDisplay,
+        'Secondary Emails': secondaryEmailDisplay,
         'Site Location': enquiry.site_location || '-',
         'Assigned To': assignedTo,
         'Estimated Value (₹)': enquiry.estimated_value || '-',
@@ -1674,7 +1687,7 @@ const EnquiryMaster = () => {
                     <label className="block text-xs font-medium text-gray-500 mb-1.5">Primary Email</label>
                     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
                       <p className="text-sm text-gray-900">
-                        {viewingEnquiry.contact_email || <span className="text-gray-400 italic">Not provided</span>}
+                        {parseCommaSeparatedEmails(viewingEnquiry.contact_email)[0] || viewingEnquiry.contact_email || <span className="text-gray-400 italic">Not provided</span>}
                       </p>
                     </div>
                   </div>
@@ -1682,7 +1695,18 @@ const EnquiryMaster = () => {
                     <label className="block text-xs font-medium text-gray-500 mb-1.5">Secondary Emails</label>
                     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5">
                       <p className="text-sm text-gray-900">
-                        {parseEnquirySecondaryEmails(viewingEnquiry.contact_emails).join(', ') || <span className="text-gray-400 italic">Not provided</span>}
+                        {(() => {
+                          const parts = parseCommaSeparatedEmails(viewingEnquiry.contact_email);
+                          const primary = (parts[0] || '').toLowerCase();
+                          const secondary = [
+                            ...parseEnquirySecondaryEmails(viewingEnquiry.contact_emails),
+                            ...parts.slice(1),
+                          ]
+                            .filter((email, idx, arr) => email && arr.findIndex((e) => e.toLowerCase() === email.toLowerCase()) === idx)
+                            .filter((email) => email.toLowerCase() !== primary)
+                            .join(', ');
+                          return secondary || <span className="text-gray-400 italic">Not provided</span>;
+                        })()}
                       </p>
                     </div>
                   </div>
