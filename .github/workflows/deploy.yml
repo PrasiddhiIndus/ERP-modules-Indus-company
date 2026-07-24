@@ -74,14 +74,34 @@ jobs:
           debug: true
           command_timeout: 30m
           envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY
-          # Same pattern as staging: pull repo + run in-repo deploy script.
           script: |
-            set -euo pipefail
-            REPO_DIR="${REPO_DIR:-/root/indus-erp}"
+            set -euxo pipefail
+            echo "==> host=$(hostname) user=$(whoami)"
+            ls -la /root | head -40 || true
+
+            if [ -d /root/indus-erp/.git ]; then
+              REPO_DIR=/root/indus-erp
+            elif [ -d /var/www/indus-erp/.git ]; then
+              REPO_DIR=/var/www/indus-erp
+            elif [ -f /root/deploy.sh ]; then
+              echo "==> Falling back to legacy /root/deploy.sh"
+              bash /root/deploy.sh
+              exit 0
+            else
+              echo "ERROR: No production git repo found at /root/indus-erp or /var/www/indus-erp"
+              exit 1
+            fi
+
+            echo "==> Using REPO_DIR=${REPO_DIR}"
             cd "${REPO_DIR}"
+            git remote -v || true
             git fetch origin main
-            git checkout main
-            git pull origin main
+            git checkout -B main origin/main
+            git reset --hard origin/main
+            git clean -fd
+            export REPO_DIR
+            export APP_DIR="${APP_DIR:-/var/www/indus-erp}"
+            export PM2_NAME="${PM2_NAME:-indus-erp}"
             bash scripts/deploy.sh
         env:
           PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
