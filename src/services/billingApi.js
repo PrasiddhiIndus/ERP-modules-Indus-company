@@ -9,6 +9,7 @@
 
 import { supabase } from '../lib/supabase';
 import { isStagingSupabaseProject } from '../lib/stagingProject';
+import { uploadCommercialPoFileToR2 } from '../lib/commercialPoR2';
 import {
   COMMERCIAL_MODULE_PROJECTS,
   getCommercialModuleTypeFromUpdateHistory,
@@ -37,6 +38,8 @@ function normalizePoVerticalForPersist(raw) {
   const u = s.toUpperCase();
   if (u === 'BILL') return DEFAULT_PO_VERTICAL_DB;
   if (s.toLowerCase() === 'manpower') return DEFAULT_PO_VERTICAL_DB;
+  if (s.toLowerCase() === 'training') return 'Training';
+  if (s.toLowerCase() === 'fire tender' || u === 'FT') return 'Fire Tender';
   return s;
 }
 
@@ -45,6 +48,8 @@ function normalizePoVerticalFromDb(raw) {
   const s = String(raw ?? '').trim();
   if (!s) return DEFAULT_PO_VERTICAL_DB;
   if (s.toUpperCase() === 'BILL') return DEFAULT_PO_VERTICAL_DB;
+  if (s.toLowerCase() === 'fire tender' || s.toUpperCase() === 'FT') return 'Fire Tender';
+  if (s.toLowerCase() === 'training' || s.toUpperCase() === 'TRNG') return 'Training';
   return s;
 }
 
@@ -113,10 +118,32 @@ const UNIFIED_PO_CLIENT_DEFAULTS = {
   lumpSumBillingMode: null,
   totalContractMonth: null,
   monthlyContractValue: null,
+  monthlyValue: null,
+  dutyPattern: null,
+  customDutyPattern: null,
+  withFireTender: false,
+  relieverScope: null,
+  poCopyFiles: [],
+  scopeOfWorkFiles: [],
+  penaltyClauseFiles: [],
   customPaymentTermsPercent: null,
   poType: null,
   billingWithoutPo: false,
 };
+
+function normalizePoDocumentFiles(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((f, i) => ({
+      key: f?.key || f?.path || `doc-${i}-${f?.name || ''}`,
+      name: String(f?.name || ''),
+      size: Number(f?.size) || 0,
+      type: String(f?.type || ''),
+      path: f?.path ? String(f.path) : null,
+      storage: f?.storage ? String(f.storage) : null,
+    }))
+    .filter((f) => f.name || f.path);
+}
 
 function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
   const raw = po;
@@ -158,6 +185,14 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     lumpSumBillingMode: raw.lump_sum_billing_mode ?? null,
     totalContractMonth: raw.total_contract_month != null ? Number(raw.total_contract_month) : null,
     monthlyContractValue: raw.monthly_contract_value != null ? Number(raw.monthly_contract_value) : null,
+    monthlyValue: raw.monthly_value != null ? Number(raw.monthly_value) : null,
+    dutyPattern: raw.duty_pattern ?? null,
+    customDutyPattern: raw.custom_duty_pattern ?? null,
+    withFireTender: !!raw.with_fire_tender,
+    relieverScope: raw.reliever_scope ?? null,
+    poCopyFiles: normalizePoDocumentFiles(raw.po_copy_files),
+    scopeOfWorkFiles: normalizePoDocumentFiles(raw.scope_of_work_files),
+    penaltyClauseFiles: normalizePoDocumentFiles(raw.penalty_clause_files),
     panNumber: raw.pan_number ?? null,
     contactEmail: raw.contact_email ?? null,
     poType: raw.po_type ?? raw.billing_type ?? null,
@@ -568,6 +603,9 @@ const PO_WO_PRESERVE_ON_PARTIAL_UPDATE = [
   'payment_terms',
   'monthly_duty_qty_mode',
   'lump_sum_billing_mode',
+  'duty_pattern',
+  'custom_duty_pattern',
+  'reliever_scope',
 ];
 
 function isBlankPersistedText(v) {
@@ -629,6 +667,22 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
           ? Math.round((totalContractValueVal / totalContractMonthVal) * 100) / 100
           : null)
       : null;
+  const monthlyValueVal =
+    isMp && po.monthlyValue != null && String(po.monthlyValue).trim() !== ''
+      ? Number(po.monthlyValue)
+      : null;
+  const dutyPatternVal =
+    isMp && po.dutyPattern != null && String(po.dutyPattern).trim()
+      ? String(po.dutyPattern).trim()
+      : null;
+  const customDutyPatternVal =
+    isMp && po.customDutyPattern != null && String(po.customDutyPattern).trim()
+      ? String(po.customDutyPattern).trim()
+      : null;
+  const relieverScopeVal =
+    isMp && po.relieverScope != null && String(po.relieverScope).trim()
+      ? String(po.relieverScope).trim()
+      : null;
 
   const poReceivedVal =
     isRm && po.poReceivedDate && String(po.poReceivedDate).trim() ? po.poReceivedDate : null;
@@ -661,6 +715,14 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     total_contract_value: totalContractValueVal,
     total_contract_month: totalContractMonthVal,
     monthly_contract_value: monthlyContractValueVal,
+    monthly_value: Number.isFinite(monthlyValueVal) ? monthlyValueVal : null,
+    duty_pattern: dutyPatternVal,
+    custom_duty_pattern: customDutyPatternVal,
+    with_fire_tender: isMp ? !!po.withFireTender : false,
+    reliever_scope: relieverScopeVal,
+    po_copy_files: isMp ? normalizePoDocumentFiles(po.poCopyFiles) : [],
+    scope_of_work_files: isMp ? normalizePoDocumentFiles(po.scopeOfWorkFiles) : [],
+    penalty_clause_files: isMp ? normalizePoDocumentFiles(po.penaltyClauseFiles) : [],
     sac_code: po.sacCode || null,
     hsn_code: po.hsnCode || null,
     service_description: po.serviceDescription || null,
@@ -726,6 +788,66 @@ function columnNameFromPoWoError(err) {
   return m?.[1] || null;
 }
 
+/** Upload new File blobs to Cloudflare R2 (indus-erp-uploads / commercial-po/); keep existing paths. */
+async function resolveAndUploadPoDocumentFiles(poId, folder, files) {
+  const list = Array.isArray(files) ? files : [];
+  const out = [];
+  for (const item of list) {
+    const name = String(item?.name || item?.file?.name || '').trim();
+    const size = Number(item?.size ?? item?.file?.size) || 0;
+    const type = String(item?.type || item?.file?.type || '');
+    const existingPath = item?.path ? String(item.path) : null;
+    const fileBlob = item?.file instanceof File ? item.file : null;
+
+    if (existingPath && !fileBlob) {
+      out.push({ name, size, type, path: existingPath, storage: item?.storage || 'r2' });
+      continue;
+    }
+    if (fileBlob) {
+      const objectKey = await uploadCommercialPoFileToR2({
+        file: fileBlob,
+        poId,
+        folder,
+      });
+      out.push({
+        name: name || fileBlob.name,
+        size: size || fileBlob.size,
+        type: type || fileBlob.type || '',
+        path: objectKey,
+        storage: 'r2',
+      });
+      continue;
+    }
+    if (name) out.push({ name, size, type, path: existingPath, storage: item?.storage || null });
+  }
+  return out;
+}
+
+async function persistPoWoDocumentColumns(poId, docs) {
+  if (!poId || !docs) return;
+  const patch = {
+    po_copy_files: docs.poCopyFiles,
+    scope_of_work_files: docs.scopeOfWorkFiles,
+    penalty_clause_files: docs.penaltyClauseFiles,
+  };
+  let current = { ...patch };
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { error } = await table('po_wo').update(current).eq('id', poId);
+    if (!error) return;
+    if (!isMissingPoWoColumnError(error)) {
+      throw new Error(billingErrorMsg(error, 'PO document save'));
+    }
+    const col = columnNameFromPoWoError(error);
+    if (!col || !(col in current)) {
+      throw new Error(billingErrorMsg(error, 'PO document save'));
+    }
+    const next = { ...current };
+    delete next[col];
+    current = next;
+    if (!Object.keys(current).length) return;
+  }
+}
+
 /** Insert/upsert billing.po_wo with iterative stripping of columns absent in older DBs. */
 async function persistPoWoRow(payload, poIdInput) {
   const persist = (p) =>
@@ -743,7 +865,7 @@ async function persistPoWoRow(payload, poIdInput) {
     const msg = String(poError?.message || '');
     if (
       !strippedPoTypeBundle.has('bundle') &&
-      /po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value|billing_without_po/i.test(
+      /po_type|payment_term_mode|payment_term_days|advance_percent|total_contract_month|monthly_contract_value|monthly_value|billing_without_po|duty_pattern|with_fire_tender|reliever_scope|po_copy_files|scope_of_work_files|penalty_clause_files/i.test(
         msg
       )
     ) {
@@ -755,7 +877,15 @@ async function persistPoWoRow(payload, poIdInput) {
         advance_percent,
         total_contract_month,
         monthly_contract_value,
+        monthly_value,
         billing_without_po,
+        duty_pattern,
+        custom_duty_pattern,
+        with_fire_tender,
+        reliever_scope,
+        po_copy_files,
+        scope_of_work_files,
+        penalty_clause_files,
         ...fallbackPayload
       } = current;
       current = fallbackPayload;
@@ -801,6 +931,24 @@ export async function saveCommercialPOs(list, options = {}) {
     const { data: saved, error: poError } = await persistPoWoRow(payload, poIdInput);
     if (poError) throw new Error(billingErrorMsg(poError, 'PO/WO save'));
     const savedPoId = saved?.id ?? po.id;
+
+    if (moduleContext === MODULE_CONTEXT.MANPOWER_TRAINING && savedPoId) {
+      try {
+        const [poCopyFiles, scopeOfWorkFiles, penaltyClauseFiles] = await Promise.all([
+          resolveAndUploadPoDocumentFiles(savedPoId, 'po-copy', po.poCopyFiles),
+          resolveAndUploadPoDocumentFiles(savedPoId, 'scope-of-work', po.scopeOfWorkFiles),
+          resolveAndUploadPoDocumentFiles(savedPoId, 'penalty-clause', po.penaltyClauseFiles),
+        ]);
+        await persistPoWoDocumentColumns(savedPoId, {
+          poCopyFiles,
+          scopeOfWorkFiles,
+          penaltyClauseFiles,
+        });
+      } catch (docErr) {
+        console.warn('PO document upload/save:', docErr);
+        throw docErr;
+      }
+    }
 
     const rateRows = (po.ratePerCategory || []).map((r, i) => ({
       po_id: savedPoId,
