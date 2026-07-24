@@ -73,36 +73,59 @@ jobs:
           port: 22
           debug: true
           command_timeout: 30m
-          envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY
+          envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY,VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY
           script: |
             set -euxo pipefail
-            echo "==> host=$(hostname) user=$(whoami)"
+            REPO_DIR=/root/indus-erp
+            APP_DIR=/var/www/indus-erp
+            REPO_URL="https://github.com/PrasiddhiIndus/ERP-modules-Indus-company.git"
+
+            echo "==> host=$(hostname)"
             ls -la /root | head -40 || true
 
-            if [ -d /root/indus-erp/.git ]; then
-              REPO_DIR=/root/indus-erp
-            elif [ -d /var/www/indus-erp/.git ]; then
-              REPO_DIR=/var/www/indus-erp
-            elif [ -f /root/deploy.sh ]; then
-              echo "==> Falling back to legacy /root/deploy.sh"
-              bash /root/deploy.sh
-              exit 0
-            else
-              echo "ERROR: No production git repo found at /root/indus-erp or /var/www/indus-erp"
-              exit 1
+            # One-time: create git checkout used by deploy (static site stays in APP_DIR)
+            if [ ! -d "${REPO_DIR}/.git" ]; then
+              echo "==> Cloning production repo into ${REPO_DIR}"
+              rm -rf "${REPO_DIR}"
+              git clone --branch main --depth 1 "${REPO_URL}" "${REPO_DIR}"
             fi
 
-            echo "==> Using REPO_DIR=${REPO_DIR}"
             cd "${REPO_DIR}"
-            git remote -v || true
+            git remote set-url origin "${REPO_URL}" || true
             git fetch origin main
             git checkout -B main origin/main
             git reset --hard origin/main
-            git clean -fd
-            export REPO_DIR
-            export APP_DIR="${APP_DIR:-/var/www/indus-erp}"
-            export PM2_NAME="${PM2_NAME:-indus-erp}"
+
+            # Keep server secrets if they already exist beside legacy scripts
+            if [ ! -f .env.server ] && [ -f /root/indus-erp-env/.env.server ]; then
+              cp /root/indus-erp-env/.env.server .env.server
+            fi
+            if [ ! -f .env.server ] && [ -f /root/.env.server ]; then
+              cp /root/.env.server .env.server
+            fi
+            if [ ! -f .env.server ] && [ -f .env.server.example ]; then
+              cp .env.server.example .env.server
+            fi
+
+            # Frontend build env (Vite) — prefer CI secrets when present
+            if [ -n "${VITE_SUPABASE_URL:-}" ] && [ -n "${VITE_SUPABASE_ANON_KEY:-}" ]; then
+              printf '%s\n' \
+                "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}" \
+                "VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}" \
+                "VITE_EINVOICE_PROVIDER=backend" \
+                "VITE_EINVOICE_API_URL=/api/billing/e-invoice" \
+                > .env.production
+            fi
+
+            export REPO_DIR APP_DIR
+            export PM2_NAME=indus-erp
             bash scripts/deploy.sh
+
+            # Keep legacy entrypoint in sync for manual runs
+            cp scripts/deploy.sh /root/deploy.sh
+            chmod +x /root/deploy.sh
         env:
           PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
           PROD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
