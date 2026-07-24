@@ -77,7 +77,8 @@ jobs:
           script: |
             set -euxo pipefail
             REPO_DIR=/root/indus-erp
-            APP_DIR=/var/www/indus-erp
+            # Must match nginx sites-available/indus-erp: root /var/www/indus-erp/dist;
+            APP_DIR=/var/www/indus-erp/dist
             REPO_URL="https://github.com/PrasiddhiIndus/ERP-modules-Indus-company.git"
 
             echo "==> host=$(hostname)"

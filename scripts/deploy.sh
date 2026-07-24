@@ -4,7 +4,8 @@
 set -euxo pipefail
 
 REPO_DIR="${REPO_DIR:-/root/indus-erp}"
-APP_DIR="${APP_DIR:-/var/www/indus-erp}"
+# Must match nginx: root /var/www/indus-erp/dist;
+APP_DIR="${APP_DIR:-/var/www/indus-erp/dist}"
 BRANCH="${BRANCH:-main}"
 PM2_NAME="${PM2_NAME:-indus-erp}"
 LEGACY_PM2_NAME="indus-erp-backend"
