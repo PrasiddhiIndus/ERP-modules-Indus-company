@@ -55,14 +55,6 @@ jobs:
           VITE_EINVOICE_PROVIDER: backend
           VITE_EINVOICE_API_URL: /api/billing/e-invoice
 
-      - name: Upload dist artifact
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-production
-          path: dist
-          retention-days: 3
-
   deploy-production:
     name: Deploy Production
     needs: build
@@ -72,23 +64,6 @@ jobs:
       name: production
 
     steps:
-      - name: Download production dist
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-production
-          path: dist
-
-      - name: Upload dist to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: 22
-          source: "dist"
-          target: "/tmp/indus-erp-dist-upload"
-          overwrite: true
-
       - name: Deploy to Production Server
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -99,7 +74,7 @@ jobs:
           debug: true
           command_timeout: 30m
           envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY
-          # Always run the in-repo script after pull so deploy fixes ship with the app.
+          # Same pattern as staging: pull repo + run in-repo deploy script.
           script: |
             set -euo pipefail
             REPO_DIR="${REPO_DIR:-/root/indus-erp}"
@@ -107,23 +82,7 @@ jobs:
             git fetch origin main
             git checkout main
             git pull origin main
-            # Flatten scp upload (appleboy may nest as dist/ under target)
-            PREBUILT="/tmp/indus-erp-dist"
-            rm -rf "${PREBUILT}"
-            mkdir -p "${PREBUILT}"
-            if [ -f /tmp/indus-erp-dist-upload/dist/index.html ]; then
-              cp -a /tmp/indus-erp-dist-upload/dist/. "${PREBUILT}/"
-            elif [ -f /tmp/indus-erp-dist-upload/index.html ]; then
-              cp -a /tmp/indus-erp-dist-upload/. "${PREBUILT}/"
-            else
-              echo "ERROR: uploaded dist not found under /tmp/indus-erp-dist-upload"
-              find /tmp/indus-erp-dist-upload -maxdepth 3 -type f 2>/dev/null | head -50 || true
-              exit 1
-            fi
-            export SKIP_BUILD=1
-            export PREBUILT_DIST="${PREBUILT}"
             bash scripts/deploy.sh
-            rm -rf /tmp/indus-erp-dist-upload "${PREBUILT}"
         env:
           PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
           PROD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
