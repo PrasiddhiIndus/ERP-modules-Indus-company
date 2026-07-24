@@ -538,14 +538,18 @@ export function normalizeAttendanceEmpCode(code) {
   return s;
 }
 
-/** DB filter variants so 9750 still matches legacy 09750 rows. */
+/** DB filter variants so 9750 still matches legacy 09750 / 009750 rows. */
 export function attendanceEmpCodeLookupVariants(code) {
   const raw = String(code ?? "").trim();
   const n = normalizeAttendanceEmpCode(raw);
   if (!n) return [];
   const variants = new Set([n]);
   if (raw) variants.add(raw);
-  if (/^\d+$/.test(n) && n.length < 5) variants.add(n.padStart(5, "0"));
+  if (/^\d+$/.test(n)) {
+    for (const width of [4, 5, 6, 7, 8]) {
+      if (n.length < width) variants.add(n.padStart(width, "0"));
+    }
+  }
   return [...variants];
 }
 
@@ -1836,6 +1840,51 @@ export async function fetchRegisterMarksForYear(supabase, year, masterCodeMap = 
   }));
 }
 
+/** Register marks for one employee in a calendar year (fast leave-balance sync path). */
+export async function fetchRegisterMarksForEmployeeYear(supabase, employeeCode, year, options = {}) {
+  const { extraCodes = [], masterCodeMap = null } = options;
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const y = Number(year);
+  if (!code || !Number.isFinite(y) || y < 1900) return [];
+  const variants = new Set(attendanceEmpCodeLookupVariants(code));
+  for (const extra of extraCodes || []) {
+    for (const v of attendanceEmpCodeLookupVariants(extra)) variants.add(v);
+  }
+  if (masterCodeMap?.size) {
+    const mapped =
+      masterCodeMap.get(code) ||
+      masterCodeMap.get(String(employeeCode ?? "").trim()) ||
+      null;
+    if (mapped) {
+      const mappedRaw = String(mapped).trim();
+      if (mappedRaw) {
+        variants.add(mappedRaw);
+        for (const v of attendanceEmpCodeLookupVariants(mappedRaw)) variants.add(v);
+      }
+    }
+  }
+  const variantList = [...variants].filter(Boolean);
+  if (!variantList.length) return [];
+  const fromDate = `${y}-01-01`;
+  const toDate = `${y}-12-31`;
+  const { data, error } = await applyRegisterFetchAbortSignal(
+    supabase
+      .from(ATTENDANCE_REGISTER_TABLE)
+      .select("employee_code,register_date,mark,mark_source,mark_remark")
+      .in("employee_code", variantList)
+      .gte("register_date", fromDate)
+      .lte("register_date", toDate)
+  );
+  if (error) throw error;
+  return (data || []).map((row) => ({
+    employee_code: code,
+    register_date: String(normalizeDbDate(row.register_date) || "").slice(0, 10),
+    mark: row.mark,
+    mark_source: row.mark_source ?? null,
+    mark_remark: row.mark_remark ?? null,
+  }));
+}
+
 /** True when `day` is the 3rd Saturday of `year`/`month` (1-based). */
 export function isThirdSaturdayOfMonth(year, month, day) {
   if (new Date(year, month - 1, day).getDay() !== 6) return false;
@@ -2184,7 +2233,7 @@ export function mergeActiveEmployeesWithPunches(activeEmployees, punches) {
 }
 
 export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
-  const { masterCodeMap = null } = options;
+  const { masterCodeMap = null, syncLeaveBalances = false } = options;
   const normalized = (rows || [])
     .map((row) => {
       const employee_code = toRegisterDbEmployeeCode(row.employee_code, masterCodeMap);
@@ -2209,9 +2258,18 @@ export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
     });
     if (error) throw error;
   }
+  if (syncLeaveBalances) {
+    try {
+      const { reconcileLeaveBalancesForRegisterMutations } = await import("./leaveManagement");
+      await reconcileLeaveBalancesForRegisterMutations(supabase, normalized);
+    } catch (err) {
+      console.warn("Leave balance sync after register batch failed:", err);
+    }
+  }
 }
 
-export async function deleteRegisterMarksBatch(supabase, deletes, masterCodeMap = null) {
+export async function deleteRegisterMarksBatch(supabase, deletes, masterCodeMap = null, options = {}) {
+  const { syncLeaveBalances = false } = options;
   for (const { employee_code, register_date } of deletes) {
     const date = normalizeDbDate(register_date);
     if (!date) continue;
@@ -2228,6 +2286,14 @@ export async function deleteRegisterMarksBatch(supabase, deletes, masterCodeMap 
       .eq("register_date", date);
     if (error) throw error;
   }
+  if (syncLeaveBalances && (deletes || []).length) {
+    try {
+      const { reconcileLeaveBalancesForRegisterMutations } = await import("./leaveManagement");
+      await reconcileLeaveBalancesForRegisterMutations(supabase, deletes);
+    } catch (err) {
+      console.warn("Leave balance sync after register delete failed:", err);
+    }
+  }
 }
 
 export async function upsertRegisterMark(
@@ -2239,10 +2305,12 @@ export async function upsertRegisterMark(
   masterCodeMap = null
 ) {
   const normCode = normalizeAttendanceEmpCode(empCode);
+  const dbCode = toRegisterDbEmployeeCode(normCode, masterCodeMap) || normCode;
   const date = normalizeDbDate(registerDate);
   if (!normCode || !date) {
     throw new Error("Employee code and register date are required to save attendance.");
   }
+  const syncOpts = { dbEmployeeCode: dbCode, masterCodeMap };
   const canonical = normalizeRegisterMarkForDb(mark);
   if (!canonical) {
     await deleteRegisterMarksBatch(
@@ -2252,7 +2320,7 @@ export async function upsertRegisterMark(
     );
     try {
       const { reconcileLeaveBalanceForRegisterMark } = await import("./leaveManagement");
-      await reconcileLeaveBalanceForRegisterMark(supabase, normCode, date);
+      await reconcileLeaveBalanceForRegisterMark(supabase, normCode, date, syncOpts);
     } catch (err) {
       console.warn("Leave balance sync after register mark clear failed:", err);
     }
@@ -2275,13 +2343,10 @@ export async function upsertRegisterMark(
     { masterCodeMap }
   );
 
+  // Always recount yearly used/unused for this employee (PL→P, CL mark, clear, etc.).
   try {
-    const { registerMarkAffectsLeaveBalance, reconcileLeaveBalanceForRegisterMark } = await import(
-      "./leaveManagement"
-    );
-    if (registerMarkAffectsLeaveBalance(canonical)) {
-      await reconcileLeaveBalanceForRegisterMark(supabase, normCode, date);
-    }
+    const { reconcileLeaveBalanceForRegisterMark } = await import("./leaveManagement");
+    await reconcileLeaveBalanceForRegisterMark(supabase, normCode, date, syncOpts);
   } catch (err) {
     console.warn("Leave balance sync after register mark failed:", err);
   }

@@ -1219,9 +1219,16 @@ export function EmployeeAttendanceDailyPage() {
       if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       setSavingMark(true);
       try {
-        if (upserts.length) await upsertRegisterMarksBatch(supabase, upserts, { masterCodeMap: masterRegisterCodeMap });
+        if (upserts.length) {
+          await upsertRegisterMarksBatch(supabase, upserts, {
+            masterCodeMap: masterRegisterCodeMap,
+            syncLeaveBalances: true,
+          });
+        }
         if (deletes.length) {
-          await deleteRegisterMarksBatch(supabase, deletes, masterRegisterCodeMap);
+          await deleteRegisterMarksBatch(supabase, deletes, masterRegisterCodeMap, {
+            syncLeaveBalances: true,
+          });
         }
         if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
       } catch (err) {
@@ -1294,10 +1301,15 @@ export function EmployeeAttendanceDailyPage() {
     setSavingMark(true);
     try {
       if (upserts.length) {
-        await upsertRegisterMarksBatch(supabase, upserts, { masterCodeMap: masterRegisterCodeMap });
+        await upsertRegisterMarksBatch(supabase, upserts, {
+          masterCodeMap: masterRegisterCodeMap,
+          syncLeaveBalances: true,
+        });
       }
       if (deletes.length) {
-        await deleteRegisterMarksBatch(supabase, deletes, masterRegisterCodeMap);
+        await deleteRegisterMarksBatch(supabase, deletes, masterRegisterCodeMap, {
+          syncLeaveBalances: true,
+        });
       }
       if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
     } catch (err) {

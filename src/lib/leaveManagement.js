@@ -1,4 +1,6 @@
-import { fetchActiveEmployees, fetchRegisterMarksForYear, normalizeAttendanceEmpCode } from "./attendanceDaily";
+import { fetchActiveEmployees, fetchRegisterMarksForYear, fetchRegisterMarksForEmployeeYear, normalizeAttendanceEmpCode, attendanceEmpCodeLookupVariants } from "./attendanceDaily";
+import { supabase } from "./supabase";
+import { isSupabaseRealtimeEnabled } from "./supabaseConfig";
 
 export const DEFAULT_ANNUAL_ENTITLEMENTS = {
   PL: 18,
@@ -8,58 +10,58 @@ export const DEFAULT_ANNUAL_ENTITLEMENTS = {
 
 // Which attendance-register marks count against the generic carry-forward categories.
 function markWeightForPl(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "PL") return 1;
   if (m === "P/PL") return 0.5;
   return 0;
 }
 
 function markWeightForSl(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "SL") return 1;
   if (m === "P/SL") return 0.5;
   return 0;
 }
 
 function markWeightForCl(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "CL") return 1;
   if (m === "P/CL") return 0.5;
   return 0;
 }
 
 function markWeightForSbel(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "SBEL") return 1;
   return 0;
 }
 
 function markWeightForSpla(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "SPLA") return 0.5;
   return 0;
 }
 
 function markWeightForSplb(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "SPLB") return 0.5;
   return 0;
 }
 
 function markWeightForSplm(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "SPLM") return 1;
   return 0;
 }
 
 function markWeightForPaternity(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "PTL") return 1;
   return 0;
 }
 
 function markWeightForCoff(mark) {
-  const m = String(mark || "").trim();
+  const m = String(mark || "").trim().toUpperCase();
   if (m === "CO") return 1;
   return 0;
 }
@@ -679,28 +681,57 @@ function buildSyncedYearlyBalanceRow(current, used, emp_code, year) {
   };
 }
 
-export async function syncEmployeeYearlyLeaveFromRegister(supabase, employeeCode, year) {
+export async function syncEmployeeYearlyLeaveFromRegister(supabaseClient, employeeCode, year, options = {}) {
+  const { dbEmployeeCode = null, masterCodeMap = null } = options;
   const emp_code = normalizeAttendanceEmpCode(employeeCode);
   const y = Number(year);
   if (!emp_code || !Number.isFinite(y) || y < 1900) return false;
 
-  const [balances, registerRows] = await Promise.all([
-    fetchLeaveBalancesForYear(supabase, y),
-    fetchRegisterMarksForYear(supabase, y),
+  const codeVariants = [
+    ...new Set(
+      [
+        ...attendanceEmpCodeLookupVariants(emp_code),
+        ...attendanceEmpCodeLookupVariants(dbEmployeeCode),
+        String(dbEmployeeCode ?? "").trim(),
+      ].filter(Boolean)
+    ),
+  ];
+  const [balanceRes, registerRows] = await Promise.all([
+    supabaseClient
+      .schema("indus_one")
+      .from("employee_leave_balances_yearly")
+      .select("*")
+      .eq("year", y)
+      .in("employee_code", codeVariants.length ? codeVariants : [emp_code]),
+    fetchRegisterMarksForEmployeeYear(supabaseClient, emp_code, y, {
+      extraCodes: codeVariants,
+      masterCodeMap,
+    }),
   ]);
 
-  const current = (balances || []).find(
-    (row) => normalizeAttendanceEmpCode(row.employee_code) === emp_code
-  );
-  if (!current) return false;
+  if (balanceRes.error) throw balanceRes.error;
+  const balanceRows = Array.isArray(balanceRes.data) ? balanceRes.data : balanceRes.data ? [balanceRes.data] : [];
+  if (!balanceRows.length) {
+    console.warn(
+      `Leave balance sync skipped: no yearly balance row for employee ${emp_code} / ${y}. Set opening balances in Leave Management first.`
+    );
+    return false;
+  }
 
-  const usedByEmp = buildUsedLeaveTotalsByEmployee(
-    (registerRows || []).filter(
-      (row) => normalizeAttendanceEmpCode(row.employee_code) === emp_code
-    )
-  );
+  // Prefer the exact DB/master code row when duplicates exist from prior normalized upserts.
+  const dbRaw = String(dbEmployeeCode ?? "").trim();
+  const current =
+    (dbRaw && balanceRows.find((r) => String(r.employee_code ?? "").trim() === dbRaw)) ||
+    balanceRows.find((r) => normalizeAttendanceEmpCode(r.employee_code) === emp_code) ||
+    balanceRows[0];
+
+  const usedByEmp = buildUsedLeaveTotalsByEmployee(registerRows || []);
   const used = usedByEmp[emp_code] || emptyUsedLeaveTotals();
-  await upsertLeaveBalancesBatch(supabase, [buildSyncedYearlyBalanceRow(current, used, emp_code, y)]);
+  // Keep the existing primary-key employee_code (do not strip leading zeros) so upsert updates the real row.
+  const balanceEmployeeCode = String(current.employee_code ?? "").trim() || emp_code;
+  await upsertLeaveBalancesBatch(supabaseClient, [
+    buildSyncedYearlyBalanceRow(current, used, balanceEmployeeCode, y),
+  ]);
   return true;
 }
 
@@ -718,7 +749,9 @@ export async function syncYearlyLeaveBalancesFromRegister(supabase, year) {
   const currentByEmp = {};
   for (const row of balances || []) {
     const code = normalizeAttendanceEmpCode(row.employee_code);
-    if (code) currentByEmp[code] = row;
+    if (!code) continue;
+    // Prefer keeping the first/exact master-coded row when duplicates exist.
+    if (!currentByEmp[code]) currentByEmp[code] = row;
   }
 
   const rows = (employees || [])
@@ -728,7 +761,8 @@ export async function syncYearlyLeaveBalancesFromRegister(supabase, year) {
       const current = currentByEmp[emp_code];
       if (!current) return null;
       const used = usedByEmp[emp_code] || emptyUsedLeaveTotals();
-      return buildSyncedYearlyBalanceRow(current, used, emp_code, y);
+      const balanceEmployeeCode = String(current.employee_code ?? "").trim() || emp_code;
+      return buildSyncedYearlyBalanceRow(current, used, balanceEmployeeCode, y);
     })
     .filter(Boolean);
 
@@ -737,10 +771,44 @@ export async function syncYearlyLeaveBalancesFromRegister(supabase, year) {
   return rows.length;
 }
 
-export async function reconcileLeaveBalanceForRegisterMark(supabase, employeeCode, registerDate) {
+export async function reconcileLeaveBalanceForRegisterMark(supabase, employeeCode, registerDate, options = {}) {
   const year = yearNumberFromIsoDate(registerDate);
   if (!year) return false;
-  return syncEmployeeYearlyLeaveFromRegister(supabase, employeeCode, year);
+  return syncEmployeeYearlyLeaveFromRegister(supabase, employeeCode, year, options);
+}
+
+/**
+ * Live used/unused sync only (no carry-forward / encash / year-close math).
+ * Safe to run on page load and after attendance changes.
+ */
+export async function syncLiveLeaveUsageFromRegister(supabase, year) {
+  return syncYearlyLeaveBalancesFromRegister(supabase, year);
+}
+
+/**
+ * After register upserts/deletes: recount used leave for each affected employee+year.
+ * Does not run processLeaveBalancesYear (carry-forward / encash).
+ */
+export async function reconcileLeaveBalancesForRegisterMutations(supabase, rowsOrDeletes) {
+  const pairs = new Map();
+  for (const row of rowsOrDeletes || []) {
+    const rawCode = String(row?.employee_code ?? row?.emp_code ?? "").trim();
+    const code = normalizeAttendanceEmpCode(rawCode);
+    const date = String(row?.register_date || "").slice(0, 10);
+    if (!code || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const year = Number(date.slice(0, 4));
+    if (!Number.isFinite(year) || year < 1900) continue;
+    const key = `${code}|${year}`;
+    if (!pairs.has(key)) pairs.set(key, { code, year, dbEmployeeCode: rawCode });
+    else if (rawCode) pairs.get(key).dbEmployeeCode = rawCode;
+  }
+  if (!pairs.size) return 0;
+  let synced = 0;
+  for (const { code, year, dbEmployeeCode } of pairs.values()) {
+    const ok = await syncEmployeeYearlyLeaveFromRegister(supabase, code, year, { dbEmployeeCode });
+    if (ok) synced += 1;
+  }
+  return synced;
 }
 
 export async function reconcileLeaveBalanceForRequest(supabase, requestRow) {
@@ -844,5 +912,85 @@ export function registerMarkAffectsLeaveBalance(mark) {
     markWeightForPaternity(m) > 0 ||
     markWeightForCoff(m) > 0
   );
+}
+
+/**
+ * Realtime: keep Leave Management used/unused in sync without Process Yearly.
+ * - Leave / balance table changes → UI refresh only
+ * - Attendance register mark changes → sync that employee's year usage, then UI refresh
+ * Does not run carry-forward / encash year-close logic.
+ */
+export function subscribeLeaveUsageRealtime(onChange, options = {}) {
+  if (!isSupabaseRealtimeEnabled() || typeof onChange !== "function") {
+    return () => {};
+  }
+
+  const yearHint = Number(options.year) || null;
+  let debounceTimer = null;
+  let syncQueue = Promise.resolve();
+
+  const scheduleUi = () => {
+    if (debounceTimer) window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(() => {
+      try {
+        onChange();
+      } catch (err) {
+        console.warn("Leave usage realtime UI refresh failed:", err);
+      }
+    }, 400);
+  };
+
+  const syncFromRegisterPayload = (payload) => {
+    const row = payload?.new || payload?.old || null;
+    const rawCode = String(row?.employee_code ?? "").trim();
+    const code = normalizeAttendanceEmpCode(rawCode);
+    const date = String(row?.register_date || "").slice(0, 10);
+    const year = yearNumberFromIsoDate(date) || yearHint;
+    if (!code || !year) {
+      scheduleUi();
+      return;
+    }
+    syncQueue = syncQueue
+      .then(() =>
+        syncEmployeeYearlyLeaveFromRegister(supabase, code, year, {
+          dbEmployeeCode: rawCode || code,
+        })
+      )
+      .catch((err) => {
+        console.warn("Leave usage realtime sync failed:", err);
+      })
+      .then(() => {
+        scheduleUi();
+      });
+  };
+
+  const channel = supabase
+    .channel(`erp-leave-usage-live-${yearHint || "all"}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "indus_one", table: "employee_leave_balances_yearly" },
+      scheduleUi
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "indus_one", table: "admin_leave_balance_ledger" },
+      scheduleUi
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "indus_one", table: "admin_leave_requests" },
+      scheduleUi
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "admin_attendance_register" },
+      syncFromRegisterPayload
+    )
+    .subscribe();
+
+  return () => {
+    if (debounceTimer) window.clearTimeout(debounceTimer);
+    supabase.removeChannel(channel);
+  };
 }
 
