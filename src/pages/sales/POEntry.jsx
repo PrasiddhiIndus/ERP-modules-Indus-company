@@ -192,6 +192,78 @@ function normalizeContactNumber(value) {
   return String(value || '').replace(/\D/g, '').slice(0, 10);
 }
 
+const CONTACT_PERSONS_HISTORY_EVENT = '__contact_persons__';
+
+function emptyContactPerson() {
+  return { name: '', designation: '', contactNumber: '', email: '' };
+}
+
+function normalizeContactPersonRow(row = {}) {
+  return {
+    name: String(row.name ?? row.currentCoordinator ?? '').trim(),
+    designation: String(row.designation ?? row.contactDesignation ?? '').trim(),
+    contactNumber: normalizeContactNumber(row.contactNumber ?? row.number ?? ''),
+    email: String(row.email ?? row.contactEmail ?? '').trim(),
+  };
+}
+
+function normalizeContactPersonsList(list, fallback = {}) {
+  if (Array.isArray(list) && list.length > 0) {
+    const rows = list.map(normalizeContactPersonRow);
+    return rows.length ? rows : [emptyContactPerson()];
+  }
+  const primary = normalizeContactPersonRow({
+    name: fallback.currentCoordinator,
+    designation: fallback.contactDesignation ?? fallback.designation,
+    contactNumber: fallback.contactNumber,
+    email: fallback.contactEmail ?? fallback.email,
+  });
+  if (primary.name || primary.designation || primary.contactNumber || primary.email) {
+    return [primary];
+  }
+  return [emptyContactPerson()];
+}
+
+function readContactPersonsFromHistory(updateHistory) {
+  const rows = Array.isArray(updateHistory) ? updateHistory : [];
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const entry = rows[i];
+    if (entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT) {
+      if (Array.isArray(entry.contactPersons)) return entry.contactPersons;
+    }
+  }
+  return null;
+}
+
+function withContactPersonsHistorySnapshot(updateHistory, contactPersons) {
+  const cleaned = (Array.isArray(updateHistory) ? updateHistory : []).filter(
+    (entry) => !(entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT)
+  );
+  cleaned.push({
+    event: CONTACT_PERSONS_HISTORY_EVENT,
+    at: new Date().toISOString(),
+    contactPersons: normalizeContactPersonsList(contactPersons),
+  });
+  return cleaned;
+}
+
+function isHiddenPoHistoryEntry(entry) {
+  return (
+    isCommercialModuleMarker(entry) ||
+    (entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT)
+  );
+}
+
+function syncPrimaryContactFields(contactPersons) {
+  const primary = normalizeContactPersonRow((contactPersons || [])[0] || emptyContactPerson());
+  return {
+    currentCoordinator: primary.name,
+    contactDesignation: primary.designation,
+    contactNumber: primary.contactNumber,
+    contactEmail: primary.email,
+  };
+}
+
 function makeCycle({ poWoNumber, totalContractValue, startDate, endDate, approvedAt } = {}) {
   return {
     po_wo_number: String(poWoNumber || '').trim(),
@@ -484,7 +556,9 @@ function isTruckCumulateMode(raw) {
 
 const initialForm = {
   siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '', panNumber: '',
-  currentCoordinator: '', contactNumber: '', ocNumber: '', vertical: 'Manpower', ocSeries: '1',
+  currentCoordinator: '', contactDesignation: '', contactNumber: '', contactEmail: '',
+  contactPersons: [emptyContactPerson()],
+  ocNumber: '', vertical: 'Manpower', ocSeries: '1',
   vendorCodeDigits: '',
   ocFyEdit: null,
   vendorCode: '',
@@ -569,7 +643,20 @@ const POEntry = () => {
   }, [showForm, editId, latestPriorPoForForm]);
 
   const handleApplyClientSnapshot = (snapshot) => {
-    setFormData((prev) => ({ ...prev, ...snapshot }));
+    setFormData((prev) => {
+      const next = { ...prev, ...snapshot };
+      const contactPersons = normalizeContactPersonsList(snapshot.contactPersons, {
+        currentCoordinator: snapshot.currentCoordinator ?? next.currentCoordinator,
+        contactNumber: snapshot.contactNumber ?? next.contactNumber,
+        contactEmail: snapshot.contactEmail ?? next.contactEmail,
+        contactDesignation: snapshot.contactDesignation ?? next.contactDesignation,
+      });
+      return {
+        ...next,
+        contactPersons,
+        ...syncPrimaryContactFields(contactPersons),
+      };
+    });
     setGstinError('');
     setContactError('');
     if (snapshot.gstin && !validateGSTIN(snapshot.gstin)) {
@@ -837,8 +924,23 @@ const POEntry = () => {
     setFormData({
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
       billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '', placeOfSupply: po.placeOfSupply || '',
-      gstin: po.gstin || '', panNumber: po.panNumber || '', currentCoordinator: po.currentCoordinator || '',
-      contactNumber: po.contactNumber || '', ocNumber: po.ocNumber || '',
+      gstin: po.gstin || '', panNumber: po.panNumber || '',
+      ...(() => {
+        const contactPersons = normalizeContactPersonsList(
+          po.contactPersons || readContactPersonsFromHistory(po.updateHistory),
+          {
+            currentCoordinator: po.currentCoordinator || '',
+            contactNumber: po.contactNumber || '',
+            contactEmail: po.contactEmail || '',
+            contactDesignation: po.contactDesignation || '',
+          }
+        );
+        return {
+          contactPersons,
+          ...syncPrimaryContactFields(contactPersons),
+        };
+      })(),
+      ocNumber: po.ocNumber || '',
       vertical: verticalResolved,
       ocSeries: vendorDigits || (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       vendorCodeDigits: vendorDigits,
@@ -1076,7 +1178,12 @@ const POEntry = () => {
 
   const savePO = () => {
     if (formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
-    if (formData.contactNumber && normalizeContactNumber(formData.contactNumber).length !== 10) {
+    const contactPersons = normalizeContactPersonsList(formData.contactPersons, formData);
+    const primaryContact = syncPrimaryContactFields(contactPersons);
+    const invalidContactNumber = contactPersons.find(
+      (row) => row.contactNumber && normalizeContactNumber(row.contactNumber).length !== 10
+    );
+    if (invalidContactNumber) {
       setContactError('Contact Number must be exactly 10 digits.');
       return;
     }
@@ -1238,11 +1345,20 @@ const POEntry = () => {
       prevLog: contactHistorySourcePo?.contactHistoryLog || [],
       prevCoordinator: contactHistorySourcePo?.currentCoordinator || '',
       prevContactNumber: contactHistorySourcePo?.contactNumber || '',
-      currentCoordinator: formData.currentCoordinator.trim(),
-      contactNumber: formData.contactNumber.trim(),
+      currentCoordinator: primaryContact.currentCoordinator,
+      contactNumber: primaryContact.contactNumber,
       startDate: formData.startDate || nowIso.slice(0, 10),
       asOfDate: nowIso.slice(0, 10),
-    });
+    }).map((row, idx, arr) =>
+      idx === arr.length - 1 && !row.to
+        ? {
+            ...row,
+            email: primaryContact.contactEmail || row.email || '',
+            designation: primaryContact.contactDesignation || row.designation || '',
+          }
+        : row
+    );
+    const historyWithContacts = withContactPersonsHistorySnapshot(historyPrev, contactPersons);
     const po = {
       id: newId, siteId: formData.siteId.trim() || `SITE-${String(newId).slice(0, 8)}`,
       locationName: formData.locationName.trim() || formData.legalName, legalName: formData.legalName.trim(),
@@ -1251,7 +1367,11 @@ const POEntry = () => {
       placeOfSupply: formData.placeOfSupply.trim(),
       gstin: formData.gstin.trim().toUpperCase(),
       panNumber: (formData.panNumber || '').trim().toUpperCase(),
-      currentCoordinator: formData.currentCoordinator.trim(), contactNumber: formData.contactNumber.trim(),
+      currentCoordinator: primaryContact.currentCoordinator,
+      contactDesignation: primaryContact.contactDesignation,
+      contactNumber: primaryContact.contactNumber,
+      contactEmail: primaryContact.contactEmail,
+      contactPersons,
       vendorCode: isWithoutPo
         ? (formData.vendorCode || '').trim()
         : paddedVendorForSave || parseStructuredOcMt(ocNum)?.vendorPadded || '',
@@ -1301,7 +1421,7 @@ const POEntry = () => {
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       ...approvalFields,
-      updateHistory: editId ? historyPrev : [],
+      updateHistory: editId ? historyWithContacts : withContactPersonsHistorySnapshot([], contactPersons),
       created_at: prevPo?.created_at || prevPo?.createdAt || nowIso,
       createdAt: prevPo?.createdAt || prevPo?.created_at || nowIso,
       updated_at: nowIso,
@@ -1914,40 +2034,152 @@ const POEntry = () => {
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold text-gray-900">2. Contact (POC)</h4>
-                  <p className="text-xs text-gray-500 mt-1">
-                    When you pick a saved client under <strong>Legal Name</strong>, coordinator and contact number here are filled from that PO (edit if needed).
-                  </p>
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900">2. Contact (POC)</h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Add one or more contact persons. When you pick a saved client under <strong>Legal Name</strong>,
+                      the first contact is filled from that PO (edit if needed).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        contactPersons: [...(prev.contactPersons || []), emptyContactPerson()],
+                      }))
+                    }
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-medium hover:bg-blue-100"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add contact person
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-poc-coordinator">
-                      Current Coordinator
-                    </label>
-                    <input
-                      id="sales-po-poc-coordinator"
-                      type="text"
-                      value={formData.currentCoordinator}
-                      onChange={(e) => setFormData((p) => ({ ...p, currentCoordinator: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
-                    <input
-                      type="text"
-                      value={formData.contactNumber}
-                      onChange={(e) => {
-                        const next = normalizeContactNumber(e.target.value);
-                        setFormData((p) => ({ ...p, contactNumber: next }));
-                        setContactError('');
-                      }}
-                      maxLength={10}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                    {contactError ? <p className="text-red-600 text-xs mt-1">{contactError}</p> : null}
-                  </div>
+                <div className="space-y-4">
+                  {(formData.contactPersons?.length ? formData.contactPersons : [emptyContactPerson()]).map((row, index) => (
+                    <div
+                      key={`contact-person-${index}`}
+                      className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-gray-700">
+                          Contact person {index + 1}
+                          {index === 0 ? <span className="ml-1 font-normal text-gray-500">(primary)</span> : null}
+                        </p>
+                        {(formData.contactPersons || []).length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => {
+                                const nextPersons = (prev.contactPersons || []).filter((_, i) => i !== index);
+                                const normalized = normalizeContactPersonsList(nextPersons);
+                                return {
+                                  ...prev,
+                                  contactPersons: normalized,
+                                  ...syncPrimaryContactFields(normalized),
+                                };
+                              })
+                            }
+                            className="text-xs text-red-600 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            {index === 0 ? 'Current Coordinator' : 'Contact Name'}
+                          </label>
+                          <input
+                            type="text"
+                            value={row.name || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], name: value };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="Name"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                          <input
+                            type="text"
+                            value={row.designation || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], designation: value };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="e.g. Site In-charge"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
+                          <input
+                            type="text"
+                            value={row.contactNumber || ''}
+                            onChange={(e) => {
+                              const next = normalizeContactNumber(e.target.value);
+                              setContactError('');
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], contactNumber: next };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            maxLength={10}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="10-digit mobile"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Email ID</label>
+                          <input
+                            type="email"
+                            value={row.email || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], email: value };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="e.g. poc@company.com"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {contactError ? <p className="text-red-600 text-xs">{contactError}</p> : null}
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
@@ -2479,8 +2711,23 @@ const POEntry = () => {
                   <dd>{poForHistory.currentCoordinator || '–'}</dd>
                 </div>
                 <div>
+                  <dt className="text-xs text-gray-500">Designation</dt>
+                  <dd>
+                    {poForHistory.contactDesignation ||
+                      normalizeContactPersonsList(
+                        poForHistory.contactPersons || readContactPersonsFromHistory(poForHistory.updateHistory),
+                        poForHistory
+                      )[0]?.designation ||
+                      '–'}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-xs text-gray-500">Contact Number</dt>
                   <dd className="font-mono tabular-nums">{poForHistory.contactNumber || '–'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Email ID</dt>
+                  <dd>{poForHistory.contactEmail || '–'}</dd>
                 </div>
               </dl>
             </div>
@@ -2518,20 +2765,48 @@ const POEntry = () => {
 
             <p className="text-sm font-medium text-gray-700 mb-2">PO update log</p>
             <ul className="text-sm text-gray-600 list-disc pl-5 mb-4 space-y-1">
-              {(poForHistory.updateHistory || []).filter((h) => !isCommercialModuleMarker(h)).length === 0 && (
+              {(poForHistory.updateHistory || []).filter((h) => !isHiddenPoHistoryEntry(h)).length === 0 && (
                 <li className="list-none text-gray-400">No PO updates recorded yet.</li>
               )}
-              {(poForHistory.updateHistory || []).filter((h) => !isCommercialModuleMarker(h)).map((h, i) => (
+              {(poForHistory.updateHistory || []).filter((h) => !isHiddenPoHistoryEntry(h)).map((h, i) => (
                 <li key={i}><span className="font-mono text-xs">{h.at ? formatDateTimeDdMmYyyy(h.at) : '–'}</span> — {h.summary || '—'}</li>
               ))}
             </ul>
+            <p className="text-sm font-medium text-gray-700 mb-2">Contact persons</p>
+            <div className="overflow-x-auto mb-4">
+              <table className="min-w-full border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email ID</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {normalizeContactPersonsList(
+                    poForHistory.contactPersons || readContactPersonsFromHistory(poForHistory.updateHistory),
+                    poForHistory
+                  ).map((row, i) => (
+                    <tr key={`poc-${i}`}>
+                      <td className="px-3 py-2 text-sm">{row.name || '–'}</td>
+                      <td className="px-3 py-2 text-sm">{row.designation || '–'}</td>
+                      <td className="px-3 py-2 text-sm font-mono tabular-nums">{row.contactNumber || '–'}</td>
+                      <td className="px-3 py-2 text-sm">{row.email || '–'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <p className="text-sm font-medium text-gray-700 mb-2">Contact history</p>
             <div className="overflow-x-auto">
               <table className="min-w-full border border-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email ID</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th>
                   </tr>
@@ -2539,7 +2814,7 @@ const POEntry = () => {
                 <tbody className="divide-y divide-gray-200">
                   {poContactHistoryRows.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-3 py-3 text-sm text-gray-400 text-center">
+                      <td colSpan={6} className="px-3 py-3 text-sm text-gray-400 text-center">
                         No contact history recorded yet.
                       </td>
                     </tr>
@@ -2547,7 +2822,9 @@ const POEntry = () => {
                     poContactHistoryRows.map((h, i) => (
                       <tr key={i}>
                         <td className="px-3 py-2 text-sm">{h.name || '–'}</td>
+                        <td className="px-3 py-2 text-sm">{h.designation || '–'}</td>
                         <td className="px-3 py-2 text-sm">{h.number || '–'}</td>
+                        <td className="px-3 py-2 text-sm">{h.email || '–'}</td>
                         <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(h.from) || '–'}</td>
                         <td className="px-3 py-2 text-sm">{h.to ? formatDateDdMmYyyy(h.to) : 'Current'}</td>
                       </tr>

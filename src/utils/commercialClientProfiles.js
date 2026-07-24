@@ -89,7 +89,18 @@ export function extractClientSnapshotFromPo(po, variant = 'manpower') {
     };
   }
 
-  return base;
+  const contactEmail = String(po.contactEmail || po.contact_email || '').trim();
+  const contactDesignation = String(po.contactDesignation || po.contact_designation || '').trim();
+  const contactPersons = Array.isArray(po.contactPersons) && po.contactPersons.length
+    ? po.contactPersons
+    : undefined;
+
+  return {
+    ...base,
+    contactEmail,
+    contactDesignation,
+    ...(contactPersons ? { contactPersons } : {}),
+  };
 }
 
 /**
