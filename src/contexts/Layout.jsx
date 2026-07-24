@@ -122,6 +122,7 @@ const Layout = () => {
   const [adminGateOpen, setAdminGateOpen] = useState(false);
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
   const [adminPayrollOpen, setAdminPayrollOpen] = useState(false);
+  const [adminSalaryOpen, setAdminSalaryOpen] = useState(false);
   const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
   const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
@@ -133,6 +134,7 @@ const Layout = () => {
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
     if (pathname.startsWith("/app/admin/payroll")) setAdminPayrollOpen(true);
+    if (pathname.startsWith("/app/admin/salary-admin")) setAdminSalaryOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/maintenance")) setMaintenanceOpen(true);
     if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial/manpower-training")) setCommercialMtOpen(true);
@@ -165,6 +167,7 @@ const Layout = () => {
     setAdminGateOpen(false);
     setAdminMiscOpen(false);
     setAdminPayrollOpen(false);
+    setAdminSalaryOpen(false);
   };
 
   const [activityLogOpen, setActivityLogOpen] = useState(false);
@@ -471,6 +474,30 @@ const Layout = () => {
                       <NavLink to="admin/payroll/formula" className={subNavClass}>
                         <Calculator className="h-4 w-4 shrink-0 text-violet-600" />
                         <span className="text-xs">Formula reference</span>
+                      </NavLink>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setAdminSalaryOpen(!adminSalaryOpen)}
+                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
+                  >
+                    <span className="flex items-start space-x-2">
+                      <Wallet className="w-4 h-4 shrink-0 text-emerald-700" />
+                      <span className="text-xs font-medium text-left leading-tight">Salary Admin</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminSalaryOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {adminSalaryOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="admin/salary-admin/salary-master" className={subNavClass}>
+                        <RupeeIcon className="h-4 w-4 shrink-0 text-emerald-600" />
+                        <span className="text-xs">Salary Master</span>
+                      </NavLink>
+                      <NavLink to="admin/salary-admin/salary-processing" className={subNavClass}>
+                        <Calculator className="h-4 w-4 shrink-0 text-teal-600" />
+                        <span className="text-xs">Salary Processing</span>
                       </NavLink>
                     </div>
                   )}

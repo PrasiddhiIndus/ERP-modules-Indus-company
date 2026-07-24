@@ -305,9 +305,22 @@ export const DenseTable = ({
   }
 
   return (
-    <div className="w-full max-w-full min-w-0 overflow-x-auto rounded-lg border border-gray-200">
-      <table className="w-max min-w-full text-xs border-separate border-spacing-0">
-        <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+    <div
+      className={`w-full max-w-full min-w-0 rounded-lg border border-gray-200 ${
+        stickyHeader ? "overflow-auto" : "overflow-x-auto"
+      }`}
+      style={stickyHeader ? { maxHeight: scrollMaxHeight } : undefined}
+    >
+      <table
+        className={`w-max min-w-full text-xs ${
+          stickyHeader ? "border-collapse" : "border-separate border-spacing-0"
+        }`}
+      >
+        <thead
+          className={`bg-gray-50 text-gray-600 border-b border-gray-200 ${
+            stickyHeader ? "sticky top-0 z-20 shadow-[0_1px_0_0_#e5e7eb]" : ""
+          }`}
+        >
           <tr>
             {tableColumns.map((c) => (
               <th

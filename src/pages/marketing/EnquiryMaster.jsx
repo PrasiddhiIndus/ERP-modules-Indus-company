@@ -7,7 +7,7 @@ import DateRangeCalendar from './components/DateRangeCalendar';
 import { parseIndianNumber } from './utils/numberFormat';
 import NumberInput from './components/NumberInput';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { isValidDateInputValue, normalizeDateInputValue, resolveNativeDateInputChange } from '../../utils/dateInput';;
+import { isValidDateInputValue, normalizeDateInputValue, resolveNativeDateInputChange } from '../../utils/dateInput';
 import FormDateInput from "../../components/FormDateInput";
 
 import {
@@ -17,6 +17,26 @@ import {
 
 const DOCUMENTS_BUCKET = 'marketing-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
+
+/** Optional columns that may be missing on older production DBs. */
+const OPTIONAL_ENQUIRY_WRITE_COLUMNS = [
+  'contact_emails',
+  'assigned_to_ids',
+  'assigned_to_custom_names',
+];
+
+function isMissingColumnError(error, column) {
+  const msg = String(error?.message || '');
+  return msg.includes(`'${column}'`) && (msg.includes('schema cache') || msg.includes('Could not find'));
+}
+
+function omitNullOptionalColumns(payload) {
+  const next = { ...payload };
+  OPTIONAL_ENQUIRY_WRITE_COLUMNS.forEach((col) => {
+    if (next[col] == null) delete next[col];
+  });
+  return next;
+}
 
 const EnquiryMaster = () => {
   const navigate = useNavigate();
@@ -312,24 +332,62 @@ const EnquiryMaster = () => {
         status: formData.status || 'New',
         assigned_to: assignedIds[0] || null,
         assigned_to_name: assignedNames[0] || null,
-        assigned_to_ids: assignedIds.length > 0 ? assignedIds : null,
-        assigned_to_custom_names: assignedNames.length > 0 ? assignedNames : null,
+      };
+
+      // Only send optional columns when they have values (or clear secondary emails on edit).
+      // Production may not have contact_emails yet — sending null still fails PostgREST schema cache.
+      if (secondaryEmails.length > 0) {
+        enquiryPayload.contact_emails = JSON.stringify(secondaryEmails);
+      } else if (editingEnquiry) {
+        enquiryPayload.contact_emails = null;
+      }
+      if (assignedIds.length > 0) {
+        enquiryPayload.assigned_to_ids = assignedIds;
+      } else if (editingEnquiry) {
+        enquiryPayload.assigned_to_ids = null;
+      }
+      if (assignedNames.length > 0) {
+        enquiryPayload.assigned_to_custom_names = assignedNames;
+      } else if (editingEnquiry) {
+        enquiryPayload.assigned_to_custom_names = null;
+      }
+
+      const saveEnquiryRow = async (payload) => {
+        let current = editingEnquiry ? { ...payload } : omitNullOptionalColumns(payload);
+        for (let attempt = 0; attempt < OPTIONAL_ENQUIRY_WRITE_COLUMNS.length + 1; attempt += 1) {
+          const result = editingEnquiry
+            ? await supabase
+                .from('marketing_enquiries')
+                .update(current)
+                .eq('id', editingEnquiry.id)
+                .select()
+                .single()
+            : await supabase
+                .from('marketing_enquiries')
+                .insert([current])
+                .select()
+                .single();
+
+          if (!result.error) return result.data;
+
+          const missingCol = OPTIONAL_ENQUIRY_WRITE_COLUMNS.find(
+            (col) => isMissingColumnError(result.error, col) && Object.prototype.hasOwnProperty.call(current, col)
+          );
+          if (!missingCol) throw result.error;
+          console.warn(`Column ${missingCol} missing on marketing_enquiries; retrying without it.`);
+          const { [missingCol]: _removed, ...rest } = current;
+          current = rest;
+        }
+        throw new Error('Could not save enquiry');
       };
 
       let enquiryId;
       if (editingEnquiry) {
-        const { data, error } = await supabase
-          .from('marketing_enquiries')
-          .update({
-            ...enquiryPayload,
-            updated_by: user.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', editingEnquiry.id)
-          .select()
-          .single();
-
-        if (error) throw error;
+        const data = await saveEnquiryRow({
+          ...enquiryPayload,
+          updated_by: user.id,
+          updated_at: new Date().toISOString(),
+        });
         enquiryId = data.id;
       } else {
         // Duplicate prevention: same core details should not create a new enquiry id.
@@ -368,18 +426,12 @@ const EnquiryMaster = () => {
           return;
         }
 
-        const { data, error } = await supabase
-          .from('marketing_enquiries')
-          .insert([{
-            ...enquiryPayload,
-            enquiry_number: enquiryNumber,
-            created_by: user.id,
-            updated_by: user.id,
-          }])
-          .select()
-          .single();
-
-        if (error) throw error;
+        const data = await saveEnquiryRow({
+          ...enquiryPayload,
+          enquiry_number: enquiryNumber,
+          created_by: user.id,
+          updated_by: user.id,
+        });
         enquiryId = data.id;
       }
 
@@ -1090,7 +1142,7 @@ const EnquiryMaster = () => {
 
             <form onSubmit={handleSubmit} className="p-4 sm:p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Enquiry Date <span className="text-red-500">*</span>
                   </label>
@@ -1100,7 +1152,7 @@ const EnquiryMaster = () => {
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Source <span className="text-red-500">*</span>
                   </label>
@@ -1119,36 +1171,36 @@ const EnquiryMaster = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Client <span className="text-red-500">*</span>
-                  </label>
-                  <div className="flex space-x-2">
-                    <select
-                      value={formData.client_id}
-                      onChange={(e) => handleClientChange(e.target.value)}
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      required
-                    >
-                      <option value="">Select a client</option>
-                      {clients.map((client) => (
-                        <option key={client.id} value={client.id}>
-                          {client.client_name}
-                        </option>
-                      ))}
-                    </select>
+                <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Client <span className="text-red-500">*</span>
+                    </label>
                     <button
                       type="button"
                       onClick={() => navigate('/app/marketing/client-master')}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center space-x-1"
+                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-purple-600 text-white rounded-md hover:bg-purple-700"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-3.5 h-3.5" />
                       <span>New Client</span>
                     </button>
                   </div>
+                  <select
+                    value={formData.client_id}
+                    onChange={(e) => handleClientChange(e.target.value)}
+                    className="w-full min-w-0 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Select a client</option>
+                    {clients.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.client_name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Contact Person</label>
                   <input
                     type="text"
@@ -1158,7 +1210,7 @@ const EnquiryMaster = () => {
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Contact Number</label>
                   <input
                     type="text"
@@ -1168,15 +1220,16 @@ const EnquiryMaster = () => {
                   />
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Primary Email</label>
                   <input
                     type="text"
                     value={formData.contact_email}
                     onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Primary email (shown on quotations). Comma-separated: first is primary, rest are secondary."
+                    placeholder="Primary email (shown on quotations)"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Comma-separated: first is primary, rest are secondary.</p>
                 </div>
 
                 <div className="md:col-span-2">
