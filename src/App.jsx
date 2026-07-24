@@ -121,6 +121,8 @@ import {
   GateVehiclesPage,
   GateDeliveryPage,
   GateSecurityConsolePage,
+  SalaryMasterPage,
+  SalaryProcessingPage,
   MiscEventsPage,
   MiscTravelPage,
   MiscTasksPage,
@@ -457,6 +459,8 @@ function App() {
             <Route path="admin/gate/vehicle-passes" element={<GateVehiclesPage />} />
             <Route path="admin/gate/delivery-courier-post" element={<GateDeliveryPage />} />
             <Route path="admin/gate/security-console" element={<GateSecurityConsolePage />} />
+            <Route path="admin/salary-admin/salary-master" element={<SalaryMasterPage />} />
+            <Route path="admin/salary-admin/salary-processing" element={<SalaryProcessingPage />} />
             <Route path="admin/misc/events-coordination" element={<MiscEventsPage />} />
             <Route path="admin/misc/tour-travel-details" element={<MiscTravelPage />} />
             <Route path="admin/misc/admin-tasks-other-requests" element={<MiscTasksPage />} />
