@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileCheck, Plus, Search, Pencil, Trash2, History, Send, CheckCircle, XCircle, ChevronLeft, ChevronRight, Paperclip, Eye, Share2, Link2, ExternalLink } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from '../../config/roles';
@@ -43,8 +43,175 @@ import {
   getCommercialPoActorDisplayName,
   PO_APPROVAL_STATUS as APPROVAL_STATUS,
 } from '../../utils/commercialPoApproval';
+import { presignCommercialPoR2Get, createCommercialPoShareLink } from '../../lib/commercialPoR2';
 
-const VERTICALS = ['Manpower', 'Training'];
+function formatPoCurrency(value) {
+  if (value === '' || value == null || Number.isNaN(Number(value))) return '–';
+  return `₹${Number(value).toLocaleString('en-IN')}`;
+}
+
+function resolvePoDutyPatternLabel(po) {
+  const custom = String(po?.customDutyPattern || po?.custom_duty_pattern || '').trim();
+  const pattern = String(po?.dutyPattern || po?.duty_pattern || '').trim();
+  if (custom) return custom;
+  return pattern || '–';
+}
+
+function PoViewField({ label, value, className = 'text-sm text-gray-900' }) {
+  return (
+    <div>
+      <dt className="text-xs text-gray-500">{label}</dt>
+      <dd className={className}>{value != null && String(value).trim() !== '' ? value : '–'}</dd>
+    </div>
+  );
+}
+
+function PoViewDocumentList({ title, files }) {
+  const list = Array.isArray(files) ? files.filter((f) => f?.name || f?.path) : [];
+  const [busyKey, setBusyKey] = useState('');
+  const [copiedKey, setCopiedKey] = useState('');
+
+  const resolveShareUrl = async (file) => {
+    if (!file?.path) throw new Error('File path missing.');
+    return createCommercialPoShareLink(file.path);
+  };
+
+  const openFile = async (file, key) => {
+    if (!file?.path) return;
+    setBusyKey(key);
+    try {
+      const url = await presignCommercialPoR2Get(file.path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      window.alert(err?.message || 'Could not open file.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const copyLink = async (file, key) => {
+    if (!file?.path) return;
+    setBusyKey(key);
+    try {
+      const url = await resolveShareUrl(file);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((prev) => (prev === key ? '' : prev)), 2000);
+    } catch (err) {
+      window.alert(err?.message || 'Could not copy link.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const shareLink = async (file, key) => {
+    if (!file?.path) return;
+    setBusyKey(key);
+    try {
+      const url = await resolveShareUrl(file);
+      const name = file.name || 'PO document';
+      if (typeof navigator.share === 'function') {
+        await navigator.share({ title: name, text: name, url });
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setCopiedKey(key);
+        window.setTimeout(() => setCopiedKey((prev) => (prev === key ? '' : prev)), 2000);
+      } else {
+        window.prompt('Copy this link:', url);
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      window.alert(err?.message || 'Could not share link.');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">{title}</p>
+      {list.length === 0 ? (
+        <p className="text-sm text-gray-400">No files attached.</p>
+      ) : (
+        <ul className="space-y-2">
+          {list.map((file, i) => {
+            const key = file.key || file.path || `${title}-${i}`;
+            const busy = busyKey === key;
+            const copied = copiedKey === key;
+            return (
+              <li
+                key={key}
+                className="min-w-0 rounded-lg border border-gray-200 bg-white px-2.5 py-2"
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-gray-500 mt-0.5" />
+                  <p className="min-w-0 flex-1 text-sm text-gray-800 break-all leading-snug" title={file.name}>
+                    {file.name || 'Attachment'}
+                  </p>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openFile(file, key)}
+                    disabled={!file.path || busy}
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                    title="Open file"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyLink(file, key)}
+                    disabled={!file.path || busy}
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                    title="Copy short link (valid 24 hours)"
+                  >
+                    <Link2 className="h-3 w-3" />
+                    {copied ? 'Copied' : 'Copy link'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => shareLink(file, key)}
+                    disabled={!file.path || busy}
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                    title="Share short link (valid 24 hours)"
+                  >
+                    <Share2 className="h-3 w-3" />
+                    Share
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const VERTICALS = ['Manpower', 'Training', 'Fire Tender'];
+const DUTY_PATTERN_CUSTOM = 'Custom';
+const DUTY_PATTERN_OPTIONS = [
+  '8 hr -30/31',
+  '8 hr-26/27',
+  '12 hr -30/31',
+  '12 hr 26/27',
+  DUTY_PATTERN_CUSTOM,
+];
+const RELIEVER_SCOPE_OPTIONS = [
+  'In IFSPL scope',
+  'In inclusive instrength',
+];
 const BILLING_TYPES = ['Per Day', 'Monthly', 'Lump Sum', 'Custom Calculator'];
 const MANPOWER_BILLING_TYPE_FILTERS = [
   { value: 'Per Day', label: 'Daily' },
@@ -56,6 +223,127 @@ const ALLOWED_MANPOWER_PO_TYPES = new Set(BILLING_TYPES);
 const MT_PAYMENT_TERMS_OPTIONS = ['Immediate', '15 Days', '30 Days', '45 Days', '60 Days'];
 const CUSTOM_MT_PAYMENT_TERM = 'Other (manual)';
 const PAGE_SIZE = 10;
+
+/**
+ * Contract duration in years from Start Date to End Date (anniversary-based).
+ * Example: 24/07/2026 → 24/07/2027 = 1 year. Partial spans are fractional.
+ */
+function contractDurationYears(startDate, endDate) {
+  const sRaw = String(startDate || '').trim();
+  const eRaw = String(endDate || '').trim();
+  if (!sRaw || !eRaw) return null;
+  const s = new Date(`${sRaw}T00:00:00`);
+  const e = new Date(`${eRaw}T00:00:00`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return null;
+
+  let wholeYears = e.getFullYear() - s.getFullYear();
+  const anniversary = new Date(s.getFullYear() + wholeYears, s.getMonth(), s.getDate());
+  if (anniversary > e) {
+    wholeYears -= 1;
+  }
+  const lastAnniversary = new Date(s.getFullYear() + wholeYears, s.getMonth(), s.getDate());
+  const nextAnniversary = new Date(s.getFullYear() + wholeYears + 1, s.getMonth(), s.getDate());
+  const yearMs = nextAnniversary.getTime() - lastAnniversary.getTime();
+  if (yearMs <= 0) return null;
+  const frac = (e.getTime() - lastAnniversary.getTime()) / yearMs;
+  const years = wholeYears + frac;
+  return years > 0 ? years : null;
+}
+
+/** Monthly Value = Total Contract Value ÷ (Contract Duration in Years × 12). */
+function computeMonthlyValueFromContract(totalContractValue, startDate, endDate) {
+  const years = contractDurationYears(startDate, endDate);
+  if (!years || years <= 0) return '';
+  const total = Number(totalContractValue);
+  if (!Number.isFinite(total)) return '';
+  return Math.round((total / (years * 12)) * 100) / 100;
+}
+
+function resolveDutyPatternForForm(saved, customSaved = '') {
+  const custom = String(customSaved || '').trim();
+  const s = String(saved || '').trim();
+  if (custom) return { dutyPattern: DUTY_PATTERN_CUSTOM, customDutyPattern: custom };
+  if (!s) return { dutyPattern: '', customDutyPattern: '' };
+  if (s === DUTY_PATTERN_CUSTOM) return { dutyPattern: DUTY_PATTERN_CUSTOM, customDutyPattern: '' };
+  if (DUTY_PATTERN_OPTIONS.includes(s)) return { dutyPattern: s, customDutyPattern: '' };
+  return { dutyPattern: DUTY_PATTERN_CUSTOM, customDutyPattern: s };
+}
+
+function fileMetaFromFileList(fileList) {
+  return Array.from(fileList || []).map((file) => ({
+    key: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
+    name: file.name,
+    size: file.size,
+    type: file.type || '',
+    file,
+  }));
+}
+
+function fileMetaForPersist(files) {
+  return (Array.isArray(files) ? files : []).map(({ name, size, type, path, file, storage }) => ({
+    name: String(name || ''),
+    size: Number(size) || 0,
+    type: String(type || ''),
+    path: path || null,
+    storage: storage || null,
+    ...(file instanceof File ? { file } : {}),
+  }));
+}
+
+function PoDocumentUploadField({ id, label, files, onChange }) {
+  const inputRef = useRef(null);
+  const list = Array.isArray(files) ? files : [];
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={id}>
+        {label}
+      </label>
+      <div className="space-y-2">
+        {list.map((file, index) => (
+          <div
+            key={file.key || `${file.name}-${index}`}
+            className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+          >
+            <div className="min-w-0 flex items-center gap-2 text-sm text-gray-700">
+              <Paperclip className="h-4 w-4 shrink-0 text-gray-500" />
+              <span className="truncate" title={file.name}>
+                {file.name}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onChange(list.filter((_, i) => i !== index))}
+              className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 hover:text-rose-700"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove
+            </button>
+          </div>
+        ))}
+        <input
+          ref={inputRef}
+          id={id}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const added = fileMetaFromFileList(e.target.files);
+            if (added.length) onChange([...list, ...added]);
+            e.target.value = '';
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+        >
+          <Plus className="h-4 w-4" />
+          Add files
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function resolveMtPaymentTermsForForm(savedTerms) {
   const saved = String(savedTerms || '').trim();
@@ -124,20 +412,23 @@ function mtVerticalFromOcSegment(seg) {
   const x = String(seg || '').trim();
   if (x === 'MANP' || x === 'BILL' || x === 'Manpower') return 'Manpower';
   if (x === 'TRNG' || x === 'Training') return 'Training';
+  if (x === 'FT' || x === 'Fire Tender' || x === 'FireTender') return 'Fire Tender';
   return 'Manpower';
 }
 
-/** Department filter label — matches VERTICALS; OC may use Manpower/Training or legacy MANP/BILL */
+/** Department filter label — matches VERTICALS; OC may use Manpower/Training/Fire Tender or legacy MANP/BILL */
 function poDepartmentLabel(p) {
   const vRaw = String(p?.vertical || '').trim();
   if (vRaw === 'MANP' || vRaw === 'BILL') return 'Manpower';
-  if (vRaw === 'Manpower' || vRaw === 'Training') return vRaw;
+  if (vRaw === 'Manpower' || vRaw === 'Training' || vRaw === 'Fire Tender') return vRaw;
   const oc = String(p?.ocNumber || '').trim();
   if (oc.startsWith('IFSPL-')) {
     const seg = oc.split('-')[1];
     if (seg) {
       if (seg === 'MANP' || seg === 'BILL') return 'Manpower';
-      if (seg === 'Manpower' || seg === 'Training') return seg;
+      if (seg === 'Manpower' || seg === 'Training' || seg === 'Fire Tender' || seg === 'FT') {
+        return mtVerticalFromOcSegment(seg);
+      }
     }
   }
   return vRaw;
@@ -190,6 +481,78 @@ function ymd(d) {
 
 function normalizeContactNumber(value) {
   return String(value || '').replace(/\D/g, '').slice(0, 10);
+}
+
+const CONTACT_PERSONS_HISTORY_EVENT = '__contact_persons__';
+
+function emptyContactPerson() {
+  return { name: '', designation: '', contactNumber: '', email: '' };
+}
+
+function normalizeContactPersonRow(row = {}) {
+  return {
+    name: String(row.name ?? row.currentCoordinator ?? '').trim(),
+    designation: String(row.designation ?? row.contactDesignation ?? '').trim(),
+    contactNumber: normalizeContactNumber(row.contactNumber ?? row.number ?? ''),
+    email: String(row.email ?? row.contactEmail ?? '').trim(),
+  };
+}
+
+function normalizeContactPersonsList(list, fallback = {}) {
+  if (Array.isArray(list) && list.length > 0) {
+    const rows = list.map(normalizeContactPersonRow);
+    return rows.length ? rows : [emptyContactPerson()];
+  }
+  const primary = normalizeContactPersonRow({
+    name: fallback.currentCoordinator,
+    designation: fallback.contactDesignation ?? fallback.designation,
+    contactNumber: fallback.contactNumber,
+    email: fallback.contactEmail ?? fallback.email,
+  });
+  if (primary.name || primary.designation || primary.contactNumber || primary.email) {
+    return [primary];
+  }
+  return [emptyContactPerson()];
+}
+
+function readContactPersonsFromHistory(updateHistory) {
+  const rows = Array.isArray(updateHistory) ? updateHistory : [];
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const entry = rows[i];
+    if (entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT) {
+      if (Array.isArray(entry.contactPersons)) return entry.contactPersons;
+    }
+  }
+  return null;
+}
+
+function withContactPersonsHistorySnapshot(updateHistory, contactPersons) {
+  const cleaned = (Array.isArray(updateHistory) ? updateHistory : []).filter(
+    (entry) => !(entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT)
+  );
+  cleaned.push({
+    event: CONTACT_PERSONS_HISTORY_EVENT,
+    at: new Date().toISOString(),
+    contactPersons: normalizeContactPersonsList(contactPersons),
+  });
+  return cleaned;
+}
+
+function isHiddenPoHistoryEntry(entry) {
+  return (
+    isCommercialModuleMarker(entry) ||
+    (entry && typeof entry === 'object' && entry.event === CONTACT_PERSONS_HISTORY_EVENT)
+  );
+}
+
+function syncPrimaryContactFields(contactPersons) {
+  const primary = normalizeContactPersonRow((contactPersons || [])[0] || emptyContactPerson());
+  return {
+    currentCoordinator: primary.name,
+    contactDesignation: primary.designation,
+    contactNumber: primary.contactNumber,
+    contactEmail: primary.email,
+  };
 }
 
 function makeCycle({ poWoNumber, totalContractValue, startDate, endDate, approvedAt } = {}) {
@@ -484,7 +847,9 @@ function isTruckCumulateMode(raw) {
 
 const initialForm = {
   siteId: '', locationName: '', legalName: '', billingAddress: '', shippingAddress: '', placeOfSupply: '', gstin: '', panNumber: '',
-  currentCoordinator: '', contactNumber: '', ocNumber: '', vertical: 'Manpower', ocSeries: '1',
+  currentCoordinator: '', contactDesignation: '', contactNumber: '', contactEmail: '',
+  contactPersons: [emptyContactPerson()],
+  ocNumber: '', vertical: 'Manpower', ocSeries: '1',
   vendorCodeDigits: '',
   ocFyEdit: null,
   vendorCode: '',
@@ -496,6 +861,15 @@ const initialForm = {
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
   totalContractMonth: '',
   startDate: '', endDate: '', billingType: 'Per Day', remarks: '',
+  dutyPattern: '',
+  customDutyPattern: '',
+  relieverScope: '',
+  monthlyValue: '',
+  monthlyValueManual: false,
+  withFireTender: false,
+  poCopyFiles: [],
+  scopeOfWorkFiles: [],
+  penaltyClauseFiles: [],
   monthlyDutyQtyMode: '',
   lumpSumBillingMode: '',
   lumpSumTruckCumulateFinalInvoiceLines: false,
@@ -518,6 +892,7 @@ const POEntry = () => {
   const [editId, setEditId] = useState(null);
   const [formData, setFormData] = useState(initialForm);
   const [viewHistoryPoId, setViewHistoryPoId] = useState(null);
+  const [viewPoId, setViewPoId] = useState(null);
   const [gstinError, setGstinError] = useState('');
   const [contactError, setContactError] = useState('');
   const [gstTypeError, setGstTypeError] = useState('');
@@ -569,7 +944,20 @@ const POEntry = () => {
   }, [showForm, editId, latestPriorPoForForm]);
 
   const handleApplyClientSnapshot = (snapshot) => {
-    setFormData((prev) => ({ ...prev, ...snapshot }));
+    setFormData((prev) => {
+      const next = { ...prev, ...snapshot };
+      const contactPersons = normalizeContactPersonsList(snapshot.contactPersons, {
+        currentCoordinator: snapshot.currentCoordinator ?? next.currentCoordinator,
+        contactNumber: snapshot.contactNumber ?? next.contactNumber,
+        contactEmail: snapshot.contactEmail ?? next.contactEmail,
+        contactDesignation: snapshot.contactDesignation ?? next.contactDesignation,
+      });
+      return {
+        ...next,
+        contactPersons,
+        ...syncPrimaryContactFields(contactPersons),
+      };
+    });
     setGstinError('');
     setContactError('');
     if (snapshot.gstin && !validateGSTIN(snapshot.gstin)) {
@@ -837,8 +1225,23 @@ const POEntry = () => {
     setFormData({
       siteId: po.siteId || '', locationName: po.locationName || '', legalName: po.legalName || '',
       billingAddress: po.billingAddress || '', shippingAddress: po.shippingAddress || '', placeOfSupply: po.placeOfSupply || '',
-      gstin: po.gstin || '', panNumber: po.panNumber || '', currentCoordinator: po.currentCoordinator || '',
-      contactNumber: po.contactNumber || '', ocNumber: po.ocNumber || '',
+      gstin: po.gstin || '', panNumber: po.panNumber || '',
+      ...(() => {
+        const contactPersons = normalizeContactPersonsList(
+          po.contactPersons || readContactPersonsFromHistory(po.updateHistory),
+          {
+            currentCoordinator: po.currentCoordinator || '',
+            contactNumber: po.contactNumber || '',
+            contactEmail: po.contactEmail || '',
+            contactDesignation: po.contactDesignation || '',
+          }
+        );
+        return {
+          contactPersons,
+          ...syncPrimaryContactFields(contactPersons),
+        };
+      })(),
+      ocNumber: po.ocNumber || '',
       vertical: verticalResolved,
       ocSeries: vendorDigits || (po.ocNumber && po.ocNumber.split('-').pop()) || '1',
       vendorCodeDigits: vendorDigits,
@@ -869,6 +1272,56 @@ const POEntry = () => {
       shipToPincode: normalizePoPincode(po.shipToPincode ?? po.ship_to_pincode),
       billToShipToPinSame: deriveBillToShipToPinSameFromPo(po),
       materialCodeRequired: !!po.materialCodeRequired,
+      ...(() => {
+        const duty = resolveDutyPatternForForm(
+          po.dutyPattern || po.duty_pattern || '',
+          po.customDutyPattern || po.custom_duty_pattern || ''
+        );
+        const startDate = po.startDate || '';
+        const endDate = po.endDate || '';
+        const totalContractValue = po.totalContractValue ?? '';
+        const savedMonthly =
+          po.monthlyValue ?? po.monthly_value ?? null;
+        const calc = computeMonthlyValueFromContract(totalContractValue, startDate, endDate);
+        const hasSavedMonthly = savedMonthly !== '' && savedMonthly != null;
+        return {
+          ...duty,
+          relieverScope: po.relieverScope || po.reliever_scope || '',
+          monthlyValue: hasSavedMonthly ? String(savedMonthly) : (calc === '' ? '' : String(calc)),
+          monthlyValueManual: hasSavedMonthly,
+        };
+      })(),
+      withFireTender: !!(po.withFireTender ?? po.with_fire_tender),
+      poCopyFiles: Array.isArray(po.poCopyFiles || po.po_copy_files)
+        ? (po.poCopyFiles || po.po_copy_files).map((f, i) => ({
+            key: f.key || f.path || `po-copy-${i}-${f.name || ''}`,
+            name: f.name || '',
+            size: f.size || 0,
+            type: f.type || '',
+            path: f.path || null,
+            storage: f.storage || null,
+          }))
+        : [],
+      scopeOfWorkFiles: Array.isArray(po.scopeOfWorkFiles || po.scope_of_work_files)
+        ? (po.scopeOfWorkFiles || po.scope_of_work_files).map((f, i) => ({
+            key: f.key || f.path || `sow-${i}-${f.name || ''}`,
+            name: f.name || '',
+            size: f.size || 0,
+            type: f.type || '',
+            path: f.path || null,
+            storage: f.storage || null,
+          }))
+        : [],
+      penaltyClauseFiles: Array.isArray(po.penaltyClauseFiles || po.penalty_clause_files)
+        ? (po.penaltyClauseFiles || po.penalty_clause_files).map((f, i) => ({
+            key: f.key || f.path || `penalty-${i}-${f.name || ''}`,
+            name: f.name || '',
+            size: f.size || 0,
+            type: f.type || '',
+            path: f.path || null,
+            storage: f.storage || null,
+          }))
+        : [],
       monthlyDutyQtyMode:
         (po.billingType || po.poType) === 'Monthly'
           ? (po.monthlyDutyQtyMode || po.monthly_duty_qty_mode || 'po_geometry')
@@ -914,7 +1367,27 @@ const POEntry = () => {
   };
   const handleDateInputChange = (field, value) => {
     if (!isValidDateInputValue(value)) return;
-    setFormData((prev) => ({ ...prev, [field]: normalizeDateInputValue(value) }));
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        [field]: normalizeDateInputValue(value),
+        monthlyValueManual: false,
+      };
+      const total = editId ? next.newCycleTotalContractValue : next.totalContractValue;
+      const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
+      return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
+    });
+  };
+
+  const handleContractValueChange = (value) => {
+    setFormData((prev) => {
+      const next = editId
+        ? { ...prev, newCycleTotalContractValue: value, monthlyValueManual: false }
+        : { ...prev, totalContractValue: value, monthlyValueManual: false };
+      const total = editId ? next.newCycleTotalContractValue : next.totalContractValue;
+      const calc = computeMonthlyValueFromContract(total, next.startDate, next.endDate);
+      return { ...next, monthlyValue: calc === '' ? '' : String(calc) };
+    });
   };
 
   const sendToApproval = (id) => {
@@ -1076,7 +1549,12 @@ const POEntry = () => {
 
   const savePO = () => {
     if (formData.gstin && !validateGSTIN(formData.gstin)) { setGstinError('Fix GSTIN before saving'); return; }
-    if (formData.contactNumber && normalizeContactNumber(formData.contactNumber).length !== 10) {
+    const contactPersons = normalizeContactPersonsList(formData.contactPersons, formData);
+    const primaryContact = syncPrimaryContactFields(contactPersons);
+    const invalidContactNumber = contactPersons.find(
+      (row) => row.contactNumber && normalizeContactNumber(row.contactNumber).length !== 10
+    );
+    if (invalidContactNumber) {
       setContactError('Contact Number must be exactly 10 digits.');
       return;
     }
@@ -1238,11 +1716,20 @@ const POEntry = () => {
       prevLog: contactHistorySourcePo?.contactHistoryLog || [],
       prevCoordinator: contactHistorySourcePo?.currentCoordinator || '',
       prevContactNumber: contactHistorySourcePo?.contactNumber || '',
-      currentCoordinator: formData.currentCoordinator.trim(),
-      contactNumber: formData.contactNumber.trim(),
+      currentCoordinator: primaryContact.currentCoordinator,
+      contactNumber: primaryContact.contactNumber,
       startDate: formData.startDate || nowIso.slice(0, 10),
       asOfDate: nowIso.slice(0, 10),
-    });
+    }).map((row, idx, arr) =>
+      idx === arr.length - 1 && !row.to
+        ? {
+            ...row,
+            email: primaryContact.contactEmail || row.email || '',
+            designation: primaryContact.contactDesignation || row.designation || '',
+          }
+        : row
+    );
+    const historyWithContacts = withContactPersonsHistorySnapshot(historyPrev, contactPersons);
     const po = {
       id: newId, siteId: formData.siteId.trim() || `SITE-${String(newId).slice(0, 8)}`,
       locationName: formData.locationName.trim() || formData.legalName, legalName: formData.legalName.trim(),
@@ -1251,7 +1738,11 @@ const POEntry = () => {
       placeOfSupply: formData.placeOfSupply.trim(),
       gstin: formData.gstin.trim().toUpperCase(),
       panNumber: (formData.panNumber || '').trim().toUpperCase(),
-      currentCoordinator: formData.currentCoordinator.trim(), contactNumber: formData.contactNumber.trim(),
+      currentCoordinator: primaryContact.currentCoordinator,
+      contactDesignation: primaryContact.contactDesignation,
+      contactNumber: primaryContact.contactNumber,
+      contactEmail: primaryContact.contactEmail,
+      contactPersons,
       vendorCode: isWithoutPo
         ? (formData.vendorCode || '').trim()
         : paddedVendorForSave || parseStructuredOcMt(ocNum)?.vendorPadded || '',
@@ -1291,6 +1782,20 @@ const POEntry = () => {
       paymentTermMode: mtPayment.paymentTermMode,
       paymentTermDays: mtPayment.paymentTermDays,
       advancePercent: null,
+      dutyPattern: String(formData.dutyPattern || '').trim() || null,
+      customDutyPattern:
+        formData.dutyPattern === DUTY_PATTERN_CUSTOM
+          ? String(formData.customDutyPattern || '').trim() || null
+          : null,
+      relieverScope: String(formData.relieverScope || '').trim() || null,
+      monthlyValue:
+        formData.monthlyValue === '' || formData.monthlyValue == null
+          ? null
+          : Number(formData.monthlyValue),
+      withFireTender: !!formData.withFireTender,
+      poCopyFiles: fileMetaForPersist(formData.poCopyFiles),
+      scopeOfWorkFiles: fileMetaForPersist(formData.scopeOfWorkFiles),
+      penaltyClauseFiles: fileMetaForPersist(formData.penaltyClauseFiles),
       monthlyDutyQtyMode: null,
       lumpSumBillingMode: null,
       invoiceTermsText: formData.invoiceTermsText.trim(),
@@ -1301,7 +1806,7 @@ const POEntry = () => {
       revisedPO: formData.revisedPO, renewalPending: formData.renewalPending,
       status: formData.endDate && new Date(formData.endDate) < new Date() ? 'expired' : 'active',
       ...approvalFields,
-      updateHistory: editId ? historyPrev : [],
+      updateHistory: editId ? historyWithContacts : withContactPersonsHistorySnapshot([], contactPersons),
       created_at: prevPo?.created_at || prevPo?.createdAt || nowIso,
       createdAt: prevPo?.createdAt || prevPo?.created_at || nowIso,
       updated_at: nowIso,
@@ -1357,6 +1862,7 @@ const POEntry = () => {
 
   const deletePO = (id) => { if (window.confirm('Delete this PO? Billing may be affected.')) setCommercialPOs((prev) => prev.filter((p) => p.id !== id)); };
   const poForHistory = viewHistoryPoId ? commercialPOs.find((p) => p.id === viewHistoryPoId) : null;
+  const poForView = viewPoId ? commercialPOs.find((p) => p.id === viewPoId) : null;
   const poContactHistoryRows = useMemo(
     () => (poForHistory ? contactHistoryRowsForDisplay(poForHistory) : []),
     [poForHistory]
@@ -1739,6 +2245,14 @@ const POEntry = () => {
                                 </button>
                               </>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => setViewPoId(po.id)}
+                              className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                              title="View PO/WO"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
                             <button type="button" onClick={() => setViewHistoryPoId(po.id)} className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100" title="View History"><History className="w-4 h-4" /></button>
                             <button type="button" onClick={() => handleOpenEdit(po)} className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100" title="Edit"><Pencil className="w-4 h-4" /></button>
                             <button type="button" onClick={() => deletePO(po.id)} className="inline-flex items-center justify-center w-6.5 h-6.5 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100" title="Delete"><Trash2 className="w-4 h-4" /></button>
@@ -1914,40 +2428,152 @@ const POEntry = () => {
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
-                <div className="mb-4">
-                  <h4 className="text-sm font-semibold text-gray-900">2. Contact (POC)</h4>
-                  <p className="text-xs text-gray-500 mt-1">
-                    When you pick a saved client under <strong>Legal Name</strong>, coordinator and contact number here are filled from that PO (edit if needed).
-                  </p>
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900">2. Contact (POC)</h4>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Add one or more contact persons. When you pick a saved client under <strong>Legal Name</strong>,
+                      the first contact is filled from that PO (edit if needed).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        contactPersons: [...(prev.contactPersons || []), emptyContactPerson()],
+                      }))
+                    }
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-medium hover:bg-blue-100"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add contact person
+                  </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-poc-coordinator">
-                      Current Coordinator
-                    </label>
-                    <input
-                      id="sales-po-poc-coordinator"
-                      type="text"
-                      value={formData.currentCoordinator}
-                      onChange={(e) => setFormData((p) => ({ ...p, currentCoordinator: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
-                    <input
-                      type="text"
-                      value={formData.contactNumber}
-                      onChange={(e) => {
-                        const next = normalizeContactNumber(e.target.value);
-                        setFormData((p) => ({ ...p, contactNumber: next }));
-                        setContactError('');
-                      }}
-                      maxLength={10}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                    />
-                    {contactError ? <p className="text-red-600 text-xs mt-1">{contactError}</p> : null}
-                  </div>
+                <div className="space-y-4">
+                  {(formData.contactPersons?.length ? formData.contactPersons : [emptyContactPerson()]).map((row, index) => (
+                    <div
+                      key={`contact-person-${index}`}
+                      className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 sm:p-4"
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold text-gray-700">
+                          Contact person {index + 1}
+                          {index === 0 ? <span className="ml-1 font-normal text-gray-500">(primary)</span> : null}
+                        </p>
+                        {(formData.contactPersons || []).length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData((prev) => {
+                                const nextPersons = (prev.contactPersons || []).filter((_, i) => i !== index);
+                                const normalized = normalizeContactPersonsList(nextPersons);
+                                return {
+                                  ...prev,
+                                  contactPersons: normalized,
+                                  ...syncPrimaryContactFields(normalized),
+                                };
+                              })
+                            }
+                            className="text-xs text-red-600 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            {index === 0 ? 'Current Coordinator' : 'Contact Name'}
+                          </label>
+                          <input
+                            type="text"
+                            value={row.name || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], name: value };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="Name"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Designation</label>
+                          <input
+                            type="text"
+                            value={row.designation || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], designation: value };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="e.g. Site In-charge"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
+                          <input
+                            type="text"
+                            value={row.contactNumber || ''}
+                            onChange={(e) => {
+                              const next = normalizeContactNumber(e.target.value);
+                              setContactError('');
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], contactNumber: next };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            maxLength={10}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="10-digit mobile"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Email ID</label>
+                          <input
+                            type="email"
+                            value={row.email || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setFormData((prev) => {
+                                const nextPersons = [...(prev.contactPersons || [emptyContactPerson()])];
+                                nextPersons[index] = { ...nextPersons[index], email: value };
+                                return {
+                                  ...prev,
+                                  contactPersons: nextPersons,
+                                  ...syncPrimaryContactFields(nextPersons),
+                                };
+                              });
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                            placeholder="e.g. poc@company.com"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {contactError ? <p className="text-red-600 text-xs">{contactError}</p> : null}
                 </div>
               </section>
               <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
@@ -1978,7 +2604,7 @@ const POEntry = () => {
                               });
                             }}
                             className="border border-gray-300 rounded-lg px-3 py-2 shrink-0"
-                            aria-label="OC line (Manpower or Training)"
+                            aria-label="OC line (Manpower, Training, or Fire Tender)"
                           >
                             {VERTICALS.map((v) => (
                               <option key={v} value={v}>
@@ -2028,7 +2654,7 @@ const POEntry = () => {
                               }));
                             }}
                             className="border border-gray-300 rounded-lg px-3 py-2 shrink-0 bg-white text-sm min-w-[9rem]"
-                            aria-label="Manpower or Training"
+                            aria-label="Manpower, Training, or Fire Tender"
                           >
                             {VERTICALS.map((line) => (
                               <option key={line} value={line}>
@@ -2161,13 +2787,7 @@ const POEntry = () => {
                     <input
                       type="number"
                       value={editId ? formData.newCycleTotalContractValue : formData.totalContractValue}
-                      onChange={(e) =>
-                        setFormData((p) =>
-                          editId
-                            ? { ...p, newCycleTotalContractValue: e.target.value }
-                            : { ...p, totalContractValue: e.target.value }
-                        )
-                      }
+                      onChange={(e) => handleContractValueChange(e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
                       min="0"
                       placeholder="Enter total contract value"
@@ -2182,6 +2802,30 @@ const POEntry = () => {
                         Adding a renewal cycle is allowed only after the contract end date; use these fields for the initial PO when creating a new record.
                       </p>
                     ) : null}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-monthly-value">
+                      Monthly value (₹)
+                    </label>
+                    <input
+                      id="sales-po-monthly-value"
+                      type="number"
+                      value={formData.monthlyValue}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          monthlyValue: e.target.value,
+                          monthlyValueManual: true,
+                        }))
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
+                      min="0"
+                      step="0.01"
+                      placeholder="Total ÷ (years × 12)"
+                    />
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Auto-calculated as total contract value ÷ (contract duration in years × 12). Editable if needed.
+                    </p>
                   </div>
                   {isLumpSumMode ? (
                     <>
@@ -2400,6 +3044,60 @@ const POEntry = () => {
                     </div>
                   ) : null}
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-duty-pattern">
+                      Duty pattern
+                    </label>
+                    <select
+                      id="sales-po-duty-pattern"
+                      value={formData.dutyPattern}
+                      onChange={(e) =>
+                        setFormData((p) => ({
+                          ...p,
+                          dutyPattern: e.target.value,
+                          customDutyPattern:
+                            e.target.value === DUTY_PATTERN_CUSTOM ? p.customDutyPattern : '',
+                        }))
+                      }
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      <option value="">Select duty pattern</option>
+                      {DUTY_PATTERN_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {formData.dutyPattern === DUTY_PATTERN_CUSTOM ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-duty-pattern-custom">
+                        Custom duty pattern
+                      </label>
+                      <input
+                        id="sales-po-duty-pattern-custom"
+                        type="text"
+                        value={formData.customDutyPattern}
+                        onChange={(e) => setFormData((p) => ({ ...p, customDutyPattern: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        placeholder="Enter custom duty pattern"
+                      />
+                    </div>
+                  ) : null}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="sales-po-reliever-scope">
+                      Reliever scope
+                    </label>
+                    <select
+                      id="sales-po-reliever-scope"
+                      value={formData.relieverScope}
+                      onChange={(e) => setFormData((p) => ({ ...p, relieverScope: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    >
+                      <option value="">Select reliever scope</option>
+                      {RELIEVER_SCOPE_OPTIONS.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Payment terms</label>
                     <select
                       value={formData.paymentTerms}
@@ -2433,11 +3131,58 @@ const POEntry = () => {
                     </div>
                   ) : null}
                   <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Remarks (internal)</label><input type="text" value={formData.remarks} onChange={(e) => setFormData((p) => ({ ...p, remarks: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="Internal only — not printed on tax invoice" /></div>
-                  <div className="md:col-span-2 flex items-center gap-2 pt-5"><input type="checkbox" id="materialCodeRequired" checked={!!formData.materialCodeRequired} onChange={(e) => setFormData((p) => ({ ...p, materialCodeRequired: e.target.checked }))} className="rounded border-gray-300" /><label htmlFor="materialCodeRequired" className="text-sm text-gray-700">Material code required on invoice line items</label></div>
+                  <div className="md:col-span-2 flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="withFireTender"
+                        checked={!!formData.withFireTender}
+                        onChange={(e) => setFormData((p) => ({ ...p, withFireTender: e.target.checked }))}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-sm text-gray-700">With fire tender</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="materialCodeRequired"
+                        checked={!!formData.materialCodeRequired}
+                        onChange={(e) => setFormData((p) => ({ ...p, materialCodeRequired: e.target.checked }))}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-sm text-gray-700">Material code required on invoice line items</span>
+                    </label>
+                  </div>
                   <p className="md:col-span-2 text-xs font-semibold text-gray-700">
                     Select to enable PO updates and Renewal reminders
                   </p>
                   <div className="flex flex-wrap gap-6"><label className="flex items-center gap-2"><input type="checkbox" checked={formData.revisedPO} onChange={(e) => setFormData((p) => ({ ...p, revisedPO: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">PO Updated</span></label><label className="flex items-center gap-2"><input type="checkbox" checked={formData.renewalPending} onChange={(e) => setFormData((p) => ({ ...p, renewalPending: e.target.checked }))} className="rounded border-gray-300" /><span className="text-sm text-gray-700">Renewal Due</span></label></div>
+                </div>
+              </section>
+              <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-gray-900 mb-1">6. Documents</h4>
+                <p className="text-xs text-gray-500 mb-4">
+                  Attach PO copy, scope of work, and penalty clause (multiple files allowed; max 100 MB each).
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <PoDocumentUploadField
+                    id="sales-po-copy-files"
+                    label="PO copy"
+                    files={formData.poCopyFiles}
+                    onChange={(next) => setFormData((p) => ({ ...p, poCopyFiles: next }))}
+                  />
+                  <PoDocumentUploadField
+                    id="sales-po-sow-files"
+                    label="Scope of work"
+                    files={formData.scopeOfWorkFiles}
+                    onChange={(next) => setFormData((p) => ({ ...p, scopeOfWorkFiles: next }))}
+                  />
+                  <PoDocumentUploadField
+                    id="sales-po-penalty-files"
+                    label="Penalty clause"
+                    files={formData.penaltyClauseFiles}
+                    onChange={(next) => setFormData((p) => ({ ...p, penaltyClauseFiles: next }))}
+                  />
                 </div>
               </section>
             </div>
@@ -2450,6 +3195,129 @@ const POEntry = () => {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {editId ? 'Update' : 'Save'} PO/WO
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {viewPoId && poForView && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">View PO/WO</h3>
+                <p className="text-sm text-gray-500 font-mono mt-0.5">{poForView.ocNumber || '–'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewPoId(null)}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 shrink-0"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Client & site</p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                  <PoViewField label="Legal name" value={poForView.legalName} />
+                  <PoViewField label="Site ID" value={poForView.siteId} />
+                  <PoViewField label="Location" value={poForView.locationName} />
+                  <PoViewField label="GSTIN" value={poForView.gstin} className="text-sm font-mono text-gray-900" />
+                  <PoViewField label="Place of supply" value={poForView.placeOfSupply} />
+                  <PoViewField label="Billing address" value={poForView.billingAddress} className="text-sm text-gray-900 sm:col-span-2" />
+                  <PoViewField label="Ship-to address" value={poForView.shippingAddress} className="text-sm text-gray-900 sm:col-span-2" />
+                </dl>
+              </section>
+
+              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">PO / financials</p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                  <PoViewField label="Line" value={poDepartmentLabel(poForView)} />
+                  <PoViewField label="PO / WO number" value={poForView.poWoNumber || poForView.po_wo_number} className="text-sm font-mono text-gray-900" />
+                  <PoViewField label="Vendor code" value={poForView.vendorCode || poForView.vendor_code} />
+                  <PoViewField label="PO date" value={formatDateDdMmYyyy(poForView.poDate || poForView.po_date)} />
+                  <PoViewField label="Total contract value" value={formatPoCurrency(poForView.totalContractValue ?? poForView.total_contract_value)} />
+                  <PoViewField label="Monthly value" value={formatPoCurrency(poForView.monthlyValue ?? poForView.monthly_value)} />
+                  <PoViewField label="Billing type" value={poForView.billingType || poForView.poType || poForView.po_type} />
+                  <PoViewField label="Payment terms" value={poForView.paymentTerms || poForView.payment_terms} />
+                  <PoViewField label="Duty pattern" value={resolvePoDutyPatternLabel(poForView)} />
+                  <PoViewField label="Reliever scope" value={poForView.relieverScope || poForView.reliever_scope} />
+                  <PoViewField
+                    label="With fire tender"
+                    value={(poForView.withFireTender ?? poForView.with_fire_tender) ? 'Yes' : 'No'}
+                  />
+                </dl>
+              </section>
+
+              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Contract period & status</p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                  <PoViewField
+                    label="Service period"
+                    value={`${formatDateDdMmYyyy(poForView.startDate || poForView.start_date) || '—'} to ${formatDateDdMmYyyy(poForView.endDate || poForView.end_date) || '—'}`}
+                  />
+                  <PoViewField label="Contract status" value={poForView.status || '–'} />
+                  <PoViewField label="Approval" value={getApprovalBadge(poForView.approvalStatus, poForView)?.label || poForView.approvalStatus || '–'} />
+                  <PoViewField
+                    label="Billing basis"
+                    value={isPoWithoutPoBilling(poForView) ? 'Without PO' : 'With PO'}
+                  />
+                  <PoViewField label="Remarks" value={poForView.remarks} className="text-sm text-gray-900 sm:col-span-2" />
+                </dl>
+              </section>
+
+              {Array.isArray(poForView.ratePerCategory) && poForView.ratePerCategory.length > 0 ? (
+                <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Rates</p>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border border-gray-200 bg-white text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Description</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Qty</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Rate (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {poForView.ratePerCategory.map((row, i) => (
+                          <tr key={i}>
+                            <td className="px-3 py-2">{row.description || row.designation || '–'}</td>
+                            <td className="px-3 py-2 tabular-nums">{row.qty ?? row.quantity ?? '–'}</td>
+                            <td className="px-3 py-2 tabular-nums">{row.rate != null ? Number(row.rate).toLocaleString('en-IN') : '–'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Documents</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 min-w-0">
+                  <PoViewDocumentList title="PO copy" files={poForView.poCopyFiles || poForView.po_copy_files} />
+                  <PoViewDocumentList title="Scope of work" files={poForView.scopeOfWorkFiles || poForView.scope_of_work_files} />
+                  <PoViewDocumentList title="Penalty clause" files={poForView.penaltyClauseFiles || poForView.penalty_clause_files} />
+                </div>
+              </section>
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setViewPoId(null);
+                  handleOpenEdit(poForView);
+                }}
+                className="px-4 py-2 border border-blue-200 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100"
+              >
+                Edit PO/WO
+              </button>
+              <button type="button" onClick={() => setViewPoId(null)} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                Close
               </button>
             </div>
           </div>
@@ -2479,8 +3347,23 @@ const POEntry = () => {
                   <dd>{poForHistory.currentCoordinator || '–'}</dd>
                 </div>
                 <div>
+                  <dt className="text-xs text-gray-500">Designation</dt>
+                  <dd>
+                    {poForHistory.contactDesignation ||
+                      normalizeContactPersonsList(
+                        poForHistory.contactPersons || readContactPersonsFromHistory(poForHistory.updateHistory),
+                        poForHistory
+                      )[0]?.designation ||
+                      '–'}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-xs text-gray-500">Contact Number</dt>
                   <dd className="font-mono tabular-nums">{poForHistory.contactNumber || '–'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Email ID</dt>
+                  <dd>{poForHistory.contactEmail || '–'}</dd>
                 </div>
               </dl>
             </div>
@@ -2518,20 +3401,48 @@ const POEntry = () => {
 
             <p className="text-sm font-medium text-gray-700 mb-2">PO update log</p>
             <ul className="text-sm text-gray-600 list-disc pl-5 mb-4 space-y-1">
-              {(poForHistory.updateHistory || []).filter((h) => !isCommercialModuleMarker(h)).length === 0 && (
+              {(poForHistory.updateHistory || []).filter((h) => !isHiddenPoHistoryEntry(h)).length === 0 && (
                 <li className="list-none text-gray-400">No PO updates recorded yet.</li>
               )}
-              {(poForHistory.updateHistory || []).filter((h) => !isCommercialModuleMarker(h)).map((h, i) => (
+              {(poForHistory.updateHistory || []).filter((h) => !isHiddenPoHistoryEntry(h)).map((h, i) => (
                 <li key={i}><span className="font-mono text-xs">{h.at ? formatDateTimeDdMmYyyy(h.at) : '–'}</span> — {h.summary || '—'}</li>
               ))}
             </ul>
+            <p className="text-sm font-medium text-gray-700 mb-2">Contact persons</p>
+            <div className="overflow-x-auto mb-4">
+              <table className="min-w-full border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email ID</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {normalizeContactPersonsList(
+                    poForHistory.contactPersons || readContactPersonsFromHistory(poForHistory.updateHistory),
+                    poForHistory
+                  ).map((row, i) => (
+                    <tr key={`poc-${i}`}>
+                      <td className="px-3 py-2 text-sm">{row.name || '–'}</td>
+                      <td className="px-3 py-2 text-sm">{row.designation || '–'}</td>
+                      <td className="px-3 py-2 text-sm font-mono tabular-nums">{row.contactNumber || '–'}</td>
+                      <td className="px-3 py-2 text-sm">{row.email || '–'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <p className="text-sm font-medium text-gray-700 mb-2">Contact history</p>
             <div className="overflow-x-auto">
               <table className="min-w-full border border-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Designation</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Contact Number</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email ID</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">From</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">To</th>
                   </tr>
@@ -2539,7 +3450,7 @@ const POEntry = () => {
                 <tbody className="divide-y divide-gray-200">
                   {poContactHistoryRows.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-3 py-3 text-sm text-gray-400 text-center">
+                      <td colSpan={6} className="px-3 py-3 text-sm text-gray-400 text-center">
                         No contact history recorded yet.
                       </td>
                     </tr>
@@ -2547,7 +3458,9 @@ const POEntry = () => {
                     poContactHistoryRows.map((h, i) => (
                       <tr key={i}>
                         <td className="px-3 py-2 text-sm">{h.name || '–'}</td>
+                        <td className="px-3 py-2 text-sm">{h.designation || '–'}</td>
                         <td className="px-3 py-2 text-sm">{h.number || '–'}</td>
+                        <td className="px-3 py-2 text-sm">{h.email || '–'}</td>
                         <td className="px-3 py-2 text-sm">{formatDateDdMmYyyy(h.from) || '–'}</td>
                         <td className="px-3 py-2 text-sm">{h.to ? formatDateDdMmYyyy(h.to) : 'Current'}</td>
                       </tr>

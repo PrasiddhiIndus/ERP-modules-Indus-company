@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import crypto from 'crypto';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -305,7 +306,8 @@ app.use('/api', apiRateLimit);
 /** R2 object keys for software-subscriptions page; presign-get only signs keys under this prefix. */
 const R2_SOFTWARE_SUB_KEY_PREFIX = 'software-subscriptions/';
 const R2_PRESIGN_GET_EXPIRES_SEC = 600;
-const R2_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** Shared R2 upload limit (Fleet, Software Subscriptions, Commercial PO). Raised for large PO scans. */
+const R2_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 const R2_ALLOWED_EXT = new Set(['pdf', 'jpg', 'jpeg', 'png', 'webp', 'xlsx', 'xls', 'doc', 'docx']);
 const R2_EXT_TO_CONTENT_TYPE = {
@@ -447,6 +449,88 @@ function assertFleetObjectKeyAllowedForUser(objectKey, userId) {
   const owner = parts[2];
   if (owner !== String(userId)) {
     throw new HttpError(403, 'Not allowed to access this object.');
+  }
+}
+
+/** Commercial Manpower PO Entry: R2 keys under commercial-po/{poId}/{folder}/… */
+const R2_COMMERCIAL_PO_KEY_PREFIX = 'commercial-po/';
+const R2_COMMERCIAL_PO_FOLDERS = new Set(['po-copy', 'scope-of-work', 'penalty-clause']);
+/** Short share links remain valid this long; opening them issues a fresh R2 presigned GET. */
+const R2_COMMERCIAL_PO_SHARE_EXPIRES_SEC = 24 * 60 * 60;
+/** In-memory short codes only (no DB). Survives until process restart. */
+const commercialPoShareLinks = new Map();
+
+function requestPublicBaseUrl(req) {
+  const fromEnv = String(process.env.PUBLIC_APP_URL || process.env.VITE_API_BASE_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (fromEnv) return fromEnv;
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.get('host') || '').split(',')[0].trim();
+  return host ? `${proto}://${host}` : '';
+}
+
+function purgeExpiredCommercialPoShareLinks() {
+  const now = Date.now();
+  for (const [code, entry] of commercialPoShareLinks.entries()) {
+    if (!entry || entry.expiresAt <= now) commercialPoShareLinks.delete(code);
+  }
+}
+
+function createCommercialPoShortCode(objectKey, expiresSec = R2_COMMERCIAL_PO_SHARE_EXPIRES_SEC) {
+  assertCommercialPoObjectKeyAllowed(objectKey);
+  purgeExpiredCommercialPoShareLinks();
+  let code = '';
+  for (let i = 0; i < 8; i += 1) {
+    code = crypto.randomBytes(5).toString('base64url').slice(0, 8);
+    if (!commercialPoShareLinks.has(code)) break;
+  }
+  if (!code || commercialPoShareLinks.has(code)) {
+    code = crypto.randomBytes(8).toString('base64url').slice(0, 10);
+  }
+  commercialPoShareLinks.set(code, {
+    objectKey: String(objectKey).trim(),
+    expiresAt: Date.now() + expiresSec * 1000,
+  });
+  return code;
+}
+
+function resolveCommercialPoShortCode(code) {
+  purgeExpiredCommercialPoShareLinks();
+  const raw = String(code || '').trim();
+  if (!/^[A-Za-z0-9_-]{6,16}$/.test(raw)) {
+    throw new HttpError(400, 'Invalid share link.');
+  }
+  const entry = commercialPoShareLinks.get(raw);
+  if (!entry) throw new HttpError(404, 'Share link not found or expired.');
+  if (entry.expiresAt <= Date.now()) {
+    commercialPoShareLinks.delete(raw);
+    throw new HttpError(410, 'Share link expired.');
+  }
+  assertCommercialPoObjectKeyAllowed(entry.objectKey);
+  return entry.objectKey;
+}
+
+function normalizeCommercialPoFolder(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  return R2_COMMERCIAL_PO_FOLDERS.has(s) ? s : '';
+}
+
+function assertCommercialPoObjectKeyAllowed(objectKey) {
+  const key = String(objectKey || '').trim();
+  if (!key.startsWith(R2_COMMERCIAL_PO_KEY_PREFIX) || key.includes('..') || key.includes('//')) {
+    throw new HttpError(400, 'Invalid object key.');
+  }
+  const parts = key.split('/').filter(Boolean);
+  // commercial-po / {poId} / {folder} / {filename}
+  if (parts.length < 4 || parts[0] !== 'commercial-po') {
+    throw new HttpError(400, 'Invalid object key.');
+  }
+  if (!isUuidLike(parts[1])) {
+    throw new HttpError(400, 'Invalid object key (PO id).');
+  }
+  if (!R2_COMMERCIAL_PO_FOLDERS.has(parts[2])) {
+    throw new HttpError(400, 'Invalid object key (folder).');
   }
 }
 
@@ -1574,6 +1658,123 @@ app.post('/api/fleet/r2/presign-get', async (req, res) => {
   } catch (err) {
     const status = Number(err?.status) || 500;
     res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+// Commercial Manpower PO Entry: Cloudflare R2 (same bucket; keys under commercial-po/{poId}/…).
+app.post(
+  '/api/commercial-po/r2/upload',
+  (req, res, next) => {
+    r2InvoiceUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_MAX_ATTACHMENT_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  async (req, res) => {
+    try {
+      await requireSessionForSoftwareSubscriptionsR2(req);
+      const bucket = getR2BucketName();
+
+      const poId = String(req.body?.poId || '').trim();
+      if (!isUuidLike(poId)) {
+        return res.status(400).json({ message: 'poId must be a valid UUID.' });
+      }
+
+      const folder = normalizeCommercialPoFolder(req.body?.folder);
+      if (!folder) {
+        return res.status(400).json({
+          message: `folder must be one of: ${[...R2_COMMERCIAL_PO_FOLDERS].join(', ')}.`,
+        });
+      }
+
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_COMMERCIAL_PO_KEY_PREFIX}${poId}/${folder}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: resolvedType });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
+app.post('/api/commercial-po/r2/presign-get', async (req, res) => {
+  try {
+    await requireSessionForSoftwareSubscriptionsR2(req);
+    const bucket = getR2BucketName();
+
+    const objectKey = String(req.body?.objectKey || '').trim();
+    assertCommercialPoObjectKeyAllowed(objectKey);
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+app.post('/api/commercial-po/r2/share-link', async (req, res) => {
+  try {
+    await requireSessionForSoftwareSubscriptionsR2(req);
+    const objectKey = String(req.body?.objectKey || '').trim();
+    assertCommercialPoObjectKeyAllowed(objectKey);
+    const code = createCommercialPoShortCode(objectKey);
+    const base = requestPublicBaseUrl(req);
+    const path = `/api/commercial-po/f/${code}`;
+    const shareUrl = base ? `${base}${path}` : path;
+    res.json({
+      shareUrl,
+      code,
+      expiresIn: R2_COMMERCIAL_PO_SHARE_EXPIRES_SEC,
+    });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Share link failed.' });
+  }
+});
+
+app.get('/api/commercial-po/f/:code', async (req, res) => {
+  try {
+    const objectKey = resolveCommercialPoShortCode(req.params.code);
+    const bucket = getR2BucketName();
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.redirect(302, getUrl);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).type('text/plain').send(err?.message || 'Link unavailable.');
   }
 });
 

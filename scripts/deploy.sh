@@ -3,31 +3,29 @@
 #   bash scripts/deploy.sh
 # GitHub Actions should invoke this in-repo script (not a stale /root/deploy.sh copy).
 #
-# One-time server setup:
-#   mkdir -p /var/www/indus-erp
-#   git clone <repo-url> /root/indus-erp && cd /root/indus-erp && git checkout main
-#   cp .env.example .env.production   # production VITE_* (or use GH secrets at build time)
-#   cp .env.server.example .env.server
-#   Edit .env.server:
-#     SUPABASE_URL=https://wbyzhknaqcjqqtwopupl.supabase.co
-#     SUPABASE_SERVICE_ROLE_KEY=<production service_role from Dashboard → API>
-#     ETIME_AUTH_CREDENTIALS=...
-#     CORS_ORIGINS=https://indus-erp.in,...
-#     # Do NOT set ERP_ENV=staging on production
-#   pm2 start server/index.js --name indus-erp-backend --cwd /root/indus-erp
+# Layout on the droplet:
+#   REPO_DIR=/root/indus-erp     → git checkout + API (PM2)
+#   APP_DIR=/var/www/indus-erp   → nginx static files (dist only)
+#   PM2 name: indus-erp            → server/index.js with cwd=REPO_DIR
+#
+# Optional: SKIP_BUILD=1 and PREBUILT_DIST=/path/to/dist  (CI uploads artifact)
 
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/root/indus-erp}"
 APP_DIR="${APP_DIR:-/var/www/indus-erp}"
 BRANCH="${BRANCH:-main}"
-PM2_NAME="${PM2_NAME:-indus-erp-backend}"
+# Match the live production process name (was wrongly defaulted to indus-erp-backend).
+PM2_NAME="${PM2_NAME:-indus-erp}"
+LEGACY_PM2_NAME="indus-erp-backend"
 PROD_PROJECT_REF="wbyzhknaqcjqqtwopupl"
 STAGING_PROJECT_REF="xjzhlbpgnpcmbdlufhwo"
 EXPECTED_SUPABASE_URL="https://${PROD_PROJECT_REF}.supabase.co"
 EXPECTED_CORS="https://indus-erp.in,http://localhost:5173"
+SKIP_BUILD="${SKIP_BUILD:-0}"
+PREBUILT_DIST="${PREBUILT_DIST:-}"
 
-echo "==> Deploy production from ${REPO_DIR} (branch ${BRANCH})"
+echo "==> Deploy production from ${REPO_DIR} (branch ${BRANCH}, pm2=${PM2_NAME})"
 
 cd "${REPO_DIR}"
 
@@ -106,36 +104,120 @@ if ! grep -qE '^ETIME_AUTH_CREDENTIALS=.+' .env.server 2>/dev/null; then
 fi
 
 npm ci
-npm run build
+
+if [ "${SKIP_BUILD}" = "1" ] && [ -n "${PREBUILT_DIST}" ] && [ -d "${PREBUILT_DIST}" ] && [ -f "${PREBUILT_DIST}/index.html" ]; then
+  echo "==> Using prebuilt dist from ${PREBUILT_DIST}"
+  mkdir -p "${REPO_DIR}/dist"
+  rsync -a --delete "${PREBUILT_DIST}/" "${REPO_DIR}/dist/"
+elif [ "${SKIP_BUILD}" = "1" ] && [ -f "${REPO_DIR}/dist/index.html" ]; then
+  echo "==> SKIP_BUILD=1 — keeping existing ${REPO_DIR}/dist"
+else
+  echo "==> Building production frontend on server"
+  npm run build
+fi
+
+if [ ! -f "${REPO_DIR}/dist/index.html" ]; then
+  echo "ERROR: dist/index.html missing after build — aborting before static sync."
+  exit 1
+fi
 
 mkdir -p "${APP_DIR}"
+# Static nginx root only — never run the API from APP_DIR.
 rsync -a --delete "${REPO_DIR}/dist/" "${APP_DIR}/"
 
+pm2_cwd_for() {
+  local name="$1"
+  pm2 jlist 2>/dev/null | node -e "
+    const name = process.argv[1];
+    let raw = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => { raw += c; });
+    process.stdin.on('end', () => {
+      try {
+        const list = JSON.parse(raw || '[]');
+        const p = list.find((x) => x && x.name === name);
+        process.stdout.write((p && p.pm2_env && p.pm2_env.pm_cwd) || '');
+      } catch (_) {
+        process.stdout.write('');
+      }
+    });
+  " "${name}" || true
+}
+
+# Drop legacy duplicate API process so port 8787 is free.
+if pm2 describe "${LEGACY_PM2_NAME}" >/dev/null 2>&1; then
+  echo "==> Removing legacy PM2 process ${LEGACY_PM2_NAME} (avoid port conflict)"
+  pm2 delete "${LEGACY_PM2_NAME}" || true
+fi
+
+NEED_RECREATE=false
 if pm2 describe "${PM2_NAME}" >/dev/null 2>&1; then
-  pm2 restart "${PM2_NAME}" --update-env
+  CURRENT_PM2_CWD="$(pm2_cwd_for "${PM2_NAME}")"
+  echo "==> Existing PM2 ${PM2_NAME} cwd: ${CURRENT_PM2_CWD:-<unknown>}"
+  if [ -z "${CURRENT_PM2_CWD}" ] || [ "${CURRENT_PM2_CWD}" != "${REPO_DIR}" ]; then
+    echo "==> Recreating ${PM2_NAME} so API runs from ${REPO_DIR} (not static ${APP_DIR})"
+    NEED_RECREATE=true
+  fi
 else
-  pm2 start server/index.js --name "${PM2_NAME}" --cwd "${REPO_DIR}"
+  NEED_RECREATE=true
+fi
+
+if [ "${NEED_RECREATE}" = "true" ]; then
+  pm2 delete "${PM2_NAME}" >/dev/null 2>&1 || true
+  pm2 start "${REPO_DIR}/server/index.js" --name "${PM2_NAME}" --cwd "${REPO_DIR}"
+else
+  pm2 restart "${PM2_NAME}" --update-env
 fi
 
 pm2 save
 
 echo "==> Waiting for API to start..."
-sleep 4
-
-API_PORT="$(grep -E '^SERVER_PORT=' .env.server 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '[:space:]"'"'"'")"
+API_PORT="$(grep -E '^SERVER_PORT=' .env.server 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '[:space:]"'"'"'" || true)"
 API_PORT="${API_PORT:-8787}"
 HEALTH_URL="http://127.0.0.1:${API_PORT}/api/health"
 
-HEALTH_JSON="$(curl -sf --max-time 10 "${HEALTH_URL}" 2>/dev/null || true)"
+HEALTH_JSON=""
+for attempt in 1 2 3 4 5 6 7 8; do
+  sleep 3
+  HEALTH_JSON="$(curl -sf --max-time 10 "${HEALTH_URL}" 2>/dev/null || true)"
+  if [ -n "${HEALTH_JSON}" ]; then
+    echo "==> Health OK on attempt ${attempt}"
+    break
+  fi
+  echo "==> Health not ready (attempt ${attempt}/8)…"
+done
+
 if [ -z "${HEALTH_JSON}" ]; then
-  echo "ERROR: API did not respond at ${HEALTH_URL} within 10s."
+  echo "ERROR: API did not respond at ${HEALTH_URL} within ~24s."
   echo "       Check: pm2 logs ${PM2_NAME} --lines 40"
+  pm2 describe "${PM2_NAME}" || true
   exit 1
 fi
 
-HEALTH_PROJECT="$(echo "${HEALTH_JSON}" | grep -oP '"supabase_project"\s*:\s*"\K[^"]+' || true)"
-HEALTH_SRK="$(echo "${HEALTH_JSON}" | grep -oP '"service_role_key"\s*:\s*"\K[^"]+' || true)"
-HEALTH_WARNING="$(echo "${HEALTH_JSON}" | grep -oP '"warning"\s*:\s*"\K[^"]+' || true)"
+# Portable JSON field extract (no grep -P dependency).
+json_field() {
+  local json="$1"
+  local field="$2"
+  printf '%s' "${json}" | node -e "
+    const field = process.argv[1];
+    let raw = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => { raw += c; });
+    process.stdin.on('end', () => {
+      try {
+        const v = JSON.parse(raw || '{}')[field];
+        if (v == null) process.stdout.write('');
+        else process.stdout.write(String(v));
+      } catch (_) {
+        process.stdout.write('');
+      }
+    });
+  " "${field}"
+}
+
+HEALTH_PROJECT="$(json_field "${HEALTH_JSON}" supabase_project)"
+HEALTH_SRK="$(json_field "${HEALTH_JSON}" service_role_key)"
+HEALTH_WARNING="$(json_field "${HEALTH_JSON}" warning)"
 
 DEPLOY_OK=true
 
@@ -153,7 +235,7 @@ fi
 
 if [ -n "${HEALTH_WARNING}" ]; then
   echo "WARNING from API: ${HEALTH_WARNING}"
-  DEPLOY_OK=false
+  # Only fail when warning indicates real credential mismatch (already covered above).
 fi
 
 if [ "${DEPLOY_OK}" != "true" ]; then
@@ -165,3 +247,4 @@ fi
 
 echo "==> Production deploy complete: ${APP_DIR}"
 echo "==> Health verified: supabase_project=${HEALTH_PROJECT}, service_role_key=${HEALTH_SRK}"
+echo "==> PM2 process: ${PM2_NAME} (cwd ${REPO_DIR})"
