@@ -449,6 +449,13 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
             return true;
           }
         });
+        // Field-ACL meta is only for the DB save path — never keep it in React state / localStorage.
+        const stripAcl = (row) => {
+          if (!row || typeof row !== 'object' || !('__poEntryFieldAcl' in row)) return row;
+          const { __poEntryFieldAcl: _acl, ...rest } = row;
+          return rest;
+        };
+        next = (next || []).map(stripAcl);
         Promise.resolve()
           .then(async () => {
             // Persist deletes first so removed rows don't reappear after realtime refresh.

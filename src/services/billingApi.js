@@ -20,6 +20,11 @@ import { normalizeGstSupplyType } from '../utils/invoiceRound';
 import { isGeneratedWithoutPoWoNumber } from '../constants/poBasis';
 import { deriveApprovalActorsFromHistory } from '../utils/commercialPoApproval';
 import { resolvePoHsnSac } from '../utils/billingPoInvoiceFields';
+import {
+  PO_ENTRY_FIELD_ACL_META,
+  applyPoEntryFieldAclToDbPayload,
+  stripPoEntryFieldAclMeta,
+} from '../utils/poEntryFieldPermissions';
 
 const BILLING_SCHEMA = 'billing';
 const MODULE_CONTEXT = {
@@ -913,7 +918,9 @@ export async function saveCommercialPOs(list, options = {}) {
   if (!Array.isArray(list) || list.length === 0) return;
   const forcedModuleContext = options?.moduleContext;
 
-  for (const po of list) {
+  for (const rawPo of list) {
+    const fieldAcl = rawPo?.[PO_ENTRY_FIELD_ACL_META] || null;
+    const po = stripPoEntryFieldAclMeta(rawPo);
     const moduleType = getCommercialPoModuleType(po);
     const poModuleContext = toModuleContext(moduleType);
     const moduleContext =
@@ -923,9 +930,13 @@ export async function saveCommercialPOs(list, options = {}) {
     const updateHistoryStamped = withCommercialModuleMarker(po.updateHistory, moduleType);
     const poIdInput = isUuidString(po.id) ? String(po.id).trim() : undefined;
     let payload = buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped);
+    let existingRow = null;
     if (poIdInput) {
-      const existingRow = await loadExistingPoWoRow(poIdInput);
+      existingRow = await loadExistingPoWoRow(poIdInput);
       payload = preservePoWoRowOnUpdate(payload, existingRow);
+      if (fieldAcl) {
+        payload = applyPoEntryFieldAclToDbPayload(payload, existingRow, fieldAcl);
+      }
     }
 
     const { data: saved, error: poError } = await persistPoWoRow(payload, poIdInput);
@@ -933,20 +944,33 @@ export async function saveCommercialPOs(list, options = {}) {
     const savedPoId = saved?.id ?? po.id;
 
     if (moduleContext === MODULE_CONTEXT.MANPOWER_TRAINING && savedPoId) {
-      try {
-        const [poCopyFiles, scopeOfWorkFiles, penaltyClauseFiles] = await Promise.all([
-          resolveAndUploadPoDocumentFiles(savedPoId, 'po-copy', po.poCopyFiles),
-          resolveAndUploadPoDocumentFiles(savedPoId, 'scope-of-work', po.scopeOfWorkFiles),
-          resolveAndUploadPoDocumentFiles(savedPoId, 'penalty-clause', po.penaltyClauseFiles),
-        ]);
-        await persistPoWoDocumentColumns(savedPoId, {
-          poCopyFiles,
-          scopeOfWorkFiles,
-          penaltyClauseFiles,
-        });
-      } catch (docErr) {
-        console.warn('PO document upload/save:', docErr);
-        throw docErr;
+      const canPoCopy = !fieldAcl || fieldAcl.canUploadPoCopy !== false;
+      const canSow = !fieldAcl || fieldAcl.canUploadScopeOfWork !== false;
+      const canPenalty = !fieldAcl || fieldAcl.canUploadPenaltyClause !== false;
+      if (canPoCopy || canSow || canPenalty) {
+        try {
+          const [poCopyFiles, scopeOfWorkFiles, penaltyClauseFiles] = await Promise.all([
+            canPoCopy
+              ? resolveAndUploadPoDocumentFiles(savedPoId, 'po-copy', po.poCopyFiles)
+              : Promise.resolve(existingRow?.po_copy_files || po.poCopyFiles || []),
+            canSow
+              ? resolveAndUploadPoDocumentFiles(savedPoId, 'scope-of-work', po.scopeOfWorkFiles)
+              : Promise.resolve(existingRow?.scope_of_work_files || po.scopeOfWorkFiles || []),
+            canPenalty
+              ? resolveAndUploadPoDocumentFiles(savedPoId, 'penalty-clause', po.penaltyClauseFiles)
+              : Promise.resolve(existingRow?.penalty_clause_files || po.penaltyClauseFiles || []),
+          ]);
+          await persistPoWoDocumentColumns(savedPoId, {
+            poCopyFiles: canPoCopy ? poCopyFiles : existingRow?.po_copy_files ?? poCopyFiles,
+            scopeOfWorkFiles: canSow ? scopeOfWorkFiles : existingRow?.scope_of_work_files ?? scopeOfWorkFiles,
+            penaltyClauseFiles: canPenalty
+              ? penaltyClauseFiles
+              : existingRow?.penalty_clause_files ?? penaltyClauseFiles,
+          });
+        } catch (docErr) {
+          console.warn('PO document upload/save:', docErr);
+          throw docErr;
+        }
       }
     }
 
@@ -961,7 +985,9 @@ export async function saveCommercialPOs(list, options = {}) {
       sort_order: i,
     }));
     // Partial PO updates (e.g. approval status) must not wipe categories saved from PO Entry.
-    const shouldReplaceRateCategories = !poIdInput || rateRows.length > 0;
+    // Department field ACL: skip rate replace when caller cannot edit PO/Financials.
+    const aclAllowsRates = !fieldAcl || fieldAcl.canReplaceRateCategories !== false;
+    const shouldReplaceRateCategories = aclAllowsRates && (!poIdInput || rateRows.length > 0);
     if (shouldReplaceRateCategories) {
       await table('po_rate_category').delete().eq('po_id', savedPoId);
     }
@@ -1048,7 +1074,8 @@ export async function saveCommercialPOs(list, options = {}) {
       from_date: c.from,
       to_date: c.to,
     }));
-    const shouldReplaceContactLog = !poIdInput || contactRows.length > 0;
+    const aclAllowsContactLog = !fieldAcl || fieldAcl.canUpdateContactLog !== false;
+    const shouldReplaceContactLog = aclAllowsContactLog && (!poIdInput || contactRows.length > 0);
     if (shouldReplaceContactLog) {
       await table('po_contact_log').delete().eq('po_id', savedPoId);
       if (contactRows.length) {
