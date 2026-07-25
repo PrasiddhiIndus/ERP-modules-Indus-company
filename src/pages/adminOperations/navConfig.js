@@ -48,6 +48,7 @@ export const ADMIN_OPS_NAV = [
   {
     title: "Salary Admin",
     items: [
+      { label: "Dashboard", path: "salary-admin/dashboard" },
       { label: "Salary Master", path: "salary-admin/salary-master" },
       { label: "Salary Processing", path: "salary-admin/salary-processing" },
     ],

@@ -491,6 +491,10 @@ const Layout = () => {
                   </button>
                   {adminSalaryOpen && (
                     <div className="space-y-0.5">
+                      <NavLink to="admin/salary-admin/dashboard" className={subNavClass}>
+                        <LayoutDashboard className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="text-xs">Dashboard</span>
+                      </NavLink>
                       <NavLink to="admin/salary-admin/salary-master" className={subNavClass}>
                         <RupeeIcon className="h-4 w-4 shrink-0 text-emerald-600" />
                         <span className="text-xs">Salary Master</span>
