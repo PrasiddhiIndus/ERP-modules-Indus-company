@@ -55,14 +55,6 @@ jobs:
           VITE_EINVOICE_PROVIDER: backend
           VITE_EINVOICE_API_URL: /api/billing/e-invoice
 
-      - name: Upload dist artifact
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-production
-          path: dist
-          retention-days: 3
-
   deploy-production:
     name: Deploy Production
     needs: build
@@ -72,23 +64,6 @@ jobs:
       name: production
 
     steps:
-      - name: Download production dist
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-production
-          path: dist
-
-      - name: Upload dist to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: 22
-          source: "dist"
-          target: "/tmp/indus-erp-dist-upload"
-          overwrite: true
-
       - name: Deploy to Production Server
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -98,32 +73,60 @@ jobs:
           port: 22
           debug: true
           command_timeout: 30m
-          envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY
-          # Always run the in-repo script after pull so deploy fixes ship with the app.
+          envs: PROD_SUPABASE_URL,PROD_SUPABASE_SERVICE_ROLE_KEY,VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY
           script: |
-            set -euo pipefail
-            REPO_DIR="${REPO_DIR:-/root/indus-erp}"
-            cd "${REPO_DIR}"
-            git fetch origin main
-            git checkout main
-            git pull origin main
-            # Flatten scp upload (appleboy may nest as dist/ under target)
-            PREBUILT="/tmp/indus-erp-dist"
-            rm -rf "${PREBUILT}"
-            mkdir -p "${PREBUILT}"
-            if [ -f /tmp/indus-erp-dist-upload/dist/index.html ]; then
-              cp -a /tmp/indus-erp-dist-upload/dist/. "${PREBUILT}/"
-            elif [ -f /tmp/indus-erp-dist-upload/index.html ]; then
-              cp -a /tmp/indus-erp-dist-upload/. "${PREBUILT}/"
-            else
-              echo "ERROR: uploaded dist not found under /tmp/indus-erp-dist-upload"
-              find /tmp/indus-erp-dist-upload -maxdepth 3 -type f 2>/dev/null | head -50 || true
-              exit 1
+            set -euxo pipefail
+            REPO_DIR=/root/indus-erp
+            # Must match nginx sites-available/indus-erp: root /var/www/indus-erp/dist;
+            APP_DIR=/var/www/indus-erp/dist
+            REPO_URL="https://github.com/PrasiddhiIndus/ERP-modules-Indus-company.git"
+
+            echo "==> host=$(hostname)"
+            ls -la /root | head -40 || true
+
+            # One-time: create git checkout used by deploy (static site stays in APP_DIR)
+            if [ ! -d "${REPO_DIR}/.git" ]; then
+              echo "==> Cloning production repo into ${REPO_DIR}"
+              rm -rf "${REPO_DIR}"
+              git clone --branch main --depth 1 "${REPO_URL}" "${REPO_DIR}"
             fi
-            export SKIP_BUILD=1
-            export PREBUILT_DIST="${PREBUILT}"
+
+            cd "${REPO_DIR}"
+            git remote set-url origin "${REPO_URL}" || true
+            git fetch origin main
+            git checkout -B main origin/main
+            git reset --hard origin/main
+
+            # Keep server secrets if they already exist beside legacy scripts
+            if [ ! -f .env.server ] && [ -f /root/indus-erp-env/.env.server ]; then
+              cp /root/indus-erp-env/.env.server .env.server
+            fi
+            if [ ! -f .env.server ] && [ -f /root/.env.server ]; then
+              cp /root/.env.server .env.server
+            fi
+            if [ ! -f .env.server ] && [ -f .env.server.example ]; then
+              cp .env.server.example .env.server
+            fi
+
+            # Frontend build env (Vite) — prefer CI secrets when present
+            if [ -n "${VITE_SUPABASE_URL:-}" ] && [ -n "${VITE_SUPABASE_ANON_KEY:-}" ]; then
+              printf '%s\n' \
+                "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}" \
+                "VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}" \
+                "VITE_EINVOICE_PROVIDER=backend" \
+                "VITE_EINVOICE_API_URL=/api/billing/e-invoice" \
+                > .env.production
+            fi
+
+            export REPO_DIR APP_DIR
+            export PM2_NAME=indus-erp
             bash scripts/deploy.sh
-            rm -rf /tmp/indus-erp-dist-upload "${PREBUILT}"
+
+            # Keep legacy entrypoint in sync for manual runs
+            cp scripts/deploy.sh /root/deploy.sh
+            chmod +x /root/deploy.sh
         env:
           PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
           PROD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}

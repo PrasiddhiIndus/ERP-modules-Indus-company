@@ -18,13 +18,12 @@ import {
   fetchLeaveUsageFromDailyRegister,
   fetchPlEncashPrefs,
   getLeaveCarryForwardRules,
-  processLeaveBalancesYear,
-  syncYearlyLeaveBalancesFromRegister,
+  syncLiveLeaveUsageFromRegister,
+  subscribeLeaveUsageRealtime,
   upsertLeaveBalanceYearly,
   upsertLeaveCarryForwardRules,
   upsertPlEncashPrefs,
 } from "../../../lib/leaveManagement";
-import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 
 const YEAR_DEFAULT = new Date().getFullYear();
@@ -231,7 +230,6 @@ export function EmployeeLeaveManagementPage() {
   const [plEncashPrefs, setPlEncashPrefs] = useState({});
   const [balances, setBalances] = useState([]);
   const [registerUsageByCode, setRegisterUsageByCode] = useState({});
-  const [processingStatus, setProcessingStatus] = useState("");
 
   const [search, setSearch] = useState("");
   const [encashPage, setEncashPage] = useState(1);
@@ -249,10 +247,18 @@ export function EmployeeLeaveManagementPage() {
   const [importMessage, setImportMessage] = useState("");
   const [realtimeLive, setRealtimeLive] = useState(false);
 
-  const reloadBalances = useCallback(async () => {
+  const loadBalances = useCallback(async ({ syncUsage = false, showLoading = syncUsage } = {}) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       setError("");
+      // Used/unused only — never runs carry-forward / encash year-close logic.
+      if (syncUsage) {
+        try {
+          await syncLiveLeaveUsageFromRegister(supabase, year);
+        } catch (syncErr) {
+          console.warn("Live leave usage sync skipped:", syncErr);
+        }
+      }
       const [rows, usageByCode] = await Promise.all([
         fetchLeaveBalancesForYear(supabase, year),
         fetchLeaveUsageFromDailyRegister(supabase, year),
@@ -262,9 +268,15 @@ export function EmployeeLeaveManagementPage() {
     } catch (e) {
       setError(e?.message || "Failed to load balances");
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [year]);
+
+  // Soft refresh for realtime (no full-year recount — avoids sync ↔ realtime loops).
+  const reloadBalances = useCallback(
+    () => loadBalances({ syncUsage: false, showLoading: false }),
+    [loadBalances]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -297,12 +309,12 @@ export function EmployeeLeaveManagementPage() {
     let cancelled = false;
     (async () => {
       if (cancelled) return;
-      await reloadBalances();
+      await loadBalances({ syncUsage: true });
     })();
     return () => {
       cancelled = true;
     };
-  }, [reloadBalances]);
+  }, [loadBalances]);
 
   useEffect(() => {
     setLedgerEditingId(null);
@@ -312,18 +324,12 @@ export function EmployeeLeaveManagementPage() {
 
   useEffect(() => {
     if (ledgerEditingId) return undefined;
-    let debounce = null;
-    const schedule = () => {
-      if (debounce) window.clearTimeout(debounce);
-      debounce = window.setTimeout(() => reloadBalances(), 400);
-    };
-    const unsubscribe = subscribeLeaveWorkflowRealtime(schedule);
+    const unsubscribe = subscribeLeaveUsageRealtime(() => reloadBalances(), { year });
     setRealtimeLive(isSupabaseRealtimeEnabled());
     return () => {
-      if (debounce) window.clearTimeout(debounce);
       unsubscribe();
     };
-  }, [ledgerEditingId, reloadBalances]);
+  }, [ledgerEditingId, reloadBalances, year]);
 
   const saveRules = useCallback(async () => {
     setLoading(true);
@@ -357,29 +363,6 @@ export function EmployeeLeaveManagementPage() {
       setLoading(false);
     }
   }, [plEncashPrefs]);
-
-  const doProcessYear = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    setProcessingStatus("Processing…");
-    try {
-      await syncYearlyLeaveBalancesFromRegister(supabase, year);
-      await processLeaveBalancesYear(supabase, year);
-      const [rows, usageByCode] = await Promise.all([
-        fetchLeaveBalancesForYear(supabase, year),
-        fetchLeaveUsageFromDailyRegister(supabase, year),
-      ]);
-      setBalances(rows || []);
-      setRegisterUsageByCode(usageByCode || {});
-      setProcessingStatus("Processed successfully");
-    } catch (e) {
-      setError(e?.message || "Failed to process leave balances");
-      setProcessingStatus("");
-    } finally {
-      setLoading(false);
-      setTimeout(() => setProcessingStatus(""), 4000);
-    }
-  }, [year, plEncashPrefs, rules]);
 
   const filteredEmployees = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -418,9 +401,20 @@ export function EmployeeLeaveManagementPage() {
     () =>
       filteredEmployees.map((e) => {
         const code = normalizeAttendanceEmpCode(e.empCode);
+        const stored = balanceByCode[code] || {};
+        const liveUsed = registerUsageByCode[code] || {};
+        // Prefer live register counts for used so marking PL/CL/SL updates the ledger immediately.
         const b = {
-          ...(registerUsageByCode[code] || {}),
-          ...(balanceByCode[code] || {}),
+          ...stored,
+          used_pl: Number(liveUsed.used_pl ?? stored.used_pl ?? 0),
+          used_sl: Number(liveUsed.used_sl ?? stored.used_sl ?? 0),
+          used_cl: Number(liveUsed.used_cl ?? stored.used_cl ?? 0),
+          used_sbel: Number(liveUsed.used_sbel ?? stored.used_sbel ?? 0),
+          used_spla: Number(liveUsed.used_spla ?? stored.used_spla ?? 0),
+          used_splb: Number(liveUsed.used_splb ?? stored.used_splb ?? 0),
+          used_splm: Number(liveUsed.used_splm ?? stored.used_splm ?? 0),
+          used_coff: Number(liveUsed.used_coff ?? stored.used_coff ?? 0),
+          used_paternity: Number(liveUsed.used_paternity ?? stored.used_paternity ?? 0),
         };
         return {
           id: code || e.empCode || e.employeeId || e.employeeName || "unknown-employee",
@@ -764,21 +758,6 @@ export function EmployeeLeaveManagementPage() {
     [balancesRows]
   );
 
-  const yearQualityState = useMemo(() => {
-    if (!balancesRows.length) return "pending";
-    const hasProcessedRow = balancesRows.some((r) => {
-      const hasUsage = Number(r.used_pl || 0) > 0 || Number(r.used_sl || 0) > 0 || Number(r.used_cl || 0) > 0;
-      const hasOutcome =
-        Number(r.carried_pl || 0) > 0 ||
-        Number(r.carried_sl || 0) > 0 ||
-        Number(r.expired_pl || 0) > 0 ||
-        Number(r.expired_sl || 0) > 0 ||
-        Number(r.encashed_pl || 0) > 0;
-      return hasUsage || hasOutcome;
-    });
-    return hasProcessedRow ? "processed" : "loaded";
-  }, [balancesRows]);
-
   return (
     <div className="space-y-4">
       <SectionCard
@@ -786,17 +765,7 @@ export function EmployeeLeaveManagementPage() {
         right={
           <div className="flex items-center gap-2">
             {realtimeLive ? <StatusChip label="Live" severity="info" /> : null}
-            <StatusChip
-              label={
-                yearQualityState === "processed"
-                  ? "Processed data"
-                  : yearQualityState === "loaded"
-                  ? "Loaded data"
-                  : "Awaiting process"
-              }
-              severity={yearQualityState === "processed" ? "high" : "info"}
-            />
-            {processingStatus ? <StatusChip label={processingStatus} severity="warning" /> : null}
+            <StatusChip label="Auto-synced from register" severity="high" />
           </div>
         }
       >
@@ -814,14 +783,6 @@ export function EmployeeLeaveManagementPage() {
             <label className="text-[10px] font-semibold text-gray-500 uppercase">Year</label>
             <TinyInput type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} className="w-[120px]" />
           </div>
-          <button
-            type="button"
-            onClick={doProcessYear}
-            disabled={loading}
-            className="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium disabled:opacity-60"
-          >
-            {loading ? "Processing..." : "Process Yearly Balances"}
-          </button>
           <button
             type="button"
             onClick={() => setYear(YEAR_DEFAULT)}
@@ -905,12 +866,12 @@ export function EmployeeLeaveManagementPage() {
             <SectionCard title="Processing Guide" className="xl:col-span-2" right={null}>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs font-semibold text-slate-800">Recommended sequence</p>
+                  <p className="text-xs font-semibold text-slate-800">How balances update</p>
                   <ol className="mt-2 space-y-1 text-[11px] text-slate-700 list-decimal list-inside">
-                    <li>Set carry-forward caps.</li>
+                    <li>Set carry-forward caps (for year policy).</li>
                     <li>Maintain PL encashment preferences in the dedicated tab.</li>
-                    <li>Run yearly processing for the selected year.</li>
-                    <li>Validate carried/expired balances in ledger tab.</li>
+                    <li>Mark leave (PL/CL/SL, etc.) on the daily attendance register.</li>
+                    <li>Used and Balance tabs update automatically in realtime — no process button.</li>
                   </ol>
                 </div>
                 <div className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-3">
