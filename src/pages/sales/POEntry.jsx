@@ -232,8 +232,57 @@ const CUSTOM_MT_PAYMENT_TERM = 'Other (manual)';
 const PAGE_SIZE = 10;
 
 /**
- * Contract duration in years from Start Date to End Date (anniversary-based).
- * Example: 24/07/2026 → 24/07/2027 = 1 year. Partial spans are fractional.
+ * Add calendar months, clamping to the last day of the target month
+ * (e.g. 31 Jan + 1 month → 28/29 Feb; 29 Feb + 12 months → 28 Feb).
+ */
+function addCalendarMonths(date, months) {
+  const monthIndex = date.getMonth() + months;
+  const lastDay = new Date(date.getFullYear(), monthIndex + 1, 0).getDate();
+  return new Date(date.getFullYear(), monthIndex, Math.min(date.getDate(), lastDay));
+}
+
+/**
+ * Exact calendar-month count from `from` to `to` when `to` is an N-month
+ * anniversary of `from`. Returns null when not an exact anniversary.
+ */
+function exactCalendarMonths(from, to) {
+  const rough =
+    (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+  for (const months of [rough, rough - 1, rough + 1]) {
+    if (months < 0) continue;
+    if (addCalendarMonths(from, months).getTime() === to.getTime()) return months;
+  }
+  return null;
+}
+
+/**
+ * Inclusive [start, end] duration in fractional calendar months, measured to
+ * end-exclusive (end date + 1 day) so month lengths and leap years are respected.
+ */
+function fractionalCalendarMonthsInclusive(start, end) {
+  const endExclusive = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+  let months = 0;
+  while (months < 1200) {
+    const next = addCalendarMonths(start, months + 1);
+    if (next.getTime() === endExclusive.getTime()) return months + 1;
+    if (next > endExclusive) break;
+    months += 1;
+  }
+  const cursor = addCalendarMonths(start, months);
+  const nextAnchor = addCalendarMonths(start, months + 1);
+  const monthMs = nextAnchor.getTime() - cursor.getTime();
+  if (monthMs <= 0) return months > 0 ? months : null;
+  const frac = (endExclusive.getTime() - cursor.getTime()) / monthMs;
+  if (frac < 0) return months > 0 ? months : null;
+  return months + frac;
+}
+
+/**
+ * Contract duration in years from Start Date to End Date (inclusive).
+ * Exact 12-calendar-month spans are 1 year, including both:
+ *   - same-day anniversary (01/04/2026–01/04/2027)
+ *   - day-before anniversary / FY-style (01/04/2026–31/03/2027, 01/01–31/12)
+ * Partial spans use calendar months (not days÷365) so leap years and month lengths are correct.
  */
 function contractDurationYears(startDate, endDate) {
   const sRaw = String(startDate || '').trim();
@@ -243,18 +292,19 @@ function contractDurationYears(startDate, endDate) {
   const e = new Date(`${eRaw}T00:00:00`);
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return null;
 
-  let wholeYears = e.getFullYear() - s.getFullYear();
-  const anniversary = new Date(s.getFullYear() + wholeYears, s.getMonth(), s.getDate());
-  if (anniversary > e) {
-    wholeYears -= 1;
-  }
-  const lastAnniversary = new Date(s.getFullYear() + wholeYears, s.getMonth(), s.getDate());
-  const nextAnniversary = new Date(s.getFullYear() + wholeYears + 1, s.getMonth(), s.getDate());
-  const yearMs = nextAnniversary.getTime() - lastAnniversary.getTime();
-  if (yearMs <= 0) return null;
-  const frac = (e.getTime() - lastAnniversary.getTime()) / yearMs;
-  const years = wholeYears + frac;
-  return years > 0 ? years : null;
+  // Same calendar day N months later (e.g. 01/04/2026 → 01/04/2027 = 12 months).
+  const monthsOnEnd = exactCalendarMonths(s, e);
+  if (monthsOnEnd != null && monthsOnEnd > 0) return monthsOnEnd / 12;
+
+  // Inclusive span ending the day before the anniversary
+  // (e.g. 01/04/2026 → 31/03/2027; end+1 = 01/04/2027 = 12 months).
+  const endExclusive = new Date(e.getFullYear(), e.getMonth(), e.getDate() + 1);
+  const monthsOnExclusive = exactCalendarMonths(s, endExclusive);
+  if (monthsOnExclusive != null && monthsOnExclusive > 0) return monthsOnExclusive / 12;
+
+  const months = fractionalCalendarMonthsInclusive(s, e);
+  if (months == null || months <= 0) return null;
+  return months / 12;
 }
 
 /** Monthly Value = Total Contract Value ÷ (Contract Duration in Years × 12). */
