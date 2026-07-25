@@ -11,6 +11,7 @@ import {
   emptyCtcStructure,
   formatINR,
   getSalaryStructure,
+  hraFromBasic,
   paFromMonthly,
   saveSalaryStructure,
   statutoryHelpText,
@@ -122,7 +123,6 @@ export default function SalaryEmployeeCtc() {
   const [saveMsg, setSaveMsg] = useState("");
 
   const [basic, setBasic] = useState("");
-  const [hra, setHra] = useState("");
   const [special, setSpecial] = useState("");
   const [dob, setDob] = useState("");
   const [doj, setDoj] = useState("");
@@ -149,7 +149,6 @@ export default function SalaryEmployeeCtc() {
 
       const saved = getSalaryStructure(data.id);
       setBasic(saved?.basic_monthly != null ? String(saved.basic_monthly) : "");
-      setHra(saved?.hra_monthly != null ? String(saved.hra_monthly) : "");
       setSpecial(
         saved?.special_allowance_monthly != null ? String(saved.special_allowance_monthly) : ""
       );
@@ -171,16 +170,15 @@ export default function SalaryEmployeeCtc() {
 
   const parsed = useMemo(() => {
     const basicN = basic === "" ? 0 : Number(basic);
-    const hraN = hra === "" ? 0 : Number(hra);
     const specialN = special === "" ? 0 : Number(special);
-    const anyEntered = basic !== "" || hra !== "" || special !== "";
+    const anyEntered = basic !== "" || special !== "";
     if (!anyEntered) return emptyCtcStructure();
     return computeCtcStructure({
       basicMonthly: Number.isFinite(basicN) ? basicN : 0,
-      hraMonthly: Number.isFinite(hraN) ? hraN : 0,
       specialAllowanceMonthly: Number.isFinite(specialN) ? specialN : 0,
+      autoHra: true,
     });
-  }, [basic, hra, special]);
+  }, [basic, special]);
 
   const fy = currentCompensationYear();
   const segment = employee
@@ -191,13 +189,13 @@ export default function SalaryEmployeeCtc() {
     if (!employee) return;
     const structure = computeCtcStructure({
       basicMonthly: basic === "" ? 0 : Number(basic) || 0,
-      hraMonthly: hra === "" ? 0 : Number(hra) || 0,
       specialAllowanceMonthly: special === "" ? 0 : Number(special) || 0,
+      autoHra: true,
     });
     saveSalaryStructure(employee.id, {
       ...structure,
       basic_monthly: basic === "" ? null : Number(basic) || 0,
-      hra_monthly: hra === "" ? null : Number(hra) || 0,
+      hra_monthly: basic === "" ? null : hraFromBasic(Number(basic) || 0),
       special_allowance_monthly: special === "" ? null : Number(special) || 0,
       date_of_birth: dob || null,
       date_of_joining: doj || null,
@@ -322,21 +320,9 @@ export default function SalaryEmployeeCtc() {
               pa={paFromMonthly(basic === "" ? null : Number(basic))}
             />
             <SheetRow
-              label="HRA"
-              monthly={
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={hra}
-                  onChange={(e) => setHra(e.target.value)}
-                  className={amountInput}
-                  placeholder=""
-                  aria-label="HRA monthly"
-                  title="HRA formula pending — enter manually for now"
-                />
-              }
-              pa={paFromMonthly(hra === "" ? null : Number(hra))}
+              label="HRA (40% of Basic)"
+              monthly={<MoneyCell value={parsed.hra_monthly} />}
+              pa={paFromMonthly(parsed.hra_monthly)}
             />
             <SheetRow
               label="Special Allowance"
