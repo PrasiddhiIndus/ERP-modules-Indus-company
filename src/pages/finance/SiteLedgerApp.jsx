@@ -324,10 +324,6 @@ const pct = (n) => (n || 0).toFixed(1) + "%";
 const slug = (s) => (s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "head");
 
 /* ───────────────────────── SITE VERSIONING ───────────────────────── */
-function contractExpired(site, asOfMonth) {
-  if (!site?.contractEnd || !asOfMonth) return false;
-  return monthIdx(asOfMonth) > contractEndIdx(site);
-}
 function isSiteActive(site) {
   return (site?.status || "active") === "active";
 }
@@ -339,7 +335,12 @@ function sitesInGroup(sites, siteGroup) {
     .filter((s) => (s.siteGroup || s.id) === siteGroup)
     .sort((a, b) => (b.version || 1) - (a.version || 1) || monthIdx(b.contractStart || "0000-00") - monthIdx(a.contractStart || "0000-00"));
 }
-function enrichSitesWithVersions(sites, asOfMonth) {
+/**
+ * Attach siteGroup / version metadata only.
+ * Active vs inactive is stored status — never inferred from contract dates.
+ * New sites stay Active until explicitly made inactive (or superseded by a renewal version).
+ */
+function enrichSitesWithVersions(sites) {
   if (!sites.length) return sites;
   const byName = {};
   sites.forEach((s) => {
@@ -363,17 +364,13 @@ function enrichSitesWithVersions(sites, asOfMonth) {
     if (!groups[s.siteGroup]) groups[s.siteGroup] = [];
     groups[s.siteGroup].push(s);
   });
-  const versioned = withMeta.map((s) => {
+  return withMeta.map((s) => {
     const g = groups[s.siteGroup] || [s];
     if (g.length <= 1) return s;
     const sorted = [...g].sort((a, b) => monthIdx(a.contractStart || "0000-00") - monthIdx(b.contractStart || "0000-00"));
     const ver = sorted.findIndex((x) => x.id === s.id) + 1;
     return { ...s, version: s.version > 1 ? s.version : ver };
   });
-  if (!asOfMonth) return versioned;
-  return versioned.map((s) => (
-    isSiteActive(s) && contractExpired(s, asOfMonth) ? { ...s, status: "inactive" } : s
-  ));
 }
 function prepareNewSiteVersion(existingSites, newSite) {
   const group = newSite.siteGroup || slug(newSite.name);
@@ -738,7 +735,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   useEffect(() => { viewRef.current = view; }, [view]);
 
   const libMap = useMemo(() => Object.fromEntries(library.map((h) => [h.key, h])), [library]);
-  const sitesEnriched = useMemo(() => enrichSitesWithVersions(sites, month), [sites, month]);
+  const sitesEnriched = useMemo(() => enrichSitesWithVersions(sites), [sites]);
   const operationalSites = useMemo(
     () => (showHistorical ? sitesEnriched : activeSitesOnly(sitesEnriched)),
     [sitesEnriched, showHistorical],
@@ -841,11 +838,11 @@ export default function SiteLedgerApp({ embedded = true }) {
   useEffect(() => {
     if (!loaded) return;
     setSites((prev) => {
-      const next = enrichSitesWithVersions(prev, month);
+      const next = enrichSitesWithVersions(prev);
       const changed = next.some((s, i) => s.status !== prev[i]?.status || s.version !== prev[i]?.version || s.siteGroup !== prev[i]?.siteGroup);
       return changed ? next : prev;
     });
-  }, [month, loaded]);
+  }, [loaded]);
 
   useEffect(() => {
     return subscribeFinanceRefresh(() => {
@@ -2518,6 +2515,7 @@ function SiteDetail({
   onDelete,
 }) {
   const [expanded, setExpanded] = useState(() => new Set());
+  const [ieMode, setIeMode] = useState("monthly");
   if (!site) return null;
   const keys = periodKeys?.length ? periodKeys : [];
   const refMonth = keys[keys.length - 1] || periodTo || periodFrom;
@@ -2664,6 +2662,10 @@ function SiteDetail({
             className="site-ie-card"
             right={(
               <div className="site-ie-card-tools">
+                <div className="ie-mode">
+                  <button type="button" className={ieMode === "monthly" ? "on" : ""} onClick={() => setIeMode("monthly")}>Month-wise</button>
+                  <button type="button" className={ieMode === "summary" ? "on" : ""} onClick={() => setIeMode("summary")}>Summary</button>
+                </div>
                 <button type="button" className="link" onClick={toggleAll}>{allExpanded ? "Collapse all" : "Expand all"}</button>
                 {estVer ? (
                   <span className="site-ie-budget">
@@ -2677,6 +2679,18 @@ function SiteDetail({
               </div>
             )}
           >
+            {ieMode === "monthly" ? (
+              <MonthlyIeTable
+                site={site}
+                records={records}
+                keys={keys}
+                estVer={estVer}
+                revBreak={revBreak}
+                tree={tree}
+                expanded={expanded}
+                toggle={toggle}
+              />
+            ) : (
             <div className="vtbl-wrap">
             <table className="tbl vtbl">
               <colgroup>
@@ -2743,6 +2757,7 @@ function SiteDetail({
               </tbody>
             </table>
             </div>
+            )}
           </Card>
           <div className="grid-2 site-detail-charts">
             <Card title="Expense Mix · by parent">
@@ -2772,6 +2787,133 @@ function SiteDetail({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/* ───────────────────────── MONTH-WISE INCOME–EXPENDITURE ─────────────────────────
+   One fixed "Estimate / month" column (contract budget), then one actual column per
+   month in the selected period. Months with no data entered show "—".            */
+function MonthlyIeTable({ site, records, keys, estVer, revBreak, tree, expanded, toggle }) {
+  const monthly = keys.map((mk) => {
+    const hasRec = !!records[`${site.id}__${mk}`];
+    const rec = records[`${site.id}__${mk}`] || {};
+    const calc = calcSite(site, mk, records);
+    return { mk, label: periodMonthLabelOf(mk, MONTHS), rec, hasRec, calc };
+  });
+  const showTotal = monthly.length > 1;
+  const colSpanAll = 2 + monthly.length + (showTotal ? 1 : 0);
+  const estM = estTotals(estVer);
+  const hasEst = !!estM;
+  const childEstM = (ck) => Number(estVer?.expenses?.[ck]) || 0;
+  const revVal = (it, m) => (it.key === "esicBill" ? reimbursementTotal(m.rec) : parseEntryAmount(m.rec[it.key]));
+  const overStyle = (actual, estVal) => (hasEst && estVal > 0 && actual > estVal ? { color: "var(--loss)" } : undefined);
+  const totRevenue = monthly.reduce((a, m) => a + m.calc.revenue, 0);
+  const totExpense = monthly.reduce((a, m) => a + m.calc.expense, 0);
+  const totProfit = totRevenue - totExpense;
+  const totMargin = totRevenue > 0 ? (totProfit / totRevenue) * 100 : 0;
+  const gap = <span className="mie-dim">—</span>;
+  return (
+    <div className="vtbl-wrap">
+      <table className="tbl vtbl vtbl-monthly">
+        <thead>
+          <tr>
+            <th className="vtbl-part">Particulars</th>
+            <th className="r">Estimate / mo</th>
+            {monthly.map((m) => <th key={m.mk} className="r">{m.label}</th>)}
+            {showTotal && <th className="r">Total · {monthly.length} mo</th>}
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="vsec"><td colSpan={colSpanAll}><span className="vsec-label">Revenue</span></td></tr>
+          {revBreak.map((it) => (
+            <tr key={it.key}>
+              <td className="vtbl-part">{it.label}</td>
+              <td className="r mono dim vtbl-num">{hasEst ? inr(it.sign * (Number(estVer?.revenue?.[it.key]) || 0)) : "—"}</td>
+              {monthly.map((m) => (
+                <td key={m.mk} className="r mono vtbl-num">{m.hasRec ? inr(it.sign * revVal(it, m)) : gap}</td>
+              ))}
+              {showTotal && <td className="r mono vtbl-num">{inr(it.sign * monthly.reduce((a, m) => a + revVal(it, m), 0))}</td>}
+            </tr>
+          ))}
+          <tr className="vtot green">
+            <td className="vtbl-part">Total Revenue (a)</td>
+            <td className="r mono dim vtbl-num">{hasEst ? inr(estM.revenue) : "—"}</td>
+            {monthly.map((m) => <td key={m.mk} className="r mono vtbl-num">{m.hasRec ? inr(m.calc.revenue) : gap}</td>)}
+            {showTotal && <td className="r mono vtbl-num">{inr(totRevenue)}</td>}
+          </tr>
+          <tr className="vsec"><td colSpan={colSpanAll}><span className="vsec-label">Expenses <span className="vhint">— click a head to expand its components</span></span></td></tr>
+          {tree.map((g) => {
+            const pEst = g.children.reduce((a, ch) => a + childEstM(ch.key), 0);
+            return (
+              <React.Fragment key={g.parent}>
+                <tr className="vparent" onClick={() => toggle(g.parent)}>
+                  <td className="vtbl-part">
+                    <div className="vparent-label">
+                      <span className="pchev">{expanded.has(g.parent) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                      <span className="pdot" style={{ background: g.color }} />
+                      <b className="vparent-name">{g.label}</b>
+                      <span className="pcount">{g.children.length}</span>
+                      {g.amort > 0 && <em className="amort-tag">⏳ {inr(g.amort)} spread</em>}
+                    </div>
+                  </td>
+                  <td className="r mono dim vtbl-num">{hasEst ? inr(pEst) : "—"}</td>
+                  {monthly.map((m) => {
+                    const val = g.children.reduce((a, ch) => a + (m.calc.ex.total[ch.key] || 0), 0);
+                    return <td key={m.mk} className="r mono vtbl-num" style={overStyle(val, pEst)}>{m.hasRec ? inr(val) : gap}</td>;
+                  })}
+                  {showTotal && <td className="r mono vtbl-num">{inr(g.actual)}</td>}
+                </tr>
+                {expanded.has(g.parent) && g.children.filter((ch) => ch.actual !== 0 || ch.est !== 0).map((ch) => (
+                  <tr className="vchild" key={ch.key}>
+                    <td className="vtbl-part vtbl-part-child">
+                      <span className="cbranch" />
+                      <span className="vchild-name">{ch.label}</span>
+                      {ch.amort > 0 && <em className="amort-tag">⏳ {inr(ch.amort)}</em>}
+                    </td>
+                    <td className="r mono dim vtbl-num">{hasEst ? inr(childEstM(ch.key)) : "—"}</td>
+                    {monthly.map((m) => {
+                      const val = m.calc.ex.total[ch.key] || 0;
+                      return <td key={m.mk} className="r mono vtbl-num" style={overStyle(val, childEstM(ch.key))}>{m.hasRec ? inr(val) : gap}</td>;
+                    })}
+                    {showTotal && <td className="r mono vtbl-num">{inr(ch.actual)}</td>}
+                  </tr>
+                ))}
+              </React.Fragment>
+            );
+          })}
+          <tr className="vtot green">
+            <td className="vtbl-part">Sub-total (b)</td>
+            <td className="r mono dim vtbl-num">{hasEst ? inr(estM.expense) : "—"}</td>
+            {monthly.map((m) => <td key={m.mk} className="r mono vtbl-num">{m.hasRec ? inr(m.calc.expense) : gap}</td>)}
+            {showTotal && <td className="r mono vtbl-num">{inr(totExpense)}</td>}
+          </tr>
+          <tr className={"vtot " + (totProfit >= 0 ? "profit" : "loss")}>
+            <td className="vtbl-part">Profit (a − b)</td>
+            <td className="r mono dim vtbl-num">{hasEst ? inr(estM.profit) : "—"}</td>
+            {monthly.map((m) => (
+              <td key={m.mk} className="r mono vtbl-num" style={m.hasRec ? { color: m.calc.profit >= 0 ? "var(--profit)" : "var(--loss)" } : undefined}>
+                {m.hasRec ? inr(m.calc.profit) : gap}
+              </td>
+            ))}
+            {showTotal && <td className="r mono vtbl-num">{inr(totProfit)}</td>}
+          </tr>
+          <tr className="vmargin">
+            <td className="vtbl-part">Margin %</td>
+            <td className="r mono dim vtbl-num">{hasEst ? pct(estM.margin) : "—"}</td>
+            {monthly.map((m) => (
+              <td
+                key={m.mk}
+                className="r mono vtbl-num"
+                style={hasEst && m.hasRec ? { color: m.calc.margin >= estM.margin ? "var(--profit)" : "var(--loss)" } : undefined}
+              >
+                {m.hasRec ? pct(m.calc.margin) : gap}
+              </td>
+            ))}
+            {showTotal && <td className="r mono vtbl-num">{pct(totMargin)}</td>}
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -3002,7 +3144,7 @@ function SiteConfig({ sites, sitesAll, library, parents, activeSite, setActiveSi
   return (
     <>
       <div className="entry-bar">
-        <div className="entry-sel">
+        <div className="entry-sel entry-sel-config-site">
           <label htmlFor="config-site-select">Select site</label>
           <select
             id="config-site-select"
@@ -5097,6 +5239,21 @@ function Styles() {
     .site-ie-card .vtbl tr.vmargin td{font-weight:600;border-top:2px solid var(--line);border-bottom:none;background:#fff;}
     .site-ie-card .amort-tag{display:inline-flex;align-items:center;flex-shrink:1;max-width:100%;margin-top:2px;font-style:normal;font-size:9.5px;color:var(--gold);background:rgba(169,132,43,.1);padding:1px 5px;border-radius:4px;font-family:var(--mono);white-space:normal;line-height:1.3;word-break:break-word;}
     .site-ie-card .vtbl-part-child{display:flex;align-items:flex-start;gap:8px;padding-left:28px!important;min-width:12rem;}
+    /* month-wise IE table */
+    .site-ie-card .vtbl-monthly{table-layout:auto;width:max-content;min-width:100%;}
+    .site-ie-card .vtbl-monthly th.r,.site-ie-card .vtbl-monthly td.vtbl-num{min-width:92px;}
+    .site-ie-card .vtbl-monthly td.vtbl-part,.site-ie-card .vtbl-monthly thead th:first-child{position:sticky;left:0;z-index:2;background:#fff;min-width:220px;max-width:300px;box-shadow:1px 0 0 var(--line);}
+    .site-ie-card .vtbl-monthly thead th:first-child{background:#f8fafc;z-index:3;}
+    .site-ie-card .vtbl-monthly tr.vchild td.vtbl-part{background:#fafbfc;}
+    .site-ie-card .vtbl-monthly tr.vtot td.vtbl-part{background:#f3f4f6;}
+    .site-ie-card .vtbl-monthly tr.vtot.profit td.vtbl-part{background:#e8f1ec;}
+    .site-ie-card .vtbl-monthly tr.vtot.loss td.vtbl-part{background:#f8ece9;}
+    .site-ie-card .vtbl-monthly tr.vmargin td.vtbl-part{background:#fff;}
+    .site-ie-card .vtbl-monthly .vsec-label{position:sticky;left:0;display:inline-block;}
+    .site-ie-card .vtbl-monthly .dim,.site-ie-card .vtbl-monthly .mie-dim{color:var(--muted);}
+    .ie-mode{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;}
+    .ie-mode button{border:none;background:transparent;padding:5px 12px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;font-family:var(--body);}
+    .ie-mode button.on{background:var(--accent-mid);color:#fff;}
     /* site detail view */
     .site-detail{display:flex;flex-direction:column;gap:0;}
     .site-detail .back{align-self:flex-start;margin-bottom:12px;}
@@ -5236,6 +5393,8 @@ function Styles() {
     .entry-bar{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:18px;}
     .entry-sel{display:flex;flex-direction:column;gap:4px;min-width:200px;}
     .entry-sel label{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;}
+    .entry-sel-config-site{flex:0 1 320px;max-width:320px;min-width:200px;}
+    .entry-sel-config-site select{width:100%;max-width:100%;}
     .site-search{position:relative;min-width:220px;max-width:320px;}
     .site-search-box{position:relative;}
     .site-search-box input{width:100%;font-family:var(--body);font-size:14px;font-weight:600;padding:8px 12px 8px 32px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);}
