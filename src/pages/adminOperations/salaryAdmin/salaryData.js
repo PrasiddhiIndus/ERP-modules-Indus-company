@@ -197,3 +197,111 @@ export function statutoryHelpText() {
     `. HRA formula pending — enter HRA if needed. Edit Basic or Special Allowance and press Save to keep values on this device.`
   );
 }
+
+/** Default present-day base for monthly wage proration (matches processing sheet). */
+export const DEFAULT_MONTH_DAYS = 26;
+
+function prorate(amount, presentDays, monthDays = DEFAULT_MONTH_DAYS) {
+  const base = Number(amount) || 0;
+  const days = Number(presentDays);
+  const denom = Number(monthDays) || DEFAULT_MONTH_DAYS;
+  if (!Number.isFinite(days) || denom <= 0) return 0;
+  return round0((base * days) / denom);
+}
+
+/**
+ * Build one Salary Processing row from Salary Master CTC + attendance inputs.
+ * Loan / Canteen / TDS / unpaid adjustments stay editable overrides (default 0).
+ */
+export function computeProcessingRow({
+  structure,
+  presentDays = DEFAULT_MONTH_DAYS,
+  monthDays = DEFAULT_MONTH_DAYS,
+  loan = 0,
+  canteen = 0,
+  unpaidPaid = 0,
+  tds = 0,
+} = {}) {
+  const declared = Boolean(structure?.declared);
+  const basic = declared ? round0(structure.basic_monthly) : 0;
+  const hra = declared ? round0(structure.hra_monthly) : 0;
+  const special = declared ? round0(structure.special_allowance_monthly) : 0;
+  const grossRate = declared
+    ? round0(structure.gross_monthly ?? basic + hra + special)
+    : 0;
+
+  if (!declared || grossRate <= 0) {
+    return {
+      declared: false,
+      salary_rate: null,
+      present_days: presentDays,
+      pf_basic: null,
+      pf_earned_basic: null,
+      basic: null,
+      basic_earned: null,
+      hra: null,
+      special_allowance: null,
+      gross_wages: null,
+      emp_pf: null,
+      emp_esic: null,
+      pt: null,
+      loan: round0(loan),
+      canteen: round0(canteen),
+      unpaid_paid: round0(unpaidPaid),
+      tds: round0(tds),
+      total_ded: null,
+      net_salary: null,
+      bank: null,
+    };
+  }
+
+  const pfBasic = Math.min(basic, PF_WAGE_CAP);
+  const pfEarnedBasic = prorate(pfBasic, presentDays, monthDays);
+  const basicEarned = prorate(basic, presentDays, monthDays);
+  const hraEarned = prorate(hra, presentDays, monthDays);
+  const specialEarned = prorate(special, presentDays, monthDays);
+  const grossWages = basicEarned + hraEarned + specialEarned;
+
+  const empPf = round0(Math.min(pfEarnedBasic, PF_WAGE_CAP) * EMP_PF_RATE);
+  const esicApplicable = grossWages > 0 && grossWages <= ESIC_GROSS_THRESHOLD;
+  const empEsic = esicApplicable ? round0(grossWages * EMP_ESIC_RATE) : 0;
+  const pt = grossWages > PT_GROSS_MIN ? PT_AMOUNT : 0;
+
+  const loanN = round0(loan);
+  const canteenN = round0(canteen);
+  const unpaidN = round0(unpaidPaid);
+  const tdsN = round0(tds);
+  const totalDed = empPf + empEsic + pt + loanN + canteenN + unpaidN + tdsN;
+  const net = grossWages - totalDed;
+
+  return {
+    declared: true,
+    salary_rate: grossRate,
+    present_days: Number(presentDays) || 0,
+    pf_basic: pfBasic,
+    pf_earned_basic: pfEarnedBasic,
+    basic,
+    basic_earned: basicEarned,
+    hra: hraEarned,
+    special_allowance: specialEarned,
+    gross_wages: grossWages,
+    emp_pf: empPf,
+    emp_esic: empEsic,
+    pt,
+    loan: loanN,
+    canteen: canteenN,
+    unpaid_paid: unpaidN,
+    tds: tdsN,
+    total_ded: totalDed,
+    net_salary: net,
+    bank: net,
+  };
+}
+
+export function formatINRPlain(value) {
+  if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
+  return Number(value).toLocaleString("en-IN", {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  });
+}
