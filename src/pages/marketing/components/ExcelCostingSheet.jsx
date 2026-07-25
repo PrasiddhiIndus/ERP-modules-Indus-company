@@ -646,26 +646,17 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
           <h3 className="text-sm font-semibold text-gray-900">Costing Sheet</h3>
           <p className="text-[9px] text-gray-500 mt-0.5">Items as rows, cost heads as columns. <span className="bg-red-50 text-red-900 px-1.5 py-0.5 rounded border border-red-200 font-medium">Tint = Manual entry</span></p>
         </div>
-        {!isViewMode && (
+        {!isViewMode && !hideSaveButton && (
           <div className="flex flex-wrap gap-1">
             <button
-              onClick={addItem}
-              className="flex items-center space-x-1 px-2 py-0.5 bg-red-600 text-white rounded-md hover:bg-red-700 text-[10px] font-medium"
-              title="Add Item Row"
+              type="button"
+              onClick={() => saveCostingSheet()}
+              className="flex items-center space-x-1 px-2 py-0.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-[10px] font-medium"
+              title="Save Costing Sheet"
             >
-              <Plus className="w-3 h-3" />
-              <span className="hidden sm:inline">Add Item</span>
+              <Save className="w-3 h-3" />
+              <span className="hidden sm:inline">Save</span>
             </button>
-            {!hideSaveButton && (
-              <button
-                onClick={() => saveCostingSheet()}
-                className="flex items-center space-x-1 px-2 py-0.5 bg-green-600 text-white rounded-md hover:bg-green-700 text-[10px] font-medium"
-                title="Save Costing Sheet"
-              >
-                <Save className="w-3 h-3" />
-                <span className="hidden sm:inline">Save</span>
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -739,6 +730,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                     <span>{index + 1}</span>
                     {!isViewMode && (
                       <button
+                        type="button"
                         onClick={() => deleteItem(item.id)}
                         className="opacity-0 group-hover:opacity-100 p-0.5 text-red-600 hover:bg-red-100 rounded"
                         title="Delete Row"
@@ -903,6 +895,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                 <td className="px-1 py-1 border-l border-gray-400 bg-white">
                   {!isViewMode && (
                     <button
+                      type="button"
                       onClick={addItem}
                       className="opacity-0 group-hover:opacity-100 p-0.5 text-purple-600 hover:bg-purple-100 rounded"
                       title="Add Row Below"
@@ -918,6 +911,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                 <td className="px-1 py-1 text-center border-r border-gray-400 sticky bg-gray-100 z-10" style={{ left: 0 }}></td>
                 <td className="px-1 py-1 text-center border-r border-gray-400 sticky bg-gray-100 z-10" style={{ left: '36px' }}>
                   <button
+                    type="button"
                     onClick={addItem}
                     className="flex items-center justify-center gap-1 px-2 py-0.5 text-purple-600 hover:bg-purple-100 rounded text-xs font-medium"
                     title="Add Item Row"
