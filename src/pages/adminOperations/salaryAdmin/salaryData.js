@@ -2,15 +2,18 @@
  * Salary Admin — UI-only helpers (no salary DB yet).
  * Employee list comes from Employee Master; CTC inputs persist in localStorage.
  *
- * Statutory rates (from compensation scheme sheet — refine when final formulas arrive):
- * - Employee PF 12% of Basic (wages capped ₹15,000)
- * - Employer PF 13% of Basic (same cap)
+ * CTC / Part A–B rates:
+ * - HRA = 40% of Basic
+ * - Employee PF 12% (Basic capped ₹15,000) · Employer PF 13%
  * - ESIC 0.75% / 3.25% while Gross ≤ ₹21,000
  * - P.Tax ₹200 slab (when Gross > ₹12,000)
- * - Gratuity 4.81% of Basic
- * - Leave encashment 2.25% of Basic
- * - Bonus 8.33% of Gross
- * - HRA: pending formula — kept at 0 until you provide the rate
+ * - Gratuity 4.81% · Leave 2.25% · Bonus 8.33%
+ *
+ * Salary Processing sheet (TotalDays = 26 fixed):
+ * - M PF earned = L/TotalDays*K · O Basic earned = N/TotalDays*K
+ * - P HRA = (N*0.40)/TotalDays*K · Q Special = (J-N-N*0.40)/TotalDays*K
+ * - R = O+P+Q · S = M*0.12 · T = IF(R<=21000,R*0.0075,0)
+ * - Z = SUM(S:Y) · AA = R-Z · AB = ROUND(AA,0)
  */
 
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -26,6 +29,7 @@ export const PT_GROSS_MIN = 12000;
 export const GRATUITY_RATE = 0.0481;
 export const LEAVE_ENCASH_RATE = 0.0225;
 export const BONUS_RATE = 0.0833;
+export const HRA_OF_BASIC_RATE = 0.4;
 
 function round0(n) {
   return Math.round(Number(n) || 0);
@@ -100,18 +104,25 @@ export function saveSalaryStructure(employeeMasterId, payload) {
   return store[id];
 }
 
+/** HRA monthly from Basic (sheet: N * 0.40). */
+export function hraFromBasic(basicMonthly) {
+  return round0(Number(basicMonthly) * HRA_OF_BASIC_RATE);
+}
+
 /**
  * Compute full Part A / Part B / CTC from editable Basic + Special Allowance.
- * HRA stays 0 until the company HRA formula is provided.
+ * HRA = 40% of Basic (sheet formula). Optional hraMonthly overrides only if passed explicitly as non-null and autoHra is false.
  */
 export function computeCtcStructure({
   basicMonthly = 0,
   specialAllowanceMonthly = 0,
-  hraMonthly = 0,
+  hraMonthly = null,
+  autoHra = true,
 } = {}) {
   const basic = round0(basicMonthly);
   const special = round0(specialAllowanceMonthly);
-  const hra = round0(hraMonthly);
+  const hra =
+    autoHra || hraMonthly == null ? hraFromBasic(basic) : round0(hraMonthly);
 
   const hasSalary = basic > 0 || special > 0 || hra > 0;
 
@@ -187,54 +198,76 @@ export function emptyCtcStructure() {
 
 export function statutoryHelpText() {
   return (
-    `Statutory rates applied: Employee PF ${EMP_PF_RATE * 100}% (Basic capped ₹${PF_WAGE_CAP.toLocaleString("en-IN")})` +
+    `HRA ${HRA_OF_BASIC_RATE * 100}% of Basic` +
+    ` · Employee PF ${EMP_PF_RATE * 100}% (Basic capped ₹${PF_WAGE_CAP.toLocaleString("en-IN")})` +
     ` · Employer PF ${ER_PF_RATE * 100}%` +
     ` · ESIC ${(EMP_ESIC_RATE * 100).toFixed(2)}% / ${(ER_ESIC_RATE * 100).toFixed(2)}% (applies while Gross ≤ ₹${ESIC_GROSS_THRESHOLD.toLocaleString("en-IN")})` +
     ` · P.Tax ₹${PT_AMOUNT} slab` +
     ` · Gratuity ${(GRATUITY_RATE * 100).toFixed(2)}% of Basic` +
     ` · Leave Encashment ${(LEAVE_ENCASH_RATE * 100).toFixed(2)}% of Basic` +
     ` · Bonus ${(BONUS_RATE * 100).toFixed(2)}% of Gross` +
-    `. HRA formula pending — enter HRA if needed. Edit Basic or Special Allowance and press Save to keep values on this device.`
+    `. Edit Basic or Special Allowance and press Save to keep values on this device.`
   );
 }
 
-/** Default present-day base for monthly wage proration (matches processing sheet). */
+/** Company paid-days base (not calendar days). */
 export const DEFAULT_MONTH_DAYS = 26;
 
-function prorate(amount, presentDays, monthDays = DEFAULT_MONTH_DAYS) {
+/** Sheet: amount / TotalDays * presentDays */
+function sheetProrate(amount, presentDays, totalDays = DEFAULT_MONTH_DAYS) {
   const base = Number(amount) || 0;
-  const days = Number(presentDays);
-  const denom = Number(monthDays) || DEFAULT_MONTH_DAYS;
-  if (!Number.isFinite(days) || denom <= 0) return 0;
-  return round0((base * days) / denom);
+  const k = Number(presentDays);
+  const td = Number(totalDays) || DEFAULT_MONTH_DAYS;
+  if (!Number.isFinite(k) || td <= 0) return 0;
+  return round0((base / td) * k);
+}
+
+/** Default P.Tax from simple slab (state table can replace later). */
+export function defaultPtForGross(grossWages) {
+  return Number(grossWages) > PT_GROSS_MIN ? PT_AMOUNT : 0;
 }
 
 /**
- * Build one Salary Processing row from Salary Master CTC + attendance inputs.
- * Loan / Canteen / TDS / unpaid adjustments stay editable overrides (default 0).
+ * Salary Processing row — formulas match the company sheet:
+ * M=L/TotalDays*K, O=N/TotalDays*K, P=(N*0.40)/TotalDays*K,
+ * Q=(J-N-N*0.40)/TotalDays*K, R=O+P+Q, S=M*0.12,
+ * T=IF(R<=21000,R*0.0075,0), Z=SUM(S:Y), AA=R-Z, AB=ROUND(AA,0).
  */
 export function computeProcessingRow({
   structure,
   presentDays = DEFAULT_MONTH_DAYS,
-  monthDays = DEFAULT_MONTH_DAYS,
+  totalDays = DEFAULT_MONTH_DAYS,
+  pfBasicOverride = null,
+  ptOverride = null,
   loan = 0,
-  canteen = 0,
+  salAdv = 0,
   unpaidPaid = 0,
   tds = 0,
 } = {}) {
   const declared = Boolean(structure?.declared);
-  const basic = declared ? round0(structure.basic_monthly) : 0;
-  const hra = declared ? round0(structure.hra_monthly) : 0;
-  const special = declared ? round0(structure.special_allowance_monthly) : 0;
-  const grossRate = declared
-    ? round0(structure.gross_monthly ?? basic + hra + special)
+  const basicN = declared ? round0(structure.basic_monthly) : 0;
+  const specialStored = declared ? round0(structure.special_allowance_monthly) : 0;
+  const hraRate = hraFromBasic(basicN);
+  const salaryRateJ = declared
+    ? round0(
+        structure.gross_monthly ??
+          basicN + hraRate + specialStored
+      )
     : 0;
 
-  if (!declared || grossRate <= 0) {
+  const emptyExtras = {
+    loan: round0(loan),
+    sal_adv: round0(salAdv),
+    unpaid_paid: round0(unpaidPaid),
+    tds: round0(tds),
+  };
+
+  if (!declared || (salaryRateJ <= 0 && basicN <= 0)) {
     return {
       declared: false,
       salary_rate: null,
       present_days: presentDays,
+      total_days: totalDays,
       pf_basic: null,
       pf_earned_basic: null,
       basic: null,
@@ -245,57 +278,90 @@ export function computeProcessingRow({
       emp_pf: null,
       emp_esic: null,
       pt: null,
-      loan: round0(loan),
-      canteen: round0(canteen),
-      unpaid_paid: round0(unpaidPaid),
-      tds: round0(tds),
+      ...emptyExtras,
       total_ded: null,
       net_salary: null,
       bank: null,
     };
   }
 
-  const pfBasic = Math.min(basic, PF_WAGE_CAP);
-  const pfEarnedBasic = prorate(pfBasic, presentDays, monthDays);
-  const basicEarned = prorate(basic, presentDays, monthDays);
-  const hraEarned = prorate(hra, presentDays, monthDays);
-  const specialEarned = prorate(special, presentDays, monthDays);
-  const grossWages = basicEarned + hraEarned + specialEarned;
+  const K = Number(presentDays);
+  const TotalDays = Number(totalDays) || DEFAULT_MONTH_DAYS;
 
-  const empPf = round0(Math.min(pfEarnedBasic, PF_WAGE_CAP) * EMP_PF_RATE);
-  const esicApplicable = grossWages > 0 && grossWages <= ESIC_GROSS_THRESHOLD;
-  const empEsic = esicApplicable ? round0(grossWages * EMP_ESIC_RATE) : 0;
-  const pt = grossWages > PT_GROSS_MIN ? PT_AMOUNT : 0;
+  // L — PF Basic (capped), overridable
+  const pfBasicL =
+    pfBasicOverride != null && pfBasicOverride !== ""
+      ? round0(pfBasicOverride)
+      : Math.min(basicN, PF_WAGE_CAP);
 
-  const loanN = round0(loan);
-  const canteenN = round0(canteen);
-  const unpaidN = round0(unpaidPaid);
-  const tdsN = round0(tds);
-  const totalDed = empPf + empEsic + pt + loanN + canteenN + unpaidN + tdsN;
-  const net = grossWages - totalDed;
+  // M = L / TotalDays * K
+  const pfEarnedM = sheetProrate(pfBasicL, K, TotalDays);
+  // O = N / TotalDays * K
+  const basicEarnedO = sheetProrate(basicN, K, TotalDays);
+  // P = (N * 0.40) / TotalDays * K
+  const hraP = sheetProrate(basicN * HRA_OF_BASIC_RATE, K, TotalDays);
+  // Q = (J - N - N*0.40) / TotalDays * K
+  const specialQ = sheetProrate(salaryRateJ - basicN - basicN * HRA_OF_BASIC_RATE, K, TotalDays);
+  // R = O + P + Q
+  const grossWagesR = basicEarnedO + hraP + specialQ;
+  // S = M * 0.12
+  const empPfS = round0(pfEarnedM * EMP_PF_RATE);
+  // T = IF(R <= 21000, R * 0.0075, 0)
+  const empEsicT =
+    grossWagesR > 0 && grossWagesR <= ESIC_GROSS_THRESHOLD
+      ? round0(grossWagesR * EMP_ESIC_RATE)
+      : 0;
+  // U — P.Tax (slab default, overridable input)
+  const ptU =
+    ptOverride != null && ptOverride !== ""
+      ? round0(ptOverride)
+      : defaultPtForGross(grossWagesR);
+
+  const loanV = round0(loan);
+  const salAdvW = round0(salAdv);
+  const unpaidX = round0(unpaidPaid);
+  const tdsY = round0(tds);
+  // Z = SUM(S:Y)
+  const totalDedZ = empPfS + empEsicT + ptU + loanV + salAdvW + unpaidX + tdsY;
+  // AA = R - Z
+  const netAA = grossWagesR - totalDedZ;
+  // AB = ROUND(AA, 0)
+  const bankAB = round0(netAA);
 
   return {
     declared: true,
-    salary_rate: grossRate,
-    present_days: Number(presentDays) || 0,
-    pf_basic: pfBasic,
-    pf_earned_basic: pfEarnedBasic,
-    basic,
-    basic_earned: basicEarned,
-    hra: hraEarned,
-    special_allowance: specialEarned,
-    gross_wages: grossWages,
-    emp_pf: empPf,
-    emp_esic: empEsic,
-    pt,
-    loan: loanN,
-    canteen: canteenN,
-    unpaid_paid: unpaidN,
-    tds: tdsN,
-    total_ded: totalDed,
-    net_salary: net,
-    bank: net,
+    salary_rate: salaryRateJ,
+    present_days: Number.isFinite(K) ? K : 0,
+    total_days: TotalDays,
+    pf_basic: pfBasicL,
+    pf_earned_basic: pfEarnedM,
+    basic: basicN,
+    basic_earned: basicEarnedO,
+    hra: hraP,
+    special_allowance: specialQ,
+    gross_wages: grossWagesR,
+    emp_pf: empPfS,
+    emp_esic: empEsicT,
+    pt: ptU,
+    loan: loanV,
+    sal_adv: salAdvW,
+    unpaid_paid: unpaidX,
+    tds: tdsY,
+    total_ded: totalDedZ,
+    net_salary: netAA,
+    bank: bankAB,
   };
+}
+
+export function processingHelpText() {
+  return (
+    `TotalDays = ${DEFAULT_MONTH_DAYS} (company paid days). ` +
+    `PF earned = PF Basic / TotalDays × P.Days · Basic earned = Basic / TotalDays × P.Days · ` +
+    `HRA = (Basic × 40%) / TotalDays × P.Days · Special = (Gross − Basic − Basic×40%) / TotalDays × P.Days · ` +
+    `Gross wages = Basic earned + HRA + Special · PF = PF earned × 12% · ` +
+    `ESIC = Gross×0.75% if Gross ≤ ₹21,000 · Total ded. = PF+ESIC+P.Tax+Loan+Sal Adv+Unpaid/Paid+TDS · ` +
+    `Net = Gross − Total ded. · Bank = ROUND(Net, 0).`
+  );
 }
 
 export function formatINRPlain(value) {
