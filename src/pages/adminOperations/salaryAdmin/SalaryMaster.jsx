@@ -1,31 +1,43 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
+import { fetchSalaryStructureMap, formatINR } from "./salaryData";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
 const thBase =
-  "px-3 py-2.5 text-[10px] font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap border-b border-gray-200 align-middle bg-gray-50";
-const th = `${thBase} text-left`;
+  "px-3.5 py-3 text-[10px] font-semibold text-gray-500 uppercase tracking-[0.08em] whitespace-nowrap border-b border-gray-200 align-middle bg-gray-50";
+const thLeft = `${thBase} text-left`;
 const thCenter = `${thBase} text-center`;
-const tdBase = "px-3 py-2.5 text-xs text-gray-900 align-middle bg-white";
-const td = `${tdBase} whitespace-nowrap max-w-[220px] truncate`;
+const thRight = `${thBase} text-right`;
+
+const tdBase = "px-3.5 py-3 text-sm text-gray-900 align-middle";
 const tdCenter = `${tdBase} text-center tabular-nums whitespace-nowrap`;
+const tdRight = `${tdBase} text-right tabular-nums whitespace-nowrap`;
+const tdName = `${tdBase} text-left font-medium whitespace-nowrap max-w-[220px] truncate`;
+const tdText = `${tdBase} text-left whitespace-nowrap max-w-[180px] truncate`;
 
 /**
- * Salary Master — employee list from Employee Master (read-only table for now).
- * Layout mirrors Employee Master: sticky opaque header, scroll body, pagination.
- * Admin module only (`admin` access).
+ * Salary Master — employees from Employee Master (admin).
+ * Click a row to open compensation profile. CTC drafts are UI-only (local device).
  */
 export default function SalaryMaster() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [employees, setEmployees] = useState([]);
+  const [salaryByEmployee, setSalaryByEmployee] = useState(() => fetchSalaryStructureMap());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  const refreshSalaryMap = useCallback(() => {
+    setSalaryByEmployee(fetchSalaryStructureMap());
+  }, []);
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -42,11 +54,14 @@ export default function SalaryMaster() {
 
       const { data, error: fetchError } = await supabase
         .from(EMPLOYEE_MASTER_TABLE)
-        .select("id, employee_id, employment_type, employee_code, full_name, designation")
+        .select(
+          "id, employee_id, employment_type, employee_code, full_name, designation, department"
+        )
         .order("employee_id", { ascending: true });
 
       if (fetchError) throw fetchError;
       setEmployees(data || []);
+      refreshSalaryMap();
     } catch (err) {
       console.error("Salary Master: failed to load employees", err);
       setError("Could not load employee list. Please try again.");
@@ -54,11 +69,21 @@ export default function SalaryMaster() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshSalaryMap]);
 
   useEffect(() => {
     fetchEmployees();
   }, [fetchEmployees]);
+
+  useEffect(() => {
+    refreshSalaryMap();
+  }, [location.pathname, refreshSalaryMap]);
+
+  useEffect(() => {
+    const onFocus = () => refreshSalaryMap();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshSalaryMap]);
 
   const filteredEmployees = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -72,6 +97,7 @@ export default function SalaryMaster() {
         String(row.employee_id || "").toLowerCase().includes(q) ||
         String(row.employee_code || "").toLowerCase().includes(q) ||
         String(row.designation || "").toLowerCase().includes(q) ||
+        String(row.department || "").toLowerCase().includes(q) ||
         typeLabel.includes(q)
       );
     });
@@ -100,12 +126,11 @@ export default function SalaryMaster() {
   return (
     <div className="h-[calc(100vh-7rem)] w-full overflow-hidden overflow-x-hidden bg-gray-50">
       <div className="p-4 md:p-6 h-full w-full flex flex-col gap-4 max-w-[1600px] mx-auto">
-        {/* Header — same pattern as Employee Master */}
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-4 items-start shrink-0 min-w-0">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">Salary Master</h1>
             <p className="text-sm text-gray-600 mt-1">
-              Find employees from Employee Master for salary setup.
+              Click an employee to open their compensation (CTC) profile.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row sm:flex-wrap xl:justify-end items-stretch sm:items-center gap-2 w-full xl:w-auto">
@@ -113,7 +138,7 @@ export default function SalaryMaster() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search by name, machine ID, code…"
+                placeholder="Search name, machine ID, code…"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full h-10 pl-9 pr-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
@@ -135,15 +160,17 @@ export default function SalaryMaster() {
           </div>
         </div>
 
-        {/* Table card */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden w-full min-w-0 flex flex-col flex-1 min-h-0">
-          <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Employees ({filteredEmployees.length}
-              {searchTerm.trim() ? ` of ${employees.length}` : ""})
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden w-full min-w-0 flex flex-col flex-1 min-h-0">
+          <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 shrink-0 bg-white">
+            <h3 className="text-sm font-semibold text-gray-900">
+              Employees
+              <span className="ml-2 text-gray-500 font-medium tabular-nums">
+                ({filteredEmployees.length}
+                {searchTerm.trim() ? ` of ${employees.length}` : ""})
+              </span>
             </h3>
             <div className="flex flex-wrap items-center justify-end gap-3">
-              <span className="text-sm text-gray-500 whitespace-nowrap">
+              <span className="text-xs text-gray-500 whitespace-nowrap tabular-nums">
                 Showing {pageStart}–{pageEnd} of {filteredEmployees.length}
               </span>
               <div className="flex items-center gap-2">
@@ -151,18 +178,18 @@ export default function SalaryMaster() {
                   type="button"
                   onClick={() => setCurrentPage(Math.max(1, safePage - 1))}
                   disabled={safePage <= 1}
-                  className="h-8 px-3 text-sm border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+                  className="h-8 px-3 text-xs font-medium border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
                 >
                   Previous
                 </button>
-                <span className="px-2 text-sm text-gray-600 whitespace-nowrap">
-                  Page {safePage} of {totalPages}
+                <span className="px-1 text-xs text-gray-600 whitespace-nowrap tabular-nums">
+                  {safePage} / {totalPages}
                 </span>
                 <button
                   type="button"
                   onClick={() => setCurrentPage(Math.min(totalPages, safePage + 1))}
                   disabled={safePage >= totalPages}
-                  className="h-8 px-3 text-sm border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+                  className="h-8 px-3 text-xs font-medium border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
                 >
                   Next
                 </button>
@@ -173,51 +200,90 @@ export default function SalaryMaster() {
           {error ? (
             <p className="text-sm text-red-600 p-4">{error}</p>
           ) : employees.length === 0 ? (
-            <p className="text-sm text-gray-500 py-12 text-center">No employees found in Employee Master.</p>
+            <p className="text-sm text-gray-500 py-16 text-center">No employees found in Employee Master.</p>
           ) : filteredEmployees.length === 0 ? (
-            <p className="text-sm text-gray-500 py-12 text-center">No employees match your search.</p>
+            <p className="text-sm text-gray-500 py-16 text-center">No employees match your search.</p>
           ) : (
             <div className="flex-1 min-h-0 overflow-auto">
-              <div className="w-max min-w-full">
-                <table className="min-w-full divide-y divide-gray-200 border-b border-gray-200">
-                  <thead className="bg-gray-50 sticky top-0 z-20 shadow-[0_1px_0_0_#e5e7eb]">
-                    <tr>
-                      <th className={thCenter}>Sr No</th>
-                      <th className={thCenter}>Machine ID</th>
-                      <th className={th}>Employee type</th>
-                      <th className={thCenter}>Employee code</th>
-                      <th className={th}>Full name</th>
-                      <th className={th}>Designation</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {pageRows.map((row, idx) => {
-                      const rowNo = startIndex + idx + 1;
-                      const typeLabel = employmentTypeLabel(row.employment_type || row.employee_id);
-                      return (
-                        <tr key={row.id} className="hover:bg-gray-50">
-                          <td className={tdCenter}>{rowNo}</td>
-                          <td className={tdCenter} title={row.employee_id || ""}>
-                            {row.employee_id || "–"}
-                          </td>
-                          <td className={td} title={typeLabel}>
-                            {typeLabel || "–"}
-                          </td>
-                          <td className={tdCenter} title={row.employee_code || ""}>
-                            {row.employee_code || "–"}
-                          </td>
-                          <td className={td} title={row.full_name || ""}>
-                            {row.full_name || "–"}
-                          </td>
-                          <td className={td} title={row.designation || ""}>
-                            {row.designation || "–"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <table className="w-full min-w-[980px] border-collapse">
+                <thead className="sticky top-0 z-20">
+                  <tr>
+                    <th className={`${thCenter} w-14`}>Sr No.</th>
+                    <th className={`${thCenter} w-[7.5rem]`}>Machine ID</th>
+                    <th className={`${thCenter} w-[8.5rem]`}>Employee Code</th>
+                    <th className={thLeft}>Full Name</th>
+                    <th className={thLeft}>Designation</th>
+                    <th className={thLeft}>Department</th>
+                    <th className={`${thCenter} w-[8.5rem]`}>Employee Type</th>
+                    <th className={`${thRight} w-[9rem]`}>Salary (Monthly)</th>
+                    <th className={`${thRight} w-[9rem]`}>CTC (Annual)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map((row, idx) => {
+                    const rowNo = startIndex + idx + 1;
+                    const typeLabel = employmentTypeLabel(row.employment_type || row.employee_id);
+                    const salary = salaryByEmployee.get(String(row.id));
+                    const monthly =
+                      salary?.declared &&
+                      (salary.gross_monthly != null || salary.basic_monthly != null)
+                        ? salary.gross_monthly ?? salary.basic_monthly
+                        : null;
+                    const ctcAnnual = salary?.declared ? salary.ctc_annual : null;
+                    const zebra = idx % 2 === 1 ? "bg-slate-50/60" : "bg-white";
+
+                    return (
+                      <tr
+                        key={row.id}
+                        onClick={() => navigate(`/app/admin/salary-admin/salary-master/${row.id}`)}
+                        className={`${zebra} border-b border-gray-100 hover:bg-blue-50/70 cursor-pointer transition-colors`}
+                      >
+                        <td className={`${tdCenter} text-gray-500`}>{rowNo}</td>
+                        <td className={`${tdCenter} font-mono text-xs text-gray-700`} title={row.employee_id || ""}>
+                          {row.employee_id || "–"}
+                        </td>
+                        <td className={`${tdCenter} font-mono text-xs text-gray-700`} title={row.employee_code || ""}>
+                          {row.employee_code || "–"}
+                        </td>
+                        <td className={tdName} title={row.full_name || ""}>
+                          {row.full_name || "–"}
+                        </td>
+                        <td className={tdText} title={row.designation || ""}>
+                          {row.designation || "–"}
+                        </td>
+                        <td className={tdText} title={row.department || ""}>
+                          {row.department || "–"}
+                        </td>
+                        <td className={tdCenter}>
+                          {typeLabel ? (
+                            <span className="inline-flex items-center justify-center min-w-[4.5rem] px-2 py-0.5 rounded-md border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-700">
+                              {typeLabel}
+                            </span>
+                          ) : (
+                            "–"
+                          )}
+                        </td>
+                        <td className={tdRight}>
+                          {monthly != null ? (
+                            <span className="font-medium text-gray-900">{formatINR(monthly)}</span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-md border border-amber-200 bg-amber-50 text-[11px] font-medium text-amber-800">
+                              Not set
+                            </span>
+                          )}
+                        </td>
+                        <td className={tdRight}>
+                          {ctcAnnual != null ? (
+                            <span className="font-medium text-gray-900">{formatINR(ctcAnnual)}</span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
