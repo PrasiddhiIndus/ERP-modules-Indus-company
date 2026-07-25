@@ -304,8 +304,13 @@ function mergeSiteLibrary(site, globalLibrary) {
   return merged;
 }
 
+function pendingMonthsAll(site, records, uptoMk) {
+  return expectedMonths(site, uptoMk).filter((mk) => !records[`${site.id}__${mk}`]);
+}
+
+/** Pending months from Apr-26 onward by default; pass expandHistory to include earlier periods. */
 function pendingMonthsFiltered(site, records, uptoMk, { expandHistory = false } = {}) {
-  const all = pendingMonths(site, records, uptoMk);
+  const all = pendingMonthsAll(site, records, uptoMk);
   if (expandHistory) return all;
   const cutoff = monthIdx(PENDING_HISTORY_CUTOFF_KEY);
   return all.filter((mk) => monthIdx(mk) >= cutoff);
@@ -521,7 +526,7 @@ function expectedMonths(site, uptoMk) {
   const endCapped = monthIdx(end) > monthIdx(uptoMk) ? uptoMk : end;
   return periodKeysBetween(start, endCapped);
 }
-const pendingMonths = (site, records, uptoMk) => expectedMonths(site, uptoMk).filter((mk) => !records[`${site.id}__${mk}`]);
+const pendingMonths = (site, records, uptoMk) => pendingMonthsFiltered(site, records, uptoMk);
 const isPending = (site, records, mk) => inContract(site, mk) && !records[`${site.id}__${mk}`];
 
 /* ───────────────────────── NORMALIZE / STORAGE ───────────────────────── */
@@ -2487,8 +2492,8 @@ function SitesTable({
         <div className="sm-legend-card sm-about">
           <h4>About Pending Months</h4>
           <p>
-            This column shows the number of months for which financial data is not yet entered for each site,
-            up to the selected period (<b>{mLabel}</b>). For example, &ldquo;Jul-25&rdquo; means July 2025 data is pending.
+            This column shows months from <b>Apr-26</b> onward for which financial data is not yet entered,
+            up to the selected period (<b>{mLabel}</b>). Months before April 2026 are excluded from pending counts.
           </p>
         </div>
       </div>
@@ -2778,9 +2783,9 @@ function SiteDetail({
                 <Card title="Profit Trend · actual vs estimate">
                   <ResponsiveContainer width="100%" height={180}><LineChart data={siteTrend} margin={{ left: 0, right: 8, top: 6, bottom: 0 }}>
                     <CartesianGrid stroke="var(--line)" vertical={false} /><XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted)" }} stroke="var(--line)" /><YAxis tickFormatter={inrShort} tick={{ fontSize: 10, fill: "var(--muted)" }} stroke="var(--line)" width={54} /><Tooltip content={<TipBox fmt={inr} />} />
-                    <Line type="monotone" dataKey="profit" name="Actual" stroke="var(--green)" strokeWidth={2.4} dot={{ r: 3 }} /><Line type="monotone" dataKey="estProfit" name="Estimate" stroke="var(--gold)" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 2.5 }} connectNulls />
+                    <Line type="monotone" dataKey="profit" name="Actual" stroke="var(--profit)" strokeWidth={2.4} dot={{ r: 3, fill: "var(--profit)", stroke: "var(--profit)" }} /><Line type="monotone" dataKey="estProfit" name="Estimate" stroke="var(--gold)" strokeWidth={2} strokeDasharray="5 4" dot={{ r: 2.5, fill: "var(--gold)", stroke: "var(--gold)" }} connectNulls />
                   </LineChart></ResponsiveContainer>
-                  <div className="trend-legend"><span><i style={{ background: "var(--green)" }} />Actual</span><span><i style={{ background: "var(--gold)" }} />Estimate</span></div>
+                  <div className="trend-legend"><span><i style={{ background: "var(--profit)" }} />Actual</span><span><i style={{ background: "var(--gold)" }} />Estimate</span></div>
                 </Card>
               )}
             </div>
