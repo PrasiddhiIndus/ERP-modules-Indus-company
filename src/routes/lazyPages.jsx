@@ -243,7 +243,9 @@ export const GateSecurityConsolePage = lazyNamed(
   "GateSecurityConsolePage"
 );
 
+export const SalaryDashboardPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryDashboard"));
 export const SalaryMasterPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryMaster"));
+export const SalaryEmployeeCtcPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryEmployeeCtc"));
 export const SalaryProcessingPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryProcessing"));
 
 export const MiscEventsPage = lazyNamed(
