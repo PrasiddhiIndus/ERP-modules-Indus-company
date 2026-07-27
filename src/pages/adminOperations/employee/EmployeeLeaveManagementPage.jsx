@@ -397,9 +397,25 @@ export function EmployeeLeaveManagementPage() {
     [filteredEmployees, plEncashPrefs]
   );
 
-  const balancesRows = useMemo(
-    () =>
-      filteredEmployees.map((e) => {
+  const balancesRows = useMemo(() => {
+    const employeesByCode = new Map();
+    for (const e of filteredEmployees || []) {
+      const code = normalizeAttendanceEmpCode(e.empCode);
+      if (code) employeesByCode.set(code, e);
+    }
+    for (const b of balances || []) {
+      const code = normalizeAttendanceEmpCode(b.employee_code);
+      if (!code || employeesByCode.has(code)) continue;
+      employeesByCode.set(code, {
+        empCode: code,
+        employeeName: "",
+        employeeId: "",
+        department: "",
+      });
+    }
+
+    return Array.from(employeesByCode.values())
+      .map((e) => {
         const code = normalizeAttendanceEmpCode(e.empCode);
         const stored = balanceByCode[code] || {};
         const liveUsed = registerUsageByCode[code] || {};
@@ -435,9 +451,9 @@ export function EmployeeLeaveManagementPage() {
           carried_cl: b.carried_cl ?? 0,
           expired_cl: b.expired_cl ?? 0,
         };
-      }),
-    [filteredEmployees, balanceByCode, registerUsageByCode]
-  );
+      })
+      .sort((a, b) => String(a.empCode || "").localeCompare(String(b.empCode || ""), undefined, { numeric: true }));
+  }, [filteredEmployees, balances, balanceByCode, registerUsageByCode]);
 
   const ledgerRows = useMemo(() => {
     const needle = ledgerSearch.trim().toLowerCase();
