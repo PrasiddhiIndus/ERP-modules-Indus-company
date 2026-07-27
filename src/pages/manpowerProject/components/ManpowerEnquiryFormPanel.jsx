@@ -16,6 +16,8 @@ import {
   EMD_FEE_STATUS_OPTIONS,
   PAYMENT_MODE_OPTIONS,
   VERTICAL_OPTIONS,
+  INQUIRY_RESULT_OPTIONS,
+  INQUIRY_TRACKING_STATUS_OPTIONS,
   parseAuthorizationMeta,
   buildInquiryDbPayload,
   inquiryRowToForm,
@@ -23,6 +25,7 @@ import {
   getNextEnquiryNumber,
   emptyContactRow,
   formatAssignedToList,
+  prepareEnquiryWorkflowMeta,
 } from "../utils/manpowerEnquiryExcelFields";
 const emptyForm = {
   enquiryNumber: "",
@@ -86,6 +89,9 @@ const emptyForm = {
   offerSubmittedOn: "",
   remarks: "",
   furtherAction: "",
+  trackingStatus: "New",
+  enquiryResult: "",
+  resultRemark: "",
 };
 
 function FormSection({ number, title, hint, children, variant = "default" }) {
@@ -268,6 +274,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const existingEnquiryAttachmentPathsRef = useRef([]);
   const existingPortalProofPathRef = useRef("");
   const existingEnquiryNumberRef = useRef("");
+  const existingMetaRef = useRef({});
   const scopeFileInputRef = useRef(null);
   const enquiryFileInputRef = useRef(null);
 
@@ -305,6 +312,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
     existingEnquiryAttachmentPathsRef.current = [];
     existingPortalProofPathRef.current = "";
     existingEnquiryNumberRef.current = "";
+    existingMetaRef.current = {};
   }, []);
 
   useEffect(() => {
@@ -348,6 +356,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         return;
       }
       if (!data) return;
+      const parsed = parseAuthorizationMeta(data.authorization_to);
+      existingMetaRef.current = parsed.meta || {};
       const nextForm = inquiryRowToForm(data);
       existingScopeAttachmentPathsRef.current = nextForm.scopeAttachmentPaths || [];
       existingEnquiryAttachmentPathsRef.current = nextForm.enquiryAttachmentPaths || [];
@@ -669,6 +679,19 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       const assignedToList = getResolvedAssignedToList();
       const submitForm = { ...formData, ...syncAssignedToFields(assignedToList) };
 
+      if (enquiryId && submitForm.enquiryResult === "Not Alloted" && !String(submitForm.resultRemark || "").trim()) {
+        alert("Please enter remarks when result is Not Alloted.");
+        setSubmitting(false);
+        return;
+      }
+
+      const { workflowMeta, status: resultStatus } = await prepareEnquiryWorkflowMeta(
+        submitForm,
+        existingMeta,
+        supabase,
+        { isEdit: Boolean(enquiryId) }
+      );
+
       const payload = buildInquiryDbPayload(
         {
           ...submitForm,
@@ -677,8 +700,9 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           scopeAttachmentPaths: uploadedScopePaths,
           enquiryAttachmentPaths: uploadedEnquiryAttachmentPaths,
         },
-        existingMeta
+        workflowMeta
       );
+      if (resultStatus) payload.status = resultStatus;
       if (documentPath) {
         payload.documents = documentPath;
         if (formData.scopeInputType === "Attachment" && !String(formData.scopeOfWork || "").trim()) {
@@ -1345,6 +1369,52 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </Field>
         </div>
       </FormSection>
+
+      {enquiryId ? (
+        <FormSection
+          title="Status &amp; Result"
+          hint="Update enquiry tracking status and final result from here."
+        >
+          <div className={gridClass}>
+            <Field label="Status">
+              <select
+                name="trackingStatus"
+                value={formData.trackingStatus || "New"}
+                onChange={handleChange}
+                className={selectClass}
+              >
+                {INQUIRY_TRACKING_STATUS_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Result">
+              <select name="enquiryResult" value={formData.enquiryResult || ""} onChange={handleChange} className={selectClass}>
+                <option value="">Select result</option>
+                {INQUIRY_RESULT_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {formData.enquiryResult === "Not Alloted" ? (
+              <Field label="Remarks" className="sm:col-span-2">
+                <textarea
+                  name="resultRemark"
+                  value={formData.resultRemark || ""}
+                  onChange={handleChange}
+                  rows={3}
+                  className={textareaClass}
+                  placeholder="Enter remarks for not alloted result..."
+                />
+              </Field>
+            ) : null}
+          </div>
+        </FormSection>
+      ) : null}
 
       <FormSection
         title="Additional Attachments"
