@@ -5,11 +5,8 @@ import {
   Plus,
   FileText,
   X,
-  CheckCircle2,
-  XCircle,
   Pencil,
   Trash2,
-  MessageSquare,
   Download,
   Upload,
   Filter,
@@ -23,10 +20,8 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../contexts/AuthContext";
-import { COMMERCIAL_MT_APPROVER_MODULE_KEYS, userCanApproveInModules } from "../../config/roles";
 import ManpowerEnquiryFormPanel from "./components/ManpowerEnquiryFormPanel";
 import ManpowerEnquiryPreviewModal, {
-  statusTone,
   verticalTone,
 } from "./components/ManpowerEnquiryPreviewModal";
 import ManpowerEnquiryDashboard from "./ManpowerEnquiryDashboard";
@@ -34,16 +29,16 @@ import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import FormDateInput from "../../components/FormDateInput";
 
 import {
-  buildAuthorizationValue,
-  extractWorkflowMeta,
   formatInquiryCellValue,
+  getEnquiryResultFromRow,
   getExcelInquiryFields,
+  getResultRemarkFromRow,
+  getTrackingStatusFromRow,
   INQUIRY_DB_COLUMNS,
   INQUIRY_LIST_DISPLAY_COLUMNS,
   INQUIRY_TABLE_COLUMNS,
   MODE_OF_SUBMISSION_OPTIONS,
   VERTICAL_OPTIONS,
-  parseAuthorizationMeta,
 } from "./utils/manpowerEnquiryExcelFields";
 import {
   applyInquiryFilters,
@@ -51,7 +46,7 @@ import {
   getInquiryFilterOptions,
   hasActiveInquiryFilters,
   INQUIRY_PAGE_SIZE_OPTIONS,
-  INQUIRY_STATUS_OPTIONS,
+  INQUIRY_RESULT_OPTIONS,
   sortInquiries,
 } from "./utils/manpowerInquiryList";
 import {
@@ -68,27 +63,34 @@ import {
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_SORT = { key: "receivedDate", dir: "desc" };
 const MANPOWER_BASE = "/app/commercial/manpower-training/manpower-management";
-const ACTION_COL_WIDTH = 168;
+const ACTION_COL_WIDTH = 120;
 const tableMinWidth =
   INQUIRY_LIST_DISPLAY_COLUMNS.reduce((sum, col) => sum + col.width, 0) + ACTION_COL_WIDTH;
-const INQUIRY_MULTILINE_COLUMNS = new Set(["descriptionOfWork", "remarks", "furtherAction"]);
+const INQUIRY_MULTILINE_COLUMNS = new Set(["descriptionOfWork", "remarks", "furtherAction", "resultRemark"]);
 const STICKY_ACTION_CELL =
   "manpower-inquiry-action-cell sticky right-0 border-l border-slate-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-purple-50/80";
 const STICKY_ACTION_HEAD =
   "manpower-inquiry-action-head sticky right-0 top-0 border-l border-purple-100 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
-
-function getRejectionRemark(row) {
-  const { meta } = parseAuthorizationMeta(row.authorization_to);
-  return String(meta.rejectionRemark || "").trim();
-}
 
 function getListRowFields(row) {
   const excel = getExcelInquiryFields(row);
   return {
     ...excel,
     enquiryNumber: row?.enquiry_number || "",
-    status: row?.status || "Pending",
+    srNo: excel.srNo ?? row?.sr_no ?? "",
+    trackingStatus: getTrackingStatusFromRow(row),
+    enquiryResult: getEnquiryResultFromRow(row),
+    resultRemark: getResultRemarkFromRow(row),
   };
+}
+
+function trackingStatusTone(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "new") return "bg-blue-50 text-blue-700 border-blue-200";
+  if (s === "in progress") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (s === "follow up") return "bg-purple-50 text-purple-700 border-purple-200";
+  if (s === "closed") return "bg-slate-100 text-slate-700 border-slate-200";
+  return "bg-slate-50 text-slate-600 border-slate-200";
 }
 
 function buildPageItems(currentPage, totalPages) {
@@ -261,12 +263,7 @@ const ManpowerManagement = () => {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const isDashboardView = location.pathname === `${MANPOWER_BASE}/dashboard`;
-  const { user, userProfile, accessibleModules } = useAuth();
-  const canApproveEnquiries = userCanApproveInModules(
-    userProfile,
-    accessibleModules,
-    COMMERCIAL_MT_APPROVER_MODULE_KEYS
-  );
+  const { user, userProfile } = useAuth();
 
   const [enquiries, setEnquiries] = useState([]);
   const [listError, setListError] = useState(null);
@@ -286,8 +283,6 @@ const ManpowerManagement = () => {
   const [commercialAssigneeOptions, setCommercialAssigneeOptions] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [rejectDialog, setRejectDialog] = useState({ open: false, row: null, remark: "", error: "", submitting: false });
-  const [remarkDialog, setRemarkDialog] = useState({ open: false, row: null, remark: "" });
   const [previewRow, setPreviewRow] = useState(null);
 
   const fetchEnquiries = async () => {
@@ -496,115 +491,6 @@ const ManpowerManagement = () => {
     fetchEnquiries();
   };
 
-  const handleApprove = async (rowId) => {
-    if (!canApproveEnquiries) return;
-    try {
-      const { data: currentRow, error: rowError } = await supabase
-        .from("manpower_enquiries")
-        .select("id, authorization_to")
-        .eq("id", rowId)
-        .single();
-      if (rowError) throw rowError;
-
-      const currentParsed = parseAuthorizationMeta(currentRow?.authorization_to);
-      let ifslNumber = currentParsed.meta.ifslNumber || "";
-
-      if (!ifslNumber) {
-        const { data: allRows, error: allError } = await supabase
-          .from("manpower_enquiries")
-          .select("authorization_to");
-        if (allError) throw allError;
-
-        const year = new Date().getFullYear();
-        let maxSequence = 0;
-
-        (allRows || []).forEach((row) => {
-          const { meta } = parseAuthorizationMeta(row.authorization_to);
-          const val = String(meta.ifslNumber || "");
-          const match = val.match(/^(?:IFSL|IFSPL)\/ENQ\/(\d{4})\/(\d{4})$/);
-          if (match && Number(match[1]) === year) {
-            maxSequence = Math.max(maxSequence, Number(match[2]));
-          }
-        });
-
-        ifslNumber = `IFSPL/ENQ/${year}/${String(maxSequence + 1).padStart(4, "0")}`;
-      }
-
-      const approvedAt = currentParsed.meta.approvedAt || currentParsed.meta.convertedAt || new Date().toISOString();
-      const nextMeta = {
-        ...extractWorkflowMeta(currentParsed.meta || {}),
-        ifslNumber,
-        approvedAt,
-        convertedAt: approvedAt,
-      };
-      delete nextMeta.rejectionRemark;
-      delete nextMeta.rejectedAt;
-
-      const { error } = await supabase
-        .from("manpower_enquiries")
-        .update({
-          status: "Approved",
-          authorization_to: buildAuthorizationValue(nextMeta, currentParsed.rawText),
-        })
-        .eq("id", rowId);
-      if (error) throw error;
-      navigate("/app/manpower/internal-quotation", { replace: false });
-    } catch (error) {
-      console.error(error);
-    }
-    fetchEnquiries();
-  };
-
-  const openRejectDialog = (row) => {
-    if (!canApproveEnquiries) return;
-    setRejectDialog({ open: true, row, remark: getRejectionRemark(row), error: "", submitting: false });
-  };
-
-  const closeRejectDialog = () => {
-    if (rejectDialog.submitting) return;
-    setRejectDialog({ open: false, row: null, remark: "", error: "", submitting: false });
-  };
-
-  const submitReject = async () => {
-    if (!canApproveEnquiries || !rejectDialog.row) return;
-    const remark = rejectDialog.remark.trim();
-    if (!remark) {
-      setRejectDialog((prev) => ({ ...prev, error: "Please enter rejection remark." }));
-      return;
-    }
-
-    setRejectDialog((prev) => ({ ...prev, submitting: true, error: "" }));
-    try {
-      const currentParsed = parseAuthorizationMeta(rejectDialog.row.authorization_to);
-      const nextMeta = {
-        ...extractWorkflowMeta(currentParsed.meta || {}),
-        rejectionRemark: remark,
-        rejectedAt: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from("manpower_enquiries")
-        .update({
-          status: "Rejected",
-          authorization_to: buildAuthorizationValue(nextMeta, currentParsed.rawText),
-        })
-        .eq("id", rejectDialog.row.id);
-      if (error) throw error;
-
-      setRejectDialog({ open: false, row: null, remark: "", error: "", submitting: false });
-      fetchEnquiries();
-    } catch (error) {
-      console.error(error);
-      setRejectDialog((prev) => ({ ...prev, submitting: false, error: error?.message || "Failed to reject enquiry." }));
-    }
-  };
-
-  const openRemarkDialog = (row) => {
-    const remark = getRejectionRemark(row);
-    if (!remark) return;
-    setRemarkDialog({ open: true, row, remark });
-  };
-
   const handleDelete = async (rowId) => {
     if (!confirm("Delete this enquiry?")) return;
     const { error } = await supabase.from("manpower_enquiries").delete().eq("id", rowId);
@@ -777,14 +663,14 @@ const ManpowerManagement = () => {
                   </select>
                 </label>
                 <label className="text-xs text-slate-600">
-                  <span className="mb-1 block font-medium">Status</span>
+                  <span className="mb-1 block font-medium">Result</span>
                   <select
-                    value={filters.status}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
+                    value={filters.result}
+                    onChange={(e) => setFilters((prev) => ({ ...prev, result: e.target.value }))}
                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">All</option>
-                    {[...new Set([...INQUIRY_STATUS_OPTIONS, ...filterOptions.status])].map((opt) => (
+                    {[...new Set([...INQUIRY_RESULT_OPTIONS, ...filterOptions.result])].map((opt) => (
                       <option key={opt} value={opt}>
                         {opt}
                       </option>
@@ -927,13 +813,21 @@ const ManpowerManagement = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {paginated.map((e) => {
-                      const rejectionRemark = getRejectionRemark(e);
                       const fields = getListRowFields(e);
+                      const enquiryResult = fields.enquiryResult;
                       return (
                         <tr key={e.id} className="group transition-colors hover:bg-purple-50/40">
                           {INQUIRY_LIST_DISPLAY_COLUMNS.map((col) => {
+                            if (col.id === "resultRemark" && enquiryResult !== "Not Alloted") {
+                              return (
+                                <td key={col.id} className="max-w-0 px-3 py-3 align-middle text-xs text-slate-400">
+                                  —
+                                </td>
+                              );
+                            }
+
                             const raw = fields[col.id];
-                            const display = formatInquiryCellValue(raw, col.valueType === "chip" || col.valueType === "status" ? "text" : col.valueType, formatDateDdMmYyyy);
+                            const display = formatInquiryCellValue(raw, col.valueType === "chip" || col.valueType === "trackingStatus" ? "text" : col.valueType, formatDateDdMmYyyy);
                             const alignClass =
                               col.align === "center"
                                 ? "text-center"
@@ -957,14 +851,10 @@ const ManpowerManagement = () => {
                                       {display}
                                     </span>
                                   )
-                                ) : col.valueType === "status" ? (
-                                  display === "—" ? (
-                                    <span className="text-slate-400">—</span>
-                                  ) : (
-                                    <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${statusTone(display)}`} title={cellTitle}>
-                                      {display}
-                                    </span>
-                                  )
+                                ) : col.valueType === "trackingStatus" ? (
+                                  <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${trackingStatusTone(display)}`} title={cellTitle}>
+                                    {display}
+                                  </span>
                                 ) : col.id === "enquiryNumber" ? (
                                   <span className="block truncate font-medium text-purple-700 leading-snug" title={cellTitle}>
                                     {display}
@@ -994,36 +884,6 @@ const ManpowerManagement = () => {
                               >
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
-                              {canApproveEnquiries ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleApprove(e.id)}
-                                    title="Approve"
-                                    className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => openRejectDialog(e)}
-                                    title="Regret with remark"
-                                    className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 transition-colors"
-                                  >
-                                    <XCircle className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              ) : null}
-                              {rejectionRemark ? (
-                                <button
-                                  type="button"
-                                  onClick={() => openRemarkDialog(e)}
-                                  title="View regret remark"
-                                  className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-sky-200 bg-white text-sky-600 hover:bg-sky-50 transition-colors"
-                                >
-                                  <MessageSquare className="w-3.5 h-3.5" />
-                                </button>
-                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => openEdit(e.id)}
@@ -1149,95 +1009,6 @@ const ManpowerManagement = () => {
           onEdit={openEdit}
         />
       ) : null}
-
-      {rejectDialog.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
-            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Regret Enquiry</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  {rejectDialog.row?.enquiry_number || "Enquiry"} · {rejectDialog.row?.client || "Client not set"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeRejectDialog}
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-                aria-label="Close reject remark"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="px-5 py-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Remark</label>
-              <textarea
-                value={rejectDialog.remark}
-                onChange={(event) => setRejectDialog((prev) => ({ ...prev, remark: event.target.value, error: "" }))}
-                rows={4}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200"
-                placeholder="Enter why this enquiry is regretted..."
-              />
-              {rejectDialog.error && <p className="mt-2 text-xs text-red-600">{rejectDialog.error}</p>}
-            </div>
-            <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
-              <button
-                type="button"
-                onClick={closeRejectDialog}
-                disabled={rejectDialog.submitting}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={submitReject}
-                disabled={rejectDialog.submitting}
-                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
-              >
-                {rejectDialog.submitting ? "Saving..." : "Save Remark"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {remarkDialog.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl ring-1 ring-black/5">
-            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Regret Remark</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  {remarkDialog.row?.enquiry_number || "Enquiry"} · {remarkDialog.row?.client || "Client not set"}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setRemarkDialog({ open: false, row: null, remark: "" })}
-                className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-                aria-label="Close remark"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="px-5 py-4">
-              <p className="whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
-                {remarkDialog.remark}
-              </p>
-            </div>
-            <div className="flex justify-end border-t border-slate-200 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setRemarkDialog({ open: false, row: null, remark: "" })}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4">

@@ -1,11 +1,15 @@
 import {
   formatInquiryCellValue,
+  getEnquiryResultFromRow,
   getExcelInquiryFields,
+  getResultRemarkFromRow,
+  getTrackingStatusFromRow,
   INQUIRY_TABLE_COLUMNS,
   INQUIRY_LIST_DISPLAY_COLUMNS,
 } from "./manpowerEnquiryExcelFields";
 
 export const INQUIRY_STATUS_OPTIONS = ["Pending", "Approved", "Rejected", "Quoted"];
+export const INQUIRY_RESULT_OPTIONS = ["Alloted", "Not Alloted"];
 export const INQUIRY_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 export const EMPTY_INQUIRY_FILTERS = {
@@ -13,6 +17,7 @@ export const EMPTY_INQUIRY_FILTERS = {
   modeOfSubmission: "",
   enquiryAssignedTo: "",
   status: "",
+  result: "",
   receivedFrom: "",
   receivedTo: "",
 };
@@ -23,6 +28,9 @@ function getSortableFields(row) {
     ...fields,
     enquiryNumber: row?.enquiry_number || "",
     status: row?.status || "Pending",
+    enquiryResult: getEnquiryResultFromRow(row),
+    resultRemark: getResultRemarkFromRow(row),
+    trackingStatus: getTrackingStatusFromRow(row),
   };
 }
 
@@ -36,6 +44,9 @@ export function inquiryMatchesMasterSearch(row, query, formatDate) {
       formatInquiryCellValue(fields[col.id], col.valueType, formatDate)
     ),
     row?.status,
+    getEnquiryResultFromRow(row),
+    getResultRemarkFromRow(row),
+    getTrackingStatusFromRow(row),
     row?.enquiry_number,
     row?.id,
   ];
@@ -60,6 +71,7 @@ export function applyInquiryFilters(enquiries, { searchQuery, filters }, formatD
     if (filters.modeOfSubmission && fields.modeOfSubmission !== filters.modeOfSubmission) return false;
     if (filters.enquiryAssignedTo && fields.enquiryAssignedTo !== filters.enquiryAssignedTo) return false;
     if (filters.status && String(row.status || "Pending") !== filters.status) return false;
+    if (filters.result && getEnquiryResultFromRow(row) !== filters.result) return false;
 
     const receivedTs = toDayStart(fields.receivedDate);
     const fromTs = toDayStart(filters.receivedFrom);
@@ -125,6 +137,7 @@ export function getInquiryFilterOptions(enquiries) {
   const modeOfSubmission = new Set();
   const enquiryAssignedTo = new Set();
   const status = new Set();
+  const result = new Set();
 
   (enquiries || []).forEach((row) => {
     const fields = getExcelInquiryFields(row);
@@ -132,6 +145,8 @@ export function getInquiryFilterOptions(enquiries) {
     if (fields.modeOfSubmission) modeOfSubmission.add(fields.modeOfSubmission);
     if (fields.enquiryAssignedTo) enquiryAssignedTo.add(fields.enquiryAssignedTo);
     if (row.status) status.add(row.status);
+    const enquiryResult = getEnquiryResultFromRow(row);
+    if (enquiryResult) result.add(enquiryResult);
   });
 
   const sortAlpha = (arr) => arr.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
@@ -141,6 +156,7 @@ export function getInquiryFilterOptions(enquiries) {
     modeOfSubmission: sortAlpha([...modeOfSubmission]),
     enquiryAssignedTo: sortAlpha([...enquiryAssignedTo]),
     status: sortAlpha([...status]),
+    result: sortAlpha([...result]),
   };
 }
 
