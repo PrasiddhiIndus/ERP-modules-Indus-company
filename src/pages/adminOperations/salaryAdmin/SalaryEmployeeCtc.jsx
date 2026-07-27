@@ -8,13 +8,14 @@ import FormDateInput from "../../../components/FormDateInput";
 import {
   computeCtcStructure,
   currentCompensationYear,
+  defaultPtForGross,
   emptyCtcStructure,
   formatINR,
   getSalaryStructure,
-  hraFromBasic,
+  hraFixedMonthly,
   paFromMonthly,
   saveSalaryStructure,
-  statutoryHelpText,
+  suggestedPfFromBasic,
 } from "./salaryData";
 
 const amountInput =
@@ -23,14 +24,13 @@ const dateInput =
   "w-full max-w-[12rem] h-9 text-sm border border-[#d4d0c8] rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/25 focus:border-[#1F3A8A]";
 const fieldLabel = "text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a857c]";
 
-function MoneyCell({ value, strong = false, size = "base" }) {
+function MoneyCell({ value, strong = false }) {
   if (value == null || value === "") {
     return <span className="text-[#d0cbc3] tabular-nums">—</span>;
   }
-  const sizeClass = size === "lg" ? "text-[15px]" : "text-[15px]";
   return (
     <span
-      className={`tabular-nums ${sizeClass} ${
+      className={`tabular-nums text-[15px] ${
         strong ? "font-semibold text-[#1a1a1a]" : "font-medium text-[#2a2a2a]"
       }`}
     >
@@ -48,13 +48,7 @@ function ProfileField({ label, children }) {
   );
 }
 
-function SheetRow({
-  label,
-  monthly,
-  pa,
-  tone = "default",
-  labelClass = "",
-}) {
+function SheetRow({ label, monthly, pa, tone = "default", labelClass = "" }) {
   const toneClass =
     tone === "gross"
       ? "bg-[#f3f1ec]"
@@ -111,8 +105,27 @@ function ColHeads() {
   );
 }
 
+function AmountInput({ value, onChange, label }) {
+  return (
+    <input
+      type="number"
+      min="0"
+      step="1"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={amountInput}
+      placeholder=""
+      aria-label={label}
+    />
+  );
+}
+
+function numOrEmpty(saved) {
+  return saved != null ? String(saved) : "";
+}
+
 /**
- * Full-screen compensation structure — document-style Part A / Part B sheet.
+ * Compensation structure — Indus sheet Year 2026-2027 layout.
  */
 export default function SalaryEmployeeCtc() {
   const { employeeId } = useParams();
@@ -124,9 +137,38 @@ export default function SalaryEmployeeCtc() {
 
   const [basic, setBasic] = useState("");
   const [special, setSpecial] = useState("");
+  const [empPf, setEmpPf] = useState("");
+  const [erPf, setErPf] = useState("");
+  const [pt, setPt] = useState("");
+  const [bonus, setBonus] = useState("");
   const [dob, setDob] = useState("");
   const [doj, setDoj] = useState("");
   const [wef, setWef] = useState("");
+
+  const buildArgs = useCallback(
+    () => ({
+      basicMonthly: basic === "" ? 0 : Number(basic) || 0,
+      specialAllowanceMonthly: special === "" ? 0 : Number(special) || 0,
+      empPfMonthly: empPf === "" ? null : Number(empPf),
+      erPfMonthly: erPf === "" ? null : Number(erPf),
+      ptMonthly: pt === "" ? null : Number(pt),
+      bonusMonthly: bonus === "" ? null : Number(bonus),
+    }),
+    [basic, special, empPf, erPf, pt, bonus]
+  );
+
+  const applyPfFromBasic = useCallback((basicValue) => {
+    const b = Number(basicValue);
+    if (!Number.isFinite(b) || b <= 0) {
+      setEmpPf("");
+      setErPf("");
+      return false;
+    }
+    const { empPf: emp, erPf: er } = suggestedPfFromBasic(b);
+    setEmpPf(String(emp));
+    setErPf(String(er));
+    return true;
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -148,10 +190,21 @@ export default function SalaryEmployeeCtc() {
       setEmployee(data);
 
       const saved = getSalaryStructure(data.id);
-      setBasic(saved?.basic_monthly != null ? String(saved.basic_monthly) : "");
-      setSpecial(
-        saved?.special_allowance_monthly != null ? String(saved.special_allowance_monthly) : ""
-      );
+      setBasic(numOrEmpty(saved?.basic_monthly));
+      // Prefer Special Allowance; fall back to legacy uniform-only drafts
+      const specialSaved =
+        saved?.special_allowance_monthly != null
+          ? saved.special_allowance_monthly
+          : saved?.uniform_monthly != null &&
+              !saved?.conveyance_monthly &&
+              !saved?.medical_monthly
+            ? saved.uniform_monthly
+            : null;
+      setSpecial(numOrEmpty(specialSaved));
+      setEmpPf(numOrEmpty(saved?.emp_pf_monthly));
+      setErPf(numOrEmpty(saved?.er_pf_monthly));
+      setPt(numOrEmpty(saved?.pt_monthly));
+      setBonus(numOrEmpty(saved?.bonus_monthly));
       setDob(saved?.date_of_birth || data.date_of_birth || "");
       setDoj(saved?.date_of_joining || data.date_of_joining || "");
       setWef(saved?.wef_date || "");
@@ -169,38 +222,77 @@ export default function SalaryEmployeeCtc() {
   }, [load]);
 
   const parsed = useMemo(() => {
-    const basicN = basic === "" ? 0 : Number(basic);
-    const specialN = special === "" ? 0 : Number(special);
-    const anyEntered = basic !== "" || special !== "";
-    if (!anyEntered) return emptyCtcStructure();
-    return computeCtcStructure({
-      basicMonthly: Number.isFinite(basicN) ? basicN : 0,
-      specialAllowanceMonthly: Number.isFinite(specialN) ? specialN : 0,
-      autoHra: true,
-    });
-  }, [basic, special]);
+    if (basic === "" && special === "") return emptyCtcStructure();
+    return computeCtcStructure(buildArgs());
+  }, [basic, special, buildArgs]);
 
   const fy = currentCompensationYear();
   const segment = employee
     ? employmentTypeLabel(employee.employment_type || employee.employee_id) || "—"
     : "—";
 
+  const syncDerivedFromBasic = (basicRaw, specialRaw = special) => {
+    const b = Number(basicRaw);
+    if (basicRaw === "" || !Number.isFinite(b) || b <= 0) {
+      setEmpPf("");
+      setErPf("");
+      setPt("");
+      return;
+    }
+    const { empPf: emp, erPf: er } = suggestedPfFromBasic(b);
+    setEmpPf(String(emp));
+    setErPf(String(er));
+    const preview = computeCtcStructure({
+      basicMonthly: b,
+      specialAllowanceMonthly: specialRaw === "" ? 0 : Number(specialRaw) || 0,
+      empPfMonthly: emp,
+      erPfMonthly: er,
+      ptMonthly: null,
+    });
+    setPt(String(preview.pt_monthly ?? ""));
+  };
+
+  const handleBasicChange = (raw) => {
+    setBasic(raw);
+    syncDerivedFromBasic(raw, special);
+  };
+
+  const handleSpecialChange = (raw) => {
+    setSpecial(raw);
+    if (basic !== "" && Number(basic) > 0) {
+      const preview = computeCtcStructure({
+        basicMonthly: Number(basic) || 0,
+        specialAllowanceMonthly: raw === "" ? 0 : Number(raw) || 0,
+        empPfMonthly: empPf === "" ? null : Number(empPf),
+        erPfMonthly: erPf === "" ? null : Number(erPf),
+        ptMonthly: null,
+      });
+      setPt(String(preview.pt_monthly ?? defaultPtForGross(preview.gross_monthly)));
+    }
+  };
+
+  const applyPfDefaults = () => {
+    if (!applyPfFromBasic(basic)) return;
+    if (parsed.gross_monthly != null) {
+      setPt(String(defaultPtForGross(parsed.gross_monthly)));
+    }
+  };
+
   const handleSave = () => {
     if (!employee) return;
-    const structure = computeCtcStructure({
-      basicMonthly: basic === "" ? 0 : Number(basic) || 0,
-      specialAllowanceMonthly: special === "" ? 0 : Number(special) || 0,
-      autoHra: true,
-    });
+    const structure = computeCtcStructure(buildArgs());
+    if (!structure.declared) return;
     saveSalaryStructure(employee.id, {
       ...structure,
-      basic_monthly: basic === "" ? null : Number(basic) || 0,
-      hra_monthly: basic === "" ? null : hraFromBasic(Number(basic) || 0),
-      special_allowance_monthly: special === "" ? null : Number(special) || 0,
+      hra_monthly: hraFixedMonthly(),
       date_of_birth: dob || null,
       date_of_joining: doj || null,
       wef_date: wef || null,
     });
+    setEmpPf(String(structure.emp_pf_monthly ?? ""));
+    setErPf(String(structure.er_pf_monthly ?? ""));
+    setPt(String(structure.pt_monthly ?? ""));
+    setBonus(String(structure.bonus_monthly ?? ""));
     setSaveMsg("Saved");
     window.setTimeout(() => setSaveMsg(""), 2500);
   };
@@ -234,7 +326,6 @@ export default function SalaryEmployeeCtc() {
 
   return (
     <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-[#f0eee8]">
-      {/* Title + back — full width */}
       <div className="shrink-0 border-b border-[#e5e1d8] bg-[#f7f5f0]">
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-4">
           <h1 className="text-2xl sm:text-[1.75rem] font-bold text-[#1a1a1a] tracking-tight">
@@ -255,11 +346,9 @@ export default function SalaryEmployeeCtc() {
         </div>
       </div>
 
-      {/* Full-width document */}
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="w-full px-3 sm:px-5 lg:px-8 xl:px-10 py-4 sm:py-5 pb-28">
           <div className="w-full bg-white border border-[#e5e1d8] shadow-[0_1px_3px_rgba(40,35,25,0.04)] overflow-hidden">
-            {/* Profile band */}
             <div className="px-6 sm:px-8 lg:px-10 py-5 sm:py-6 border-b border-[#eceae4] flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-lg sm:text-xl font-bold text-[#1a1a1a]">{name}</h2>
@@ -275,7 +364,6 @@ export default function SalaryEmployeeCtc() {
               <ProfileField label="Employee Code">{employee.employee_code || "—"}</ProfileField>
               <ProfileField label="Employee Name">{employee.full_name || "—"}</ProfileField>
               <ProfileField label="Department">{employee.department || "—"}</ProfileField>
-
               <ProfileField label="Designation">{employee.designation || "—"}</ProfileField>
               <ProfileField label="Segment">{segment}</ProfileField>
               <div className="min-w-0">
@@ -290,7 +378,6 @@ export default function SalaryEmployeeCtc() {
                   <FormDateInput value={doj} onChange={(e) => setDoj(e.target.value)} className={dateInput} />
                 </div>
               </div>
-
               <div className="min-w-0">
                 <p className={fieldLabel}>W.E.F.</p>
                 <div className="mt-1.5">
@@ -299,43 +386,26 @@ export default function SalaryEmployeeCtc() {
               </div>
             </div>
 
-            {/* PART A */}
-            <SheetSectionHead title="PART A — Fixed Compensation" right="w.e.f. rate · per annum" />
+            <SheetSectionHead title="PART A — Gross & Take Home" right="w.e.f. rate · per annum" />
             <ColHeads />
 
             <SheetRow
               label="Basic"
-              monthly={
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={basic}
-                  onChange={(e) => setBasic(e.target.value)}
-                  className={amountInput}
-                  placeholder=""
-                  aria-label="Basic monthly"
-                />
-              }
+              monthly={<AmountInput value={basic} onChange={handleBasicChange} label="Basic monthly" />}
               pa={paFromMonthly(basic === "" ? null : Number(basic))}
             />
             <SheetRow
-              label="HRA (40% of Basic)"
+              label="HRA"
               monthly={<MoneyCell value={parsed.hra_monthly} />}
               pa={paFromMonthly(parsed.hra_monthly)}
             />
             <SheetRow
               label="Special Allowance"
               monthly={
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
+                <AmountInput
                   value={special}
-                  onChange={(e) => setSpecial(e.target.value)}
-                  className={amountInput}
-                  placeholder=""
-                  aria-label="Special allowance monthly"
+                  onChange={handleSpecialChange}
+                  label="Special allowance monthly"
                 />
               }
               pa={paFromMonthly(special === "" ? null : Number(special))}
@@ -348,12 +418,12 @@ export default function SalaryEmployeeCtc() {
             />
             <SheetRow
               label="Less : Employee PF"
-              monthly={<MoneyCell value={parsed.emp_pf_monthly} />}
+              monthly={<AmountInput value={empPf} onChange={setEmpPf} label="Employee PF monthly" />}
               pa={paFromMonthly(parsed.emp_pf_monthly)}
             />
             <SheetRow
               label="Less : P. Tax"
-              monthly={<MoneyCell value={parsed.pt_monthly} />}
+              monthly={<AmountInput value={pt} onChange={setPt} label="Professional tax monthly" />}
               pa={paFromMonthly(parsed.pt_monthly)}
             />
             <SheetRow
@@ -372,17 +442,20 @@ export default function SalaryEmployeeCtc() {
               pa={paFromMonthly(parsed.take_home_monthly)}
             />
 
-            {/* PART B */}
-            <SheetSectionHead title="PART B — Retirals & Statutory Add-ons" right="employer cost" />
+            <SheetSectionHead title="PART B — Employer Contributions" right="employer cost" />
             <ColHeads />
 
             <SheetRow
               label="Add : Employer PF"
-              monthly={<MoneyCell value={parsed.er_pf_monthly} />}
+              monthly={<AmountInput value={erPf} onChange={setErPf} label="Employer PF monthly" />}
               pa={paFromMonthly(parsed.er_pf_monthly)}
             />
             <SheetRow
-              label="Add : Employer ESIC"
+              label={
+                parsed.emp_esic_applicable
+                  ? "Add : Employer ESIC"
+                  : "Add : Employer ESIC (not applicable)"
+              }
               monthly={<MoneyCell value={parsed.declared ? parsed.er_esic_monthly : null} />}
               pa={paFromMonthly(parsed.declared ? parsed.er_esic_monthly : null)}
             />
@@ -398,7 +471,7 @@ export default function SalaryEmployeeCtc() {
             />
             <SheetRow
               label="Add : Bonus"
-              monthly={<MoneyCell value={parsed.bonus_monthly} />}
+              monthly={<AmountInput value={bonus} onChange={setBonus} label="Bonus monthly" />}
               pa={paFromMonthly(parsed.bonus_monthly)}
             />
             <SheetRow
@@ -413,15 +486,10 @@ export default function SalaryEmployeeCtc() {
               monthly={<MoneyCell value={parsed.ctc_monthly} strong />}
               pa={parsed.ctc_annual}
             />
-
-            <p className="px-6 sm:px-8 lg:px-10 py-4 text-[11px] leading-relaxed text-[#8a857c] bg-[#faf9f6] border-t border-[#eceae4]">
-              {statutoryHelpText()}
-            </p>
           </div>
         </div>
       </div>
 
-      {/* Actions */}
       <footer className="shrink-0 sticky bottom-0 z-20 border-t border-[#e5e1d8] bg-[#f7f5f0]/95 backdrop-blur-sm">
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-3 flex flex-wrap items-center gap-2">
           <button
@@ -431,6 +499,15 @@ export default function SalaryEmployeeCtc() {
           >
             {saveMsg ? <Check className="h-4 w-4" /> : null}
             {saveMsg ? "CTC saved" : "Save CTC"}
+          </button>
+          <button
+            type="button"
+            onClick={applyPfDefaults}
+            disabled={!basic || Number(basic) <= 0}
+            className="h-10 px-4 rounded-md border border-[#d4d0c8] bg-white text-sm font-medium text-[#2a2a2a] hover:bg-[#faf9f6] disabled:opacity-40 disabled:pointer-events-none"
+            title="Fill Employee PF 12% and Employer PF 13% of Basic (capped ₹15,000)"
+          >
+            Suggest PF (12% / 13%)
           </button>
           <button
             type="button"

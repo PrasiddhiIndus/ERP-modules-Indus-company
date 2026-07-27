@@ -1,19 +1,26 @@
 /**
  * Salary Admin — UI-only helpers (no salary DB yet).
- * Employee list comes from Employee Master; CTC inputs persist in localStorage.
+ * Compensation scheme matches Indus sheet Year 2026-2027.
  *
- * CTC / Part A–B rates:
- * - HRA = 40% of Basic
- * - Employee PF 12% (Basic capped ₹15,000) · Employer PF 13%
- * - ESIC 0.75% / 3.25% while Gross ≤ ₹21,000
- * - P.Tax ₹200 slab (when Gross > ₹12,000)
- * - Gratuity 4.81% · Leave 2.25% · Bonus 8.33%
+ * PART A (monthly; P.A. = monthly × 12):
+ * - Basic — manual
+ * - HRA = 1000 + 2120 + 16 − 62  (fixed sheet formula)
+ * - Special Allowance — manual (balancing figure)
+ * - GROSS = Basic + HRA + Special Allowance
+ * - Employee PF — manual (suggest 12% of Basic, capped ₹15,000)
+ * - P.Tax — manual (suggest ₹200 when Gross > ₹12,000)
+ * - Employee ESIC = Gross × 0.75% if Gross ≤ ₹21,000 else 0
+ * - TAKE HOME = Gross − Emp PF − P.Tax − Emp ESIC
  *
- * Salary Processing sheet (TotalDays = 26 fixed):
- * - M PF earned = L/TotalDays*K · O Basic earned = N/TotalDays*K
- * - P HRA = (N*0.40)/TotalDays*K · Q Special = (J-N-N*0.40)/TotalDays*K
- * - R = O+P+Q · S = M*0.12 · T = IF(R<=21000,R*0.0075,0)
- * - Z = SUM(S:Y) · AA = R-Z · AB = ROUND(AA,0)
+ * PART B:
+ * - Employer PF — manual (suggest 13% of Basic, capped ₹15,000)
+ * - Employer ESIC = Gross × 3.25% if Gross ≤ ₹21,000 else 0
+ * - Gratuity = Basic × 4.81%
+ * - Leave Encashment = (Basic / 26) × (7 / 12)
+ * - Bonus — manual
+ * - Total (B) = Er PF + Er ESIC + Gratuity + Leave Encashment + Bonus
+ *
+ * CTC (Monthly) = Gross + Total (B) · CTC (Annual) = CTC Monthly × 12
  */
 
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -27,9 +34,16 @@ export const ER_ESIC_RATE = 0.0325;
 export const PT_AMOUNT = 200;
 export const PT_GROSS_MIN = 12000;
 export const GRATUITY_RATE = 0.0481;
-export const LEAVE_ENCASH_RATE = 0.0225;
-export const BONUS_RATE = 0.0833;
-export const HRA_OF_BASIC_RATE = 0.4;
+export const LEAVE_ENCASH_DAYS = 26;
+export const LEAVE_ENCASH_MONTHS = 7 / 12;
+
+/** Fixed HRA from compensation sheet: 1000 + 2120 + 16 − 62 = 3074. */
+export const HRA_FIXED = Object.freeze({
+  a: 1000,
+  b: 2120,
+  c: 16,
+  d: 62,
+});
 
 function round0(n) {
   return Math.round(Number(n) || 0);
@@ -48,7 +62,6 @@ export function paFromMonthly(monthly) {
   return round0(Number(monthly) * 12);
 }
 
-/** Indian FY label e.g. 2026-2027 (Apr–Mar). */
 export function currentCompensationYear(date = new Date()) {
   const y = date.getFullYear();
   const start = date.getMonth() >= 3 ? y : y - 1;
@@ -74,9 +87,6 @@ function writeStore(map) {
   }
 }
 
-/**
- * @returns {Map<string, object>} employeeMasterId → saved structure
- */
 export function fetchSalaryStructureMap() {
   const store = readStore();
   const map = new Map();
@@ -104,48 +114,88 @@ export function saveSalaryStructure(employeeMasterId, payload) {
   return store[id];
 }
 
-/** HRA monthly from Basic (sheet: N * 0.40). */
-export function hraFromBasic(basicMonthly) {
-  return round0(Number(basicMonthly) * HRA_OF_BASIC_RATE);
+/** HRA monthly from fixed sheet expression. */
+export function hraFixedMonthly() {
+  return round0(HRA_FIXED.a + HRA_FIXED.b + HRA_FIXED.c - HRA_FIXED.d);
+}
+
+/** @deprecated — sheet uses fixed HRA, not % of Basic. */
+export function hraFromBasic(_basicMonthly) {
+  return hraFixedMonthly();
+}
+
+export function suggestedEmpPf(basicMonthly) {
+  const pfBase = Math.min(round0(basicMonthly), PF_WAGE_CAP);
+  return round0(pfBase * EMP_PF_RATE);
+}
+
+export function suggestedErPf(basicMonthly) {
+  const pfBase = Math.min(round0(basicMonthly), PF_WAGE_CAP);
+  return round0(pfBase * ER_PF_RATE);
+}
+
+export function suggestedPfFromBasic(basicMonthly) {
+  const basic = round0(basicMonthly);
+  return {
+    basic,
+    empPf: suggestedEmpPf(basic),
+    erPf: suggestedErPf(basic),
+  };
+}
+
+export function leaveEncashFromBasic(basicMonthly) {
+  const basic = Number(basicMonthly) || 0;
+  if (basic <= 0) return 0;
+  return round0((basic / LEAVE_ENCASH_DAYS) * LEAVE_ENCASH_MONTHS);
 }
 
 /**
- * Compute full Part A / Part B / CTC from editable Basic + Special Allowance.
- * HRA = 40% of Basic (sheet formula). Optional hraMonthly overrides only if passed explicitly as non-null and autoHra is false.
+ * Compute Part A / Part B / CTC per written compensation formulas.
  */
 export function computeCtcStructure({
   basicMonthly = 0,
   specialAllowanceMonthly = 0,
+  empPfMonthly = null,
+  erPfMonthly = null,
+  ptMonthly = null,
+  bonusMonthly = null,
   hraMonthly = null,
-  autoHra = true,
 } = {}) {
   const basic = round0(basicMonthly);
   const special = round0(specialAllowanceMonthly);
-  const hra =
-    autoHra || hraMonthly == null ? hraFromBasic(basic) : round0(hraMonthly);
+  const hra = hraMonthly == null ? hraFixedMonthly() : round0(hraMonthly);
+  const gross = basic + hra + special;
 
-  const hasSalary = basic > 0 || special > 0 || hra > 0;
-
-  if (!hasSalary) {
+  if (basic <= 0 && special <= 0 && hra <= 0) {
     return emptyCtcStructure();
   }
 
-  const gross = basic + hra + special;
-  const pfBase = Math.min(basic, PF_WAGE_CAP);
-  const empPf = round0(pfBase * EMP_PF_RATE);
-  const erPf = round0(pfBase * ER_PF_RATE);
+  const empPf =
+    empPfMonthly != null && empPfMonthly !== ""
+      ? round0(empPfMonthly)
+      : suggestedEmpPf(basic);
+  const erPf =
+    erPfMonthly != null && erPfMonthly !== ""
+      ? round0(erPfMonthly)
+      : suggestedErPf(basic);
 
   const esicApplicable = gross > 0 && gross <= ESIC_GROSS_THRESHOLD;
   const empEsic = esicApplicable ? round0(gross * EMP_ESIC_RATE) : 0;
   const erEsic = esicApplicable ? round0(gross * ER_ESIC_RATE) : 0;
 
-  const pt = gross > PT_GROSS_MIN ? PT_AMOUNT : 0;
+  const pt =
+    ptMonthly != null && ptMonthly !== ""
+      ? round0(ptMonthly)
+      : gross > PT_GROSS_MIN
+        ? PT_AMOUNT
+        : 0;
 
   const takeHome = gross - empPf - pt - empEsic;
 
   const gratuity = round0(basic * GRATUITY_RATE);
-  const leaveEncash = round0(basic * LEAVE_ENCASH_RATE);
-  const bonus = round0(gross * BONUS_RATE);
+  const leaveEncash = leaveEncashFromBasic(basic);
+  const bonus =
+    bonusMonthly != null && bonusMonthly !== "" ? round0(bonusMonthly) : 0;
 
   const totalB = erPf + erEsic + gratuity + leaveEncash + bonus;
   const ctcMonthly = gross + totalB;
@@ -198,22 +248,14 @@ export function emptyCtcStructure() {
 
 export function statutoryHelpText() {
   return (
-    `HRA ${HRA_OF_BASIC_RATE * 100}% of Basic` +
-    ` · Employee PF ${EMP_PF_RATE * 100}% (Basic capped ₹${PF_WAGE_CAP.toLocaleString("en-IN")})` +
-    ` · Employer PF ${ER_PF_RATE * 100}%` +
-    ` · ESIC ${(EMP_ESIC_RATE * 100).toFixed(2)}% / ${(ER_ESIC_RATE * 100).toFixed(2)}% (applies while Gross ≤ ₹${ESIC_GROSS_THRESHOLD.toLocaleString("en-IN")})` +
-    ` · P.Tax ₹${PT_AMOUNT} slab` +
-    ` · Gratuity ${(GRATUITY_RATE * 100).toFixed(2)}% of Basic` +
-    ` · Leave Encashment ${(LEAVE_ENCASH_RATE * 100).toFixed(2)}% of Basic` +
-    ` · Bonus ${(BONUS_RATE * 100).toFixed(2)}% of Gross` +
-    `. Edit Basic or Special Allowance and press Save to keep values on this device.`
+    `HRA = ${HRA_FIXED.a} + ${HRA_FIXED.b} + ${HRA_FIXED.c} − ${HRA_FIXED.d}` +
+    ` · Leave Encashment = (Basic ÷ ${LEAVE_ENCASH_DAYS}) × (7 ÷ 12)` +
+    ` · Bonus — manual`
   );
 }
 
-/** Company paid-days base (not calendar days). */
 export const DEFAULT_MONTH_DAYS = 26;
 
-/** Sheet: amount / TotalDays * presentDays */
 function sheetProrate(amount, presentDays, totalDays = DEFAULT_MONTH_DAYS) {
   const base = Number(amount) || 0;
   const k = Number(presentDays);
@@ -222,17 +264,10 @@ function sheetProrate(amount, presentDays, totalDays = DEFAULT_MONTH_DAYS) {
   return round0((base / td) * k);
 }
 
-/** Default P.Tax from simple slab (state table can replace later). */
 export function defaultPtForGross(grossWages) {
   return Number(grossWages) > PT_GROSS_MIN ? PT_AMOUNT : 0;
 }
 
-/**
- * Salary Processing row — formulas match the company sheet:
- * M=L/TotalDays*K, O=N/TotalDays*K, P=(N*0.40)/TotalDays*K,
- * Q=(J-N-N*0.40)/TotalDays*K, R=O+P+Q, S=M*0.12,
- * T=IF(R<=21000,R*0.0075,0), Z=SUM(S:Y), AA=R-Z, AB=ROUND(AA,0).
- */
 export function computeProcessingRow({
   structure,
   presentDays = DEFAULT_MONTH_DAYS,
@@ -247,12 +282,11 @@ export function computeProcessingRow({
   const declared = Boolean(structure?.declared);
   const basicN = declared ? round0(structure.basic_monthly) : 0;
   const specialStored = declared ? round0(structure.special_allowance_monthly) : 0;
-  const hraRate = hraFromBasic(basicN);
+  const hraStored = declared
+    ? round0(structure.hra_monthly ?? hraFixedMonthly())
+    : 0;
   const salaryRateJ = declared
-    ? round0(
-        structure.gross_monthly ??
-          basicN + hraRate + specialStored
-      )
+    ? round0(structure.gross_monthly ?? basicN + hraStored + specialStored)
     : 0;
 
   const emptyExtras = {
@@ -288,30 +322,21 @@ export function computeProcessingRow({
   const K = Number(presentDays);
   const TotalDays = Number(totalDays) || DEFAULT_MONTH_DAYS;
 
-  // L — PF Basic (capped), overridable
   const pfBasicL =
     pfBasicOverride != null && pfBasicOverride !== ""
       ? round0(pfBasicOverride)
       : Math.min(basicN, PF_WAGE_CAP);
 
-  // M = L / TotalDays * K
   const pfEarnedM = sheetProrate(pfBasicL, K, TotalDays);
-  // O = N / TotalDays * K
   const basicEarnedO = sheetProrate(basicN, K, TotalDays);
-  // P = (N * 0.40) / TotalDays * K
-  const hraP = sheetProrate(basicN * HRA_OF_BASIC_RATE, K, TotalDays);
-  // Q = (J - N - N*0.40) / TotalDays * K
-  const specialQ = sheetProrate(salaryRateJ - basicN - basicN * HRA_OF_BASIC_RATE, K, TotalDays);
-  // R = O + P + Q
+  const hraP = sheetProrate(hraStored, K, TotalDays);
+  const specialQ = sheetProrate(specialStored, K, TotalDays);
   const grossWagesR = basicEarnedO + hraP + specialQ;
-  // S = M * 0.12
   const empPfS = round0(pfEarnedM * EMP_PF_RATE);
-  // T = IF(R <= 21000, R * 0.0075, 0)
   const empEsicT =
     grossWagesR > 0 && grossWagesR <= ESIC_GROSS_THRESHOLD
       ? round0(grossWagesR * EMP_ESIC_RATE)
       : 0;
-  // U — P.Tax (slab default, overridable input)
   const ptU =
     ptOverride != null && ptOverride !== ""
       ? round0(ptOverride)
@@ -321,11 +346,8 @@ export function computeProcessingRow({
   const salAdvW = round0(salAdv);
   const unpaidX = round0(unpaidPaid);
   const tdsY = round0(tds);
-  // Z = SUM(S:Y)
   const totalDedZ = empPfS + empEsicT + ptU + loanV + salAdvW + unpaidX + tdsY;
-  // AA = R - Z
   const netAA = grossWagesR - totalDedZ;
-  // AB = ROUND(AA, 0)
   const bankAB = round0(netAA);
 
   return {
@@ -355,12 +377,9 @@ export function computeProcessingRow({
 
 export function processingHelpText() {
   return (
-    `TotalDays = ${DEFAULT_MONTH_DAYS} (company paid days). ` +
-    `PF earned = PF Basic / TotalDays × P.Days · Basic earned = Basic / TotalDays × P.Days · ` +
-    `HRA = (Basic × 40%) / TotalDays × P.Days · Special = (Gross − Basic − Basic×40%) / TotalDays × P.Days · ` +
-    `Gross wages = Basic earned + HRA + Special · PF = PF earned × 12% · ` +
-    `ESIC = Gross×0.75% if Gross ≤ ₹21,000 · Total ded. = PF+ESIC+P.Tax+Loan+Sal Adv+Unpaid/Paid+TDS · ` +
-    `Net = Gross − Total ded. · Bank = ROUND(Net, 0).`
+    `TotalDays = ${DEFAULT_MONTH_DAYS}. ` +
+    `Prorate Basic / HRA / Special from saved master · PF = PF earned × 12% · ` +
+    `ESIC if Gross ≤ ₹21,000 · Net = Gross − deductions.`
   );
 }
 
