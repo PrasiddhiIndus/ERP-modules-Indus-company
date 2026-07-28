@@ -232,12 +232,12 @@ export function EmployeeLeaveManagementPage() {
   const [registerUsageByCode, setRegisterUsageByCode] = useState({});
 
   const [search, setSearch] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
   const [encashPage, setEncashPage] = useState(1);
   const [encashPageSize, setEncashPageSize] = useState(25);
   const [balancesPage, setBalancesPage] = useState(1);
   const [balancesPageSize, setBalancesPageSize] = useState(25);
   const [ledgerSubTab, setLedgerSubTab] = useState("opening");
-  const [ledgerSearch, setLedgerSearch] = useState("");
   const [ledgerSort, setLedgerSort] = useState({ key: "empCode", direction: "asc" });
   const [ledgerEditingId, setLedgerEditingId] = useState(null);
   const [ledgerEditDraft, setLedgerEditDraft] = useState({});
@@ -364,14 +364,24 @@ export function EmployeeLeaveManagementPage() {
     }
   }, [plEncashPrefs]);
 
+  const departmentOptions = useMemo(() => {
+    const set = new Set();
+    for (const e of employees || []) {
+      const d = String(e.department || "").trim();
+      if (d) set.add(d);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [employees]);
+
   const filteredEmployees = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) return employees;
     return (employees || []).filter((e) => {
+      if (departmentFilter && String(e.department || "").trim() !== departmentFilter) return false;
+      if (!needle) return true;
       const hay = [e.employeeName, e.empCode, e.employeeId, e.department].join(" ").toLowerCase();
       return hay.includes(needle);
     });
-  }, [employees, search]);
+  }, [employees, search, departmentFilter]);
 
   const balanceByCode = useMemo(() => {
     const out = {};
@@ -397,10 +407,13 @@ export function EmployeeLeaveManagementPage() {
     [filteredEmployees, plEncashPrefs]
   );
 
-  const balancesRows = useMemo(
-    () =>
-      filteredEmployees.map((e) => {
+  const balancesRows = useMemo(() => {
+    // Ledger shows only active employees from employee master (filteredEmployees).
+    // Do not inject balance-only rows for inactive / unknown codes.
+    return (filteredEmployees || [])
+      .map((e) => {
         const code = normalizeAttendanceEmpCode(e.empCode);
+        if (!code) return null;
         const stored = balanceByCode[code] || {};
         const liveUsed = registerUsageByCode[code] || {};
         // Prefer live register counts for used so marking PL/CL/SL updates the ledger immediately.
@@ -420,6 +433,7 @@ export function EmployeeLeaveManagementPage() {
           id: code || e.empCode || e.employeeId || e.employeeName || "unknown-employee",
           empCode: code || e.empCode,
           employeeName: e.employeeName,
+          department: e.department || "",
           ...mapLedgerLeaveFields(b),
           opening_pl: b.opening_pl ?? 0,
           used_pl: b.used_pl ?? 0,
@@ -435,24 +449,27 @@ export function EmployeeLeaveManagementPage() {
           carried_cl: b.carried_cl ?? 0,
           expired_cl: b.expired_cl ?? 0,
         };
-      }),
-    [filteredEmployees, balanceByCode, registerUsageByCode]
-  );
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(a.empCode || "").localeCompare(String(b.empCode || ""), undefined, { numeric: true }));
+  }, [filteredEmployees, balanceByCode, registerUsageByCode]);
 
   const ledgerRows = useMemo(() => {
-    const needle = ledgerSearch.trim().toLowerCase();
+    const needle = search.trim().toLowerCase();
     const tabFields = LEDGER_TAB_FIELD_KEYS[ledgerSubTab] || [];
     const filtered = !needle
       ? balancesRows
       : balancesRows.filter((row) => {
-          const hay = [row.empCode, row.employeeName, ...tabFields.map((k) => row[k])]
+          const hay = [row.empCode, row.employeeName, row.department, ...tabFields.map((k) => row[k])]
             .join(" ")
             .toLowerCase();
           return hay.includes(needle);
         });
 
     const toSortValue = (row, key) => {
-      if (key === "empCode" || key === "employeeName") return String(row[key] || "").toLowerCase();
+      if (key === "empCode" || key === "employeeName" || key === "department") {
+        return String(row[key] || "").toLowerCase();
+      }
       return Number(row[key] || 0);
     };
 
@@ -469,7 +486,7 @@ export function EmployeeLeaveManagementPage() {
     });
 
     return sorted;
-  }, [balancesRows, ledgerSearch, ledgerSort, ledgerSubTab]);
+  }, [balancesRows, search, ledgerSort, ledgerSubTab]);
 
   const encashTotalPages = Math.max(1, Math.ceil(encashRows.length / encashPageSize));
   const encashCurrentPage = Math.min(encashPage, encashTotalPages);
@@ -493,11 +510,11 @@ export function EmployeeLeaveManagementPage() {
   useEffect(() => {
     setEncashPage(1);
     setBalancesPage(1);
-  }, [search, year, encashPageSize, balancesPageSize]);
+  }, [search, departmentFilter, year, encashPageSize, balancesPageSize]);
 
   useEffect(() => {
     setBalancesPage(1);
-  }, [ledgerSearch, ledgerSort.key, ledgerSort.direction, ledgerSubTab]);
+  }, [ledgerSort.key, ledgerSort.direction, ledgerSubTab]);
 
   useEffect(() => {
     setLedgerEditingId(null);
@@ -506,7 +523,12 @@ export function EmployeeLeaveManagementPage() {
   }, [ledgerSubTab, year]);
 
   useEffect(() => {
-    const validKeys = new Set(["empCode", "employeeName", ...(LEDGER_TAB_FIELD_KEYS[ledgerSubTab] || [])]);
+    const validKeys = new Set([
+      "empCode",
+      "employeeName",
+      "department",
+      ...(LEDGER_TAB_FIELD_KEYS[ledgerSubTab] || []),
+    ]);
     if (!validKeys.has(ledgerSort.key)) {
       setLedgerSort({ key: "empCode", direction: "asc" });
     }
@@ -625,6 +647,13 @@ export function EmployeeLeaveManagementPage() {
         headerClassName: "min-w-[220px]",
         cellClassName: "min-w-[220px]",
       },
+      {
+        key: "department",
+        label: sortLabel("Department", "department"),
+        render: (r) => r.department || "—",
+        headerClassName: "min-w-[140px]",
+        cellClassName: "min-w-[140px]",
+      },
     ],
     [sortLabel]
   );
@@ -730,6 +759,7 @@ export function EmployeeLeaveManagementPage() {
       const out = {
         "Employee Code": r.empCode || "",
         Employee: r.employeeName || "",
+        Department: r.department || "",
       };
       for (const t of LEDGER_LEAVE_TYPES) {
         out[t.label] = Number(r[`${tabPrefix}_${t.key}`] || 0);
@@ -763,40 +793,37 @@ export function EmployeeLeaveManagementPage() {
       <SectionCard
         title={`Leave Management · ${year}`}
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {activeTab !== "ledger" ? (
+              <>
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] font-semibold text-gray-500 uppercase">Year</label>
+                  <TinyInput
+                    type="number"
+                    value={year}
+                    onChange={(e) => setYear(Number(e.target.value))}
+                    className="w-[100px]"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setYear(YEAR_DEFAULT)}
+                  disabled={loading}
+                  className="h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold disabled:opacity-60"
+                >
+                  Current Year
+                </button>
+              </>
+            ) : null}
             {realtimeLive ? <StatusChip label="Live" severity="info" /> : null}
             <StatusChip label="Auto-synced from register" severity="high" />
           </div>
         }
       >
-        <FilterBar>
-          <div className="flex flex-col gap-0.5">
-            <label className="text-[10px] font-semibold text-gray-500 uppercase">Search employee</label>
-            <TinyInput
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Code, name, employee ID, department…"
-              className="min-w-[280px]"
-            />
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <label className="text-[10px] font-semibold text-gray-500 uppercase">Year</label>
-            <TinyInput type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} className="w-[120px]" />
-          </div>
-          <button
-            type="button"
-            onClick={() => setYear(YEAR_DEFAULT)}
-            disabled={loading}
-            className="h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold disabled:opacity-60"
-          >
-            Current Year
-          </button>
-        </FilterBar>
-
         {error ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div> : null}
 
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <MetricCard label="Employees" value={filteredEmployees.length} hint="After search filter" />
+          <MetricCard label="Employees" value={filteredEmployees.length} hint="After search / department filter" />
           <MetricCard label="PL Encash Selected" value={totalEncashSelected} tone="bg-emerald-50/50" />
           <MetricCard label="PL Carry Cap" value={fmtNum(rules.pl_carry_forward_max)} />
           <MetricCard label="SL Carry Cap" value={fmtNum(rules.sl_carry_forward_max)} />
@@ -890,7 +917,51 @@ export function EmployeeLeaveManagementPage() {
 
         {activeTab === "ledger" && (
           <SectionCard title={`Yearly Leave Balance Ledger (${year})`} right={null} className="mt-4">
-            <div className="mb-4 flex flex-wrap gap-1 border-b border-gray-200 pb-2">
+            <FilterBar>
+              <div className="flex flex-col gap-0.5">
+                <label className="text-[10px] font-semibold text-gray-500 uppercase">Search employee</label>
+                <TinyInput
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Code, name, employee ID, department…"
+                  className="min-w-[280px]"
+                />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <label className="text-[10px] font-semibold text-gray-500 uppercase">Department</label>
+                <TinySelect
+                  value={departmentFilter}
+                  onChange={(e) => setDepartmentFilter(e.target.value)}
+                  className="min-w-[180px]"
+                >
+                  <option value="">All departments</option>
+                  {departmentOptions.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </TinySelect>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <label className="text-[10px] font-semibold text-gray-500 uppercase">Year</label>
+                <TinyInput
+                  type="number"
+                  value={year}
+                  onChange={(e) => setYear(Number(e.target.value))}
+                  className="w-[120px]"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setYear(YEAR_DEFAULT)}
+                disabled={loading}
+                className="h-8 px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold disabled:opacity-60"
+              >
+                Current Year
+              </button>
+            </FilterBar>
+
+            <div className="mt-4 mb-4 flex flex-wrap gap-1 border-b border-gray-200 pb-2">
               {LEDGER_SUB_TABS.map((tab) => (
                 <button
                   key={tab.id}
@@ -909,15 +980,6 @@ export function EmployeeLeaveManagementPage() {
 
             <div className="space-y-3">
               <FilterBar>
-                <div className="flex flex-col gap-0.5">
-                  <label className="text-[10px] font-semibold text-gray-500 uppercase">Search employee</label>
-                  <TinyInput
-                    value={ledgerSearch}
-                    onChange={(e) => setLedgerSearch(e.target.value)}
-                    placeholder="Code, name, or values in this tab..."
-                    className="min-w-[280px]"
-                  />
-                </div>
                 <button
                   type="button"
                   onClick={downloadSampleSheet}
@@ -962,8 +1024,8 @@ export function EmployeeLeaveManagementPage() {
               <DenseTable
                 rows={balancesPageRows}
                 rowKey="id"
-                frozenColumnCount={2}
-                frozenColumnWidths={[130, 220]}
+                frozenColumnCount={3}
+                frozenColumnWidths={[130, 220, 140]}
                 columns={ledgerColumnsByTab[ledgerSubTab] || []}
               />
               <LeaveBalanceImportModal

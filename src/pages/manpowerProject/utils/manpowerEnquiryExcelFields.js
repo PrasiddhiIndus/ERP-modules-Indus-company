@@ -25,6 +25,8 @@ export const TENDER_PORTAL_OPTIONS = ["Ariba", "GeM", "eProcurement", "Custom"];
 export const EMD_FEE_STATUS_OPTIONS = ["Not Applicable", "Applicable - Pay", "Exempted"];
 export const PAYMENT_MODE_OPTIONS = ["Demand Draft", "NEFT", "Online"];
 export const PAYMENT_STATUS_OPTIONS = ["Pending", "Paid", "Refunded"];
+export const INQUIRY_RESULT_OPTIONS = ["Alloted", "Not Alloted"];
+export const INQUIRY_TRACKING_STATUS_OPTIONS = ["New", "In Progress", "Follow Up", "Closed"];
 export const INDIA_STATES_UT = [
   "Andaman and Nicobar Islands",
   "Andhra Pradesh",
@@ -135,6 +137,90 @@ export function extractWorkflowMeta(meta = {}) {
     delete workflow[key];
   });
   return workflow;
+}
+
+/** Enquiry Master List result (stored in authorization_to workflow meta). */
+export function getEnquiryResultFromRow(row) {
+  const { meta } = parseAuthorizationMeta(row?.authorization_to);
+  if (meta.enquiryResult) return meta.enquiryResult;
+  const status = String(row?.status || "").trim();
+  if (status === "Approved") return "Alloted";
+  if (status === "Rejected") return "Not Alloted";
+  return "";
+}
+
+export function getResultRemarkFromRow(row) {
+  const { meta } = parseAuthorizationMeta(row?.authorization_to);
+  return String(meta.rejectionRemark || "").trim();
+}
+
+export function getTrackingStatusFromRow(row) {
+  const { meta } = parseAuthorizationMeta(row?.authorization_to);
+  return meta.trackingStatus || "New";
+}
+
+export async function resolveIfslNumber(supabaseClient, currentIfslNumber) {
+  if (currentIfslNumber) return currentIfslNumber;
+  const { data: allRows, error } = await supabaseClient.from("manpower_enquiries").select("authorization_to");
+  if (error) throw error;
+  const year = new Date().getFullYear();
+  let maxSequence = 0;
+  (allRows || []).forEach((row) => {
+    const { meta } = parseAuthorizationMeta(row.authorization_to);
+    const val = String(meta.ifslNumber || "");
+    const match = val.match(/^(?:IFSL|IFSPL)\/ENQ\/(\d{4})\/(\d{4})$/);
+    if (match && Number(match[1]) === year) {
+      maxSequence = Math.max(maxSequence, Number(match[2]));
+    }
+  });
+  return `IFSPL/ENQ/${year}/${String(maxSequence + 1).padStart(4, "0")}`;
+}
+
+/** Merge tracking status and enquiry result into workflow meta before save. */
+export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supabase, { isEdit = false } = {}) {
+  const base = extractWorkflowMeta(existingMeta);
+  const trackingStatus = isEdit ? form.trackingStatus || base.trackingStatus || "New" : "New";
+  const next = { ...base, trackingStatus };
+
+  if (!isEdit) {
+    return { workflowMeta: next, status: undefined };
+  }
+
+  const enquiryResult = String(form.enquiryResult || "").trim();
+  if (!enquiryResult) {
+    return { workflowMeta: next, status: undefined };
+  }
+
+  if (enquiryResult === "Alloted") {
+    const ifslNumber = await resolveIfslNumber(supabase, next.ifslNumber || existingMeta.ifslNumber);
+    const approvedAt = base.approvedAt || base.convertedAt || new Date().toISOString();
+    delete next.rejectionRemark;
+    delete next.rejectedAt;
+    return {
+      workflowMeta: {
+        ...next,
+        enquiryResult: "Alloted",
+        ifslNumber,
+        approvedAt,
+        convertedAt: approvedAt,
+      },
+      status: "Approved",
+    };
+  }
+
+  if (enquiryResult === "Not Alloted") {
+    return {
+      workflowMeta: {
+        ...next,
+        enquiryResult: "Not Alloted",
+        rejectionRemark: String(form.resultRemark || "").trim(),
+        rejectedAt: base.rejectedAt || new Date().toISOString(),
+      },
+      status: "Rejected",
+    };
+  }
+
+  return { workflowMeta: next, status: undefined };
 }
 
 function toInputDate(value) {
@@ -349,6 +435,9 @@ export function inquiryRowToForm(row) {
     paymentStatus: meta.paymentStatus || "",
     paymentDate: toInputDate(meta.paymentDate),
     portalProofPath: meta.portalProofPath || "",
+    trackingStatus: getTrackingStatusFromRow(row),
+    enquiryResult: getEnquiryResultFromRow(row),
+    resultRemark: getResultRemarkFromRow(row),
   };
 }
 
@@ -585,6 +674,7 @@ export const INQUIRY_TABLE_COLUMNS = [
 
 /** Summary columns for Enquiry Master List UI (full detail in preview). */
 export const INQUIRY_LIST_DISPLAY_COLUMNS = [
+  { id: "srNo", label: "Sr. No.", width: 64, align: "center", valueType: "number", sortable: true },
   { id: "enquiryNumber", label: "Enquiry No", width: 118, valueType: "text", sortable: true },
   { id: "receivedDate", label: "Received On", width: 108, valueType: "date", sortable: true },
   { id: "vertical", label: "Vertical", width: 110, valueType: "chip", sortable: true },
@@ -593,9 +683,11 @@ export const INQUIRY_LIST_DISPLAY_COLUMNS = [
   { id: "location", label: "Location", width: 132, valueType: "text", sortable: true },
   { id: "descriptionOfWork", label: "Description of Work", width: 200, valueType: "text", sortable: true },
   { id: "approxValue", label: "Approx. Value (₹)", width: 128, align: "right", valueType: "currency", sortable: true },
-  { id: "status", label: "Status", width: 110, valueType: "status", sortable: true },
+  { id: "trackingStatus", label: "Status", width: 110, valueType: "trackingStatus", sortable: true },
   { id: "enquiryAssignedTo", label: "Assigned To", width: 140, valueType: "text", sortable: true },
   { id: "offerSubmittedOn", label: "Offer Submission", width: 118, valueType: "date", sortable: true },
+  { id: "enquiryResult", label: "Result", width: 100, valueType: "text", sortable: true },
+  { id: "resultRemark", label: "Remarks", width: 160, valueType: "text", sortable: false },
 ];
 
 export function formatInquiryCellValue(value, valueType, formatDate) {
