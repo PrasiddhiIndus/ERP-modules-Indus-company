@@ -53,6 +53,7 @@ import {
   BookOpen,
   History,
   Wallet,
+  UserX,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -442,6 +443,10 @@ const Layout = () => {
                       <NavLink to="admin/employee/exit-ff" className={subNavClass}>
                         <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
                         <span className="text-xs">Exit & F&F</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/inactive" className={subNavClass}>
+                        <UserX className="h-4 w-4 shrink-0 text-slate-600" />
+                        <span className="text-xs">Inactive Employees</span>
                       </NavLink>
                     </div>
                   )}

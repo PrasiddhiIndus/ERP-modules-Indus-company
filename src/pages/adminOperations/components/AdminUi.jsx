@@ -150,6 +150,15 @@ function renderDenseHeader(col) {
   return col.label;
 }
 
+function renderDenseFilter(col) {
+  if (col.filterRender) return col.filterRender();
+  return null;
+}
+
+function hasColumnFilters(columns) {
+  return (columns || []).some((c) => typeof c.filterRender === "function");
+}
+
 /** Excel-style freeze: first N columns stay fixed; only columns to the right scroll horizontally. */
 function FreezePaneDenseTable({
   columns,
@@ -163,6 +172,7 @@ function FreezePaneDenseTable({
   serialOffset,
   stickyHeader = false,
   scrollMaxHeight = "calc(100dvh - 22rem)",
+  activeRowId = null,
 }) {
   const tableColumns = useMemo(
     () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
@@ -178,6 +188,7 @@ function FreezePaneDenseTable({
   const scrollCols = tableColumns.slice(effectiveFrozenCount);
   const widths = effectiveFrozenWidths.slice(0, effectiveFrozenCount);
   const frozenBlockWidth = widths.reduce((sum, w) => sum + w, 0);
+  const showFilters = hasColumnFilters(tableColumns);
 
   if (rows.length === 0) {
     return (
@@ -231,14 +242,47 @@ function FreezePaneDenseTable({
             ))}
           </div>
         </div>
-        {rows.map((row, rowIndex) => (
+        {showFilters ? (
+          <div className="flex border-b border-gray-200 bg-gray-50/95 text-xs">
+            <div
+              className={`erp-freeze-pane-frozen flex shrink-0 sticky left-0 bg-gray-50/95 erp-freeze-pane-edge ${
+                stickyHeader ? "z-40" : "z-30"
+              }`}
+              style={{ width: frozenBlockWidth, minWidth: frozenBlockWidth }}
+            >
+              {frozenCols.map((c, i) => (
+                <div
+                  key={`filter-${c.key}`}
+                  className="box-border px-1 py-1 shrink-0"
+                  style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
+                >
+                  {renderDenseFilter(c)}
+                </div>
+              ))}
+            </div>
+            <div className="flex shrink-0">
+              {scrollCols.map((c) => (
+                <div key={`filter-${c.key}`} className={`box-border px-1 py-1 shrink-0 ${c.headerClassName || ""}`}>
+                  {renderDenseFilter(c)}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {rows.map((row, rowIndex) => {
+          const isActive = activeRowId != null && row[rowKey] === activeRowId;
+          return (
           <div
             key={row[rowKey]}
-            className={`flex border-b border-gray-100 text-xs group ${onRowClick ? "cursor-pointer" : ""}`}
+            className={`flex border-b border-gray-100 text-xs group ${onRowClick ? "cursor-pointer" : ""} ${
+              isActive ? "bg-blue-50/80" : ""
+            }`}
             onClick={() => onRowClick?.(row)}
           >
             <div
-              className="erp-freeze-pane-frozen flex shrink-0 sticky left-0 z-20 bg-white group-hover:bg-blue-50 erp-freeze-pane-edge"
+              className={`erp-freeze-pane-frozen flex shrink-0 sticky left-0 z-20 erp-freeze-pane-edge ${
+                isActive ? "bg-blue-50/80" : "bg-white group-hover:bg-blue-50"
+              }`}
               style={{ width: frozenBlockWidth, minWidth: frozenBlockWidth }}
             >
               {frozenCols.map((c, i) => (
@@ -262,7 +306,8 @@ function FreezePaneDenseTable({
               ))}
             </div>
           </div>
-        ))}
+        );
+        })}
       </div>
     </div>
   );
@@ -280,6 +325,7 @@ export const DenseTable = ({
   serialOffset = 0,
   stickyHeader = false,
   scrollMaxHeight = "calc(100dvh - 22rem)",
+  activeRowId = null,
 }) => {
   const tableColumns = useMemo(
     () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
@@ -300,9 +346,12 @@ export const DenseTable = ({
         serialOffset={serialOffset}
         stickyHeader={stickyHeader}
         scrollMaxHeight={scrollMaxHeight}
+        activeRowId={activeRowId}
       />
     );
   }
+
+  const showFilters = hasColumnFilters(tableColumns);
 
   return (
     <div
@@ -332,6 +381,15 @@ export const DenseTable = ({
               </th>
             ))}
           </tr>
+          {showFilters ? (
+            <tr className="border-b border-gray-200 bg-gray-50/95">
+              {tableColumns.map((c) => (
+                <th key={`filter-${c.key}`} className="px-1 py-1 font-normal bg-gray-50/95">
+                  {renderDenseFilter(c)}
+                </th>
+              ))}
+            </tr>
+          ) : null}
         </thead>
         <tbody className="divide-y divide-gray-100 bg-white">
           {rows.length === 0 ? (
@@ -341,22 +399,27 @@ export const DenseTable = ({
               </td>
             </tr>
           ) : (
-            rows.map((row, rowIndex) => (
+            rows.map((row, rowIndex) => {
+              const isActive = activeRowId != null && row[rowKey] === activeRowId;
+              return (
               <tr
                 key={row[rowKey]}
-                className={`group ${onRowClick ? "cursor-pointer" : ""}`}
+                className={`group ${onRowClick ? "cursor-pointer" : ""} ${isActive ? "bg-blue-50/80" : ""}`}
                 onClick={() => onRowClick?.(row)}
               >
                 {tableColumns.map((c) => (
                   <td
                     key={c.key}
-                    className={`px-2 py-1.5 align-middle text-gray-800 whitespace-nowrap bg-white group-hover:bg-blue-50/40 ${c.cellClassName || ""}`}
+                    className={`px-2 py-1.5 align-middle text-gray-800 whitespace-nowrap ${
+                      isActive ? "bg-blue-50/80" : "bg-white group-hover:bg-blue-50/40"
+                    } ${c.cellClassName || ""}`}
                   >
                     {renderDenseCell(c, row, rowIndex)}
                   </td>
                 ))}
               </tr>
-            ))
+            );
+            })
           )}
         </tbody>
       </table>

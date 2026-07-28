@@ -180,6 +180,10 @@ export const EmployeeLeaveManagementPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeLeaveManagementPage"),
   "EmployeeLeaveManagementPage"
 );
+export const InactiveEmployeesPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/InactiveEmployeesPage"),
+  "InactiveEmployeesPage"
+);
 export const NationalPublicHolidaysPage = lazyNamed(
   () => import("../pages/adminOperations/employee/NationalPublicHolidaysPage"),
   "NationalPublicHolidaysPage"
