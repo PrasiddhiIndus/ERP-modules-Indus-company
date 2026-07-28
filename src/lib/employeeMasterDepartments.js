@@ -16,6 +16,7 @@ export const EMPLOYEE_MASTER_BASE_DEPARTMENTS = [
   'NFPA',
   'Procurement',
   'Production',
+  'Production - Neotech',
   'Design',
   'Projects',
   'R&M',
