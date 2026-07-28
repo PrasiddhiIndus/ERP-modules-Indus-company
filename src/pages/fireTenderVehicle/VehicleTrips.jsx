@@ -26,7 +26,10 @@ import {
   Calendar,
   Fuel,
   FileText,
-  Eye
+  Eye,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from 'lucide-react';
 
 const parseTripR2Keys = (row) => {
@@ -58,6 +61,43 @@ const formatDurationFromTimes = (outTime, inTime) => {
   return `${h} hr ${m} min`;
 };
 
+const formatDurationMinutes = (totalMinutes) => {
+  if (totalMinutes == null || totalMinutes < 0) return '';
+  const mins = Math.round(totalMinutes);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} hr`;
+  return `${h} hr ${m} min`;
+};
+
+const formatTripDateTimeAmPm = (value) => {
+  if (!value) return '';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return '';
+  const datePart = formatDateDdMmYyyy(dt);
+  const timePart = dt.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `${datePart} ${timePart}`;
+};
+
+const formatDurationFromDateTimes = (startValue, endValue) => {
+  const mins = getDurationMinutesFromDateTimes(startValue, endValue);
+  return formatDurationMinutes(mins);
+};
+
+const getDurationMinutesFromDateTimes = (startValue, endValue) => {
+  if (!startValue || !endValue) return null;
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const mins = Math.round((end.getTime() - start.getTime()) / 60000);
+  return mins >= 0 ? mins : null;
+};
+
 const formatOdometerDifference = (kmOut, kmIn) => {
   if (kmOut === '' || kmOut == null || kmIn === '' || kmIn == null) return '';
   const out = parseFloat(kmOut);
@@ -70,15 +110,10 @@ const formatOdometerDifference = (kmOut, kmIn) => {
 const getTripKmOut = (trip) => trip?.km_at_mobilisation_out ?? trip?.odometer_start ?? null;
 const getTripKmIn = (trip) => trip?.km_at_demobilisation_in ?? trip?.odometer_end ?? null;
 
-const getTripOutTime = (trip) => extractTimeFromDateTime(trip?.start_date_time);
-const getTripInTime = (trip) => extractTimeFromDateTime(trip?.end_date_time);
+const getTripTimeDifference = (trip) => formatDurationFromDateTimes(trip?.start_date_time, trip?.end_date_time);
 
-const getTripTimeDifference = (trip) => {
-  const out = getTripOutTime(trip);
-  const inn = getTripInTime(trip);
-  if (!out || !inn) return '';
-  return formatDurationFromTimes(out, inn);
-};
+const getTripDurationMinutes = (trip) =>
+  getDurationMinutesFromDateTimes(trip?.start_date_time, trip?.end_date_time);
 
 const getTripOdometerDifference = (trip) => formatOdometerDifference(getTripKmOut(trip), getTripKmIn(trip));
 
@@ -163,6 +198,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [departmentOptions, setDepartmentOptions] = useState(() => mergeEmployeeMasterDepartments([]));
   const [departmentSearch, setDepartmentSearch] = useState('');
   const [filesModalTrip, setFilesModalTrip] = useState(null);
+  const [sortConfig, setSortConfig] = useState({ key: 'start_date_time', direction: 'desc' });
 
   const [formData, setFormData] = useState({
     assignment_type: 'in-house',
@@ -180,6 +216,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     site_visit_location: '',
     number_of_passengers: '',
     visit_date: '',
+    out_date: '',
     visit_duration_days: '',
     out_time: '',
     in_time: '',
@@ -356,12 +393,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         return;
       }
 
+      const outDate = toIsoDateOrNull(formData.out_date) || visitDate;
+
       const startDateTime = isFireTender
         ? `${mobilisationDate}T00:00:00`
-        : combineVisitDateAndTime(visitDate, formData.out_time);
+        : combineVisitDateAndTime(outDate, formData.out_time);
       const endDateTime = isFireTender
         ? (toIsoDateOrNull(formData.contract_end_date) ? `${toIsoDateOrNull(formData.contract_end_date)}T00:00:00` : null)
-        : combineInHouseEndDateTime(visitDate, formData.out_time, formData.in_time);
+        : combineInHouseEndDateTime(outDate, formData.out_time, formData.in_time);
 
       if (!startDateTime) {
         alert('Start date/time is required.');
@@ -509,6 +548,10 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       site_visit_location: trip.site_visit_location || (assignmentType === 'in-house' ? (trip.origin_location || '') : ''),
       number_of_passengers: trip.number_of_passengers ?? '',
       visit_date: trip.visit_date || (assignmentType === 'in-house' && trip.start_date_time ? new Date(trip.start_date_time).toISOString().slice(0, 10) : ''),
+      out_date:
+        assignmentType === 'in-house' && trip.start_date_time
+          ? new Date(trip.start_date_time).toISOString().slice(0, 10)
+          : '',
       visit_duration_days: trip.visit_duration_days ?? '',
       out_time: assignmentType === 'in-house' ? extractTimeFromDateTime(trip.start_date_time) : '',
       in_time: assignmentType === 'in-house' ? extractTimeFromDateTime(trip.end_date_time) : '',
@@ -627,6 +670,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       site_visit_location: '',
       number_of_passengers: '',
       visit_date: '',
+      out_date: '',
       visit_duration_days: '',
       out_time: '',
       in_time: '',
@@ -700,6 +744,82 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     
     return matchesSearch && matchesStatus && matchesPurpose;
   });
+
+  const sortedTrips = useMemo(() => {
+    const { key, direction } = sortConfig;
+    const mul = direction === 'asc' ? 1 : -1;
+    const list = [...filteredTrips];
+
+    const compareText = (a, b) =>
+      String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' }) * mul;
+
+    list.sort((a, b) => {
+      switch (key) {
+        case 'vehicle':
+          return compareText(
+            a.operations_fire_tender_vehicle_master?.registration_number,
+            b.operations_fire_tender_vehicle_master?.registration_number
+          );
+        case 'purpose':
+          return compareText(a.trip_purpose, b.trip_purpose);
+        case 'assignedTo':
+          return compareText(a.issued_to_name, b.issued_to_name);
+        case 'route':
+          return compareText(
+            `${a.origin_location || ''} ${a.destination_location || ''}`,
+            `${b.origin_location || ''} ${b.destination_location || ''}`
+          );
+        case 'start_date_time': {
+          const av = a.start_date_time ? new Date(a.start_date_time).getTime() : 0;
+          const bv = b.start_date_time ? new Date(b.start_date_time).getTime() : 0;
+          return (av - bv) * mul;
+        }
+        case 'end_date_time': {
+          const av = a.end_date_time ? new Date(a.end_date_time).getTime() : 0;
+          const bv = b.end_date_time ? new Date(b.end_date_time).getTime() : 0;
+          return (av - bv) * mul;
+        }
+        case 'timeDifference': {
+          const av = getTripDurationMinutes(a) ?? -1;
+          const bv = getTripDurationMinutes(b) ?? -1;
+          return (av - bv) * mul;
+        }
+        case 'odometerDiff': {
+          const av = parseFloat(getTripOdometerDifference(a)) || -1;
+          const bv = parseFloat(getTripOdometerDifference(b)) || -1;
+          return (av - bv) * mul;
+        }
+        case 'status':
+          return compareText(a.trip_status, b.trip_status);
+        default:
+          return 0;
+      }
+    });
+
+    return list;
+  }, [filteredTrips, sortConfig]);
+
+  const toggleSort = (key) => {
+    setSortConfig((prev) =>
+      prev.key === key ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }
+    );
+  };
+
+  const renderSortableHeader = (label, key, className = 'text-left') => {
+    const isSorted = sortConfig.key === key;
+    const SortIcon = isSorted ? (sortConfig.direction === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(key)}
+        className={`inline-flex max-w-full items-center gap-1 hover:text-gray-700 ${className === 'text-center' ? 'justify-center w-full' : ''}`}
+        title={`Sort by ${label}`}
+      >
+        <span className="truncate">{label}</span>
+        <SortIcon className={`h-3.5 w-3.5 shrink-0 ${isSorted ? 'text-blue-600' : 'text-gray-400'}`} />
+      </button>
+    );
+  };
 
   if (loading) {
     return (
@@ -965,7 +1085,19 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                         </div>
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Visit Date *</label>
-                          <FormDateInput value={formData.visit_date} onChange={(e) => setFormData({ ...formData, visit_date: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                          <FormDateInput
+                            value={formData.visit_date}
+                            onChange={(e) => {
+                              const visit_date = e.target.value;
+                              setFormData((prev) => ({
+                                ...prev,
+                                visit_date,
+                                out_date: prev.out_date || visit_date,
+                              }));
+                            }}
+                            className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                          />
                         </div>
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Visit Duration (Days)</label>
@@ -976,7 +1108,15 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
                     <section className="rounded-lg border border-gray-200 p-4">
                       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Time</h3>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="min-w-0">
+                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Date</label>
+                          <FormDateInput
+                            value={formData.out_date}
+                            onChange={(e) => setFormData({ ...formData, out_date: e.target.value })}
+                            className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Time</label>
                           <input
@@ -1136,19 +1276,19 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       <div className="bg-white rounded-lg shadow-md overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">
-            Vehicle Trips ({filteredTrips.length})
+            Vehicle Trips ({sortedTrips.length})
           </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-[1100px] w-full table-fixed divide-y divide-gray-200 text-sm">
+          <table className="min-w-[1200px] w-full table-fixed divide-y divide-gray-200 text-sm">
             <colgroup>
               <col className="w-12" />
               <col className="w-[7.5rem]" />
               <col className="w-[8.5rem]" />
               <col className="w-[9.5rem]" />
               <col className="w-[8rem]" />
-              <col className="w-[5.5rem]" />
-              <col className="w-[5.5rem]" />
+              <col className="w-[10rem]" />
+              <col className="w-[10rem]" />
               <col className="w-[6.5rem]" />
               <col className="w-[7rem]" />
               <col className="w-[6.5rem]" />
@@ -1161,35 +1301,34 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                   S.No
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Vehicle
+                  {renderSortableHeader('Vehicle', 'vehicle')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Purpose
+                  {renderSortableHeader('Purpose', 'purpose')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Assigned To
+                  {renderSortableHeader('Assigned To', 'assignedTo')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Route
+                  {renderSortableHeader('Route', 'route')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Date
+                  {renderSortableHeader('Out', 'start_date_time')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Time
+                  {renderSortableHeader('In', 'end_date_time')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  <span className="block leading-tight">Time</span>
-                  <span className="block leading-tight">Difference</span>
+                  {renderSortableHeader('Difference', 'timeDifference')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Odometer (Km)
+                  {renderSortableHeader('Odometer (Km)', 'odometerDiff')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
                   Files
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Status
+                  {renderSortableHeader('Status', 'status')}
                 </th>
                 <th className="px-3 py-2.5 text-center align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
                   Actions
@@ -1197,15 +1336,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
-              {filteredTrips.map((trip, idx) => {
+              {sortedTrips.map((trip, idx) => {
                 const attachmentKeys = parseTripR2Keys(trip);
-                const outTime = getTripOutTime(trip);
-                const inTime = getTripInTime(trip);
+                const outDateTime = formatTripDateTimeAmPm(trip.start_date_time);
+                const inDateTime = formatTripDateTimeAmPm(trip.end_date_time);
                 const timeDiff = getTripTimeDifference(trip);
                 const kmOut = getTripKmOut(trip);
                 const kmIn = getTripKmIn(trip);
                 const kmDiff = getTripOdometerDifference(trip);
-                const tripDate = trip.visit_date || trip.date_of_mobilisation || trip.start_date_time;
 
                 return (
                 <tr key={trip.id} className="hover:bg-gray-50">
@@ -1248,16 +1386,11 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-3 align-middle whitespace-nowrap text-gray-900">
-                    {tripDate ? formatDateDdMmYyyy(tripDate) : '—'}
+                  <td className="px-3 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-gray-900">
+                    {outDateTime || '—'}
                   </td>
-                  <td className="px-3 py-3 align-middle">
-                    <div className="grid grid-cols-[1.75rem_1fr] gap-x-1 gap-y-0.5 text-xs leading-tight">
-                      <span className="text-gray-500">Out</span>
-                      <span className="tabular-nums text-gray-900">{outTime || '—'}</span>
-                      <span className="text-gray-500">In</span>
-                      <span className="tabular-nums text-gray-900">{inTime || '—'}</span>
-                    </div>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-gray-900">
+                    {inDateTime || '—'}
                   </td>
                   <td className="px-3 py-3 align-middle">
                     <div className="text-xs font-medium leading-snug text-gray-900">
@@ -1339,7 +1472,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
             </tbody>
           </table>
         </div>
-        {filteredTrips.length === 0 && (
+        {sortedTrips.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             <MapPin className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p>No trips found</p>

@@ -4190,6 +4190,18 @@ function EntryForm({ sites, sitesAll, library, parents, records, month, setMonth
           </Card>
         </div>
       </div>
+      <div className="entry-footer-save">
+        {autosaveHint && <span className="entry-unsaved">{autosaveHint}</span>}
+        <button
+          type="button"
+          className="primary entry-save-btn"
+          onClick={save}
+          disabled={saveUi === "saving"}
+          title="Save all figures for this site and period (also auto-saves as you type)"
+        >
+          {saveLabel}
+        </button>
+      </div>
     </div>
   );
 }
@@ -5411,6 +5423,12 @@ function Styles() {
     .site-search-opt-meta{font-size:11px;color:var(--muted);}
     .site-search-empty{padding:12px;font-size:12px;color:var(--muted);}
     .entry-save-btn{min-width:120px;}
+    .entry-footer-save{
+      display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;
+      margin-top:8px;padding:14px 4px 4px;border-top:1px solid var(--border, #e5e7eb);
+    }
+    .entry-footer-save .entry-save-btn{height:38px;min-width:132px;}
+    .entry-footer-save .entry-unsaved{font-size:12px;color:var(--muted);}
     .entry-unsaved{font-size:11px;color:var(--warn);font-weight:600;align-self:center;}
     .deduction-block{display:flex;flex-direction:column;gap:8px;}
     .deduction-remark input{width:100%;font-family:var(--body);font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);}
