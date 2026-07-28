@@ -1328,7 +1328,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               className={filterInputClass}
             >
               <option value="All">All Departments</option>
-              {departmentsFromData.map((dept) => (
+              {departments.map((dept) => (
                 <option key={dept} value={dept}>{dept}</option>
               ))}
             </select>
