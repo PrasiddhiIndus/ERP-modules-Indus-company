@@ -86,20 +86,6 @@ export const AdminOpsDashboard = lazy(() => import("../pages/adminOperations/Adm
 export const AdminOpsAlerts = lazy(() => import("../pages/adminOperations/AdminOpsAlerts"));
 export const AdminOpsReports = lazy(() => import("../pages/adminOperations/AdminOpsReports"));
 export const AdminOpsSettings = lazy(() => import("../pages/adminOperations/AdminOpsSettings"));
-export const PayrollLayout = lazy(() => import("../pages/adminOperations/payroll/PayrollLayout"));
-export const PayrollFormulaPage = lazy(() => import("../pages/adminOperations/payroll/PayrollFormulaPage"));
-export const PayrollDashboardPage = lazyNamed(
-  () => import("../pages/adminOperations/payroll/PayrollViews"),
-  "PayrollDashboardPage"
-);
-export const PayrollMonthPage = lazyNamed(
-  () => import("../pages/adminOperations/payroll/PayrollViews"),
-  "PayrollMonthPage"
-);
-export const PayrollYearPage = lazyNamed(
-  () => import("../pages/adminOperations/payroll/PayrollViews"),
-  "PayrollYearPage"
-);
 
 export const SalaryManagementLayout = lazy(() => import("../pages/hr/payroll/salary/SalaryLayout"));
 export const SalaryManagementDashboard = lazy(() => import("../pages/hr/payroll/salary/Dashboard"));

@@ -67,11 +67,6 @@ import {
   AdminOpsAlerts,
   AdminOpsReports,
   AdminOpsSettings,
-  PayrollLayout,
-  PayrollFormulaPage,
-  PayrollDashboardPage,
-  PayrollMonthPage,
-  PayrollYearPage,
   SalaryManagementLayout,
   SalaryManagementDashboard,
   EmployeePayrollList,
@@ -429,14 +424,7 @@ function App() {
             {/* Unified Admin module routes */}
             <Route path="admin" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/dashboard" element={<AdminOpsDashboard />} />
-            <Route path="admin/payroll" element={<PayrollLayout />}>
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<PayrollDashboardPage />} />
-              <Route path="entry" element={<PayrollMonthPage />} />
-              <Route path="month" element={<Navigate to="/app/admin/payroll/entry" replace />} />
-              <Route path="year" element={<PayrollYearPage />} />
-              <Route path="formula" element={<PayrollFormulaPage />} />
-            </Route>
+            <Route path="admin/payroll/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />

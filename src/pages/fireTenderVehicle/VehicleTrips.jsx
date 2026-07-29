@@ -47,18 +47,13 @@ const extractTimeFromDateTime = (value) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-const formatDurationFromTimes = (outTime, inTime) => {
-  if (!outTime || !inTime) return '';
-  const [oh, om] = outTime.split(':').map(Number);
-  const [ih, im] = inTime.split(':').map(Number);
-  if ([oh, om, ih, im].some((n) => Number.isNaN(n))) return '';
-  let mins = (ih * 60 + im) - (oh * 60 + om);
-  if (mins < 0) mins += 24 * 60;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m} min`;
-  if (m === 0) return `${h} hr`;
-  return `${h} hr ${m} min`;
+const extractDateFromDateTime = (value) => {
+  if (!value) return '';
+  const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 const formatDurationMinutes = (totalMinutes) => {
@@ -168,6 +163,7 @@ const addOneCalendarDay = (dateIso) => {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 };
 
+/** When in_date is omitted, keep overnight wrap so same-day out/in still works. */
 const combineInHouseEndDateTime = (visitDate, outTime, inTime) => {
   const dateIso = toIsoDateOrNull(visitDate);
   const time = String(inTime || '').trim();
@@ -182,6 +178,17 @@ const combineInHouseEndDateTime = (visitDate, outTime, inTime) => {
     ih * 60 + im < oh * 60 + om;
   const datePart = overnight ? addOneCalendarDay(dateIso) : dateIso;
   return `${datePart}T${time}:00`;
+};
+
+const formatDurationFromOutIn = (outDate, outTime, inDate, inTime) => {
+  if (!outTime || !inTime) return '';
+  const startDate = toIsoDateOrNull(outDate);
+  if (!startDate) return '';
+  const start = combineVisitDateAndTime(startDate, outTime);
+  const end = toIsoDateOrNull(inDate)
+    ? combineVisitDateAndTime(inDate, inTime)
+    : combineInHouseEndDateTime(startDate, outTime, inTime);
+  return formatDurationFromDateTimes(start, end);
 };
 
 const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
@@ -217,6 +224,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     number_of_passengers: '',
     visit_date: '',
     out_date: '',
+    in_date: '',
     visit_duration_days: '',
     out_time: '',
     in_time: '',
@@ -257,7 +265,12 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     return departmentOptions.filter((dept) => dept.toLowerCase().includes(needle));
   }, [departmentOptions, departmentSearch]);
 
-  const timeDifferenceLabel = formatDurationFromTimes(formData.out_time, formData.in_time);
+  const timeDifferenceLabel = formatDurationFromOutIn(
+    formData.out_date || formData.visit_date,
+    formData.out_time,
+    formData.in_date,
+    formData.in_time
+  );
   const odometerDifferenceLabel = formatOdometerDifference(formData.km_out, formData.km_in);
 
   useEffect(() => {
@@ -394,13 +407,16 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       }
 
       const outDate = toIsoDateOrNull(formData.out_date) || visitDate;
+      const inDate = toIsoDateOrNull(formData.in_date);
 
       const startDateTime = isFireTender
         ? `${mobilisationDate}T00:00:00`
         : combineVisitDateAndTime(outDate, formData.out_time);
       const endDateTime = isFireTender
         ? (toIsoDateOrNull(formData.contract_end_date) ? `${toIsoDateOrNull(formData.contract_end_date)}T00:00:00` : null)
-        : combineInHouseEndDateTime(outDate, formData.out_time, formData.in_time);
+        : inDate && /^\d{2}:\d{2}$/.test(String(formData.in_time || '').trim())
+          ? combineVisitDateAndTime(inDate, formData.in_time)
+          : combineInHouseEndDateTime(outDate, formData.out_time, formData.in_time);
 
       if (!startDateTime) {
         alert('Start date/time is required.');
@@ -550,7 +566,11 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       visit_date: trip.visit_date || (assignmentType === 'in-house' && trip.start_date_time ? new Date(trip.start_date_time).toISOString().slice(0, 10) : ''),
       out_date:
         assignmentType === 'in-house' && trip.start_date_time
-          ? new Date(trip.start_date_time).toISOString().slice(0, 10)
+          ? extractDateFromDateTime(trip.start_date_time)
+          : '',
+      in_date:
+        assignmentType === 'in-house' && trip.end_date_time
+          ? extractDateFromDateTime(trip.end_date_time)
           : '',
       visit_duration_days: trip.visit_duration_days ?? '',
       out_time: assignmentType === 'in-house' ? extractTimeFromDateTime(trip.start_date_time) : '',
@@ -671,6 +691,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       number_of_passengers: '',
       visit_date: '',
       out_date: '',
+      in_date: '',
       visit_duration_days: '',
       out_time: '',
       in_time: '',
@@ -1093,6 +1114,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                                 ...prev,
                                 visit_date,
                                 out_date: prev.out_date || visit_date,
+                                in_date: prev.in_date || prev.out_date || visit_date,
                               }));
                             }}
                             className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1108,12 +1130,19 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
                     <section className="rounded-lg border border-gray-200 p-4">
                       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Time</h3>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Date</label>
                           <FormDateInput
                             value={formData.out_date}
-                            onChange={(e) => setFormData({ ...formData, out_date: e.target.value })}
+                            onChange={(e) => {
+                              const out_date = e.target.value;
+                              setFormData((prev) => ({
+                                ...prev,
+                                out_date,
+                                in_date: prev.in_date || out_date,
+                              }));
+                            }}
                             className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
@@ -1123,6 +1152,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                             type="time"
                             value={formData.out_time}
                             onChange={(e) => setFormData({ ...formData, out_time: e.target.value })}
+                            className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <label className="mb-1.5 block text-sm font-medium text-gray-700">In Date</label>
+                          <FormDateInput
+                            value={formData.in_date}
+                            onChange={(e) => setFormData({ ...formData, in_date: e.target.value })}
                             className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
