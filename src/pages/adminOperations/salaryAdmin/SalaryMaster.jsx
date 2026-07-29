@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Search } from "lucide-react";
+import { History, RefreshCw, Search } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
+import { Drawer } from "../components/AdminUi";
 import { fetchSalaryStructureMap, formatINR } from "./salaryData";
+import SalaryRevisionHistory from "./SalaryRevisionHistory";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
@@ -23,6 +25,7 @@ const tdText = `${tdBase} text-left whitespace-nowrap max-w-[180px] truncate`;
 /**
  * Salary Master — employees from Employee Master (admin).
  * Click a row to open compensation profile. CTC drafts are UI-only (local device).
+ * Actions: Revise (when CTC exists) · History (revision timeline).
  */
 export default function SalaryMaster() {
   const navigate = useNavigate();
@@ -34,6 +37,7 @@ export default function SalaryMaster() {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [historyEmployee, setHistoryEmployee] = useState(null);
 
   const refreshSalaryMap = useCallback(() => {
     setSalaryByEmployee(fetchSalaryStructureMap());
@@ -115,6 +119,10 @@ export default function SalaryMaster() {
   const pageStart = filteredEmployees.length ? startIndex + 1 : 0;
   const pageEnd = Math.min(endIndex, filteredEmployees.length);
 
+  const historySalary = historyEmployee
+    ? salaryByEmployee.get(String(historyEmployee.id))
+    : null;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -130,7 +138,7 @@ export default function SalaryMaster() {
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">Salary Master</h1>
             <p className="text-sm text-gray-600 mt-1">
-              Click an employee to open their compensation (CTC) profile.
+              Set CTC once per employee. Later changes use Revise; History shows past versions.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row sm:flex-wrap xl:justify-end items-stretch sm:items-center gap-2 w-full xl:w-auto">
@@ -205,7 +213,7 @@ export default function SalaryMaster() {
             <p className="text-sm text-gray-500 py-16 text-center">No employees match your search.</p>
           ) : (
             <div className="flex-1 min-h-0 overflow-auto">
-              <table className="w-full min-w-[980px] border-collapse">
+              <table className="w-full min-w-[1060px] border-collapse">
                 <thead className="sticky top-0 z-20">
                   <tr>
                     <th className={`${thCenter} w-14`}>Sr No.</th>
@@ -217,6 +225,7 @@ export default function SalaryMaster() {
                     <th className={`${thCenter} w-[8.5rem]`}>Employee Type</th>
                     <th className={`${thRight} w-[9rem]`}>Salary (Monthly)</th>
                     <th className={`${thRight} w-[9rem]`}>CTC (Annual)</th>
+                    <th className={`${thCenter} w-[7.5rem]`}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -224,12 +233,15 @@ export default function SalaryMaster() {
                     const rowNo = startIndex + idx + 1;
                     const typeLabel = employmentTypeLabel(row.employment_type || row.employee_id);
                     const salary = salaryByEmployee.get(String(row.id));
+                    const hasCtc = Boolean(salary?.declared);
+                    const revCount = Number(salary?.revision_count) || 0;
+                    const histCount = Array.isArray(salary?.revisions) ? salary.revisions.length : 0;
                     const monthly =
-                      salary?.declared &&
+                      hasCtc &&
                       (salary.gross_monthly != null || salary.basic_monthly != null)
                         ? salary.gross_monthly ?? salary.basic_monthly
                         : null;
-                    const ctcAnnual = salary?.declared ? salary.ctc_annual : null;
+                    const ctcAnnual = hasCtc ? salary.ctc_annual : null;
                     const zebra = idx % 2 === 1 ? "bg-slate-50/60" : "bg-white";
 
                     return (
@@ -279,6 +291,54 @@ export default function SalaryMaster() {
                             <span className="text-gray-300">—</span>
                           )}
                         </td>
+                        <td
+                          className={`${tdCenter}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="inline-flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              disabled={!hasCtc}
+                              title={
+                                hasCtc
+                                  ? "Revise CTC"
+                                  : "Set CTC first, then revise"
+                              }
+                              aria-label="Revise CTC"
+                              onClick={() =>
+                                navigate(
+                                  `/app/admin/salary-admin/salary-master/${row.id}?mode=revise`
+                                )
+                              }
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-[#1F3A8A] hover:bg-blue-50 hover:border-blue-200 disabled:opacity-35 disabled:pointer-events-none disabled:text-gray-400"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title={
+                                hasCtc
+                                  ? histCount
+                                    ? `Revision history (${histCount})`
+                                    : "Revision history"
+                                  : "No CTC / history yet"
+                              }
+                              aria-label="Revision history"
+                              onClick={() => {
+                                setHistoryEmployee(row);
+                                refreshSalaryMap();
+                              }}
+                              className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300"
+                            >
+                              <History className="h-3.5 w-3.5" />
+                              {revCount > 0 ? (
+                                <span className="absolute -top-1 -right-1 min-w-[1rem] h-4 px-0.5 rounded-full bg-[#1F3A8A] text-[9px] font-bold text-white leading-4">
+                                  {revCount > 9 ? "9+" : revCount}
+                                </span>
+                              ) : null}
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -288,6 +348,15 @@ export default function SalaryMaster() {
           )}
         </div>
       </div>
+
+      <Drawer
+        open={Boolean(historyEmployee)}
+        title="CTC revision history"
+        onClose={() => setHistoryEmployee(null)}
+        widthClass="max-w-md"
+      >
+        <SalaryRevisionHistory employee={historyEmployee} salary={historySalary} />
+      </Drawer>
     </div>
   );
 }

@@ -45,21 +45,71 @@ export const HRA_FIXED = Object.freeze({
   d: 62,
 });
 
+/**
+ * Round to whole rupees. Stabilizes float noise (e.g. 15999.999999 → 16000)
+ * so entered amounts never display/store as off-by-one.
+ */
 function round0(n) {
-  return Math.round(Number(n) || 0);
+  const x = Number(n);
+  if (!Number.isFinite(x) || x === 0) return 0;
+  const cleaned = Math.round(x * 1e6) / 1e6;
+  return Math.round(cleaned);
+}
+
+/** Parse a money input to whole rupees (null if empty/invalid). */
+export function parseRupeeInput(raw) {
+  if (raw == null || raw === "") return null;
+  const n = Number(String(raw).replace(/,/g, "").trim());
+  if (!Number.isFinite(n)) return null;
+  return round0(n);
 }
 
 export function formatINR(value) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
-  return `₹${Number(value).toLocaleString("en-IN", {
+  const n = round0(value);
+  return `₹${n.toLocaleString("en-IN", {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
   })}`;
 }
 
+/**
+ * Format dates for salary UI. Date-only (YYYY-MM-DD) uses local calendar day
+ * so W.E.F. never shifts by one day in IST / other offsets.
+ */
+export function formatSalaryDate(isoOrDate) {
+  if (isoOrDate == null || isoOrDate === "") return "—";
+  const s = String(isoOrDate).trim();
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (ymd) {
+    const d = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+    if (Number.isNaN(d.getTime())) return s;
+    return d.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export function paFromMonthly(monthly) {
   if (monthly == null || monthly === "") return null;
-  return round0(Number(monthly) * 12);
+  return round0(Number(monthly)) * 12;
+}
+
+/** Today's date as YYYY-MM-DD for date inputs (W.E.F.). */
+export function todayInputDate(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 export function currentCompensationYear(date = new Date()) {
@@ -102,16 +152,98 @@ export function getSalaryStructure(employeeMasterId) {
   return store[String(employeeMasterId)] || null;
 }
 
+/** Snapshot of a CTC structure suitable for revision history. */
+function snapshotStructure(row) {
+  if (!row || typeof row !== "object") return null;
+  const {
+    revisions: _revisions,
+    employee_master_id: _eid,
+    ...rest
+  } = row;
+  return { ...rest };
+}
+
+/**
+ * First-time CTC save. Does not create a revision entry.
+ * If a structure already exists, prefer reviseSalaryStructure.
+ */
 export function saveSalaryStructure(employeeMasterId, payload) {
   const id = String(employeeMasterId);
   const store = readStore();
+  const prev = store[id];
   store[id] = {
     ...payload,
     employee_master_id: id,
+    revisions: Array.isArray(prev?.revisions) ? prev.revisions : [],
+    revision_count: Number(prev?.revision_count) || 0,
     updated_at: new Date().toISOString(),
   };
   writeStore(store);
   return store[id];
+}
+
+/**
+ * Revise an existing CTC: archives the current structure, then saves the new one.
+ * Archived entry keeps that version's own W.E.F. and reason (not the new revision's).
+ * @param {string|number} employeeMasterId
+ * @param {object} payload — new CTC fields
+ * @param {{ reason?: string, wef_date?: string }} [meta]
+ */
+export function reviseSalaryStructure(employeeMasterId, payload, meta = {}) {
+  const id = String(employeeMasterId);
+  const store = readStore();
+  const prev = store[id];
+  if (!prev?.declared) {
+    return saveSalaryStructure(employeeMasterId, {
+      ...payload,
+      wef_date: meta.wef_date ?? payload.wef_date ?? null,
+      revision_reason: meta.reason?.trim() || payload.revision_reason || null,
+    });
+  }
+
+  const history = Array.isArray(prev.revisions) ? [...prev.revisions] : [];
+  const archived = snapshotStructure(prev);
+  const nextCount = (Number(prev.revision_count) || 0) + 1;
+  const archivedWef = prev.wef_date || archived?.wef_date || null;
+  const archivedReason = prev.revision_reason || archived?.revision_reason || null;
+
+  history.unshift({
+    ...archived,
+    revision_no: nextCount,
+    revised_at: new Date().toISOString(),
+    // Keep THIS version's W.E.F. and reason (as they were while current)
+    wef_date: archivedWef,
+    revision_reason: archivedReason,
+    superseded_wef: archivedWef,
+  });
+
+  const newReason = meta.reason?.trim() || null;
+  const newWef = meta.wef_date ?? payload.wef_date ?? null;
+
+  store[id] = {
+    ...payload,
+    employee_master_id: id,
+    wef_date: newWef,
+    revision_reason: newReason,
+    revisions: history,
+    revision_count: nextCount,
+    updated_at: new Date().toISOString(),
+  };
+  writeStore(store);
+  return store[id];
+}
+
+/** Revision history newest-first (archived versions only). */
+export function getSalaryRevisions(employeeMasterId) {
+  const row = getSalaryStructure(employeeMasterId);
+  if (!row) return [];
+  return Array.isArray(row.revisions) ? row.revisions : [];
+}
+
+export function getRevisionCount(employeeMasterId) {
+  const row = getSalaryStructure(employeeMasterId);
+  if (!row) return 0;
+  return Number(row.revision_count) || (Array.isArray(row.revisions) ? row.revisions.length : 0);
 }
 
 /** HRA monthly from fixed sheet expression. */
@@ -126,12 +258,14 @@ export function hraFromBasic(_basicMonthly) {
 
 export function suggestedEmpPf(basicMonthly) {
   const pfBase = Math.min(round0(basicMonthly), PF_WAGE_CAP);
-  return round0(pfBase * EMP_PF_RATE);
+  // 12% of PF base — same formula, integer-safe
+  return round0((pfBase * 12) / 100);
 }
 
 export function suggestedErPf(basicMonthly) {
   const pfBase = Math.min(round0(basicMonthly), PF_WAGE_CAP);
-  return round0(pfBase * ER_PF_RATE);
+  // 13% of PF base — same formula, integer-safe
+  return round0((pfBase * 13) / 100);
 }
 
 export function suggestedPfFromBasic(basicMonthly) {
@@ -144,9 +278,10 @@ export function suggestedPfFromBasic(basicMonthly) {
 }
 
 export function leaveEncashFromBasic(basicMonthly) {
-  const basic = Number(basicMonthly) || 0;
+  const basic = round0(basicMonthly);
   if (basic <= 0) return 0;
-  return round0((basic / LEAVE_ENCASH_DAYS) * LEAVE_ENCASH_MONTHS);
+  // (Basic ÷ 26) × (7 ÷ 12) ≡ (Basic × 7) ÷ 312 — same formula, integer-safe
+  return round0((basic * 7) / (LEAVE_ENCASH_DAYS * 12));
 }
 
 /**
@@ -180,8 +315,9 @@ export function computeCtcStructure({
       : suggestedErPf(basic);
 
   const esicApplicable = gross > 0 && gross <= ESIC_GROSS_THRESHOLD;
-  const empEsic = esicApplicable ? round0(gross * EMP_ESIC_RATE) : 0;
-  const erEsic = esicApplicable ? round0(gross * ER_ESIC_RATE) : 0;
+  // Gross × 0.75% / 3.25% — same rates, integer-safe (×75/10000, ×325/10000)
+  const empEsic = esicApplicable ? round0((gross * 75) / 10000) : 0;
+  const erEsic = esicApplicable ? round0((gross * 325) / 10000) : 0;
 
   const pt =
     ptMonthly != null && ptMonthly !== ""
@@ -192,7 +328,8 @@ export function computeCtcStructure({
 
   const takeHome = gross - empPf - pt - empEsic;
 
-  const gratuity = round0(basic * GRATUITY_RATE);
+  // Basic × 4.81% ≡ Basic × 481 / 10000 — same formula, integer-safe
+  const gratuity = round0((basic * 481) / 10000);
   const leaveEncash = leaveEncashFromBasic(basic);
   const bonus =
     bonusMonthly != null && bonusMonthly !== "" ? round0(bonusMonthly) : 0;
@@ -257,11 +394,12 @@ export function statutoryHelpText() {
 export const DEFAULT_MONTH_DAYS = 26;
 
 function sheetProrate(amount, presentDays, totalDays = DEFAULT_MONTH_DAYS) {
-  const base = Number(amount) || 0;
+  const base = round0(amount);
   const k = Number(presentDays);
   const td = Number(totalDays) || DEFAULT_MONTH_DAYS;
-  if (!Number.isFinite(k) || td <= 0) return 0;
-  return round0((base / td) * k);
+  if (!Number.isFinite(k) || td <= 0 || base === 0) return 0;
+  // (amount ÷ TotalDays) × presentDays — same formula, integer-safe order
+  return round0((base * k) / td);
 }
 
 export function defaultPtForGross(grossWages) {
@@ -332,10 +470,10 @@ export function computeProcessingRow({
   const hraP = sheetProrate(hraStored, K, TotalDays);
   const specialQ = sheetProrate(specialStored, K, TotalDays);
   const grossWagesR = basicEarnedO + hraP + specialQ;
-  const empPfS = round0(pfEarnedM * EMP_PF_RATE);
+  const empPfS = round0((pfEarnedM * 12) / 100);
   const empEsicT =
     grossWagesR > 0 && grossWagesR <= ESIC_GROSS_THRESHOLD
-      ? round0(grossWagesR * EMP_ESIC_RATE)
+      ? round0((grossWagesR * 75) / 10000)
       : 0;
   const ptU =
     ptOverride != null && ptOverride !== ""
@@ -385,7 +523,7 @@ export function processingHelpText() {
 
 export function formatINRPlain(value) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
-  return Number(value).toLocaleString("en-IN", {
+  return round0(value).toLocaleString("en-IN", {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
   });

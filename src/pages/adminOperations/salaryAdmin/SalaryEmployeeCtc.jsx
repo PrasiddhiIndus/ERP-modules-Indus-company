@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check } from "lucide-react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight, Check, History, RefreshCw } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
 import FormDateInput from "../../../components/FormDateInput";
+import { Drawer } from "../components/AdminUi";
 import {
   computeCtcStructure,
   currentCompensationYear,
@@ -14,9 +15,13 @@ import {
   getSalaryStructure,
   hraFixedMonthly,
   paFromMonthly,
+  parseRupeeInput,
+  reviseSalaryStructure,
   saveSalaryStructure,
   suggestedPfFromBasic,
+  todayInputDate,
 } from "./salaryData";
+import SalaryRevisionHistory from "./SalaryRevisionHistory";
 
 const amountInput =
   "w-[9rem] h-9 px-2.5 text-right text-[15px] tabular-nums border border-[#d4d0c8] rounded bg-white focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/25 focus:border-[#1F3A8A]";
@@ -105,7 +110,7 @@ function ColHeads() {
   );
 }
 
-function AmountInput({ value, onChange, label }) {
+function AmountInput({ value, onChange, label, readOnly = false }) {
   return (
     <input
       type="number"
@@ -113,7 +118,14 @@ function AmountInput({ value, onChange, label }) {
       step="1"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={amountInput}
+      onBlur={() => {
+        if (readOnly || value === "") return;
+        const n = parseRupeeInput(value);
+        if (n != null && String(n) !== String(value)) onChange(String(n));
+      }}
+      readOnly={readOnly}
+      disabled={readOnly}
+      className={`${amountInput} ${readOnly ? "bg-[#f3f1ec] text-[#5c584f] cursor-default" : ""}`}
       placeholder=""
       aria-label={label}
     />
@@ -121,19 +133,30 @@ function AmountInput({ value, onChange, label }) {
 }
 
 function numOrEmpty(saved) {
-  return saved != null ? String(saved) : "";
+  if (saved == null || saved === "") return "";
+  const n = parseRupeeInput(saved);
+  return n == null ? "" : String(n);
 }
 
 /**
  * Compensation structure — Indus sheet Year 2026-2027 layout.
+ * First save creates CTC; later changes use ?mode=revise (archives previous).
  */
 export default function SalaryEmployeeCtc() {
   const { employeeId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const reviseRequested = searchParams.get("mode") === "revise";
+
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saveMsg, setSaveMsg] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [hasExistingCtc, setHasExistingCtc] = useState(false);
+  const [revisionCount, setRevisionCount] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [revisionReason, setRevisionReason] = useState("");
 
   const [basic, setBasic] = useState("");
   const [special, setSpecial] = useState("");
@@ -145,21 +168,25 @@ export default function SalaryEmployeeCtc() {
   const [doj, setDoj] = useState("");
   const [wef, setWef] = useState("");
 
+  const isRevisionMode = reviseRequested && hasExistingCtc;
+  const isViewOnly = hasExistingCtc && !reviseRequested;
+  const canEdit = !isViewOnly;
+
   const buildArgs = useCallback(
     () => ({
-      basicMonthly: basic === "" ? 0 : Number(basic) || 0,
-      specialAllowanceMonthly: special === "" ? 0 : Number(special) || 0,
-      empPfMonthly: empPf === "" ? null : Number(empPf),
-      erPfMonthly: erPf === "" ? null : Number(erPf),
-      ptMonthly: pt === "" ? null : Number(pt),
-      bonusMonthly: bonus === "" ? null : Number(bonus),
+      basicMonthly: parseRupeeInput(basic) ?? 0,
+      specialAllowanceMonthly: parseRupeeInput(special) ?? 0,
+      empPfMonthly: parseRupeeInput(empPf),
+      erPfMonthly: parseRupeeInput(erPf),
+      ptMonthly: parseRupeeInput(pt),
+      bonusMonthly: parseRupeeInput(bonus),
     }),
     [basic, special, empPf, erPf, pt, bonus]
   );
 
   const applyPfFromBasic = useCallback((basicValue) => {
-    const b = Number(basicValue);
-    if (!Number.isFinite(b) || b <= 0) {
+    const b = parseRupeeInput(basicValue);
+    if (b == null || b <= 0) {
       setEmpPf("");
       setErPf("");
       return false;
@@ -190,6 +217,11 @@ export default function SalaryEmployeeCtc() {
       setEmployee(data);
 
       const saved = getSalaryStructure(data.id);
+      const declared = Boolean(saved?.declared);
+      setHasExistingCtc(declared);
+      setRevisionCount(Number(saved?.revision_count) || 0);
+      // New revise: blank reason for this revision. View: show saved reason.
+      setRevisionReason(reviseRequested && declared ? "" : saved?.revision_reason || "");
       setBasic(numOrEmpty(saved?.basic_monthly));
       // Prefer Special Allowance; fall back to legacy uniform-only drafts
       const specialSaved =
@@ -207,7 +239,10 @@ export default function SalaryEmployeeCtc() {
       setBonus(numOrEmpty(saved?.bonus_monthly));
       setDob(saved?.date_of_birth || data.date_of_birth || "");
       setDoj(saved?.date_of_joining || data.date_of_joining || "");
-      setWef(saved?.wef_date || "");
+      // Revise: default W.E.F. to today (user can change). Otherwise keep saved.
+      setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
+      setSaveError("");
+      setSaveMsg("");
     } catch (err) {
       console.error("Salary CTC: failed to load employee", err);
       setError("Could not load employee profile. Please try again.");
@@ -215,7 +250,7 @@ export default function SalaryEmployeeCtc() {
     } finally {
       setLoading(false);
     }
-  }, [employeeId]);
+  }, [employeeId, reviseRequested]);
 
   useEffect(() => {
     load();
@@ -232,8 +267,8 @@ export default function SalaryEmployeeCtc() {
     : "—";
 
   const syncDerivedFromBasic = (basicRaw, specialRaw = special) => {
-    const b = Number(basicRaw);
-    if (basicRaw === "" || !Number.isFinite(b) || b <= 0) {
+    const b = parseRupeeInput(basicRaw);
+    if (basicRaw === "" || b == null || b <= 0) {
       setEmpPf("");
       setErPf("");
       setPt("");
@@ -244,7 +279,7 @@ export default function SalaryEmployeeCtc() {
     setErPf(String(er));
     const preview = computeCtcStructure({
       basicMonthly: b,
-      specialAllowanceMonthly: specialRaw === "" ? 0 : Number(specialRaw) || 0,
+      specialAllowanceMonthly: parseRupeeInput(specialRaw) ?? 0,
       empPfMonthly: emp,
       erPfMonthly: er,
       ptMonthly: null,
@@ -253,18 +288,21 @@ export default function SalaryEmployeeCtc() {
   };
 
   const handleBasicChange = (raw) => {
+    if (!canEdit) return;
     setBasic(raw);
     syncDerivedFromBasic(raw, special);
   };
 
   const handleSpecialChange = (raw) => {
+    if (!canEdit) return;
     setSpecial(raw);
-    if (basic !== "" && Number(basic) > 0) {
+    const b = parseRupeeInput(basic);
+    if (b != null && b > 0) {
       const preview = computeCtcStructure({
-        basicMonthly: Number(basic) || 0,
-        specialAllowanceMonthly: raw === "" ? 0 : Number(raw) || 0,
-        empPfMonthly: empPf === "" ? null : Number(empPf),
-        erPfMonthly: erPf === "" ? null : Number(erPf),
+        basicMonthly: b,
+        specialAllowanceMonthly: parseRupeeInput(raw) ?? 0,
+        empPfMonthly: parseRupeeInput(empPf),
+        erPfMonthly: parseRupeeInput(erPf),
         ptMonthly: null,
       });
       setPt(String(preview.pt_monthly ?? defaultPtForGross(preview.gross_monthly)));
@@ -272,28 +310,76 @@ export default function SalaryEmployeeCtc() {
   };
 
   const applyPfDefaults = () => {
+    if (!canEdit) return;
     if (!applyPfFromBasic(basic)) return;
     if (parsed.gross_monthly != null) {
       setPt(String(defaultPtForGross(parsed.gross_monthly)));
     }
   };
 
+  const enterReviseMode = () => {
+    navigate(`/app/admin/salary-admin/salary-master/${employeeId}?mode=revise`, {
+      replace: true,
+    });
+  };
+
   const handleSave = () => {
-    if (!employee) return;
+    if (!employee || !canEdit) return;
+    setSaveError("");
     const structure = computeCtcStructure(buildArgs());
-    if (!structure.declared) return;
-    saveSalaryStructure(employee.id, {
+    if (!structure.declared) {
+      setSaveError("Enter Basic or Special Allowance before saving.");
+      return;
+    }
+
+    const wefToSave = wef || (isRevisionMode ? todayInputDate() : null);
+    if (isRevisionMode && !wefToSave) {
+      setSaveError("Set a W.E.F. date for this revision.");
+      return;
+    }
+
+    const payload = {
       ...structure,
+      // Persist exact whole-rupee amounts entered / computed
+      basic_monthly: structure.basic_monthly,
+      special_allowance_monthly: structure.special_allowance_monthly,
+      emp_pf_monthly: structure.emp_pf_monthly,
+      er_pf_monthly: structure.er_pf_monthly,
+      pt_monthly: structure.pt_monthly,
+      bonus_monthly: structure.bonus_monthly,
       hra_monthly: hraFixedMonthly(),
       date_of_birth: dob || null,
       date_of_joining: doj || null,
-      wef_date: wef || null,
-    });
+      wef_date: wefToSave,
+    };
+
+    let savedRow;
+    if (isRevisionMode) {
+      savedRow = reviseSalaryStructure(employee.id, payload, {
+        reason: revisionReason,
+        wef_date: wefToSave,
+      });
+      setRevisionCount(Number(savedRow?.revision_count) || 0);
+      setSaveMsg("Revision saved");
+    } else {
+      savedRow = saveSalaryStructure(employee.id, payload);
+      setSaveMsg("Saved");
+    }
+
+    setHasExistingCtc(true);
+    // Keep form in sync with what was actually saved (current revision)
+    setBasic(numOrEmpty(savedRow?.basic_monthly ?? structure.basic_monthly));
+    setSpecial(numOrEmpty(savedRow?.special_allowance_monthly ?? structure.special_allowance_monthly));
     setEmpPf(String(structure.emp_pf_monthly ?? ""));
     setErPf(String(structure.er_pf_monthly ?? ""));
     setPt(String(structure.pt_monthly ?? ""));
     setBonus(String(structure.bonus_monthly ?? ""));
-    setSaveMsg("Saved");
+    setWef(savedRow?.wef_date || wefToSave || "");
+    setRevisionReason(savedRow?.revision_reason || revisionReason || "");
+
+    if (isRevisionMode || reviseRequested) {
+      navigate(`/app/admin/salary-admin/salary-master/${employee.id}`, { replace: true });
+    }
     window.setTimeout(() => setSaveMsg(""), 2500);
   };
 
@@ -327,13 +413,46 @@ export default function SalaryEmployeeCtc() {
   return (
     <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-[#f0eee8]">
       <div className="shrink-0 border-b border-[#e5e1d8] bg-[#f7f5f0]">
-        <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-4">
-          <h1 className="text-2xl sm:text-[1.75rem] font-bold text-[#1a1a1a] tracking-tight">
-            {name}
-          </h1>
-          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8a857c]">
-            Compensation Structure · {code}
-          </p>
+        <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-[1.75rem] font-bold text-[#1a1a1a] tracking-tight">
+              {name}
+            </h1>
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8a857c]">
+              {isRevisionMode
+                ? `Salary revision · ${code}`
+                : isViewOnly
+                  ? `Compensation structure · ${code}`
+                  : `New CTC setup · ${code}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasExistingCtc ? (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(true)}
+                className="h-9 px-3 rounded-md border border-[#d4d0c8] bg-white text-xs font-medium text-[#2a2a2a] hover:bg-[#faf9f6] inline-flex items-center gap-1.5"
+              >
+                <History className="h-3.5 w-3.5" />
+                History
+                {revisionCount > 0 ? (
+                  <span className="ml-0.5 inline-flex min-w-[1.1rem] h-4 px-1 items-center justify-center rounded-full bg-[#1F3A8A] text-[9px] font-bold text-white">
+                    {revisionCount}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+            {isViewOnly ? (
+              <button
+                type="button"
+                onClick={enterReviseMode}
+                className="h-9 px-3 rounded-md bg-[#1F3A8A] text-white text-xs font-semibold hover:bg-[#18306f] inline-flex items-center gap-1.5"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Revise CTC
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-2.5 border-t border-[#ebe7df] bg-[#f3f1ec]">
           <Link
@@ -348,15 +467,61 @@ export default function SalaryEmployeeCtc() {
 
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="w-full px-3 sm:px-5 lg:px-8 xl:px-10 py-4 sm:py-5 pb-28">
+          {isRevisionMode ? (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex flex-wrap items-start gap-3">
+              <RefreshCw className="h-4 w-4 text-amber-800 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-amber-950">Salary revision</p>
+                <p className="mt-0.5 text-xs text-amber-900/80">
+                  Current figures are pre-filled. Change amounts as needed. W.E.F. is set to today
+                  (you can change it). Previous CTC is kept in history.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {isViewOnly ? (
+            <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900">Viewing current CTC</p>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  Amounts are locked. Use Revise CTC to change compensation and keep a history trail.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={enterReviseMode}
+                className="h-8 px-3 rounded-md border border-slate-300 bg-white text-xs font-semibold text-[#1F3A8A] hover:bg-white"
+              >
+                Revise CTC
+              </button>
+            </div>
+          ) : null}
+
+          {reviseRequested && !hasExistingCtc ? (
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+              No CTC yet for this employee. Enter the first structure below and save — later changes
+              will use revision.
+            </div>
+          ) : null}
+
           <div className="w-full bg-white border border-[#e5e1d8] shadow-[0_1px_3px_rgba(40,35,25,0.04)] overflow-hidden">
             <div className="px-6 sm:px-8 lg:px-10 py-5 sm:py-6 border-b border-[#eceae4] flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-lg sm:text-xl font-bold text-[#1a1a1a]">{name}</h2>
                 <p className="mt-1 text-sm text-[#5c584f]">{metaLine || "—"}</p>
               </div>
-              <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-[#f3e6d4] text-[10px] font-bold uppercase tracking-[0.08em] text-[#7a5a2e]">
-                Compensation scheme — Year {fy}
-              </span>
+              <div className="flex flex-col items-end gap-1.5">
+                <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-[#f3e6d4] text-[10px] font-bold uppercase tracking-[0.08em] text-[#7a5a2e]">
+                  Compensation scheme — Year {fy}
+                </span>
+                {hasExistingCtc ? (
+                  <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[#8a857c]">
+                    Version {(revisionCount || 0) + 1}
+                    {revisionCount > 0 ? ` · ${revisionCount} prior revision${revisionCount === 1 ? "" : "s"}` : ""}
+                  </span>
+                ) : null}
+              </div>
             </div>
 
             <div className="px-6 sm:px-8 lg:px-10 py-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-6 border-b border-[#eceae4]">
@@ -369,21 +534,56 @@ export default function SalaryEmployeeCtc() {
               <div className="min-w-0">
                 <p className={fieldLabel}>D.O.B.</p>
                 <div className="mt-1.5">
-                  <FormDateInput value={dob} onChange={(e) => setDob(e.target.value)} className={dateInput} />
+                  <FormDateInput
+                    value={dob}
+                    onChange={(e) => canEdit && setDob(e.target.value)}
+                    className={`${dateInput} ${!canEdit ? "bg-[#f3f1ec] pointer-events-none" : ""}`}
+                  />
                 </div>
               </div>
               <div className="min-w-0">
                 <p className={fieldLabel}>D.O.J.</p>
                 <div className="mt-1.5">
-                  <FormDateInput value={doj} onChange={(e) => setDoj(e.target.value)} className={dateInput} />
+                  <FormDateInput
+                    value={doj}
+                    onChange={(e) => canEdit && setDoj(e.target.value)}
+                    className={`${dateInput} ${!canEdit ? "bg-[#f3f1ec] pointer-events-none" : ""}`}
+                  />
                 </div>
               </div>
               <div className="min-w-0">
                 <p className={fieldLabel}>W.E.F.</p>
                 <div className="mt-1.5">
-                  <FormDateInput value={wef} onChange={(e) => setWef(e.target.value)} className={dateInput} />
+                  <FormDateInput
+                    value={wef}
+                    onChange={(e) => canEdit && setWef(e.target.value)}
+                    className={`${dateInput} ${!canEdit ? "bg-[#f3f1ec] pointer-events-none" : ""}`}
+                  />
                 </div>
+                {isRevisionMode ? (
+                  <p className="mt-1 text-[10px] text-[#8a857c]">Defaults to today — change if needed</p>
+                ) : null}
               </div>
+              {isRevisionMode ? (
+                <div className="min-w-0 sm:col-span-2 lg:col-span-4">
+                  <p className={fieldLabel}>Revision reason</p>
+                  <div className="mt-1.5">
+                    <input
+                      type="text"
+                      value={revisionReason}
+                      onChange={(e) => setRevisionReason(e.target.value)}
+                      placeholder="e.g. Annual increment, role change…"
+                      className="w-full max-w-xl h-9 text-sm border border-[#d4d0c8] rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/25 focus:border-[#1F3A8A]"
+                    />
+                  </div>
+                </div>
+              ) : hasExistingCtc ? (
+                <div className="min-w-0 sm:col-span-2 lg:col-span-4">
+                  <ProfileField label="Revision reason">
+                    {revisionReason?.trim() || "—"}
+                  </ProfileField>
+                </div>
+              ) : null}
             </div>
 
             <SheetSectionHead title="PART A — Gross & Take Home" right="w.e.f. rate · per annum" />
@@ -391,8 +591,15 @@ export default function SalaryEmployeeCtc() {
 
             <SheetRow
               label="Basic"
-              monthly={<AmountInput value={basic} onChange={handleBasicChange} label="Basic monthly" />}
-              pa={paFromMonthly(basic === "" ? null : Number(basic))}
+              monthly={
+                <AmountInput
+                  value={basic}
+                  onChange={handleBasicChange}
+                  label="Basic monthly"
+                  readOnly={!canEdit}
+                />
+              }
+              pa={paFromMonthly(parseRupeeInput(basic))}
             />
             <SheetRow
               label="HRA"
@@ -406,9 +613,10 @@ export default function SalaryEmployeeCtc() {
                   value={special}
                   onChange={handleSpecialChange}
                   label="Special allowance monthly"
+                  readOnly={!canEdit}
                 />
               }
-              pa={paFromMonthly(special === "" ? null : Number(special))}
+              pa={paFromMonthly(parseRupeeInput(special))}
             />
             <SheetRow
               label="GROSS (PART A)"
@@ -418,12 +626,26 @@ export default function SalaryEmployeeCtc() {
             />
             <SheetRow
               label="Less : Employee PF"
-              monthly={<AmountInput value={empPf} onChange={setEmpPf} label="Employee PF monthly" />}
+              monthly={
+                <AmountInput
+                  value={empPf}
+                  onChange={canEdit ? setEmpPf : () => {}}
+                  label="Employee PF monthly"
+                  readOnly={!canEdit}
+                />
+              }
               pa={paFromMonthly(parsed.emp_pf_monthly)}
             />
             <SheetRow
               label="Less : P. Tax"
-              monthly={<AmountInput value={pt} onChange={setPt} label="Professional tax monthly" />}
+              monthly={
+                <AmountInput
+                  value={pt}
+                  onChange={canEdit ? setPt : () => {}}
+                  label="Professional tax monthly"
+                  readOnly={!canEdit}
+                />
+              }
               pa={paFromMonthly(parsed.pt_monthly)}
             />
             <SheetRow
@@ -447,7 +669,14 @@ export default function SalaryEmployeeCtc() {
 
             <SheetRow
               label="Add : Employer PF"
-              monthly={<AmountInput value={erPf} onChange={setErPf} label="Employer PF monthly" />}
+              monthly={
+                <AmountInput
+                  value={erPf}
+                  onChange={canEdit ? setErPf : () => {}}
+                  label="Employer PF monthly"
+                  readOnly={!canEdit}
+                />
+              }
               pa={paFromMonthly(parsed.er_pf_monthly)}
             />
             <SheetRow
@@ -471,7 +700,14 @@ export default function SalaryEmployeeCtc() {
             />
             <SheetRow
               label="Add : Bonus"
-              monthly={<AmountInput value={bonus} onChange={setBonus} label="Bonus monthly" />}
+              monthly={
+                <AmountInput
+                  value={bonus}
+                  onChange={canEdit ? setBonus : () => {}}
+                  label="Bonus monthly"
+                  readOnly={!canEdit}
+                />
+              }
               pa={paFromMonthly(parsed.bonus_monthly)}
             />
             <SheetRow
@@ -492,23 +728,42 @@ export default function SalaryEmployeeCtc() {
 
       <footer className="shrink-0 sticky bottom-0 z-20 border-t border-[#e5e1d8] bg-[#f7f5f0]/95 backdrop-blur-sm">
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={handleSave}
-            className="h-10 px-5 rounded-md bg-[#1a1a1a] text-white text-sm font-semibold hover:bg-black inline-flex items-center gap-1.5"
-          >
-            {saveMsg ? <Check className="h-4 w-4" /> : null}
-            {saveMsg ? "CTC saved" : "Save CTC"}
-          </button>
-          <button
-            type="button"
-            onClick={applyPfDefaults}
-            disabled={!basic || Number(basic) <= 0}
-            className="h-10 px-4 rounded-md border border-[#d4d0c8] bg-white text-sm font-medium text-[#2a2a2a] hover:bg-[#faf9f6] disabled:opacity-40 disabled:pointer-events-none"
-            title="Fill Employee PF 12% and Employer PF 13% of Basic (capped ₹15,000)"
-          >
-            Suggest PF (12% / 13%)
-          </button>
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={handleSave}
+              className="h-10 px-5 rounded-md bg-[#1a1a1a] text-white text-sm font-semibold hover:bg-black inline-flex items-center gap-1.5"
+            >
+              {saveMsg ? <Check className="h-4 w-4" /> : null}
+              {saveMsg
+                ? saveMsg === "Revision saved"
+                  ? "Revision saved"
+                  : "CTC saved"
+                : isRevisionMode
+                  ? "Save revision"
+                  : "Save CTC"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={enterReviseMode}
+              className="h-10 px-5 rounded-md bg-[#1F3A8A] text-white text-sm font-semibold hover:bg-[#18306f] inline-flex items-center gap-1.5"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Revise CTC
+            </button>
+          )}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={applyPfDefaults}
+              disabled={!basic || (parseRupeeInput(basic) ?? 0) <= 0}
+              className="h-10 px-4 rounded-md border border-[#d4d0c8] bg-white text-sm font-medium text-[#2a2a2a] hover:bg-[#faf9f6] disabled:opacity-40 disabled:pointer-events-none"
+              title="Fill Employee PF 12% and Employer PF 13% of Basic (capped ₹15,000)"
+            >
+              Suggest PF (12% / 13%)
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => navigate("/app/admin/salary-admin/salary-processing")}
@@ -517,8 +772,23 @@ export default function SalaryEmployeeCtc() {
             Go to Salary Processing
             <ArrowRight className="h-4 w-4" />
           </button>
+          {saveError ? (
+            <span className="text-sm text-red-600 font-medium">{saveError}</span>
+          ) : null}
         </div>
       </footer>
+
+      <Drawer
+        open={historyOpen}
+        title="CTC revision history"
+        onClose={() => setHistoryOpen(false)}
+        widthClass="max-w-md"
+      >
+        <SalaryRevisionHistory
+          employee={employee}
+          salary={getSalaryStructure(employee.id)}
+        />
+      </Drawer>
     </div>
   );
 }
