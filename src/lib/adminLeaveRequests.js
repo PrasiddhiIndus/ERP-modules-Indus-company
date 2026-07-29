@@ -1,12 +1,13 @@
 /**
- * Leave workflow — reads `indus_one.admin_leave_requests` (ERP approval source of truth).
- * Approve/reject updates admin_leave_requests (DB triggers apply attendance + balance),
- * then syncs `indus_one.leave_requests` for the Indus One LMS UI.
+ * Leave workflow — reads `indus_one.leave_requests` + `indus_one.admin_leave_requests`
+ * (merged for the ERP leave inbox). Approve/reject still updates admin_leave_requests
+ * (DB triggers apply attendance + balance), then syncs `leave_requests` for Indus One LMS.
  */
 
 import { supabase } from "./supabase";
 import { formatDateDdMmYyyy } from "../utils/dateDisplay";
 import { isSupabaseRealtimeEnabled } from "./supabaseConfig";
+import { fetchApiWithAuth } from "./apiBase";
 import {
   EMPLOYEE_MASTER_TABLE,
   normalizeAttendanceEmpCode,
@@ -486,13 +487,108 @@ async function applyLeaveDecision(id, { lmsExpectedStatuses, adminExpectedStatus
   return finishDecisionRow(lmsSynced);
 }
 
-function statusFilterForTab(tabStatus) {
-  const s = normalizeWorkflowStatus(tabStatus);
-  if (!s || s === "all") return null;
-  if (s === "pending") {
-    return { column: "status", values: ["pending"] };
+function rowMatchesLeaveType(row, leaveType) {
+  if (!leaveType) return true;
+  const code = leaveTypeCodeFromRow(row);
+  return String(code).toLowerCase() === String(leaveType).trim().toLowerCase();
+}
+
+function rowMatchesDateRange(row, fromDate, toDate) {
+  if (fromDate && row.to_date && String(row.to_date) < fromDate) return false;
+  if (toDate && row.from_date && String(row.from_date) > toDate) return false;
+  return true;
+}
+
+/**
+ * Merge LMS leave_requests + admin_leave_requests by id (read-only inbox).
+ * Prefer admin decision fields when the admin row is terminal / ahead of LMS.
+ */
+function resolveInboxDisplayStatus(adminEffective, lmsStatus) {
+  const a = normalizeWorkflowStatus(adminEffective);
+  const l = adminStatusFromLms(lmsStatus);
+  if (a === "approved" || l === "approved") return "approved";
+  if (a === "rejected" || l === "rejected") return "rejected";
+  return "pending";
+}
+
+function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
+  const byId = new Map();
+
+  for (const row of adminRows || []) {
+    if (!row?.id) continue;
+    const effective = effectiveLeaveWorkflowStatus(row) || normalizeWorkflowStatus(row.status);
+    byId.set(row.id, {
+      ...row,
+      status: resolveInboxDisplayStatus(effective, effective),
+      overall_status: normalizeWorkflowStatus(row.overall_status) || null,
+      leave_type_code: leaveTypeCodeFromRow(row),
+      _from_admin: true,
+    });
   }
-  return { column: "status", values: [s] };
+
+  for (const row of lmsRows || []) {
+    if (!row?.id) continue;
+    const lmsStatus = normalizeWorkflowStatus(row.status);
+    const existing = byId.get(row.id);
+    if (!existing) {
+      byId.set(row.id, {
+        ...row,
+        status: resolveInboxDisplayStatus(null, lmsStatus),
+        overall_status:
+          normalizeWorkflowStatus(row.overall_status) || adminStatusFromLms(lmsStatus),
+        leave_type_code: leaveTypeCodeFromRow(row),
+        _from_lms: true,
+      });
+      continue;
+    }
+
+    const adminEffective = effectiveLeaveWorkflowStatus(existing);
+    byId.set(row.id, {
+      ...row,
+      ...existing,
+      leave_type_code: leaveTypeCodeFromRow(existing) || leaveTypeCodeFromRow(row),
+      reason: existing.reason || row.reason || "",
+      from_date: existing.from_date || row.from_date,
+      to_date: existing.to_date || row.to_date,
+      days: existing.days ?? row.days,
+      submitted_at: existing.submitted_at || row.submitted_at,
+      user_id: existing.user_id || row.user_id,
+      status: resolveInboxDisplayStatus(adminEffective, lmsStatus),
+      overall_status:
+        existing.overall_status ||
+        normalizeWorkflowStatus(row.overall_status) ||
+        adminStatusFromLms(lmsStatus),
+      approver_name: existing.approver_name ?? row.approver_name ?? null,
+      approver_user_id: existing.approver_user_id ?? row.approver_user_id ?? null,
+      approver_employee_code: existing.approver_employee_code ?? row.approver_employee_code ?? null,
+      approved_by_tier: existing.approved_by_tier ?? row.approved_by_tier ?? null,
+      remarks: existing.remarks ?? row.remarks ?? null,
+      decided_at: existing.decided_at ?? row.decided_at ?? null,
+      employee_master_id: existing.employee_master_id ?? null,
+      employee_code: existing.employee_code ?? null,
+      _from_lms: true,
+      _from_admin: true,
+    });
+  }
+
+  return [...byId.values()];
+}
+
+function normalizeMergedLeaveRows(rows, employeeByMasterId, employeeByUserId) {
+  return (rows || []).map((row) => {
+    const byMaster = row.employee_master_id != null ? employeeByMasterId[row.employee_master_id] : null;
+    const byUser = row.user_id ? employeeByUserId[row.user_id] : null;
+    const employee = byMaster || byUser || null;
+    const empCode =
+      normalizeAttendanceEmpCode(row.employee_code || employee?.employee_code) || null;
+    return {
+      ...row,
+      leave_type_code: leaveTypeCodeFromRow(row),
+      employee_code: empCode,
+      employee_master_id: row.employee_master_id ?? employee?.id ?? null,
+      employee: employeeSnapshot(employee),
+    };
+  });
 }
 
 /**
@@ -533,44 +629,7 @@ export function subscribeLeaveWorkflowRealtime(onChange) {
   };
 }
 
-/** Merge admin_leave_requests decision fields when LMS row lags behind. */
-async function enrichRowsWithAdminWorkflow(rows) {
-  const ids = (rows || []).map((r) => r.id).filter(Boolean);
-  if (!ids.length) return rows || [];
-
-  const { data, error } = await adminLeaveRequestsTable()
-    .select("id, status, approver_name, approver_user_id, remarks, decided_at, updated_at")
-    .in("id", ids);
-  if (error) return rows || [];
-
-  const byId = Object.fromEntries((data || []).map((r) => [r.id, r]));
-  return (rows || []).map((row) => {
-    const admin = byId[row.id];
-    if (!admin) return row;
-
-    const lmsStatus = normalizeWorkflowStatus(row.status);
-    const adminStatus = normalizeWorkflowStatus(admin.status);
-    const terminal = TERMINAL_STATUSES.includes(adminStatus);
-
-    if (terminal && isOpenLmsStatus(lmsStatus)) {
-      return {
-        ...row,
-        status: adminStatus,
-        approver_name: admin.approver_name ?? row.approver_name,
-        approver_user_id: admin.approver_user_id ?? row.approver_user_id,
-        remarks: admin.remarks ?? row.remarks,
-        decided_at: admin.decided_at ?? row.decided_at,
-        _synced_from_admin: true,
-      };
-    }
-    return {
-      ...row,
-      approver_name: row.approver_name ?? admin.approver_name,
-      decided_at: row.decided_at ?? admin.decided_at,
-      remarks: row.remarks ?? admin.remarks,
-    };
-  });
-}
+const LEAVE_FETCH_CAP = 2000;
 
 export async function fetchLeaveTypes() {
   const { data, error } = await supabase
@@ -585,45 +644,78 @@ export async function fetchLeaveTypes() {
   return { rows: data || [], byCode };
 }
 
-export async function countPendingLeaveRequests() {
-  const { count, error } = await adminLeaveRequestsTable()
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
-  if (error) throw error;
-  return count ?? 0;
-}
+/**
+ * Prefer service-role API so ERP admins see ALL employees' leave (RLS otherwise
+ * often returns only the signed-in user's rows). Falls back to direct Supabase.
+ */
+async function loadLeaveInboxSourceRows() {
+  try {
+    const result = await fetchApiWithAuth("/api/admin/leave-requests");
+    if (result.ok && (Array.isArray(result.data?.lmsRows) || Array.isArray(result.data?.adminRows))) {
+      return {
+        lmsRows: result.data.lmsRows || [],
+        adminRows: result.data.adminRows || [],
+        source: "api",
+      };
+    }
+    if (result.error) {
+      console.warn("Leave inbox API unavailable; falling back to direct Supabase:", result.error);
+    }
+  } catch (err) {
+    console.warn("Leave inbox API failed; falling back to direct Supabase:", err?.message || err);
+  }
 
-/** Lightweight counts for inbox KPI row (parallel head requests). */
-export async function fetchLeaveStatusCounts() {
-  const [pendingRes, approvedRes, rejectedRes, cancelledRes, allRes] = await Promise.all([
+  const [lmsRes, adminRes] = await Promise.all([
+    lmsLeaveRequestsTable()
+      .select("*")
+      .order("submitted_at", { ascending: false })
+      .range(0, LEAVE_FETCH_CAP - 1),
     adminLeaveRequestsTable()
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending"),
-    adminLeaveRequestsTable()
-      .select("id", { count: "exact", head: true })
-      .eq("status", "approved"),
-    adminLeaveRequestsTable()
-      .select("id", { count: "exact", head: true })
-      .eq("status", "rejected"),
-    adminLeaveRequestsTable()
-      .select("id", { count: "exact", head: true })
-      .eq("status", "cancelled"),
-    adminLeaveRequestsTable().select("id", { count: "exact", head: true }),
+      .select("*")
+      .order("submitted_at", { ascending: false })
+      .range(0, LEAVE_FETCH_CAP - 1),
   ]);
 
-  const firstErr =
-    pendingRes.error || approvedRes.error || rejectedRes.error || cancelledRes.error || allRes.error;
-  if (firstErr) throw firstErr;
+  if (lmsRes.error && adminRes.error) {
+    throw lmsRes.error || adminRes.error;
+  }
+  if (lmsRes.error && !adminRes.error) {
+    console.warn("leave_requests fetch failed; using admin_leave_requests only:", lmsRes.error.message);
+  }
+  if (adminRes.error && !lmsRes.error) {
+    console.warn("admin_leave_requests fetch failed; using leave_requests only:", adminRes.error.message);
+  }
 
   return {
-    pending: pendingRes.count ?? 0,
-    approved: approvedRes.count ?? 0,
-    rejected: rejectedRes.count ?? 0,
-    cancelled: cancelledRes.count ?? 0,
-    all: allRes.count ?? 0,
+    lmsRows: lmsRes.error ? [] : lmsRes.data || [],
+    adminRows: adminRes.error ? [] : adminRes.data || [],
+    source: "supabase",
   };
 }
 
+export async function countPendingLeaveRequests() {
+  const counts = await fetchLeaveStatusCounts();
+  return counts.pending ?? 0;
+}
+
+/** Lightweight counts for inbox KPI row — unique ids across LMS + admin. */
+export async function fetchLeaveStatusCounts() {
+  const { lmsRows, adminRows } = await loadLeaveInboxSourceRows();
+  const merged = mergeLmsAndAdminLeaveRows(lmsRows, adminRows);
+  const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, withdrawn: 0, all: merged.length };
+  for (const row of merged) {
+    const s = String(row.status || "").toLowerCase();
+    if (s === "approved") counts.approved += 1;
+    else if (s === "rejected") counts.rejected += 1;
+    else counts.pending += 1;
+  }
+  return counts;
+}
+
+/**
+ * Read-only inbox list from both `indus_one.leave_requests` and `indus_one.admin_leave_requests`.
+ * Uses admin API (service role) so all users' requests are visible, not only the logged-in user.
+ */
 export async function fetchLeaveRequests(opts = {}) {
   const {
     status,
@@ -635,47 +727,65 @@ export async function fetchLeaveRequests(opts = {}) {
     pageSize = PAGE_SIZE_DEFAULT,
   } = opts;
 
-  let query = adminLeaveRequestsTable()
-    .select("*", { count: "exact" })
-    .order("submitted_at", { ascending: false });
-
-  const tabFilter = statusFilterForTab(status);
-  if (tabFilter) {
-    query = query.in(tabFilter.column, tabFilter.values);
-  }
-  if (leaveType) query = query.eq("leave_type_code", leaveType);
-  if (fromDate) query = query.gte("to_date", fromDate);
-  if (toDate) query = query.lte("from_date", toDate);
+  const { lmsRows, adminRows } = await loadLeaveInboxSourceRows();
+  let merged = mergeLmsAndAdminLeaveRows(lmsRows, adminRows);
 
   const needle = empSearch.trim();
   if (needle) {
-    const masterIds = await fetchEmployeeMasterIdsForSearch(needle);
-    if (masterIds.length) {
-      query = query.in("employee_master_id", masterIds);
-    } else {
+    const [masterIds, userIds] = await Promise.all([
+      fetchEmployeeMasterIdsForSearch(needle),
+      fetchUserIdsForEmployeeSearch(needle),
+    ]);
+    if (!masterIds.length && !userIds.length) {
       return { rows: [], total: 0, page, pageSize };
     }
+    const masterSet = new Set(masterIds);
+    const userSet = new Set(userIds);
+    merged = merged.filter(
+      (row) =>
+        (row.employee_master_id != null && masterSet.has(row.employee_master_id)) ||
+        (row.user_id && userSet.has(row.user_id))
+    );
   }
 
-  const from = (Math.max(1, page) - 1) * pageSize;
-  query = query.range(from, from + pageSize - 1);
+  const tab = normalizeWorkflowStatus(status);
+  if (tab && tab !== "all") {
+    merged = merged.filter((row) => {
+      const s = String(row.status || "").toLowerCase();
+      if (tab === "pending") return s === "pending";
+      return s === tab;
+    });
+  }
 
-  const { data, error, count } = await query;
-  if (error) throw error;
+  if (leaveType) {
+    merged = merged.filter((row) => rowMatchesLeaveType(row, leaveType));
+  }
+  if (fromDate || toDate) {
+    merged = merged.filter((row) => rowMatchesDateRange(row, fromDate, toDate));
+  }
 
-  const normalized = (data || []).map((row) => ({
-    ...row,
-    status: normalizeWorkflowStatus(row.status),
-  }));
-  const employeeByMasterId = await fetchEmployeesByMasterIds(
-    normalized.map((r) => r.employee_master_id)
-  );
-  const rows = normalizeAdminLeaveRows(normalized, employeeByMasterId);
+  merged.sort((a, b) => {
+    const ta = a.submitted_at ? new Date(a.submitted_at).getTime() : 0;
+    const tb = b.submitted_at ? new Date(b.submitted_at).getTime() : 0;
+    return tb - ta;
+  });
+
+  const total = merged.length;
+  const safePage = Math.max(1, page);
+  const from = (safePage - 1) * pageSize;
+  const pageRows = merged.slice(from, from + pageSize);
+
+  const [employeeByMasterId, employeeByUserId] = await Promise.all([
+    fetchEmployeesByMasterIds(pageRows.map((r) => r.employee_master_id)),
+    fetchEmployeesByUserIds(pageRows.map((r) => r.user_id)),
+  ]);
+
+  const rows = normalizeMergedLeaveRows(pageRows, employeeByMasterId, employeeByUserId);
 
   return {
     rows,
-    total: count ?? rows.length,
-    page,
+    total,
+    page: safePage,
     pageSize,
   };
 }

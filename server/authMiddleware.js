@@ -8,8 +8,16 @@ const BILLING_TEAMS = new Set(['billing', 'commercial', 'commercialMt', 'commerc
 const BILLING_ROLES = new Set(['admin', 'billing']);
 
 function parseModules(raw) {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((m) => String(m || '').trim()).filter(Boolean);
+  if (Array.isArray(raw)) {
+    return raw.map((m) => String(m || '').trim()).filter(Boolean);
+  }
+  if (raw && typeof raw === 'object') {
+    return Object.keys(raw)
+      .filter((k) => raw[k])
+      .map((k) => String(k || '').trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 function hasModule(modules, allowed) {

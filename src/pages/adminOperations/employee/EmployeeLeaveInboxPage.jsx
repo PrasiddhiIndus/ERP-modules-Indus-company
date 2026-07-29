@@ -1,22 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { useAuth } from "../../../contexts/AuthContext";
 import {
-  approveLeaveRequest,
-  cancelApprovedLeaveRequest,
-  cancelPendingLeaveRequest,
   fetchLeaveRequests,
   fetchLeaveStatusCounts,
   fetchLeaveTypes,
   formatLeaveDateRange,
   LEAVE_STATUS_FILTER_OPTIONS,
   leaveTypeLabel,
-  rejectApprovedLeaveRequest,
-  rejectLeaveRequest,
-  statusSeverity,
   subscribeLeaveWorkflowRealtime,
 } from "../../../lib/adminLeaveRequests";
-import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";;
+import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
 import { formatDateTimeDdMmYyyy } from "../../../utils/dateDisplay";
 
 import {
@@ -26,7 +18,6 @@ import {
   TinyInput,
   TinySelect,
   StatusChip,
-  Modal,
   KpiTile,
   PageTaskHeader,
   CollapsibleHelp,
@@ -35,8 +26,6 @@ import {
 const PAGE_SIZES = [25, 50, 100];
 const SEARCH_DEBOUNCE_MS = 400;
 const REALTIME_DEBOUNCE_MS = 450;
-
-const OPEN_PENDING_STATUSES = new Set(["pending"]);
 
 const STATUS_KPI = [
   { id: "pending", label: "Pending", tone: "border-amber-200 bg-amber-50/40" },
@@ -50,13 +39,6 @@ function statusFilterLabel(value) {
   return LEAVE_STATUS_FILTER_OPTIONS.find((o) => o.value === value)?.label || value;
 }
 
-function rowMatchesStatusFilter(rowStatus, filter) {
-  const s = String(rowStatus || "").toLowerCase();
-  if (filter === "all") return true;
-  if (filter === "pending") return OPEN_PENDING_STATUSES.has(s);
-  return s === filter;
-}
-
 function formatTs(v) {
   if (!v) return "—";
   const d = new Date(v);
@@ -64,35 +46,35 @@ function formatTs(v) {
   return formatDateTimeDdMmYyyy(d);
 }
 
+/** Display status: Approved / Rejected / Pending only. */
 function statusDisplayLabel(status) {
   const s = String(status || "").toLowerCase();
-  if (s === "draft" || s === "submitted" || s === "pending_approval") return "Pending review";
-  if (s === "pending") return "Pending";
-  return s.charAt(0).toUpperCase() + s.slice(1);
+  if (s === "approved") return "Approved";
+  if (s === "rejected") return "Rejected";
+  return "Pending";
 }
 
-function ActionBtn({ tone, children, onClick, disabled }) {
-  const tones = {
-    approve: "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700",
-    reject: "bg-white hover:bg-red-50 text-red-700 border-red-300",
-    cancel: "bg-white hover:bg-gray-50 text-gray-700 border-gray-300",
-    link: "bg-white hover:bg-blue-50 text-blue-700 border-blue-200",
-  };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`h-7 px-2.5 rounded-md border text-[11px] font-semibold transition disabled:opacity-50 ${tones[tone] || tones.cancel}`}
-    >
-      {children}
-    </button>
-  );
+function statusChipSeverity(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "approved") return "info";
+  if (s === "rejected") return "critical";
+  return "warning";
+}
+
+/** Who approved or rejected; blank while pending. */
+function decisionByLabel(row) {
+  const status = String(row?.status || "").toLowerCase();
+  const name = String(row?.approver_name || "").trim();
+  const code = String(row?.approver_employee_code || "").trim();
+  const who = name || code;
+  if (!who) return "—";
+  if (status === "approved") return `Approved by ${who}`;
+  if (status === "rejected") return `Rejected by ${who}`;
+  return "—";
 }
 
 export function EmployeeLeavesPage() {
-  const { user, userProfile } = useAuth();
-  const [statusFilter, setStatusFilter] = useState("pending");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [realtimeLive, setRealtimeLive] = useState(false);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -101,8 +83,6 @@ export function EmployeeLeavesPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [recentlyUpdatedId, setRecentlyUpdatedId] = useState(null);
 
   const [empSearch, setEmpSearch] = useState("");
   const [empSearchDebounced, setEmpSearchDebounced] = useState("");
@@ -112,27 +92,7 @@ export function EmployeeLeavesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const [modal, setModal] = useState(null);
-  const [remarks, setRemarks] = useState("");
-  const [acting, setActing] = useState(false);
-
   const loadSeqRef = useRef(0);
-  const pauseRealtimeRef = useRef(false);
-  const actingRef = useRef(false);
-
-  const approverName = userProfile?.username || user?.email?.split("@")[0] || "Admin";
-  const approverUserId = user?.id || null;
-  const isErpAdmin = useMemo(() => {
-    const role = String(userProfile?.role || "").toLowerCase();
-    if (["admin", "super_admin", "super_admin_pro"].includes(role)) return true;
-    if (userProfile?.team === "admin") return true;
-    const mods = userProfile?.allowed_modules;
-    if (Array.isArray(mods) && mods.includes("admin")) return true;
-    if (mods && typeof mods === "object" && mods.admin) return true;
-    return false;
-  }, [userProfile]);
-
-  actingRef.current = acting;
 
   useEffect(() => {
     const t = window.setTimeout(() => setEmpSearchDebounced(empSearch.trim()), SEARCH_DEBOUNCE_MS);
@@ -154,12 +114,12 @@ export function EmployeeLeavesPage() {
     };
   }, []);
 
-  const refreshCounts = useCallback(async (silent = true) => {
+  const refreshCounts = useCallback(async () => {
     try {
       const counts = await fetchLeaveStatusCounts();
       setStatusCounts(counts);
     } catch {
-      if (!silent) return;
+      /* keep previous counts */
     }
   }, []);
 
@@ -211,7 +171,6 @@ export function EmployeeLeavesPage() {
   useEffect(() => {
     let debounce = null;
     const scheduleReload = () => {
-      if (pauseRealtimeRef.current || actingRef.current) return;
       if (debounce) window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
         loadRequests({ silent: true });
@@ -249,102 +208,13 @@ export function EmployeeLeavesPage() {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const openModal = (action, row) => {
-    setModal({ action, row });
-    setRemarks(row?.remarks || "");
-    setError("");
-  };
-
-  const closeModal = () => {
-    if (acting) return;
-    setModal(null);
-    setRemarks("");
-  };
-
-  const flashRow = (id) => {
-    setRecentlyUpdatedId(id);
-    window.setTimeout(() => setRecentlyUpdatedId((cur) => (cur === id ? null : cur)), 2200);
-  };
-
-  const applyDecisionToList = useCallback(
-    (updatedRow) => {
-      if (!updatedRow?.id) return;
-      flashRow(updatedRow.id);
-      setRows((prev) => {
-        const mapped = prev.map((r) => (r.id === updatedRow.id ? { ...r, ...updatedRow } : r));
-        if (rowMatchesStatusFilter(updatedRow.status, statusFilter)) return mapped;
-        return mapped.filter((r) => r.id !== updatedRow.id);
-      });
-      if (!rowMatchesStatusFilter(updatedRow.status, statusFilter)) {
-        setTotal((t) => Math.max(0, t - 1));
-      }
-    },
-    [statusFilter]
-  );
-
-  const runDecision = async () => {
-    if (!modal?.row?.id) return;
-    setActing(true);
-    pauseRealtimeRef.current = true;
-    setError("");
-    const id = modal.row.id;
-    try {
-      const ctx = { approverUserId, approverName, remarks, isErpAdmin };
-      let updated = null;
-      switch (modal.action) {
-        case "approve":
-          updated = await approveLeaveRequest(id, ctx);
-          setMessage("Leave approved — balance deducted and attendance register updated (punch P wins on same day).");
-          break;
-        case "reject":
-          if (modal.row.status === "approved") {
-            updated = await rejectApprovedLeaveRequest(id, ctx);
-          } else {
-            updated = await rejectLeaveRequest(id, ctx);
-          }
-          setMessage("Leave rejected.");
-          break;
-        case "cancel":
-          if (modal.row.status === "approved") {
-            updated = await cancelApprovedLeaveRequest(id, ctx);
-          } else {
-            updated = await cancelPendingLeaveRequest(id, ctx);
-          }
-          setMessage("Leave cancelled.");
-          break;
-        default:
-          break;
-      }
-      if (updated) applyDecisionToList(updated);
-      closeModal();
-      await Promise.all([loadRequests({ silent: true }), refreshCounts()]);
-      window.setTimeout(() => setMessage(""), 5000);
-    } catch (e) {
-      setError(e?.message || "Action failed.");
-    } finally {
-      setActing(false);
-      pauseRealtimeRef.current = false;
-    }
-  };
-
-  const modalTitle = useMemo(() => {
-    if (!modal) return "";
-    const labels = {
-      approve: "Approve leave",
-      reject: "Reject leave",
-      cancel: "Cancel leave",
-    };
-    return labels[modal.action] || "Leave decision";
-  }, [modal]);
-
   const tableRows = useMemo(
     () =>
       rows.map((r) => {
         const emp = r.employee || {};
+        const status = String(r.status || "").toLowerCase();
         return {
           id: r.id,
-          raw: r,
-          highlight: r.id === recentlyUpdatedId,
           empDisplay: emp.full_name || r.employee_code || "—",
           empCode: r.employee_code || emp.employee_code || "—",
           department: emp.department || "—",
@@ -352,13 +222,15 @@ export function EmployeeLeavesPage() {
           dateRange: formatLeaveDateRange(r.from_date, r.to_date),
           days: r.days,
           reason: r.reason,
-          status: r.status,
+          status,
           submitted_at: r.submitted_at,
           decided_at: r.decided_at,
+          decisionBy: decisionByLabel(r),
           approver_name: r.approver_name,
+          approver_employee_code: r.approver_employee_code,
         };
       }),
-    [rows, leaveTypes.byCode, recentlyUpdatedId]
+    [rows, leaveTypes.byCode]
   );
 
   const showTable = !initialLoading || rows.length > 0;
@@ -368,7 +240,7 @@ export function EmployeeLeavesPage() {
     <div className="space-y-4">
       <PageTaskHeader
         title="Leave request approval"
-        subtitle="Review pending requests and approve or reject. Approved leave is reflected in the daily attendance register and employee leave balances."
+        subtitle="View leave requests from Indus One. Status shows Pending, Approved, or Rejected, including who approved or rejected each request."
       >
         {realtimeLive ? (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
@@ -492,20 +364,15 @@ export function EmployeeLeavesPage() {
           </button>
         </FilterBar>
 
-        <CollapsibleHelp label="workflow notes">
-          When you approve a request, the employee&apos;s attendance register is updated for those dates
-          and their leave balance is adjusted. The employee sees the outcome in Indus One. Rejecting or
-          cancelling a pending request does not change attendance.
+        <CollapsibleHelp label="about this list">
+          This screen lists leave requests for all employees (not only your own). Approvals and
+          rejections are recorded in Indus One; Pending, Approved, and Rejected statuses are shown
+          here with the person who took the decision when available.
         </CollapsibleHelp>
 
         {error ? (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
             {error}
-          </div>
-        ) : null}
-        {message ? (
-          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 transition-opacity">
-            {message}
           </div>
         ) : null}
 
@@ -559,7 +426,7 @@ export function EmployeeLeavesPage() {
                   key: "emp",
                   label: "Employee",
                   render: (r) => (
-                    <div className={r.highlight ? "rounded px-1 -mx-1 bg-emerald-50/90" : ""}>
+                    <div>
                       <div className="font-medium text-gray-900">{r.empDisplay}</div>
                       <div className="text-[10px] text-gray-500">
                         {r.empCode}
@@ -591,8 +458,20 @@ export function EmployeeLeavesPage() {
                   render: (r) => (
                     <StatusChip
                       label={statusDisplayLabel(r.status)}
-                      severity={statusSeverity(String(r.status || "").toLowerCase())}
+                      severity={statusChipSeverity(r.status)}
                     />
+                  ),
+                },
+                {
+                  key: "decisionBy",
+                  label: "Approved / Rejected by",
+                  render: (r) => (
+                    <div className="text-[11px] text-gray-800 max-w-[180px]">
+                      <div className="font-medium">{r.decisionBy}</div>
+                      {r.approver_name && r.approver_employee_code ? (
+                        <div className="text-[10px] text-gray-500">{r.approver_employee_code}</div>
+                      ) : null}
+                    </div>
                   ),
                 },
                 {
@@ -601,65 +480,9 @@ export function EmployeeLeavesPage() {
                   render: (r) => formatTs(r.submitted_at),
                 },
                 {
-                  key: "decided",
-                  label: "Decision",
-                  render: (r) => (
-                    <div className="text-[10px]">
-                      <div>{formatTs(r.decided_at)}</div>
-                      {r.approver_name ? (
-                        <div className="text-gray-500">{r.approver_name}</div>
-                      ) : null}
-                    </div>
-                  ),
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  render: (r) => {
-                    const row = r.raw;
-                    const busy = acting && modal?.row?.id === row.id;
-                    if (OPEN_PENDING_STATUSES.has(String(row.status || "").toLowerCase())) {
-                      return (
-                        <div className="flex flex-wrap gap-1">
-                          <ActionBtn tone="approve" disabled={busy} onClick={() => openModal("approve", row)}>
-                            Approve
-                          </ActionBtn>
-                          <ActionBtn tone="reject" disabled={busy} onClick={() => openModal("reject", row)}>
-                            Reject
-                          </ActionBtn>
-                          <ActionBtn tone="cancel" disabled={busy} onClick={() => openModal("cancel", row)}>
-                            Cancel
-                          </ActionBtn>
-                        </div>
-                      );
-                    }
-                    if (row.status === "approved") {
-                      return (
-                        <div className="flex flex-wrap gap-1">
-                          <ActionBtn tone="cancel" disabled={busy} onClick={() => openModal("cancel", row)}>
-                            Cancel
-                          </ActionBtn>
-                          <ActionBtn tone="reject" disabled={busy} onClick={() => openModal("reject", row)}>
-                            Reject
-                          </ActionBtn>
-                          <Link
-                            to="/app/admin/employee/attendance-daily"
-                            className="inline-flex h-7 items-center px-2.5 rounded-md border border-blue-200 bg-white text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
-                          >
-                            Register
-                          </Link>
-                        </div>
-                      );
-                    }
-                    return (
-                      <Link
-                        to="/app/admin/employee/attendance-daily"
-                        className="inline-flex h-7 items-center px-2.5 rounded-md border border-blue-200 bg-white text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
-                      >
-                        Attendance
-                      </Link>
-                    );
-                  },
+                  key: "decided_at",
+                  label: "Decided",
+                  render: (r) => formatTs(r.decided_at),
                 },
               ]}
             />
@@ -687,74 +510,6 @@ export function EmployeeLeavesPage() {
           </div>
         ) : null}
       </SectionCard>
-
-      <Modal
-        open={!!modal}
-        title={modalTitle}
-        onClose={closeModal}
-        widthClass="max-w-md"
-        footer={
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={closeModal}
-              disabled={acting}
-              className="h-8 px-3 rounded-lg border border-gray-300 text-xs font-semibold disabled:opacity-60"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onClick={runDecision}
-              disabled={acting}
-              className={`h-8 px-4 rounded-lg text-white text-xs font-semibold disabled:opacity-60 ${
-                modal?.action === "approve"
-                  ? "bg-emerald-600 hover:bg-emerald-700"
-                  : modal?.action === "reject"
-                  ? "bg-red-600 hover:bg-red-700"
-                  : "bg-gray-800 hover:bg-gray-900"
-              }`}
-            >
-              {acting ? "Saving…" : "Confirm"}
-            </button>
-          </div>
-        }
-      >
-        {modal?.row ? (
-          <div className="space-y-3 text-xs text-gray-700">
-            <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 space-y-1">
-              <p className="font-semibold text-gray-900">
-                {modal.row.employee?.full_name || modal.row.employee_code}
-              </p>
-              <p className="text-gray-600">
-                {leaveTypeLabel(leaveTypes.byCode, modal.row.leave_type_code)} ·{" "}
-                {formatLeaveDateRange(modal.row.from_date, modal.row.to_date)} · {modal.row.days}{" "}
-                day{Number(modal.row.days) === 1 ? "" : "s"}
-              </p>
-              <p className="text-gray-700">{modal.row.reason || "—"}</p>
-            </div>
-            <label className="block">
-              <span className="font-medium text-gray-800">Remarks</span>
-              <textarea
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                rows={3}
-                disabled={acting}
-                className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs disabled:bg-gray-50"
-                placeholder={
-                  modal.action === "reject" ? "Reason for rejection (recommended)" : "Optional"
-                }
-              />
-            </label>
-            {modal.action === "approve" ? (
-              <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                Manual attendance marks are kept. Half-day leave on a Present/Punch day becomes P/SL, P/CL, or
-                P/PL (0.5 present + 0.5 leave). Full-day leave still skips punch-present days.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </Modal>
     </div>
   );
 }
