@@ -24,6 +24,7 @@ import { adminUpdateProfile } from './adminProfileApi.js';
 import { adminCreateUser } from './adminCreateUserApi.js';
 import { adminBulkCreateUsers } from './adminBulkCreateUserApi.js';
 import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
+import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1082,6 +1083,34 @@ app.get('/api/admin/attendance/status', (_req, res) => {
       ok: false,
       etimeConfigured: false,
       message: err?.message || 'eTimeOffice is not configured on the server.',
+    });
+  }
+});
+
+app.get('/api/admin/leave-requests', requireHrOrAdmin, async (req, res) => {
+  try {
+    const payload = await fetchAllLeaveInboxTables({
+      getSupabaseUrl: getSupabaseUrlForServer,
+      getServiceKey: getSupabaseServiceRoleKeyForServer,
+    });
+    res.json({
+      ok: true,
+      lmsRows: payload.lmsRows,
+      adminRows: payload.adminRows,
+      warnings: payload.warnings,
+      counts: {
+        leave_requests: payload.lmsRows.length,
+        admin_leave_requests: payload.adminRows.length,
+      },
+    });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    // eslint-disable-next-line no-console
+    console.error('[leave-requests]', status, err?.message || err);
+    res.status(status).json({
+      ok: false,
+      message: err?.message || 'Failed to load leave requests.',
+      details: err?.details || null,
     });
   }
 });

@@ -48,11 +48,10 @@ import {
   FileCheck,
   FileDigit,
   Bell,
-  FileSpreadsheet,
-  CalendarRange,
   BookOpen,
   History,
   Wallet,
+  UserX,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -121,7 +120,6 @@ const Layout = () => {
   const [adminStoreOpen, setAdminStoreOpen] = useState(false);
   const [adminGateOpen, setAdminGateOpen] = useState(false);
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
-  const [adminPayrollOpen, setAdminPayrollOpen] = useState(false);
   const [adminSalaryOpen, setAdminSalaryOpen] = useState(false);
   const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
   const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
@@ -133,7 +131,6 @@ const Layout = () => {
     if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
-    if (pathname.startsWith("/app/admin/payroll")) setAdminPayrollOpen(true);
     if (pathname.startsWith("/app/admin/salary-admin")) setAdminSalaryOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/maintenance")) setMaintenanceOpen(true);
@@ -166,7 +163,6 @@ const Layout = () => {
     setAdminStoreOpen(false);
     setAdminGateOpen(false);
     setAdminMiscOpen(false);
-    setAdminPayrollOpen(false);
     setAdminSalaryOpen(false);
   };
 
@@ -443,37 +439,9 @@ const Layout = () => {
                         <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
                         <span className="text-xs">Exit & F&F</span>
                       </NavLink>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => setAdminPayrollOpen(!adminPayrollOpen)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
-                  >
-                    <span className="flex items-start space-x-2">
-                      <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-600" />
-                      <span className="text-xs font-medium text-left leading-tight">Payroll & attendance sheets</span>
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminPayrollOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {adminPayrollOpen && (
-                    <div className="space-y-0.5">
-                      <NavLink to="admin/payroll/dashboard" className={subNavClass}>
-                        <LayoutDashboard className="h-4 w-4 shrink-0 text-emerald-700" />
-                        <span className="text-xs">Payroll dashboard</span>
-                      </NavLink>
-                      <NavLink to="admin/payroll/entry" className={subNavClass}>
-                        <Calendar className="h-4 w-4 shrink-0 text-teal-600" />
-                        <span className="text-xs">Entry sheet (Excel)</span>
-                      </NavLink>
-                      <NavLink to="admin/payroll/year" className={subNavClass}>
-                        <CalendarRange className="h-4 w-4 shrink-0 text-sky-600" />
-                        <span className="text-xs">Year view</span>
-                      </NavLink>
-                      <NavLink to="admin/payroll/formula" className={subNavClass}>
-                        <Calculator className="h-4 w-4 shrink-0 text-violet-600" />
-                        <span className="text-xs">Formula reference</span>
+                      <NavLink to="admin/employee/inactive" className={subNavClass}>
+                        <UserX className="h-4 w-4 shrink-0 text-slate-600" />
+                        <span className="text-xs">Inactive Employees</span>
                       </NavLink>
                     </div>
                   )}

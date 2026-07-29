@@ -41,7 +41,6 @@ export default function AdminOpsDashboard() {
         <KpiTile label="Daily register" value="In/Out" sub="Hours · late · absent" onClick={() => navigate(`${base}/employee/attendance-daily`)} tone="border-teal-100" />
         <KpiTile label="Compliance gaps" value="23" sub="ESIC / nominee / bank" onClick={() => navigate(`${base}/employee/compliance-documents`)} tone="border-orange-100" />
         <KpiTile label="Exit / F&F pending" value="5" sub="Assets / gate / inputs" onClick={() => navigate(`${base}/employee/exit-ff`)} tone="border-red-100" />
-        <KpiTile label="Payroll attendance sheets" value="Excel" sub="Month / year · formulas" onClick={() => navigate(`${base}/payroll/dashboard`)} tone="border-emerald-100" />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">

@@ -18,6 +18,5 @@ export const ADMIN_OPS_QUICK_ACTIONS = [
   { label: "Daily attendance", path: "/app/admin/employee/attendance-daily" },
   { label: "Issue stock", path: "/app/admin/store/issue-entry" },
   { label: "Gate pass / movement", path: "/app/admin/gate/employee-movement" },
-  { label: "Payroll dashboard", path: "/app/admin/payroll/dashboard" },
   { label: "Alerts", path: "/app/admin/alerts-notifications" },
 ];
