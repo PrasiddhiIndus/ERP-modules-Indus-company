@@ -63,14 +63,46 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const itemNameRefs = useRef({});
   const isSavingRef = useRef(false);
+  const dataReadyRef = useRef(false);
+  const loadingRef = useRef(true);
+  const itemsRef = useRef(items);
+  const costingDataRef = useRef(costingData);
+  const productsRef = useRef(products);
+  const userEditedRef = useRef(false);
+  const autoSaveTimerRef = useRef(null);
+  const saveCostingSheetRef = useRef(null);
   // Fixed columns - no drag/edit/delete
+
+  const markUserEdited = useCallback(() => {
+    if (!isViewMode) userEditedRef.current = true;
+  }, [isViewMode]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    costingDataRef.current = costingData;
+  }, [costingData]);
+
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   useEffect(() => {
     const loadData = async () => {
+      dataReadyRef.current = false;
+      userEditedRef.current = false;
       await fetchProducts();
       if (quotationId) {
         await fetchCostingData();
       } else {
+        // New quotation — sheet starts empty and is ready for entry
+        dataReadyRef.current = true;
         setLoading(false);
       }
     };
@@ -251,13 +283,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         }
 
         const restoredItems = parsedData.items && parsedData.items.length > 0 ? parsedData.items : items;
-        const itemIds = new Set(restoredItems.map((i) => i.id));
+        const itemIds = restoredItems.map((i) => i.id).filter(Boolean);
+        const sortedIds = [...itemIds].sort((a, b) => b.length - a.length);
         const newToOldKey = { import_base_cost: 'base_cost', import_custom_duty_pct: 'customs_duty', import_freight: 'freight', import_transit_insurance_pct: 'insurance', margin_pct: 'margin_percent', gst_pct: 'gst_percent', other_misc_cost: 'other_cost' };
         const cellData = {};
         Object.keys(parsedData).forEach((key) => {
           if (key === 'items' || key === 'costHeads' || key === 'gstPercentage') return;
-          const match = key.match(/^(.+)_([a-z0-9_]+)$/);
-          if (match && itemIds.has(match[1])) {
+          const ownerId = sortedIds.find((id) => key.startsWith(`${id}_`));
+          if (ownerId) {
             cellData[key] = parsedData[key];
           }
         });
@@ -295,9 +328,11 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         // Reset the previous input data ref if no data
         previousInputDataRef.current = {};
       }
+      dataReadyRef.current = true;
       setLoading(false);
     } catch (error) {
       console.error('Error fetching costing data:', error);
+      dataReadyRef.current = true;
       setLoading(false);
     }
   };
@@ -356,6 +391,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   };
 
   const setCellValue = (itemId, costHeadId, value) => {
+    markUserEdited();
     const key = `${itemId}_${costHeadId}`;
     setCostingData((prev) => ({
       ...prev,
@@ -439,6 +475,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   };
 
   const addItem = () => {
+    markUserEdited();
     const newItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       productId: null,
@@ -453,6 +490,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       alert('At least one item is required');
       return;
     }
+    markUserEdited();
     const newItems = items.filter((item) => item.id !== itemId);
     setItems(newItems);
 
@@ -465,6 +503,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   };
 
   const handleProductSelect = (itemId, productId) => {
+    markUserEdited();
     const selectedProduct = products.find(p => p.id === productId);
     if (selectedProduct) {
       setItems(items.map((item) =>
@@ -484,9 +523,39 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     setEditingCell(null);
   };
 
+  const getCurrentTotals = useCallback(() => {
+    const currentItems = itemsRef.current;
+    const currentData = costingDataRef.current;
+    const dedupedItems = dedupeCostingItemsById(currentItems);
+    const activeItems = filterEmptyCostingItems(dedupedItems, currentData);
+    const prunedCellData = pruneCostingCellData(currentData, activeItems.map((i) => i.id));
+    const fullCellData = buildFullCostingDataForSave(activeItems, prunedCellData);
+    const grandTotal = activeItems.reduce((sum, item) => {
+      return sum + (parseFloat(fullCellData[`${item.id}_grand_total_supply_cost_with_gst`] || 0) || 0);
+    }, 0);
+    const netTotal = activeItems.reduce((sum, item) => {
+      return sum + (parseFloat(fullCellData[`${item.id}_grand_total_supply_cost_excl_gst`] || 0) || 0);
+    }, 0);
+    return { grandTotal, netTotal, gstAmount: grandTotal - netTotal, activeItems, fullCellData };
+  }, []);
+
   const saveCostingSheet = useCallback(async ({ silent = false, quotationId: providedQuotationId = null } = {}) => {
+    // Wait if another save (e.g. auto-save) is in progress
     if (isSavingRef.current) {
-      return { ok: false, error: new Error('Save already in progress') };
+      const waitStart = Date.now();
+      while (isSavingRef.current && Date.now() - waitStart < 10000) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (isSavingRef.current) {
+        return { ok: false, error: new Error('Save already in progress') };
+      }
+    }
+    if (loadingRef.current || !dataReadyRef.current) {
+      return { ok: false, notReady: true, error: new Error('Costing sheet is still loading') };
+    }
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
     }
     isSavingRef.current = true;
     try {
@@ -498,9 +567,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       }
       const { data: { user } } = await supabase.auth.getUser();
 
-      const dedupedItems = dedupeCostingItemsById(items);
-      const activeItems = filterEmptyCostingItems(dedupedItems, costingData);
-      const prunedCellData = pruneCostingCellData(costingData, activeItems.map((i) => i.id));
+      // Always read latest sheet state (avoids stale closure when called from parent form)
+      const currentItems = itemsRef.current;
+      const currentData = costingDataRef.current;
+      const currentProducts = productsRef.current;
+
+      const dedupedItems = dedupeCostingItemsById(currentItems);
+      const activeItems = filterEmptyCostingItems(dedupedItems, currentData);
+      const prunedCellData = pruneCostingCellData(currentData, activeItems.map((i) => i.id));
       const fullCellData = buildFullCostingDataForSave(activeItems, prunedCellData);
 
       const grandTotal = activeItems.reduce((sum, item) => {
@@ -514,9 +588,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       const gstAmount = grandTotal - netTotal;
 
       const itemsWithProductInfo = activeItems.map((item) => {
-        const product = products.find((p) => p.id === item.productId);
+        const product = currentProducts.find((p) => p.id === item.productId);
         const rawSpec = item.productId
-          ? getProductSpecification(item.productId)
+          ? (() => {
+              const p = currentProducts.find((x) => x.id === item.productId);
+              if (!p?.detailed_specifications) return sanitizePdfText(item.specification || '');
+              const parts = p.detailed_specifications.split('Additional Info:');
+              return sanitizePdfText(parts[0].trim());
+            })()
           : sanitizePdfText(item.specification || '');
         return {
           id: item.id,
@@ -535,13 +614,41 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
       const { data: existingSheets, error: checkError } = await supabase
         .from('marketing_costing_sheets')
-        .select('id, costing_data, updated_at, created_at')
+        .select('id, costing_data, total_price, updated_at, created_at')
         .eq('quotation_id', targetQuotationId)
         .order('updated_at', { ascending: false });
 
       if (checkError) throw checkError;
 
       const existing = pickCanonicalCostingSheet(existingSheets || []);
+
+      // Never overwrite an existing sheet that has amounts with an unloaded/empty zero sheet
+      const existingTotal = parseFloat(existing?.total_price || 0) || 0;
+      const hasMeaningfulContent = activeItems.some((item) => {
+        const name = (item.productName || item.name || '').trim();
+        if (name) return true;
+        return [
+          'qty', 'import_base_cost', 'import_custom_duty_pct', 'import_freight',
+          'import_transit_insurance_pct', 'supply_freight', 'supply_transit_insurance_pct',
+          'margin_pct', 'business_dev_pct', 'other_misc_cost', 'gst_pct',
+        ].some((key) => {
+          const raw = currentData[`${item.id}_${key}`];
+          if (raw === '' || raw === null || raw === undefined) return false;
+          const n = parseFloat(raw);
+          return !Number.isNaN(n) && n !== 0;
+        });
+      });
+
+      if (existing && existingTotal > 0 && grandTotal === 0 && !hasMeaningfulContent) {
+        return {
+          ok: false,
+          skippedEmpty: true,
+          error: new Error('Refusing to overwrite existing costing sheet with empty data'),
+          grandTotal: existingTotal,
+          netTotal: existingTotal,
+          gstAmount: 0,
+        };
+      }
 
       if (existingSheets && existingSheets.length > 0 && existing) {
         const staleIds = existingSheets
@@ -600,14 +707,16 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         .eq('id', targetQuotationId);
 
       if (quotationError) {
-        console.error('Error updating quotation:', quotationError);
-        // Don't throw, just log - costing sheet is saved
+        console.error('Error updating quotation amounts:', quotationError);
+        throw quotationError;
       }
 
       if (!silent) alert('Costing sheet saved successfully! Quotation amounts updated.');
       
-      // Call success callback if provided
-      if (onSaveSuccess) {
+      userEditedRef.current = false;
+
+      // Only notify parent on explicit save (auto-save is silent)
+      if (!silent && onSaveSuccess) {
         onSaveSuccess();
       }
       return { ok: true, grandTotal, netTotal, gstAmount };
@@ -618,11 +727,31 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     } finally {
       isSavingRef.current = false;
     }
-  }, [isViewMode, quotationId, items, costingData, products, onSaveSuccess]);
+  }, [isViewMode, quotationId, onSaveSuccess]);
+
+  saveCostingSheetRef.current = saveCostingSheet;
+
+  // Auto-save costing sheet changes to DB (existing quotation only)
+  useEffect(() => {
+    if (!quotationId || isViewMode || loading || !dataReadyRef.current) return;
+    if (!userEditedRef.current) return;
+
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      if (!userEditedRef.current || !quotationId) return;
+      saveCostingSheetRef.current?.({ silent: true, quotationId });
+    }, 900);
+
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [costingData, items, quotationId, isViewMode, loading]);
 
   useImperativeHandle(ref, () => ({
     save: (opts) => saveCostingSheet(opts),
-  }), [saveCostingSheet]);
+    isReady: () => dataReadyRef.current && !loadingRef.current,
+    getTotals: () => getCurrentTotals(),
+  }), [saveCostingSheet, getCurrentTotals]);
 
   if (loading) {
     return (
@@ -752,13 +881,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                         value={item.productName || ''}
                         onChange={(e) => {
                           const inputValue = e.target.value;
+                          markUserEdited();
                           setItems(items.map(i => 
                             i.id === item.id 
                               ? { ...i, productName: inputValue, productId: null }
                               : i
                           ));
                           // Try to find matching product
-                          const matchedProduct = products.find(p => 
+                          const matchedProduct = products.find(p =>
                             p.product_name.toLowerCase() === inputValue.toLowerCase() ||
                             (p.product_code && p.product_code.toLowerCase() === inputValue.toLowerCase())
                           );
@@ -866,9 +996,9 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                           min="0"
                           value={cellValue}
                           onChange={(e) => setCellValue(item.id, head.id, e.target.value)}
-                          onBlur={() => handleCellChange(item.id, head.id, cellValue)}
+                          onBlur={(e) => handleCellChange(item.id, head.id, e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleCellChange(item.id, head.id, cellValue);
+                            if (e.key === 'Enter') handleCellChange(item.id, head.id, e.target.value);
                             if (e.key === 'Escape') setEditingCell(null);
                           }}
                           className="w-full px-1 py-0.5 border border-red-500 text-xs text-right focus:outline-none rounded bg-white"
