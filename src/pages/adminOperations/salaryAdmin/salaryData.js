@@ -14,7 +14,7 @@
  *
  * PART B:
  * - Employer PF — manual (suggest 13% of Basic, capped ₹15,000)
- * - Employer ESIC = Gross × 3.25% if Gross ≤ ₹42,000 else 0
+ * - Employer ESIC = Gross × 3.25% if Gross ≤ ₹21,000 else 0
  * - Gratuity = Basic × 4.81%
  * - Leave Encashment = (Basic / 26) × (7 / 12)
  * - Mediclaim health policy — optional manual
@@ -23,6 +23,7 @@
  * - Total (B) = Er PF + Er ESIC + Gratuity + Leave Encashment + Mediclaim + LIC + Bonus
  *
  * CTC (Monthly) = Gross + Total (B) · CTC (Annual) = CTC Monthly × 12
+ * Annual (every row) = Monthly × 12
  */
 
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -30,7 +31,12 @@ const STORAGE_KEY = "admin_salary_ctc_ui_v1";
 export const PF_WAGE_CAP = 15000;
 export const EMP_PF_RATE = 0.12;
 export const ER_PF_RATE = 0.13;
-export const ESIC_GROSS_THRESHOLD = 42000;
+/** Employee ESIC applies only when Gross (Part A) ≤ this monthly ceiling. */
+export const EMP_ESIC_GROSS_THRESHOLD = 42000;
+/** Employer ESIC applies only when Gross (Part A) ≤ this monthly ceiling. */
+export const ER_ESIC_GROSS_THRESHOLD = 21000;
+/** @deprecated Use EMP_ESIC_GROSS_THRESHOLD — kept for older imports. */
+export const ESIC_GROSS_THRESHOLD = EMP_ESIC_GROSS_THRESHOLD;
 export const EMP_ESIC_RATE = 0.0075;
 export const ER_ESIC_RATE = 0.0325;
 export const PT_AMOUNT = 200;
@@ -354,10 +360,12 @@ export function computeCtcStructure({
       ? round0(erPfMonthly)
       : suggestedErPf(basic);
 
-  const esicApplicable = gross > 0 && gross <= ESIC_GROSS_THRESHOLD;
-  // Gross × 0.75% / 3.25% — same rates, integer-safe (×75/10000, ×325/10000)
-  const empEsic = esicApplicable ? round0((gross * 75) / 10000) : 0;
-  const erEsic = esicApplicable ? round0((gross * 325) / 10000) : 0;
+  // Employee ESIC: Gross × 0.75% only if Gross ≤ ₹42,000
+  const empEsicApplicable = gross > 0 && gross <= EMP_ESIC_GROSS_THRESHOLD;
+  const empEsic = empEsicApplicable ? round0((gross * 75) / 10000) : 0;
+  // Employer ESIC: Gross × 3.25% only if Gross ≤ ₹21,000
+  const erEsicApplicable = gross > 0 && gross <= ER_ESIC_GROSS_THRESHOLD;
+  const erEsic = erEsicApplicable ? round0((gross * 325) / 10000) : 0;
 
   const pt =
     ptMonthly != null && ptMonthly !== ""
@@ -366,10 +374,12 @@ export function computeCtcStructure({
         ? PT_AMOUNT
         : 0;
 
+  // TAKE HOME = GROSS_A − Employee_PF − P_Tax − Employee_ESIC
   const takeHome = gross - empPf - pt - empEsic;
 
-  // Basic × 4.81% ≡ Basic × 481 / 10000 — same formula, integer-safe
+  // Gratuity = Basic × 4.81%
   const gratuity = round0((basic * 481) / 10000);
+  // Leave Encashment = (Basic / 26) × (7 / 12)
   const leaveEncash = leaveEncashFromBasic(basic);
   const bonus =
     bonusMonthly != null && bonusMonthly !== "" ? round0(bonusMonthly) : 0;
@@ -382,8 +392,10 @@ export function computeCtcStructure({
       ? round0(licMonthly)
       : 0;
 
+  // Total (Part B) = Er PF + Er ESIC + Gratuity + Leave Encashment (+ optional Mediclaim / LIC / Bonus)
   const totalB =
     erPf + erEsic + gratuity + leaveEncash + mediclaim + lic + bonus;
+  // CTC (Monthly) = GROSS_A + Total_B · CTC (Annual) = CTC_Monthly × 12
   const ctcMonthly = gross + totalB;
   const ctcAnnual = paFromMonthly(ctcMonthly);
 
@@ -396,10 +408,11 @@ export function computeCtcStructure({
     emp_pf_monthly: empPf,
     pt_monthly: pt,
     emp_esic_monthly: empEsic,
-    emp_esic_applicable: esicApplicable,
+    emp_esic_applicable: empEsicApplicable,
     take_home_monthly: takeHome,
     er_pf_monthly: erPf,
     er_esic_monthly: erEsic,
+    er_esic_applicable: erEsicApplicable,
     gratuity_monthly: gratuity,
     leave_encash_monthly: leaveEncash,
     mediclaim_enabled: Boolean(mediclaimEnabled),
@@ -428,6 +441,7 @@ export function emptyCtcStructure() {
     take_home_monthly: null,
     er_pf_monthly: null,
     er_esic_monthly: null,
+    er_esic_applicable: false,
     gratuity_monthly: null,
     leave_encash_monthly: null,
     mediclaim_enabled: false,

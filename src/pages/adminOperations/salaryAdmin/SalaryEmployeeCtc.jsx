@@ -145,15 +145,24 @@ function ColHeads() {
 function AmountInput({ value, onChange, label, readOnly = false }) {
   return (
     <input
-      type="number"
-      min="0"
-      step="1"
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      autoComplete="off"
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => {
+        // Digits only — avoids type="number" wheel-scroll changing 15000 → 14999
+        const raw = e.target.value.replace(/[^\d]/g, "");
+        onChange(raw);
+      }}
       onBlur={() => {
         if (readOnly || value === "") return;
         const n = parseRupeeInput(value);
         if (n != null && String(n) !== String(value)) onChange(String(n));
+      }}
+      onWheel={(e) => {
+        // If any number-like behavior remains, never let page scroll nudge the value
+        e.currentTarget.blur();
       }}
       readOnly={readOnly}
       disabled={readOnly}
@@ -861,7 +870,7 @@ export default function SalaryEmployeeCtc() {
             />
             <SheetRow
               label={
-                parsed.emp_esic_applicable
+                parsed.er_esic_applicable
                   ? "Add : Employer ESIC"
                   : "Add : Employer ESIC (not applicable)"
               }
