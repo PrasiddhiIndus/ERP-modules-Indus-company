@@ -372,7 +372,7 @@ function buildPayrollEntryRows({ employees, seedMarks, daysInMonth, edits = {} }
         row.uniformAllowance,
     );
     row.pfAmount = roundMoney(row.pfBasicEarned * 0.12);
-    row.esic = row.grossWagesEarned <= 21000 ? roundMoney(row.grossWagesEarned * 0.0075) : 0;
+    row.esic = row.grossWagesEarned <= 42000 ? roundMoney(row.grossWagesEarned * 0.0075) : 0;
     row.totalDeduction = roundMoney(row.pfAmount + row.esic + toNumber(row.professionalTax) + toNumber(row.loan) + toNumber(row.salaryAdvance) + toNumber(row.held));
     row.netSalary = roundMoney(row.grossWagesEarned - row.totalDeduction);
     row.bank = Math.round(row.netSalary);

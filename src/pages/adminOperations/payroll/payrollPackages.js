@@ -55,7 +55,7 @@ export const PAYROLL_FORMULA_LABEL_BY_KEY = {
   pfBasic: "PF basic (monthly basis)",
   basic: "Basic (monthly basis)",
   pfAmount: "PF Basic Earned × 12%",
-  esic: "Gross wages earned × 0.75% if gross ≤ 21,000 (else 0)",
+  esic: "Gross wages earned × 0.75% if gross ≤ 42,000 (else 0)",
   professionalTax: "Professional tax (fixed / slab — manual entry)",
   loan: "Loan (manual)",
   salaryAdvance: "Salary advance (manual)",
