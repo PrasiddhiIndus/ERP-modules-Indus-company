@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check, ChevronDown, History, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, History, RefreshCw } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
@@ -12,12 +12,8 @@ import {
   defaultPtForGross,
   emptyCtcStructure,
   formatINR,
-  formatSalaryDate,
   getSalaryStructure,
-  hraFromBasic,
-  HRA_MODE_CUSTOM,
-  HRA_MODE_PERCENT,
-  normalizeHraMode,
+  hraFixedMonthly,
   paFromMonthly,
   parseRupeeInput,
   reviseSalaryStructure,
@@ -32,34 +28,6 @@ const amountInput =
 const dateInput =
   "w-full max-w-[12rem] h-9 text-sm border border-[#d4d0c8] rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/25 focus:border-[#1F3A8A]";
 const fieldLabel = "text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a857c]";
-
-function HraModeSelect({ value, onChange, disabled = false }) {
-  return (
-    <div className="relative inline-flex shrink-0">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        aria-label="HRA calculation mode"
-        className={[
-          "appearance-none h-8 pl-2.5 pr-8 text-[12px] font-medium tracking-tight",
-          "rounded-md border border-[#d4d0c8] shadow-[0_1px_0_rgba(40,35,25,0.03)]",
-          "focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A]",
-          disabled
-            ? "bg-[#f3f1ec] text-[#6b665e] cursor-default"
-            : "bg-[#faf9f6] text-[#2a2a2a] hover:border-[#c4bfb6] cursor-pointer",
-        ].join(" ")}
-      >
-        <option value={HRA_MODE_PERCENT}>40% of Basic</option>
-        <option value={HRA_MODE_CUSTOM}>Custom amount</option>
-      </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8a857c]"
-        aria-hidden
-      />
-    </div>
-  );
-}
 
 function MoneyCell({ value, strong = false }) {
   if (value == null || value === "") {
@@ -164,29 +132,6 @@ function AmountInput({ value, onChange, label, readOnly = false }) {
   );
 }
 
-/** Optional Part B line: tick to include and enter amount. */
-function OptionalAddLabel({ label, checked, onCheckedChange, disabled = false }) {
-  return (
-    <label
-      className={`inline-flex items-center gap-2.5 select-none ${
-        disabled ? "cursor-default" : "cursor-pointer"
-      }`}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onCheckedChange(e.target.checked)}
-        disabled={disabled}
-        className="h-4 w-4 rounded border-[#c4bfb6] text-[#1F3A8A] focus:ring-[#1F3A8A]/30 accent-[#1F3A8A] disabled:opacity-50"
-        aria-label={`Include ${label}`}
-      />
-      <span className={checked ? "text-[#2a2a2a]" : "text-[#8a857c]"}>
-        Add : {label}
-      </span>
-    </label>
-  );
-}
-
 function numOrEmpty(saved) {
   if (saved == null || saved === "") return "";
   const n = parseRupeeInput(saved);
@@ -214,23 +159,18 @@ export default function SalaryEmployeeCtc() {
   const [revisionReason, setRevisionReason] = useState("");
 
   const [basic, setBasic] = useState("");
-  const [hraMode, setHraMode] = useState(HRA_MODE_PERCENT);
-  const [hraCustom, setHraCustom] = useState("");
   const [special, setSpecial] = useState("");
   const [empPf, setEmpPf] = useState("");
   const [erPf, setErPf] = useState("");
   const [pt, setPt] = useState("");
-  const [mediclaimEnabled, setMediclaimEnabled] = useState(false);
-  const [mediclaim, setMediclaim] = useState("");
-  const [licEnabled, setLicEnabled] = useState(false);
-  const [lic, setLic] = useState("");
   const [bonus, setBonus] = useState("");
+  const [dob, setDob] = useState("");
+  const [doj, setDoj] = useState("");
   const [wef, setWef] = useState("");
 
   const isRevisionMode = reviseRequested && hasExistingCtc;
   const isViewOnly = hasExistingCtc && !reviseRequested;
   const canEdit = !isViewOnly;
-  const hraIsCustom = hraMode === HRA_MODE_CUSTOM;
 
   const buildArgs = useCallback(
     () => ({
@@ -240,28 +180,8 @@ export default function SalaryEmployeeCtc() {
       erPfMonthly: parseRupeeInput(erPf),
       ptMonthly: parseRupeeInput(pt),
       bonusMonthly: parseRupeeInput(bonus),
-      mediclaimEnabled,
-      mediclaimMonthly: parseRupeeInput(mediclaim),
-      licEnabled,
-      licMonthly: parseRupeeInput(lic),
-      hraMode,
-      hraMonthly: hraIsCustom ? parseRupeeInput(hraCustom) : null,
     }),
-    [
-      basic,
-      special,
-      empPf,
-      erPf,
-      pt,
-      bonus,
-      mediclaimEnabled,
-      mediclaim,
-      licEnabled,
-      lic,
-      hraMode,
-      hraIsCustom,
-      hraCustom,
-    ]
+    [basic, special, empPf, erPf, pt, bonus]
   );
 
   const applyPfFromBasic = useCallback((basicValue) => {
@@ -303,28 +223,6 @@ export default function SalaryEmployeeCtc() {
       // New revise: blank reason for this revision. View: show saved reason.
       setRevisionReason(reviseRequested && declared ? "" : saved?.revision_reason || "");
       setBasic(numOrEmpty(saved?.basic_monthly));
-
-      // HRA: prefer saved mode; legacy drafts without mode → custom if amount ≠ 40% of Basic
-      const basicSaved = parseRupeeInput(saved?.basic_monthly) ?? 0;
-      const hraSaved = parseRupeeInput(saved?.hra_monthly);
-      let loadedHraMode = HRA_MODE_PERCENT;
-      if (saved?.hra_mode) {
-        loadedHraMode = normalizeHraMode(saved.hra_mode);
-      } else if (
-        declared &&
-        hraSaved != null &&
-        basicSaved > 0 &&
-        hraSaved !== hraFromBasic(basicSaved)
-      ) {
-        loadedHraMode = HRA_MODE_CUSTOM;
-      }
-      setHraMode(loadedHraMode);
-      setHraCustom(
-        loadedHraMode === HRA_MODE_CUSTOM
-          ? numOrEmpty(hraSaved)
-          : numOrEmpty(hraSaved ?? (basicSaved > 0 ? hraFromBasic(basicSaved) : null))
-      );
-
       // Prefer Special Allowance; fall back to legacy uniform-only drafts
       const specialSaved =
         saved?.special_allowance_monthly != null
@@ -338,17 +236,9 @@ export default function SalaryEmployeeCtc() {
       setEmpPf(numOrEmpty(saved?.emp_pf_monthly));
       setErPf(numOrEmpty(saved?.er_pf_monthly));
       setPt(numOrEmpty(saved?.pt_monthly));
-      const mediclaimAmt = numOrEmpty(saved?.mediclaim_monthly);
-      const licAmt = numOrEmpty(saved?.lic_monthly);
-      setMediclaimEnabled(
-        Boolean(saved?.mediclaim_enabled) || (parseRupeeInput(mediclaimAmt) ?? 0) > 0
-      );
-      setMediclaim(mediclaimAmt);
-      setLicEnabled(Boolean(saved?.lic_enabled) || (parseRupeeInput(licAmt) ?? 0) > 0);
-      setLic(licAmt);
       setBonus(numOrEmpty(saved?.bonus_monthly));
-      // Profile identity (location, code, name, designation, segment, DOB, DOJ)
-      // always comes from Employee Master and is locked — only W.E.F. is editable here.
+      setDob(saved?.date_of_birth || data.date_of_birth || "");
+      setDoj(saved?.date_of_joining || data.date_of_joining || "");
       // Revise: default W.E.F. to today (user can change). Otherwise keep saved.
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
@@ -367,20 +257,16 @@ export default function SalaryEmployeeCtc() {
   }, [load]);
 
   const parsed = useMemo(() => {
-    if (basic === "" && special === "" && !(hraIsCustom && hraCustom !== "")) {
-      return emptyCtcStructure();
-    }
+    if (basic === "" && special === "") return emptyCtcStructure();
     return computeCtcStructure(buildArgs());
-  }, [basic, special, hraIsCustom, hraCustom, buildArgs]);
+  }, [basic, special, buildArgs]);
 
   const fy = currentCompensationYear();
   const segment = employee
     ? employmentTypeLabel(employee.employment_type || employee.employee_id) || "—"
     : "—";
 
-  const hraMonthlyDisplay = parsed.hra_monthly;
-
-  const syncDerivedFromBasic = (basicRaw, specialRaw = special, mode = hraMode, customHra = hraCustom) => {
+  const syncDerivedFromBasic = (basicRaw, specialRaw = special) => {
     const b = parseRupeeInput(basicRaw);
     if (basicRaw === "" || b == null || b <= 0) {
       setEmpPf("");
@@ -397,8 +283,6 @@ export default function SalaryEmployeeCtc() {
       empPfMonthly: emp,
       erPfMonthly: er,
       ptMonthly: null,
-      hraMode: mode,
-      hraMonthly: mode === HRA_MODE_CUSTOM ? parseRupeeInput(customHra) : null,
     });
     setPt(String(preview.pt_monthly ?? ""));
   };
@@ -407,45 +291,6 @@ export default function SalaryEmployeeCtc() {
     if (!canEdit) return;
     setBasic(raw);
     syncDerivedFromBasic(raw, special);
-  };
-
-  const handleHraModeChange = (nextMode) => {
-    if (!canEdit) return;
-    const mode = normalizeHraMode(nextMode);
-    if (mode === HRA_MODE_CUSTOM) {
-      // Prefill custom with current 40% figure so user can tweak from there
-      const auto = hraFromBasic(parseRupeeInput(basic) ?? 0);
-      const seedStr =
-        auto > 0
-          ? String(auto)
-          : hraCustom !== ""
-            ? hraCustom
-            : "";
-      setHraCustom(seedStr);
-      setHraMode(mode);
-      syncDerivedFromBasic(basic, special, mode, seedStr);
-      return;
-    }
-    setHraMode(mode);
-    syncDerivedFromBasic(basic, special, mode, hraCustom);
-  };
-
-  const handleHraCustomChange = (raw) => {
-    if (!canEdit || !hraIsCustom) return;
-    setHraCustom(raw);
-    const b = parseRupeeInput(basic);
-    if (b != null && b > 0) {
-      const preview = computeCtcStructure({
-        basicMonthly: b,
-        specialAllowanceMonthly: parseRupeeInput(special) ?? 0,
-        empPfMonthly: parseRupeeInput(empPf),
-        erPfMonthly: parseRupeeInput(erPf),
-        ptMonthly: null,
-        hraMode: HRA_MODE_CUSTOM,
-        hraMonthly: parseRupeeInput(raw),
-      });
-      setPt(String(preview.pt_monthly ?? defaultPtForGross(preview.gross_monthly)));
-    }
   };
 
   const handleSpecialChange = (raw) => {
@@ -459,8 +304,6 @@ export default function SalaryEmployeeCtc() {
         empPfMonthly: parseRupeeInput(empPf),
         erPfMonthly: parseRupeeInput(erPf),
         ptMonthly: null,
-        hraMode,
-        hraMonthly: hraIsCustom ? parseRupeeInput(hraCustom) : null,
       });
       setPt(String(preview.pt_monthly ?? defaultPtForGross(preview.gross_monthly)));
     }
@@ -504,15 +347,9 @@ export default function SalaryEmployeeCtc() {
       er_pf_monthly: structure.er_pf_monthly,
       pt_monthly: structure.pt_monthly,
       bonus_monthly: structure.bonus_monthly,
-      mediclaim_enabled: structure.mediclaim_enabled,
-      mediclaim_monthly: structure.mediclaim_monthly,
-      lic_enabled: structure.lic_enabled,
-      lic_monthly: structure.lic_monthly,
-      hra_mode: structure.hra_mode,
-      hra_monthly: structure.hra_monthly,
-      // Snapshot from Employee Master (locked on this screen)
-      date_of_birth: employee.date_of_birth || null,
-      date_of_joining: employee.date_of_joining || null,
+      hra_monthly: hraFixedMonthly(),
+      date_of_birth: dob || null,
+      date_of_joining: doj || null,
       wef_date: wefToSave,
     };
 
@@ -532,18 +369,10 @@ export default function SalaryEmployeeCtc() {
     setHasExistingCtc(true);
     // Keep form in sync with what was actually saved (current revision)
     setBasic(numOrEmpty(savedRow?.basic_monthly ?? structure.basic_monthly));
-    setHraMode(normalizeHraMode(savedRow?.hra_mode ?? structure.hra_mode));
-    setHraCustom(
-      numOrEmpty(savedRow?.hra_monthly ?? structure.hra_monthly)
-    );
     setSpecial(numOrEmpty(savedRow?.special_allowance_monthly ?? structure.special_allowance_monthly));
     setEmpPf(String(structure.emp_pf_monthly ?? ""));
     setErPf(String(structure.er_pf_monthly ?? ""));
     setPt(String(structure.pt_monthly ?? ""));
-    setMediclaimEnabled(Boolean(savedRow?.mediclaim_enabled ?? structure.mediclaim_enabled));
-    setMediclaim(numOrEmpty(savedRow?.mediclaim_monthly ?? structure.mediclaim_monthly));
-    setLicEnabled(Boolean(savedRow?.lic_enabled ?? structure.lic_enabled));
-    setLic(numOrEmpty(savedRow?.lic_monthly ?? structure.lic_monthly));
     setBonus(String(structure.bonus_monthly ?? ""));
     setWef(savedRow?.wef_date || wefToSave || "");
     setRevisionReason(savedRow?.revision_reason || revisionReason || "");
@@ -699,14 +528,29 @@ export default function SalaryEmployeeCtc() {
               <ProfileField label="Location">{employee.location || "—"}</ProfileField>
               <ProfileField label="Employee Code">{employee.employee_code || "—"}</ProfileField>
               <ProfileField label="Employee Name">{employee.full_name || "—"}</ProfileField>
+              <ProfileField label="Department">{employee.department || "—"}</ProfileField>
               <ProfileField label="Designation">{employee.designation || "—"}</ProfileField>
               <ProfileField label="Segment">{segment}</ProfileField>
-              <ProfileField label="D.O.B.">
-                {employee.date_of_birth ? formatSalaryDate(employee.date_of_birth) : "—"}
-              </ProfileField>
-              <ProfileField label="D.O.J.">
-                {employee.date_of_joining ? formatSalaryDate(employee.date_of_joining) : "—"}
-              </ProfileField>
+              <div className="min-w-0">
+                <p className={fieldLabel}>D.O.B.</p>
+                <div className="mt-1.5">
+                  <FormDateInput
+                    value={dob}
+                    onChange={(e) => canEdit && setDob(e.target.value)}
+                    className={`${dateInput} ${!canEdit ? "bg-[#f3f1ec] pointer-events-none" : ""}`}
+                  />
+                </div>
+              </div>
+              <div className="min-w-0">
+                <p className={fieldLabel}>D.O.J.</p>
+                <div className="mt-1.5">
+                  <FormDateInput
+                    value={doj}
+                    onChange={(e) => canEdit && setDoj(e.target.value)}
+                    className={`${dateInput} ${!canEdit ? "bg-[#f3f1ec] pointer-events-none" : ""}`}
+                  />
+                </div>
+              </div>
               <div className="min-w-0">
                 <p className={fieldLabel}>W.E.F.</p>
                 <div className="mt-1.5">
@@ -716,12 +560,8 @@ export default function SalaryEmployeeCtc() {
                     className={`${dateInput} ${!canEdit ? "bg-[#f3f1ec] pointer-events-none" : ""}`}
                   />
                 </div>
-                {canEdit ? (
-                  <p className="mt-1 text-[10px] text-[#8a857c]">
-                    {isRevisionMode
-                      ? "Only editable profile field — defaults to today"
-                      : "Only editable profile field"}
-                  </p>
+                {isRevisionMode ? (
+                  <p className="mt-1 text-[10px] text-[#8a857c]">Defaults to today — change if needed</p>
                 ) : null}
               </div>
               {isRevisionMode ? (
@@ -762,29 +602,9 @@ export default function SalaryEmployeeCtc() {
               pa={paFromMonthly(parseRupeeInput(basic))}
             />
             <SheetRow
-              label={
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="min-w-[2.5rem]">HRA</span>
-                  <HraModeSelect
-                    value={hraMode}
-                    onChange={handleHraModeChange}
-                    disabled={!canEdit}
-                  />
-                </div>
-              }
-              monthly={
-                hraIsCustom ? (
-                  <AmountInput
-                    value={hraCustom}
-                    onChange={handleHraCustomChange}
-                    label="HRA monthly"
-                    readOnly={!canEdit}
-                  />
-                ) : (
-                  <MoneyCell value={hraMonthlyDisplay} />
-                )
-              }
-              pa={paFromMonthly(hraMonthlyDisplay)}
+              label="HRA"
+              monthly={<MoneyCell value={parsed.hra_monthly} />}
+              pa={paFromMonthly(parsed.hra_monthly)}
             />
             <SheetRow
               label="Special Allowance"
@@ -877,58 +697,6 @@ export default function SalaryEmployeeCtc() {
               label="Add : Leave Encashment (as per company policy)"
               monthly={<MoneyCell value={parsed.leave_encash_monthly} />}
               pa={paFromMonthly(parsed.leave_encash_monthly)}
-            />
-            <SheetRow
-              label={
-                <OptionalAddLabel
-                  label="Mediclaim health policy"
-                  checked={mediclaimEnabled}
-                  onCheckedChange={(on) => {
-                    if (!canEdit) return;
-                    setMediclaimEnabled(on);
-                  }}
-                  disabled={!canEdit}
-                />
-              }
-              monthly={
-                mediclaimEnabled ? (
-                  <AmountInput
-                    value={mediclaim}
-                    onChange={canEdit ? setMediclaim : () => {}}
-                    label="Mediclaim monthly"
-                    readOnly={!canEdit}
-                  />
-                ) : (
-                  <span className="text-[12px] text-[#b0aaa0]">Not included</span>
-                )
-              }
-              pa={paFromMonthly(mediclaimEnabled ? parsed.mediclaim_monthly : null)}
-            />
-            <SheetRow
-              label={
-                <OptionalAddLabel
-                  label="LIC policy"
-                  checked={licEnabled}
-                  onCheckedChange={(on) => {
-                    if (!canEdit) return;
-                    setLicEnabled(on);
-                  }}
-                  disabled={!canEdit}
-                />
-              }
-              monthly={
-                licEnabled ? (
-                  <AmountInput
-                    value={lic}
-                    onChange={canEdit ? setLic : () => {}}
-                    label="LIC monthly"
-                    readOnly={!canEdit}
-                  />
-                ) : (
-                  <span className="text-[12px] text-[#b0aaa0]">Not included</span>
-                )
-              }
-              pa={paFromMonthly(licEnabled ? parsed.lic_monthly : null)}
             />
             <SheetRow
               label="Add : Bonus"
