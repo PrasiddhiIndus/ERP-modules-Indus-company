@@ -962,7 +962,7 @@ const QuotationTracker = () => {
       assigned_to: quotation.assigned_to || '',
     });
     setSelectedQuotation(quotation);
-    setActiveTab('edit');
+    setActiveTab('list');
     setShowForm(true);
     setMenuOpen(null);
   };
@@ -2225,26 +2225,21 @@ Marketing Team`;
             setShowForm(false);
             setEditingQuotation(null);
             setSelectedQuotation(null);
+            setActiveTab('list');
             fetchQuotations();
             fetchCostingSheets();
             fetchQuotationsWithCosting();
           }}
           quotation={editingQuotation}
           enquiryId={enquiryId}
-          onSave={async (result) => {
-            // Wait a bit to ensure data is saved
-            await new Promise(resolve => setTimeout(resolve, 200));
+          onSave={async () => {
+            // Keep list tab visible under the modal; refresh after DB write
+            setActiveTab('list');
+            await new Promise((resolve) => setTimeout(resolve, 200));
             await fetchQuotations();
-            await fetchEnquiries(); // Refresh enquiries to show converted status
+            await fetchEnquiries();
             await fetchCostingSheets();
             await fetchQuotationsWithCosting();
-            if (activeTab === 'costing') {
-              await fetchCostingQuotations();
-            }
-            setShowForm(false);
-            setEditingQuotation(null);
-            setSelectedQuotation(null);
-            // Clear URL parameter after successful save
             if (enquiryId) {
               navigate('/app/marketing/quotation-tracker', { replace: true });
             }

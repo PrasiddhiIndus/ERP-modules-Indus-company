@@ -790,7 +790,7 @@ const QuotationForm = ({
       }
 
       if (onSave) {
-        onSave(result);
+        await onSave(result);
       }
       
       // Show success notification
