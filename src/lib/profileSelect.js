@@ -3,19 +3,19 @@
 const EMPLOYEE_CODE_CACHE_KEY = "profiles_employee_code_supported";
 
 export const PROFILE_LIST_SELECT =
-  "id, email, username, team, role, allowed_modules, created_at";
+  "id, email, username, team, role, allowed_modules, allowed_sub_modules, created_at";
 
 export const PROFILE_LIST_SELECT_WITH_EMPLOYEE_CODE =
-  "id, email, username, employee_code, team, role, allowed_modules, created_at";
+  "id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, created_at";
 
 /** @deprecated use PROFILE_LIST_SELECT_WITH_EMPLOYEE_CODE */
 export const PROFILE_LIST_SELECT_WITH_EMP = PROFILE_LIST_SELECT_WITH_EMPLOYEE_CODE;
 
 export const PROFILE_AUTH_SELECT =
-  "id, email, username, team, role, allowed_modules";
+  "id, email, username, team, role, allowed_modules, allowed_sub_modules";
 
 export const PROFILE_AUTH_SELECT_WITH_EMPLOYEE_CODE =
-  "id, email, username, employee_code, team, role, allowed_modules";
+  "id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules";
 
 /** @deprecated use PROFILE_AUTH_SELECT_WITH_EMPLOYEE_CODE */
 export const PROFILE_AUTH_SELECT_WITH_EMP = PROFILE_AUTH_SELECT_WITH_EMPLOYEE_CODE;
@@ -44,6 +44,21 @@ export function setEmployeeCodeColumnSupported(supported) {
 
 /** @deprecated use setEmployeeCodeColumnSupported */
 export const setEmpCodeColumnSupported = setEmployeeCodeColumnSupported;
+
+export function isMissingProfileAllowedSubModulesError(error) {
+  if (!error) return false;
+  const msg = [
+    error?.message,
+    error?.details,
+    error?.hint,
+    error?.code,
+    typeof error === "string" ? error : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return msg.includes("allowed_sub_modules") && (msg.includes("does not exist") || msg.includes("42703"));
+}
 
 export function isMissingProfileEmployeeCodeError(error) {
   if (!error) return false;

@@ -44,6 +44,7 @@ export async function createUserAccount(supabase, payload) {
     team: payload.team ?? null,
     role: payload.role,
     allowed_modules: payload.allowed_modules ?? [],
+    ...(payload.allowed_sub_modules ? { allowed_sub_modules: payload.allowed_sub_modules } : {}),
     ...(payload.employee_code ? { employee_code: payload.employee_code } : {}),
     ...(payload.no_module_access ? { no_module_access: true } : {}),
   };

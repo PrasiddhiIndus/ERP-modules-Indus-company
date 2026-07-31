@@ -20,7 +20,7 @@ import { resolveAuthUser } from '../_shared/resolveAuthUser.ts'
 const FN_VERSION = '20260610-prod1'
 
 const PROFILE_SELECT =
-  'id, email, username, employee_code, team, role, allowed_modules, created_at'
+  'id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, created_at'
 
 /** Roles allowed to call this function (normalized lowercase). */
 const ALLOWED_CALLER_ROLES = new Set([
@@ -49,6 +49,7 @@ type RequestBody = {
   team?: string | null
   role?: string | null
   allowed_modules?: string[]
+  allowed_sub_modules?: string[]
   employee_code?: string | null
   /** @deprecated use employee_code */
   emp_code?: string | null
@@ -62,6 +63,7 @@ type ProfileRow = {
   team?: string | null
   role?: string | null
   allowed_modules?: string[]
+  allowed_sub_modules?: string[]
   created_at?: string
 }
 
@@ -151,6 +153,9 @@ function sanitizeBodyForLog(body: RequestBody | null): Record<string, unknown> |
     allowed_modules_count: Array.isArray(body.allowed_modules)
       ? body.allowed_modules.length
       : 0,
+    allowed_sub_modules_count: Array.isArray(body.allowed_sub_modules)
+      ? body.allowed_sub_modules.length
+      : 0,
   }
 }
 
@@ -159,6 +164,7 @@ function hasAtLeastOneUpdateField(body: RequestBody): boolean {
     body.team !== undefined ||
     body.role !== undefined ||
     body.allowed_modules !== undefined ||
+    body.allowed_sub_modules !== undefined ||
     body.employee_code !== undefined ||
     body.emp_code !== undefined
   )
@@ -369,6 +375,7 @@ async function saveProfileViaRpc(
     team: string | null
     role: string | null
     allowed: string[]
+    allowedSub: string[]
     employeeCode: string | undefined
     setEmployeeCode: boolean
   },
@@ -378,6 +385,7 @@ async function saveProfileViaRpc(
     p_team: args.team,
     p_role: args.role,
     p_allowed_modules: args.allowed,
+    ...(Array.isArray(args.allowedSub) ? { p_allowed_sub_modules: args.allowedSub } : {}),
     p_employee_code: args.employeeCode ?? null,
     p_set_employee_code: args.setEmployeeCode,
   })
@@ -408,9 +416,13 @@ async function saveProfile(
   role: string | null,
   allowed: string[],
   employeeCode: string | undefined,
+  allowedSubModules: string[] | undefined,
 ): Promise<{ profile: ProfileRow | null; error: ApiError | null }> {
   const setEmployeeCode = employeeCode !== undefined
   const patch: Record<string, unknown> = { team, role, allowed_modules: allowed }
+  if (Array.isArray(allowedSubModules)) {
+    patch.allowed_sub_modules = allowedSubModules
+  }
   if (setEmployeeCode) patch.employee_code = employeeCode
 
   // Primary path: RPC with SECURITY DEFINER + row_security off (avoids RLS recursion).
@@ -419,10 +431,21 @@ async function saveProfile(
     team,
     role,
     allowed,
+    allowedSub: Array.isArray(allowedSubModules) ? allowedSubModules : [],
     employeeCode,
     setEmployeeCode,
   })
-  if (rpc.profile?.id) return rpc
+  if (rpc.profile?.id) {
+    const subs = Array.isArray(allowedSubModules) ? allowedSubModules : []
+    const subPatch = await patchProfileViaRest(supabaseUrl, serviceRoleKey, userId, {
+      allowed_sub_modules: subs,
+    })
+    if (subPatch.data?.id) return { profile: { ...rpc.profile, ...subPatch.data }, error: null }
+    if (subPatch.error) {
+      logError('REST sub-modules patch failed after RPC', { userId, message: subPatch.error.message })
+    }
+    return rpc
+  }
 
   let saveErr: ApiError | null = rpc.error
   if (saveErr && isRpcMissingError(saveErr, 'admin_save_profile')) {
@@ -603,6 +626,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const team = body.team === '' ? null : (body.team ?? null)
     const role = body.role ?? null
     const allowed = Array.isArray(body.allowed_modules) ? body.allowed_modules : []
+    const allowedSub = Array.isArray(body.allowed_sub_modules) ? body.allowed_sub_modules : []
     const employeeCode = readEmployeeCodeFromBody(body)
 
     const { profile, error: saveErr } = await saveProfile(
@@ -614,6 +638,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       role,
       allowed,
       employeeCode,
+      allowedSub,
     )
 
     if (saveErr) {
@@ -649,6 +674,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       team,
       role,
       allowed_modules: allowed,
+      ...(Array.isArray(allowedSub) ? { allowed_sub_modules: allowedSub } : {}),
       module_access_pending: false,
       ...(employeeCode !== undefined ? { employee_code: employeeCode } : {}),
     })

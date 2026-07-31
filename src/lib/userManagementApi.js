@@ -114,7 +114,7 @@ export async function persistUserProfile(
 
   supabase,
 
-  { id, team, role, allowed_modules, employee_code, username, includeEmployeeCode = true }
+  { id, team, role, allowed_modules, allowed_sub_modules, employee_code, username, includeEmployeeCode = true }
 
 ) {
 
@@ -131,6 +131,8 @@ export async function persistUserProfile(
     role,
 
     allowed_modules: Array.isArray(allowed_modules) ? allowed_modules : [],
+
+    allowed_sub_modules: Array.isArray(allowed_sub_modules) ? allowed_sub_modules : [],
 
     username: username !== undefined ? normalizeCode(username) : undefined,
 
@@ -161,6 +163,8 @@ export async function persistUserProfile(
     role: payload.role,
 
     allowed_modules: payload.allowed_modules,
+
+    allowed_sub_modules: payload.allowed_sub_modules,
 
   };
 

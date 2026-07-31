@@ -1,4 +1,9 @@
-import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import {
+  combineIsoDateAndTimeForStorage,
+  extractIsoDateFromDateTime,
+  extractTimeHHmmFromDateTime,
+  formatDateTimeAmPmDdMmYyyy,
+} from '../../utils/dateDisplay';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
@@ -38,24 +43,6 @@ const parseTripR2Keys = (row) => {
   return raw.filter((k) => String(k).trim().startsWith('fleet/'));
 };
 
-const extractTimeFromDateTime = (value) => {
-  if (!value) return '';
-  const match = String(value).match(/T(\d{2}:\d{2})/);
-  if (match) return match[1];
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-};
-
-const extractDateFromDateTime = (value) => {
-  if (!value) return '';
-  const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
-  if (match) return match[1];
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
 const formatDurationMinutes = (totalMinutes) => {
   if (totalMinutes == null || totalMinutes < 0) return '';
   const mins = Math.round(totalMinutes);
@@ -64,19 +51,6 @@ const formatDurationMinutes = (totalMinutes) => {
   if (h === 0) return `${m} min`;
   if (m === 0) return `${h} hr`;
   return `${h} hr ${m} min`;
-};
-
-const formatTripDateTimeAmPm = (value) => {
-  if (!value) return '';
-  const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return '';
-  const datePart = formatDateDdMmYyyy(dt);
-  const timePart = dt.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
-  return `${datePart} ${timePart}`;
 };
 
 const formatDurationFromDateTimes = (startValue, endValue) => {
@@ -148,13 +122,6 @@ const formatTripSaveError = (error) => {
   return parts.join(' — ') || 'Failed to save trip';
 };
 
-const combineVisitDateAndTime = (visitDate, time) => {
-  const dateIso = toIsoDateOrNull(visitDate);
-  if (!dateIso) return null;
-  const normalizedTime = time && /^\d{2}:\d{2}$/.test(String(time).trim()) ? String(time).trim() : '00:00';
-  return `${dateIso}T${normalizedTime}:00`;
-};
-
 const addOneCalendarDay = (dateIso) => {
   const [y, m, d] = String(dateIso).split('-').map(Number);
   if (![y, m, d].every((n) => Number.isFinite(n))) return dateIso;
@@ -177,16 +144,16 @@ const combineInHouseEndDateTime = (visitDate, outTime, inTime) => {
     Number.isFinite(im) &&
     ih * 60 + im < oh * 60 + om;
   const datePart = overnight ? addOneCalendarDay(dateIso) : dateIso;
-  return `${datePart}T${time}:00`;
+  return combineIsoDateAndTimeForStorage(datePart, time);
 };
 
 const formatDurationFromOutIn = (outDate, outTime, inDate, inTime) => {
   if (!outTime || !inTime) return '';
   const startDate = toIsoDateOrNull(outDate);
   if (!startDate) return '';
-  const start = combineVisitDateAndTime(startDate, outTime);
+  const start = combineIsoDateAndTimeForStorage(startDate, outTime);
   const end = toIsoDateOrNull(inDate)
-    ? combineVisitDateAndTime(inDate, inTime)
+    ? combineIsoDateAndTimeForStorage(inDate, inTime)
     : combineInHouseEndDateTime(startDate, outTime, inTime);
   return formatDurationFromDateTimes(start, end);
 };
@@ -410,12 +377,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       const inDate = toIsoDateOrNull(formData.in_date);
 
       const startDateTime = isFireTender
-        ? `${mobilisationDate}T00:00:00`
-        : combineVisitDateAndTime(outDate, formData.out_time);
+        ? combineIsoDateAndTimeForStorage(mobilisationDate, '00:00')
+        : combineIsoDateAndTimeForStorage(outDate, formData.out_time);
       const endDateTime = isFireTender
-        ? (toIsoDateOrNull(formData.contract_end_date) ? `${toIsoDateOrNull(formData.contract_end_date)}T00:00:00` : null)
+        ? (toIsoDateOrNull(formData.contract_end_date)
+          ? combineIsoDateAndTimeForStorage(toIsoDateOrNull(formData.contract_end_date), '00:00')
+          : null)
         : inDate && /^\d{2}:\d{2}$/.test(String(formData.in_time || '').trim())
-          ? combineVisitDateAndTime(inDate, formData.in_time)
+          ? combineIsoDateAndTimeForStorage(inDate, formData.in_time)
           : combineInHouseEndDateTime(outDate, formData.out_time, formData.in_time);
 
       if (!startDateTime) {
@@ -554,27 +523,27 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       vehicle_id: trip.vehicle_id || '',
       deployment_location: trip.deployment_location || (assignmentType === 'fire-tender' ? (trip.origin_location || '') : ''),
       site_name: trip.site_name || trip.destination_location || '',
-      date_of_mobilisation: trip.date_of_mobilisation || (assignmentType === 'fire-tender' && trip.start_date_time ? new Date(trip.start_date_time).toISOString().slice(0, 10) : ''),
+      date_of_mobilisation: trip.date_of_mobilisation || (assignmentType === 'fire-tender' && trip.start_date_time ? extractIsoDateFromDateTime(trip.start_date_time) : ''),
       km_out: trip.km_at_mobilisation_out ?? trip.odometer_start ?? '',
       km_in: trip.km_at_demobilisation_in ?? trip.odometer_end ?? '',
-      contract_start_date: trip.contract_start_date || (assignmentType === 'fire-tender' && trip.start_date_time ? new Date(trip.start_date_time).toISOString().slice(0, 10) : ''),
-      contract_end_date: trip.contract_end_date || (assignmentType === 'fire-tender' && trip.end_date_time ? new Date(trip.end_date_time).toISOString().slice(0, 10) : ''),
+      contract_start_date: trip.contract_start_date || (assignmentType === 'fire-tender' && trip.start_date_time ? extractIsoDateFromDateTime(trip.start_date_time) : ''),
+      contract_end_date: trip.contract_end_date || (assignmentType === 'fire-tender' && trip.end_date_time ? extractIsoDateFromDateTime(trip.end_date_time) : ''),
       notes: trip.notes || (assignmentType === 'fire-tender' ? (trip.remarks || '') : ''),
       responsible_person: trip.responsible_person || (assignmentType === 'in-house' ? (trip.issued_to_name || '') : ''),
       site_visit_location: trip.site_visit_location || (assignmentType === 'in-house' ? (trip.origin_location || '') : ''),
       number_of_passengers: trip.number_of_passengers ?? '',
-      visit_date: trip.visit_date || (assignmentType === 'in-house' && trip.start_date_time ? new Date(trip.start_date_time).toISOString().slice(0, 10) : ''),
+      visit_date: trip.visit_date || (assignmentType === 'in-house' && trip.start_date_time ? extractIsoDateFromDateTime(trip.start_date_time) : ''),
       out_date:
         assignmentType === 'in-house' && trip.start_date_time
-          ? extractDateFromDateTime(trip.start_date_time)
+          ? extractIsoDateFromDateTime(trip.start_date_time)
           : '',
       in_date:
         assignmentType === 'in-house' && trip.end_date_time
-          ? extractDateFromDateTime(trip.end_date_time)
+          ? extractIsoDateFromDateTime(trip.end_date_time)
           : '',
       visit_duration_days: trip.visit_duration_days ?? '',
-      out_time: assignmentType === 'in-house' ? extractTimeFromDateTime(trip.start_date_time) : '',
-      in_time: assignmentType === 'in-house' ? extractTimeFromDateTime(trip.end_date_time) : '',
+      out_time: assignmentType === 'in-house' ? extractTimeHHmmFromDateTime(trip.start_date_time) : '',
+      in_time: assignmentType === 'in-house' ? extractTimeHHmmFromDateTime(trip.end_date_time) : '',
       departments_allotted: Array.isArray(trip.departments_allotted)
         ? trip.departments_allotted
         : (trip.issued_to_department ? trip.issued_to_department.split(',').map((d) => d.trim()).filter(Boolean) : []),
@@ -583,8 +552,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       trip_purpose: trip.trip_purpose || '',
       issued_to_name: trip.issued_to_name || '',
       issued_to_department: trip.issued_to_department || '',
-      start_date_time: trip.start_date_time ? new Date(trip.start_date_time).toISOString().slice(0, 16) : '',
-      end_date_time: trip.end_date_time ? new Date(trip.end_date_time).toISOString().slice(0, 16) : '',
+      start_date_time: trip.start_date_time || '',
+      end_date_time: trip.end_date_time || '',
       origin_location: trip.origin_location || '',
       destination_location: trip.destination_location || '',
       odometer_start: trip.odometer_start || '',
@@ -1375,8 +1344,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
             <tbody className="divide-y divide-gray-200 bg-white">
               {sortedTrips.map((trip, idx) => {
                 const attachmentKeys = parseTripR2Keys(trip);
-                const outDateTime = formatTripDateTimeAmPm(trip.start_date_time);
-                const inDateTime = formatTripDateTimeAmPm(trip.end_date_time);
+                const outDateTime = formatDateTimeAmPmDdMmYyyy(trip.start_date_time);
+                const inDateTime = formatDateTimeAmPmDdMmYyyy(trip.end_date_time);
                 const timeDiff = getTripTimeDifference(trip);
                 const kmOut = getTripKmOut(trip);
                 const kmIn = getTripKmIn(trip);

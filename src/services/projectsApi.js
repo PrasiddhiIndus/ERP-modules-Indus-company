@@ -1,6 +1,6 @@
 /**
  * Projects module — Supabase `projects` schema.
- * Tables: enquiry_dropdown_kinds, enquiry_dropdown_options, enquiry_field_definitions, enquiries
+ * Tables: enquiry_*, enquiries, quotation_*, quotations, project_records
  * In Supabase Dashboard → Settings → API → Exposed schemas, add: projects
  */
 
