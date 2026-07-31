@@ -14,9 +14,11 @@ import {
 import { supabase } from "../../../lib/supabase";
 import {
   REGISTER_BULK_BUTTON_CLASS,
+  REGISTER_LEAVE_SUBMENU_OPTIONS,
   REGISTER_MARK_NHPH,
   applyBulkRegisterMarks,
   attachRegisterRowSummaries,
+  buildRegisterMarkSourcesByEmpDay,
   buildPresentKeysFromPunches,
   buildMonthlyRegisterGrid,
   buildRegisterEmployeeList,
@@ -110,9 +112,25 @@ const SUMMARY_COLUMNS = [
 const BULK_MARKS = [
   { mark: "P", label: "Mark P" },
   { mark: "L", label: "Mark L" },
+  { mark: "LWP", label: "Mark LWP" },
+  { mark: "WFH", label: "Mark WFH" },
   { mark: "WO", label: "Mark WO" },
   { mark: REGISTER_MARK_NHPH, label: "Mark NH/PH" },
 ];
+
+const BULK_LEAVE_TYPE_MARKS = REGISTER_LEAVE_SUBMENU_OPTIONS.map((opt) => ({
+  mark: opt.value,
+  label: `Mark ${opt.value}`,
+}));
+
+function bulkMarkLabel(mark) {
+  if (!mark) return "";
+  const fromPrimary = BULK_MARKS.find((b) => b.mark === mark);
+  if (fromPrimary) return fromPrimary.label;
+  const fromLeave = BULK_LEAVE_TYPE_MARKS.find((b) => b.mark === mark);
+  if (fromLeave) return fromLeave.label;
+  return mark;
+}
 
 /** Opens bulk employee picker for clear-range (not a register mark). */
 const BULK_CLEAR_MARK = "__CLEAR__";
@@ -954,14 +972,17 @@ export function EmployeeAttendanceDailyPage() {
     else setTableDayAttendanceFilter(mode);
   }, []);
 
-  const rowsWithSummary = useMemo(
-    () =>
-      attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth, {
-        year: monthMeta?.year,
-        month: monthMeta?.month,
-      }),
-    [dayFilteredRows, manualMarks, daysInMonth, monthMeta?.year, monthMeta?.month]
-  );
+  const rowsWithSummary = useMemo(() => {
+    const markSourcesByEmp = buildRegisterMarkSourcesByEmpDay(
+      monthRegisterRowsRef.current,
+      masterRegisterCodeMap
+    );
+    return attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth, {
+      year: monthMeta?.year,
+      month: monthMeta?.month,
+      markSourcesByEmp,
+    });
+  }, [dayFilteredRows, manualMarks, daysInMonth, monthMeta?.year, monthMeta?.month, masterRegisterCodeMap]);
 
   const summaryFooter = useMemo(() => computeRegisterSummaryFooter(rowsWithSummary), [rowsWithSummary]);
 
@@ -1729,6 +1750,29 @@ export function EmployeeAttendanceDailyPage() {
                 </button>
               );
             })}
+            <label className="text-[11px] text-gray-600">
+              Leave type
+              <TinySelect
+                value={BULK_LEAVE_TYPE_MARKS.some((b) => b.mark === bulkPickerMark) ? bulkPickerMark : ""}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (!next) {
+                    if (BULK_LEAVE_TYPE_MARKS.some((b) => b.mark === bulkPickerMark)) closeBulkPicker();
+                    return;
+                  }
+                  openBulkPicker(next);
+                }}
+                className="w-[140px] ml-1"
+                disabled={savingMark || !bulkDayRange}
+              >
+                <option value="">Mark leave type…</option>
+                {BULK_LEAVE_TYPE_MARKS.map((b) => (
+                  <option key={b.mark} value={b.mark}>
+                    {b.mark}
+                  </option>
+                ))}
+              </TinySelect>
+            </label>
             <button
               type="button"
               onClick={() => {
@@ -1755,9 +1799,7 @@ export function EmployeeAttendanceDailyPage() {
                 search={bulkEmployeeSearch}
                 onSearchChange={setBulkEmployeeSearch}
                 markLabel={
-                  bulkPickerMark === BULK_CLEAR_MARK
-                    ? "Clear range"
-                    : BULK_MARKS.find((b) => b.mark === bulkPickerMark)?.label || bulkPickerMark
+                  bulkPickerMark === BULK_CLEAR_MARK ? "Clear range" : bulkMarkLabel(bulkPickerMark)
                 }
                 bulkDateFrom={bulkDateFrom}
                 bulkDateTo={bulkDateTo}
@@ -1930,7 +1972,10 @@ export function EmployeeAttendanceDailyPage() {
         widthClass="max-w-3xl"
       >
         <p className="text-[11px] text-gray-500 mb-3">
-          Totals per employee for the filtered list. Applied WO = weekoffs marked manually in the grid.
+          Totals for the filtered list. Leave counts leave marks (SPLA/SPLB = 0.5). Weekoff is all
+          WO; Applied WO is only WO you marked manually (not auto Sunday week-off). Total present is
+          presence marks only (P, P(OD), tour, CO, WFH; half-day composites = 0.5) — leave is not
+          counted as present.
         </p>
         <div className="overflow-x-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-xs">

@@ -193,6 +193,12 @@ export function isRegisterLwpMark(mark) {
   return String(mark ?? "").trim() === "LWP";
 }
 
+/** SPLA / SPLB — special leave; count toward leave only, never as present. */
+export function isRegisterSplabMark(mark) {
+  const m = String(mark ?? "").trim().toUpperCase();
+  return m === "SPLA" || m === "SPLB";
+}
+
 /** Whether mark is a leave type for register summary tallies. */
 export function isRegisterSummaryLeaveMark(mark) {
   const m = String(mark ?? "").trim();
@@ -204,17 +210,18 @@ export function isRegisterSummaryLeaveMark(mark) {
   return false;
 }
 
-/** Leave-day credit for register summary (HD / P/SL|P/CL|P/PL = 0.5). */
+/** Leave-day credit for register summary (HD / P/SL|P/CL|P/PL / SPLA / SPLB = 0.5). */
 export function registerSummaryLeaveCredit(mark) {
   const m = String(mark ?? "").trim();
   if (!isRegisterSummaryLeaveMark(m)) return 0;
-  if (m === "HD" || isRegisterCompositeHalfDayMark(m)) return 0.5;
+  if (m === "HD" || isRegisterCompositeHalfDayMark(m) || isRegisterSplabMark(m)) return 0.5;
   return 1;
 }
 
 /**
  * Present-day credit for one register cell (0, 0.5, or 1).
- * P-types, all leave types except LWP (HD / composites = 0.5); WO / NH/PH do not.
+ * Counts presence only (P / P(OD) / T / CO / WFH); HD and P/SL|P/CL|P/PL = 0.5.
+ * Leave marks (PL/CL/SL/SPLA/SPLB/LWP/…) count in Leave only — never as present.
  */
 export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
@@ -223,9 +230,7 @@ export function registerPresentDayCredit(mark) {
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
   if (canonical && REGISTER_PRESENT_CREDIT_MARKS.has(canonical)) return 1;
-  if (isRegisterLwpMark(raw)) return 0;
   if (raw === "HD" || isRegisterCompositeHalfDayMark(raw)) return 0.5;
-  if (isRegisterSummaryLeaveMark(raw)) return 1;
   return 0;
 }
 
@@ -382,6 +387,16 @@ export const REGISTER_BULK_BUTTON_CLASS = {
   P: "bg-[#008D62] hover:bg-[#006b51] text-white",
   "P(OD)": "bg-[#0ea5a5] hover:bg-[#0f8f8f] text-white",
   L: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  LWP: "bg-[#9f1239] hover:bg-[#881337] text-white",
+  WFH: "bg-[#2563eb] hover:bg-[#1d4ed8] text-white",
+  PL: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  CL: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  SL: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  SPLA: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  SPLB: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  SBEL: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  PTL: "bg-[#D62828] hover:bg-[#b82222] text-white",
+  ML: "bg-[#D62828] hover:bg-[#b82222] text-white",
   WO: "bg-[#EAB308] hover:bg-[#CA8A04] text-gray-900",
   [REGISTER_MARK_NHPH]: "bg-[#F58220] hover:bg-[#d9741d] text-white",
   [REGISTER_MARK_LEFT]: "bg-gray-600 hover:bg-gray-700 text-white",
@@ -1125,7 +1140,9 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
     if (!reqFrom || !reqTo) continue;
     const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
     const windowTo = reqTo > toDate ? toDate : reqTo;
-    for (const iso of enumerateDates(windowFrom, windowTo)) {
+    // Use full request range for sandwich anchors, then clip to the viewed month.
+    for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo)) {
+      if (iso < windowFrom || iso > windowTo) continue;
       addLeaveMark(marks, req.employee_code, iso, mark);
     }
   }
@@ -2466,25 +2483,72 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
   };
 }
 
-export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, daysInMonth, { year, month } = {}) {
+export function computeEmployeeRegisterSummary(
+  row,
+  manualMarksForEmp = {},
+  daysInMonth,
+  { year, month, markSourcesForEmp = {} } = {}
+) {
   const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
+  const monthKey = year && month ? monthKeyFromParts(year, month) : null;
+
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const mark = row.dayMarks[day] || "";
+    const mark = String(row.dayMarks?.[day] || "").trim();
     summary.totalPresent += registerPresentDayCreditForCell(mark, { year, month, day });
     summary.leave += registerSummaryLeaveCredit(mark);
+
     if (mark === "WO") {
       summary.weekoff += 1;
-      if (manualMarksForEmp[day] === "WO") summary.appliedWo += 1;
+      const src = String(markSourcesForEmp?.[day] ?? "").trim().toLowerCase();
+      const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
+      const isAutoSource = src === REGISTER_MARK_SOURCE_AUTO_WO || src === "auto";
+      if (isAutoSource) {
+        // Auto week-off — Weekoff only, not Applied WO
+      } else if (isManualMarkSource(src)) {
+        summary.appliedWo += 1;
+      } else if (!src && manualMarksForEmp[day] === "WO") {
+        // No source on row: non-Sunday WO is treated as manually applied
+        if (!iso || !isAutoWeekoffDate(iso)) summary.appliedWo += 1;
+      }
     }
+
     if (isRegisterNhphMark(mark)) summary.nhph += 1;
   }
   return summary;
 }
 
-export function attachRegisterRowSummaries(rows, manualMarks, daysInMonth, { year, month } = {}) {
+/** Build empCode → day → mark_source from register DB rows (for Applied WO vs auto WO). */
+export function buildRegisterMarkSourcesByEmpDay(registerRows, masterCodeMap = null) {
+  const out = {};
+  const priority = {};
+  for (const row of registerRows || []) {
+    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
+    const day = dayOfMonthFromIsoDate(row.register_date);
+    if (!code || !day) continue;
+    const rowPri = registerMarkRowPriority(row);
+    const prevPri = priority[code]?.[day] ?? -1;
+    if (rowPri < prevPri) continue;
+    if (!out[code]) out[code] = {};
+    if (!priority[code]) priority[code] = {};
+    out[code][day] = row.mark_source ?? null;
+    priority[code][day] = rowPri;
+  }
+  return out;
+}
+
+export function attachRegisterRowSummaries(
+  rows,
+  manualMarks,
+  daysInMonth,
+  { year, month, markSourcesByEmp = null } = {}
+) {
   return rows.map((row) => ({
     ...row,
-    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth, { year, month }),
+    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth, {
+      year,
+      month,
+      markSourcesForEmp: markSourcesByEmp?.[row.empCode] || {},
+    }),
   }));
 }
 
@@ -3035,6 +3099,25 @@ export function enumerateDates(fromDate, toDate) {
     cur.setDate(cur.getDate() + 1);
   }
   return out;
+}
+
+/**
+ * Leave attendance dates mirroring DB sandwich policy (within-request):
+ * include all non-Sunday days, plus Sundays strictly between the first and last
+ * leave working day. Explicit Saturday WO conversion is handled in DB when the
+ * register already has WO; this fallback covers the common auto-WO Sunday case.
+ */
+export function enumerateLeaveDatesWithSandwich(fromDate, toDate) {
+  const all = enumerateDates(fromDate, toDate);
+  if (!all.length) return [];
+  const anchors = all.filter((iso) => !isAutoWeekoffDate(iso));
+  if (!anchors.length) return [];
+  const amin = anchors[0];
+  const amax = anchors[anchors.length - 1];
+  return all.filter((iso) => {
+    if (!isAutoWeekoffDate(iso)) return true;
+    return iso > amin && iso < amax;
+  });
 }
 
 export function comparePunchInStatus(punchIn, expectedIn) {
