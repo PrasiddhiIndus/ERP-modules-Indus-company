@@ -1,0 +1,94 @@
+/* Screen preview — mirrors print layout (print uses dedicated popup window). */
+.quotation-preview .qp-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.quotation-preview .qp-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.quotation-preview .qp-letterhead {
+  flex-shrink: 0;
+  width: 148px;
+}
+
+.quotation-preview .qp-letterhead img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.quotation-preview .qp-block {
+  margin-bottom: 0.875rem;
+}
+
+.quotation-preview .qp-line {
+  margin: 0 0 0.2rem;
+}
+
+.quotation-preview .qp-paragraph {
+  margin: 0 0 0.625rem;
+  text-align: justify;
+}
+
+.quotation-preview .qp-annexure {
+  margin: 1rem 0 0.5rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.quotation-preview .qp-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.quotation-preview .qp-table th,
+.quotation-preview .qp-table td {
+  border: 1px solid #cbd5e1;
+  padding: 0.25rem 0.375rem;
+  vertical-align: top;
+}
+
+.quotation-preview .qp-table th {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+
+.quotation-preview .qp-total {
+  margin: 0.5rem 0 1rem;
+  text-align: right;
+  font-weight: 700;
+}
+
+.quotation-preview .qp-terms {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quotation-preview .qp-closing {
+  text-align: justify;
+  margin-bottom: 1rem;
+}
+
+.quotation-preview .qp-signature-name {
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+
+.quotation-preview .qp-footer {
+  margin-top: 1.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e2e8f0;
+  text-align: center;
+  font-size: 11px;
+  color: #64748b;
+}

@@ -149,6 +149,31 @@ export default function ApiHealthDashboard() {
     }
   }, []);
 
+  const runChecksForIds = useCallback(async (apiIds) => {
+    if (!apiIds?.length || runInFlightRef.current) return;
+    runInFlightRef.current = true;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const defs = apiIds.map(getApiById).filter(Boolean);
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < defs.length; i += BATCH_SIZE) {
+        const batch = defs.slice(i, i + BATCH_SIZE);
+        const results = await Promise.all(batch.map((def) => runApiHealthCheck(def)));
+        const batchMap = Object.fromEntries(results.map((r, idx) => [batch[idx].id, r]));
+        queueBatchUpdate(batchMap);
+      }
+      flushPendingBatches();
+      lastRefreshAtRef.current = new Date().toISOString();
+      setLastRefreshAt(lastRefreshAtRef.current);
+    } catch (err) {
+      setError(err?.message || "Failed to run checks");
+    } finally {
+      setRefreshing(false);
+      runInFlightRef.current = false;
+    }
+  }, [flushPendingBatches, queueBatchUpdate]);
+
   useEffect(() => {
     runChecks({ silent: Boolean(cached?.snapshots && Object.keys(cached.snapshots).length) });
   }, [runChecks]); // eslint-disable-line react-hooks/exhaustive-deps -- mount refresh only
@@ -321,6 +346,7 @@ export default function ApiHealthDashboard() {
         t={t}
         reducedMotion={reducedMotion}
         onRefreshOne={runSingleCheck}
+        onCheckAll={() => runChecksForIds(filteredApis.map((a) => a.id))}
         refreshing={refreshing}
         onClearFilters={clearFilters}
         mobileDrawerApiId={mobileDrawerApiId}

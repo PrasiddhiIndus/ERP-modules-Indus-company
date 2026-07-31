@@ -34,7 +34,8 @@ import {
   saveEmployeeHierarchyManagers,
 } from "../lib/userManagementHierarchy";
 import { ManagerSearchSelect } from "../components/employee/ManagerSearchSelect";
-import { ROLES, MODULES, resolveTeamModuleKey } from "../config/roles";
+import { ROLES, MODULES, NAV_MODULE_TREE, resolveTeamModuleKey } from "../config/roles";
+import { ChevronDown as ChevronDownIcon } from "lucide-react";
 import {
   fetchEmployeeMasterDepartments,
   mergeEmployeeMasterDepartments,
@@ -78,6 +79,123 @@ const selectableExtraModules = (team) => {
   );
 };
 
+/** Returns the visible NAV_MODULE_TREE entries, excluding the user's primary team module. */
+const selectableModuleTree = (team) => {
+  const teamKey = resolveTeamModuleKey(team);
+  return NAV_MODULE_TREE.filter((m) => m.value !== "userManagement" && m.value !== teamKey);
+};
+
+const parseAllowedSubModules = (raw) => {
+  if (Array.isArray(raw)) return [...raw];
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? [...parsed] : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+/**
+ * Tree-style module + sub-module access picker.
+ * - Checking a full module grants access to the whole module (clears any sub-module selections for it).
+ * - Un-checking a full module reveals sub-module checkboxes so you can grant partial access.
+ */
+function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], onToggleModule, onToggleSubModule }) {
+  const [expanded, setExpanded] = useState({});
+
+  const safeModules = Array.isArray(allowedModules) ? allowedModules : [];
+  const safeSubModules = Array.isArray(allowedSubModules) ? allowedSubModules : [];
+
+  React.useEffect(() => {
+    const autoExpand = {};
+    tree.forEach((mod) => {
+      if (mod.subModules?.some((s) => safeSubModules.includes(s.value))) {
+        autoExpand[mod.value] = true;
+      }
+    });
+    if (Object.keys(autoExpand).length) {
+      setExpanded((prev) => ({ ...prev, ...autoExpand }));
+    }
+  }, [tree, safeSubModules.join("|")]);
+
+  const toggleExpand = (moduleValue) =>
+    setExpanded((prev) => ({ ...prev, [moduleValue]: !prev[moduleValue] }));
+
+  return (
+    <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+      {tree.map((mod) => {
+        const fullChecked = safeModules.includes(mod.value);
+        const hasSubs = mod.subModules && mod.subModules.length > 0;
+        const isExpanded = expanded[mod.value] ?? false;
+        const activeSubCount = hasSubs
+          ? mod.subModules.filter((s) => safeSubModules.includes(s.value)).length
+          : 0;
+
+        return (
+          <div key={mod.value}>
+            {/* Module row */}
+            <div className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
+              <input
+                type="checkbox"
+                id={`mod-${mod.value}`}
+                checked={fullChecked}
+                onChange={() => onToggleModule(mod.value)}
+                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+              />
+              <label
+                htmlFor={`mod-${mod.value}`}
+                className="flex-1 text-sm font-medium text-gray-800 cursor-pointer select-none"
+              >
+                {mod.label}
+                {!fullChecked && activeSubCount > 0 && (
+                  <span className="ml-1.5 text-[11px] font-normal text-indigo-600 bg-indigo-50 rounded px-1.5 py-0.5">
+                    {activeSubCount} sub-module{activeSubCount > 1 ? "s" : ""}
+                  </span>
+                )}
+              </label>
+              {hasSubs && !fullChecked && (
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(mod.value)}
+                  className="p-0.5 rounded hover:bg-gray-200 text-gray-500"
+                  title={isExpanded ? "Hide sub-modules" : "Show sub-modules"}
+                >
+                  <ChevronDownIcon
+                    className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                  />
+                </button>
+              )}
+            </div>
+
+            {/* Sub-module rows — only shown when module is NOT fully checked */}
+            {hasSubs && !fullChecked && isExpanded && (
+              <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
+                {mod.subModules.map((sub) => (
+                  <label
+                    key={sub.value}
+                    className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-100"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={safeSubModules.includes(sub.value)}
+                      onChange={() => onToggleSubModule(sub.value)}
+                      className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
+                    />
+                    <span className="text-xs text-gray-700">{sub.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const UserManagement = () => {
   const { userProfile } = useAuth();
   const [list, setList] = useState([]);
@@ -97,6 +215,7 @@ const UserManagement = () => {
     team: "",
     role: ROLES.EXECUTIVE,
     allowed_modules: [],
+    allowed_sub_modules: [],
     employee_master_id: null,
     employee_master_employee_id: null,
     linked_employee_code: null,
@@ -117,6 +236,7 @@ const UserManagement = () => {
     team: "",
     role: ROLES.EXECUTIVE,
     allowed_modules: [],
+    allowed_sub_modules: [],
   });
   const [empCodeSupported, setEmpCodeSupported] = useState(getEmpCodeColumnSupported);
   const [hierarchySupported, setHierarchySupported] = useState(true);
@@ -472,6 +592,7 @@ const UserManagement = () => {
       team: row.team ?? "",
       role: row.role ?? ROLES.EXECUTIVE,
       allowed_modules: Array.isArray(row.allowed_modules) ? [...row.allowed_modules] : [],
+      allowed_sub_modules: parseAllowedSubModules(row.allowed_sub_modules),
       employee_master_id: row.employee_master_id ?? null,
       employee_master_employee_id: row.employee_master_employee_id ?? null,
       linked_employee_code: row.linked_employee_code ?? null,
@@ -490,11 +611,28 @@ const UserManagement = () => {
   };
 
   const toggleModule = (value) => {
+    setEditForm((prev) => {
+      const willAdd = !prev.allowed_modules.includes(value);
+      // When adding full module access, clear any sub-module selections for it
+      const newSubModules = willAdd
+        ? prev.allowed_sub_modules.filter((s) => !s.startsWith(`${value}.`))
+        : prev.allowed_sub_modules;
+      return {
+        ...prev,
+        allowed_modules: willAdd
+          ? [...prev.allowed_modules, value]
+          : prev.allowed_modules.filter((m) => m !== value),
+        allowed_sub_modules: newSubModules,
+      };
+    });
+  };
+
+  const toggleSubModule = (subValue) => {
     setEditForm((prev) => ({
       ...prev,
-      allowed_modules: prev.allowed_modules.includes(value)
-        ? prev.allowed_modules.filter((m) => m !== value)
-        : [...prev.allowed_modules, value],
+      allowed_sub_modules: prev.allowed_sub_modules.includes(subValue)
+        ? prev.allowed_sub_modules.filter((s) => s !== subValue)
+        : [...prev.allowed_sub_modules, subValue],
     }));
   };
 
@@ -529,6 +667,7 @@ const UserManagement = () => {
         team: editForm.team || null,
         role: editForm.role,
         allowed_modules: editForm.allowed_modules,
+        allowed_sub_modules: editForm.allowed_sub_modules,
         employee_code: newEmpCode,
         includeEmployeeCode: empCodeSupported !== false,
       };
@@ -708,6 +847,7 @@ const UserManagement = () => {
               team: "",
               role: ROLES.EXECUTIVE,
               allowed_modules: [],
+              allowed_sub_modules: [],
             });
           }}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-sm font-semibold"
@@ -1238,21 +1378,22 @@ const UserManagement = () => {
 
               {editForm.role !== ROLES.SUPER_ADMIN && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Extra editable modules
-                  </label>
-                  <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
-                    {selectableExtraModules(editForm.team).map((m) => (
-                      <label key={m.value} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={editForm.allowed_modules.includes(m.value)}
-                          onChange={() => toggleModule(m.value)}
-                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-sm text-gray-700">{m.label}</span>
-                      </label>
-                    ))}
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Module access
+                    </label>
+                    <span className="text-xs text-gray-400">
+                      Check a module for full access, or expand to pick sub-modules
+                    </span>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto rounded-lg">
+                    <ModuleAccessTree
+                      tree={selectableModuleTree(editForm.team)}
+                      allowedModules={editForm.allowed_modules}
+                      allowedSubModules={editForm.allowed_sub_modules}
+                      onToggleModule={toggleModule}
+                      onToggleSubModule={toggleSubModule}
+                    />
                   </div>
                 </div>
               )}
@@ -1375,26 +1516,42 @@ const UserManagement = () => {
 
               {createForm.role !== ROLES.SUPER_ADMIN ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Extra editable modules</label>
-                  <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
-                    {selectableExtraModules(createForm.team).map((m) => (
-                      <label key={m.value} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={createForm.allowed_modules.includes(m.value)}
-                          onChange={() =>
-                            setCreateForm((prev) => ({
-                              ...prev,
-                              allowed_modules: prev.allowed_modules.includes(m.value)
-                                ? prev.allowed_modules.filter((x) => x !== m.value)
-                                : [...prev.allowed_modules, m.value],
-                            }))
-                          }
-                          className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                        />
-                        <span className="text-sm text-gray-700">{m.label}</span>
-                      </label>
-                    ))}
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Module access
+                    </label>
+                    <span className="text-xs text-gray-400">
+                      Check a module for full access, or expand to pick sub-modules
+                    </span>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto rounded-lg">
+                    <ModuleAccessTree
+                      tree={selectableModuleTree(createForm.team)}
+                      allowedModules={createForm.allowed_modules}
+                      allowedSubModules={createForm.allowed_sub_modules}
+                      onToggleModule={(value) =>
+                        setCreateForm((prev) => {
+                          const willAdd = !prev.allowed_modules.includes(value);
+                          return {
+                            ...prev,
+                            allowed_modules: willAdd
+                              ? [...prev.allowed_modules, value]
+                              : prev.allowed_modules.filter((x) => x !== value),
+                            allowed_sub_modules: willAdd
+                              ? prev.allowed_sub_modules.filter((s) => !s.startsWith(`${value}.`))
+                              : prev.allowed_sub_modules,
+                          };
+                        })
+                      }
+                      onToggleSubModule={(subValue) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          allowed_sub_modules: prev.allowed_sub_modules.includes(subValue)
+                            ? prev.allowed_sub_modules.filter((s) => s !== subValue)
+                            : [...prev.allowed_sub_modules, subValue],
+                        }))
+                      }
+                    />
                   </div>
                 </div>
               ) : null}
@@ -1453,6 +1610,7 @@ const UserManagement = () => {
                       team: createForm.team || null,
                       role: createForm.role || ROLES.EXECUTIVE,
                       allowed_modules: createForm.allowed_modules || [],
+                      allowed_sub_modules: createForm.allowed_sub_modules || [],
                     });
                     if (!createResult.ok) {
                       setError(createResult.message || "Could not create user.");
@@ -1467,6 +1625,7 @@ const UserManagement = () => {
                       team: "",
                       role: ROLES.EXECUTIVE,
                       allowed_modules: [],
+                      allowed_sub_modules: [],
                     });
                     setPage(1);
                     await reloadProfilesPage(1);

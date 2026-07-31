@@ -3,7 +3,7 @@ import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule } from "../config/roles";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
@@ -52,6 +52,7 @@ import {
   History,
   Wallet,
   UserX,
+  ClipboardList,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -73,8 +74,11 @@ const topNavClass = ({ isActive }) => `${topLinkBase} ${isActive ? activeClass :
 const subNavClass = ({ isActive }) => `${subLinkBase} ${isActive ? activeClass : "text-gray-700"}`;
 
 const Layout = () => {
-  const { user, signOut, accessibleModules, userProfile } = useAuth();
-  const can = (moduleKey) => Boolean(accessibleModules?.has(moduleKey));
+  const { user, signOut, accessibleModules, subModulePaths, navVisibleModules, userProfile } = useAuth();
+  const can = (moduleKey) => Boolean(navVisibleModules?.has(moduleKey));
+  const canSub = (subModuleKey) =>
+    canSeeSubModule(userProfile, accessibleModules, subModuleKey, user?.user_metadata);
+  const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
   const location = useLocation();
@@ -93,7 +97,7 @@ const Layout = () => {
       setIsAccessDenied(false);
       return;
     }
-    const allowed = isPathAllowed(pathname, accessibleModules);
+    const allowed = isPathAllowed(pathname, accessibleModules, subModulePaths);
     if (!allowed && pathname === "/app/dashboard") {
       const landing = getLandingPathForUser(userProfile, accessibleModules);
       navigate(landing, { replace: true });
@@ -101,7 +105,7 @@ const Layout = () => {
       return;
     }
     setIsAccessDenied(!allowed);
-  }, [pathname, accessibleModules, navigate, userProfile]);
+  }, [pathname, accessibleModules, subModulePaths, navigate, userProfile]);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
@@ -125,6 +129,16 @@ const Layout = () => {
   const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
 
+  // Auto-expand Admin when user has partial sub-module access only
+  useEffect(() => {
+    if (!userProfile?.allowed_sub_modules?.length) return;
+    const partialAdmin = userProfile.allowed_sub_modules.some((k) => String(k).startsWith("admin."));
+    if (partialAdmin && can("admin")) {
+      setAdminOpen(true);
+      if (canSub("admin.salary-admin") && !hasFullAdmin) setAdminSalaryOpen(true);
+    }
+  }, [userProfile?.allowed_sub_modules, accessibleModules, navVisibleModules]);
+
   // Keep expandable section open when current path is under that section
   useEffect(() => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary")) setHrAdminOpen(true);
@@ -143,6 +157,7 @@ const Layout = () => {
     if (
       pathname.startsWith("/app/projects/po") ||
       pathname.startsWith("/app/projects/enquiry") ||
+      pathname.startsWith("/app/projects/quotation") ||
       pathname.startsWith("/app/projects-management") ||
       pathname.startsWith("/app/projects-billing")
     ) {
@@ -378,11 +393,15 @@ const Layout = () => {
 
               {adminOpen && (
                 <div className="ml-6 mt-0.5 space-y-1">
+                  {canSub("admin.dashboard") && (
                   <NavLink to="admin/dashboard" className={subNavClass}>
                     <LayoutDashboard className="h-4 w-4 shrink-0 text-[#1F3A8A]" />
                     <span className="text-xs">Dashboard</span>
                   </NavLink>
+                  )}
 
+                  {canSub("admin.employee") && (
+                  <>
                   <button
                     onClick={() => setAdminEmployeeOpen(!adminEmployeeOpen)}
                     className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
@@ -445,7 +464,11 @@ const Layout = () => {
                       </NavLink>
                     </div>
                   )}
+                  </>
+                  )}
 
+                  {canSub("admin.salary-admin") && (
+                  <>
                   <button
                     type="button"
                     onClick={() => setAdminSalaryOpen(!adminSalaryOpen)}
@@ -473,7 +496,11 @@ const Layout = () => {
                       </NavLink>
                     </div>
                   )}
+                  </>
+                  )}
 
+                  {canSub("admin.store") && (
+                  <>
                   <button
                     type="button"
                     onClick={() => setAdminStoreOpen(!adminStoreOpen)}
@@ -497,7 +524,11 @@ const Layout = () => {
                       <NavLink to="admin/store/reconciliation" className={subNavClass}><CheckCircle className="w-4 h-4 shrink-0 text-teal-600" /><span className="text-xs">Reconciliation</span></NavLink>
                     </div>
                   )}
+                  </>
+                  )}
 
+                  {canSub("admin.gate") && (
+                  <>
                   <button
                     onClick={() => setAdminGateOpen(!adminGateOpen)}
                     className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
@@ -518,7 +549,11 @@ const Layout = () => {
                       <NavLink to="admin/gate/security-console" className={subNavClass}><Shield className="w-4 h-4 shrink-0 text-teal-600" /><span className="text-xs">Security Console</span></NavLink>
                     </div>
                   )}
+                  </>
+                  )}
 
+                  {canSub("admin.misc") && (
+                  <>
                   <button
                     onClick={() => setAdminMiscOpen(!adminMiscOpen)}
                     className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-gray-100 text-gray-700 transition-colors"
@@ -536,19 +571,27 @@ const Layout = () => {
                       <NavLink to="admin/misc/admin-tasks-other-requests" className={subNavClass}><ClipboardCheck className="w-4 h-4 shrink-0 text-sky-600" /><span className="text-xs">Admin Tasks / Other Requests</span></NavLink>
                     </div>
                   )}
+                  </>
+                  )}
 
+                  {canSub("admin.alerts") && (
                   <NavLink to="admin/alerts-notifications" className={subNavClass}>
                     <Bell className="w-4 h-4 shrink-0 text-orange-600" />
                     <span className="text-xs">Alerts & Notifications</span>
                   </NavLink>
+                  )}
+                  {canSub("admin.reports") && (
                   <NavLink to="admin/reports-analytics" className={subNavClass}>
                     <BarChart3 className="w-4 h-4 shrink-0 text-indigo-600" />
                     <span className="text-xs">Reports & Analytics</span>
                   </NavLink>
+                  )}
+                  {canSub("admin.settings") && (
                   <NavLink to="admin/settings-masters" className={subNavClass}>
                     <Settings className="w-4 h-4 shrink-0 text-gray-700" />
                     <span className="text-xs">Settings / Masters</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>
@@ -996,6 +1039,7 @@ const Layout = () => {
                 className={`flex items-center justify-between w-full px-2.5 py-2 rounded-lg hover:bg-slate-100 transition-colors min-h-[2.35rem] ${
                   pathname.startsWith("/app/projects/po") ||
                   pathname.startsWith("/app/projects/enquiry") ||
+                  pathname.startsWith("/app/projects/quotation") ||
                   pathname.startsWith("/app/projects-management") ||
                   pathname.startsWith("/app/projects-billing")
                     ? "bg-red-50 text-red-800 shadow-sm"
@@ -1026,6 +1070,10 @@ const Layout = () => {
                   <NavLink to="projects/enquiry" className={subNavClass}>
                     <FileText className="w-4 h-4 shrink-0 text-indigo-600" />
                     <span className="text-xs">Enquiry Master</span>
+                  </NavLink>
+                  <NavLink to="projects/quotation" className={subNavClass}>
+                    <ClipboardList className="w-4 h-4 shrink-0 text-orange-600" />
+                    <span className="text-xs">Quotation Master</span>
                   </NavLink>
                   <NavLink to="projects/po" className={subNavClass}>
                     <FileCheck className="w-4 h-4 shrink-0 text-blue-600" />

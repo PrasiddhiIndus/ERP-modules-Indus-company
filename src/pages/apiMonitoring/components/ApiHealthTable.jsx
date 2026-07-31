@@ -366,6 +366,7 @@ export function ApiHealthTableSection({
   t,
   reducedMotion,
   onRefreshOne,
+  onCheckAll,
   refreshing,
   onClearFilters,
   mobileDrawerApiId,
@@ -378,9 +379,23 @@ export function ApiHealthTableSection({
       title="API status"
       t={t}
       right={
-        <span className={`text-[11px] ${t.muted}`}>
-          {loading ? "Running initial checks…" : `${rows.length} API${rows.length === 1 ? "" : "s"}`}
-        </span>
+        <div className="flex items-center gap-2">
+          {onCheckAll && rows.length > 0 && !loading && (
+            <button
+              type="button"
+              onClick={onCheckAll}
+              disabled={refreshing}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors ${t.accentSoft} ${t.focusRing} disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={`Check all ${rows.length} visible API${rows.length === 1 ? "" : "s"}`}
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshing ? "animate-spin" : ""} ${t.accent}`} />
+              Check all ({rows.length})
+            </button>
+          )}
+          <span className={`text-[11px] ${t.muted}`}>
+            {loading ? "Running initial checks…" : `${rows.length} API${rows.length === 1 ? "" : "s"}`}
+          </span>
+        </div>
       }
     >
       <ApiHealthTable

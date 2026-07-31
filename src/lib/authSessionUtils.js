@@ -358,6 +358,7 @@ export function writeCachedProfileRow(profile) {
         team: profile.team ?? null,
         role: profile.role ?? null,
         allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
+        allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
         employee_code: profile.employee_code ?? null,
       })
     );

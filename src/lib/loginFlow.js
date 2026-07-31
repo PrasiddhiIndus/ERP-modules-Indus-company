@@ -34,14 +34,15 @@ export function logLoginStage(stage, detail = {}) {
 export function buildProfileFromSession(session, quickProfile) {
   const meta = session?.user?.user_metadata || {};
   const row = quickProfile;
+  const rowModules = Array.isArray(row?.allowed_modules) ? row.allowed_modules : [];
+  const metaModules = Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [];
+  const rowSubModules = Array.isArray(row?.allowed_sub_modules) ? row.allowed_sub_modules : [];
+  const metaSubModules = Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [];
   return normalizeAccessProfile({
     role: row?.role ?? meta.role ?? null,
     team: row?.team ?? meta.team ?? null,
-    allowed_modules: Array.isArray(row?.allowed_modules)
-      ? row.allowed_modules
-      : Array.isArray(meta.allowed_modules)
-        ? meta.allowed_modules
-        : [],
+    allowed_modules: rowModules.length ? rowModules : metaModules,
+    allowed_sub_modules: rowSubModules.length ? rowSubModules : metaSubModules,
     module_access_pending: meta.module_access_pending === true,
   });
 }
@@ -56,6 +57,7 @@ function cacheProfileSnapshot(session, profile) {
     team: profile.team,
     role: profile.role,
     allowed_modules: profile.allowed_modules,
+    allowed_sub_modules: profile.allowed_sub_modules,
   });
 }
 
@@ -107,6 +109,7 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
         role: chk.profile.role,
         team: chk.profile.team ?? null,
         allowed_modules: chk.profile.allowed_modules,
+        allowed_sub_modules: chk.profile.allowed_sub_modules,
       });
       logLoginStage('profile-loaded', {
         source: 'login-check',

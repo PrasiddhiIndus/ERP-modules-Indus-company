@@ -6,6 +6,7 @@ import {
   setEmpCodeColumnSupported,
   PROFILE_AUTH_SELECT,
   PROFILE_AUTH_SELECT_WITH_EMP,
+  isMissingProfileAllowedSubModulesError,
 } from "../lib/profileSelect";
 import {
   clearSupabaseAuthStorage,
@@ -24,7 +25,7 @@ import {
   isCachedAccessTokenExpired,
   hydrateSupabaseAuthFromCache,
 } from "../lib/authSessionUtils";
-import { getAccessibleModules, normalizeAppRole, ROLES } from "../config/roles";
+import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules, ROLES } from "../config/roles";
 import { logLoginStage } from "../lib/loginFlow";
 
 /** Build role/profile from auth user metadata — used for immediate post-login navigation. */
@@ -34,9 +35,10 @@ function buildAuthProfile(authUser) {
   const meta = authUser.user_metadata || {};
   return {
     username: meta.username || meta.full_name || email.split('@')[0] || 'User',
-    team: null,
-    role: normalizeAppRole('executive'),
-    allowed_modules: [],
+    team: meta.team ?? null,
+    role: normalizeAppRole(meta.role) || ROLES.EXECUTIVE,
+    allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+    allowed_sub_modules: Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [],
     module_access_pending: meta.module_access_pending === true,
   };
 }
@@ -224,6 +226,7 @@ export const AuthProvider = ({ children }) => {
 
     const meta = authUser.user_metadata || {};
     const allowed = meta.allowed_modules;
+    const allowedSub = meta.allowed_sub_modules;
     const emailLocal = (authUser.email || "user@local").split("@")[0];
     const payload = {
       id: authUser.id,
@@ -232,6 +235,7 @@ export const AuthProvider = ({ children }) => {
       team: meta.team ?? null,
       role: meta.role || "executive",
       allowed_modules: Array.isArray(allowed) ? allowed : [],
+      allowed_sub_modules: Array.isArray(allowedSub) ? allowedSub : [],
     };
     const insert = () => supabase.from("profiles").insert(payload);
     const { error } = await withTimeout(
@@ -251,6 +255,17 @@ export const AuthProvider = ({ children }) => {
       .select(selectCols)
       .eq("id", userId)
       .maybeSingle();
+    if (error && isMissingProfileAllowedSubModulesError(error)) {
+      const legacyCols = preferEmpCode
+        ? "id, email, username, employee_code, team, role, allowed_modules"
+        : "id, email, username, team, role, allowed_modules";
+      ({ data, error } = await supabase
+        .from("profiles")
+        .select(legacyCols)
+        .eq("id", userId)
+        .maybeSingle());
+      if (data) data.allowed_sub_modules = [];
+    }
     if (error && preferEmpCode && isMissingProfileEmpCodeError(error)) {
       setEmpCodeColumnSupported(false);
       ({ data, error } = await supabase
@@ -258,6 +273,7 @@ export const AuthProvider = ({ children }) => {
         .select(PROFILE_AUTH_SELECT)
         .eq("id", userId)
         .maybeSingle());
+      if (data && !Array.isArray(data.allowed_sub_modules)) data.allowed_sub_modules = [];
     } else if (!error && preferEmpCode) {
       setEmpCodeColumnSupported(true);
     }
@@ -428,6 +444,7 @@ export const AuthProvider = ({ children }) => {
           team: meta.team ?? null,
           role: meta.role ?? null,
           allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+          allowed_sub_modules: Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [],
         };
         writeCachedProfileRow(fallbackRow);
         setProfileRow(fallbackRow);
@@ -651,13 +668,22 @@ export const AuthProvider = ({ children }) => {
         meta.full_name ??
         user?.email?.split("@")[0] ??
         "User",
-      team: profile.team ?? cached?.team ?? null,
-      role: profile.role ?? cached?.role ?? null,
+      team: profile.team ?? cached?.team ?? meta.team ?? null,
+      role: profile.role ?? cached?.role ?? normalizeAppRole(meta.role) ?? null,
       allowed_modules: Array.isArray(profile.allowed_modules)
         ? profile.allowed_modules
         : Array.isArray(cached?.allowed_modules)
           ? cached.allowed_modules
-          : [],
+          : Array.isArray(meta.allowed_modules)
+            ? meta.allowed_modules
+            : [],
+      allowed_sub_modules: Array.isArray(profile.allowed_sub_modules)
+        ? profile.allowed_sub_modules
+        : Array.isArray(cached?.allowed_sub_modules)
+          ? cached.allowed_sub_modules
+          : Array.isArray(meta.allowed_sub_modules)
+            ? meta.allowed_sub_modules
+            : [],
     };
     writeCachedProfileRow(row);
     setProfileRow(row);
@@ -696,6 +722,11 @@ export const AuthProvider = ({ children }) => {
       team: profileRow.team ?? null,
       role: normalizeAppRole(profileRow.role),
       allowed_modules: Array.isArray(profileRow.allowed_modules) ? profileRow.allowed_modules : [],
+      allowed_sub_modules: (() => {
+        const fromRow = parseAllowedSubModules(profileRow.allowed_sub_modules);
+        if (fromRow.length) return fromRow;
+        return parseAllowedSubModules(user?.user_metadata?.allowed_sub_modules);
+      })(),
       module_access_pending: user?.user_metadata?.module_access_pending === true,
     };
   }, [user, profileRow, permissionsReady]);
@@ -703,6 +734,16 @@ export const AuthProvider = ({ children }) => {
   const accessibleModules = useMemo(
     () => (userProfile ? getAccessibleModules(userProfile) : new Set()),
     [userProfile]
+  );
+
+  const subModulePaths = useMemo(
+    () => (userProfile ? getAccessibleSubModulePaths(userProfile, user?.user_metadata) : new Set()),
+    [userProfile, user?.user_metadata]
+  );
+
+  const navVisibleModules = useMemo(
+    () => (userProfile ? getNavVisibleModuleKeys(userProfile, accessibleModules, user?.user_metadata) : new Set()),
+    [userProfile, accessibleModules, user?.user_metadata]
   );
 
   // Best-effort: if this user is force-super-admin (by email), keep `profiles.role`
@@ -742,6 +783,7 @@ export const AuthProvider = ({ children }) => {
         team: meta.team ?? null,
         role: meta.role ?? null,
         allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
+        allowed_sub_modules: Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [],
       };
       writeCachedProfileRow(fallbackRow);
       setProfileRow(fallbackRow);
@@ -751,7 +793,7 @@ export const AuthProvider = ({ children }) => {
   }, [profileLoading, permissionsReady, user, profileRow?.id]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, profileLoading, permissionsReady, userProfile, accessibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile, applyLoginProfile }}>
+    <AuthContext.Provider value={{ user, loading, profileLoading, permissionsReady, userProfile, accessibleModules, subModulePaths, navVisibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile, applyLoginProfile }}>
       {children}
     </AuthContext.Provider>
   );
