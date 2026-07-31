@@ -45,15 +45,91 @@ export function normalizeAppRole(raw) {
 /** Role + team shape used by access helpers — normalizes role casing from profiles / metadata. */
 export function normalizeAccessProfile(profile) {
   if (!profile || typeof profile !== "object") {
-    return { role: null, team: profile?.team ?? null, allowed_modules: [] };
+    return { role: null, team: profile?.team ?? null, allowed_modules: [], allowed_sub_modules: [] };
   }
   const role = normalizeAppRole(profile.role);
   return {
     role,
     team: profile.team ?? null,
     allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
+    allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
     ...(profile.module_access_pending === true ? { module_access_pending: true } : {}),
   };
+}
+
+/**
+ * Returns a Set of sub-module path prefixes that the user can access via allowed_sub_modules.
+ * Only relevant when the full module is NOT in allowed_modules.
+ */
+export function getAccessibleSubModulePaths(profile, userMetadata = null) {
+  const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
+  if (!subMods.length) return new Set();
+  const fullModuleKeys = new Set([
+    resolveTeamModuleKey(profile?.team),
+    ...normalizedAllowedModuleKeys(profile),
+  ].filter(Boolean));
+  const paths = new Set();
+  for (const subKey of subMods) {
+    const [moduleKey] = subKey.split(".");
+    if (fullModuleKeys.has(moduleKey)) continue;
+    const moduleDef = NAV_MODULE_TREE.find((m) => m.value === moduleKey);
+    if (!moduleDef) continue;
+    const subDef = moduleDef.subModules?.find((s) => s.value === subKey);
+    if (subDef?.pathPrefix) paths.add(subDef.pathPrefix);
+  }
+  return paths;
+}
+
+/** Module keys where the user has sub-module access but not the full module. */
+export function parseAllowedSubModules(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export function getEffectiveAllowedSubModules(profile, userMetadata = null) {
+  const fromProfile = parseAllowedSubModules(profile?.allowed_sub_modules);
+  if (fromProfile.length) return fromProfile;
+  return parseAllowedSubModules(userMetadata?.allowed_sub_modules);
+}
+
+export function hasFullModuleAccess(accessibleModules, moduleKey) {
+  return Boolean(accessibleModules?.has(moduleKey));
+}
+
+/** True when user has the full module or the specific sub-module key granted. */
+export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMetadata = null) {
+  const moduleKey = String(subModuleKey || "").split(".")[0];
+  if (!moduleKey) return false;
+  if (hasFullModuleAccess(accessibleModules, moduleKey)) return true;
+  return getEffectiveAllowedSubModules(profile, userMetadata).includes(subModuleKey);
+}
+
+export function getPartialAccessModuleKeys(profile, userMetadata = null) {
+  const full = new Set([
+    resolveTeamModuleKey(profile?.team),
+    ...normalizedAllowedModuleKeys(profile),
+  ].filter(Boolean));
+  const partial = new Set();
+  for (const subKey of getEffectiveAllowedSubModules(profile, userMetadata)) {
+    const mod = String(subKey).split(".")[0];
+    if (mod && !full.has(mod) && isRoutableModuleKey(mod)) partial.add(mod);
+  }
+  return partial;
+}
+
+/** Sidebar visibility: full module access + parents of granted sub-modules. */
+export function getNavVisibleModuleKeys(profile, accessibleModules, userMetadata = null) {
+  const visible = new Set(accessibleModules || []);
+  getPartialAccessModuleKeys(profile, userMetadata).forEach((k) => visible.add(k));
+  return visible;
 }
 
 export const TEAMS = [
@@ -77,27 +153,197 @@ export const TEAMS = [
   { value: "itIs", label: "IT/IS" },
 ];
 
-/** Module keys that appear in the sidebar (for extra module checklist and access checks). */
-export const MODULES = [
-  { value: "hr", label: "HR" },
-  { value: "compliance", label: "Compliance" },
-  { value: "admin", label: "Admin" },
-  { value: "sales", label: "Sales" },
-  { value: "marketing", label: "Marketing" },
-  { value: "maintenance", label: "Maintenance" },
-  // Commercial is split into two nav sub-modules
-  { value: "commercialMt", label: "Commercial \u2014 Manpower / Training" },
-  { value: "commercialRm", label: "Commercial \u2014 R&M / M&M / AMC / IEV" },
-  { value: "billing", label: "Billing" },
-  { value: "tracking", label: "Tracking" },
-  { value: "operations", label: "Operations" },
-  { value: "projects", label: "Projects" },
-  { value: "procurement", label: "Procurement" },
-  { value: "amc", label: "AMC" },
-  { value: "finance", label: "Finance/Accounts" },
-  { value: "fireTender", label: "Fire Tender" },
-  { value: "itIs", label: "IT/IS" },
+/**
+ * NAV_MODULE_TREE — single source of truth for modules and their sub-modules.
+ * Kept in sync with the sidebar in Layout.jsx.
+ * Each entry has:
+ *   value       — module key used in allowed_modules / getAccessibleModules
+ *   label       — display label
+ *   subModules  — optional sub-modules; each has value (globally unique: "module.key") and label
+ *
+ * Sub-module `value` format: "<moduleKey>.<subKey>" (e.g. "hr.attendance").
+ * When a sub-module key is present in `allowed_sub_modules`, and the full module is NOT in
+ * `allowed_modules`, only routes matching that sub-module's path prefix are accessible.
+ */
+export const NAV_MODULE_TREE = [
+  {
+    value: "hr",
+    label: "HR",
+    subModules: [
+      { value: "hr.dashboard",          label: "Dashboard",          pathPrefix: "/app/hr/dashboard" },
+      { value: "hr.employee-master",     label: "HR Management",      pathPrefix: "/app/hr/employee-master" },
+      { value: "hr.attendance",          label: "Attendance",         pathPrefix: "/app/attendance" },
+      { value: "hr.salary-management",   label: "Salary Management",  pathPrefix: "/app/hr/payroll/salary" },
+      { value: "hr.people-management",   label: "People Management",  pathPrefix: "/app/people-management" },
+    ],
+  },
+  {
+    value: "compliance",
+    label: "Compliance",
+    subModules: [
+      { value: "compliance.ifspl",    label: "IFSPL Employee Compliance", pathPrefix: "/app/ifsp-employee-compliance" },
+      { value: "compliance.general",  label: "General Compliance",        pathPrefix: "/app/general-compliance" },
+    ],
+  },
+  {
+    value: "admin",
+    label: "Admin",
+    subModules: [
+      { value: "admin.dashboard",        label: "Dashboard",                  pathPrefix: "/app/admin/dashboard" },
+      { value: "admin.employee",         label: "Employee Administration",     pathPrefix: "/app/admin/employee" },
+      { value: "admin.salary-admin",     label: "Salary Admin",               pathPrefix: "/app/admin/salary-admin" },
+      { value: "admin.store",            label: "Store & Issue Control",       pathPrefix: "/app/admin/store" },
+      { value: "admin.gate",             label: "Gate Pass & Movement",        pathPrefix: "/app/admin/gate" },
+      { value: "admin.misc",             label: "Miscellaneous Admin",         pathPrefix: "/app/admin/misc" },
+      { value: "admin.alerts",           label: "Alerts & Notifications",      pathPrefix: "/app/admin/alerts-notifications" },
+      { value: "admin.reports",          label: "Reports & Analytics",         pathPrefix: "/app/admin/reports-analytics" },
+      { value: "admin.settings",         label: "Settings / Masters",          pathPrefix: "/app/admin/settings-masters" },
+    ],
+  },
+  {
+    value: "commercialMt",
+    label: "Commercial — Manpower / Training",
+    subModules: [
+      { value: "commercialMt.dashboard",         label: "Dashboard",                  pathPrefix: "/app/commercial/manpower-training/dashboard" },
+      { value: "commercialMt.enquiry",           label: "Enquiry",                    pathPrefix: "/app/manpower" },
+      { value: "commercialMt.internal-quotation",label: "Internal Quotation",         pathPrefix: "/app/manpower/internal-quotation" },
+      { value: "commercialMt.quotation",         label: "Quotation",                  pathPrefix: "/app/manpower/quotation" },
+      { value: "commercialMt.configuration",     label: "Manpower Configuration",     pathPrefix: "/app/manpower/configuration" },
+      { value: "commercialMt.po-entry",          label: "PO Entry",                   pathPrefix: "/app/commercial/manpower-training/po-entry" },
+      { value: "commercialMt.contact-log",       label: "Contact Log",                pathPrefix: "/app/commercial/manpower-training/contact-log" },
+    ],
+  },
+  {
+    value: "commercialRm",
+    label: "Commercial — R&M / M&M / AMC / IEV",
+    subModules: [
+      { value: "commercialRm.dashboard",          label: "Dashboard",              pathPrefix: "/app/commercial/rm-mm-amc-iev/dashboard" },
+      { value: "commercialRm.enquiry",            label: "Enquiry",                pathPrefix: "/app/commercial/rm-mm-amc-iev/manpower-management" },
+      { value: "commercialRm.internal-quotation", label: "Internal Quotation",     pathPrefix: "/app/commercial/rm-mm-amc-iev/internal-quotation" },
+      { value: "commercialRm.po-entry",           label: "PO Entry",               pathPrefix: "/app/commercial/rm-mm-amc-iev/po-entry" },
+      { value: "commercialRm.contact-log",        label: "Contact Log",            pathPrefix: "/app/commercial/rm-mm-amc-iev/contact-log" },
+    ],
+  },
+  {
+    value: "marketing",
+    label: "Marketing",
+    subModules: [
+      { value: "marketing.dashboard",       label: "Marketing Dashboard",    pathPrefix: "/app/marketing" },
+      { value: "marketing.enquiry-master",  label: "Enquiry Master",         pathPrefix: "/app/marketing/enquiry-master" },
+      { value: "marketing.quotation",       label: "Quotation Tracker",      pathPrefix: "/app/marketing/quotation-tracker" },
+      { value: "marketing.follow-up",       label: "Follow-up Planner",      pathPrefix: "/app/marketing/follow-up-planner" },
+      { value: "marketing.client-master",   label: "Client Master",          pathPrefix: "/app/marketing/client-master" },
+      { value: "marketing.product-catalog", label: "Product Catalog",        pathPrefix: "/app/marketing/product-catalog" },
+      { value: "marketing.purchase-orders", label: "Purchase Orders",        pathPrefix: "/app/marketing/purchase-orders" },
+      { value: "marketing.expo-seminar",    label: "Expo & Seminar",         pathPrefix: "/app/marketing/expo-seminar" },
+      { value: "marketing.gst",             label: "GST Documents",          pathPrefix: "/app/marketing/gst-upload" },
+      { value: "marketing.mail-template",   label: "Mail Template",          pathPrefix: "/app/marketing/mail-templates" },
+      { value: "marketing.reports",         label: "Reports & Analytics",    pathPrefix: "/app/marketing/reports-analytics" },
+    ],
+  },
+  {
+    value: "maintenance",
+    label: "Maintenance",
+    subModules: [
+      { value: "maintenance.dashboard",       label: "Maintenance Dashboard",  pathPrefix: "/app/maintenance" },
+      { value: "maintenance.enquiry-master",  label: "Enquiry Master",         pathPrefix: "/app/maintenance/enquiry-master" },
+      { value: "maintenance.quotation",       label: "Quotation Tracker",      pathPrefix: "/app/maintenance/quotation-tracker" },
+      { value: "maintenance.follow-up",       label: "Follow-up Planner",      pathPrefix: "/app/maintenance/follow-up-planner" },
+      { value: "maintenance.client-master",   label: "Client Master",          pathPrefix: "/app/maintenance/client-master" },
+      { value: "maintenance.product-catalog", label: "Product Catalog",        pathPrefix: "/app/maintenance/product-catalog" },
+      { value: "maintenance.purchase-orders", label: "Purchase Orders",        pathPrefix: "/app/maintenance/purchase-orders" },
+      { value: "maintenance.expo-seminar",    label: "Expo & Seminar",         pathPrefix: "/app/maintenance/expo-seminar" },
+      { value: "maintenance.gst",             label: "GST Documents",          pathPrefix: "/app/maintenance/gst-upload" },
+      { value: "maintenance.mail-template",   label: "Mail Template",          pathPrefix: "/app/maintenance/mail-templates" },
+      { value: "maintenance.reports",         label: "Reports & Analytics",    pathPrefix: "/app/maintenance/reports-analytics" },
+    ],
+  },
+  {
+    value: "billing",
+    label: "Billing",
+    subModules: [
+      { value: "billing.dashboard",     label: "Billing Dashboard",    pathPrefix: "/app/billing" },
+      { value: "billing.create",        label: "Create Invoice",       pathPrefix: "/app/billing/create-invoice" },
+      { value: "billing.add-on",        label: "Add-On Invoices",      pathPrefix: "/app/billing/add-on-invoices" },
+      { value: "billing.manage",        label: "Manage Invoices",      pathPrefix: "/app/billing/manage-invoices" },
+      { value: "billing.e-invoice",     label: "Generated E-Invoice",  pathPrefix: "/app/billing/generated-e-invoice" },
+      { value: "billing.credit-notes",  label: "Credit/Debit Notes",   pathPrefix: "/app/billing/credit-notes" },
+      { value: "billing.reports",       label: "Reports",              pathPrefix: "/app/billing/reports" },
+      { value: "billing.tracking",      label: "Tracking",             pathPrefix: "/app/billing/tracking" },
+      { value: "billing.notifications", label: "Notifications",        pathPrefix: "/app/billing/notifications" },
+    ],
+  },
+  {
+    value: "operations",
+    label: "Operations",
+    subModules: [
+      { value: "operations.fleet",      label: "Fleet Management",     pathPrefix: "/app/fire-tender-vehicle-management" },
+      { value: "operations.manpower",   label: "Manpower Operations",  pathPrefix: "/app/operations" },
+    ],
+  },
+  {
+    value: "projects",
+    label: "Projects",
+    subModules: [
+      { value: "projects.management",      label: "Projects Management",  pathPrefix: "/app/projects-management" },
+      { value: "projects.billing",         label: "Projects Billing",     pathPrefix: "/app/projects-billing" },
+      { value: "projects.enquiry",         label: "Enquiry Master",       pathPrefix: "/app/projects/enquiry" },
+      { value: "projects.quotation-master",label: "Quotation Master",     pathPrefix: "/app/projects/quotation" },
+      { value: "projects.po",              label: "PO / WO Entry",        pathPrefix: "/app/projects/po" },
+    ],
+  },
+  {
+    value: "procurement",
+    label: "Procurement",
+    subModules: [],
+  },
+  {
+    value: "amc",
+    label: "AMC Management",
+    subModules: [
+      { value: "amc.dashboard",       label: "Dashboard",              pathPrefix: "/app/amc" },
+      { value: "amc.customers",       label: "Customers",              pathPrefix: "/app/amc/customers" },
+      { value: "amc.contracts",       label: "Contracts",              pathPrefix: "/app/amc/contracts" },
+      { value: "amc.sites",           label: "Covered Sites",          pathPrefix: "/app/amc/sites" },
+      { value: "amc.assets",          label: "Covered Assets",         pathPrefix: "/app/amc/assets" },
+      { value: "amc.pm-schedule",     label: "PM Schedule",            pathPrefix: "/app/amc/pm-schedule" },
+      { value: "amc.complaints",      label: "Complaint Calls",        pathPrefix: "/app/amc/complaints" },
+      { value: "amc.visits",          label: "Service Visits",         pathPrefix: "/app/amc/visits" },
+      { value: "amc.technicians",     label: "Technician Allocation",  pathPrefix: "/app/amc/technicians" },
+      { value: "amc.service-reports", label: "Service Reports",        pathPrefix: "/app/amc/service-reports" },
+      { value: "amc.alerts",          label: "Alerts & SLA",           pathPrefix: "/app/amc/alerts" },
+      { value: "amc.reports",         label: "Reports",                pathPrefix: "/app/amc/reports" },
+      { value: "amc.settings",        label: "Settings",               pathPrefix: "/app/amc/settings" },
+    ],
+  },
+  {
+    value: "finance",
+    label: "Finance/Accounts",
+    subModules: [
+      { value: "finance.pl", label: "P&L", pathPrefix: "/app/accounts-finance" },
+    ],
+  },
+  {
+    value: "fireTender",
+    label: "Fire Tender",
+    subModules: [
+      { value: "fireTender.dashboard",       label: "Fire Tender Dashboard",    pathPrefix: "/app/fire-tender" },
+      { value: "fireTender.costing",         label: "Fire Tender Costing",      pathPrefix: "/app/fire-tender/costing-hub" },
+      { value: "fireTender.manufacturing",   label: "Fire Tender Manufacturing",pathPrefix: "/app/fire-tender-manufacturing" },
+    ],
+  },
+  {
+    value: "itIs",
+    label: "IT/IS",
+    subModules: [
+      { value: "itIs.subscriptions", label: "Software Subscriptions",  pathPrefix: "/app/software-subscriptions-reminders" },
+      { value: "itIs.api-health",    label: "API Health",              pathPrefix: "/app/api-health" },
+    ],
+  },
 ];
+
+/** Module keys that appear in the sidebar (for extra module checklist and access checks). Derived from NAV_MODULE_TREE. */
+export const MODULES = NAV_MODULE_TREE.map(({ value, label }) => ({ value, label }));
 
 /** Path prefixes that belong to each module (for route guard). */
 export const MODULE_PATH_PREFIXES = {
@@ -120,6 +366,7 @@ export const MODULE_PATH_PREFIXES = {
   projects: [
     "/app/projects/po",
     "/app/projects/enquiry",
+    "/app/projects/quotation",
     "/app/projects-management",
     "/app/projects-billing",
   ],
@@ -296,8 +543,9 @@ function profileHasTeamAssignment(profile) {
   return Boolean(String(profile?.team || "").trim());
 }
 
-function hasAssignedScopedModules(profile) {
-  return Boolean(resolveTeamModuleKey(profile?.team) || normalizedAllowedModuleKeys(profile).length);
+function hasAssignedScopedModules(profile, userMetadata = null) {
+  const hasSubModules = getEffectiveAllowedSubModules(profile, userMetadata).length > 0;
+  return Boolean(resolveTeamModuleKey(profile?.team) || normalizedAllowedModuleKeys(profile).length || hasSubModules);
 }
 
 function buildScopedModuleSet(profile, { includeOverview = false } = {}) {
@@ -373,6 +621,8 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
     }
     if (mods.has("settings")) return pickLanding("settings") || "/app/settings";
     if (mods.has("overview")) return "/app/dashboard";
+    const partialPaths = getAccessibleSubModulePaths(userProfile);
+    if (partialPaths.size) return [...partialPaths].sort()[0];
     return "/app/settings";
   }
 
@@ -387,6 +637,13 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
 
   if (mods.has("settings")) return pickLanding("settings") || "/app/settings";
   if (mods.has("overview")) return "/app/dashboard";
+
+  const subPaths = getAccessibleSubModulePaths(userProfile);
+  if (subPaths.size) {
+    const sorted = [...subPaths].sort();
+    return sorted[0];
+  }
+
   return "/app/settings";
 }
 
@@ -557,8 +814,12 @@ export function getAccessibleModules(profile) {
 
 /**
  * Check if path is allowed for the given set of accessible module keys.
+ * Also checks sub-module path prefixes from the profile's allowed_sub_modules.
+ * @param {string} pathname
+ * @param {Set<string>} accessibleModules
+ * @param {Set<string>} [subModulePaths] - result of getAccessibleSubModulePaths()
  */
-export function isPathAllowed(pathname, accessibleModules) {
+export function isPathAllowed(pathname, accessibleModules, subModulePaths) {
   if (!pathname || !pathname.startsWith("/app")) return false;
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
   if (accessibleModules.has("settings") && pathname.startsWith("/app/settings")) return true;
@@ -566,6 +827,12 @@ export function isPathAllowed(pathname, accessibleModules) {
     const prefixes = MODULE_PATH_PREFIXES[mod];
     if (!prefixes) continue;
     for (const p of prefixes) {
+      if (pathname.startsWith(p)) return true;
+    }
+  }
+  // Check individual sub-module path prefixes (partial module access)
+  if (subModulePaths?.size) {
+    for (const p of subModulePaths) {
       if (pathname.startsWith(p)) return true;
     }
   }

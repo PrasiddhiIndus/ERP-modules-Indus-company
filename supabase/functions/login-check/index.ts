@@ -58,13 +58,13 @@ Deno.serve(async (req) => {
   const readProfile = async () => {
     let res = await admin
       .from('profiles')
-      .select('id, email, username, employee_code, team, role, allowed_modules')
+      .select('id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules')
       .eq('id', userId)
       .maybeSingle()
     const msg = String(res.error?.message || '').toLowerCase()
     if (
       res.error &&
-      (msg.includes('employee_code') || msg.includes('emp_code')) &&
+      (msg.includes('employee_code') || msg.includes('emp_code') || msg.includes('allowed_sub_modules')) &&
       msg.includes('does not exist')
     ) {
       res = await admin
@@ -72,6 +72,9 @@ Deno.serve(async (req) => {
         .select('id, email, username, team, role, allowed_modules')
         .eq('id', userId)
         .maybeSingle()
+      if (res.data) {
+        res.data.allowed_sub_modules = []
+      }
     }
     return res
   }

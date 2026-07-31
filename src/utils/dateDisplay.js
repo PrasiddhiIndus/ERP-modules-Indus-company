@@ -8,6 +8,7 @@ const DMY_DASH_RE = /^(\d{1,2})-(\d{1,2})-(\d{4})$/;
 const DMY_SLASH_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
 
 export const ERP_DATE_LOCALE = "en-GB";
+export const ERP_TIMEZONE = "Asia/Kolkata";
 export const UI_DATE_FORMAT_LABEL = "dd/mm/yyyy";
 
 function pad2(n) {
@@ -97,6 +98,70 @@ export function formatDateDdMmYyyy(value) {
 /** Alias for exports and shared display. */
 export const formatDateForDisplay = formatDateDdMmYyyy;
 export const formatDateForExport = formatDateDdMmYyyy;
+
+/** Calendar date (YYYY-MM-DD) of a stored datetime in ERP timezone (IST). */
+export function extractIsoDateFromDateTime(value) {
+  if (value == null || String(value).trim() === "") return "";
+  const s = String(value).trim();
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return normalizeToIsoDate(value);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: ERP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(dt);
+}
+
+/** HH:mm (24h) from a stored datetime in ERP timezone — for `<input type="time">`. */
+export function extractTimeHHmmFromDateTime(value) {
+  if (value == null || String(value).trim() === "") return "";
+  const dt = new Date(String(value).trim());
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleTimeString(ERP_DATE_LOCALE, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: ERP_TIMEZONE,
+  });
+}
+
+/** Combine YYYY-MM-DD + HH:mm as ISO string with explicit IST offset for timestamptz storage. */
+export function combineIsoDateAndTimeForStorage(dateIso, timeHHmm) {
+  const iso = normalizeToIsoDate(dateIso);
+  if (!iso) return null;
+  const time =
+    timeHHmm && /^\d{2}:\d{2}$/.test(String(timeHHmm).trim())
+      ? String(timeHHmm).trim()
+      : "00:00";
+  return `${iso}T${time}:00+05:30`;
+}
+
+function formatDateDdMmYyyyInTimezone(value) {
+  const dt = new Date(String(value).trim());
+  if (Number.isNaN(dt.getTime())) return formatDateDdMmYyyy(value);
+  return new Intl.DateTimeFormat(ERP_DATE_LOCALE, {
+    timeZone: ERP_TIMEZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(dt);
+}
+
+/** Date + 12h time as dd/mm/yyyy h:mm am/pm in ERP timezone (IST). */
+export function formatDateTimeAmPmDdMmYyyy(value) {
+  if (value == null || String(value).trim() === "") return "";
+  const dt = new Date(String(value).trim());
+  if (Number.isNaN(dt.getTime())) return "";
+  const datePart = formatDateDdMmYyyyInTimezone(dt);
+  const timePart = dt.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: ERP_TIMEZONE,
+  });
+  return `${datePart} ${timePart}`;
+}
 
 /** Date + 24h time as dd/mm/yyyy HH:mm (en-GB, not OS locale). */
 export function formatDateTimeDdMmYyyy(value) {

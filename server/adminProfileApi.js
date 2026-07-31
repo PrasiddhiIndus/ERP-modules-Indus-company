@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const PROFILE_SELECT =
-  'id, email, username, employee_code, team, role, allowed_modules, created_at';
+  'id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, created_at';
 
 const LOG_PREFIX = '[admin/update-profile]';
 
@@ -142,15 +142,19 @@ async function readProfileViaRest(db, id, selectCols = PROFILE_SELECT) {
   return { data: row?.id ? row : null, error: null };
 }
 
-async function saveProfileViaRpc(db, { id, team, role, allowed, employeeCode, setEmployeeCode }) {
-  const { data, error } = await db.client.rpc('admin_save_profile', {
+async function saveProfileViaRpc(db, { id, team, role, allowed, allowedSub, employeeCode, setEmployeeCode }) {
+  const rpcArgs = {
     p_id: id,
     p_team: team,
     p_role: role,
     p_allowed_modules: allowed,
     p_employee_code: employeeCode ?? null,
     p_set_employee_code: setEmployeeCode,
-  });
+  };
+  if (Array.isArray(allowedSub)) {
+    rpcArgs.p_allowed_sub_modules = allowedSub;
+  }
+  const { data, error } = await db.client.rpc('admin_save_profile', rpcArgs);
   if (error) {
     logStep('RPC admin_save_profile error', {
       id,
@@ -307,6 +311,7 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
   const team = body.team === '' ? null : (body.team ?? null);
   const role = body.role ?? null;
   const allowed = Array.isArray(body.allowed_modules) ? body.allowed_modules : [];
+  const allowedSub = Array.isArray(body.allowed_sub_modules) ? body.allowed_sub_modules : [];
   const setUsername = body.username !== undefined;
   const username = setUsername ? normalizeEmployeeCode(body.username) : undefined;
   const setEmployeeCode =
@@ -317,7 +322,7 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
       )
     : undefined;
 
-  const patch = { team, role, allowed_modules: allowed };
+  const patch = { team, role, allowed_modules: allowed, allowed_sub_modules: allowedSub };
   if (setEmployeeCode) patch.employee_code = employeeCode;
 
   let profile = null;
@@ -329,17 +334,28 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
     team,
     role,
     allowed,
+    allowedSub,
     employeeCode,
     setEmployeeCode,
   });
   if (rpcSave.profile?.id) {
     profile = rpcSave.profile;
     logStep('RPC save ok', { id });
+    // Ensure sub-modules persisted even if RPC signature on DB is not yet migrated.
+    const subPatch = await patchProfileViaRest(db, id, { allowed_sub_modules: allowedSub });
+    if (subPatch.data?.id) {
+      profile = { ...profile, ...subPatch.data };
+    } else if (subPatch.error) {
+      logStep('sub-modules REST patch failed', { id, message: subPatch.error.message });
+    }
   } else if (rpcSave.error && !isRpcMissingError(rpcSave.error, 'admin_save_profile')) {
     saveErr = rpcSave.error;
   }
 
-  if (!profile?.id && (!saveErr || isStackDepthError(saveErr) || isMissingEmployeeCodeError(saveErr))) {
+  if (!profile?.id) {
+    if (saveErr && isDuplicateEmployeeCodeError(saveErr)) {
+      throwSaveError(saveErr, 'profiles-save');
+    }
     logStep('save via REST fallback', { id, reason: saveErr?.message || 'rpc-null' });
     let { data, error } = await patchProfileViaRest(db, id, patch);
     if (error && isMissingEmployeeCodeError(error) && patch.employee_code !== undefined) {
@@ -377,6 +393,7 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
           team,
           role,
           allowed_modules: allowed,
+          allowed_sub_modules: allowedSub,
           module_access_pending: false,
           ...(setEmployeeCode ? { employee_code: employeeCode } : {}),
           ...(setUsername ? { username: username ?? null, full_name: username ?? null } : {}),

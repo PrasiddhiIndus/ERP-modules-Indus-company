@@ -54,6 +54,7 @@ import {
   ProjectsManagement,
   ProjectsPoHub,
   ProjectsEnquiryHub,
+  ProjectsQuotationHub,
   AccountsFinance,
   PeopleManagement,
   IfspEmployeeCompliance,
@@ -538,6 +539,13 @@ function App() {
             <Route path="projects/enquiry/enquiry-entry" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-database" element={<ProjectsEnquiryHub />} />
             <Route path="projects/enquiry/enquiry-dropdown" element={<ProjectsEnquiryHub />} />
+            <Route path="projects/quotation" element={<ProjectsQuotationHub />} />
+            <Route path="projects/quotation/quotation-dashboard" element={<ProjectsQuotationHub />} />
+            <Route path="projects/quotation/quotation-entry" element={<ProjectsQuotationHub />} />
+            <Route path="projects/quotation/quotation-list" element={<ProjectsQuotationHub />} />
+            <Route path="projects/quotation/quotation-board" element={<ProjectsQuotationHub />} />
+            <Route path="projects/quotation/quotation-dropdown" element={<ProjectsQuotationHub />} />
+            <Route path="projects/quotation/quotation-templates" element={<ProjectsQuotationHub />} />
             
             {/* Procurement */}
             <Route path="procurement" element={<Procurement />} />

@@ -1,8 +1,22 @@
 import {
   isMissingProfileEmpCodeError,
+  isMissingProfileAllowedSubModulesError,
   PROFILE_LIST_SELECT,
   PROFILE_LIST_SELECT_WITH_EMP,
 } from "./profileSelect";
+
+const PROFILE_LIST_SELECT_NO_SUB =
+  "id, email, username, team, role, allowed_modules, created_at";
+
+const PROFILE_LIST_SELECT_WITH_EMP_NO_SUB =
+  "id, email, username, employee_code, team, role, allowed_modules, created_at";
+
+function normalizeProfileListRows(rows) {
+  return (rows ?? []).map((row) => ({
+    ...row,
+    allowed_sub_modules: Array.isArray(row?.allowed_sub_modules) ? row.allowed_sub_modules : [],
+  }));
+}
 
 export const USER_MGMT_PAGE_SIZES = [10, 25, 50];
 
@@ -112,14 +126,25 @@ export async function fetchUserManagementProfiles(
 
   if (preferEmpCode) {
     let result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP, true);
+    if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
+      result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_SUB, true);
+      if (result.data) result.data = normalizeProfileListRows(result.data);
+    } else if (result.data) {
+      result.data = normalizeProfileListRows(result.data);
+    }
     if (result.error && isMissingProfileEmpCodeError(result.error)) {
       result = await buildQuery(PROFILE_LIST_SELECT, false);
+      if (result.data) result.data = normalizeProfileListRows(result.data);
       return { ...result, empCodeSupported: false };
     }
     return { ...result, empCodeSupported: !result.error };
   }
 
-  const result = await buildQuery(PROFILE_LIST_SELECT, false);
+  let result = await buildQuery(PROFILE_LIST_SELECT, false);
+  if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
+    result = await buildQuery(PROFILE_LIST_SELECT_NO_SUB, false);
+  }
+  if (result.data) result.data = normalizeProfileListRows(result.data);
   return { ...result, empCodeSupported: false };
 }
 
@@ -145,20 +170,29 @@ export async function fetchAllUserManagementProfiles(
     let result;
     if (preferEmpCode && empCodeSupported !== false) {
       result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP, true);
+      if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
+        result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_SUB, true);
+      }
       if (result.error && isMissingProfileEmpCodeError(result.error)) {
         empCodeSupported = false;
         result = await buildQuery(PROFILE_LIST_SELECT, false);
+        if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
+          result = await buildQuery(PROFILE_LIST_SELECT_NO_SUB, false);
+        }
       }
     } else {
       empCodeSupported = false;
       result = await buildQuery(PROFILE_LIST_SELECT, false);
+      if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
+        result = await buildQuery(PROFILE_LIST_SELECT_NO_SUB, false);
+      }
     }
 
     if (result.error) {
       return { data: null, error: result.error, empCodeSupported: false };
     }
 
-    const chunk = result.data ?? [];
+    const chunk = normalizeProfileListRows(result.data ?? []);
     allRows.push(...chunk);
     if (chunk.length < batchSize) break;
     from += batchSize;
