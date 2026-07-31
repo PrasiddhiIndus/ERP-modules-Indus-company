@@ -300,7 +300,7 @@ function payrollEntryFormula(key, rowNumber, year, month) {
     basicEarned: `${col("basic")}/${d}*${col("presentDays")}`,
     grossWagesEarned: `SUM(${col("basicEarned")}:${col("uniformAllowance")})`,
     pfAmount: `${col("pfBasicEarned")}*0.12`,
-    esic: `IF(${col("grossWagesEarned")}<=21000,${col("grossWagesEarned")}*0.75/100,0)`,
+    esic: `IF(${col("grossWagesEarned")}<=42000,${col("grossWagesEarned")}*0.75/100,0)`,
     totalDeduction: `SUM(${col("pfAmount")}:${col("held")})`,
     netSalary: `${col("grossWagesEarned")}-${col("totalDeduction")}`,
     bank: `ROUND(${col("netSalary")},0)`,
@@ -414,7 +414,7 @@ function buildEntryFormulaHelpers(cols, year, month) {
     if (key === "basicEarned") return `${L("basic", excelRow)}/${d}*${L("presentDays", excelRow)}`;
     if (key === "grossWagesEarned") return grossExpr;
     if (key === "pfAmount") return `${L("pfBasicEarned", excelRow)}*0.12`;
-    if (key === "esic") return `IF(${L("grossWagesEarned", excelRow)}<=21000,${L("grossWagesEarned", excelRow)}*0.75/100,0)`;
+    if (key === "esic") return `IF(${L("grossWagesEarned", excelRow)}<=42000,${L("grossWagesEarned", excelRow)}*0.75/100,0)`;
     if (key === "totalDeduction") return totalDedExpr;
     if (key === "netSalary") return `${L("grossWagesEarned", excelRow)}-${L("totalDeduction", excelRow)}`;
     if (key === "bank") return `ROUND(${L("netSalary", excelRow)},0)`;

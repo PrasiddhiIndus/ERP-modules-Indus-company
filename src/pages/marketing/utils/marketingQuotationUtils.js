@@ -84,12 +84,15 @@ export function dedupeCostingItemsById(items) {
 
 /** Keep only cell keys belonging to the given item ids. */
 export function pruneCostingCellData(cellData, itemIds) {
-  const idSet = new Set(itemIds);
+  // Sort longer ids first so prefix match is unambiguous
+  const ids = [...new Set((itemIds || []).filter(Boolean))].sort((a, b) => b.length - a.length);
   const out = {};
   Object.keys(cellData || {}).forEach((key) => {
     if (key === 'items' || key === 'costHeads' || key === 'gstPercentage') return;
-    const match = key.match(/^(.+)_([a-z0-9_]+)$/);
-    if (match && idSet.has(match[1])) {
+    // Do NOT use greedy /(.+)_(.+)/ — column ids contain underscores
+    // (e.g. item-1_import_base_cost must keep item id "item-1", not "item-1_import_base").
+    const ownerId = ids.find((id) => key.startsWith(`${id}_`));
+    if (ownerId) {
       out[key] = cellData[key];
     }
   });

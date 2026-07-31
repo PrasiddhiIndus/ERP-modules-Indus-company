@@ -251,13 +251,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         }
 
         const restoredItems = parsedData.items && parsedData.items.length > 0 ? parsedData.items : items;
-        const itemIds = new Set(restoredItems.map((i) => i.id));
+        const itemIds = restoredItems.map((i) => i.id).filter(Boolean);
+        const sortedIds = [...itemIds].sort((a, b) => b.length - a.length);
         const newToOldKey = { import_base_cost: 'base_cost', import_custom_duty_pct: 'customs_duty', import_freight: 'freight', import_transit_insurance_pct: 'insurance', margin_pct: 'margin_percent', gst_pct: 'gst_percent', other_misc_cost: 'other_cost' };
         const cellData = {};
         Object.keys(parsedData).forEach((key) => {
           if (key === 'items' || key === 'costHeads' || key === 'gstPercentage') return;
-          const match = key.match(/^(.+)_([a-z0-9_]+)$/);
-          if (match && itemIds.has(match[1])) {
+          const ownerId = sortedIds.find((id) => key.startsWith(`${id}_`));
+          if (ownerId) {
             cellData[key] = parsedData[key];
           }
         });

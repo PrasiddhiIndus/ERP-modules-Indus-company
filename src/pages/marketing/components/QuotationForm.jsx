@@ -552,39 +552,79 @@ const QuotationForm = ({
         quotationNumber = await generateQuotationNumber();
       }
 
-      // Use costingTotal from ExcelCostingSheet if available, otherwise calculate from items
-      let grandTotal = costingTotal;
-      if (grandTotal === 0) {
-        grandTotal = items.reduce((sum, item) => {
-          return sum + (parseFloat(getCellValue(item.id, 'final_price')) || 0);
-        }, 0);
+      // Wait for costing sheet to finish loading before reading/saving amounts
+      const waitForCostingSheetReady = async (maxMs = 8000) => {
+        const started = Date.now();
+        while (Date.now() - started < maxMs) {
+          if (costingSheetRef.current?.isReady?.()) return true;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return !!costingSheetRef.current?.isReady?.();
+      };
+
+      await waitForCostingSheetReady();
+
+      // For existing quotations: persist costing sheet FIRST so amounts are never wiped to 0
+      let sheetNet = 0;
+      let sheetGst = 0;
+      let sheetGrand = 0;
+      let costingSaved = false;
+
+      if (quotation?.id && costingSheetRef.current?.save) {
+        let saveResult = await costingSheetRef.current.save({
+          silent: true,
+          quotationId: quotation.id,
+        });
+        if (saveResult?.notReady) {
+          await waitForCostingSheetReady(5000);
+          saveResult = await costingSheetRef.current.save({
+            silent: true,
+            quotationId: quotation.id,
+          });
+        }
+        if (saveResult?.ok) {
+          costingSaved = true;
+          sheetNet = typeof saveResult.netTotal === 'number' ? saveResult.netTotal : 0;
+          sheetGst = typeof saveResult.gstAmount === 'number' ? saveResult.gstAmount : 0;
+          sheetGrand = typeof saveResult.grandTotal === 'number' ? saveResult.grandTotal : 0;
+          setCostingTotal(sheetGrand);
+        } else if (saveResult?.skippedEmpty) {
+          const liveTotals = costingSheetRef.current?.getTotals?.();
+          sheetGrand = liveTotals?.grandTotal || costingTotal || parseFloat(quotation.final_amount || 0) || 0;
+          sheetNet = liveTotals?.netTotal || sheetGrand;
+          sheetGst = liveTotals?.gstAmount || 0;
+        } else if (saveResult?.error) {
+          throw new Error(saveResult.error.message || 'Failed to save costing sheet');
+        }
+      } else {
+        // New quotation or sheet not mounted yet — use live totals for provisional amounts
+        const liveTotals = costingSheetRef.current?.getTotals?.();
+        if (liveTotals && typeof liveTotals.grandTotal === 'number') {
+          sheetNet = liveTotals.netTotal || 0;
+          sheetGst = liveTotals.gstAmount || 0;
+          sheetGrand = liveTotals.grandTotal || 0;
+        } else if (costingTotal > 0) {
+          sheetGrand = costingTotal;
+          sheetNet = costingTotal;
+        }
       }
-      
-      // Calculate net total (excl GST) for display
-      const netTotal = items.reduce((sum, item) => {
-        return sum + (parseFloat(getCellValue(item.id, 'quotation_rate')) || 0);
-      }, 0);
-      
-      // GST amount is the difference between grand total and net total
-      const gstAmount = grandTotal - netTotal;
-      
-      // Use grandTotal as final amount (already includes GST)
-      const subtotal = netTotal;
-      const finalAmount = grandTotal;
 
       const submitData = {
-        ...formData,
-        quotation_number: quotation ? quotation.quotation_number : quotationNumber,
-        client_id: formData.client_id || null,
         enquiry_id: formData.enquiry_id || null,
-        assigned_to: formData.assigned_to || null,
-        payment_terms: costingDescription,
-        total_amount: subtotal,
-        gst_amount: gstAmount,
-        final_amount: finalAmount,
-        // Convert empty date strings to null
+        client_id: formData.client_id || null,
         quotation_date: formData.quotation_date || null,
         valid_until: formData.valid_until || null,
+        revision_number: formData.revision_number || 1,
+        gst_type: formData.gst_type || 'IGST',
+        gst_percentage: formData.gst_percentage || 18,
+        terms_and_conditions: formData.terms_and_conditions || '',
+        status: formData.status || 'Draft',
+        assigned_to: formData.assigned_to || null,
+        quotation_number: quotation ? quotation.quotation_number : quotationNumber,
+        payment_terms: costingDescription,
+        total_amount: sheetNet,
+        gst_amount: sheetGst,
+        final_amount: sheetGrand,
       };
 
       let result;
@@ -704,54 +744,63 @@ const QuotationForm = ({
         }
       }
 
-      // Save costing sheet after quotation is created/updated
-      let costingSaved = false;
-      if (result && result.id && costingSheetRef.current?.save) {
+      // For new quotations: save costing sheet after insert, then sync amounts
+      if (result && result.id && !quotation && costingSheetRef.current?.save) {
         try {
-          // Wait a moment to ensure quotation is fully saved
-          await new Promise(resolve => setTimeout(resolve, 200));
-          
-          // Save costing sheet with the new quotation ID
-          // The ExcelCostingSheet component will handle checking if there's data to save
-          const saveResult = await costingSheetRef.current.save({ 
-            silent: true, 
-            quotationId: result.id 
+          let saveResult = await costingSheetRef.current.save({
+            silent: true,
+            quotationId: result.id,
           });
-          
+
+          if (saveResult?.notReady) {
+            await waitForCostingSheetReady(5000);
+            saveResult = await costingSheetRef.current.save({
+              silent: true,
+              quotationId: result.id,
+            });
+          }
+
           if (saveResult?.ok) {
             costingSaved = true;
-            // Update costing total if available
-            if (typeof saveResult.grandTotal === 'number') {
-              setCostingTotal(saveResult.grandTotal);
-            }
-            
-            // Update quotation with final amounts from costing sheet if available
-            if (saveResult.grandTotal !== undefined) {
-              const { data: { user } } = await supabase.auth.getUser();
-              await supabase
-                .from('marketing_quotations')
-                .update({
-                  total_amount: saveResult.netTotal || 0,
-                  gst_amount: saveResult.gstAmount || 0,
-                  final_amount: saveResult.grandTotal || 0,
-                  updated_by: user.id,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', result.id);
-            }
-          } else if (saveResult?.error) {
-            console.error('Error saving costing sheet:', saveResult.error);
-            // Don't fail - costing sheet might be empty, which is okay
+            const newNet = typeof saveResult.netTotal === 'number' ? saveResult.netTotal : 0;
+            const newGst = typeof saveResult.gstAmount === 'number' ? saveResult.gstAmount : 0;
+            const newGrand = typeof saveResult.grandTotal === 'number' ? saveResult.grandTotal : 0;
+            setCostingTotal(newGrand);
+
+            const { error: amountError } = await supabase
+              .from('marketing_quotations')
+              .update({
+                total_amount: newNet,
+                gst_amount: newGst,
+                final_amount: newGrand,
+                updated_by: user.id,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', result.id);
+
+            if (amountError) throw amountError;
+
+            result = {
+              ...result,
+              total_amount: newNet,
+              gst_amount: newGst,
+              final_amount: newGrand,
+            };
+          } else if (saveResult?.error && !saveResult?.skippedEmpty) {
+            throw new Error(saveResult.error.message || 'Failed to save costing sheet');
           }
         } catch (costingError) {
           console.error('Error saving costing sheet:', costingError);
-          // Don't fail the whole operation if costing sheet save fails
-          // User can save it manually later if needed
+          throw costingError;
         }
+      } else if (result && costingSaved) {
+        result = {
+          ...result,
+          total_amount: sheetNet,
+          gst_amount: sheetGst,
+          final_amount: sheetGrand,
+        };
       }
-
-      // Costing sheet is now handled by ExcelCostingSheet component
-      // It will save automatically when user clicks Save in the costing sheet
 
       // If this is a revision quotation (has /R in quotation_number), update revision record
       if (result.quotation_number && result.quotation_number.includes('/R')) {
@@ -790,7 +839,7 @@ const QuotationForm = ({
       }
 
       if (onSave) {
-        onSave(result);
+        await onSave(result);
       }
       
       // Show success notification
@@ -984,7 +1033,6 @@ const QuotationForm = ({
             <ExcelCostingSheet
               ref={costingSheetRef}
               quotationId={quotation?.id || null}
-              costingSheetId={costingSheetId}
               onCostingChange={(total) => {
                 setCostingTotal(total);
               }}

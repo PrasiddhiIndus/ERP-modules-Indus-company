@@ -553,6 +553,7 @@ export default function SalaryProcessing() {
                               className={numIn}
                               value={ov.presentDays ?? DEFAULT_MONTH_DAYS}
                               onChange={(e) => setOverride(emp.id, { presentDays: e.target.value })}
+                              onWheel={(e) => e.currentTarget.blur()}
                               aria-label="Present days"
                             />
                           ) : (
@@ -568,6 +569,7 @@ export default function SalaryProcessing() {
                               className={numIn}
                               value={ov.pfBasic ?? calc.pf_basic ?? ""}
                               onChange={(e) => setOverride(emp.id, { pfBasic: e.target.value })}
+                              onWheel={(e) => e.currentTarget.blur()}
                               aria-label="PF Basic"
                             />
                           ) : (
@@ -608,6 +610,7 @@ export default function SalaryProcessing() {
                               className={numIn}
                               value={ov.pt ?? calc.pt ?? 0}
                               onChange={(e) => setOverride(emp.id, { pt: e.target.value })}
+                              onWheel={(e) => e.currentTarget.blur()}
                               aria-label="P. Tax"
                             />
                           ) : (
@@ -623,6 +626,7 @@ export default function SalaryProcessing() {
                               className={numIn}
                               value={ov.loan ?? 0}
                               onChange={(e) => setOverride(emp.id, { loan: e.target.value })}
+                              onWheel={(e) => e.currentTarget.blur()}
                               aria-label="Loan"
                             />
                           ) : (
@@ -638,6 +642,7 @@ export default function SalaryProcessing() {
                               className={numIn}
                               value={ov.salAdv ?? 0}
                               onChange={(e) => setOverride(emp.id, { salAdv: e.target.value })}
+                              onWheel={(e) => e.currentTarget.blur()}
                               aria-label="Salary advance"
                             />
                           ) : (
@@ -652,6 +657,7 @@ export default function SalaryProcessing() {
                               className={numIn}
                               value={ov.unpaidPaid ?? 0}
                               onChange={(e) => setOverride(emp.id, { unpaidPaid: e.target.value })}
+                              onWheel={(e) => e.currentTarget.blur()}
                               aria-label="Unpaid or paid"
                             />
                           ) : (
@@ -667,6 +673,7 @@ export default function SalaryProcessing() {
                               className={numIn}
                               value={ov.tds ?? 0}
                               onChange={(e) => setOverride(emp.id, { tds: e.target.value })}
+                              onWheel={(e) => e.currentTarget.blur()}
                               aria-label="TDS"
                             />
                           ) : (

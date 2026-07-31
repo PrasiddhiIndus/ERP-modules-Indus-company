@@ -931,7 +931,7 @@ const QuotationTracker = () => {
       assigned_to: quotation.assigned_to || '',
     });
     setSelectedQuotation(quotation);
-    setActiveTab('edit');
+    setActiveTab('list');
     setShowForm(true);
     setMenuOpen(null);
   };
@@ -2192,28 +2192,20 @@ Maintenance Team`;
             setShowForm(false);
             setEditingQuotation(null);
             setSelectedQuotation(null);
+            setActiveTab('list');
             fetchQuotations();
             fetchCostingSheets();
             fetchQuotationsWithCosting();
           }}
           quotation={editingQuotation}
           enquiryId={enquiryId}
-          onSave={async (result) => {
-            // Wait a bit to ensure data is saved
-            await new Promise(resolve => setTimeout(resolve, 200));
+          onSave={async () => {
+            setActiveTab('list');
+            await new Promise((resolve) => setTimeout(resolve, 200));
             await fetchQuotations();
-            await fetchEnquiries(); // Refresh enquiries to show converted status
-            if (activeTab === 'costing') {
-              await fetchCostingSheets();
-              await fetchCostingQuotations();
-            }
-            if (activeTab === 'internal') {
-              await fetchQuotationsWithCosting();
-            }
-            setShowForm(false);
-            setEditingQuotation(null);
-            setSelectedQuotation(null);
-            // Clear URL parameter after successful save
+            await fetchEnquiries();
+            await fetchCostingSheets();
+            await fetchQuotationsWithCosting();
             if (enquiryId) {
               navigate('/app/maintenance/quotation-tracker', { replace: true });
             }

@@ -4,12 +4,12 @@
  *
  * PART A (monthly; P.A. = monthly × 12):
  * - Basic — manual
- * - HRA = 1000 + 2120 + 16 − 62  (fixed sheet formula)
+ * - HRA — 40% of Basic (default) or custom manual amount
  * - Special Allowance — manual (balancing figure)
  * - GROSS = Basic + HRA + Special Allowance
  * - Employee PF — manual (suggest 12% of Basic, capped ₹15,000)
  * - P.Tax — manual (suggest ₹200 when Gross > ₹12,000)
- * - Employee ESIC = Gross × 0.75% if Gross ≤ ₹21,000 else 0
+ * - Employee ESIC = Gross × 0.75% if Gross ≤ ₹42,000 else 0
  * - TAKE HOME = Gross − Emp PF − P.Tax − Emp ESIC
  *
  * PART B:
@@ -17,10 +17,13 @@
  * - Employer ESIC = Gross × 3.25% if Gross ≤ ₹21,000 else 0
  * - Gratuity = Basic × 4.81%
  * - Leave Encashment = (Basic / 26) × (7 / 12)
+ * - Mediclaim health policy — optional manual
+ * - LIC policy — optional manual
  * - Bonus — manual
- * - Total (B) = Er PF + Er ESIC + Gratuity + Leave Encashment + Bonus
+ * - Total (B) = Er PF + Er ESIC + Gratuity + Leave Encashment + Mediclaim + LIC + Bonus
  *
  * CTC (Monthly) = Gross + Total (B) · CTC (Annual) = CTC Monthly × 12
+ * Annual (every row) = Monthly × 12
  */
 
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -28,7 +31,12 @@ const STORAGE_KEY = "admin_salary_ctc_ui_v1";
 export const PF_WAGE_CAP = 15000;
 export const EMP_PF_RATE = 0.12;
 export const ER_PF_RATE = 0.13;
-export const ESIC_GROSS_THRESHOLD = 21000;
+/** Employee ESIC applies only when Gross (Part A) ≤ this monthly ceiling. */
+export const EMP_ESIC_GROSS_THRESHOLD = 42000;
+/** Employer ESIC applies only when Gross (Part A) ≤ this monthly ceiling. */
+export const ER_ESIC_GROSS_THRESHOLD = 21000;
+/** @deprecated Use EMP_ESIC_GROSS_THRESHOLD — kept for older imports. */
+export const ESIC_GROSS_THRESHOLD = EMP_ESIC_GROSS_THRESHOLD;
 export const EMP_ESIC_RATE = 0.0075;
 export const ER_ESIC_RATE = 0.0325;
 export const PT_AMOUNT = 200;
@@ -37,13 +45,18 @@ export const GRATUITY_RATE = 0.0481;
 export const LEAVE_ENCASH_DAYS = 26;
 export const LEAVE_ENCASH_MONTHS = 7 / 12;
 
-/** Fixed HRA from compensation sheet: 1000 + 2120 + 16 − 62 = 3074. */
+/** @deprecated Legacy fixed HRA sheet expression (kept for old drafts). */
 export const HRA_FIXED = Object.freeze({
   a: 1000,
   b: 2120,
   c: 16,
   d: 62,
 });
+
+/** HRA entry modes on Salary Master CTC. */
+export const HRA_MODE_PERCENT = "percent_40";
+export const HRA_MODE_CUSTOM = "custom";
+export const HRA_PERCENT = 40;
 
 /**
  * Round to whole rupees. Stabilizes float noise (e.g. 15999.999999 → 16000)
@@ -246,14 +259,37 @@ export function getRevisionCount(employeeMasterId) {
   return Number(row.revision_count) || (Array.isArray(row.revisions) ? row.revisions.length : 0);
 }
 
-/** HRA monthly from fixed sheet expression. */
+/** @deprecated Legacy fixed HRA monthly. Prefer hraFromBasic / resolveHraMonthly. */
 export function hraFixedMonthly() {
   return round0(HRA_FIXED.a + HRA_FIXED.b + HRA_FIXED.c - HRA_FIXED.d);
 }
 
-/** @deprecated — sheet uses fixed HRA, not % of Basic. */
-export function hraFromBasic(_basicMonthly) {
-  return hraFixedMonthly();
+/** HRA = 40% of Basic (whole rupees). */
+export function hraFromBasic(basicMonthly) {
+  const basic = round0(basicMonthly);
+  if (basic <= 0) return 0;
+  return round0((basic * HRA_PERCENT) / 100);
+}
+
+/**
+ * Resolve HRA monthly from mode.
+ * @param {{ hraMode?: string, basicMonthly?: number, hraMonthly?: number|null }} opts
+ */
+export function resolveHraMonthly({
+  hraMode = HRA_MODE_PERCENT,
+  basicMonthly = 0,
+  hraMonthly = null,
+} = {}) {
+  if (hraMode === HRA_MODE_CUSTOM) {
+    if (hraMonthly == null || hraMonthly === "") return 0;
+    return round0(hraMonthly);
+  }
+  return hraFromBasic(basicMonthly);
+}
+
+/** Normalize saved / UI HRA mode. */
+export function normalizeHraMode(mode) {
+  return mode === HRA_MODE_CUSTOM ? HRA_MODE_CUSTOM : HRA_MODE_PERCENT;
 }
 
 export function suggestedEmpPf(basicMonthly) {
@@ -294,11 +330,21 @@ export function computeCtcStructure({
   erPfMonthly = null,
   ptMonthly = null,
   bonusMonthly = null,
+  mediclaimEnabled = false,
+  mediclaimMonthly = null,
+  licEnabled = false,
+  licMonthly = null,
+  hraMode = HRA_MODE_PERCENT,
   hraMonthly = null,
 } = {}) {
   const basic = round0(basicMonthly);
   const special = round0(specialAllowanceMonthly);
-  const hra = hraMonthly == null ? hraFixedMonthly() : round0(hraMonthly);
+  const mode = normalizeHraMode(hraMode);
+  const hra = resolveHraMonthly({
+    hraMode: mode,
+    basicMonthly: basic,
+    hraMonthly,
+  });
   const gross = basic + hra + special;
 
   if (basic <= 0 && special <= 0 && hra <= 0) {
@@ -314,10 +360,12 @@ export function computeCtcStructure({
       ? round0(erPfMonthly)
       : suggestedErPf(basic);
 
-  const esicApplicable = gross > 0 && gross <= ESIC_GROSS_THRESHOLD;
-  // Gross × 0.75% / 3.25% — same rates, integer-safe (×75/10000, ×325/10000)
-  const empEsic = esicApplicable ? round0((gross * 75) / 10000) : 0;
-  const erEsic = esicApplicable ? round0((gross * 325) / 10000) : 0;
+  // Employee ESIC: Gross × 0.75% only if Gross ≤ ₹42,000
+  const empEsicApplicable = gross > 0 && gross <= EMP_ESIC_GROSS_THRESHOLD;
+  const empEsic = empEsicApplicable ? round0((gross * 75) / 10000) : 0;
+  // Employer ESIC: Gross × 3.25% only if Gross ≤ ₹21,000
+  const erEsicApplicable = gross > 0 && gross <= ER_ESIC_GROSS_THRESHOLD;
+  const erEsic = erEsicApplicable ? round0((gross * 325) / 10000) : 0;
 
   const pt =
     ptMonthly != null && ptMonthly !== ""
@@ -326,32 +374,51 @@ export function computeCtcStructure({
         ? PT_AMOUNT
         : 0;
 
+  // TAKE HOME = GROSS_A − Employee_PF − P_Tax − Employee_ESIC
   const takeHome = gross - empPf - pt - empEsic;
 
-  // Basic × 4.81% ≡ Basic × 481 / 10000 — same formula, integer-safe
+  // Gratuity = Basic × 4.81%
   const gratuity = round0((basic * 481) / 10000);
+  // Leave Encashment = (Basic / 26) × (7 / 12)
   const leaveEncash = leaveEncashFromBasic(basic);
   const bonus =
     bonusMonthly != null && bonusMonthly !== "" ? round0(bonusMonthly) : 0;
+  const mediclaim =
+    mediclaimEnabled && mediclaimMonthly != null && mediclaimMonthly !== ""
+      ? round0(mediclaimMonthly)
+      : 0;
+  const lic =
+    licEnabled && licMonthly != null && licMonthly !== ""
+      ? round0(licMonthly)
+      : 0;
 
-  const totalB = erPf + erEsic + gratuity + leaveEncash + bonus;
+  // Total (Part B) = Er PF + Er ESIC + Gratuity + Leave Encashment (+ optional Mediclaim / LIC / Bonus)
+  const totalB =
+    erPf + erEsic + gratuity + leaveEncash + mediclaim + lic + bonus;
+  // CTC (Monthly) = GROSS_A + Total_B · CTC (Annual) = CTC_Monthly × 12
   const ctcMonthly = gross + totalB;
   const ctcAnnual = paFromMonthly(ctcMonthly);
 
   return {
     basic_monthly: basic,
+    hra_mode: mode,
     hra_monthly: hra,
     special_allowance_monthly: special,
     gross_monthly: gross,
     emp_pf_monthly: empPf,
     pt_monthly: pt,
     emp_esic_monthly: empEsic,
-    emp_esic_applicable: esicApplicable,
+    emp_esic_applicable: empEsicApplicable,
     take_home_monthly: takeHome,
     er_pf_monthly: erPf,
     er_esic_monthly: erEsic,
+    er_esic_applicable: erEsicApplicable,
     gratuity_monthly: gratuity,
     leave_encash_monthly: leaveEncash,
+    mediclaim_enabled: Boolean(mediclaimEnabled),
+    mediclaim_monthly: mediclaimEnabled ? mediclaim : 0,
+    lic_enabled: Boolean(licEnabled),
+    lic_monthly: licEnabled ? lic : 0,
     bonus_monthly: bonus,
     total_b_monthly: totalB,
     ctc_monthly: ctcMonthly,
@@ -363,6 +430,7 @@ export function computeCtcStructure({
 export function emptyCtcStructure() {
   return {
     basic_monthly: null,
+    hra_mode: HRA_MODE_PERCENT,
     hra_monthly: null,
     special_allowance_monthly: null,
     gross_monthly: null,
@@ -373,8 +441,13 @@ export function emptyCtcStructure() {
     take_home_monthly: null,
     er_pf_monthly: null,
     er_esic_monthly: null,
+    er_esic_applicable: false,
     gratuity_monthly: null,
     leave_encash_monthly: null,
+    mediclaim_enabled: false,
+    mediclaim_monthly: null,
+    lic_enabled: false,
+    lic_monthly: null,
     bonus_monthly: null,
     total_b_monthly: null,
     ctc_monthly: null,
@@ -385,7 +458,7 @@ export function emptyCtcStructure() {
 
 export function statutoryHelpText() {
   return (
-    `HRA = ${HRA_FIXED.a} + ${HRA_FIXED.b} + ${HRA_FIXED.c} − ${HRA_FIXED.d}` +
+    `HRA = ${HRA_PERCENT}% of Basic (or custom)` +
     ` · Leave Encashment = (Basic ÷ ${LEAVE_ENCASH_DAYS}) × (7 ÷ 12)` +
     ` · Bonus — manual`
   );
@@ -421,7 +494,14 @@ export function computeProcessingRow({
   const basicN = declared ? round0(structure.basic_monthly) : 0;
   const specialStored = declared ? round0(structure.special_allowance_monthly) : 0;
   const hraStored = declared
-    ? round0(structure.hra_monthly ?? hraFixedMonthly())
+    ? round0(
+        structure.hra_monthly ??
+          resolveHraMonthly({
+            hraMode: structure.hra_mode,
+            basicMonthly: basicN,
+            hraMonthly: structure.hra_monthly,
+          })
+      )
     : 0;
   const salaryRateJ = declared
     ? round0(structure.gross_monthly ?? basicN + hraStored + specialStored)
@@ -517,7 +597,7 @@ export function processingHelpText() {
   return (
     `TotalDays = ${DEFAULT_MONTH_DAYS}. ` +
     `Prorate Basic / HRA / Special from saved master · PF = PF earned × 12% · ` +
-    `ESIC if Gross ≤ ₹21,000 · Net = Gross − deductions.`
+    `ESIC if Gross ≤ ₹42,000 · Net = Gross − deductions.`
   );
 }
 

@@ -11,6 +11,7 @@ import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, FileText, Save, Fi
 import { exportToExcel } from './utils/excelExport';
 import {
   buildLatestCostingMap,
+  calcFinalAmountFromCostingData,
 } from './utils/marketingQuotationUtils';
 import jsPDF from 'jspdf';
 import { INDUS_LOGO_SRC } from '../../constants/branding.js';;
@@ -372,6 +373,17 @@ const QuotationTracker = () => {
 
       const baseIds = uniqueQuotations.map((q) => q.id);
 
+      // Prefer live costing-sheet totals so tracker table stays in sync after sheet edits
+      let costingByQuotation = new Map();
+      if (baseIds.length > 0) {
+        const { data: costingSheets } = await supabase
+          .from('marketing_costing_sheets')
+          .select('id, quotation_id, total_price, costing_data, updated_at, created_at')
+          .in('quotation_id', baseIds)
+          .order('updated_at', { ascending: false });
+        costingByQuotation = buildLatestCostingMap(costingSheets || []);
+      }
+
       const revisionCountMap = {};
       if (baseIds.length > 0) {
         const { data: revisionRows } = await supabase
@@ -384,7 +396,26 @@ const QuotationTracker = () => {
         });
       }
 
-      const quotationsWithCounts = uniqueQuotations.map((quotation) => {
+      const quotationsWithSheetAmounts = uniqueQuotations.map((quotation) => {
+        const sheet = costingByQuotation.get(quotation.id);
+        if (!sheet) return quotation;
+
+        const fromJson = calcFinalAmountFromCostingData(sheet.costing_data);
+        const fromPrice = parseFloat(sheet.total_price || 0) || 0;
+        const sheetTotal = fromJson > 0 ? fromJson : fromPrice;
+        if (sheetTotal <= 0) return quotation;
+
+        return {
+          ...quotation,
+          final_amount: sheetTotal,
+          // Keep net/gst coherent when sheet has a total (net unknown → leave existing unless final was wrong)
+          total_amount: parseFloat(quotation.total_amount || 0) > 0
+            ? quotation.total_amount
+            : sheetTotal,
+        };
+      });
+
+      const quotationsWithCounts = quotationsWithSheetAmounts.map((quotation) => {
         const count = revisionCountMap[quotation.id] || 0;
         return {
           ...quotation,
@@ -393,7 +424,7 @@ const QuotationTracker = () => {
         };
       });
       
-      setQuotations(uniqueQuotations);
+      setQuotations(quotationsWithSheetAmounts);
       setQuotationsWithRevisionCount(quotationsWithCounts);
       setLoading(false);
     } catch (error) {
@@ -931,7 +962,7 @@ const QuotationTracker = () => {
       assigned_to: quotation.assigned_to || '',
     });
     setSelectedQuotation(quotation);
-    setActiveTab('edit');
+    setActiveTab('list');
     setShowForm(true);
     setMenuOpen(null);
   };
@@ -1201,6 +1232,8 @@ const QuotationTracker = () => {
 
   const handleCostingSheetSaveSuccess = () => {
     fetchCostingSheets();
+    fetchQuotations();
+    fetchQuotationsWithCosting();
     setShowCostingSheetEditor(false);
     setSelectedQuotationIdForEditor(null);
     setIsCostingSheetViewMode(false);
@@ -2192,28 +2225,21 @@ Marketing Team`;
             setShowForm(false);
             setEditingQuotation(null);
             setSelectedQuotation(null);
+            setActiveTab('list');
             fetchQuotations();
             fetchCostingSheets();
             fetchQuotationsWithCosting();
           }}
           quotation={editingQuotation}
           enquiryId={enquiryId}
-          onSave={async (result) => {
-            // Wait a bit to ensure data is saved
-            await new Promise(resolve => setTimeout(resolve, 200));
+          onSave={async () => {
+            // Keep list tab visible under the modal; refresh after DB write
+            setActiveTab('list');
+            await new Promise((resolve) => setTimeout(resolve, 200));
             await fetchQuotations();
-            await fetchEnquiries(); // Refresh enquiries to show converted status
-            if (activeTab === 'costing') {
-              await fetchCostingSheets();
-              await fetchCostingQuotations();
-            }
-            if (activeTab === 'internal') {
-              await fetchQuotationsWithCosting();
-            }
-            setShowForm(false);
-            setEditingQuotation(null);
-            setSelectedQuotation(null);
-            // Clear URL parameter after successful save
+            await fetchEnquiries();
+            await fetchCostingSheets();
+            await fetchQuotationsWithCosting();
             if (enquiryId) {
               navigate('/app/marketing/quotation-tracker', { replace: true });
             }
