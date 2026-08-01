@@ -13,6 +13,11 @@ import {
 export const REGISTER_MARK_FROM_PUNCH = 'P';
 export const HALF_DAY_CUTOFF = '13:00';
 
+/** Purple Present: first punch in this window (inclusive), or last punch before noon. */
+export const PURPLE_PRESENT_FIRST_PUNCH_START = '12:00';
+export const PURPLE_PRESENT_FIRST_PUNCH_END = '15:00';
+export const PURPLE_PRESENT_LAST_PUNCH_BEFORE = '12:00';
+
 /** Marks written solely from biometric punch sync (may update P ↔ HD on re-sync). */
 export const PUNCH_DERIVED_REGISTER_MARKS = new Set(['P', 'HD']);
 
@@ -45,7 +50,9 @@ function derivePunchInOut(sortedPunches) {
 
 /**
  * Register mark from first/last punch of the day.
- * Half Day when last punch is on/before cutoff.
+ * - Last punch before 12:00 → Present (purple P in register + admin alert)
+ * - Last punch on/before 13:00 → Half Day
+ * - Otherwise → Present
  * Single punch with no out yet stays Present.
  */
 export function registerMarkFromPunchWindow({ punchIn, punchOut, cutoff = HALF_DAY_CUTOFF }) {
@@ -56,10 +63,42 @@ export function registerMarkFromPunchWindow({ punchIn, punchOut, cutoff = HALF_D
 
   if (punchOut) {
     const outMin = timeToMinutes(punchOut);
+    const earlyOutBefore = timeToMinutes(PURPLE_PRESENT_LAST_PUNCH_BEFORE);
+    if (outMin != null && earlyOutBefore != null && outMin < earlyOutBefore) {
+      return 'P';
+    }
     if (outMin != null && outMin <= cutoffMin) return 'HD';
   }
 
   return 'P';
+}
+
+/**
+ * True when Present (P) should render purple:
+ * - first punch between 12:00 and 15:00 (inclusive), or
+ * - last punch before 12:00.
+ * Does not change the stored mark — display/notification only.
+ */
+export function isPurplePresentPunch({ punchIn, punchOut } = {}) {
+  const inMin = timeToMinutes(punchIn);
+  const outMin = timeToMinutes(punchOut);
+  const firstStart = timeToMinutes(PURPLE_PRESENT_FIRST_PUNCH_START);
+  const firstEnd = timeToMinutes(PURPLE_PRESENT_FIRST_PUNCH_END);
+  const lastBefore = timeToMinutes(PURPLE_PRESENT_LAST_PUNCH_BEFORE);
+
+  if (
+    inMin != null &&
+    firstStart != null &&
+    firstEnd != null &&
+    inMin >= firstStart &&
+    inMin <= firstEnd
+  ) {
+    return true;
+  }
+  if (outMin != null && lastBefore != null && outMin < lastBefore) {
+    return true;
+  }
+  return false;
 }
 
 export function dayOfMonthFromIsoDate(isoDate) {

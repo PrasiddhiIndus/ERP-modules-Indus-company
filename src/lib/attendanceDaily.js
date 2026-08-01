@@ -9,13 +9,14 @@ import {
   isManualMarkSource,
   isPunchMarkSource,
   isTourMarkSource,
+  isPurplePresentPunch,
   marksByEmpDayFromRegisterDbRows,
   punchesToPresentRegisterRows,
   registerDateRangeFromRows,
 } from "../../shared/attendanceRegisterSync.mjs";
 import { timeToMinutes } from "../../shared/attendancePunchSync.mjs";
 
-export { timeToMinutes };
+export { timeToMinutes, isPurplePresentPunch };
 
 export const REGISTER_MARK_SOURCE_AUTO_WO = "auto_wo";
 export const REGISTER_MARK_SOURCE_AUTO_HOLIDAY = "auto_holiday";
@@ -474,6 +475,8 @@ const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
 /** Per-mark colors for closed cells only (dropdown list stays neutral). */
 export const REGISTER_MARK_CELL_COLORS = {
   P: { bg: "#14532d", border: "#14532d", text: "white" },
+  /** Present with afternoon first punch (12:00–15:00) or last punch before noon. */
+  P_PURPLE: { bg: "#6b21a8", border: "#6b21a8", text: "white" },
   "P(OD)": { bg: TOKENS.info, border: TOKENS.info, text: "white" },
   T: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
   L: { bg: "#991b1b", border: "#991b1b", text: "white" },
@@ -493,9 +496,10 @@ export const REGISTER_MARK_CELL_COLORS = {
   [REGISTER_MARK_LEFT]: { bg: TOKENS.textMuted, border: TOKENS.textSecondary, text: "white" },
 };
 
-export function resolveRegisterMarkCellColors(mark) {
+export function resolveRegisterMarkCellColors(mark, { purplePresent = false } = {}) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
+  if (m === "P" && purplePresent) return REGISTER_MARK_CELL_COLORS.P_PURPLE;
   if (m === "T") return REGISTER_MARK_CELL_COLORS["P(OD)"];
   const halfDay = canonicalRegisterCompositeMark(m);
   if (halfDay) return REGISTER_MARK_CELL_COLORS[halfDay];
@@ -528,24 +532,24 @@ export function isRegisterDayAfterLeaving(registerDateIso, dateOfLeaving) {
 }
 
 /** Colored box behind the closed cell only (pair with registerMarkCellInlineStyle). */
-export function registerMarkCellWrapperClass(value) {
-  if (!resolveRegisterMarkCellColors(value)) {
+export function registerMarkCellWrapperClass(value, options) {
+  if (!resolveRegisterMarkCellColors(value, options)) {
     return `${REGISTER_MARK_WRAPPER_BASE} border-gray-300 bg-gray-100`;
   }
   return REGISTER_MARK_WRAPPER_BASE;
 }
 
-export function registerMarkSelectTextClass(value) {
+export function registerMarkSelectTextClass(value, options) {
   if (!value) return "text-gray-600";
-  const colors = resolveRegisterMarkCellColors(value);
+  const colors = resolveRegisterMarkCellColors(value, options);
   if (colors?.text === "dark") return "text-gray-900";
   if (colors) return "text-white";
   return "text-gray-600";
 }
 
 /** Inline styles for mark cells (Tailwind arbitrary hex is unreliable for all marks). */
-export function registerMarkCellInlineStyle(value) {
-  const colors = resolveRegisterMarkCellColors(value);
+export function registerMarkCellInlineStyle(value, options) {
+  const colors = resolveRegisterMarkCellColors(value, options);
   if (!colors) return undefined;
   if (colors.dual) {
     return {
