@@ -117,132 +117,137 @@ const ResetPassword = () => {
   }
 
   return (
-    <div className="login-page min-h-screen flex flex-col bg-white">
-      <main className="flex-1 flex flex-col justify-center items-center p-4 sm:p-6">
-        <div className="lg:hidden text-center mb-5 shrink-0">
-          <img src={INDUS_LOGO_SRC} alt="Indus" className="h-11 w-11 mx-auto mb-2 object-contain" />
-          <div className="flex items-center justify-center gap-2">
-            <div className="w-1 h-7 rounded-full bg-indus-red" />
-            <h1 className="font-heading text-2xl font-bold text-gray-900">INDUS OS</h1>
+    <div className="login-page min-h-screen flex flex-col bg-canvas">
+      <main className="flex-1 flex flex-col justify-center items-center p-6 min-h-0 overflow-auto">
+        <div className="lg:hidden text-center mb-6 shrink-0">
+          <div className="h-11 w-11 rounded-full bg-accent-deep flex items-center justify-center mx-auto mb-3 overflow-hidden">
+            <img src={INDUS_LOGO_SRC} alt="Indus" className="h-8 w-8 object-contain" />
           </div>
+          <h1 className="text-[22px] font-semibold text-ink">INDUS OS</h1>
+          <p className="erp-mono-caption text-ink-muted mt-1">Enterprise Operations Platform</p>
         </div>
 
-        <div className="w-full max-w-[420px]">
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-lg overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-indus-red to-indus-red/80" aria-hidden />
-            <div className="p-5 sm:p-6">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="inline-flex items-center justify-center w-10 h-10 bg-red-50 rounded-full shrink-0">
-                  <KeyRound className="w-5 h-5 text-indus-red" />
+        <div className="login-card w-full max-w-[400px] p-8 shrink-0">
+          <div className="mb-5">
+            <div className="flex items-start gap-3">
+              <div className="inline-flex items-center justify-center w-10 h-10 bg-accent-soft rounded-full shrink-0 border border-accent-border">
+                <KeyRound className="w-5 h-5 text-accent" strokeWidth={1.5} />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-ink">Set new password</h2>
+                <p className="text-[12.5px] text-ink-secondary mt-1 font-body">
+                  Choose a new password for your account.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {checkingSession ? (
+            <div className="flex justify-center py-8">
+              <div className="login-spinner rounded-full h-6 w-6 border-2 border-t-transparent" />
+            </div>
+          ) : !recoveryReady ? (
+            <div className="space-y-4">
+              <div className="erp-alert-critical rounded-control p-3 text-[12.5px] font-mono">
+                {error || 'This reset link is invalid or has expired.'}
+              </div>
+              <p className="text-center">
+                <Link
+                  to="/forgot-password"
+                  className="text-[13px] text-accent hover:text-accent-deep font-medium font-body"
+                >
+                  Request a new reset link
+                </Link>
+              </p>
+            </div>
+          ) : (
+            <>
+              {error && (
+                <div className="erp-alert-critical rounded-control p-3 text-[12.5px] mb-4 font-mono">
+                  {error}
+                </div>
+              )}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label htmlFor="password" className="login-label block mb-2">
+                    New password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4" strokeWidth={1.5} />
+                    <input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="login-input w-full pl-10 pr-10 py-2.5 font-body"
+                      placeholder="At least 6 characters"
+                      required
+                      minLength={6}
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-[color] duration-theme"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" strokeWidth={1.5} /> : <Eye className="w-4 h-4" strokeWidth={1.5} />}
+                    </button>
+                  </div>
                 </div>
                 <div>
-                  <h2 className="font-heading text-xl font-semibold text-gray-900">Set new password</h2>
-                  <p className="text-gray-500 text-sm mt-1 font-body">
-                    Choose a new password for your account.
-                  </p>
-                </div>
-              </div>
-
-              {checkingSession ? (
-                <div className="flex justify-center py-8">
-                  <div className="login-spinner rounded-full h-6 w-6 border-2 border-t-transparent" />
-                </div>
-              ) : !recoveryReady ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl p-3.5 text-sm font-body bg-red-50 border border-red-200 text-red-800">
-                    {error || 'This reset link is invalid or has expired.'}
-                  </div>
-                  <p className="text-center text-sm font-body">
-                    <Link
-                      to="/forgot-password"
-                      className="text-indus-red hover:text-indus-red-hover font-medium transition-colors"
-                    >
-                      Request a new reset link
-                    </Link>
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {error && (
-                    <div className="rounded-xl p-3.5 text-sm mb-4 font-body bg-red-50 border border-red-200 text-red-800">
-                      {error}
-                    </div>
-                  )}
-                  <form onSubmit={handleSubmit} className="space-y-3">
-                    <div>
-                      <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5 font-body">
-                        New password
-                      </label>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                        <input
-                          id="password"
-                          type={showPassword ? 'text' : 'password'}
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          className="w-full pl-11 pr-11 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder:text-gray-500 font-body text-sm focus:ring-2 focus:ring-indus-red/40 focus:border-indus-red"
-                          placeholder="At least 6 characters"
-                          required
-                          minLength={6}
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                        >
-                          {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1.5 font-body">
-                        Confirm password
-                      </label>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                        <input
-                          id="confirmPassword"
-                          type={showConfirmPassword ? 'text' : 'password'}
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full pl-11 pr-11 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder:text-gray-500 font-body text-sm focus:ring-2 focus:ring-indus-red/40 focus:border-indus-red"
-                          placeholder="Re-enter password"
-                          required
-                          minLength={6}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                        >
-                          {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                        </button>
-                      </div>
-                    </div>
+                  <label htmlFor="confirmPassword" className="login-label block mb-2">
+                    Confirm password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4" strokeWidth={1.5} />
+                    <input
+                      id="confirmPassword"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="login-input w-full pl-10 pr-10 py-2.5 font-body"
+                      placeholder="Re-enter password"
+                      required
+                      minLength={6}
+                    />
                     <button
-                      type="submit"
-                      disabled={loading}
-                      className="login-btn-primary w-full text-white font-semibold py-3 px-4 rounded-xl flex items-center justify-center font-body text-sm"
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-[color] duration-theme"
+                      aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                     >
-                      {loading ? (
-                        <div className="login-spinner rounded-full h-4 w-4 border-2 border-t-transparent" />
-                      ) : (
-                        'Update password'
-                      )}
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" strokeWidth={1.5} /> : <Eye className="w-4 h-4" strokeWidth={1.5} />}
                     </button>
-                  </form>
-                </>
-              )}
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="login-btn-primary w-full font-medium py-2.5 px-4 flex items-center justify-center text-[13px] font-body"
+                >
+                  {loading ? (
+                    <div className="login-spinner rounded-full h-4 w-4 border-2 border-t-transparent" />
+                  ) : (
+                    'Update password'
+                  )}
+                </button>
+              </form>
+            </>
+          )}
 
-              {recoveryReady && (
-                <p className="text-center text-sm text-gray-500 mt-4 font-body">
-                  <Link to="/" className="text-indus-red hover:text-indus-red-hover font-medium transition-colors">
-                    ← Back to sign in
-                  </Link>
-                </p>
-              )}
-            </div>
+          {recoveryReady && (
+            <p className="text-center mt-4">
+              <Link to="/" className="text-[13px] text-accent hover:text-accent-deep font-medium font-body">
+                ← Back to sign in
+              </Link>
+            </p>
+          )}
+
+          <div className="mt-6 pt-4 border-t border-divider">
+            <p className="login-footer text-center">
+              Secure access · Internal Use Only
+            </p>
           </div>
         </div>
       </main>

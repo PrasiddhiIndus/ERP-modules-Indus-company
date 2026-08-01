@@ -1050,8 +1050,8 @@ export function EmployeeAttendanceDailyPage() {
       const descActive = active && registerSort.direction === "desc";
       return (
         <span className="inline-flex items-center gap-0.5 ml-0.5 text-[9px] align-middle leading-none">
-          <span className={ascActive ? "text-[#1F3A8A]" : "text-gray-300"}>▲</span>
-          <span className={descActive ? "text-[#1F3A8A]" : "text-gray-300"}>▼</span>
+          <span className={ascActive ? "text-accent" : "text-gray-300"}>▲</span>
+          <span className={descActive ? "text-accent" : "text-gray-300"}>▼</span>
         </span>
       );
     },
@@ -1071,7 +1071,7 @@ export function EmployeeAttendanceDailyPage() {
       <button
         type="button"
         onClick={() => toggleRegisterSort(key)}
-        className="inline-flex items-center font-semibold text-left hover:text-[#1F3A8A] w-full"
+        className="inline-flex items-center font-semibold text-left hover:text-accent w-full"
       >
         {label}
         {renderRegisterSortIndicator(key)}
@@ -1614,7 +1614,7 @@ export function EmployeeAttendanceDailyPage() {
             type="button"
             onClick={() => setSummaryOverlayOpen(true)}
             disabled={!rowsWithSummary.length}
-            className="h-8 px-3 rounded-lg border-2 border-[#1F3A8A] bg-[#1F3A8A]/5 text-[#1F3A8A] text-xs font-semibold disabled:opacity-60 hover:bg-[#1F3A8A]/10 inline-flex items-center gap-1.5"
+            className="h-8 px-3 rounded-lg border-2 border-accent bg-accent/5 text-accent text-xs font-semibold disabled:opacity-60 hover:bg-accent/10 inline-flex items-center gap-1.5"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V17a2 2 0 01-2 2z" />
@@ -1644,7 +1644,7 @@ export function EmployeeAttendanceDailyPage() {
             onClick={() => openDayAttendanceDrawer("total")}
             tone={
               tableDayAttendanceFilter === null && dayAttendanceDrawer.open && dayAttendanceDrawer.mode === "total"
-                ? "border-[#1F3A8A] ring-2 ring-[#1F3A8A]/20"
+                ? "border-accent ring-2 ring-accent/20"
                 : "border-gray-200"
             }
           />
@@ -1716,7 +1716,7 @@ export function EmployeeAttendanceDailyPage() {
           <button
             type="button"
             onClick={() => setBulkToolsOpen((v) => !v)}
-            className="text-[11px] font-semibold text-gray-800 hover:text-[#1F3A8A]"
+            className="text-[11px] font-semibold text-gray-800 hover:text-accent"
             aria-expanded={bulkToolsOpen}
           >
             {bulkToolsOpen ? "Hide bulk mark tools" : "Bulk mark tools (advanced)"}

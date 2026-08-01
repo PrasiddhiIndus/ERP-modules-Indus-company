@@ -1,3 +1,17 @@
+/* Quotation print / preview typography */
+.quotation-preview {
+  font-family: var(--font-sans);
+  font-size: 11pt;
+  line-height: 1.45;
+  font-style: normal;
+}
+.quotation-preview .qp-num,
+.quotation-preview [data-numeric],
+.quotation-preview td.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Screen preview — mirrors print layout (print uses dedicated popup window). */
 .quotation-preview .qp-header {
   display: flex;

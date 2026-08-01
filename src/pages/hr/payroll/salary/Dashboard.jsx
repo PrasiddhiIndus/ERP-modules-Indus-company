@@ -4,13 +4,9 @@ import {
   ArrowRight,
   Building2,
   CalendarDays,
-  CheckCircle2,
-  ClipboardList,
   FileSpreadsheet,
   RefreshCw,
   Shield,
-  UserCheck,
-  Users,
   Wallet,
 } from 'lucide-react';
 import { Badge } from '../../../adminOperations/components/AdminUi';
@@ -18,7 +14,15 @@ import { getDashboardStats, ensurePayrollProfilesForActiveEmployees } from '../.
 import { SALARY_DASHBOARD_MODULES, salaryAppPath } from './salaryNav';
 import ActiveEmployeesModal from './components/ActiveEmployeesModal';
 import { formatMonthYearLabel } from "../../../../utils/dateDisplay";
-
+import {
+  SparkKpi,
+  ChartPanel,
+  DonutChart,
+  BarCompareChart,
+  RadialScoreChart,
+  sparkFromValue,
+  CHART_SERIES,
+} from '../../../../components/charts/DashboardCharts';
 
 function monthInputDefault() {
   const d = new Date();
@@ -39,36 +43,9 @@ function runStatusTone(status) {
   return 'bg-blue-50 text-blue-800';
 }
 
-function StatCard({ label, value, sub, icon: Icon, onClick, accent = 'from-[#1F3A8A] to-[#2c4084]' }) {
-  const Wrapper = onClick ? 'button' : 'div';
-  return (
-    <Wrapper
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
-      className={`relative overflow-hidden rounded-xl border border-gray-200/80 bg-white p-4 text-left shadow-sm transition ${
-        onClick ? 'cursor-pointer hover:border-[#1F3A8A]/30 hover:shadow-md' : ''
-      }`}
-    >
-      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${accent}`} />
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-          <p className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{value ?? '—'}</p>
-          {sub ? <p className="mt-1 text-[11px] text-gray-500">{sub}</p> : null}
-        </div>
-        {Icon ? (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#1F3A8A]/8 text-[#1F3A8A]">
-            <Icon className="h-5 w-5" />
-          </div>
-        ) : null}
-      </div>
-    </Wrapper>
-  );
-}
-
 function ModuleLink({ item }) {
   const className =
-    'group flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left shadow-sm transition hover:border-[#1F3A8A]/25 hover:bg-slate-50/80';
+    'group flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left shadow-sm transition hover:border-accent/25 hover:bg-slate-50/80';
 
   return (
     <Link to={salaryAppPath(item.to)} className={className}>
@@ -76,7 +53,7 @@ function ModuleLink({ item }) {
         <p className="text-xs font-semibold text-gray-900">{item.label}</p>
         <p className="mt-0.5 line-clamp-1 text-[11px] text-gray-500">{item.hint}</p>
       </div>
-      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300 transition group-hover:text-[#1F3A8A]" />
+      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-300 transition group-hover:text-accent" />
     </Link>
   );
 }
@@ -122,7 +99,7 @@ export default function SalaryDashboard() {
   return (
     <div className="space-y-5">
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-[#1F3A8A] to-[#2c4084] px-5 py-4 text-white">
+        <div className="bg-accent px-5 py-4 text-white">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur-sm">
@@ -188,34 +165,73 @@ export default function SalaryDashboard() {
       {stats ? (
         <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard
+            <SparkKpi
               label="Active Employees"
               value={stats.activeEmployees}
               sub="Click to view employee list"
-              icon={Users}
+              series={sparkFromValue(stats.activeEmployees)}
+              color={CHART_SERIES[0]}
               onClick={() => setActiveEmployeesOpen(true)}
             />
-            <StatCard
+            <SparkKpi
               label="Payroll Profiles"
               value={stats.payrollProfiles}
               sub="Linked to People Master"
-              icon={UserCheck}
-              accent="from-emerald-600 to-emerald-700"
+              series={sparkFromValue(stats.payrollProfiles)}
+              color={CHART_SERIES[5]}
             />
-            <StatCard
+            <SparkKpi
               label="With Present Days"
               value={stats.withPresentDays}
               sub="Attendance integrated"
-              icon={ClipboardList}
-              accent="from-sky-600 to-sky-700"
+              series={sparkFromValue(stats.withPresentDays)}
+              color={CHART_SERIES[1]}
             />
-            <StatCard
-              label="Last Run Status"
-              value={stats.lastRun?.status || '—'}
-              sub={stats.lastRun?.label || 'No run this month'}
-              icon={CheckCircle2}
-              accent="from-violet-600 to-violet-700"
+            <SparkKpi
+              label="Pending inputs"
+              value={stats.pendingManualInputs}
+              sub={stats.lastRun?.status || 'No run this month'}
+              series={sparkFromValue(stats.pendingManualInputs)}
+              color={CHART_SERIES[2]}
             />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <ChartPanel title="Statutory coverage" height={220}>
+              <DonutChart
+                data={[
+                  { name: 'PF', value: Number(stats.pfCount) || 0 },
+                  { name: 'ESIC', value: Number(stats.esicCount) || 0 },
+                  { name: 'PT', value: Number(stats.ptCount) || 0 },
+                ].filter((x) => x.value > 0)}
+                centerLabel="Covered"
+                height={200}
+              />
+            </ChartPanel>
+            <ChartPanel title="Attendance readiness" height={220}>
+              <BarCompareChart
+                data={[
+                  { name: 'Active', value: Number(stats.activeEmployees) || 0 },
+                  { name: 'Profiles', value: Number(stats.payrollProfiles) || 0 },
+                  { name: 'Present', value: Number(stats.withPresentDays) || 0 },
+                  { name: 'Pending', value: Number(stats.pendingManualInputs) || 0 },
+                ]}
+                series={[{ key: 'value', name: 'Count', color: CHART_SERIES[0] }]}
+                height={200}
+              />
+            </ChartPanel>
+            <ChartPanel title="Present-day coverage" height={220}>
+              <RadialScoreChart
+                value={
+                  Number(stats.activeEmployees) > 0
+                    ? Math.round((Number(stats.withPresentDays) / Number(stats.activeEmployees)) * 100)
+                    : 0
+                }
+                label="Present %"
+                color={CHART_SERIES[5]}
+                height={200}
+              />
+            </ChartPanel>
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
@@ -246,7 +262,7 @@ export default function SalaryDashboard() {
                   className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
                 >
                   <div className="mb-3 flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-[#1F3A8A]" />
+                    <Building2 className="h-4 w-4 text-accent" />
                     <h2 className="text-sm font-semibold text-gray-900">{group.title}</h2>
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -267,7 +283,7 @@ export default function SalaryDashboard() {
                 <div className="mt-3 space-y-2">
                   <Link
                     to={salaryAppPath('payroll-processing')}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1F3A8A] px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#172e6e]"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-accent-deep"
                   >
                     <FileSpreadsheet className="h-4 w-4" />
                     Start payroll processing
@@ -289,7 +305,7 @@ export default function SalaryDashboard() {
 
               <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
                 <div className="flex items-start gap-2">
-                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-[#1F3A8A]" />
+                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                   <div>
                     <h3 className="text-xs font-semibold text-gray-900">Attendance linkage</h3>
                     <p className="mt-1 text-[11px] leading-relaxed text-gray-600">

@@ -124,7 +124,7 @@ export function LeaveBalanceImportModal({ open, year, employees = [], onClose, o
               type="button"
               onClick={handleImport}
               disabled={busy || !payloads.length}
-              className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-semibold disabled:opacity-60"
+              className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-semibold disabled:opacity-60"
             >
               {busy ? "Importing…" : "Import balances"}
             </button>

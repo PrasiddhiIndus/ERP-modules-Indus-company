@@ -82,7 +82,7 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
                   key={`${rev.revision_no}-${rev.revised_at}-${i}`}
                   className="relative pl-4 pb-5 last:pb-0"
                 >
-                  <span className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-[#1F3A8A] ring-2 ring-white" />
+                  <span className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-accent ring-2 ring-white" />
                   <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-gray-900">

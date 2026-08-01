@@ -55,7 +55,7 @@ export function PrimaryButton({ children, onClick, disabled, className = "" }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-[#1F6F4E] text-white hover:bg-[#1A5E42] disabled:opacity-50 ${className}`}
+      className={`inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-accent text-white hover:bg-accent-deep disabled:opacity-50 ${className}`}
     >
       <Plus className="w-3.5 h-3.5" />
       {children}

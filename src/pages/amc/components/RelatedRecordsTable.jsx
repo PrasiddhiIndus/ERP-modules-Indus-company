@@ -15,7 +15,7 @@ export default function RelatedRecordsTable({
       <div className="text-xs text-gray-500 py-2">
         {emptyText}
         {onViewAll && (
-          <button type="button" onClick={onViewAll} className="ml-2 text-[#1F3A8A] font-medium">
+          <button type="button" onClick={onViewAll} className="ml-2 text-accent font-medium">
             View all →
           </button>
         )}
@@ -28,7 +28,7 @@ export default function RelatedRecordsTable({
       {title && <p className="text-xs font-semibold text-gray-700">{title}</p>}
       <DenseTable columns={columns} rows={rows.slice(0, 8)} onRowClick={onRowClick} />
       {rows.length > 8 && onViewAll && (
-        <button type="button" onClick={onViewAll} className="text-[11px] text-[#1F3A8A] font-medium">
+        <button type="button" onClick={onViewAll} className="text-[11px] text-accent font-medium">
           View all {rows.length} →
         </button>
       )}

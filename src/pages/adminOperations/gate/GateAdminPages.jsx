@@ -49,7 +49,7 @@ export function GateEmployeeMovementPage() {
               <option>Outside</option>
               <option>Overdue</option>
             </TinySelect>
-            <button type="button" className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs">
+            <button type="button" className="h-8 px-3 rounded-lg bg-accent text-white text-xs">
               New request
             </button>
           </FilterBar>
@@ -196,7 +196,7 @@ export function GateVehiclesPage() {
 
 export function GateDeliveryPage() {
   return (
-    <SectionCard title="Delivery / courier / post" right={<button className="h-8 px-2 rounded bg-[#1F3A8A] text-white text-xs">Register</button>}>
+    <SectionCard title="Delivery / courier / post" right={<button className="h-8 px-2 rounded bg-accent text-white text-xs">Register</button>}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div>
           <DenseTable

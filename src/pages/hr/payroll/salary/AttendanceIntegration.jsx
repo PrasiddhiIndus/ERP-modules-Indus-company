@@ -80,7 +80,7 @@ export default function AttendanceIntegration() {
               type="button"
               disabled={syncing || locked}
               onClick={handleSync}
-              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium hover:bg-[#1a3278] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
               Sync attendance
@@ -88,7 +88,7 @@ export default function AttendanceIntegration() {
             <button
               type="button"
               onClick={() => setLocked((v) => !v)}
-              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-[#1F3A8A] text-[#1F3A8A] bg-white text-xs font-medium hover:bg-blue-50"
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg border border-accent text-accent bg-white text-xs font-medium hover:bg-blue-50"
             >
               <Lock className="h-3.5 w-3.5" />
               {locked ? 'Unlock attendance' : 'Lock attendance'}

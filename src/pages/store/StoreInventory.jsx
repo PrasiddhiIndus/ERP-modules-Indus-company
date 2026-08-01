@@ -54,7 +54,7 @@ const StoreInventory = () => {
               onClick={() => setActivePage(item)}
               className={`w-full text-left px-3 py-2 rounded text-xs border ${
                 activePage === item
-                  ? "bg-[#1F3A8A] text-white border-[#1F3A8A]"
+                  ? "bg-accent text-white border-accent"
                   : "bg-white text-gray-700 border-transparent hover:bg-gray-100"
               }`}
             >
@@ -68,7 +68,7 @@ const StoreInventory = () => {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-bold text-[#111827]">Inventory Intelligence Module</h2>
+              <h2 className="text-2xl font-bold text-ink">Inventory Intelligence Module</h2>
               <p className="text-sm text-gray-600 mt-1">
                 SAP Fiori + Palantir + AI ERP style operations for multi-store, lifecycle and predictive control.
               </p>

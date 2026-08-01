@@ -92,7 +92,7 @@ export function BulkMarkEmployeePicker({
             type="button"
             onClick={onSelectAll}
             disabled={!employees.length}
-            className="h-8 px-3 rounded-lg border border-[#1F3A8A] bg-[#1F3A8A]/5 text-[#1F3A8A] text-xs font-semibold hover:bg-[#1F3A8A]/10 disabled:opacity-50"
+            className="h-8 px-3 rounded-lg border border-accent bg-accent/5 text-accent text-xs font-semibold hover:bg-accent/10 disabled:opacity-50"
           >
             Select all
           </button>

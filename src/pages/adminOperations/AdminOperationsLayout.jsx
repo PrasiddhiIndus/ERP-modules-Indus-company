@@ -54,8 +54,8 @@ export default function AdminOperationsLayout() {
       {/* Module header */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="h-10 w-10 rounded-lg bg-[#1F3A8A]/10 flex items-center justify-center shrink-0">
-            <LayoutDashboard className="w-5 h-5 text-[#1F3A8A]" />
+          <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+            <LayoutDashboard className="w-5 h-5 text-accent" />
           </div>
           <div className="min-w-0">
             <h1 className="text-lg font-bold text-gray-900 truncate">Admin Operations</h1>
@@ -174,7 +174,7 @@ export default function AdminOperationsLayout() {
                         className={({ isActive }) =>
                           `flex items-center w-full text-left px-2.5 py-2 rounded-md text-xs border transition ${
                             isActive
-                              ? "bg-[#1F3A8A] text-white border-[#1F3A8A]"
+                              ? "bg-accent text-white border-accent"
                               : "bg-white text-gray-700 border-transparent hover:bg-gray-100"
                           }`
                         }

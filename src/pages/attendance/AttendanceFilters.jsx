@@ -136,7 +136,7 @@ export default function AttendanceFilters({
             <button
               type="button"
               onClick={onApplySearch}
-              className="h-8 px-3 rounded text-xs font-medium bg-[#1F3A8A] text-white hover:bg-[#1a3275] inline-flex items-center gap-1 shrink-0"
+              className="h-8 px-3 rounded text-xs font-medium bg-accent text-white hover:bg-accent-deep inline-flex items-center gap-1 shrink-0"
             >
               <Search className="h-3.5 w-3.5" />
               {!compact && "Search"}

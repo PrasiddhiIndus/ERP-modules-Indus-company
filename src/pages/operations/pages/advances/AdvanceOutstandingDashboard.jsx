@@ -51,7 +51,7 @@ export default function AdvanceOutstandingDashboard() {
               <XAxis dataKey="name" tick={{ fontSize: 9 }} />
               <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10 }} />
               <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Bar dataKey="balance" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="balance" fill="var(--warning)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>

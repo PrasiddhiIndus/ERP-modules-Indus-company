@@ -1062,20 +1062,20 @@ const ProductCatalog = () => {
             <div className="p-4 sm:p-8 text-center text-gray-500">No products found</div>
           ) : (
             <div className="overflow-x-auto -mx-3 sm:mx-0">
-              <table className="w-full border-collapse text-sm" style={{ border: '1px solid #000', minWidth: '1300px' }}>
+              <table className="w-full border-collapse text-sm" style={{ border: '1px solid var(--text)', minWidth: '1300px' }}>
                 <thead>
-                  <tr style={{ backgroundColor: '#f3f4f6', borderBottom: '2px solid #000' }}>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '48px' }}>S.No</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '80px' }}>ID No.</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '180px' }}>Product Name</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '300px' }}>Specification</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden md:table-cell" style={{ border: '1px solid #000', minWidth: '150px' }}>Standard</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden lg:table-cell" style={{ border: '1px solid #000', minWidth: '100px' }}>HSN Code</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden lg:table-cell" style={{ border: '1px solid #000', minWidth: '100px' }}>Self Life</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden md:table-cell" style={{ border: '1px solid #000', minWidth: '200px' }}>Certification</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '100px' }}>Price (₹)</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '100px' }}>Custom Price (₹)</th>
-                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid #000', minWidth: '120px' }}>Actions</th>
+                  <tr style={{ backgroundColor: 'var(--surface-sunken)', borderBottom: '2px solid var(--text)' }}>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid var(--text)', minWidth: '48px' }}>S.No</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid var(--text)', minWidth: '80px' }}>ID No.</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid var(--text)', minWidth: '180px' }}>Product Name</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid var(--text)', minWidth: '300px' }}>Specification</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden md:table-cell" style={{ border: '1px solid var(--text)', minWidth: '150px' }}>Standard</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden lg:table-cell" style={{ border: '1px solid var(--text)', minWidth: '100px' }}>HSN Code</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden lg:table-cell" style={{ border: '1px solid var(--text)', minWidth: '100px' }}>Self Life</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400 hidden md:table-cell" style={{ border: '1px solid var(--text)', minWidth: '200px' }}>Certification</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid var(--text)', minWidth: '100px' }}>Price (₹)</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid var(--text)', minWidth: '100px' }}>Custom Price (₹)</th>
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm font-bold text-gray-900 border border-gray-400" style={{ border: '1px solid var(--text)', minWidth: '120px' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
@@ -1108,14 +1108,14 @@ const ProductCatalog = () => {
                     const isEditingField = (field) => isEditing && editingCell?.field === field;
                     
                     return (
-                      <tr key={product.id} style={{ borderBottom: '1px solid #000' }} className="hover:bg-gray-50">
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm border border-gray-400 align-top tabular-nums text-gray-600" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                      <tr key={product.id} style={{ borderBottom: '1px solid var(--text)' }} className="hover:bg-gray-50">
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm border border-gray-400 align-top tabular-nums text-gray-600" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           {startIndex + index + 1}
                         </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm border border-gray-400 align-top font-semibold text-gray-900" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-center text-xs sm:text-sm border border-gray-400 align-top font-semibold text-gray-900" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           {uniqueId}
                       </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm border border-gray-400 align-top" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm border border-gray-400 align-top" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           {isEditingField('product_name') ? (
                             <input
                               type="text"
@@ -1142,7 +1142,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                       </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top" style={{ border: '1px solid #000', verticalAlign: 'top', maxWidth: '400px' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top" style={{ border: '1px solid var(--text)', verticalAlign: 'top', maxWidth: '400px' }}>
                           {isEditingField('specification') ? (
                             <textarea
                               value={cellValue}
@@ -1167,7 +1167,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                       </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden md:table-cell" style={{ border: '1px solid #000', verticalAlign: 'top', maxWidth: '200px' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden md:table-cell" style={{ border: '1px solid var(--text)', verticalAlign: 'top', maxWidth: '200px' }}>
                           {isEditingField('standard') ? (
                             <textarea
                               value={cellValue}
@@ -1192,7 +1192,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                       </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden lg:table-cell" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden lg:table-cell" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           {isEditingField('hsn_code') ? (
                             <input
                               type="text"
@@ -1219,7 +1219,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden lg:table-cell" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden lg:table-cell" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           {isEditingField('self_life') ? (
                             <input
                               type="text"
@@ -1246,7 +1246,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden md:table-cell" style={{ border: '1px solid #000', verticalAlign: 'top', maxWidth: '250px' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 border border-gray-400 align-top hidden md:table-cell" style={{ border: '1px solid var(--text)', verticalAlign: 'top', maxWidth: '250px' }}>
                           {isEditingField('certification') ? (
                             <textarea
                               value={cellValue}
@@ -1271,7 +1271,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 font-semibold border border-gray-400 align-top" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 font-semibold border border-gray-400 align-top" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           {isEditingField('price') ? (
                             <input
                               type="number"
@@ -1307,7 +1307,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 font-semibold border border-gray-400 align-top" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-700 font-semibold border border-gray-400 align-top" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           {isEditingField('custom_price') ? (
                             <input
                               type="number"
@@ -1341,7 +1341,7 @@ const ProductCatalog = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-2 sm:px-4 py-3 text-center border border-gray-400 align-top" style={{ border: '1px solid #000', verticalAlign: 'top' }}>
+                        <td className="px-2 sm:px-4 py-3 text-center border border-gray-400 align-top" style={{ border: '1px solid var(--text)', verticalAlign: 'top' }}>
                           <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
                             <button
                               onClick={() => handleEdit(product)}
@@ -1374,7 +1374,7 @@ const ProductCatalog = () => {
                   {/* Add New Row Button - Show on last page or when no pagination */}
                   {(products.length === 0 || currentPage === totalPages) && (
                     <tr className="bg-gray-50">
-                      <td colSpan="10" className="px-4 py-3 text-center border border-gray-400" style={{ border: '1px solid #000' }}>
+                      <td colSpan="10" className="px-4 py-3 text-center border border-gray-400" style={{ border: '1px solid var(--text)' }}>
                         <button
                           onClick={handleAddNewRow}
                           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium flex items-center justify-center gap-2 mx-auto"

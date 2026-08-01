@@ -310,7 +310,7 @@ export default function SalaryMaster() {
                                   `/app/admin/salary-admin/salary-master/${row.id}?mode=revise`
                                 )
                               }
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-[#1F3A8A] hover:bg-blue-50 hover:border-blue-200 disabled:opacity-35 disabled:pointer-events-none disabled:text-gray-400"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-accent hover:bg-blue-50 hover:border-blue-200 disabled:opacity-35 disabled:pointer-events-none disabled:text-gray-400"
                             >
                               <RefreshCw className="h-3.5 w-3.5" />
                             </button>
@@ -332,7 +332,7 @@ export default function SalaryMaster() {
                             >
                               <History className="h-3.5 w-3.5" />
                               {revCount > 0 ? (
-                                <span className="absolute -top-1 -right-1 min-w-[1rem] h-4 px-0.5 rounded-full bg-[#1F3A8A] text-[9px] font-bold text-white leading-4">
+                                <span className="absolute -top-1 -right-1 min-w-[1rem] h-4 px-0.5 rounded-full bg-accent text-[9px] font-bold text-white leading-4">
                                   {revCount > 9 ? "9+" : revCount}
                                 </span>
                               ) : null}

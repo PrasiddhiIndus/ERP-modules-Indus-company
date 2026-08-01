@@ -120,10 +120,10 @@ export default function ExpenseList() {
       sortable: false,
       render: (r) => (
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <button type="button" onClick={() => setDrawerRow(r)} className="p-1 text-[#1F3A8A] hover:bg-blue-50 rounded" title="View">
+          <button type="button" onClick={() => setDrawerRow(r)} className="p-1 text-accent hover:bg-blue-50 rounded" title="View">
             <Eye className="w-3.5 h-3.5" />
           </button>
-          <button type="button" onClick={() => openEdit(r)} className="text-[11px] text-gray-600 hover:text-[#1F3A8A] px-1">
+          <button type="button" onClick={() => openEdit(r)} className="text-[11px] text-gray-600 hover:text-accent px-1">
             Edit
           </button>
         </div>

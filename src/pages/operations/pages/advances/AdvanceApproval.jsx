@@ -76,7 +76,7 @@ export default function AdvanceApproval() {
             label: "Actions",
             sortable: false,
             render: (r) => (
-              <button type="button" onClick={(e) => { e.stopPropagation(); setSelected(r); }} className="text-[11px] text-[#1F3A8A] font-medium">
+              <button type="button" onClick={(e) => { e.stopPropagation(); setSelected(r); }} className="text-[11px] text-accent font-medium">
                 Review
               </button>
             ),

@@ -98,7 +98,7 @@ export default function SalaryDashboard() {
       >
         <Link
           to="/app/admin/salary-admin/salary-master"
-          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium hover:bg-[#18307a]"
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep"
         >
           Open Salary Master
           <ArrowRight className="h-3.5 w-3.5" />
@@ -139,7 +139,7 @@ export default function SalaryDashboard() {
           <div className="space-y-2">
             <Link
               to="/app/admin/salary-admin/salary-master"
-              className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2.5 hover:border-[#1F3A8A]/30 hover:bg-slate-50/80"
+              className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2.5 hover:border-accent/30 hover:bg-slate-50/80"
             >
               <span className="flex items-center gap-2 min-w-0">
                 <Wallet className="h-4 w-4 text-emerald-600 shrink-0" />
@@ -154,7 +154,7 @@ export default function SalaryDashboard() {
             </Link>
             <Link
               to="/app/admin/salary-admin/salary-processing"
-              className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2.5 hover:border-[#1F3A8A]/30 hover:bg-slate-50/80"
+              className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2.5 hover:border-accent/30 hover:bg-slate-50/80"
             >
               <span className="flex items-center gap-2 min-w-0">
                 <Calculator className="h-4 w-4 text-teal-600 shrink-0" />
@@ -213,7 +213,7 @@ export default function SalaryDashboard() {
           {stats.pending > recentUnset.length ? (
             <Link
               to="/app/admin/salary-admin/salary-master"
-              className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-[#1F3A8A] hover:underline"
+              className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
             >
               <Users className="h-3.5 w-3.5" />
               View all in Salary Master

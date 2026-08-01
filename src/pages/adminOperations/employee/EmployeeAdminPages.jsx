@@ -78,7 +78,7 @@ export function EmployeeMasterPage() {
         title="Employee Master — IFSPL / IEVPL in-house"
         right={
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setModal(true)} className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium">
+            <button type="button" onClick={() => setModal(true)} className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium">
               Add employee
             </button>
             <button type="button" className="h-8 px-3 rounded-lg border border-gray-300 text-xs">
@@ -197,7 +197,7 @@ export function EmployeeMasterPage() {
             <button type="button" className="h-8 px-3 rounded border text-xs" onClick={() => setModal(false)}>
               Cancel
             </button>
-            <button type="button" className="h-8 px-3 rounded bg-[#1F3A8A] text-white text-xs">
+            <button type="button" className="h-8 px-3 rounded bg-accent text-white text-xs">
               Save draft
             </button>
           </div>

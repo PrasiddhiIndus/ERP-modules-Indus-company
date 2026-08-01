@@ -67,7 +67,7 @@ export default function DahejMonthlyRegister() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <SectionCard title="Advances Received" className="!shadow-none">
-          <p className="text-lg font-bold text-[#1F3A8A]">{formatCurrency(dashboard.totalAdvances)}</p>
+          <p className="text-lg font-bold text-accent">{formatCurrency(dashboard.totalAdvances)}</p>
         </SectionCard>
         <SectionCard title="Total Expenses" className="!shadow-none">
           <p className="text-lg font-bold">{formatCurrency(dashboard.totalExpenses)}</p>
@@ -81,7 +81,7 @@ export default function DahejMonthlyRegister() {
       </div>
 
       <div className="flex gap-2">
-        <button type="button" onClick={() => exportDahejExcel(monthEntries, `dahej-register-${selectedMonth}.xlsx`, monthLabel)} className="text-xs text-[#1F3A8A] font-medium hover:underline">
+        <button type="button" onClick={() => exportDahejExcel(monthEntries, `dahej-register-${selectedMonth}.xlsx`, monthLabel)} className="text-xs text-accent font-medium hover:underline">
           Export month register (Excel)
         </button>
       </div>

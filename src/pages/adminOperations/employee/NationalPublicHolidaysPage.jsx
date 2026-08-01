@@ -74,7 +74,7 @@ function HolidayFormModal({ open, row, saving, onClose, onSave }) {
             type="button"
             onClick={() => onSave(form)}
             disabled={saving}
-            className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-semibold disabled:opacity-60"
+            className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-semibold disabled:opacity-60"
           >
             {saving ? "Saving…" : "Save"}
           </button>
@@ -211,7 +211,7 @@ function HolidayImportModal({ open, year, existingRows = [], onClose, onImported
             type="button"
             onClick={handleImport}
             disabled={busy || !payloads.length}
-            className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-semibold disabled:opacity-60"
+            className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-semibold disabled:opacity-60"
           >
             {busy ? "Importing…" : "Import"}
           </button>
@@ -442,7 +442,7 @@ export function NationalPublicHolidaysPage() {
                 setEditRow(null);
                 setFormOpen(true);
               }}
-              className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-semibold"
+              className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-semibold"
             >
               Add holiday
             </button>

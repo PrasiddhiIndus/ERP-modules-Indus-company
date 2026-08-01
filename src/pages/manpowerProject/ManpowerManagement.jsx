@@ -735,11 +735,11 @@ const ManpowerManagement = () => {
           ) : (
             <div
               className="manpower-inquiry-table-scroll overflow-auto max-h-[min(68vh,720px)]"
-              style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(124, 58, 237, 0.35) #f8fafc" }}
+              style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(124, 58, 237, 0.35) var(--surface-raised)" }}
             >
               <style>{`
                 .manpower-inquiry-table-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
-                .manpower-inquiry-table-scroll::-webkit-scrollbar-track { background: #f8fafc; border-radius: 4px; }
+                .manpower-inquiry-table-scroll::-webkit-scrollbar-track { background: var(--surface-raised); border-radius: 4px; }
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb { background: rgba(124, 58, 237, 0.35); border-radius: 4px; }
                 .manpower-inquiry-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(124, 58, 237, 0.55); }
                 .manpower-inquiry-table { border-collapse: separate; border-spacing: 0; }
@@ -755,15 +755,15 @@ const ManpowerManagement = () => {
                   overflow: visible;
                   vertical-align: middle;
                   box-sizing: border-box;
-                  background-color: #faf5ff !important;
-                  background-image: linear-gradient(90deg, #f5f3ff 0%, #faf5ff 100%) !important;
-                  box-shadow: 0 1px 0 0 #e9d5ff;
+                  background-color: var(--accent-soft) !important;
+                  background-image: none !important;
+                  box-shadow: 0 1px 0 0 var(--accent-border);
                 }
                 .manpower-inquiry-table thead th.manpower-inquiry-action-head {
                   z-index: 20;
-                  background-color: #faf5ff !important;
-                  background-image: linear-gradient(90deg, #f5f3ff 0%, #faf5ff 100%) !important;
-                  box-shadow: -5px 0 8px -4px rgba(15, 23, 42, 0.1), 0 1px 0 0 #e9d5ff;
+                  background-color: var(--accent-soft) !important;
+                  background-image: none !important;
+                  box-shadow: -5px 0 8px -4px rgba(15, 23, 42, 0.1), 0 1px 0 0 var(--accent-border);
                 }
                 .manpower-inquiry-table tbody td {
                   position: relative;

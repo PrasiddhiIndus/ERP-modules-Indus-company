@@ -32,6 +32,7 @@ import { normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { formatCurrency, formatDisplayDate, todayIsoDate } from './quotationConstants';
 import StatusBadge from './StatusBadge';
 import QuotationDetailDrawer from './QuotationDetailDrawer';
+import { CHART_SERIES, TOKENS } from '../../../theme/tokens';
 
 function sumRate(list) {
   return list.reduce((s, r) => s + (Number(r.quoted_rate) || 0), 0);
@@ -204,23 +205,23 @@ export default function QuotationDashboard() {
         <ChartCard title="Offers by Type">
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={byType}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="count" name="Count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" name="Count" fill={CHART_SERIES[1]} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
         <ChartCard title="Offers by Owner / Enquiry Source">
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={byOwner}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} textAnchor="end" height={60} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: TOKENS.chartAxis }} interval={0} angle={-20} textAnchor="end" height={60} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
               <Tooltip />
-              <Bar dataKey="count" name="Count" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" name="Count" fill={CHART_SERIES[2]} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -229,14 +230,14 @@ export default function QuotationDashboard() {
       <ChartCard title="Monthly trend — raised vs converted vs lost">
         <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={monthly}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
             <Tooltip />
             <Legend />
-            <Bar dataKey="raised" name="Raised" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-            <Line type="monotone" dataKey="converted" name="Converted" stroke="#10b981" strokeWidth={2} />
-            <Line type="monotone" dataKey="lost" name="Lost" stroke="#ef4444" strokeWidth={2} />
+            <Bar dataKey="raised" name="Raised" fill={TOKENS.textDisabled} radius={[4, 4, 0, 0]} />
+            <Line type="monotone" dataKey="converted" name="Converted" stroke={TOKENS.success} strokeWidth={2} />
+            <Line type="monotone" dataKey="lost" name="Lost" stroke={TOKENS.critical} strokeWidth={2} />
           </ComposedChart>
         </ResponsiveContainer>
       </ChartCard>

@@ -72,7 +72,7 @@ export default function PmeTracker() {
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); navigateTo("medical-record", { id: r.employee_id, name: getEmployee(r.employee_id)?.name }); }}
-                className="text-[11px] text-[#1F3A8A] font-medium"
+                className="text-[11px] text-accent font-medium"
               >
                 View record
               </button>

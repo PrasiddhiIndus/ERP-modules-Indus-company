@@ -63,29 +63,29 @@ const ContactLog = () => {
           className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
         />
       </div>
-      <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+      <div className="rounded-xl border border-gray-300 overflow-hidden bg-info-soft">
         <div className="p-2">
           <div className="bg-white rounded-lg overflow-hidden">
             <div className="w-full max-w-full min-w-0 overflow-x-hidden">
               <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[8%]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[8%]">
                       S.No
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[18%]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[18%]">
                       OC Number
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[28%]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[28%]">
                       Client
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[22%]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[22%]">
                       Current Coordinator
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[18%]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[18%]">
                       Contact Number
                     </th>
-                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] min-w-0 w-[14%]">
+                    <th className="px-1.5 sm:px-2 py-2 sm:py-2.5 text-center text-[10px] sm:text-xs font-bold text-black border-b border-gray-200 bg-info-soft min-w-0 w-[14%]">
                       Actions
                     </th>
                   </tr>
@@ -167,25 +167,25 @@ const ContactLog = () => {
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Contact History – {poForHistory.ocNumber}</h3>
             <p className="text-sm text-gray-500 mb-4">Names/numbers of previous coordinators</p>
-            <div className="rounded-lg border border-gray-300 overflow-hidden bg-[#f2f6ff] p-2">
+            <div className="rounded-lg border border-gray-300 overflow-hidden bg-info-soft p-2">
               <div className="bg-white rounded-md overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full table-fixed border-collapse text-sm">
                     <thead>
                       <tr>
-                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[10%]">
+                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-info-soft w-[10%]">
                           S.No
                         </th>
-                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[22%]">
+                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-info-soft w-[22%]">
                           Name
                         </th>
-                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[22%]">
+                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-info-soft w-[22%]">
                           Contact Number
                         </th>
-                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[28%]">
+                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-info-soft w-[28%]">
                           From
                         </th>
-                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-[#f2f6ff] w-[28%]">
+                        <th className="px-2 py-2.5 text-center text-xs font-bold text-black border-b border-gray-200 bg-info-soft w-[28%]">
                           To
                         </th>
                       </tr>

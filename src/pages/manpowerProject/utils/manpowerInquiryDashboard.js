@@ -1,4 +1,5 @@
 import { formatDateDdMmYyyy, normalizeToIsoDate } from "../../../utils/dateDisplay";
+import { CHART_SERIES, TOKENS } from "../../../theme/tokens";
 import {
   getExcelInquiryFields,
   INQUIRY_TABLE_COLUMNS,
@@ -22,30 +23,21 @@ export const DASHBOARD_EMPTY_FILTERS = {
 };
 
 export const STATUS_CHART_COLORS = {
-  Pending: "#fbbf24",
-  Approved: "#34d399",
-  Rejected: "#f87171",
-  Quoted: "#38bdf8",
-  Unknown: "#94a3b8",
+  Pending: TOKENS.warning,
+  Approved: TOKENS.success,
+  Rejected: TOKENS.critical,
+  Quoted: TOKENS.info,
+  Unknown: TOKENS.textDisabled,
 };
 
 export const VERTICAL_COLORS = {
-  "Fire Tender": "#ef4444",
-  Manpower: "#3b82f6",
-  Training: "#8b5cf6",
-  Unspecified: "#94a3b8",
+  "Fire Tender": TOKENS.critical,
+  Manpower: TOKENS.info,
+  Training: CHART_SERIES[2],
+  Unspecified: TOKENS.textDisabled,
 };
 
-export const CHART_PALETTE = [
-  "#3b82f6",
-  "#8b5cf6",
-  "#06b6d4",
-  "#f97316",
-  "#ec4899",
-  "#14b8a6",
-  "#6366f1",
-  "#eab308",
-];
+export const CHART_PALETTE = [...CHART_SERIES];
 
 function toLocalDate(value) {
   const iso = normalizeToIsoDate(value);

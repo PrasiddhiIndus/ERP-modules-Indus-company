@@ -86,7 +86,7 @@ function MobileApiCard({ row, t, onOpen, onRefreshOne, refreshing }) {
       <div
         role="presentation"
         className="mt-2 pt-2 border-t flex justify-end"
-        style={{ borderColor: t.dark ? "#334155" : "#e5e7eb" }}
+        style={{ borderColor: t.dark ? "var(--text-strong)" : "var(--border)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -234,7 +234,7 @@ function DesktopTable({
                 </tr>
                 {expanded ? (
                   <tr className={t.tableRowExpanded}>
-                    <td colSpan={10} className="px-4 py-4 border-b" style={{ borderColor: t.dark ? "#334155" : "#e5e7eb" }}>
+                    <td colSpan={10} className="px-4 py-4 border-b" style={{ borderColor: t.dark ? "var(--text-strong)" : "var(--border)" }}>
                       <div
                         className={`rounded-xl border p-4 ${t.border} ${t.dark ? "bg-slate-900/80" : "bg-slate-50/50"} ${
                           reducedMotion ? "" : "animate-fade-in"

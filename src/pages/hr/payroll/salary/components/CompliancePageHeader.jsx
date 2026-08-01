@@ -9,7 +9,7 @@ export default function CompliancePageHeader({ title, subtitle }) {
     <div className="space-y-3">
       <Link
         to={salaryAppPath('compliance-management')}
-        className="inline-flex items-center gap-1.5 text-xs text-[#1F3A8A] hover:underline"
+        className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Back to Compliance Management

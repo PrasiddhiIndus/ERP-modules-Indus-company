@@ -1,6 +1,7 @@
 /** Daily attendance register — pair raw punches into per-employee per-day rows. */
 
 import { formatDateDdMmYyyy } from "../utils/dateDisplay";
+import { CHART_SERIES, TOKENS } from "../theme/tokens";
 
 import {
   filterPresentRegisterRowsRespectingMarks,
@@ -435,54 +436,54 @@ export const REGISTER_LEAVE_MARKS = new Set([
 
 /** Shared palette — closed cell box + bulk Mark P/L/WO/NH/PH buttons. */
 export const REGISTER_MARK_PALETTE = {
-  present: { bg: "#008D62", border: "#006b51", hover: "#006b51" },
-  leave: { bg: "#D62828", border: "#b82222", hover: "#b82222" },
-  weekoff: { bg: "#EAB308", border: "#CA8A04", hover: "#CA8A04" },
-  nhph: { bg: "#F58220", border: "#d9741d", hover: "#d9741d" },
-  empty: { bg: "#f3f4f6", border: "#d1d5db", text: "#4b5563" },
+  present: { bg: TOKENS.success, border: TOKENS.accentDeep, hover: TOKENS.accentDeep },
+  leave: { bg: TOKENS.critical, border: TOKENS.critical, hover: TOKENS.critical },
+  weekoff: { bg: TOKENS.warning, border: TOKENS.warning, hover: TOKENS.warning },
+  nhph: { bg: CHART_SERIES[2], border: TOKENS.warning, hover: TOKENS.warning },
+  empty: { bg: TOKENS.surfaceSunken, border: TOKENS.borderStrong, text: TOKENS.textSecondary },
 };
 
 export const REGISTER_BULK_BUTTON_CLASS = {
-  P: "bg-[#008D62] hover:bg-[#006b51] text-white",
-  "P(OD)": "bg-[#0ea5a5] hover:bg-[#0f8f8f] text-white",
-  L: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  LWP: "bg-[#9f1239] hover:bg-[#881337] text-white",
-  WFH: "bg-[#2563eb] hover:bg-[#1d4ed8] text-white",
-  PL: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  CL: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  SL: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  SPLA: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  SPLB: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  SBEL: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  PTL: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  ML: "bg-[#D62828] hover:bg-[#b82222] text-white",
-  WO: "bg-[#EAB308] hover:bg-[#CA8A04] text-gray-900",
-  [REGISTER_MARK_NHPH]: "bg-[#F58220] hover:bg-[#d9741d] text-white",
-  [REGISTER_MARK_LEFT]: "bg-gray-600 hover:bg-gray-700 text-white",
+  P: "bg-success hover:bg-accent-deep text-white",
+  "P(OD)": "bg-info hover:bg-info text-white",
+  L: "bg-critical hover:bg-critical text-white",
+  LWP: "bg-critical hover:bg-critical text-white",
+  WFH: "bg-info hover:bg-info text-white",
+  PL: "bg-critical hover:bg-critical text-white",
+  CL: "bg-critical hover:bg-critical text-white",
+  SL: "bg-critical hover:bg-critical text-white",
+  SPLA: "bg-critical hover:bg-critical text-white",
+  SPLB: "bg-critical hover:bg-critical text-white",
+  SBEL: "bg-critical hover:bg-critical text-white",
+  PTL: "bg-critical hover:bg-critical text-white",
+  ML: "bg-critical hover:bg-critical text-white",
+  WO: "bg-warning hover:bg-warning text-gray-900",
+  [REGISTER_MARK_NHPH]: "bg-warning hover:bg-warning text-white",
+  [REGISTER_MARK_LEFT]: "bg-neutral-state hover:bg-ink-secondary text-white",
 };
 
 const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
 
 /** Per-mark colors for closed cells only (dropdown list stays neutral). */
 export const REGISTER_MARK_CELL_COLORS = {
-  P: { bg: "#008D62", border: "#006b51", text: "white" },
-  "P(OD)": { bg: "#0d9488", border: "#0f766e", text: "white" },
-  T: { bg: "#7c3aed", border: "#6d28d9", text: "white" },
-  L: { bg: "#D62828", border: "#b82222", text: "white" },
-  WO: { bg: "#EAB308", border: "#CA8A04", text: "dark" },
-  [REGISTER_MARK_NHPH]: { bg: "#F58220", border: "#d9741d", text: "white" },
-  NHPH: { bg: "#F58220", border: "#d9741d", text: "white" },
-  CO: { bg: "#059669", border: "#047857", text: "white" },
-  HD: { bg: "#d97706", border: "#b45309", text: "white" },
+  P: { bg: TOKENS.success, border: TOKENS.accentDeep, text: "white" },
+  "P(OD)": { bg: TOKENS.info, border: TOKENS.info, text: "white" },
+  T: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
+  L: { bg: TOKENS.critical, border: TOKENS.critical, text: "white" },
+  WO: { bg: TOKENS.warning, border: TOKENS.warning, text: "dark" },
+  [REGISTER_MARK_NHPH]: { bg: CHART_SERIES[2], border: TOKENS.warning, text: "white" },
+  NHPH: { bg: CHART_SERIES[2], border: TOKENS.warning, text: "white" },
+  CO: { bg: TOKENS.success, border: TOKENS.success, text: "white" },
+  HD: { bg: TOKENS.warning, border: TOKENS.warning, text: "white" },
   /** Dual-state: present half (green) + leave half (red). */
-  "P/SL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
-  "P/CL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
-  "P/PL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
-  "LWP/PL": { bg: "#9f1239", border: "#b82222", text: "white", dual: true },
-  "LWP/SL": { bg: "#9f1239", border: "#b82222", text: "white", dual: true },
-  "LWP/CL": { bg: "#9f1239", border: "#b82222", text: "white", dual: true },
-  WFH: { bg: "#2563eb", border: "#1d4ed8", text: "white" },
-  [REGISTER_MARK_LEFT]: { bg: "#6b7280", border: "#4b5563", text: "white" },
+  "P/SL": { bg: TOKENS.success, border: TOKENS.warning, text: "white", dual: true },
+  "P/CL": { bg: TOKENS.success, border: TOKENS.warning, text: "white", dual: true },
+  "P/PL": { bg: TOKENS.success, border: TOKENS.warning, text: "white", dual: true },
+  "LWP/PL": { bg: TOKENS.critical, border: TOKENS.critical, text: "white", dual: true },
+  "LWP/SL": { bg: TOKENS.critical, border: TOKENS.critical, text: "white", dual: true },
+  "LWP/CL": { bg: TOKENS.critical, border: TOKENS.critical, text: "white", dual: true },
+  WFH: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
+  [REGISTER_MARK_LEFT]: { bg: TOKENS.textMuted, border: TOKENS.textSecondary, text: "white" },
 };
 
 export function resolveRegisterMarkCellColors(mark) {
@@ -541,7 +542,7 @@ export function registerMarkCellInlineStyle(value) {
   if (!colors) return undefined;
   if (colors.dual) {
     return {
-      backgroundImage: "linear-gradient(90deg, #008D62 50%, #D62828 50%)",
+      backgroundImage: `linear-gradient(90deg, ${TOKENS.success} 50%, ${TOKENS.critical} 50%)`,
       borderColor: colors.border,
     };
   }

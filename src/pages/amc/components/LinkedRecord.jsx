@@ -12,7 +12,7 @@ export default function LinkedRecord({ type, id, label, className = "" }) {
         e.stopPropagation();
         if (id) openRecord(type, id);
       }}
-      className={`text-left text-[#1F3A8A] hover:underline font-medium ${className}`}
+      className={`text-left text-accent hover:underline font-medium ${className}`}
       title={`Open ${type}`}
     >
       {label || id}

@@ -774,21 +774,21 @@ const EnquiryMaster = () => {
               <p className="text-xs mt-1">Create your first enquiry to get started</p>
             </div>
           ) : (
-            <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#c084fc #f3f4f6' }}>
+            <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent) var(--surface-sunken)' }}>
               <style>{`
                 .overflow-x-auto::-webkit-scrollbar {
                   height: 8px;
                 }
                 .overflow-x-auto::-webkit-scrollbar-track {
-                  background: #f3f4f6;
+                  background: var(--surface-sunken);
                   border-radius: 4px;
                 }
                 .overflow-x-auto::-webkit-scrollbar-thumb {
-                  background: #c084fc;
+                  background: var(--accent);
                   border-radius: 4px;
                 }
                 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-                  background: #a855f7;
+                  background: var(--accent-deep);
                 }
               `}</style>
               <table className="w-full min-w-[1100px] text-xs">

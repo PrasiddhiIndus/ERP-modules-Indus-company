@@ -3244,7 +3244,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
 
               {/* Editing controls (kept as form UI below the preview) */}
               <div className="mx-auto max-w-[920px] border-2 border-neutral-800 bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
-          <div className="border-x-0 border-b border-neutral-800 overflow-hidden bg-[#eef2f7]">
+          <div className="border-x-0 border-b border-neutral-800 overflow-hidden bg-surface-sunken">
             <div className="p-2">
               <div className="bg-white rounded-lg overflow-hidden">
                 {isLumpSumBilling ? (
@@ -3608,7 +3608,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 <tr>
                   <th
                     className={[
-                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      'border border-neutral-400 bg-info-soft text-center text-[11px] font-bold text-neutral-900',
                       lumpSumDutyGeometryLineTable ? 'w-[3rem] min-w-[2.5rem] px-1 py-1.5' : 'w-[6%] px-2 py-2',
                     ].join(' ')}
                   >
@@ -3616,7 +3616,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   </th>
                   <th
                     className={[
-                      'border border-neutral-400 bg-[#e8edf5] text-left text-[11px] font-bold text-neutral-900',
+                      'border border-neutral-400 bg-info-soft text-left text-[11px] font-bold text-neutral-900',
                       lumpSumDutyGeometryLineTable ? 'w-[30%] min-w-[8rem] px-1.5 py-1.5' : 'w-[40%] px-2 py-2',
                     ].join(' ')}
                   >
@@ -3625,7 +3625,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   {materialCodeRequired ? (
                     <th
                       className={[
-                        'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                        'border border-neutral-400 bg-info-soft text-center text-[11px] font-bold text-neutral-900',
                         lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[12%] px-2 py-2',
                       ].join(' ')}
                     >
@@ -3634,7 +3634,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   ) : (
                     <th
                       className={[
-                        'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                        'border border-neutral-400 bg-info-soft text-center text-[11px] font-bold text-neutral-900',
                         lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[12%] px-2 py-2',
                       ].join(' ')}
                     >
@@ -3643,14 +3643,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   )}
                   {null ? (
                     <>
-                      <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">PO Qty</th>
-                      <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Actual</th>
-                      <th className="w-[10%] border border-neutral-400 bg-[#e8edf5] px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Auth</th>
+                      <th className="w-[10%] border border-neutral-400 bg-info-soft px-2 py-2 text-center text-[11px] font-bold text-neutral-900">PO Qty</th>
+                      <th className="w-[10%] border border-neutral-400 bg-info-soft px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Actual</th>
+                      <th className="w-[10%] border border-neutral-400 bg-info-soft px-2 py-2 text-center text-[11px] font-bold text-neutral-900">Auth</th>
                     </>
                   ) : null}
                   <th
                     className={[
-                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      'border border-neutral-400 bg-info-soft text-center text-[11px] font-bold text-neutral-900',
                       lumpSumDutyGeometryLineTable ? 'w-[10%] min-w-[4rem] px-1 py-1.5' : 'w-[12%] px-2 py-2',
                     ].join(' ')}
                   >
@@ -3658,7 +3658,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   </th>
                   <th
                     className={[
-                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      'border border-neutral-400 bg-info-soft text-center text-[11px] font-bold text-neutral-900',
                       lumpSumDutyGeometryLineTable ? 'w-[11%] min-w-[4.25rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
                     ].join(' ')}
                   >
@@ -3667,7 +3667,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   {lumpSumShowPenaltyGeometryUi ? (
                     <th
                       className={[
-                        'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                        'border border-neutral-400 bg-info-soft text-center text-[11px] font-bold text-neutral-900',
                         lumpSumDutyGeometryLineTable ? 'w-[10%] min-w-[3.75rem] px-1 py-1.5 leading-tight' : 'w-[12%] px-2 py-2',
                       ].join(' ')}
                     >
@@ -3676,7 +3676,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   ) : null}
                   <th
                     className={[
-                      'border border-neutral-400 bg-[#e8edf5] text-center text-[11px] font-bold text-neutral-900',
+                      'border border-neutral-400 bg-info-soft text-center text-[11px] font-bold text-neutral-900',
                       lumpSumDutyGeometryLineTable ? 'w-[9%] min-w-[3.25rem] px-1 py-1.5' : 'w-[10%] px-2 py-2',
                     ].join(' ')}
                   >
@@ -3684,7 +3684,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   </th>
                   <th
                     className={[
-                      'border border-neutral-400 bg-[#e8edf5] text-right text-[11px] font-bold text-neutral-900',
+                      'border border-neutral-400 bg-info-soft text-right text-[11px] font-bold text-neutral-900',
                       lumpSumDutyGeometryLineTable ? 'w-[13%] min-w-[4.5rem] px-1 py-1.5' : 'w-[14%] px-2 py-2',
                     ].join(' ')}
                   >
@@ -4629,7 +4629,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                     <p>Branch &amp; IFSC Code: {INVOICE_BANK_DETAILS.ifsc}</p>
                     <p className="mt-1.5 leading-relaxed">Bank branch: {INVOICE_BANK_DETAILS.branchAddress}</p>
                     <div className="mt-6 pt-2">
-                      <p className="text-sm font-bold text-[#1a3a6c] leading-snug">
+                      <p className="text-sm font-bold text-accent leading-snug">
                         For {INVOICE_SELLER_TEMPLATE.name}
                       </p>
                       <div className="mt-2">

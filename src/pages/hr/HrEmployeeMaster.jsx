@@ -59,7 +59,7 @@ export default function HrEmployeeMaster() {
         <button
           type="button"
           disabled
-          className="h-9 px-3 rounded-lg bg-[#1F3A8A]/50 text-white text-xs font-medium cursor-not-allowed"
+          className="h-9 px-3 rounded-lg bg-accent/50 text-white text-xs font-medium cursor-not-allowed"
           title="Available when HR database is connected"
         >
           Add employee

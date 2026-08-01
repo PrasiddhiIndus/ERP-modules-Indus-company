@@ -74,7 +74,7 @@ export function LatencyTrendChart({ data, t, reducedMotion, compact = false }) {
           type="monotone"
           dataKey="latencyMs"
           name="Response time"
-          stroke={t.dark ? "#60a5fa" : "#1F3A8A"}
+          stroke="var(--accent)"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4, strokeWidth: 0 }}
@@ -88,8 +88,8 @@ export function LatencyTrendChart({ data, t, reducedMotion, compact = false }) {
 export function AvailabilityTrendChart({ data, t, reducedMotion, compact = false }) {
   const height = compact ? 160 : 200;
   const anim = reducedMotion ? 0 : 350;
-  const stroke = t.dark ? "#34d399" : "#059669";
-  const fill = t.dark ? "#064e3b" : "#d1fae5";
+  const stroke = "var(--success)";
+  const fill = "var(--success-soft)";
 
   if (!data?.length) {
     return <ChartEmpty message="No availability data yet." t={t} />;

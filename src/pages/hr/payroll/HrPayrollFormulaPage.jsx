@@ -128,7 +128,7 @@ export default function HrPayrollFormulaPage() {
           <button
             type="button"
             onClick={createPackage}
-            className="h-9 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium"
+            className="h-9 px-3 rounded-lg bg-accent text-white text-xs font-medium"
           >
             New package
           </button>
@@ -178,7 +178,7 @@ export default function HrPayrollFormulaPage() {
                         type="checkbox"
                         checked={draftKeys.has(key)}
                         onChange={() => toggleKey(key)}
-                        className="mt-0.5 rounded border-gray-300 text-[#1F3A8A]"
+                        className="mt-0.5 rounded border-gray-300 text-accent"
                       />
                       <span className="min-w-0">
                         <span className="block text-xs font-medium text-gray-900">{label}</span>

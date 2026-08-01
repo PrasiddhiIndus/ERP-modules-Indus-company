@@ -14,8 +14,9 @@ import {
   PageHeader,
   TinySelect,
 } from "../../components/OperationsUi";
+import { CHART_SERIES } from "../../../../theme/tokens";
 
-const COLORS = ["#1F3A8A", "#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+const COLORS = CHART_SERIES;
 
 export default function ExpenseSiteDashboard() {
   const { data, refresh, theme, getSite, navigateTo } = useOperations();

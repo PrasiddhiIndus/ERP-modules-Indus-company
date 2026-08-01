@@ -163,7 +163,7 @@ export default function SiteCalculationFormulas({ formulaGroups }) {
             type="button"
             disabled={saving || !siteId}
             onClick={save}
-            className="h-8 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium disabled:opacity-50"
+            className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save site formulas'}
           </button>

@@ -33,7 +33,7 @@ const DATE_SORT_KEYS = new Set(["from_date", "to_date", "joining_date", "leaving
 function tabClass(active) {
   return `inline-flex items-center gap-2 px-3.5 py-2 rounded-md text-sm font-medium border transition-colors ${
     active
-      ? "bg-[#1F3A8A] text-white border-[#1F3A8A]"
+      ? "bg-accent text-white border-accent"
       : "bg-white text-slate-700 hover:bg-slate-50 border-slate-300"
   }`;
 }
@@ -387,7 +387,7 @@ export default function PeopleManagement() {
                       setSearchApplied(search.trim());
                       setPage(1);
                     }}
-                    className="h-8 px-3 rounded text-xs font-medium bg-[#1F3A8A] text-white hover:bg-[#1a3275] inline-flex items-center gap-1"
+                    className="h-8 px-3 rounded text-xs font-medium bg-accent text-white hover:bg-accent-deep inline-flex items-center gap-1"
                   >
                     <Search className="h-3.5 w-3.5" />
                     Search

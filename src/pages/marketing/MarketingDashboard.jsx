@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { 
   FileText, 
   Calendar, 
   Users, 
-  Package, 
   ShoppingCart,
   MapPin,
   TrendingUp,
@@ -15,6 +14,17 @@ import {
 } from 'lucide-react';
 import DateRangeCalendar from './components/DateRangeCalendar';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
+import {
+  SparkKpi,
+  ChartPanel,
+  AreaTrendChart,
+  DonutChart,
+  RadialScoreChart,
+  sparkFromValue,
+  bucketByDay,
+  countByKey,
+  CHART_SERIES,
+} from '../../components/charts/DashboardCharts';
 
 // Rupee Icon Component
 const RupeeIcon = ({ className = '' }) => {
@@ -22,7 +32,7 @@ const RupeeIcon = ({ className = '' }) => {
     <span 
       className={`${className} inline-flex items-center justify-center`}
       style={{ 
-        fontFamily: 'Arial, sans-serif', 
+        fontFamily: 'var(--font-sans)', 
         fontWeight: 'bold',
         lineHeight: '1'
       }}
@@ -98,10 +108,10 @@ const MarketingDashboard = () => {
       ]);
 
       setStats({
-        totalEnquiries: enquiries.count || 0,
-        totalQuotations: quotations.count || 0,
-        totalClients: clients.count || 0,
-        totalProducts: products.count || 0,
+        totalEnquiries: enquiries.error ? 0 : enquiries.count || 0,
+        totalQuotations: quotations.error ? 0 : quotations.count || 0,
+        totalClients: clients.error ? 0 : clients.count || 0,
+        totalProducts: products.error ? 0 : products.count || 0,
       });
       setLoading(false);
     } catch (error) {
@@ -311,35 +321,59 @@ const MarketingDashboard = () => {
       title: 'Total enquiries',
       subtitle: 'All enquiries captured',
       value: loading ? '...' : stats.totalEnquiries,
-      icon: FileText,
-      iconWrap: 'bg-red-100 text-red-700',
-      keyColor: 'text-red-700',
+      raw: stats.totalEnquiries,
+      color: CHART_SERIES[0],
     },
     {
       title: 'Total quotations',
       subtitle: 'Across all revisions',
       value: loading ? '...' : stats.totalQuotations,
-      icon: RupeeIcon,
-      iconWrap: 'bg-green-100 text-green-700',
-      keyColor: 'text-green-700',
+      raw: stats.totalQuotations,
+      color: CHART_SERIES[1],
     },
     {
       title: 'Total clients',
       subtitle: 'Active client master',
       value: loading ? '...' : stats.totalClients,
-      icon: Users,
-      iconWrap: 'bg-slate-200 text-slate-700',
-      keyColor: 'text-slate-800',
+      raw: stats.totalClients,
+      color: CHART_SERIES[2],
     },
     {
       title: 'Total products',
       subtitle: 'Product catalog entries',
       value: loading ? '...' : stats.totalProducts,
-      icon: Package,
-      iconWrap: 'bg-orange-100 text-orange-700',
-      keyColor: 'text-orange-700',
+      raw: stats.totalProducts,
+      color: CHART_SERIES[3],
     },
   ];
+
+  // Enquiry trend: bucket the currently loaded enquiry list by day when a date
+  // range is selected, otherwise derive a gentle trend from the running total.
+  const enquiryTrendData = useMemo(() => {
+    if (enquiriesInRange.length > 0) {
+      return bucketByDay(enquiriesInRange, 'enquiry_date', 14);
+    }
+    return sparkFromValue(stats.totalEnquiries, 14).map((v, i) => ({ name: `D${i + 1}`, value: v }));
+  }, [enquiriesInRange, stats.totalEnquiries]);
+
+  // Status mix: from the loaded enquiries when available, otherwise fall back
+  // to the overall KPI breakdown.
+  const statusMixData = useMemo(() => {
+    if (enquiriesInRange.length > 0) {
+      return countByKey(enquiriesInRange, (r) => r.status || 'Other');
+    }
+    return [
+      { name: 'Enquiries', value: stats.totalEnquiries },
+      { name: 'Quotations', value: stats.totalQuotations },
+      { name: 'Clients', value: stats.totalClients },
+      { name: 'Products', value: stats.totalProducts },
+    ];
+  }, [enquiriesInRange, stats]);
+
+  const conversionScore = {
+    value: stats.totalQuotations,
+    max: Math.max(stats.totalEnquiries, 1),
+  };
 
   return (
     <div className="w-full min-h-screen overflow-y-auto bg-gradient-to-b from-slate-50/70 to-white px-4 sm:px-6 py-6">
@@ -501,31 +535,50 @@ const MarketingDashboard = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* KPI spark tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6 max-w-6xl mx-auto">
-        {kpiCards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <div
-              key={card.title}
-              className="h-full rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50/80 to-white shadow-sm p-4 text-left"
-            >
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className="min-w-0">
-                  <h3 className="font-semibold text-gray-900 text-[14px] leading-5 truncate">{card.title}</h3>
-                  <p className="text-[11px] leading-4 text-gray-500">{card.subtitle}</p>
-                </div>
-                <div className={`p-2.5 rounded-lg ring-1 ring-black/5 shrink-0 ${card.iconWrap}`}>
-                  <Icon className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="rounded-lg border border-white/70 bg-white/85 px-3 py-2.5">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Total</p>
-                <p className={`mt-1 text-2xl leading-7 font-bold tabular-nums ${card.keyColor}`}>{card.value}</p>
-              </div>
-            </div>
-          );
-        })}
+        {kpiCards.map((card) => (
+          <SparkKpi
+            key={card.title}
+            label={card.title}
+            value={card.value}
+            sub={card.subtitle}
+            series={sparkFromValue(card.raw)}
+            color={card.color}
+          />
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+        <ChartPanel
+          title="Enquiry trend"
+          subtitle={enquiriesInRange.length > 0 ? 'Selected date range' : 'Indicative, based on total enquiries'}
+          className="lg:col-span-2"
+          height={200}
+        >
+          <AreaTrendChart
+            data={enquiryTrendData}
+            series={[{ key: 'value', name: 'Enquiries', color: CHART_SERIES[0] }]}
+            height={200}
+          />
+        </ChartPanel>
+        <ChartPanel
+          title="Enquiry mix"
+          subtitle={enquiriesInRange.length > 0 ? 'By status' : 'By record type'}
+          height={200}
+        >
+          <DonutChart data={statusMixData} centerLabel="Total" height={180} />
+        </ChartPanel>
+        <ChartPanel title="Quotation conversion" subtitle="Quotations vs enquiries" height={200}>
+          <RadialScoreChart
+            value={conversionScore.value}
+            max={conversionScore.max}
+            label="Conversion"
+            color={CHART_SERIES[1]}
+            height={180}
+          />
+        </ChartPanel>
       </div>
 
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
@@ -594,7 +647,7 @@ const MarketingDashboard = () => {
                       </div>
                     </div>
                     
-                    <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) #f3f4f6' }}>
+                    <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) var(--surface-sunken)' }}>
                       {enquiriesInRange.map((enquiry) => (
                         <div
                           key={enquiry.id}

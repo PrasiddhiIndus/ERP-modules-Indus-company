@@ -4,7 +4,6 @@ import {
   ArrowRight,
   CalendarDays,
   ClipboardList,
-  Clock3,
   Calculator,
   Factory,
   FilePlus2,
@@ -18,6 +17,17 @@ import {
 import { supabase } from "../../lib/supabase";
 import FireTenderNavbar from "./FireTenderNavbar";
 import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
+import {
+  SparkKpi,
+  ChartPanel,
+  AreaTrendChart,
+  DonutChart,
+  BarCompareChart,
+  RadialScoreChart,
+  sparkFromValue,
+  bucketByDay,
+  CHART_SERIES,
+} from "../../components/charts/DashboardCharts";
 
 const statusClass = {
   Approved: "bg-green-100 text-green-700",
@@ -39,6 +49,7 @@ const FireTenderDashboard = () => {
     quotations: 0,
   });
   const [recentTenders, setRecentTenders] = useState([]);
+  const [intakeTrend, setIntakeTrend] = useState([]);
 
   const fetchDashboardData = async () => {
     try {
@@ -99,6 +110,7 @@ const FireTenderDashboard = () => {
         quotations,
       });
       setRecentTenders(latestTendersRes.data || []);
+      setIntakeTrend(bucketByDay(allTendersRes.data || [], "created_at", 14));
     } catch (err) {
       console.error("Error fetching fire tender dashboard data:", err);
       setError(err?.message || "Failed to load dashboard data");
@@ -154,90 +166,31 @@ const FireTenderDashboard = () => {
     },
   ];
 
-  const cards = [
-    {
-      title: "Tender volume",
-      description: "Overall tender count and monthly intake",
-      icon: ClipboardList,
-      accent: "blue",
-      stats: [
-        { label: "Total tenders", value: metrics.totalTenders },
-        { label: "New this month", value: metrics.newTenders },
-      ],
-      path: "/app/fire-tender/costing-hub/tender",
-    },
-    {
-      title: "Approval status",
-      description: "Approved, pending and rejected mix",
-      icon: ShieldCheck,
-      accent: "green",
-      stats: [
-        { label: "Approved", value: metrics.approvedTenders },
-        { label: "Pending review", value: metrics.pendingTenders },
-        { label: "Rejected", value: metrics.rejectedTenders },
-      ],
-      path: "/app/fire-tender/costing-hub/tender",
-    },
-    {
-      title: "Costing readiness",
-      description: "Tender records with costing sheets",
-      icon: Calculator,
-      accent: "emerald",
-      stats: [
-        { label: "Costing sheets", value: metrics.costingSheets },
-        {
-          label: "Coverage",
-          value: `${metrics.totalTenders ? Math.round((metrics.costingSheets / metrics.totalTenders) * 100) : 0}%`,
-        },
-      ],
-      path: "/app/fire-tender/costing-hub/costing",
-    },
-    {
-      title: "Quotation output",
-      description: "Issued quotations and completion ratio",
-      icon: ReceiptText,
-      accent: "violet",
-      stats: [
-        { label: "Quotations", value: metrics.quotations },
-        {
-          label: "Coverage",
-          value: `${metrics.totalTenders ? Math.round((metrics.quotations / metrics.totalTenders) * 100) : 0}%`,
-        },
-      ],
-      path: "/app/fire-tender/costing-hub/quotation",
-    },
-    {
-      title: "Pending queue",
-      description: "Open approvals requiring action",
-      icon: Clock3,
-      accent: "amber",
-      stats: [
-        { label: "Pending tenders", value: metrics.pendingTenders },
-        { label: "Rejected", value: metrics.rejectedTenders },
-      ],
-      path: "/app/fire-tender/costing-hub/tender",
-    },
-    {
-      title: "Manufacturing flow",
-      description: "Post-quotation manufacturing pipeline",
-      icon: Factory,
-      accent: "rose",
-      stats: [
-        { label: "Costing tenders", value: metrics.costingSheets },
-        { label: "Quotations", value: metrics.quotations },
-      ],
-      path: "/app/fire-tender-manufacturing",
-    },
+  const approvalRate = metrics.totalTenders ? Math.round((metrics.approvedTenders / metrics.totalTenders) * 100) : 0;
+  const costingCoverage = metrics.totalTenders ? Math.round((metrics.costingSheets / metrics.totalTenders) * 100) : 0;
+  const quotationCoverage = metrics.totalTenders ? Math.round((metrics.quotations / metrics.totalTenders) * 100) : 0;
+
+  const kpiTiles = [
+    { label: "Total tenders", value: metrics.totalTenders, path: "/app/fire-tender/costing-hub/tender" },
+    { label: "New this month", value: metrics.newTenders, path: "/app/fire-tender/costing-hub/tender" },
+    { label: "Approved", value: metrics.approvedTenders, path: "/app/fire-tender/costing-hub/tender" },
+    { label: "Pending review", value: metrics.pendingTenders, path: "/app/fire-tender/costing-hub/tender" },
+    { label: "Rejected", value: metrics.rejectedTenders, path: "/app/fire-tender/costing-hub/tender" },
+    { label: "Costing sheets", value: metrics.costingSheets, path: "/app/fire-tender/costing-hub/costing" },
+    { label: "Quotations", value: metrics.quotations, path: "/app/fire-tender/costing-hub/quotation" },
   ];
 
-  const accentStyles = {
-    blue: { cardBg: "from-blue-50/80 to-white", iconBg: "bg-blue-100", iconColor: "text-blue-700", keyColor: "text-blue-700" },
-    green: { cardBg: "from-green-50/80 to-white", iconBg: "bg-green-100", iconColor: "text-green-700", keyColor: "text-green-700" },
-    emerald: { cardBg: "from-emerald-50/80 to-white", iconBg: "bg-emerald-100", iconColor: "text-emerald-700", keyColor: "text-emerald-700" },
-    violet: { cardBg: "from-violet-50/80 to-white", iconBg: "bg-violet-100", iconColor: "text-violet-700", keyColor: "text-violet-700" },
-    amber: { cardBg: "from-amber-50/80 to-white", iconBg: "bg-amber-100", iconColor: "text-amber-700", keyColor: "text-amber-700" },
-    rose: { cardBg: "from-rose-50/80 to-white", iconBg: "bg-rose-100", iconColor: "text-rose-700", keyColor: "text-rose-700" },
-  };
+  const statusMix = [
+    { name: "Approved", value: metrics.approvedTenders },
+    { name: "Pending", value: metrics.pendingTenders },
+    { name: "Rejected", value: metrics.rejectedTenders },
+  ];
+
+  const pipelineVolume = [
+    { name: "Tenders", value: metrics.totalTenders },
+    { name: "Costing", value: metrics.costingSheets },
+    { name: "Quotations", value: metrics.quotations },
+  ];
 
   return (
     <div className="min-h-screen overflow-y-auto bg-slate-50 px-4 py-6 sm:px-6">
@@ -276,54 +229,41 @@ const FireTenderDashboard = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 mb-6 max-w-6xl mx-auto">
-        {cards.map((card) => {
-          const Icon = card.icon;
-          const style = accentStyles[card.accent];
-          const primaryStat = card.stats[0];
-          const secondaryStats = card.stats.slice(1);
-          return (
-            <div
-              key={card.title}
-              className={`h-full rounded-xl border border-slate-200 bg-gradient-to-br ${style.cardBg} shadow-sm p-4 text-left transition-all hover:shadow-md`}
-            >
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <div className={`p-2.5 rounded-lg ${style.iconBg} ${style.iconColor} ring-1 ring-black/5 shrink-0`}>
-                    <Icon className="w-4.5 h-4.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-[14px] leading-5 truncate">{card.title}</h3>
-                    <p className="text-[11px] leading-4 text-gray-500 line-clamp-2">{card.description}</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-white/80 text-slate-600 border border-slate-200 shrink-0">
-                  KPI
-                </span>
-              </div>
+      <div className="max-w-6xl mx-auto space-y-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3">
+          {kpiTiles.map((k, i) => (
+            <SparkKpi
+              key={k.label}
+              label={k.label}
+              value={loading ? "…" : k.value}
+              series={sparkFromValue(Number(k.value) || 0)}
+              color={CHART_SERIES[i % CHART_SERIES.length]}
+              onClick={() => navigate(k.path)}
+            />
+          ))}
+        </div>
 
-              <div className="rounded-lg border border-white/70 bg-white/85 px-3 py-2.5">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{primaryStat.label}</p>
-                <p className={`mt-1 text-xl leading-6 font-bold tabular-nums ${style.keyColor}`}>
-                  {loading ? "..." : primaryStat.value}
-                </p>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <ChartPanel title="Tender intake" subtitle="New tenders — last 14 days" className="lg:col-span-2" height={200}>
+            <AreaTrendChart data={intakeTrend} series={[{ key: "value", name: "Tenders", color: CHART_SERIES[0] }]} height={200} />
+          </ChartPanel>
+          <ChartPanel title="Approval rate" height={200}>
+            <RadialScoreChart value={approvalRate} label="Approved" color={CHART_SERIES[0]} height={180} />
+          </ChartPanel>
+        </div>
 
-              {secondaryStats.length > 0 && (
-                <div className="mt-3 border-t border-slate-200/80 pt-2.5 space-y-1.5">
-                  {secondaryStats.map((s, i) => (
-                    <div key={i} className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-600 truncate">{s.label}</span>
-                      <span className="text-[12px] font-semibold text-slate-800 tabular-nums shrink-0">
-                        {loading ? "..." : s.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ChartPanel title="Status mix" subtitle="Approved / pending / rejected" height={220}>
+            <DonutChart data={statusMix} centerLabel="Tenders" centerValue={metrics.totalTenders} height={200} />
+          </ChartPanel>
+          <ChartPanel title="Pipeline volume" subtitle="Tenders → costing → quotation" height={220}>
+            <BarCompareChart
+              data={pipelineVolume}
+              series={[{ key: "value", name: "Count", color: CHART_SERIES[1] }]}
+              height={200}
+            />
+          </ChartPanel>
+        </div>
       </div>
 
       <div className="max-w-6xl mx-auto rounded-2xl border border-slate-200 bg-white/90 shadow-sm p-4 sm:p-5">
@@ -422,25 +362,9 @@ const FireTenderDashboard = () => {
             <ShieldCheck className="w-5 h-5 text-indigo-600" />
             <h2 className="text-base sm:text-lg font-semibold text-gray-900">Pipeline Health</h2>
           </div>
-          <div className="space-y-2.5">
-            <div className="rounded-lg bg-gradient-to-r from-gray-50 to-red-50 border border-gray-100 p-2.5">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Approval rate</p>
-              <p className="text-xl font-bold text-gray-900 mt-0.5">
-                {metrics.totalTenders ? Math.round((metrics.approvedTenders / metrics.totalTenders) * 100) : 0}%
-              </p>
-            </div>
-            <div className="rounded-lg bg-gradient-to-r from-gray-50 to-emerald-50 border border-gray-100 p-2.5">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Costing coverage</p>
-              <p className="text-xl font-bold text-gray-900 mt-0.5">
-                {metrics.totalTenders ? Math.round((metrics.costingSheets / metrics.totalTenders) * 100) : 0}%
-              </p>
-            </div>
-            <div className="rounded-lg bg-gradient-to-r from-gray-50 to-violet-50 border border-gray-100 p-2.5">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotation coverage</p>
-              <p className="text-xl font-bold text-gray-900 mt-0.5">
-                {metrics.totalTenders ? Math.round((metrics.quotations / metrics.totalTenders) * 100) : 0}%
-              </p>
-            </div>
+          <div className="grid grid-cols-2 gap-2">
+            <RadialScoreChart value={costingCoverage} label="Costing coverage" color={CHART_SERIES[1]} height={150} />
+            <RadialScoreChart value={quotationCoverage} label="Quotation coverage" color={CHART_SERIES[2]} height={150} />
           </div>
           <button
             type="button"

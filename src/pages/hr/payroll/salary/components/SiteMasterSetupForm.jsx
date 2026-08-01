@@ -38,7 +38,7 @@ function FormSection({ number, title, hint, children, variant = 'master' }) {
         }`}
       >
         {number ? (
-          <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md bg-[#1F3A8A] px-1.5 text-xs font-bold text-white">
+          <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md bg-accent px-1.5 text-xs font-bold text-white">
             {number}
           </span>
         ) : null}
@@ -68,10 +68,10 @@ function Field({ label, required, tag, hint, children, className = '' }) {
 }
 
 const inputClass =
-  'w-full h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#1F3A8A] focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/20';
+  'w-full h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20';
 const selectClass = `${inputClass} appearance-none`;
 const textareaClass =
-  'w-full min-h-[88px] resize-y rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#1F3A8A] focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/20';
+  'w-full min-h-[88px] resize-y rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20';
 
 export default function SiteMasterSetupForm({ form, onChange, disabled = false }) {
   const isIndustryOther = form.industryCategory === 'Other';
@@ -95,7 +95,7 @@ export default function SiteMasterSetupForm({ form, onChange, disabled = false }
 
   return (
     <div className="space-y-5">
-      <header className="border-b-2 border-[#1F3A8A] pb-4">
+      <header className="border-b-2 border-accent pb-4">
         <h2 className="text-base font-bold uppercase tracking-wide text-slate-900">Site Master Setup Form</h2>
         <p className="mt-1 text-xs text-slate-500">
           Manpower Services — Salary Management &amp; Architectural Matrix
@@ -307,7 +307,7 @@ export default function SiteMasterSetupForm({ form, onChange, disabled = false }
                 </div>
               </div>
               <p className="mt-3 border-t border-slate-200 pt-3 text-center text-xs font-medium text-slate-600">
-                Cycle preview: <span className="text-[#1F3A8A]">{attendanceCyclePreview}</span>
+                Cycle preview: <span className="text-accent">{attendanceCyclePreview}</span>
               </p>
             </div>
           </Field>

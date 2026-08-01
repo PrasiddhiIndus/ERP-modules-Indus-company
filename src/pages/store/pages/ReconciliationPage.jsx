@@ -29,7 +29,7 @@ export default function ReconciliationPage({ data }) {
           <div className="h-9 border border-gray-300 rounded px-2 text-sm flex items-center">System Qty: {systemQty}</div>
           <input className="h-9 border border-gray-300 rounded px-2 text-sm" type="number" placeholder="Physical Qty" value={form.physicalQty} onChange={(e) => setForm((p) => ({ ...p, physicalQty: Number(e.target.value || 0) }))} />
           <div className="h-9 border border-gray-300 rounded px-2 text-sm flex items-center">Variance: {variance}</div>
-          <button onClick={submit} className="h-9 rounded bg-[#1F3A8A] text-white text-sm">Save</button>
+          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Save</button>
         </div>
       </SectionCard>
 

@@ -132,8 +132,8 @@ function AllFormulasView({ groups, setGroups }) {
                 onClick={() => (isAdding ? cancelAdd() : startAdd(group.key))}
                 className={`inline-flex items-center justify-center h-6 w-6 rounded-md border shrink-0 ${
                   isAdding
-                    ? 'border-[#1F3A8A] bg-[#1F3A8A] text-white'
-                    : 'border-gray-200 text-gray-500 hover:border-[#1F3A8A] hover:text-[#1F3A8A] hover:bg-blue-50'
+                    ? 'border-accent bg-accent text-white'
+                    : 'border-gray-200 text-gray-500 hover:border-accent hover:text-accent hover:bg-blue-50'
                 }`}
                 aria-label={isAdding ? `Cancel add to ${group.title}` : `Add formula to ${group.title}`}
               >
@@ -167,7 +167,7 @@ function AllFormulasView({ groups, setGroups }) {
                             }}
                             placeholder="Component name"
                             autoFocus
-                            className="w-full h-7 rounded-md border border-[#1F3A8A]/30 px-2 text-[12.5px] text-gray-900 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white"
+                            className="w-full h-7 rounded-md border border-accent/30 px-2 text-[12.5px] text-gray-900 focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none bg-white"
                           />
                           <input
                             type="text"
@@ -178,7 +178,7 @@ function AllFormulasView({ groups, setGroups }) {
                               if (e.key === 'Escape') cancelEdit();
                             }}
                             placeholder="Formula expression"
-                            className="w-full h-7 rounded-md border border-[#1F3A8A]/30 px-2 text-[11.5px] text-gray-700 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white font-mono"
+                            className="w-full h-7 rounded-md border border-accent/30 px-2 text-[11.5px] text-gray-700 focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none bg-white font-mono"
                           />
                         </div>
                       ) : (
@@ -194,7 +194,7 @@ function AllFormulasView({ groups, setGroups }) {
                           type="button"
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => startEdit(group.key, item)}
-                          className="p-1 rounded-md text-gray-400 hover:text-[#1F3A8A] hover:bg-white"
+                          className="p-1 rounded-md text-gray-400 hover:text-accent hover:bg-white"
                           aria-label={`Edit ${item.name}`}
                         >
                           <Pencil className="h-3 w-3" />
@@ -214,7 +214,7 @@ function AllFormulasView({ groups, setGroups }) {
                 })
               )}
               {isAdding ? (
-                <div className="rounded-[9px] border border-dashed border-[#1F3A8A]/40 bg-blue-50/40 px-2.5 py-2 space-y-1.5">
+                <div className="rounded-[9px] border border-dashed border-accent/40 bg-blue-50/40 px-2.5 py-2 space-y-1.5">
                   <input
                     type="text"
                     value={newItemName}
@@ -228,7 +228,7 @@ function AllFormulasView({ groups, setGroups }) {
                     }}
                     placeholder="Component name"
                     autoFocus
-                    className="w-full h-8 rounded-md border border-gray-200 px-2 text-[12.5px] text-gray-900 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white"
+                    className="w-full h-8 rounded-md border border-gray-200 px-2 text-[12.5px] text-gray-900 focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none bg-white"
                   />
                   <input
                     type="text"
@@ -242,7 +242,7 @@ function AllFormulasView({ groups, setGroups }) {
                       if (e.key === 'Escape') cancelAdd();
                     }}
                     placeholder="Formula expression"
-                    className="w-full h-8 rounded-md border border-gray-200 px-2 text-[11.5px] text-gray-700 focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none bg-white font-mono"
+                    className="w-full h-8 rounded-md border border-gray-200 px-2 text-[11.5px] text-gray-700 focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none bg-white font-mono"
                   />
                   {addError ? <p className="text-[10px] text-red-600">{addError}</p> : null}
                   <div className="flex items-center gap-1.5">
@@ -250,7 +250,7 @@ function AllFormulasView({ groups, setGroups }) {
                       type="button"
                       onClick={() => commitAdd(group.key)}
                       disabled={!newItemName.trim() || !newItemExpression.trim()}
-                      className="h-7 px-2.5 rounded-md bg-[#1F3A8A] text-white text-[11px] font-medium disabled:opacity-50"
+                      className="h-7 px-2.5 rounded-md bg-accent text-white text-[11px] font-medium disabled:opacity-50"
                     >
                       Add
                     </button>
@@ -293,7 +293,7 @@ export default function FormulaLibrary() {
             type="button"
             onClick={() => setFormulaSubTab(tab.id)}
             className={`px-4 py-2 text-xs font-medium rounded-t-lg border-b-2 -mb-px ${
-              formulaSubTab === tab.id ? 'border-[#1F3A8A] text-[#1F3A8A]' : 'border-transparent text-gray-500'
+              formulaSubTab === tab.id ? 'border-accent text-accent' : 'border-transparent text-gray-500'
             }`}
           >
             {tab.label}

@@ -42,12 +42,12 @@ const MARK_LEGEND = [
 function tabClass(active) {
   return `inline-flex items-center gap-2 px-3.5 py-2 rounded-md text-sm font-medium border transition-colors ${
     active
-      ? "bg-[#1F3A8A] text-white border-[#1F3A8A]"
+      ? "bg-accent text-white border-accent"
       : "bg-white text-slate-700 hover:bg-slate-50 border-slate-300"
   }`;
 }
 
-function StatBlock({ label, value, sub, accent = "border-l-[#1F3A8A]", loading }) {
+function StatBlock({ label, value, sub, accent = "border-l-accent", loading }) {
   return (
     <div className={`rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm border-l-4 ${accent}`}>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
@@ -83,7 +83,7 @@ function SummaryCards({ stats, loading, totalCount }) {
         label="Total records"
         value={(stats?.total ?? totalCount ?? 0).toLocaleString()}
         sub="Matching filters"
-        accent="border-l-[#1F3A8A]"
+        accent="border-l-accent"
         loading={loading}
       />
       <StatBlock
@@ -400,7 +400,7 @@ function AttendanceDashboardTab({ filters, onOpenRegister }) {
           <button
             type="button"
             onClick={onOpenRegister}
-            className="mt-4 w-full h-9 rounded-md text-xs font-medium bg-[#1F3A8A] text-white hover:bg-[#1a3275]"
+            className="mt-4 w-full h-9 rounded-md text-xs font-medium bg-accent text-white hover:bg-accent-deep"
           >
             Open attendance register
           </button>
@@ -423,7 +423,7 @@ function AttendanceDashboardTab({ filters, onOpenRegister }) {
       <SectionCard
         title="Latest records"
         right={
-          <button type="button" onClick={onOpenRegister} className="text-[11px] font-medium text-[#1F3A8A] hover:underline">
+          <button type="button" onClick={onOpenRegister} className="text-[11px] font-medium text-accent hover:underline">
             View register
           </button>
         }
