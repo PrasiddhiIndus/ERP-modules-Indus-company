@@ -9,11 +9,12 @@ import {
   CheckCircle2,
   ArrowRight,
 } from "lucide-react";
+import { CHART_SERIES } from "../../../theme/tokens";
 
 export function SectionHeader({ title, right }) {
   return (
-    <div className="flex items-center justify-between gap-2 mb-2">
-      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+    <div className="flex items-center justify-between gap-3 mb-3">
+      <h3 className="type-card-title text-gray-900 type-truncate">{title}</h3>
       {right}
     </div>
   );
@@ -21,8 +22,8 @@ export function SectionHeader({ title, right }) {
 
 export function ExecutiveChip({ label, value, tone }) {
   return (
-    <div className={`px-2.5 py-1 rounded-md border text-xs ${tone}`}>
-      <span className="font-semibold">{value}</span>
+    <div className={`px-3 py-1.5 rounded-md border type-mono-caption ${tone}`}>
+      <span className="type-num font-medium normal-case tracking-normal">{value}</span>
       <span className="ml-1">{label}</span>
     </div>
   );
@@ -30,12 +31,12 @@ export function ExecutiveChip({ label, value, tone }) {
 
 export function KpiCard({ item }) {
   return (
-    <button className="text-left bg-white rounded-lg border border-gray-200 shadow-sm px-3 py-2 hover:border-blue-300 transition">
-      <p className="text-[11px] text-gray-500">{item.label}</p>
-      <p className="text-xl font-bold text-gray-900 leading-tight">{item.value}</p>
-      <div className="flex items-center justify-between mt-1">
-        <p className="text-[11px] text-gray-500">{item.sub}</p>
-        <span className="text-[10px] text-blue-700 font-semibold">{item.trend}</span>
+    <button className="text-left bg-surface rounded-lg border border-gray-200 shadow-sm px-4 py-3.5 hover:border-blue-300 transition">
+      <p className="type-mono-caption text-gray-500">{item.label}</p>
+      <p className="type-figure text-gray-900 mt-1.5">{item.value}</p>
+      <div className="flex items-center justify-between mt-2 gap-2">
+        <p className="type-meta text-gray-500 type-truncate">{item.sub}</p>
+        <span className="type-mono-caption text-blue-700 shrink-0">{item.trend}</span>
       </div>
     </button>
   );
@@ -44,15 +45,15 @@ export function KpiCard({ item }) {
 export function HealthCard({ item }) {
   const tone = item.score < 70 ? "text-red-700 bg-red-50 border-red-200" : item.score < 80 ? "text-amber-800 bg-amber-50 border-amber-200" : "text-emerald-800 bg-emerald-50 border-emerald-200";
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-gray-900">{item.module}</p>
-        <span className={`text-[10px] px-2 py-0.5 rounded border ${tone}`}>{item.health} · {item.score}</span>
+    <div className="bg-surface rounded-lg border border-gray-200 p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <p className="type-card-title text-gray-900 type-truncate">{item.module}</p>
+        <span className={`type-mono-caption px-2.5 py-1 rounded border shrink-0 ${tone}`}>{item.health} · {item.score}</span>
       </div>
-      <p className="text-xs text-gray-600 mt-1">{item.summary}</p>
-      <div className="text-[11px] text-gray-500 mt-2 flex gap-3">
-        <span>Pending: {item.pending}</span>
-        <span>Alerts: {item.alerts}</span>
+      <p className="type-meta text-gray-600 mt-2">{item.summary}</p>
+      <div className="type-mono-caption text-gray-500 mt-3 flex gap-4">
+        <span>Pending: <span className="type-num normal-case tracking-normal">{item.pending}</span></span>
+        <span>Alerts: <span className="type-num normal-case tracking-normal">{item.alerts}</span></span>
       </div>
     </div>
   );
@@ -65,18 +66,18 @@ export function SeverityBadge({ level }) {
     warning: "bg-blue-50 text-blue-800 border-blue-200",
     normal: "bg-sky-50 text-sky-800 border-sky-200",
   };
-  return <span className={`text-[10px] px-2 py-0.5 rounded border ${map[level] || map.normal}`}>{level}</span>;
+  return <span className={`type-mono-caption px-2 py-0.5 rounded border ${map[level] || map.normal}`}>{level}</span>;
 }
 
 export function PriorityActionRow({ row }) {
   return (
-    <div className="flex items-center gap-2 px-2 py-2 border-b border-gray-100 text-xs">
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 type-table-cell">
       <SeverityBadge level={row.severity} />
-      <span className="font-medium text-gray-800 min-w-20">{row.module}</span>
-      <span className="text-gray-700 flex-1">{row.title}</span>
-      <span className="text-gray-500">{row.count}</span>
-      <span className="text-gray-500 min-w-16">{row.due}</span>
-      <button className="text-blue-700 font-medium inline-flex items-center gap-1">Open <ArrowRight className="w-3 h-3" /></button>
+      <span className="type-body-medium text-gray-800 min-w-20 type-truncate">{row.module}</span>
+      <span className="text-gray-700 flex-1 type-truncate">{row.title}</span>
+      <span className="type-num text-gray-500">{row.count}</span>
+      <span className="type-code-meta text-gray-500 min-w-16">{row.due}</span>
+      <button className="type-body-medium text-blue-700 inline-flex items-center gap-1 shrink-0">Open <ArrowRight className="w-3 h-3" /></button>
     </div>
   );
 }
@@ -84,8 +85,8 @@ export function PriorityActionRow({ row }) {
 export function TrendWidget({ title, values }) {
   const max = Math.max(...values, 1);
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
-      <p className="text-xs font-semibold text-gray-800 mb-2">{title}</p>
+    <div className="bg-surface rounded-lg border border-gray-200 p-4 shadow-sm">
+      <p className="type-card-title text-gray-800 mb-3">{title}</p>
       <div className="flex items-end gap-1 h-16">
         {values.map((v, i) => (
           <div key={i} className="flex-1 bg-blue-100 rounded-sm">
@@ -97,7 +98,7 @@ export function TrendWidget({ title, values }) {
   );
 }
 
-export function MiniLineChart({ title, values, color = "#2563eb" }) {
+export function MiniLineChart({ title, values, color = "var(--info)" }) {
   const pts = Array.isArray(values) ? values : [];
   const max = Math.max(...pts, 1);
   const w = 240;
@@ -124,7 +125,7 @@ export function MiniLineChart({ title, values, color = "#2563eb" }) {
   const total = pts.reduce((a, b) => a + (Number(b) || 0), 0);
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
+    <div className="bg-surface rounded-lg border border-gray-200 p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-gray-800">{title}</p>
         <div className="text-[10px] text-gray-500">
@@ -156,17 +157,17 @@ export function DonutChart({ title, items }) {
   const c = 2 * Math.PI * r;
   let offset = 0;
 
-  const palette = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#64748b"];
+  const palette = CHART_SERIES;
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
+    <div className="bg-surface rounded-lg border border-gray-200 p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-gray-800">{title}</p>
         <span className="text-[10px] text-gray-500">total {total}</span>
       </div>
       <div className="mt-2 flex gap-3">
         <svg width="108" height="108" viewBox="0 0 108 108" className="shrink-0">
-          <circle cx={cx} cy={cy} r={r} fill="none" stroke="#e5e7eb" strokeWidth="12" />
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth="12" />
           {rows
             .filter((x) => (Number(x.value) || 0) > 0)
             .map((x, i) => {
@@ -223,16 +224,16 @@ export function DonutChart({ title, items }) {
 
 export function SnapshotCard({ module, rows }) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-sm font-semibold text-gray-900">{module}</p>
-        <button className="text-[11px] text-blue-700 font-medium">View details</button>
+    <div className="bg-surface rounded-lg border border-gray-200 p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <p className="type-card-title text-gray-900 type-truncate">{module}</p>
+        <button className="type-meta text-blue-700 font-medium shrink-0">View details</button>
       </div>
-      <div className="space-y-1 text-xs">
+      <div className="space-y-2 type-table-cell">
         {rows.map(([k, v]) => (
-          <div key={k} className="flex items-center justify-between text-gray-700">
-            <span>{k}</span>
-            <span className="font-semibold text-gray-900">{v}</span>
+          <div key={k} className="flex items-center justify-between text-gray-700 py-0.5">
+            <span className="type-truncate">{k}</span>
+            <span className="type-num text-gray-900">{v}</span>
           </div>
         ))}
       </div>
@@ -242,13 +243,13 @@ export function SnapshotCard({ module, rows }) {
 
 export function AlertRow({ row }) {
   return (
-    <div className="grid grid-cols-[86px_90px_1fr_110px_90px_70px] items-center gap-2 text-xs px-2 py-2 border-b border-gray-100">
+    <div className="grid grid-cols-[86px_90px_1fr_110px_90px_70px] items-center gap-3 type-table-cell px-4 py-3 border-b border-gray-100">
       <SeverityBadge level={row.severity} />
-      <span className="font-medium text-gray-800">{row.module}</span>
-      <span className="text-gray-700">{row.title}</span>
-      <span className="text-gray-500">{row.record}</span>
-      <span className="text-gray-500">{row.age}</span>
-      <button className="text-blue-700 font-medium text-left">Action</button>
+      <span className="type-body-medium text-gray-800 type-truncate">{row.module}</span>
+      <span className="text-gray-700 type-truncate">{row.title}</span>
+      <span className="type-code-meta text-gray-500 type-truncate">{row.record}</span>
+      <span className="type-code-meta text-gray-500">{row.age}</span>
+      <button className="type-body-medium text-blue-700 text-left">Action</button>
     </div>
   );
 }
@@ -264,7 +265,7 @@ export function ApprovalTable({ rows }) {
             ))}
           </tr>
         </thead>
-        <tbody className="bg-white divide-y divide-gray-100">
+        <tbody className="bg-surface divide-y divide-gray-100">
           {rows.map((r, idx) => (
             <tr key={r.id}>
               <td className="px-2 py-1.5 text-center text-gray-600 tabular-nums">{idx + 1}</td>
@@ -285,11 +286,11 @@ export function ApprovalTable({ rows }) {
 
 export function ActivityItem({ item }) {
   return (
-    <div className="flex items-start gap-2 text-xs border-b border-gray-100 py-2">
-      <span className="text-gray-400 font-mono min-w-10">{item.time}</span>
-      <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{item.module}</span>
-      <span className="text-gray-700 flex-1">{item.text}</span>
-      <span className="text-blue-700">{item.record}</span>
+    <div className="flex items-start gap-2 type-table-cell border-b border-gray-100 py-2">
+      <span className="type-code-meta text-gray-400 min-w-10">{item.time}</span>
+      <span className="type-mono-caption px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">{item.module}</span>
+      <span className="text-gray-700 flex-1 type-truncate">{item.text}</span>
+      <span className="type-code-meta text-blue-700">{item.record}</span>
     </div>
   );
 }
@@ -303,7 +304,7 @@ export function QuickActionTile({ label, to, onNavigate }) {
       type="button"
       onClick={handleClick}
       disabled={!to}
-      className="h-9 px-3 rounded-lg border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+      className="h-9 px-3 rounded-lg border border-gray-300 bg-surface text-xs text-gray-700 hover:bg-gray-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {label}
     </button>
@@ -317,7 +318,7 @@ export function HeaderControls({ onRefresh, refreshing = false }) {
         <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
         <input className="h-8 w-52 pl-7 pr-2 rounded border border-gray-300 text-xs" placeholder="Search modules, records..." />
       </div>
-      <select className="h-8 rounded border border-gray-300 text-xs px-2 bg-white">
+      <select className="h-8 rounded border border-gray-300 text-xs px-2 bg-surface">
         <option>All</option>
         <option>IFSPL</option>
         <option>IEVPL</option>
@@ -333,7 +334,7 @@ export function HeaderControls({ onRefresh, refreshing = false }) {
       </button>
       <button className="h-8 px-2 rounded border border-gray-300 text-xs inline-flex items-center gap-1"><Download className="w-3.5 h-3.5" />Export snapshot</button>
       <button className="h-8 w-8 rounded border border-gray-300 inline-flex items-center justify-center"><Bell className="w-4 h-4 text-gray-600" /></button>
-      <div className="h-8 px-2 rounded border border-gray-300 text-xs inline-flex items-center gap-1 bg-white"><UserCircle2 className="w-4 h-4 text-gray-600" />Super Admin</div>
+      <div className="h-8 px-2 rounded border border-gray-300 text-xs inline-flex items-center gap-1 bg-surface"><UserCircle2 className="w-4 h-4 text-gray-600" />Super Admin</div>
     </div>
   );
 }

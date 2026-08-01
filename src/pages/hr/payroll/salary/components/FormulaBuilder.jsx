@@ -171,7 +171,7 @@ export default function FormulaBuilder({
         draggable
         onDragStart={(e) => handleDragStart(e, code)}
         className={`group relative flex items-center gap-0.5 rounded-lg border transition cursor-grab active:cursor-grabbing ${
-          isActive ? 'border-[#1F3A8A] bg-blue-50/80' : 'border-gray-200 bg-white hover:border-blue-200'
+          isActive ? 'border-accent bg-blue-50/80' : 'border-gray-200 bg-white hover:border-blue-200'
         }`}
       >
         <GripVertical className="h-3.5 w-3.5 text-gray-300 shrink-0 ml-1" aria-hidden />
@@ -179,7 +179,7 @@ export default function FormulaBuilder({
           type="button"
           onClick={() => loadFormula(code)}
           className={`flex-1 min-w-0 text-left px-1.5 py-2 text-xs truncate ${
-            isActive ? 'text-[#1F3A8A] font-semibold' : 'text-gray-800 font-medium'
+            isActive ? 'text-accent font-semibold' : 'text-gray-800 font-medium'
           }`}
           title={`${c.component_name} — drag to insert, click to edit`}
         >
@@ -191,7 +191,7 @@ export default function FormulaBuilder({
         <button
           type="button"
           onClick={(e) => editFormula(code, e)}
-          className="p-1.5 rounded-md text-gray-500 hover:text-[#1F3A8A] hover:bg-blue-50 shrink-0"
+          className="p-1.5 rounded-md text-gray-500 hover:text-accent hover:bg-blue-50 shrink-0"
           aria-label={`Edit ${code}`}
         >
           <Pencil className="h-3.5 w-3.5" />
@@ -222,7 +222,7 @@ export default function FormulaBuilder({
       <div className="border-b lg:border-b-0 lg:border-r border-gray-200 p-4 overflow-y-auto max-h-[560px]">
         <label className="block text-[11px] font-medium text-gray-700 mb-1">Formula expression</label>
         {activeKey ? (
-          <p className="text-[10px] text-[#1F3A8A] font-medium mb-1.5">
+          <p className="text-[10px] text-accent font-medium mb-1.5">
             Editing: <span className="font-mono">{activeKey}</span>
             {useComponentMode && masterFormulas[activeKey] ? (
               <span className="text-gray-500 font-normal ml-1">(master: {masterFormulas[activeKey]})</span>
@@ -243,8 +243,8 @@ export default function FormulaBuilder({
           onDrop={handleDrop}
           rows={4}
           placeholder="Build formula — drag components here or use operators below"
-          className={`w-full font-mono text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#1F3A8A]/30 ${
-            dragOver ? 'border-[#1F3A8A] bg-blue-50/40' : 'border-gray-300'
+          className={`w-full font-mono text-sm border rounded-lg px-3 py-2 focus:ring-2 focus:ring-accent/30 ${
+            dragOver ? 'border-accent bg-blue-50/40' : 'border-gray-300'
           }`}
         />
         {!validation.ok ? (
@@ -286,7 +286,7 @@ export default function FormulaBuilder({
           ))}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={runPreview} className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium">
+          <button type="button" onClick={runPreview} className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-medium">
             Test formula
           </button>
           {activeKey ? (
@@ -294,7 +294,7 @@ export default function FormulaBuilder({
               type="button"
               onClick={saveToKey}
               disabled={!value.trim()}
-              className="h-8 px-3 rounded-lg border border-[#1F3A8A] text-[#1F3A8A] text-xs font-medium hover:bg-blue-50 disabled:opacity-50"
+              className="h-8 px-3 rounded-lg border border-accent text-accent text-xs font-medium hover:bg-blue-50 disabled:opacity-50"
             >
               Save to {activeKey}
             </button>
@@ -324,7 +324,7 @@ export default function FormulaBuilder({
                   value={componentSearch}
                   onChange={(e) => setComponentSearch(e.target.value)}
                   placeholder="Search components…"
-                  className="w-full h-8 pl-8 pr-8 rounded-lg border border-gray-200 bg-white text-xs focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A]"
+                  className="w-full h-8 pl-8 pr-8 rounded-lg border border-gray-200 bg-white text-xs focus:ring-2 focus:ring-accent/20 focus:border-accent"
                 />
                 {componentSearch ? (
                   <button
@@ -367,14 +367,14 @@ export default function FormulaBuilder({
                     <div
                       key={v.key}
                       className={`group relative flex items-center gap-1 rounded-lg border transition ${
-                        isActive ? 'border-[#1F3A8A] bg-blue-50/80' : 'border-blue-100 bg-white hover:border-blue-200'
+                        isActive ? 'border-accent bg-blue-50/80' : 'border-blue-100 bg-white hover:border-blue-200'
                       }`}
                     >
                       <button
                         type="button"
                         onClick={() => loadFormula(v.key)}
                         className={`flex-1 min-w-0 text-left px-2.5 py-2 text-xs font-medium truncate ${
-                          isActive ? 'text-[#1F3A8A]' : 'text-blue-800'
+                          isActive ? 'text-accent' : 'text-blue-800'
                         }`}
                       >
                         {v.key}
@@ -382,7 +382,7 @@ export default function FormulaBuilder({
                       <button
                         type="button"
                         onClick={(e) => editFormula(v.key, e)}
-                        className="p-1.5 rounded-md text-gray-500 hover:text-[#1F3A8A] hover:bg-blue-50 shrink-0"
+                        className="p-1.5 rounded-md text-gray-500 hover:text-accent hover:bg-blue-50 shrink-0"
                         aria-label={`Edit ${v.key}`}
                       >
                         <Pencil className="h-3.5 w-3.5" />

@@ -341,7 +341,7 @@ export default function AdminOpsReports() {
               }}
               className={`h-8 px-3 rounded-lg text-xs font-semibold transition ${
                 activeTab === tab.id
-                  ? "bg-[#1F3A8A] text-white"
+                  ? "bg-accent text-white"
                   : "bg-gray-100 text-gray-700 hover:bg-gray-200"
               }`}
             >
@@ -363,7 +363,7 @@ export default function AdminOpsReports() {
                 }}
                 className={`h-8 px-3 rounded-lg text-xs font-semibold border transition ${
                   attendanceReportType === t.id
-                    ? "bg-[#1F3A8A] text-white border-[#1F3A8A]"
+                    ? "bg-accent text-white border-accent"
                     : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                 }`}
               >
@@ -439,7 +439,7 @@ export default function AdminOpsReports() {
             type="button"
             onClick={handleRunReport}
             disabled={loading}
-            className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs disabled:opacity-60"
+            className="h-8 px-3 rounded-lg bg-accent text-white text-xs disabled:opacity-60"
           >
             {loading ? "Loading…" : "Run report"}
           </button>
@@ -503,7 +503,7 @@ export default function AdminOpsReports() {
                     key={f.id}
                     className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[11px] cursor-pointer ${
                       customColumns.includes(f.id)
-                        ? "bg-[#1F3A8A] text-white border-[#1F3A8A]"
+                        ? "bg-accent text-white border-accent"
                         : "bg-white border-gray-300 text-gray-700"
                     }`}
                   >

@@ -1,8 +1,281 @@
+@import './theme/tokens.css';
+@import './theme/typography.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ─── INDUS ERP: unified data tables (Fire Tender look, accent #dc2626) ───
+/* ─── Global typography & base ─────────────────────────────────────────── */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    color: var(--text);
+    background-color: var(--canvas);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'liga' 1;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--canvas);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--type-body-size);
+    font-weight: 400;
+    line-height: var(--leading-ui);
+    font-style: normal;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  /* No italics anywhere — emphasis is weight or colour */
+  i,
+  em,
+  .italic,
+  .font-italic {
+    font-style: normal !important;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-sans);
+    font-style: normal;
+    text-wrap: balance;
+  }
+
+  p,
+  td,
+  th,
+  li {
+    text-wrap: pretty;
+  }
+
+  .type-prose {
+    max-width: 76ch;
+    line-height: var(--leading-prose);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+    font-style: normal;
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    border-color: var(--accent);
+  }
+
+  /* Tabular nums for numeric data surfaces */
+  .tabular-nums,
+  .erp-numeric,
+  .kpi-value,
+  .type-figure,
+  .type-figure-lg,
+  .type-num,
+  .type-code-meta,
+  [data-numeric='true'] {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+
+  /* Map common Tailwind font aliases to stacks */
+  .font-sans,
+  .font-heading,
+  .font-body {
+    font-family: var(--font-sans);
+  }
+
+  .font-mono,
+  .font-metrics {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .erp-page-title {
+    font-family: var(--font-sans);
+    font-size: var(--type-page-title-size);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    line-height: var(--leading-title);
+    text-wrap: balance;
+  }
+
+  .erp-card-title {
+    font-family: var(--font-sans);
+    font-size: var(--type-card-title-size);
+    font-weight: 600;
+    color: var(--text);
+    line-height: var(--leading-title);
+  }
+
+  .erp-section-caption {
+    font-family: var(--font-sans);
+    font-size: var(--type-caption-size);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-caption);
+    line-height: var(--leading-ui);
+  }
+
+  .erp-mono-caption {
+    font-family: var(--font-mono);
+    font-size: var(--type-mono-caption-size);
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-caption);
+    line-height: var(--leading-badge);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .erp-mono-micro {
+    font-family: var(--font-mono);
+    font-size: var(--type-mono-micro-size);
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-caption);
+    line-height: var(--leading-badge);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .erp-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-badge);
+    font-family: var(--font-mono);
+    font-size: var(--type-mono-caption-size);
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    line-height: var(--leading-badge);
+    font-variant-numeric: tabular-nums;
+    padding: 0.15rem 0.45rem;
+    border-width: 1px;
+    font-style: normal;
+  }
+
+  .erp-btn-primary {
+    background-color: var(--accent);
+    color: var(--surface-raised);
+    border-radius: var(--radius-control);
+    font-family: var(--font-sans);
+    font-size: var(--type-body-size);
+    font-weight: 500;
+    line-height: var(--leading-ui);
+    font-style: normal;
+    transition: background-color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out);
+  }
+  .erp-btn-primary:hover:not(:disabled) {
+    background-color: var(--accent-deep);
+  }
+  .erp-btn-primary:focus-visible {
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    border-color: var(--accent);
+  }
+
+  .erp-btn-secondary {
+    background-color: var(--surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-control);
+    font-family: var(--font-sans);
+    font-size: var(--type-body-size);
+    font-weight: 500;
+    line-height: var(--leading-ui);
+  }
+  .erp-btn-secondary:hover:not(:disabled) {
+    background-color: var(--surface-sunken);
+  }
+
+  .erp-btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: var(--radius-control);
+  }
+  .erp-btn-ghost:hover:not(:disabled) {
+    background-color: var(--surface-sunken);
+  }
+
+  .erp-btn-destructive {
+    background-color: var(--critical-soft);
+    color: var(--critical);
+    border: 1px solid var(--critical-border);
+    border-radius: var(--radius-control);
+  }
+
+  .erp-btn-disabled,
+  .erp-btn-primary:disabled,
+  .erp-btn-secondary:disabled {
+    background-color: var(--surface-sunken);
+    color: var(--text-disabled);
+    border-color: var(--border);
+    cursor: not-allowed;
+  }
+
+  .erp-input {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    font-size: 13px;
+    color: var(--text);
+  }
+  .erp-input::placeholder {
+    color: var(--text-muted);
+  }
+  .erp-input:disabled {
+    background-color: var(--surface-sunken);
+    color: var(--text-disabled);
+  }
+  .erp-input:focus,
+  .erp-input:focus-visible {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    outline: none;
+  }
+  .erp-input-error {
+    border-color: var(--critical);
+  }
+
+  .erp-alert-critical {
+    background: var(--critical-soft);
+    border: 1px solid color-mix(in srgb, var(--critical) 25%, transparent);
+    color: var(--critical);
+  }
+  .erp-alert-warning {
+    background: var(--warning-soft);
+    border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
+    color: var(--warning);
+  }
+  .erp-alert-success {
+    background: var(--success-soft);
+    border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
+    color: var(--success);
+  }
+  .erp-alert-info {
+    background: var(--info-soft);
+    border: 1px solid color-mix(in srgb, var(--info) 25%, transparent);
+    color: var(--info);
+  }
+}
+
+/* ─── INDUS ERP: unified data tables ─────────────────────────────────────
    Scoped to main.erp-app-shell so login / public pages are unaffected.
    Add class `erp-table-exempt` on a <table> to skip (e.g. tax invoice letterhead). */
 main.erp-app-shell table:not(.erp-table-exempt) {
@@ -11,40 +284,155 @@ main.erp-app-shell table:not(.erp-table-exempt) {
 
 main.erp-app-shell table:not(.erp-table-exempt) > thead,
 main.erp-app-shell table:not(.erp-table-exempt) thead {
-  background-color: transparent !important;
-  background-image: linear-gradient(90deg, rgb(254 242 242), rgb(255 251 235)) !important;
-  border-bottom: 1px solid rgb(254 202 202) !important;
+  background-color: var(--surface-sunken) !important;
+  background-image: none !important;
+  border-bottom: 1px solid var(--border) !important;
 }
 
 main.erp-app-shell table:not(.erp-table-exempt) thead th {
   background-color: transparent !important;
   background-image: none !important;
-  color: #374151 !important;
-  font-weight: 700 !important;
-  font-size: 11px !important;
-  letter-spacing: 0.06em !important;
+  color: var(--text-caption) !important;
+  font-family: var(--font-mono) !important;
+  font-weight: 500 !important;
+  font-size: var(--type-mono-caption-size) !important;
+  letter-spacing: 0.1em !important;
   text-transform: uppercase !important;
+  line-height: var(--leading-badge) !important;
+  font-variant-numeric: tabular-nums;
+  font-style: normal !important;
   border-bottom: none !important;
   vertical-align: middle;
 }
 
 main.erp-app-shell table:not(.erp-table-exempt) tbody tr {
-  transition: background-color 0.15s ease;
+  transition: background-color var(--duration-fast) var(--ease-out);
+  border-bottom: 1px solid var(--divider);
+}
+
+/* ─── Comfortable density: cards, stacks, grids inside the app shell ───── */
+main.erp-app-shell {
+  --tw-space-y-reverse: 0;
+}
+
+/* Vertical stacks used as page section rhythm */
+main.erp-app-shell .space-y-2 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.75rem !important;
+}
+main.erp-app-shell .space-y-3 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: var(--space-stack) !important;
+}
+main.erp-app-shell .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: var(--space-section) !important;
+}
+main.erp-app-shell .space-y-5 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 2rem !important;
+}
+main.erp-app-shell .space-y-6 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 2.25rem !important;
+}
+
+/* Card / KPI grids — more air between tiles */
+main.erp-app-shell .grid.gap-1 {
+  gap: 0.5rem !important;
+}
+main.erp-app-shell .grid.gap-2 {
+  gap: var(--space-grid) !important;
+}
+main.erp-app-shell .grid.gap-3 {
+  gap: var(--space-grid-lg) !important;
+}
+main.erp-app-shell .grid.gap-4 {
+  gap: 1.5rem !important;
+}
+
+/* Common card body paddings (Tailwind p-2 / p-3 / p-4 on card shells) */
+main.erp-app-shell .bg-white.p-2,
+main.erp-app-shell .bg-surface.p-2,
+main.erp-app-shell .bg-white.p-3,
+main.erp-app-shell .bg-surface.p-3 {
+  padding: var(--space-card) !important;
+}
+main.erp-app-shell .bg-white.p-4,
+main.erp-app-shell .bg-surface.p-4,
+main.erp-app-shell .bg-white.p-5,
+main.erp-app-shell .bg-surface.p-5 {
+  padding: var(--space-card-lg) !important;
+}
+
+/* Card header strips that were py-2 / px-3 */
+main.erp-app-shell .border-b.px-3.py-2,
+main.erp-app-shell .border-b.px-4.py-2 {
+  padding-left: var(--space-card-header-x) !important;
+  padding-right: var(--space-card-header-x) !important;
+  padding-top: var(--space-card-header-y) !important;
+  padding-bottom: var(--space-card-header-y) !important;
+}
+
+/* List / action rows inside panels */
+main.erp-app-shell .border-b.border-gray-100.px-2.py-2,
+main.erp-app-shell .border-b.border-divider.px-2.py-2 {
+  padding-top: var(--space-row) !important;
+  padding-bottom: var(--space-row) !important;
+  padding-left: var(--space-inline) !important;
+  padding-right: var(--space-inline) !important;
+}
+
+/* Section headers above grids — prefer component mb-3; avoid blanket mb-2 overrides */
+
+.erp-card-body {
+  padding: var(--space-card);
+}
+@media (min-width: 640px) {
+  .erp-card-body {
+    padding: var(--space-card-lg);
+  }
+}
+.erp-card-header {
+  padding: var(--space-card-header-y) var(--space-card-header-x);
+}
+.erp-page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-section);
+}
+.erp-card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-stack);
 }
 
 main.erp-app-shell table:not(.erp-table-exempt) tbody tr:hover {
-  background-color: rgba(254, 242, 242, 0.55) !important;
+  background-color: var(--row-hover) !important;
 }
 
-/* Dynamic column/cell spacing — content-driven width, readable inputs */
+main.erp-app-shell table:not(.erp-table-exempt) tbody tr[aria-selected='true'],
+main.erp-app-shell table:not(.erp-table-exempt) tbody tr.selected {
+  background-color: var(--accent-soft) !important;
+}
+
 main.erp-app-shell table:not(.erp-table-exempt) th,
 main.erp-app-shell table:not(.erp-table-exempt) td {
-  padding: 0.5rem 0.75rem !important;
+  padding: var(--table-pad-y) var(--table-pad-x) !important;
   min-width: 4.5rem;
   vertical-align: middle;
+  font-size: var(--type-table-cell-size);
+  font-family: var(--font-sans);
+  line-height: var(--leading-ui);
+  color: var(--text);
+  font-style: normal;
 }
 
-main.erp-app-shell table:not(.erp-table-exempt) td input:not([type="checkbox"]):not([type="radio"]),
+main.erp-app-shell table:not(.erp-table-exempt) td.erp-numeric,
+main.erp-app-shell table:not(.erp-table-exempt) td[data-numeric='true'] {
+  font-family: var(--font-mono);
+  font-size: var(--type-num-size);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font-style: normal;
+}
+
+main.erp-app-shell table:not(.erp-table-exempt) td input:not([type='checkbox']):not([type='radio']),
 main.erp-app-shell table:not(.erp-table-exempt) td select,
 main.erp-app-shell table:not(.erp-table-exempt) td textarea {
   min-width: 5rem;
@@ -54,6 +442,8 @@ main.erp-app-shell table:not(.erp-table-exempt) td textarea {
 
 main.erp-app-shell .erp-numeric-input {
   min-width: 5.5rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 main.erp-app-shell .erp-hub-tab-panel > div.min-h-screen {
@@ -67,13 +457,13 @@ main.erp-app-shell .erp-hub-tab-panel > div.min-h-screen > div {
 }
 
 /* Numeric fields: no spinner arrows; digits only via NumericInput */
-main.erp-app-shell input[type="number"]::-webkit-inner-spin-button,
-main.erp-app-shell input[type="number"]::-webkit-outer-spin-button {
+main.erp-app-shell input[type='number']::-webkit-inner-spin-button,
+main.erp-app-shell input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
-main.erp-app-shell input[type="number"],
+main.erp-app-shell input[type='number'],
 main.erp-app-shell .erp-numeric-input {
   -moz-appearance: textfield;
   appearance: textfield;
@@ -81,7 +471,7 @@ main.erp-app-shell .erp-numeric-input {
 
 main.erp-app-shell .overflow-x-auto {
   scrollbar-width: thin;
-  scrollbar-color: rgba(220, 38, 38, 0.45) #f3f4f6;
+  scrollbar-color: var(--accent-border) var(--surface-sunken);
 }
 
 main.erp-app-shell .overflow-x-auto::-webkit-scrollbar {
@@ -90,177 +480,230 @@ main.erp-app-shell .overflow-x-auto::-webkit-scrollbar {
 }
 
 main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-track {
-  background: #f3f4f6;
+  background: var(--surface-sunken);
   border-radius: 4px;
 }
 
 main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-thumb {
-  background: rgba(220, 38, 38, 0.45);
+  background: var(--border-strong);
   border-radius: 4px;
 }
 
 main.erp-app-shell .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-  background: rgba(220, 38, 38, 0.65);
+  background: var(--accent);
 }
 
-/* Daily register: Excel-style freeze panes (sticky left employee columns) */
+/* Daily register: Excel-style freeze panes */
 main.erp-app-shell .erp-freeze-pane-scroll {
   -webkit-overflow-scrolling: touch;
 }
 
 main.erp-app-shell .erp-freeze-pane-frozen {
-  background-color: #ffffff;
+  background-color: var(--surface);
 }
 
 main.erp-app-shell .erp-freeze-pane-scroll > div > div:first-child .erp-freeze-pane-frozen {
-  background-color: #f9fafb;
+  background-color: var(--surface-sunken);
 }
 
 main.erp-app-shell .erp-freeze-pane-edge {
-  box-shadow: 4px 0 10px -6px rgba(0, 0, 0, 0.18);
-  border-right: 1px solid #d1d5db;
+  box-shadow: 4px 0 10px -6px rgba(31, 35, 32, 0.12);
+  border-right: 1px solid var(--border-strong);
 }
 
-/* ERP dates: dd/mm/yyyy display (en-GB, locale-independent) */
-html[lang="en-GB"] .erp-date-input-text::placeholder {
-  color: #9ca3af;
+html[lang='en-GB'] .erp-date-input-text::placeholder {
+  color: var(--text-muted);
   font-size: 0.875em;
 }
 
-html[lang="en-GB"] input[type="date"] {
+html[lang='en-GB'] input[type='date'] {
   font-family: inherit;
 }
 
-html[lang="en-GB"] input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+html[lang='en-GB'] input[type='date']::-webkit-datetime-edit-fields-wrapper {
   font-variant-numeric: tabular-nums;
 }
 
 main.erp-app-shell .erp-freeze-pane-sticky-header > div > div:first-child .erp-freeze-pane-frozen {
-  background-color: #f9fafb;
+  background-color: var(--surface-sunken);
 }
 
-/* INDUS OS – Command Interface login */
+/* ─── Auth / login screens ─────────────────────────────────────────────── */
 .login-page {
-  --indus-red: #C8102E;
-  --indus-red-hover: #A50D25;
-  --midnight: #0B1220;
-  --glass-bg: rgba(255, 255, 255, 0.05);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glow-cyan: rgba(0, 212, 255, 0.25);
-  --glow-red: rgba(200, 16, 46, 0.4);
+  background-color: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-sans);
 }
 
-.login-page .login-grid-bg {
-  background-image:
-    linear-gradient(rgba(30, 144, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(30, 144, 255, 0.03) 1px, transparent 1px);
-  background-size: 48px 48px;
-  animation: gridMove 20s linear infinite;
+.login-page .login-brand-panel {
+  background-color: var(--surface-sunken);
+  border-right: 1px solid var(--border-strong);
 }
 
-@keyframes gridMove {
-  0% { background-position: 0 0; }
-  100% { background-position: 48px 48px; }
+.login-page .login-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-popover);
+  overflow: hidden;
 }
 
-.login-page .login-glass {
-  background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+.login-page .login-label {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-caption-size);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: var(--leading-badge);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-caption);
+  font-style: normal;
+}
+
+.login-page .login-input {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: 400;
+  line-height: var(--leading-ui);
+  color: var(--text);
+  font-style: normal;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.login-page .login-input::placeholder {
+  color: var(--text-muted);
 }
 
 .login-page .login-input:focus {
   outline: none;
-  border-color: rgba(0, 212, 255, 0.5);
-  box-shadow: 0 0 0 3px var(--glow-cyan);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .login-page .login-btn-primary {
-  background-color: var(--indus-red);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  background-color: var(--accent);
+  color: var(--surface-raised);
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: 500;
+  line-height: var(--leading-ui);
+  font-style: normal;
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .login-page .login-btn-primary:hover:not(:disabled) {
-  background-color: var(--indus-red-hover);
-  transform: scale(1.02);
-  box-shadow: 0 0 24px var(--glow-red);
+  background-color: var(--accent-deep);
+}
+
+.login-page .login-btn-primary:disabled {
+  background-color: var(--surface-sunken);
+  color: var(--text-disabled);
 }
 
 .login-page .login-spinner {
-  border-color: rgba(255, 255, 255, 0.3);
-  border-top-color: var(--indus-red);
+  border-color: color-mix(in srgb, var(--surface-raised) 40%, transparent);
+  border-top-color: var(--surface-raised);
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.login-page .login-otp-box {
+  width: 44px;
+  height: 52px;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 400;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-style: normal;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
 }
 
-/* Rotating stat text */
+.login-page .login-otp-box:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  outline: none;
+}
+
+.login-page .login-footer {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-micro-size);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: var(--leading-badge);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-disabled);
+  font-style: normal;
+}
+
+@media print {
+  html,
+  body {
+    font-family: var(--font-sans);
+    font-size: 11pt;
+    line-height: 1.45;
+    font-style: normal;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 14pt;
+    line-height: 1.2;
+  }
+
+  .type-figure,
+  .type-figure-lg,
+  .type-num,
+  .type-code-meta,
+  .font-mono,
+  .tabular-nums,
+  [data-numeric='true'],
+  td.erp-numeric {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 10.5pt;
+  }
+
+  .type-mono-caption,
+  .type-mono-micro,
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 9pt;
+    font-weight: 500;
+    text-transform: uppercase;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .login-stat-enter {
   animation: statFadeIn 0.5s ease-out forwards;
 }
 
 @keyframes statFadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Detailed layout – metric cards, sections, dividers */
-.login-page .login-metric-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 0.875rem 1rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.login-page .login-metric-card:hover {
-  border-color: rgba(30, 144, 255, 0.2);
-  box-shadow: 0 0 20px rgba(30, 144, 255, 0.06);
-}
-
-.login-page .login-capability-pill {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 0.375rem 0.75rem;
-  font-size: 0.75rem;
-  color: rgba(243, 244, 246, 0.9);
-}
-
-.login-page .login-section-divider {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
-}
-
-.login-page .login-accent-bar {
-  height: 3px;
-  background: linear-gradient(90deg, #C8102E, #1E90FF);
-  border-radius: 0 0 2px 2px;
-}
-
-.login-page .login-live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: #10B981;
-  text-transform: uppercase;
-}
-
-.login-page .login-card-badge {
-  font-size: 0.65rem;
-  color: rgba(156, 163, 175, 0.8);
-  letter-spacing: 0.05em;
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Attendance register: color closed cell only; neutral dropdown list */
@@ -269,6 +712,14 @@ select.register-mark-select {
 }
 
 select.register-mark-select option {
-  background-color: #ffffff;
-  color: #111827;
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+/* Soften any leftover solid saturated fills from legacy utilities */
+.bg-white {
+  background-color: var(--surface);
+}
+.text-white {
+  color: var(--surface-raised);
 }

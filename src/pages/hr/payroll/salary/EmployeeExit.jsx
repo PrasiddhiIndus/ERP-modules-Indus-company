@@ -31,7 +31,7 @@ export default function EmployeeExit() {
           <h2 className="text-lg font-semibold text-gray-900">Employee exit</h2>
           <p className="text-xs text-gray-500 mt-0.5">Resignation, retirement, and separation workflow.</p>
         </div>
-        <button type="button" className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium hover:bg-[#1a3278]">
+        <button type="button" className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep">
           <Plus className="h-3.5 w-3.5" />
           Initiate exit
         </button>

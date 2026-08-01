@@ -878,7 +878,7 @@ const CostingTable = ({
   };
 
   const costingHeaderSticky =
-    "sticky top-0 z-20 border border-red-100 bg-gradient-to-r from-red-50 to-amber-50 px-2 py-1 shadow-[0_1px_0_0_#fecaca]";
+    "sticky top-0 z-20 border border-red-100 bg-gradient-to-r from-red-50 to-amber-50 px-2 py-1 border-b border-border";
   const costingFreezeSrHeader = `${costingHeaderSticky} left-0 z-30 min-w-[3rem] w-12`;
   const costingFreezeMainHeader = `${costingHeaderSticky} left-12 z-30 min-w-[11rem] w-44 erp-freeze-pane-edge`;
   const costingFreezeSrBody = "sticky left-0 z-10 border bg-white px-2 py-1 text-center erp-freeze-pane-frozen";

@@ -74,7 +74,7 @@ export default function EmployeePayrollProfile() {
     <div className="space-y-4">
       <Link to={salaryAppPath('employees')} className="text-xs text-blue-700 underline">← Employee list</Link>
       <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-4 items-start">
-        <div className="w-12 h-12 rounded-full bg-[#1F3A8A]/10 flex items-center justify-center text-lg font-bold text-[#1F3A8A]">
+        <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center text-lg font-bold text-accent">
           {(employee.full_name || '?')[0]}
         </div>
         <div className="flex-1 min-w-0">
@@ -105,7 +105,7 @@ export default function EmployeePayrollProfile() {
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`px-3 py-1.5 text-xs rounded-lg ${tab === t ? 'bg-[#1F3A8A] text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+            className={`px-3 py-1.5 text-xs rounded-lg ${tab === t ? 'bg-accent text-white' : 'text-gray-600 hover:bg-gray-100'}`}
           >
             {t}
           </button>

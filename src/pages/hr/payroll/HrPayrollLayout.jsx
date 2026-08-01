@@ -4,7 +4,7 @@ import { HrPayrollScopeProvider } from "./hrPayrollScope";
 
 const tabClass = ({ isActive }) =>
   `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-    isActive ? "bg-[#1F3A8A] text-white border-[#1F3A8A]" : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
+    isActive ? "bg-accent text-white border-accent" : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
   }`;
 
 function HrPayrollLayoutInner() {

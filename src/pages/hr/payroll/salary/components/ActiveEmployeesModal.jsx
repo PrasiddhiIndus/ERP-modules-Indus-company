@@ -84,7 +84,7 @@ export default function ActiveEmployeesModal({ open, onClose, totalCount }) {
         onClick={onClose}
       />
       <div className="relative flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-gradient-to-r from-[#1F3A8A] to-[#2c4084] px-5 py-3.5 text-white">
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-200 bg-accent px-5 py-3.5 text-white">
           <div>
             <h4 id="active-employees-modal-title" className="text-sm font-semibold">
               {title}
@@ -109,7 +109,7 @@ export default function ActiveEmployeesModal({ open, onClose, totalCount }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by employee ID or name…"
-              className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none ring-0 focus:border-[#1F3A8A]/40"
+              className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none ring-0 focus:border-accent/40"
             />
           </div>
           {!loading && !error ? (
@@ -137,7 +137,7 @@ export default function ActiveEmployeesModal({ open, onClose, totalCount }) {
               {filtered.map((emp) => (
                 <div
                   key={emp.id}
-                  className="flex min-h-[76px] flex-col items-center justify-center rounded-sm bg-[#2c4084] px-3 py-3 text-center text-white shadow-sm transition hover:bg-[#243670]"
+                  className="flex min-h-[76px] flex-col items-center justify-center rounded-sm bg-accent-deep px-3 py-3 text-center text-white shadow-sm transition hover:bg-accent-deep"
                   title={emp.full_name || ''}
                 >
                   <span className="text-sm font-semibold tabular-nums leading-tight">

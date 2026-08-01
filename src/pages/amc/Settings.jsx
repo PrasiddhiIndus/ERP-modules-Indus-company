@@ -27,7 +27,7 @@ export default function Settings() {
             type="button"
             onClick={() => setSection(s.key)}
             className={`px-3 py-1.5 text-xs rounded-lg border ${
-              section === s.key ? "bg-[#1F3A8A] text-white border-[#1F3A8A]" : "bg-white border-gray-300"
+              section === s.key ? "bg-accent text-white border-accent" : "bg-white border-gray-300"
             }`}
           >
             {s.label}

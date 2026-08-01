@@ -26,6 +26,15 @@ import { useBilling } from '../../contexts/BillingContext';
 import { rollupMainPoBilling, resolveContractForBillingParentPo } from '../../utils/billingInvoiceRollup';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';;
 import FormDateInput from "../../components/FormDateInput";
+import {
+  ChartPanel,
+  ComposedTrendChart,
+  DonutChart,
+  BarCompareChart,
+  RadialScoreChart,
+  bucketByDay,
+  CHART_SERIES,
+} from '../../components/charts/DashboardCharts';
 
 
 const APPROVAL_SENT = 'sent_for_approval';
@@ -557,6 +566,45 @@ const BillingDashboard = ({ onNavigateTab }) => {
     width: `${Math.min(100, Math.round((n / funnelTotal) * 100))}%`,
   });
 
+  const invoiceTrendRows = useMemo(
+    () =>
+      invoicesView.map((inv) => ({
+        date: getInvoiceDate(inv),
+        amount: Number(inv.totalAmount ?? inv.calculatedInvoiceAmount) || 0,
+      })),
+    [invoicesView]
+  );
+
+  const invoiceTrendData = useMemo(() => {
+    const valueBuckets = bucketByDay(invoiceTrendRows, 'date', 14, (r) => r.amount);
+    const countBuckets = bucketByDay(invoiceTrendRows, 'date', 14, () => 1);
+    return valueBuckets.map((b, i) => ({ name: b.name, value: b.value, count: countBuckets[i]?.value || 0 }));
+  }, [invoiceTrendRows]);
+
+  const approvalFunnelDonutData = useMemo(
+    () => [
+      { name: 'Approved', value: approvalFunnel.buckets.approved },
+      { name: 'Sent for approval', value: approvalFunnel.buckets.sent },
+      { name: 'Draft', value: approvalFunnel.buckets.draft },
+      { name: 'Rejected', value: approvalFunnel.buckets.rejected },
+    ],
+    [approvalFunnel]
+  );
+
+  const moneyBreakdownData = useMemo(
+    () => [
+      { name: 'Tax bills', value: invoicingTaxStats.totalValue || 0 },
+      { name: 'Extra bills', value: addOnStats.totalValue || 0 },
+      { name: 'Penalty cuts', value: leakageStats.totalPenalties || 0 },
+    ],
+    [invoicingTaxStats.totalValue, addOnStats.totalValue, leakageStats.totalPenalties]
+  );
+
+  const collectedCount = paymentSnapshot.paid;
+  const totalPayable = paymentSnapshot.paid + paymentSnapshot.unpaid;
+  const irnFiledCount = eInvoiceBreakdown.withRealIrn;
+  const irnTotal = eInvoiceBreakdown.total;
+
   const heroMetrics = verticalNotSelected
     ? []
     : [
@@ -924,6 +972,58 @@ const BillingDashboard = ({ onNavigateTab }) => {
               </div>
             );
           })}
+        </div>
+      ) : null}
+
+      {!verticalNotSelected ? (
+        <div className="mb-6 space-y-5 max-w-7xl mx-auto">
+          <ChartPanel
+            title="Invoice value trend"
+            subtitle={`Daily totals · last 14 days · ${formatRangeLabel(dateRange)}`}
+            height={240}
+          >
+            <ComposedTrendChart
+              data={invoiceTrendData}
+              xKey="name"
+              areas={[{ key: 'value', name: 'Invoice value', color: CHART_SERIES[0] }]}
+              lines={[{ key: 'count', name: 'Invoices raised', color: CHART_SERIES[1] }]}
+              height={240}
+              formatter={(val, name) => (name === 'Invoice value' ? formatINR(val) : val)}
+            />
+          </ChartPanel>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <ChartPanel title="Approval funnel mix" subtitle={`${parentPOsInRange.length} job(s) in window`} height={230}>
+              <DonutChart data={approvalFunnelDonutData} centerLabel="Jobs" centerValue={parentPOsInRange.length} height={230} />
+            </ChartPanel>
+            <ChartPanel title="Money breakdown" subtitle="Tax vs extra vs penalty cuts" height={230}>
+              <BarCompareChart
+                data={moneyBreakdownData}
+                layout="horizontal"
+                series={[{ key: 'value', name: 'Amount', color: CHART_SERIES[2] }]}
+                formatter={(val) => formatINR(val)}
+                height={230}
+              />
+            </ChartPanel>
+            <ChartPanel title="Completion rates" subtitle="Collections & GST filing" height={230}>
+              <div className="flex items-center justify-around h-full">
+                <RadialScoreChart
+                  value={collectedCount}
+                  max={Math.max(1, totalPayable)}
+                  label="Collected"
+                  color={CHART_SERIES[5]}
+                  height={190}
+                />
+                <RadialScoreChart
+                  value={irnFiledCount}
+                  max={Math.max(1, irnTotal)}
+                  label="IRN filed"
+                  color={CHART_SERIES[3]}
+                  height={190}
+                />
+              </div>
+            </ChartPanel>
+          </div>
         </div>
       ) : null}
 

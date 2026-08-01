@@ -65,7 +65,7 @@ export default function Settings() {
         {permissions.canEditMasters && (
           <button
             type="button"
-            className="mt-4 h-8 px-4 text-xs bg-[#1F6F4E] text-white rounded"
+            className="mt-4 h-8 px-4 text-xs bg-accent text-white rounded"
             disabled={saving}
             onClick={save}
           >

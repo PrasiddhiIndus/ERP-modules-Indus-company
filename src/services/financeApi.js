@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { enrichFinanceDataset } from "../pages/finance/api/financeEnrichment";
 import { safeDeleteChildHead, safeDeleteParentHead } from "../pages/finance/api/financeHeadSync";
 import { slug } from "../pages/finance/lib/formatters";
+import { TOKENS } from "../theme/tokens";
 
 const FINANCE_SCHEMA = "finance";
 const CACHE_TTL_MS = 30_000;
@@ -264,7 +265,7 @@ export async function upsertExpenseParentHead(payload) {
   const row = {
     code: payload.code || slug(payload.label),
     label: payload.label?.trim(),
-    color: payload.color || "#1F6F4E",
+    color: payload.color || TOKENS.accent,
     sort_order: payload.sort_order ?? 0,
     is_active: payload.is_active !== false,
   };

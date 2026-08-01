@@ -60,8 +60,8 @@ export default function RentMonthlyDashboard() {
             <XAxis dataKey="month" tick={{ fontSize: 11 }} />
             <YAxis tickFormatter={(v) => `₹${(v / 100000).toFixed(1)}L`} tick={{ fontSize: 10 }} />
             <Tooltip formatter={(v) => formatCurrency(v)} />
-            <Bar dataKey="due" fill="#F59E0B" name="Due" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="paid" fill="#1F3A8A" name="Paid" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="due" fill="var(--warning)" name="Due" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="paid" fill="var(--accent)" name="Paid" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>

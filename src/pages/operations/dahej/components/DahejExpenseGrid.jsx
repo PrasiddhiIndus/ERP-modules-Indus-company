@@ -5,7 +5,7 @@ import FormDateInput from "../../../../components/FormDateInput";
 
 
 function CellInput({ column, value, onChange, disabled, onKeyDown }) {
-  const common = "w-full h-7 px-1 text-[11px] border-0 bg-transparent focus:bg-blue-50 focus:ring-1 focus:ring-[#1F3A8A] rounded outline-none";
+  const common = "w-full h-7 px-1 text-[11px] border-0 bg-transparent focus:bg-blue-50 focus:ring-1 focus:ring-accent rounded outline-none";
   if (column.type === "date") {
     return (
       <FormDateInput className={common} value={value || ""} disabled={disabled} onChange={(e) => onChange(e.target.value)}
@@ -79,8 +79,8 @@ export default function DahejExpenseGrid({ rows, onSave, readOnly = false, showB
       <div ref={gridRef} className="overflow-auto max-h-[calc(100vh-280px)] erp-table-exempt">
         <table className="border-collapse min-w-max w-full text-[11px]">
           <thead className="sticky top-0 z-20">
-            <tr className="bg-[#1F3A8A] text-white">
-              <th className="sticky left-0 z-30 bg-[#1F3A8A] px-1 py-1 w-8 border-r border-blue-700" rowSpan={2}>
+            <tr className="bg-accent text-white">
+              <th className="sticky left-0 z-30 bg-accent px-1 py-1 w-8 border-r border-blue-700" rowSpan={2}>
                 <input
                   type="checkbox"
                   onChange={(e) =>
@@ -102,21 +102,21 @@ export default function DahejExpenseGrid({ rows, onSave, readOnly = false, showB
                   </th>
                 );
               })}
-              <th rowSpan={2} className="px-2 py-1 text-center font-semibold bg-[#172554] min-w-[72px]">
+              <th rowSpan={2} className="px-2 py-1 text-center font-semibold bg-accent-deep min-w-[72px]">
                 Status
               </th>
               {showBalance && (
-                <th rowSpan={2} className="px-2 py-1 text-center font-semibold bg-[#172554] min-w-[96px]">
+                <th rowSpan={2} className="px-2 py-1 text-center font-semibold bg-accent-deep min-w-[96px]">
                   Running Balance
                 </th>
               )}
             </tr>
-            <tr className="bg-[#2563eb] text-white">
+            <tr className="bg-info text-white">
               {DAHEJ_EXPENSE_COLUMNS.map((col) => (
                 <th
                   key={col.key}
                   className={`px-1 py-1.5 text-left font-medium border-r border-blue-500 whitespace-nowrap ${
-                    col.frozen ? "sticky z-20 bg-[#2563eb]" : ""
+                    col.frozen ? "sticky z-20 bg-info" : ""
                   }`}
                   style={{
                     minWidth: col.width,
@@ -220,7 +220,7 @@ export default function DahejExpenseGrid({ rows, onSave, readOnly = false, showB
                     </span>
                   </td>
                   {showBalance && (
-                    <td className="px-2 py-0.5 text-right tabular-nums font-medium text-[#1F3A8A]">
+                    <td className="px-2 py-0.5 text-right tabular-nums font-medium text-accent">
                       {(row._running_balance ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
                     </td>
                   )}

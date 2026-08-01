@@ -42,7 +42,7 @@ export default function MedicalCenterSelect() {
               <button
                 type="button"
                 onClick={() => { setSelected(center); setConfirmOpen(true); }}
-                className="text-[11px] text-[#1F3A8A] font-medium hover:underline"
+                className="text-[11px] text-accent font-medium hover:underline"
               >
                 Select
               </button>

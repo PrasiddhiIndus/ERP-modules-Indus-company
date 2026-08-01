@@ -8,8 +8,9 @@ import {
   upsertExpenseChildHead,
   deleteExpenseChildHead,
 } from "../../services/financeApi";
+import { CHART_SERIES } from "../../theme/tokens";
 
-const PARENT_PALETTE = ["#1F6F4E", "#2F7D9E", "#C97A12", "#3E6B89", "#8E6FB0", "#9A4A3A"];
+const PARENT_PALETTE = [...CHART_SERIES];
 
 export default function ExpenseHeads() {
   const { data, loading, error, refresh, permissions } = useFinance();
@@ -161,7 +162,7 @@ export default function ExpenseHeads() {
             </label>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="h-8 px-3 text-xs border rounded" onClick={() => setParentOpen(false)}>Cancel</button>
-              <button type="button" className="h-8 px-3 text-xs bg-[#1F6F4E] text-white rounded" disabled={saving} onClick={saveParent}>Save</button>
+              <button type="button" className="h-8 px-3 text-xs bg-accent text-white rounded" disabled={saving} onClick={saveParent}>Save</button>
             </div>
           </div>
         </Modal>
@@ -185,7 +186,7 @@ export default function ExpenseHeads() {
             </label>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="h-8 px-3 text-xs border rounded" onClick={() => setChildOpen(false)}>Cancel</button>
-              <button type="button" className="h-8 px-3 text-xs bg-[#1F6F4E] text-white rounded" disabled={saving} onClick={saveChild}>Save</button>
+              <button type="button" className="h-8 px-3 text-xs bg-accent text-white rounded" disabled={saving} onClick={saveChild}>Save</button>
             </div>
           </div>
         </Modal>

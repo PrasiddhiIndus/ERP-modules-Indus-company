@@ -477,7 +477,7 @@ function EntryCell({ row, column, onChange }) {
           type="number"
           value={monthlyValue}
           onChange={(event) => onChange(row.id, monthlyKey, event.target.value === "" ? "" : toNumber(event.target.value))}
-          className="w-full rounded border border-purple-200 bg-white px-1.5 py-1 text-[11px] text-gray-900 focus:border-[#1F3A8A] focus:outline-none"
+          className="w-full rounded border border-purple-200 bg-white px-1.5 py-1 text-[11px] text-gray-900 focus:border-accent focus:outline-none"
           title="Monthly allowance basis"
         />
         <div className="flex items-center justify-between gap-2 text-[10px]">
@@ -497,7 +497,7 @@ function EntryCell({ row, column, onChange }) {
           const nextValue = isTextInput || event.target.value === "" ? event.target.value : toNumber(event.target.value);
           onChange(row.id, column.key, nextValue);
         }}
-        className="w-full min-w-[90px] rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-900 focus:border-[#1F3A8A] focus:outline-none"
+        className="w-full min-w-[90px] rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-900 focus:border-accent focus:outline-none"
       />
     );
   }
@@ -520,7 +520,7 @@ function GenerateDraftInput({ field, value, onChange }) {
       step={field.type === "text" ? undefined : "0.01"}
       value={value}
       onChange={(event) => onChange(field, event.target.value)}
-      className={`h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-[11px] text-gray-900 focus:border-[#1F3A8A] focus:outline-none focus:ring-2 focus:ring-blue-100 ${
+      className={`h-8 w-full rounded-lg border border-gray-300 bg-white px-2 text-[11px] text-gray-900 focus:border-accent focus:outline-none focus:ring-2 focus:ring-blue-100 ${
         field.type === "text" ? "" : "tabular-nums"
       }`}
     />
@@ -563,7 +563,7 @@ export function HrPayrollDashboardPage() {
         </p>
         <button
           type="button"
-          className="h-9 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium"
+          className="h-9 px-4 rounded-lg bg-accent text-white text-xs font-medium"
           onClick={() => {
             const now = new Date();
             const year = now.getFullYear();
@@ -876,7 +876,7 @@ export function HrPayrollMonthPage() {
                 <>
                   <button
                     type="button"
-                    className="h-8 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium whitespace-nowrap"
+                    className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium whitespace-nowrap"
                     onClick={() =>
                       exportEntryXlsx({
                         year,
@@ -1034,7 +1034,7 @@ export function HrPayrollMonthPage() {
             <button
               type="button"
               onClick={() => setShowSalaryPreview(true)}
-              className="h-8 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium whitespace-nowrap hover:bg-[#172c69] shadow-sm"
+              className="h-8 px-4 rounded-lg bg-accent text-white text-xs font-medium whitespace-nowrap hover:bg-accent-deep shadow-sm"
               aria-expanded={showSalaryPreview}
             >
               Preview

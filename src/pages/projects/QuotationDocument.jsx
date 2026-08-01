@@ -93,25 +93,25 @@ const QuotationDocument = forwardRef(function QuotationDocument(
           <tr>
             <th
               className="border border-slate-300 px-3 py-2 text-left font-bold text-white"
-              style={{ backgroundColor: "#2980b9", width: "52%" }}
+              style={{ backgroundColor: "var(--info)", width: "52%" }}
             >
               Cost Components
             </th>
             <th
               className="border border-slate-300 px-3 py-2 text-center font-bold text-white"
-              style={{ backgroundColor: "#2980b9", width: "12%" }}
+              style={{ backgroundColor: "var(--info)", width: "12%" }}
             >
               Qty
             </th>
             <th
               className="border border-slate-300 px-3 py-2 text-right font-bold text-white"
-              style={{ backgroundColor: "#2980b9", width: "18%" }}
+              style={{ backgroundColor: "var(--info)", width: "18%" }}
             >
               Rate
             </th>
             <th
               className="border border-slate-300 px-3 py-2 text-right font-bold text-white"
-              style={{ backgroundColor: "#2980b9", width: "18%" }}
+              style={{ backgroundColor: "var(--info)", width: "18%" }}
             >
               Total Amount
             </th>
@@ -126,7 +126,7 @@ const QuotationDocument = forwardRef(function QuotationDocument(
             </tr>
           ) : (
             items.map((it, i) => (
-              <tr key={i} style={{ backgroundColor: i % 2 === 1 ? "#f8f9fa" : "#ffffff" }}>
+              <tr key={i} style={{ backgroundColor: i % 2 === 1 ? "var(--surface-raised)" : "var(--surface)" }}>
                 <td className="border border-slate-300 px-3 py-2 align-top">{it.description}</td>
                 <td className="border border-slate-300 px-3 py-2 text-center align-top">{it.qty}</td>
                 <td className="border border-slate-300 px-3 py-2 text-right align-top">{formatInr(it.rate)}</td>
@@ -138,13 +138,13 @@ const QuotationDocument = forwardRef(function QuotationDocument(
             <td
               colSpan={3}
               className="border border-slate-300 px-3 py-2 text-right font-bold"
-              style={{ backgroundColor: "#e6f0ff" }}
+              style={{ backgroundColor: "var(--info-soft)" }}
             >
               Grand Total
             </td>
             <td
               className="border border-slate-300 px-3 py-2 text-right font-bold"
-              style={{ backgroundColor: "#e6f0ff" }}
+              style={{ backgroundColor: "var(--info-soft)" }}
             >
               {formatInr(grandTotal)}
             </td>

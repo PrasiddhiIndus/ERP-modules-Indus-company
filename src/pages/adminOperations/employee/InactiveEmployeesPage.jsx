@@ -186,8 +186,8 @@ export function InactiveEmployeesPage() {
       const descActive = active && sortDirection === "desc";
       return (
         <span className="inline-flex flex-col ml-0.5 leading-none align-middle">
-          <span className={`text-[8px] ${ascActive ? "text-[#1F3A8A]" : "text-gray-300"}`}>▲</span>
-          <span className={`text-[8px] -mt-0.5 ${descActive ? "text-[#1F3A8A]" : "text-gray-300"}`}>▼</span>
+          <span className={`text-[8px] ${ascActive ? "text-accent" : "text-gray-300"}`}>▲</span>
+          <span className={`text-[8px] -mt-0.5 ${descActive ? "text-accent" : "text-gray-300"}`}>▼</span>
         </span>
       );
     },
@@ -199,8 +199,8 @@ export function InactiveEmployeesPage() {
       <button
         type="button"
         onClick={() => toggleSort(field)}
-        className={`inline-flex items-center font-semibold text-left hover:text-[#1F3A8A] w-full ${
-          sortField === field ? "text-[#1F3A8A]" : ""
+        className={`inline-flex items-center font-semibold text-left hover:text-accent w-full ${
+          sortField === field ? "text-accent" : ""
         }`}
         title={`Sort by ${label}`}
       >
@@ -369,7 +369,7 @@ export function InactiveEmployeesPage() {
             <button
               type="button"
               onClick={() => setSearch("")}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-[#1F3A8A] hover:underline"
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
             >
               <X className="h-3 w-3" />
               Clear search
@@ -441,7 +441,7 @@ export function InactiveEmployeesPage() {
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="mt-3 text-xs font-medium text-[#1F3A8A] hover:underline"
+                className="mt-3 text-xs font-medium text-accent hover:underline"
               >
                 Clear search
               </button>
@@ -531,7 +531,7 @@ export function InactiveEmployeesPage() {
               ) : null}
             </div>
 
-            <div className="rounded-lg border border-[#1F3A8A]/15 bg-[#1F3A8A]/[0.03] p-3">
+            <div className="rounded-lg border border-accent/15 bg-accent/[0.03] p-3">
               <p className="text-xs font-semibold text-gray-900 mb-1">Exit documents</p>
               <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
                 Original Word templates are preserved exactly. Only employee-specific fields are filled in.
@@ -566,7 +566,7 @@ export function InactiveEmployeesPage() {
                   type="button"
                   disabled={Boolean(generatingKey)}
                   onClick={() => handleGenerate("all")}
-                  className="inline-flex items-center justify-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold bg-[#1F3A8A] text-white hover:bg-[#172554] disabled:opacity-50 mt-1"
+                  className="inline-flex items-center justify-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold bg-accent text-white hover:bg-accent-deep disabled:opacity-50 mt-1"
                 >
                   <FileStack className="h-4 w-4 shrink-0" />
                   {generatingKey === "all" ? "Generating all…" : "Generate All Documents"}

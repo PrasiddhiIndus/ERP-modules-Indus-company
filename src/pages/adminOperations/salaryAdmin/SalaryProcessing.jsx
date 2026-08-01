@@ -24,9 +24,9 @@ const tdR = `${td} text-right tabular-nums`;
 const tdL = `${td} text-left`;
 
 const numIn =
-  "w-[4.5rem] h-8 px-1.5 text-right text-[12px] tabular-nums border border-slate-200 rounded-md bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A]";
+  "w-[4.5rem] h-8 px-1.5 text-right text-[12px] tabular-nums border border-slate-200 rounded-md bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent";
 const textIn =
-  "h-8 px-2 text-[12px] border border-slate-200 rounded-md bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A]";
+  "h-8 px-2 text-[12px] border border-slate-200 rounded-md bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent";
 
 /** Frozen identity columns — fixed px widths keep left offsets in sync (no overlap). */
 const COL = {
@@ -219,18 +219,18 @@ export default function SalaryProcessing() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1F3A8A]" />
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent" />
       </div>
     );
   }
 
   return (
-    <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-[#f4f6f9]">
+    <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-canvas">
       {/* Header */}
       <div className="shrink-0 border-b border-slate-200 bg-white">
         <div className="px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex items-start gap-3">
-            <div className="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#1F3A8A]/10 text-[#1F3A8A]">
+            <div className="hidden sm:flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
               <Wallet className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -244,7 +244,7 @@ export default function SalaryProcessing() {
           </div>
           <Link
             to="/app/admin/salary-admin/salary-master"
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-[#1F3A8A] text-white text-xs font-semibold hover:bg-[#18307a] shadow-sm"
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accent-deep shadow-sm"
           >
             Salary Master
             <ArrowRight className="h-3.5 w-3.5" />
@@ -268,7 +268,7 @@ export default function SalaryProcessing() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search code, name, designation…"
-              className="w-full h-9 pl-9 pr-3 border border-slate-200 rounded-lg bg-white text-sm focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A] outline-none"
+              className="w-full h-9 pl-9 pr-3 border border-slate-200 rounded-lg bg-white text-sm focus:ring-2 focus:ring-accent/20 focus:border-accent outline-none"
             />
           </div>
           <label className="inline-flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 cursor-pointer hover:bg-slate-50">
@@ -276,7 +276,7 @@ export default function SalaryProcessing() {
               type="checkbox"
               checked={showUnset}
               onChange={(e) => setShowUnset(e.target.checked)}
-              className="rounded border-slate-300 text-[#1F3A8A] focus:ring-[#1F3A8A]"
+              className="rounded border-slate-300 text-accent focus:ring-accent"
             />
             Include without CTC
           </label>
@@ -289,7 +289,7 @@ export default function SalaryProcessing() {
               {declaredCount} CTC set
             </span>
             {totals.net > 0 ? (
-              <span className="inline-flex items-center h-8 px-2.5 rounded-md bg-[#1F3A8A]/8 text-[11px] font-semibold text-[#1F3A8A] tabular-nums">
+              <span className="inline-flex items-center h-8 px-2.5 rounded-md bg-accent/8 text-[11px] font-semibold text-accent tabular-nums">
                 Net {formatINRPlain(totals.net)}
               </span>
             ) : null}
@@ -332,7 +332,7 @@ export default function SalaryProcessing() {
                       className="border-b border-slate-200 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-600 text-left px-2.5 py-1.5"
                       style={stickyId(
                         { left: 0, w: COL_ID_W },
-                        { bg: "#f1f5f9", z: 40, top: 0, edge: true }
+                        { bg: "var(--divider)", z: 40, top: 0, edge: true }
                       )}
                     >
                       Employee
@@ -341,44 +341,44 @@ export default function SalaryProcessing() {
                       label="Bank & dates"
                       cols={5}
                       tone="bg-sky-50 text-sky-900"
-                      bg="#f0f9ff"
+                      bg="var(--info-soft)"
                     />
                     <GroupHead
                       label="Earnings"
                       cols={9}
                       tone="bg-emerald-50 text-emerald-900"
-                      bg="#ecfdf5"
+                      bg="var(--success-soft)"
                     />
                     <GroupHead
                       label="Deductions"
                       cols={7}
                       tone="bg-amber-50 text-amber-950"
-                      bg="#fffbeb"
+                      bg="var(--warning-soft)"
                     />
                     <GroupHead
                       label="Payable"
                       cols={3}
                       tone="bg-indigo-50 text-indigo-900"
-                      bg="#eef2ff"
+                      bg="var(--accent-soft)"
                     />
                   </tr>
                   <tr>
                     <th
                       className={thC}
-                      style={stickyId(COL.sr, { bg: "#f8fafc", z: 35, top: GROUP_HEAD_H })}
+                      style={stickyId(COL.sr, { bg: "var(--surface-raised)", z: 35, top: GROUP_HEAD_H })}
                     >
                       #
                     </th>
                     <th
                       className={thC}
-                      style={stickyId(COL.code, { bg: "#f8fafc", z: 35, top: GROUP_HEAD_H })}
+                      style={stickyId(COL.code, { bg: "var(--surface-raised)", z: 35, top: GROUP_HEAD_H })}
                     >
                       Emp. Code
                     </th>
                     <th
                       className={thL}
                       style={stickyId(COL.name, {
-                        bg: "#f8fafc",
+                        bg: "var(--surface-raised)",
                         z: 35,
                         top: GROUP_HEAD_H,
                         edge: true,
@@ -386,79 +386,79 @@ export default function SalaryProcessing() {
                     >
                       Name
                     </th>
-                    <th className={`${thL} min-w-[9rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thL} min-w-[9rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Account Number
                     </th>
-                    <th className={`${thC} min-w-[7rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thC} min-w-[7rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       IFSC
                     </th>
-                    <th className={`${thL} min-w-[8rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thL} min-w-[8rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Designation
                     </th>
-                    <th className={`${thC} min-w-[6rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thC} min-w-[6rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       D.O.J.
                     </th>
-                    <th className={`${thC} min-w-[8rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thC} min-w-[8rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Confirmation
                     </th>
-                    <th className={`${thR} min-w-[6rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[6rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Gross rate
                     </th>
-                    <th className={`${thC} min-w-[5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thC} min-w-[5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       P. Days
                       <span className="block font-normal normal-case text-slate-400">
                         / {DEFAULT_MONTH_DAYS}
                       </span>
                     </th>
-                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       PF Basic
                     </th>
-                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       PF earned
                     </th>
-                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Basic
                     </th>
-                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Basic earned
                     </th>
-                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       HRA
                     </th>
-                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Special
                     </th>
-                    <th className={`${thR} min-w-[6rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[6rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Gross wages
                     </th>
-                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       PF 12%
                     </th>
-                    <th className={`${thR} min-w-[4.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[4.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       ESIC
                     </th>
-                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       P. Tax
                     </th>
-                    <th className={`${thR} min-w-[4.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[4.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Loan
                     </th>
-                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Sal Adv
                     </th>
-                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Unpaid/Paid
                     </th>
-                    <th className={`${thR} min-w-[4.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[4.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       TDS
                     </th>
-                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Total Ded.
                     </th>
-                    <th className={`${thR} min-w-[6rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[6rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Net salary
                     </th>
-                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("#f8fafc", 21, GROUP_HEAD_H)}>
+                    <th className={`${thR} min-w-[5.5rem]`} style={stickyTop("var(--surface-raised)", 21, GROUP_HEAD_H)}>
                       Bank
                     </th>
                   </tr>
@@ -473,7 +473,7 @@ export default function SalaryProcessing() {
                       : zebra
                         ? "bg-slate-50/70"
                         : "bg-white";
-                    const stickyBg = selected ? "#f0f9ff" : zebra ? "#f8fafc" : "#ffffff";
+                    const stickyBg = selected ? "var(--info-soft)" : zebra ? "var(--surface-raised)" : "var(--surface)";
 
                     return (
                       <tr
@@ -695,29 +695,29 @@ export default function SalaryProcessing() {
                 </tbody>
                 {totals.net > 0 ? (
                   <tfoot>
-                    <tr className="border-t-2 border-[#1F3A8A]/25">
+                    <tr className="border-t-2 border-accent/25">
                       <td
                         colSpan={3}
-                        className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#1F3A8A]"
+                        className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-accent"
                         style={stickyId(
                           { left: 0, w: COL_ID_W },
-                          { bg: "#eef2f8", z: 12, edge: true }
+                          { bg: "var(--info-soft)", z: 12, edge: true }
                         )}
                       >
                         Period totals
                       </td>
-                      <td colSpan={13} className="px-2.5 py-2.5 bg-[#eef2f8]" />
-                      <td className="px-2.5 py-2.5 text-right text-[12px] font-semibold tabular-nums text-slate-900 bg-[#eef2f8]">
+                      <td colSpan={13} className="px-2.5 py-2.5 bg-info-soft" />
+                      <td className="px-2.5 py-2.5 text-right text-[12px] font-semibold tabular-nums text-slate-900 bg-info-soft">
                         {formatINRPlain(totals.gross)}
                       </td>
-                      <td colSpan={7} className="px-2.5 py-2.5 bg-[#eef2f8]" />
-                      <td className="px-2.5 py-2.5 text-right text-[12px] font-semibold tabular-nums text-slate-700 bg-[#eef2f8]">
+                      <td colSpan={7} className="px-2.5 py-2.5 bg-info-soft" />
+                      <td className="px-2.5 py-2.5 text-right text-[12px] font-semibold tabular-nums text-slate-700 bg-info-soft">
                         {formatINRPlain(totals.ded)}
                       </td>
-                      <td className="px-2.5 py-2.5 text-right text-[12px] font-bold tabular-nums text-emerald-700 bg-[#eef2f8]">
+                      <td className="px-2.5 py-2.5 text-right text-[12px] font-bold tabular-nums text-emerald-700 bg-info-soft">
                         {formatINRPlain(totals.net)}
                       </td>
-                      <td className="px-2.5 py-2.5 text-right text-[12px] font-bold tabular-nums text-[#1F3A8A] bg-[#eef2f8]">
+                      <td className="px-2.5 py-2.5 text-right text-[12px] font-bold tabular-nums text-accent bg-info-soft">
                         {formatINRPlain(totals.net)}
                       </td>
                     </tr>

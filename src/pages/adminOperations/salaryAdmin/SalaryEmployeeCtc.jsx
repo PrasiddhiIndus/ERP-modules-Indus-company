@@ -28,10 +28,10 @@ import {
 import SalaryRevisionHistory from "./SalaryRevisionHistory";
 
 const amountInput =
-  "w-[9rem] h-9 px-2.5 text-right text-[15px] tabular-nums border border-[#d4d0c8] rounded bg-white focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/25 focus:border-[#1F3A8A]";
+  "w-[9rem] h-9 px-2.5 text-right text-[15px] tabular-nums border border-border-strong rounded bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
 const dateInput =
-  "w-full max-w-[12rem] h-9 text-sm border border-[#d4d0c8] rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/25 focus:border-[#1F3A8A]";
-const fieldLabel = "text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a857c]";
+  "w-full max-w-[12rem] h-9 text-sm border border-border-strong rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
+const fieldLabel = "text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted";
 
 function HraModeSelect({ value, onChange, disabled = false }) {
   return (
@@ -43,18 +43,18 @@ function HraModeSelect({ value, onChange, disabled = false }) {
         aria-label="HRA calculation mode"
         className={[
           "appearance-none h-8 pl-2.5 pr-8 text-[12px] font-medium tracking-tight",
-          "rounded-md border border-[#d4d0c8] shadow-[0_1px_0_rgba(40,35,25,0.03)]",
-          "focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/20 focus:border-[#1F3A8A]",
+          "rounded-md border border-border-strong shadow-[0_1px_0_rgba(40,35,25,0.03)]",
+          "focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent",
           disabled
-            ? "bg-[#f3f1ec] text-[#6b665e] cursor-default"
-            : "bg-[#faf9f6] text-[#2a2a2a] hover:border-[#c4bfb6] cursor-pointer",
+            ? "bg-surface-sunken text-ink-muted cursor-default"
+            : "bg-row-hover text-ink hover:border-border-strong cursor-pointer",
         ].join(" ")}
       >
         <option value={HRA_MODE_PERCENT}>40% of Basic</option>
         <option value={HRA_MODE_CUSTOM}>Custom amount</option>
       </select>
       <ChevronDown
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#8a857c]"
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-muted"
         aria-hidden
       />
     </div>
@@ -63,12 +63,12 @@ function HraModeSelect({ value, onChange, disabled = false }) {
 
 function MoneyCell({ value, strong = false }) {
   if (value == null || value === "") {
-    return <span className="text-[#d0cbc3] tabular-nums">—</span>;
+    return <span className="text-ink-disabled tabular-nums">—</span>;
   }
   return (
     <span
       className={`tabular-nums text-[15px] ${
-        strong ? "font-semibold text-[#1a1a1a]" : "font-medium text-[#2a2a2a]"
+        strong ? "font-semibold text-ink-strong" : "font-medium text-ink"
       }`}
     >
       {formatINR(value)}
@@ -80,7 +80,7 @@ function ProfileField({ label, children }) {
   return (
     <div className="min-w-0">
       <p className={fieldLabel}>{label}</p>
-      <div className="mt-1.5 text-[15px] text-[#1a1a1a] font-medium leading-snug">{children}</div>
+      <div className="mt-1.5 text-[15px] text-ink-strong font-medium leading-snug">{children}</div>
     </div>
   );
 }
@@ -88,23 +88,23 @@ function ProfileField({ label, children }) {
 function SheetRow({ label, monthly, pa, tone = "default", labelClass = "" }) {
   const toneClass =
     tone === "gross"
-      ? "bg-[#f3f1ec]"
+      ? "bg-surface-sunken"
       : tone === "takehome"
-        ? "bg-[#e8f3ef]"
+        ? "bg-accent-soft"
         : tone === "ctc"
-          ? "bg-[#f3ebe0]"
+          ? "bg-warning-soft"
           : tone === "total"
-            ? "bg-[#f7f5f1]"
+            ? "bg-surface-raised"
             : "bg-white";
 
   const labelWeight =
     tone === "gross" || tone === "takehome" || tone === "ctc" || tone === "total"
-      ? "font-semibold text-[#1a1a1a]"
-      : "font-medium text-[#2a2a2a]";
+      ? "font-semibold text-ink-strong"
+      : "font-medium text-ink";
 
   return (
     <div
-      className={`grid grid-cols-[minmax(0,1.4fr)_minmax(10rem,0.7fr)_minmax(9rem,0.55fr)] gap-3 items-center px-6 sm:px-8 lg:px-10 py-3.5 border-b border-[#eceae4] ${toneClass}`}
+      className={`grid grid-cols-[minmax(0,1.4fr)_minmax(10rem,0.7fr)_minmax(9rem,0.55fr)] gap-3 items-center px-6 sm:px-8 lg:px-10 py-3.5 border-b border-divider ${toneClass}`}
     >
       <div className={`text-[15px] ${labelWeight} ${labelClass}`}>{label}</div>
       <div className="flex justify-end">{monthly}</div>
@@ -117,9 +117,9 @@ function SheetRow({ label, monthly, pa, tone = "default", labelClass = "" }) {
 
 function SheetSectionHead({ title, right }) {
   return (
-    <div className="flex items-end justify-between gap-4 px-6 sm:px-8 lg:px-10 pt-6 pb-3 border-b border-[#e5e1d8]">
-      <h3 className="text-[15px] sm:text-base font-bold text-[#1a1a1a] tracking-tight">{title}</h3>
-      <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a958c] shrink-0">
+    <div className="flex items-end justify-between gap-4 px-6 sm:px-8 lg:px-10 pt-6 pb-3 border-b border-border">
+      <h3 className="text-[15px] sm:text-base font-bold text-ink-strong tracking-tight">{title}</h3>
+      <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-ink-disabled shrink-0">
         {right}
       </span>
     </div>
@@ -128,14 +128,14 @@ function SheetSectionHead({ title, right }) {
 
 function ColHeads() {
   return (
-    <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(10rem,0.7fr)_minmax(9rem,0.55fr)] gap-3 px-6 sm:px-8 lg:px-10 py-2.5 border-b border-[#eceae4] bg-[#faf9f6]">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a857c]">
+    <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(10rem,0.7fr)_minmax(9rem,0.55fr)] gap-3 px-6 sm:px-8 lg:px-10 py-2.5 border-b border-divider bg-row-hover">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
         Component
       </div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a857c] text-right">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted text-right">
         W.E.F. Rate (Monthly)
       </div>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a857c] text-right">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted text-right">
         P.A.
       </div>
     </div>
@@ -166,7 +166,7 @@ function AmountInput({ value, onChange, label, readOnly = false }) {
       }}
       readOnly={readOnly}
       disabled={readOnly}
-      className={`${amountInput} ${readOnly ? "bg-[#f3f1ec] text-[#5c584f] cursor-default" : ""}`}
+      className={`${amountInput} ${readOnly ? "bg-surface-sunken text-ink-secondary cursor-default" : ""}`}
       placeholder=""
       aria-label={label}
     />
@@ -186,10 +186,10 @@ function OptionalAddLabel({ label, checked, onCheckedChange, disabled = false })
         checked={checked}
         onChange={(e) => onCheckedChange(e.target.checked)}
         disabled={disabled}
-        className="h-4 w-4 rounded border-[#c4bfb6] text-[#1F3A8A] focus:ring-[#1F3A8A]/30 accent-[#1F3A8A] disabled:opacity-50"
+        className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent/30 accent-accent disabled:opacity-50"
         aria-label={`Include ${label}`}
       />
-      <span className={checked ? "text-[#2a2a2a]" : "text-[#8a857c]"}>
+      <span className={checked ? "text-ink" : "text-ink-muted"}>
         Add : {label}
       </span>
     </label>
@@ -565,18 +565,18 @@ export default function SalaryEmployeeCtc() {
 
   if (loading) {
     return (
-      <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex items-center justify-center bg-[#f0eee8]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1F3A8A]" />
+      <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex items-center justify-center bg-canvas">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent" />
       </div>
     );
   }
 
   if (!employee) {
     return (
-      <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] bg-[#f0eee8] p-6 space-y-3">
+      <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] bg-canvas p-6 space-y-3">
         <Link
           to="/app/admin/salary-admin/salary-master"
-          className="inline-flex items-center gap-1.5 text-sm text-[#1F3A8A] hover:underline"
+          className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Salary Master
@@ -591,14 +591,14 @@ export default function SalaryEmployeeCtc() {
   const metaLine = [code, employee.designation, employee.department].filter(Boolean).join(" · ");
 
   return (
-    <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-[#f0eee8]">
-      <div className="shrink-0 border-b border-[#e5e1d8] bg-[#f7f5f0]">
+    <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-canvas">
+      <div className="shrink-0 border-b border-border bg-surface-raised">
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-4 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-[1.75rem] font-bold text-[#1a1a1a] tracking-tight">
+            <h1 className="text-2xl sm:text-[1.75rem] font-bold text-ink-strong tracking-tight">
               {name}
             </h1>
-            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8a857c]">
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
               {isRevisionMode
                 ? `Salary revision · ${code}`
                 : isViewOnly
@@ -611,12 +611,12 @@ export default function SalaryEmployeeCtc() {
               <button
                 type="button"
                 onClick={() => setHistoryOpen(true)}
-                className="h-9 px-3 rounded-md border border-[#d4d0c8] bg-white text-xs font-medium text-[#2a2a2a] hover:bg-[#faf9f6] inline-flex items-center gap-1.5"
+                className="h-9 px-3 rounded-md border border-border-strong bg-white text-xs font-medium text-ink hover:bg-row-hover inline-flex items-center gap-1.5"
               >
                 <History className="h-3.5 w-3.5" />
                 History
                 {revisionCount > 0 ? (
-                  <span className="ml-0.5 inline-flex min-w-[1.1rem] h-4 px-1 items-center justify-center rounded-full bg-[#1F3A8A] text-[9px] font-bold text-white">
+                  <span className="ml-0.5 inline-flex min-w-[1.1rem] h-4 px-1 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white">
                     {revisionCount}
                   </span>
                 ) : null}
@@ -626,7 +626,7 @@ export default function SalaryEmployeeCtc() {
               <button
                 type="button"
                 onClick={enterReviseMode}
-                className="h-9 px-3 rounded-md bg-[#1F3A8A] text-white text-xs font-semibold hover:bg-[#18306f] inline-flex items-center gap-1.5"
+                className="h-9 px-3 rounded-md bg-accent text-white text-xs font-semibold hover:bg-accent-deep inline-flex items-center gap-1.5"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Revise CTC
@@ -634,10 +634,10 @@ export default function SalaryEmployeeCtc() {
             ) : null}
           </div>
         </div>
-        <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-2.5 border-t border-[#ebe7df] bg-[#f3f1ec]">
+        <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-2.5 border-t border-border bg-surface-sunken">
           <Link
             to="/app/admin/salary-admin/salary-master"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#5c584f] hover:text-[#1F3A8A]"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary hover:text-accent"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to Salary Master
@@ -671,7 +671,7 @@ export default function SalaryEmployeeCtc() {
               <button
                 type="button"
                 onClick={enterReviseMode}
-                className="h-8 px-3 rounded-md border border-slate-300 bg-white text-xs font-semibold text-[#1F3A8A] hover:bg-white"
+                className="h-8 px-3 rounded-md border border-slate-300 bg-white text-xs font-semibold text-accent hover:bg-white"
               >
                 Revise CTC
               </button>
@@ -685,18 +685,18 @@ export default function SalaryEmployeeCtc() {
             </div>
           ) : null}
 
-          <div className="w-full bg-white border border-[#e5e1d8] shadow-[0_1px_3px_rgba(40,35,25,0.04)] overflow-hidden">
-            <div className="px-6 sm:px-8 lg:px-10 py-5 sm:py-6 border-b border-[#eceae4] flex flex-wrap items-start justify-between gap-4">
+          <div className="w-full bg-white border border-border shadow-[0_1px_3px_rgba(40,35,25,0.04)] overflow-hidden">
+            <div className="px-6 sm:px-8 lg:px-10 py-5 sm:py-6 border-b border-divider flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
-                <h2 className="text-lg sm:text-xl font-bold text-[#1a1a1a]">{name}</h2>
-                <p className="mt-1 text-sm text-[#5c584f]">{metaLine || "—"}</p>
+                <h2 className="text-lg sm:text-xl font-bold text-ink-strong">{name}</h2>
+                <p className="mt-1 text-sm text-ink-secondary">{metaLine || "—"}</p>
               </div>
               <div className="flex flex-col items-end gap-1.5">
-                <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-[#f3e6d4] text-[10px] font-bold uppercase tracking-[0.08em] text-[#7a5a2e]">
+                <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-warning-soft text-[10px] font-bold uppercase tracking-[0.08em] text-warning">
                   Compensation scheme — Year {fy}
                 </span>
                 {hasExistingCtc ? (
-                  <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[#8a857c]">
+                  <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-muted">
                     Version {(revisionCount || 0) + 1}
                     {revisionCount > 0 ? ` · ${revisionCount} prior revision${revisionCount === 1 ? "" : "s"}` : ""}
                   </span>
@@ -704,7 +704,7 @@ export default function SalaryEmployeeCtc() {
               </div>
             </div>
 
-            <div className="px-6 sm:px-8 lg:px-10 py-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-6 border-b border-[#eceae4]">
+            <div className="px-6 sm:px-8 lg:px-10 py-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-6 border-b border-divider">
               <ProfileField label="Location">{employee.location || "—"}</ProfileField>
               <ProfileField label="Employee Code">{employee.employee_code || "—"}</ProfileField>
               <ProfileField label="Employee Name">{employee.full_name || "—"}</ProfileField>
@@ -722,11 +722,11 @@ export default function SalaryEmployeeCtc() {
                   <FormDateInput
                     value={wef}
                     onChange={(e) => canEdit && setWef(e.target.value)}
-                    className={`${dateInput} ${!canEdit ? "bg-[#f3f1ec] pointer-events-none" : ""}`}
+                    className={`${dateInput} ${!canEdit ? "bg-surface-sunken pointer-events-none" : ""}`}
                   />
                 </div>
                 {canEdit ? (
-                  <p className="mt-1 text-[10px] text-[#8a857c]">
+                  <p className="mt-1 text-[10px] text-ink-muted">
                     {isRevisionMode
                       ? "Only editable profile field — defaults to today"
                       : "Only editable profile field"}
@@ -742,7 +742,7 @@ export default function SalaryEmployeeCtc() {
                       value={revisionReason}
                       onChange={(e) => setRevisionReason(e.target.value)}
                       placeholder="e.g. Annual increment, role change…"
-                      className="w-full max-w-xl h-9 text-sm border border-[#d4d0c8] rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#1F3A8A]/25 focus:border-[#1F3A8A]"
+                      className="w-full max-w-xl h-9 text-sm border border-border-strong rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent"
                     />
                   </div>
                 </div>
@@ -908,7 +908,7 @@ export default function SalaryEmployeeCtc() {
                     readOnly={!canEdit}
                   />
                 ) : (
-                  <span className="text-[12px] text-[#b0aaa0]">Not included</span>
+                  <span className="text-[12px] text-ink-disabled">Not included</span>
                 )
               }
               pa={paFromMonthly(mediclaimEnabled ? parsed.mediclaim_monthly : null)}
@@ -934,7 +934,7 @@ export default function SalaryEmployeeCtc() {
                     readOnly={!canEdit}
                   />
                 ) : (
-                  <span className="text-[12px] text-[#b0aaa0]">Not included</span>
+                  <span className="text-[12px] text-ink-disabled">Not included</span>
                 )
               }
               pa={paFromMonthly(licEnabled ? parsed.lic_monthly : null)}
@@ -967,13 +967,13 @@ export default function SalaryEmployeeCtc() {
         </div>
       </div>
 
-      <footer className="shrink-0 sticky bottom-0 z-20 border-t border-[#e5e1d8] bg-[#f7f5f0]/95 backdrop-blur-sm">
+      <footer className="shrink-0 sticky bottom-0 z-20 border-t border-border bg-surface-raised/95 backdrop-blur-sm">
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-3 flex flex-wrap items-center gap-2">
           {canEdit ? (
             <button
               type="button"
               onClick={handleSave}
-              className="h-10 px-5 rounded-md bg-[#1a1a1a] text-white text-sm font-semibold hover:bg-black inline-flex items-center gap-1.5"
+              className="h-10 px-5 rounded-md bg-ink-strong text-white text-sm font-semibold hover:bg-ink inline-flex items-center gap-1.5"
             >
               {saveMsg ? <Check className="h-4 w-4" /> : null}
               {saveMsg
@@ -988,7 +988,7 @@ export default function SalaryEmployeeCtc() {
             <button
               type="button"
               onClick={enterReviseMode}
-              className="h-10 px-5 rounded-md bg-[#1F3A8A] text-white text-sm font-semibold hover:bg-[#18306f] inline-flex items-center gap-1.5"
+              className="h-10 px-5 rounded-md bg-accent text-white text-sm font-semibold hover:bg-accent-deep inline-flex items-center gap-1.5"
             >
               <RefreshCw className="h-4 w-4" />
               Revise CTC
@@ -999,7 +999,7 @@ export default function SalaryEmployeeCtc() {
               type="button"
               onClick={applyPfDefaults}
               disabled={!basic || (parseRupeeInput(basic) ?? 0) <= 0}
-              className="h-10 px-4 rounded-md border border-[#d4d0c8] bg-white text-sm font-medium text-[#2a2a2a] hover:bg-[#faf9f6] disabled:opacity-40 disabled:pointer-events-none"
+              className="h-10 px-4 rounded-md border border-border-strong bg-white text-sm font-medium text-ink hover:bg-row-hover disabled:opacity-40 disabled:pointer-events-none"
               title="Fill Employee PF 12% and Employer PF 13% of Basic (capped ₹15,000)"
             >
               Suggest PF (12% / 13%)
@@ -1008,7 +1008,7 @@ export default function SalaryEmployeeCtc() {
           <button
             type="button"
             onClick={() => navigate("/app/admin/salary-admin/salary-processing")}
-            className="h-10 px-4 rounded-md border border-[#d4d0c8] bg-white text-sm font-medium text-[#2a2a2a] hover:bg-[#faf9f6] inline-flex items-center gap-1.5"
+            className="h-10 px-4 rounded-md border border-border-strong bg-white text-sm font-medium text-ink hover:bg-row-hover inline-flex items-center gap-1.5"
           >
             Go to Salary Processing
             <ArrowRight className="h-4 w-4" />

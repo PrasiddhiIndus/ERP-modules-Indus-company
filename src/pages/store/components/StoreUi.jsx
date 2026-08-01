@@ -2,12 +2,12 @@ import React from "react";
 import FormDateInput from "../../../components/FormDateInput";
 
 export const SectionCard = ({ title, right, children }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-    <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+  <div className="bg-surface rounded-xl shadow-sm border border-gray-100">
+    <div className="erp-card-header border-b border-gray-200 flex items-center justify-between gap-3">
+      <h3 className="type-card-title text-gray-900 type-truncate">{title}</h3>
       {right}
     </div>
-    <div className="p-4">{children}</div>
+    <div className="erp-card-body">{children}</div>
   </div>
 );
 

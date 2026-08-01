@@ -55,7 +55,7 @@ export default function DahejBookingLocationMaster() {
             label: "Actions",
             sortable: false,
             render: (r) => (
-              <button type="button" className="text-[11px] text-[#1F3A8A]" onClick={() => { setForm({ ...r, site_id: r.site_id || "" }); setOpen(true); }}>
+              <button type="button" className="text-[11px] text-accent" onClick={() => { setForm({ ...r, site_id: r.site_id || "" }); setOpen(true); }}>
                 Edit
               </button>
             ),

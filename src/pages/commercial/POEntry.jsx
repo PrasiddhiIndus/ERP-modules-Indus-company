@@ -496,47 +496,47 @@ const POEntry = () => {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 shadow-sm overflow-hidden bg-[#f2f6ff]">
+      <div className="rounded-xl border border-gray-200 shadow-sm overflow-hidden bg-info-soft">
         <div className="p-2">
           <div className="bg-white rounded-lg overflow-hidden">
             <div className="w-full max-w-full min-w-0 overflow-x-hidden">
               <table className="w-full min-w-0 max-w-full table-fixed border-collapse">
                 <thead>
                   <tr>
-                <th className="px-2 sm:px-3 py-2.5 text-center text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[5%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-center text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[5%] min-w-0 bg-info-soft">
                   Sr.
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-info-soft">
                   <button type="button" onClick={() => toggleSort('ocNumber')} className="inline-flex items-center font-bold text-black">
                     OC Number {renderSortIndicator('ocNumber')}
                   </button>
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[18%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[18%] min-w-0 bg-info-soft">
                   <button type="button" onClick={() => toggleSort('client')} className="inline-flex items-center font-bold text-black">
                     Client (Legal Name) {renderSortIndicator('client')}
                   </button>
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[14%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[14%] min-w-0 bg-info-soft">
                   <button type="button" onClick={() => toggleSort('siteLocation')} className="inline-flex items-center font-bold text-black">
                     Site / Location {renderSortIndicator('siteLocation')}
                   </button>
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[10%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[10%] min-w-0 bg-info-soft">
                   <button type="button" onClick={() => toggleSort('poWo')} className="inline-flex items-center font-bold text-black">
                     PO/WO {renderSortIndicator('poWo')}
                   </button>
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[11%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[11%] min-w-0 bg-info-soft">
                   <button type="button" onClick={() => toggleSort('startEnd')} className="inline-flex items-center font-bold text-black">
                     Start-End {renderSortIndicator('startEnd')}
                   </button>
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-left text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[15%] min-w-0 bg-info-soft">
                   <button type="button" onClick={() => toggleSort('status')} className="inline-flex items-center font-bold text-black">
                     Status {renderSortIndicator('status')}
                   </button>
                 </th>
-                <th className="px-2 sm:px-3 py-2.5 text-right text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[13%] min-w-0 bg-[#f2f6ff]">
+                <th className="px-2 sm:px-3 py-2.5 text-right text-xs sm:text-sm font-bold text-black border-b border-gray-200 w-[13%] min-w-0 bg-info-soft">
                   Actions
                 </th>
                   </tr>

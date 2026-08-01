@@ -67,7 +67,7 @@ export default function ManualInputs() {
           <input type="number" placeholder="Amount" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} className="h-9 border rounded-lg text-xs px-2" />
           <input placeholder="Remarks" value={form.remarks} onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))} className="h-9 border rounded-lg text-xs px-2" />
         </div>
-        <button type="button" onClick={save} className="mt-3 h-9 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium">Save</button>
+        <button type="button" onClick={save} className="mt-3 h-9 px-4 rounded-lg bg-accent text-white text-xs font-medium">Save</button>
       </SectionCard>
       <SectionCard title={`Entries (${rows.length})`}>
         <DenseTable

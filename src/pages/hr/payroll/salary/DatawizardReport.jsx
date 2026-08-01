@@ -18,9 +18,9 @@ const REPORT_TYPES = [
 ];
 
 const FIELD_ACTIONS = [
-  { id: 'customFormula', label: 'Add Custom Formula', className: 'bg-[#4a90c4] hover:bg-[#3d7aab]' },
-  { id: 'pivot', label: 'Add Pivot Fields', className: 'bg-[#d976a3] hover:bg-[#c86592]' },
-  { id: 'formulaColumn', label: 'Add Formula Column', className: 'bg-[#5cb8a8] hover:bg-[#4aa797]', formulaIcon: true },
+  { id: 'customFormula', label: 'Add Custom Formula', className: 'bg-info hover:bg-info' },
+  { id: 'pivot', label: 'Add Pivot Fields', className: 'bg-critical hover:bg-critical' },
+  { id: 'formulaColumn', label: 'Add Formula Column', className: 'bg-success hover:bg-success', formulaIcon: true },
 ];
 
 const CUSTOM_LABELS = {
@@ -32,7 +32,7 @@ const CUSTOM_LABELS = {
 function FormRow({ label, children, className = '' }) {
   return (
     <div className={`grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-2 sm:gap-4 items-start py-3 ${className}`}>
-      <span className="text-[13px] font-medium text-[#55708a] sm:pt-1.5">{label}</span>
+      <span className="text-[13px] font-medium text-ink-secondary sm:pt-1.5">{label}</span>
       <div className="min-w-0">{children}</div>
     </div>
   );
@@ -96,16 +96,16 @@ function SettingsDropdown({ settings, selectedId, onSelect, onAdd, addError }) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className={`flex items-center justify-between w-full h-9 rounded border bg-white px-3 text-left text-[13px] focus:outline-none focus:ring-2 focus:ring-[#4a90c4]/25 ${
-            open ? 'border-[#4a90c4] ring-2 ring-[#4a90c4]/25' : 'border-gray-300 hover:border-gray-400'
+          className={`flex items-center justify-between w-full h-9 rounded border bg-white px-3 text-left text-[13px] focus:outline-none focus:ring-2 focus:ring-info/25 ${
+            open ? 'border-info ring-2 ring-info/25' : 'border-gray-300 hover:border-gray-400'
           }`}
           aria-haspopup="listbox"
           aria-expanded={open}
         >
-          <span className={`truncate pr-2 ${selected ? 'text-gray-800' : 'text-[#55708a]'}`}>
+          <span className={`truncate pr-2 ${selected ? 'text-gray-800' : 'text-ink-secondary'}`}>
             {selected?.name || '-- Select --'}
           </span>
-          <ChevronDown className={`h-4 w-4 shrink-0 text-[#1e3a5f] transition-transform ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`h-4 w-4 shrink-0 text-accent transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
 
         {open ? (
@@ -125,8 +125,8 @@ function SettingsDropdown({ settings, selectedId, onSelect, onAdd, addError }) {
                   }}
                   className={`w-full text-left px-3 py-2 text-[13px] ${
                     !selectedId
-                      ? 'bg-[#4a90c4] text-white'
-                      : 'text-gray-700 hover:bg-[#4a90c4] hover:text-white'
+                      ? 'bg-info text-white'
+                      : 'text-gray-700 hover:bg-info hover:text-white'
                   }`}
                 >
                   -- Select --
@@ -146,8 +146,8 @@ function SettingsDropdown({ settings, selectedId, onSelect, onAdd, addError }) {
                       }}
                       className={`w-full text-left px-3 py-2 text-[13px] leading-snug ${
                         isSelected
-                          ? 'bg-[#4a90c4] text-white'
-                          : 'text-gray-700 hover:bg-[#4a90c4] hover:text-white'
+                          ? 'bg-info text-white'
+                          : 'text-gray-700 hover:bg-info hover:text-white'
                       }`}
                     >
                       {setting.name}
@@ -171,7 +171,7 @@ function SettingsDropdown({ settings, selectedId, onSelect, onAdd, addError }) {
                   }}
                   placeholder="New setting name"
                   autoFocus
-                  className="w-full h-8 rounded border border-gray-300 px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-[#4a90c4]/30 focus:border-[#4a90c4]"
+                  className="w-full h-8 rounded border border-gray-300 px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-info/30 focus:border-info"
                 />
                 {addError ? <p className="text-[11px] text-red-600">{addError}</p> : null}
                 <div className="flex gap-1.5">
@@ -179,7 +179,7 @@ function SettingsDropdown({ settings, selectedId, onSelect, onAdd, addError }) {
                     type="button"
                     onClick={commitAdd}
                     disabled={!newName.trim()}
-                    className="h-7 px-2.5 rounded bg-[#4a90c4] text-white text-[11px] font-medium disabled:opacity-50"
+                    className="h-7 px-2.5 rounded bg-info text-white text-[11px] font-medium disabled:opacity-50"
                   >
                     Add
                   </button>
@@ -203,7 +203,7 @@ function SettingsDropdown({ settings, selectedId, onSelect, onAdd, addError }) {
       <button
         type="button"
         onClick={startAdd}
-        className="inline-flex items-center justify-center h-9 w-9 text-[#1e3a5f] hover:text-[#4a90c4] rounded"
+        className="inline-flex items-center justify-center h-9 w-9 text-accent hover:text-info rounded"
         aria-label="Add setting"
         title="Add setting"
       >
@@ -368,7 +368,7 @@ export default function DatawizardReport({ formulaGroups }) {
                   checked={activeConfig.reportType === type.id}
                   onChange={() => updateActiveConfig({ reportType: type.id })}
                   disabled={!hasSelectedSetting}
-                  className="h-4 w-4 text-[#4a90c4] border-gray-300 focus:ring-[#4a90c4]"
+                  className="h-4 w-4 text-info border-gray-300 focus:ring-info"
                 />
                 {type.label}
               </label>
@@ -383,7 +383,7 @@ export default function DatawizardReport({ formulaGroups }) {
             disabled={!hasSelectedSetting}
             rows={3}
             placeholder="Enter filter conditions…"
-            className="w-full max-w-3xl rounded-md border border-gray-200 px-3 py-2 text-[13px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#4a90c4]/20 focus:border-[#4a90c4] resize-y min-h-[72px]"
+            className="w-full max-w-3xl rounded-md border border-gray-200 px-3 py-2 text-[13px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-info/20 focus:border-info resize-y min-h-[72px]"
           />
         </FormRow>
 
@@ -425,7 +425,7 @@ export default function DatawizardReport({ formulaGroups }) {
       <div className="overflow-x-auto border-t border-gray-200">
         <table className="min-w-full text-[13px]">
           <thead>
-            <tr className="bg-[#dbe4ee] text-[#55708a]">
+            <tr className="bg-info-soft text-ink-secondary">
               <th className="w-10 px-2 py-2.5" aria-label="Reorder" />
               <th className="text-left font-semibold px-4 py-2.5 min-w-[160px]">Field Name</th>
               <th className="text-left font-semibold px-4 py-2.5 min-w-[160px]">Display Name</th>
@@ -486,7 +486,7 @@ export default function DatawizardReport({ formulaGroups }) {
                           type="text"
                           value={row.fieldName}
                           onChange={(e) => updateField(row.id, { fieldName: e.target.value })}
-                          className="w-full h-8 rounded border border-gray-200 px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-[#4a90c4]/30 focus:border-[#4a90c4]"
+                          className="w-full h-8 rounded border border-gray-200 px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-info/30 focus:border-info"
                         />
                       )}
                     </td>
@@ -496,7 +496,7 @@ export default function DatawizardReport({ formulaGroups }) {
                         value={row.displayName}
                         onChange={(e) => updateField(row.id, { displayName: e.target.value })}
                         placeholder={row.fieldName}
-                        className="w-full h-8 rounded border border-gray-200 px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-[#4a90c4]/30 focus:border-[#4a90c4]"
+                        className="w-full h-8 rounded border border-gray-200 px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-info/30 focus:border-info"
                       />
                     </td>
                     <td className="px-3 py-2 text-center">
@@ -504,7 +504,7 @@ export default function DatawizardReport({ formulaGroups }) {
                         type="checkbox"
                         checked={row.totalRequired}
                         onChange={(e) => updateField(row.id, { totalRequired: e.target.checked })}
-                        className="h-4 w-4 rounded border-gray-300 text-[#4a90c4] focus:ring-[#4a90c4]"
+                        className="h-4 w-4 rounded border-gray-300 text-info focus:ring-info"
                       />
                     </td>
                     <td className="px-3 py-2 text-center">
@@ -512,7 +512,7 @@ export default function DatawizardReport({ formulaGroups }) {
                         type="checkbox"
                         checked={row.protectColumn}
                         onChange={(e) => updateField(row.id, { protectColumn: e.target.checked })}
-                        className="h-4 w-4 rounded border-gray-300 text-[#4a90c4] focus:ring-[#4a90c4]"
+                        className="h-4 w-4 rounded border-gray-300 text-info focus:ring-info"
                       />
                     </td>
                     <td className="px-3 py-2 text-center">
@@ -520,7 +520,7 @@ export default function DatawizardReport({ formulaGroups }) {
                         type="checkbox"
                         checked={row.hideColumn}
                         onChange={(e) => updateField(row.id, { hideColumn: e.target.checked })}
-                        className="h-4 w-4 rounded border-gray-300 text-[#4a90c4] focus:ring-[#4a90c4]"
+                        className="h-4 w-4 rounded border-gray-300 text-info focus:ring-info"
                       />
                     </td>
                     <td className="px-3 py-2 text-center">

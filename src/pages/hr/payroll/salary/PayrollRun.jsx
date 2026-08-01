@@ -64,7 +64,7 @@ export default function PayrollRun() {
             type="button"
             onClick={() => setStep(i)}
             className={`px-2 py-1 rounded text-[10px] font-medium border ${
-              step === i ? 'bg-[#1F3A8A] text-white border-[#1F3A8A]' : 'bg-white text-gray-600 border-gray-200'
+              step === i ? 'bg-accent text-white border-accent' : 'bg-white text-gray-600 border-gray-200'
             }`}
           >
             {i + 1}. {label}
@@ -77,7 +77,7 @@ export default function PayrollRun() {
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-9 border rounded-lg px-2" />
         </label>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={() => runPreview(false)} className="h-9 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={() => runPreview(false)} className="h-9 px-4 rounded-lg bg-accent text-white text-xs font-medium disabled:opacity-50">
             Preview payroll
           </button>
           <button type="button" disabled={busy} onClick={() => runPreview(true)} className="h-9 px-4 rounded-lg border border-gray-300 text-xs font-medium disabled:opacity-50">

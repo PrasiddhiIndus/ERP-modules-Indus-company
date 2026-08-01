@@ -67,7 +67,7 @@ export default function ExpenseMonthlySummary() {
               <XAxis dataKey="name" tick={{ fontSize: 10 }} />
               <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10 }} />
               <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Bar dataKey="amount" fill="#1F3A8A" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="amount" fill="var(--accent)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>

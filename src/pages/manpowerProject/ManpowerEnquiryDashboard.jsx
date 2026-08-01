@@ -63,6 +63,7 @@ import {
   STATUS_CHART_COLORS,
   valueByVertical,
 } from "./utils/manpowerInquiryDashboard";
+import { TOKENS } from "../../theme/tokens";
 import ManpowerNavbar from "./ManpowerNavbar";
 import "./manpowerEnquiryDashboard.css";
 
@@ -71,7 +72,7 @@ const MANPOWER_BASE = "/app/commercial/manpower-training/manpower-management";
 const selectCls =
   "w-full min-h-[38px] py-2 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
 
-const labelStyle = { fontSize: 11, fontWeight: 600, fill: "#374151" };
+const labelStyle = { fontSize: 11, fontWeight: 600, fill: "var(--text-strong)" };
 
 const CHART_ANIM = {
   isAnimationActive: true,
@@ -85,22 +86,22 @@ function ChartDefs() {
   return (
     <defs>
       <linearGradient id="mpBarGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#60a5fa" />
-        <stop offset="100%" stopColor="#1d4ed8" />
+        <stop offset="0%" stopColor="var(--info)" />
+        <stop offset="100%" stopColor="var(--info)" />
       </linearGradient>
       <linearGradient id="mpLineGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.45} />
-        <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
+        <stop offset="0%" stopColor="var(--info)" stopOpacity={0.45} />
+        <stop offset="100%" stopColor="var(--info)" stopOpacity={0.02} />
       </linearGradient>
       <linearGradient id="mpValueGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#a78bfa" />
-        <stop offset="100%" stopColor="#6d28d9" />
+        <stop offset="0%" stopColor="var(--info)" />
+        <stop offset="100%" stopColor="var(--accent-deep)" />
       </linearGradient>
       <filter id="mpPieGlow" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="#3b82f6" floodOpacity="0.35" />
+        <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="var(--info)" floodOpacity="0.35" />
       </filter>
       <filter id="mpBarShadow" x="-10%" y="-10%" width="130%" height="140%">
-        <feDropShadow dx="2" dy="5" stdDeviation="4" floodColor="#1e40af" floodOpacity="0.28" />
+        <feDropShadow dx="2" dy="5" stdDeviation="4" floodColor="var(--info)" floodOpacity="0.28" />
       </filter>
     </defs>
   );
@@ -511,7 +512,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                     outerRadius={90}
                     paddingAngle={3}
                     label={renderPieLabel}
-                    labelLine={{ stroke: "#94a3b8", strokeWidth: 1 }}
+                    labelLine={{ stroke: "var(--text-disabled)", strokeWidth: 1 }}
                     activeIndex={activeStatusPie}
                     activeShape={renderActivePieShape}
                     onMouseEnter={(_, i) => setActiveStatusPie(i)}
@@ -522,7 +523,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                       <Cell
                         key={entry.name}
                         fill={entry.fill}
-                        stroke="#fff"
+                        stroke="var(--surface)"
                         strokeWidth={2}
                         style={{ filter: "url(#mpBarShadow)", animationDelay: `${i * 80}ms` }}
                       />
@@ -551,7 +552,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                     outerRadius={92}
                     paddingAngle={3}
                     label={renderPieLabel}
-                    labelLine={{ stroke: "#94a3b8", strokeWidth: 1 }}
+                    labelLine={{ stroke: "var(--text-disabled)", strokeWidth: 1 }}
                     activeIndex={activeVerticalPie}
                     activeShape={renderActivePieShape}
                     onMouseEnter={(_, i) => setActiveVerticalPie(i)}
@@ -562,7 +563,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                       <Cell
                         key={entry.name}
                         fill={entry.fill}
-                        stroke="#fff"
+                        stroke="var(--surface)"
                         strokeWidth={2}
                         style={{ filter: "url(#mpBarShadow)", animationDelay: `${i * 90}ms` }}
                       />
@@ -582,7 +583,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={assigneeData.slice(0, 12)} layout="vertical" margin={{ left: 8, right: 28 }}>
                   <ChartDefs />
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={TOKENS.chartGrid} />
                   <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
@@ -604,7 +605,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={modeData.slice(0, 10)} margin={{ bottom: 48, top: 16 }}>
                   <ChartDefs />
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval={0} height={70} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
@@ -625,11 +626,11 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={manpowerData} margin={{ bottom: 24, top: 16 }}>
                   <ChartDefs />
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip valueKey="manpower" suffix="people" />} />
-                  <Bar dataKey="manpower" fill="#8b5cf6" radius={[6, 6, 0, 0]} style={{ filter: "url(#mpBarShadow)" }} {...CHART_ANIM}>
+                  <Bar dataKey="manpower" fill={CHART_PALETTE[0]} radius={[6, 6, 0, 0]} style={{ filter: "url(#mpBarShadow)" }} {...CHART_ANIM}>
                     <LabelList dataKey="manpower" position="top" style={labelStyle} />
                   </Bar>
                 </BarChart>
@@ -644,7 +645,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={valueData} margin={{ bottom: 24, top: 16 }}>
                   <ChartDefs />
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis
                     tick={{ fontSize: 11 }}
@@ -679,7 +680,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
               <ResponsiveContainer width="100%" height={300}>
                 <ComposedChart data={trendData} margin={{ top: 20, right: 12 }}>
                   <ChartDefs />
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                   <Tooltip
@@ -697,10 +698,10 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                   <Line
                     type="monotone"
                     dataKey="count"
-                    stroke="#2563eb"
+                    stroke="var(--info)"
                     strokeWidth={3}
-                    dot={{ r: 5, strokeWidth: 2, fill: "#fff" }}
-                    activeDot={{ r: 8, strokeWidth: 0, fill: "#1d4ed8" }}
+                    dot={{ r: 5, strokeWidth: 2, fill: "var(--surface)" }}
+                    activeDot={{ r: 8, strokeWidth: 0, fill: "var(--info)" }}
                     {...CHART_ANIM}
                   >
                     <LabelList dataKey="count" position="top" offset={8} style={labelStyle} />

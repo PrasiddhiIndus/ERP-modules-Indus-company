@@ -116,7 +116,7 @@ export function buildAttendanceColumns({ onSort, sortBy, sortDir, StatusChip, Ba
       <button
         type="button"
         onClick={() => onSort(key)}
-        className={`inline-flex items-center gap-0.5 font-semibold hover:text-[#1F3A8A] ${active ? "text-[#1F3A8A]" : ""}`}
+        className={`inline-flex items-center gap-0.5 font-semibold hover:text-accent ${active ? "text-accent" : ""}`}
       >
         {label}
         <span className="text-[10px] opacity-70">{arrow}</span>

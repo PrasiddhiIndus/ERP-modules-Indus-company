@@ -16,7 +16,7 @@
   line-height: 1rem;
   font-size: 0.75rem;
   font-weight: 500;
-  color: #4b5563;
+  color: var(--text-secondary);
 }
 
 .mp-enquiry-analytics .mp-filter-grid {
@@ -118,8 +118,8 @@
 }
 
 .mp-enquiry-analytics .mp-chart-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 0.75rem;
   box-shadow: 0 1px 2px var(--mp-kpi-shadow);
   overflow: hidden;
@@ -127,7 +127,7 @@
 
 .mp-enquiry-analytics .mp-chart-head {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--surface-sunken);
 }
 
 .mp-enquiry-analytics .mp-chart-body {

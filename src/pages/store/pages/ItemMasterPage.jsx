@@ -41,7 +41,7 @@ export default function ItemMasterPage({ data }) {
             {ISSUE_TYPES.map((c) => <option key={c}>{c}</option>)}
           </select>
           <TinyInput type="number" placeholder="Annual Qty/Person" value={form.defaultAnnualQtyPerPerson} onChange={(e) => setForm((p) => ({ ...p, defaultAnnualQtyPerPerson: Number(e.target.value) }))} />
-          <button onClick={submit} className="h-9 rounded bg-[#1F3A8A] text-white text-sm">Add Item</button>
+          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Add Item</button>
         </div>
       </SectionCard>
 

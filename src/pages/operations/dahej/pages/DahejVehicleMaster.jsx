@@ -56,7 +56,7 @@ export default function DahejVehicleMaster() {
             label: "Actions",
             sortable: false,
             render: (r) => (
-              <button type="button" className="text-[11px] text-[#1F3A8A]" onClick={() => { setForm(r); setOpen(true); }}>
+              <button type="button" className="text-[11px] text-accent" onClick={() => { setForm(r); setOpen(true); }}>
                 Edit
               </button>
             ),

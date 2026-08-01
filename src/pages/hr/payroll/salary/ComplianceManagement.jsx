@@ -25,7 +25,7 @@ export default function ComplianceManagement() {
             <p className="text-xs text-gray-600 mb-3">{item.desc}</p>
             <Link
               to={salaryAppPath(item.to)}
-              className="inline-flex h-8 px-3 items-center rounded-lg bg-[#1F3A8A] text-white text-xs font-medium hover:bg-[#1a3278]"
+              className="inline-flex h-8 px-3 items-center rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep"
             >
               Open
             </Link>

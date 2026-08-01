@@ -154,7 +154,7 @@ export default function PayrollApproval() {
                 <button
                   type="button"
                   onClick={() => setSelectedRunId(run.id)}
-                  className={`text-left text-xs ${selectedRunId === run.id ? 'font-semibold text-[#1F3A8A]' : 'text-gray-900'}`}
+                  className={`text-left text-xs ${selectedRunId === run.id ? 'font-semibold text-accent' : 'text-gray-900'}`}
                 >
                   {run.label || `Payroll ${formatMonth(run.payroll_month)}`}
                   <span className="block font-normal text-gray-500">{formatMonth(run.payroll_month)}</span>
@@ -166,7 +166,7 @@ export default function PayrollApproval() {
                       type="button"
                       onClick={handleFinalize}
                       disabled={finalizing}
-                      className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-[11px] font-medium hover:bg-[#1a3278] disabled:opacity-60"
+                      className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-accent text-white text-[11px] font-medium hover:bg-accent-deep disabled:opacity-60"
                     >
                       <Check className="h-3.5 w-3.5" />
                       {finalizing ? 'Finalizing…' : 'Finalize run'}
@@ -189,7 +189,7 @@ export default function PayrollApproval() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search employee…"
-                className="w-full h-9 pl-8 pr-3 rounded-lg border border-gray-200 text-sm bg-gray-50/80 focus:bg-white focus:ring-2 focus:ring-[#1F3A8A]/20"
+                className="w-full h-9 pl-8 pr-3 rounded-lg border border-gray-200 text-sm bg-gray-50/80 focus:bg-white focus:ring-2 focus:ring-accent/20"
               />
             </div>
           </div>

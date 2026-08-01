@@ -246,7 +246,7 @@ export default function SiteMaster() {
         <button
           type="button"
           onClick={() => openEditForm(row)}
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-[#1F3A8A] hover:underline"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
         >
           <Pencil className="h-3 w-3" />
           Edit
@@ -273,7 +273,7 @@ export default function SiteMaster() {
           <button
             type="button"
             onClick={openAddForm}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1F3A8A] px-3 text-xs font-medium text-white hover:bg-[#1a3278]"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-medium text-white hover:bg-accent-deep"
           >
             <Plus className="h-3.5 w-3.5" />
             Add site
@@ -332,7 +332,7 @@ export default function SiteMaster() {
               <button
                 type="button"
                 onClick={onSaveForm}
-                className="h-9 rounded-lg bg-[#1F3A8A] px-4 text-xs font-semibold text-white hover:bg-[#1a3278]"
+                className="h-9 rounded-lg bg-accent px-4 text-xs font-semibold text-white hover:bg-accent-deep"
               >
                 {form.id ? 'Update site' : 'Save site'}
               </button>

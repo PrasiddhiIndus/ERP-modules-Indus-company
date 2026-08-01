@@ -4,7 +4,7 @@ import React from "react";
 export default function FinanceDashboardStyles() {
   return (
     <style>{`
-    .fin-dash{--paper:#f8fafc;--surface:#ffffff;--ink:#111827;--ink-soft:#4b5563;--muted:#6b7280;--line:#e5e7eb;--green:#dc2626;--profit:#15803d;--loss:#b91c1c;--warn:#d97706;--gold:#b45309;--display:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;--body:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;--mono:ui-monospace,"Cascadia Mono","Segoe UI Mono",Consolas,monospace;font-family:var(--body);font-size:13px;color:var(--ink);background:var(--paper);}
+    .fin-dash{--paper:var(--surface-raised);--surface:var(--surface);--ink:var(--text);--ink-soft:var(--text-secondary);--muted:var(--text-muted);--line:var(--border);--green:var(--accent);--profit:var(--success);--loss:var(--critical);--warn:var(--warning);--gold:var(--chart-3);--display:var(--font-sans);--body:var(--font-sans);--mono:var(--font-mono);font-family:var(--body);font-size:13px;color:var(--ink);background:var(--paper);}
     .fin-dash *{box-sizing:border-box}
     .fin-topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 0 20px;border-bottom:1px solid var(--line);margin-bottom:18px;}
     .fin-topbar h1{font-family:var(--display);font-size:23px;font-weight:700;margin:0;letter-spacing:-.02em;}
@@ -16,7 +16,7 @@ export default function FinanceDashboardStyles() {
     .fin-seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
     .fin-seg button{background:var(--surface);border:none;border-right:1px solid var(--line);padding:7px 13px;font-family:var(--body);font-size:12.5px;cursor:pointer;color:var(--ink-soft);}
     .fin-seg button:last-child{border-right:none;}
-    .fin-seg button.on{background:var(--green);color:#fff;}
+    .fin-seg button.on{background:var(--green);color:var(--surface);}
     .fin-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:18px;}
     .fin-kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 17px;}
     .fin-kpi-top{display:flex;align-items:center;gap:8px;margin-bottom:9px;}
@@ -69,7 +69,7 @@ export default function FinanceDashboardStyles() {
     .fin-empty h3{font-family:var(--display);color:var(--ink);margin:0 0 6px;font-size:18px;}
     .fin-empty p{margin:0;font-size:13.5px;}
     .row-pending td{background:rgba(194,130,15,.06)!important;box-shadow:inset 3px 0 0 var(--warn);}
-    .fin-tip{background:var(--ink);color:#fff;padding:9px 11px;border-radius:9px;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.2);}
+    .fin-tip{background:var(--ink);color:var(--surface);padding:9px 11px;border-radius:9px;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.2);}
     .fin-tip-title{font-weight:700;margin-bottom:5px;font-family:var(--display);}
     .fin-tip-row{display:flex;align-items:center;gap:7px;padding:1px 0;}
     .fin-tip-dot{width:8px;height:8px;border-radius:2px;}

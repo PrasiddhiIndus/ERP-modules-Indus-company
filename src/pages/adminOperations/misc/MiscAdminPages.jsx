@@ -25,7 +25,7 @@ export function MiscEventsPage() {
           </ul>
         </SectionCard>
       </div>
-      <SectionCard title="Events list" right={<button className="h-8 px-2 rounded bg-[#1F3A8A] text-white text-xs">New event</button>}>
+      <SectionCard title="Events list" right={<button className="h-8 px-2 rounded bg-accent text-white text-xs">New event</button>}>
         <FilterBar>
           <TinyInput type="month" defaultValue="2025-03" className="w-[140px]" />
         </FilterBar>
@@ -104,7 +104,7 @@ export function MiscTravelPage() {
 
 export function MiscTasksPage() {
   return (
-    <SectionCard title="Admin tasks / other requests" right={<button className="h-8 px-2 rounded bg-[#1F3A8A] text-white text-xs">Log request</button>}>
+    <SectionCard title="Admin tasks / other requests" right={<button className="h-8 px-2 rounded bg-accent text-white text-xs">Log request</button>}>
       <FilterBar>
         <TinyInput placeholder="Assigned to" className="min-w-[120px]" />
         <select className="h-8 border border-gray-300 rounded px-2 text-xs">

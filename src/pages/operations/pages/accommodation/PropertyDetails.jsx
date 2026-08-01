@@ -77,13 +77,13 @@ export default function PropertyDetails() {
           <div className="flex items-center justify-center py-4">
             <div className="relative w-28 h-28">
               <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" strokeWidth="3" />
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--border)" strokeWidth="3" />
                 <circle
                   cx="18"
                   cy="18"
                   r="15.9"
                   fill="none"
-                  stroke="#1F3A8A"
+                  stroke="var(--accent)"
                   strokeWidth="3"
                   strokeDasharray={`${occupancyPct} ${100 - occupancyPct}`}
                 />

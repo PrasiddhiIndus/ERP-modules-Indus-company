@@ -27,8 +27,8 @@ function SortIndicator({ fieldKey, sortConfig }) {
   const active = sortConfig.key === fieldKey;
   return (
     <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
-      <span style={{ color: active && sortConfig.dir === 'asc' ? '#34d399' : '#cbd5e1' }}>▲</span>
-      <span style={{ color: active && sortConfig.dir === 'desc' ? '#fb7185' : '#cbd5e1' }}>▼</span>
+      <span style={{ color: active && sortConfig.dir === 'asc' ? 'var(--success)' : 'var(--border-strong)' }}>▲</span>
+      <span style={{ color: active && sortConfig.dir === 'desc' ? 'var(--critical)' : 'var(--border-strong)' }}>▼</span>
     </span>
   );
 }
@@ -328,7 +328,7 @@ export default function EnquiryDatabase() {
       )}
 
       {/* Table — same outer wrapper as POEntry */}
-      <div className="rounded-xl border border-gray-300 overflow-hidden bg-[#f2f6ff]">
+      <div className="rounded-xl border border-gray-300 overflow-hidden bg-info-soft">
         <div className="p-2">
           <div className="bg-white rounded-lg overflow-hidden">
             {tableLoading ? (
@@ -344,13 +344,13 @@ export default function EnquiryDatabase() {
                 <table className="w-full min-w-0 text-xs border-collapse">
                   <thead>
                     <tr>
-                      <th className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap w-11">
+                      <th className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap w-11">
                         S.No
                       </th>
                       {databaseFields.map((col) => (
                         <th
                           key={col.id}
-                          className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap"
+                          className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap"
                         >
                           <button
                             type="button"
@@ -362,7 +362,7 @@ export default function EnquiryDatabase() {
                           </button>
                         </th>
                       ))}
-                      <th className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-[#f2f6ff] whitespace-nowrap">
+                      <th className="px-2 py-2.5 text-center font-bold text-black border-b border-gray-200 bg-info-soft whitespace-nowrap">
                         Actions
                       </th>
                     </tr>
