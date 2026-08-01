@@ -7,7 +7,15 @@ function softwareSubR2Url(subpath) {
   return apiUrl(`/api/software-subscriptions/r2${sub}`);
 }
 
-/** Bearer fetch to software-subscription R2 routes; refreshes JWT on 401. */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientHttpStatus(status) {
+  return status === 0 || status === 502 || status === 503 || status === 504;
+}
+
+/** Bearer fetch to software-subscription R2 routes; refreshes JWT on 401; retries transient proxy failures. */
 async function softwareSubR2Fetch(subpath, init = {}) {
   let token = await getAdminApiAccessToken(supabase);
   if (!token) {
@@ -17,20 +25,60 @@ async function softwareSubR2Fetch(subpath, init = {}) {
   const doFetch = (accessToken) =>
     fetch(softwareSubR2Url(subpath), {
       ...init,
+      cache: 'no-store',
       headers: {
         ...(init.headers || {}),
         Authorization: `Bearer ${accessToken}`,
       },
     });
 
-  let res = await doFetch(token);
-  if (res.status === 401) {
-    const refreshed = await getAdminApiAccessToken(supabase, { forceRefresh: true });
-    if (refreshed && refreshed !== token) {
-      res = await doFetch(refreshed);
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      let res = await doFetch(token);
+      if (res.status === 401) {
+        const refreshed = await getAdminApiAccessToken(supabase, { forceRefresh: true });
+        if (refreshed && refreshed !== token) {
+          token = refreshed;
+          res = await doFetch(token);
+        }
+      }
+      // Vite proxy returns 500 with empty/HTML body when the API process restarts mid-request.
+      if (res.status === 500 && attempt < 2) {
+        const peek = await res.clone().text().catch(() => '');
+        const looksLikeProxyBlip =
+          !peek.trim() ||
+          /ECONNRESET|ECONNREFUSED|proxy error|socket hang up/i.test(peek) ||
+          /^\s*</.test(peek);
+        if (looksLikeProxyBlip) {
+          await sleep(400 * (attempt + 1));
+          continue;
+        }
+      }
+      if (isTransientHttpStatus(res.status) && attempt < 2) {
+        await sleep(400 * (attempt + 1));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 2) {
+        await sleep(400 * (attempt + 1));
+        continue;
+      }
     }
   }
-  return res;
+  throw new Error(lastError?.message || 'Unable to reach the file server. Try again.');
+}
+
+async function readJsonSafe(res) {
+  const text = await res.text().catch(() => '');
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text.slice(0, 180) };
+  }
 }
 
 /**
@@ -48,7 +96,7 @@ export async function uploadSoftwareSubFileToR2({ file, subscriptionId }) {
     method: 'POST',
     body: formData,
   });
-  const body = await res.json().catch(() => ({}));
+  const body = await readJsonSafe(res);
   if (!res.ok) {
     throw new Error(body.message || `Upload failed (${res.status}).`);
   }
@@ -58,33 +106,43 @@ export async function uploadSoftwareSubFileToR2({ file, subscriptionId }) {
 }
 
 export async function presignSoftwareSubR2Get(objectKey) {
+  const key = String(objectKey || '').trim().replace(/^\/+/, '');
+  if (!key.startsWith('software-subscriptions/')) {
+    throw new Error('This invoice file is not stored in cloud file storage.');
+  }
+
   const res = await softwareSubR2Fetch('/presign-get', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ objectKey }),
+    body: JSON.stringify({ objectKey: key }),
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.message || `Download link failed (${res.status}).`);
+  const body = await readJsonSafe(res);
+  if (!res.ok) {
+    throw new Error(body.message || `Download link failed (${res.status}).`);
+  }
   if (!body.getUrl) throw new Error('Download link was not returned.');
   return body.getUrl;
 }
 
 export async function deleteSoftwareSubR2Object(objectKey) {
+  const key = String(objectKey || '').trim().replace(/^\/+/, '');
   const res = await softwareSubR2Fetch('/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ objectKey }),
+    body: JSON.stringify({ objectKey: key }),
   });
-  const body = await res.json().catch(() => ({}));
+  const body = await readJsonSafe(res);
   if (!res.ok) throw new Error(body.message || `Delete failed (${res.status}).`);
   return true;
 }
 
 /** Infer storage backend from explicit field or object key shape. */
 export function resolveSoftwareSubAttachmentStorage(attachment) {
-  const explicit = String(attachment?.storage || '').toLowerCase();
-  if (explicit === 'r2' || explicit === 'supabase') return explicit;
-  const path = String(attachment?.path || '').trim();
+  const path = String(attachment?.path || '').trim().replace(/^\/+/, '');
+  // Prefer key shape — wrong storage flags were causing R2 calls for Supabase files.
   if (path.startsWith('software-subscriptions/')) return 'r2';
+  const explicit = String(attachment?.storage || '').toLowerCase();
+  if (explicit === 'supabase') return 'supabase';
+  if (explicit === 'r2') return 'r2';
   return 'supabase';
 }

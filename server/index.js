@@ -1550,9 +1550,19 @@ app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
       return res.status(400).json({ message: 'Invalid object key.' });
     }
 
-    const client = getR2S3Client();
-    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
-    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    let getUrl;
+    try {
+      const client = getR2S3Client();
+      const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+      getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[server] software-subscriptions presign-get R2 error:', err?.name, err?.message || err);
+      const status = Number(err?.status) || 500;
+      return res.status(status).json({
+        message: err?.message || 'Could not create download link. Check R2 configuration on the server.',
+      });
+    }
     res.json({ getUrl });
   } catch (err) {
     const status = Number(err?.status) || 500;
