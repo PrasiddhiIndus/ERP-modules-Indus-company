@@ -473,22 +473,22 @@ const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
 
 /** Per-mark colors for closed cells only (dropdown list stays neutral). */
 export const REGISTER_MARK_CELL_COLORS = {
-  P: { bg: TOKENS.success, border: TOKENS.accentDeep, text: "white" },
+  P: { bg: "#14532d", border: "#14532d", text: "white" },
   "P(OD)": { bg: TOKENS.info, border: TOKENS.info, text: "white" },
   T: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
-  L: { bg: TOKENS.critical, border: TOKENS.critical, text: "white" },
-  WO: { bg: TOKENS.warning, border: TOKENS.warning, text: "dark" },
+  L: { bg: "#991b1b", border: "#991b1b", text: "white" },
+  WO: { bg: "#a16207", border: "#a16207", text: "white" },
   [REGISTER_MARK_NHPH]: { bg: CHART_SERIES[2], border: TOKENS.warning, text: "white" },
   NHPH: { bg: CHART_SERIES[2], border: TOKENS.warning, text: "white" },
   CO: { bg: TOKENS.success, border: TOKENS.success, text: "white" },
   HD: { bg: TOKENS.warning, border: TOKENS.warning, text: "white" },
   /** Dual-state: present half (green) + leave half (red). */
-  "P/SL": { bg: TOKENS.success, border: TOKENS.warning, text: "white", dual: true },
-  "P/CL": { bg: TOKENS.success, border: TOKENS.warning, text: "white", dual: true },
-  "P/PL": { bg: TOKENS.success, border: TOKENS.warning, text: "white", dual: true },
-  "LWP/PL": { bg: TOKENS.critical, border: TOKENS.critical, text: "white", dual: true },
-  "LWP/SL": { bg: TOKENS.critical, border: TOKENS.critical, text: "white", dual: true },
-  "LWP/CL": { bg: TOKENS.critical, border: TOKENS.critical, text: "white", dual: true },
+  "P/SL": { bg: "#14532d", border: "#a16207", text: "white", dual: true },
+  "P/CL": { bg: "#14532d", border: "#a16207", text: "white", dual: true },
+  "P/PL": { bg: "#14532d", border: "#a16207", text: "white", dual: true },
+  "LWP/PL": { bg: "#991b1b", border: "#991b1b", text: "white", dual: true },
+  "LWP/SL": { bg: "#991b1b", border: "#991b1b", text: "white", dual: true },
+  "LWP/CL": { bg: "#991b1b", border: "#991b1b", text: "white", dual: true },
   WFH: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
   [REGISTER_MARK_LEFT]: { bg: TOKENS.textMuted, border: TOKENS.textSecondary, text: "white" },
 };
