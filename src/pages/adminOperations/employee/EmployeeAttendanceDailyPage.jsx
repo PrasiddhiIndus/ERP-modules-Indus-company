@@ -18,7 +18,6 @@ import {
   REGISTER_MARK_NHPH,
   applyBulkRegisterMarks,
   attachRegisterRowSummaries,
-  buildRegisterMarkSourcesByEmpDay,
   buildPresentKeysFromPunches,
   buildMonthlyRegisterGrid,
   buildRegisterEmployeeList,
@@ -78,14 +77,17 @@ import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
 import {
   REGISTER_LEAVE_ANNUAL_LIMITS,
   aggregateLeaveUsageByEmployee,
+  buildInsufficientLeaveBalanceMessage,
   collectRegisterHolidayDates,
   dispatchLeaveLimitAlertsChanged,
   findAllLeaveLimitExceeded,
   formatLeaveUsage,
   hasLeaveAnnualLimit,
+  indexLeaveBalancesByEmployeeCode,
   projectLeaveUsageAfterMark,
   validateCoMark,
 } from "../../../lib/attendanceLeaveLimits";
+import { fetchLeaveBalancesForYear } from "../../../lib/leaveManagement";
 import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
 import { subscribeTourWorkflowRealtime } from "../../../lib/adminTourRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
@@ -252,6 +254,7 @@ export function EmployeeAttendanceDailyPage() {
   const [registerCodeWarning, setRegisterCodeWarning] = useState("");
   const [yearRegisterRows, setYearRegisterRows] = useState([]);
   const [configuredHolidays, setConfiguredHolidays] = useState([]);
+  const [leaveBalancesByCode, setLeaveBalancesByCode] = useState({});
   const [leaveLimitWarning, setLeaveLimitWarning] = useState("");
   const [commentEditor, setCommentEditor] = useState({
     open: false,
@@ -297,6 +300,7 @@ export function EmployeeAttendanceDailyPage() {
     setError("");
     setYearRegisterRows([]);
     setConfiguredHolidays([]);
+    setLeaveBalancesByCode({});
     try {
       const codeMapPromise = masterRegisterCodeMapRef.current
         ? Promise.resolve(masterRegisterCodeMapRef.current)
@@ -547,13 +551,15 @@ export function EmployeeAttendanceDailyPage() {
 
       void (async () => {
         try {
-          const [yearRows, holidayRows] = await Promise.all([
+          const [yearRows, holidayRows, balanceRows] = await Promise.all([
             fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap),
             fetchNationalPublicHolidays(supabase, { year: monthMeta.year }),
+            fetchLeaveBalancesForYear(supabase, monthMeta.year),
           ]);
           if (loadGeneration !== loadGenerationRef.current) return;
           setYearRegisterRows(yearRows);
           setConfiguredHolidays(holidayRows || []);
+          setLeaveBalancesByCode(indexLeaveBalancesByEmployeeCode(balanceRows));
         } catch (yearErr) {
           console.warn("Year register load failed:", yearErr);
         } finally {
@@ -721,6 +727,17 @@ export function EmployeeAttendanceDailyPage() {
     return map;
   }, [activeEmployees]);
 
+  const employeeNameByCode = useMemo(() => {
+    const map = new Map();
+    for (const emp of activeEmployees) {
+      const code = normalizeAttendanceEmpCode(emp.empCode);
+      if (!code) continue;
+      const name = String(emp.employeeName || emp.name || "").trim();
+      if (name) map.set(code, name);
+    }
+    return map;
+  }, [activeEmployees]);
+
   const calendarYear = monthMeta?.year ?? new Date().getFullYear();
 
   const yearLeaveUsageByEmp = useMemo(
@@ -766,6 +783,23 @@ export function EmployeeAttendanceDailyPage() {
             warnings.push(
               `${hit.leaveType} annual limit exceeded (${formatLeaveUsage(hit.used, hit.limit)} in ${calendarYear}).`
             );
+          }
+
+          const code = normalizeAttendanceEmpCode(empCodeKey);
+          const balanceMsg = buildInsufficientLeaveBalanceMessage({
+            employeeName: employeeNameByCode.get(code) || employeeNameByCode.get(empCodeKey),
+            empCode: code || empCodeKey,
+            mark: value,
+            balanceRow:
+              leaveBalancesByCode[code] ||
+              leaveBalancesByCode[empCodeKey] ||
+              leaveBalancesByCode[String(code || "").toUpperCase()] ||
+              null,
+          });
+          if (balanceMsg) {
+            setLeaveLimitWarning([balanceMsg, ...warnings].filter(Boolean).join(" "));
+            dispatchLeaveLimitAlertsChanged();
+            return;
           }
         }
       }
@@ -849,7 +883,9 @@ export function EmployeeAttendanceDailyPage() {
     [
       calendarYear,
       dateOfLeavingByEmp,
+      employeeNameByCode,
       holidayDatesInYear,
+      leaveBalancesByCode,
       manualMarks,
       manualRemarks,
       masterRegisterCodeMap,
@@ -972,17 +1008,14 @@ export function EmployeeAttendanceDailyPage() {
     else setTableDayAttendanceFilter(mode);
   }, []);
 
-  const rowsWithSummary = useMemo(() => {
-    const markSourcesByEmp = buildRegisterMarkSourcesByEmpDay(
-      monthRegisterRowsRef.current,
-      masterRegisterCodeMap
-    );
-    return attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth, {
-      year: monthMeta?.year,
-      month: monthMeta?.month,
-      markSourcesByEmp,
-    });
-  }, [dayFilteredRows, manualMarks, daysInMonth, monthMeta?.year, monthMeta?.month, masterRegisterCodeMap]);
+  const rowsWithSummary = useMemo(
+    () =>
+      attachRegisterRowSummaries(dayFilteredRows, manualMarks, daysInMonth, {
+        year: monthMeta?.year,
+        month: monthMeta?.month,
+      }),
+    [dayFilteredRows, manualMarks, daysInMonth, monthMeta?.year, monthMeta?.month]
+  );
 
   const summaryFooter = useMemo(() => computeRegisterSummaryFooter(rowsWithSummary), [rowsWithSummary]);
 
@@ -1972,10 +2005,7 @@ export function EmployeeAttendanceDailyPage() {
         widthClass="max-w-3xl"
       >
         <p className="text-[11px] text-gray-500 mb-3">
-          Totals for the filtered list. Leave counts leave marks (SPLA/SPLB = 0.5). Weekoff is all
-          WO; Applied WO is only WO you marked manually (not auto Sunday week-off). Total present is
-          presence marks only (P, P(OD), tour, CO, WFH; half-day composites = 0.5) — leave is not
-          counted as present.
+          Totals per employee for the filtered list. Applied WO = weekoffs marked manually in the grid.
         </p>
         <div className="overflow-x-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-xs">

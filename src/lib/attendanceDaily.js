@@ -86,6 +86,20 @@ export const REGISTER_HALF_DAY_SUBMENU_OPTIONS = [
   { value: "P/PL", label: "Present + Privilege Leave" },
 ];
 
+/**
+ * LWP composites: unpaid half + 0.5 typed leave (present credit 0).
+ * Stored as LWP/PL | LWP/SL | LWP/CL.
+ */
+export const REGISTER_LWP_COMPOSITE_MARKS = new Set(["LWP/PL", "LWP/SL", "LWP/CL"]);
+
+/** LWP submenu under the register mark picker. */
+export const REGISTER_LWP_SUBMENU_OPTIONS = [
+  { value: "LWP", label: "LWP — Leave Without Pay" },
+  { value: "LWP/PL", label: "LWP + PL" },
+  { value: "LWP/SL", label: "LWP + SL" },
+  { value: "LWP/CL", label: "LWP + CL" },
+];
+
 /** Marks that use the red closed-cell box (L + leave submenu codes only). */
 export const REGISTER_LEAVE_RED_CELL_MARKS = new Set([
   "L",
@@ -101,14 +115,14 @@ export const REGISTER_LEAVE_RED_CELL_MARKS = new Set([
   "LWP",
 ]);
 
-/** Primary register mark picker rows (Leave / Half Day open submenus). */
+/** Primary register mark picker rows (Leave / Half Day / LWP open submenus). */
 export const REGISTER_PRIMARY_MARK_OPTIONS = [
   { value: "", label: "—" },
   { value: "P", label: "P — Present" },
   { value: "P(OD)", label: "P(OD) — Present on Duty" },
   { value: "L", label: "L — Leave", hasSubmenu: true },
   { value: "HD", label: "Half Day", hasSubmenu: true, submenuKey: "halfDay" },
-  { value: "LWP", label: "LWP — Leave Without Pay" },
+  { value: "LWP", label: "LWP — Leave Without Pay", hasSubmenu: true, submenuKey: "lwp" },
   { value: "WO", label: "WO — Weekly Off" },
   { value: REGISTER_MARK_NHPH, label: "NH/PH" },
   { value: "CO", label: "CO — Compensatory Off" },
@@ -124,24 +138,42 @@ export function canonicalRegisterCompositeMark(mark) {
   return `P/${match[1].toUpperCase()}`;
 }
 
+/** Canonical LWP/SL | LWP/CL | LWP/PL. */
+export function canonicalRegisterLwpCompositeMark(mark) {
+  const m = String(mark ?? "").trim();
+  const match = m.match(/^LWP\/(SL|CL|PL)$/i);
+  if (!match) return null;
+  return `LWP/${match[1].toUpperCase()}`;
+}
+
 export function isRegisterCompositeHalfDayMark(mark) {
   return canonicalRegisterCompositeMark(mark) != null;
 }
 
-/** Leave type half of a composite mark (e.g. P/SL → SL), or null. */
-export function compositeLeaveTypeFromMark(mark) {
-  const canonical = canonicalRegisterCompositeMark(mark);
-  if (!canonical) return null;
-  return canonical.slice(2);
+export function isRegisterLwpCompositeMark(mark) {
+  return canonicalRegisterLwpCompositeMark(mark) != null;
 }
 
-/** Present + leave halves for dual register cells (e.g. P/CL → P + CL). */
+/** Leave type half of a composite mark (e.g. P/SL → SL, LWP/PL → PL), or null. */
+export function compositeLeaveTypeFromMark(mark) {
+  const halfDay = canonicalRegisterCompositeMark(mark);
+  if (halfDay) return halfDay.slice(2);
+  const lwp = canonicalRegisterLwpCompositeMark(mark);
+  if (lwp) return lwp.slice(4);
+  return null;
+}
+
+/** Dual register cell parts (P/CL → P+CL, LWP/PL → LWP+PL). */
 export function registerMarkCompositeDisplayParts(mark) {
-  const combined = canonicalRegisterCompositeMark(mark);
-  if (!combined) return null;
-  const leave = compositeLeaveTypeFromMark(combined);
-  if (!leave) return null;
-  return { present: "P", leave, combined };
+  const halfDay = canonicalRegisterCompositeMark(mark);
+  if (halfDay) {
+    return { present: "P", leave: halfDay.slice(2), combined: halfDay };
+  }
+  const lwp = canonicalRegisterLwpCompositeMark(mark);
+  if (lwp) {
+    return { present: "LWP", leave: lwp.slice(4), combined: lwp };
+  }
+  return null;
 }
 
 /** Tour marks are stored as T but displayed like P(OD) in the register grid. */
@@ -154,8 +186,10 @@ export function registerMarkDisplayValue(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return "-";
   if (isRegisterTourMark(m)) return "P(OD)";
-  const composite = canonicalRegisterCompositeMark(m);
-  if (composite) return composite;
+  const halfDay = canonicalRegisterCompositeMark(m);
+  if (halfDay) return halfDay;
+  const lwp = canonicalRegisterLwpCompositeMark(m);
+  if (lwp) return lwp;
   return m;
 }
 
@@ -163,6 +197,8 @@ export function registerMarkOptionLabel(value) {
   if (!value) return "—";
   if (isRegisterLeftMark(value)) return "Left";
   if (isRegisterTourMark(value)) return "P(OD) — Present on Duty";
+  const lwpOpt = REGISTER_LWP_SUBMENU_OPTIONS.find((o) => o.value === value);
+  if (lwpOpt) return lwpOpt.label;
   const halfDay = REGISTER_HALF_DAY_SUBMENU_OPTIONS.find((o) => o.value === value);
   if (halfDay) return halfDay.label;
   const leave = REGISTER_LEAVE_SUBMENU_OPTIONS.find((o) => o.value === value);
@@ -188,15 +224,10 @@ export function isRegisterCommentMark(mark) {
 /** Marks that count toward monthly present-day totals (payroll / register summary). */
 const REGISTER_PRESENT_CREDIT_MARKS = new Set(["P", "P(OD)", "T", "CO", "WFH"]);
 
-/** LWP — leave without pay; counts in leave totals only, not present. */
+/** LWP — leave without pay (incl. LWP/PL|SL|CL); counts as present 0. */
 export function isRegisterLwpMark(mark) {
-  return String(mark ?? "").trim() === "LWP";
-}
-
-/** SPLA / SPLB — special leave; count toward leave only, never as present. */
-export function isRegisterSplabMark(mark) {
-  const m = String(mark ?? "").trim().toUpperCase();
-  return m === "SPLA" || m === "SPLB";
+  const m = String(mark ?? "").trim();
+  return m === "LWP" || isRegisterLwpCompositeMark(m);
 }
 
 /** Whether mark is a leave type for register summary tallies. */
@@ -204,24 +235,26 @@ export function isRegisterSummaryLeaveMark(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return false;
   if (m === "A") return true;
+  if (isRegisterLwpCompositeMark(m)) return false;
   if (m === "HD" || isRegisterLwpMark(m)) return true;
   if (isRegisterCompositeHalfDayMark(m)) return true;
   if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return true;
   return false;
 }
 
-/** Leave-day credit for register summary (HD / P/SL|P/CL|P/PL / SPLA / SPLB = 0.5). */
+/** Leave-day credit for register summary (HD / P/SL|P/CL|P/PL = 0.5; LWP composites = 0). */
 export function registerSummaryLeaveCredit(mark) {
   const m = String(mark ?? "").trim();
+  if (isRegisterLwpCompositeMark(m)) return 0;
   if (!isRegisterSummaryLeaveMark(m)) return 0;
-  if (m === "HD" || isRegisterCompositeHalfDayMark(m) || isRegisterSplabMark(m)) return 0.5;
+  if (m === "HD" || isRegisterCompositeHalfDayMark(m)) return 0.5;
   return 1;
 }
 
 /**
  * Present-day credit for one register cell (0, 0.5, or 1).
- * Counts presence only (P / P(OD) / T / CO / WFH); HD and P/SL|P/CL|P/PL = 0.5.
- * Leave marks (PL/CL/SL/SPLA/SPLB/LWP/…) count in Leave only — never as present.
+ * P / P(OD) / T / CO / WFH, and paid leave types (PL, CL, SL, SPLA, SPLB, SBEL, PTL, ML, …)
+ * count as present; LWP does not. HD / composites = 0.5; WO / NH/PH do not.
  */
 export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
@@ -230,12 +263,26 @@ export function registerPresentDayCredit(mark) {
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
   if (canonical && REGISTER_PRESENT_CREDIT_MARKS.has(canonical)) return 1;
+  if (isRegisterLwpMark(raw)) return 0;
   if (raw === "HD" || isRegisterCompositeHalfDayMark(raw)) return 0.5;
+  if (isRegisterSummaryLeaveMark(raw)) return 1;
   return 0;
+}
+
+/** PL / CL / SL on an auto weekoff (Sunday) — count as 0 for present and leave tallies. */
+const WEEKOFF_ZERO_CREDIT_LEAVE_MARKS = new Set(["PL", "CL", "SL"]);
+
+export function isPlClSlOnWeekoffDate(mark, { year, month, day } = {}) {
+  const m = String(mark ?? "").trim().toUpperCase();
+  if (!WEEKOFF_ZERO_CREDIT_LEAVE_MARKS.has(m)) return false;
+  if (!year || !month || !day) return false;
+  const iso = registerDateFromDay(monthKeyFromParts(year, month), day);
+  return isAutoWeekoffDate(iso);
 }
 
 /** Present credit for a day cell; 3rd Saturday counts as present when blank or WO. */
 export function registerPresentDayCreditForCell(mark, { year, month, day } = {}) {
+  if (isPlClSlOnWeekoffDate(mark, { year, month, day })) return 0;
   const credit = registerPresentDayCredit(mark);
   if (credit > 0) return credit;
   if (year && month && day && isThirdSaturdayOfMonth(year, month, day)) {
@@ -243,6 +290,12 @@ export function registerPresentDayCreditForCell(mark, { year, month, day } = {})
     if (!m || m === "WO") return 1;
   }
   return 0;
+}
+
+/** Leave credit for a day cell (PL/CL/SL on weekoff → 0). */
+export function registerSummaryLeaveCreditForCell(mark, { year, month, day } = {}) {
+  if (isPlClSlOnWeekoffDate(mark, { year, month, day })) return 0;
+  return registerSummaryLeaveCredit(mark);
 }
 
 /** Whether a mark counts as a present day (incl. CO, T). */
@@ -335,6 +388,9 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
   "P/SL",
   "P/CL",
   "P/PL",
+  "LWP/PL",
+  "LWP/SL",
+  "LWP/CL",
 ]);
 
 /**
@@ -345,8 +401,10 @@ export const REGISTER_MARKS_DB_ALLOWED = new Set([
 export function normalizeRegisterMarkForDb(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
-  const composite = canonicalRegisterCompositeMark(m);
-  if (composite) return composite;
+  const halfDay = canonicalRegisterCompositeMark(m);
+  if (halfDay) return halfDay;
+  const lwpComposite = canonicalRegisterLwpCompositeMark(m);
+  if (lwpComposite) return lwpComposite;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_NHPH;
   if (isRegisterLeftMark(m)) return REGISTER_MARK_LEFT;
   if (m === "P(OD)") return "P(OD)";
@@ -372,6 +430,7 @@ export const REGISTER_LEAVE_MARKS = new Set([
   "LWP",
   ...REGISTER_LEAVE_RED_CELL_MARKS,
   ...REGISTER_HALF_DAY_COMPOSITE_MARKS,
+  ...REGISTER_LWP_COMPOSITE_MARKS,
 ]);
 
 /** Shared palette — closed cell box + bulk Mark P/L/WO/NH/PH buttons. */
@@ -419,6 +478,9 @@ export const REGISTER_MARK_CELL_COLORS = {
   "P/SL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
   "P/CL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
   "P/PL": { bg: "#008D62", border: "#b45309", text: "white", dual: true },
+  "LWP/PL": { bg: "#9f1239", border: "#b82222", text: "white", dual: true },
+  "LWP/SL": { bg: "#9f1239", border: "#b82222", text: "white", dual: true },
+  "LWP/CL": { bg: "#9f1239", border: "#b82222", text: "white", dual: true },
   WFH: { bg: "#2563eb", border: "#1d4ed8", text: "white" },
   [REGISTER_MARK_LEFT]: { bg: "#6b7280", border: "#4b5563", text: "white" },
 };
@@ -427,8 +489,10 @@ export function resolveRegisterMarkCellColors(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return null;
   if (m === "T") return REGISTER_MARK_CELL_COLORS["P(OD)"];
-  const composite = canonicalRegisterCompositeMark(m);
-  if (composite) return REGISTER_MARK_CELL_COLORS[composite];
+  const halfDay = canonicalRegisterCompositeMark(m);
+  if (halfDay) return REGISTER_MARK_CELL_COLORS[halfDay];
+  const lwpComposite = canonicalRegisterLwpCompositeMark(m);
+  if (lwpComposite) return REGISTER_MARK_CELL_COLORS[lwpComposite];
   if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return REGISTER_MARK_CELL_COLORS.L;
   if (isRegisterNhphMark(m)) return REGISTER_MARK_CELL_COLORS[REGISTER_MARK_NHPH];
   if (REGISTER_MARK_CELL_COLORS[m]) return REGISTER_MARK_CELL_COLORS[m];
@@ -2483,72 +2547,26 @@ export async function fetchMonthlyRegisterPayrollTotals(supabase, monthValue, { 
   };
 }
 
-export function computeEmployeeRegisterSummary(
-  row,
-  manualMarksForEmp = {},
-  daysInMonth,
-  { year, month, markSourcesForEmp = {} } = {}
-) {
+export function computeEmployeeRegisterSummary(row, manualMarksForEmp = {}, daysInMonth, { year, month } = {}) {
   const summary = { leave: 0, weekoff: 0, appliedWo: 0, nhph: 0, ot: 0, totalPresent: 0 };
-  const monthKey = year && month ? monthKeyFromParts(year, month) : null;
-
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const mark = String(row.dayMarks?.[day] || "").trim();
-    summary.totalPresent += registerPresentDayCreditForCell(mark, { year, month, day });
-    summary.leave += registerSummaryLeaveCredit(mark);
-
+    const mark = row.dayMarks[day] || "";
+    const cellCtx = { year, month, day };
+    summary.totalPresent += registerPresentDayCreditForCell(mark, cellCtx);
+    summary.leave += registerSummaryLeaveCreditForCell(mark, cellCtx);
     if (mark === "WO") {
       summary.weekoff += 1;
-      const src = String(markSourcesForEmp?.[day] ?? "").trim().toLowerCase();
-      const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
-      const isAutoSource = src === REGISTER_MARK_SOURCE_AUTO_WO || src === "auto";
-      if (isAutoSource) {
-        // Auto week-off — Weekoff only, not Applied WO
-      } else if (isManualMarkSource(src)) {
-        summary.appliedWo += 1;
-      } else if (!src && manualMarksForEmp[day] === "WO") {
-        // No source on row: non-Sunday WO is treated as manually applied
-        if (!iso || !isAutoWeekoffDate(iso)) summary.appliedWo += 1;
-      }
+      if (manualMarksForEmp[day] === "WO") summary.appliedWo += 1;
     }
-
     if (isRegisterNhphMark(mark)) summary.nhph += 1;
   }
   return summary;
 }
 
-/** Build empCode → day → mark_source from register DB rows (for Applied WO vs auto WO). */
-export function buildRegisterMarkSourcesByEmpDay(registerRows, masterCodeMap = null) {
-  const out = {};
-  const priority = {};
-  for (const row of registerRows || []) {
-    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
-    const day = dayOfMonthFromIsoDate(row.register_date);
-    if (!code || !day) continue;
-    const rowPri = registerMarkRowPriority(row);
-    const prevPri = priority[code]?.[day] ?? -1;
-    if (rowPri < prevPri) continue;
-    if (!out[code]) out[code] = {};
-    if (!priority[code]) priority[code] = {};
-    out[code][day] = row.mark_source ?? null;
-    priority[code][day] = rowPri;
-  }
-  return out;
-}
-
-export function attachRegisterRowSummaries(
-  rows,
-  manualMarks,
-  daysInMonth,
-  { year, month, markSourcesByEmp = null } = {}
-) {
+export function attachRegisterRowSummaries(rows, manualMarks, daysInMonth, { year, month } = {}) {
   return rows.map((row) => ({
     ...row,
-    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth, {
-      year,
-      month,
-      markSourcesForEmp: markSourcesByEmp?.[row.empCode] || {},
-    }),
+    summary: computeEmployeeRegisterSummary(row, manualMarks[row.empCode] || {}, daysInMonth, { year, month }),
   }));
 }
 

@@ -29,6 +29,9 @@ export const REGISTER_MARK_DAY_FRACTION = {
   "P/SL": 0.5,
   "P/CL": 0.5,
   "P/PL": 0.5,
+  "LWP/PL": 0.5,
+  "LWP/SL": 0.5,
+  "LWP/CL": 0.5,
 };
 
 export const LEAVE_LIMIT_ALERTS_STORAGE_KEY = "adminAttendance.leaveLimitSeen";
@@ -47,9 +50,9 @@ export function leaveLimitTypeForMark(mark) {
   const m = normalizeRegisterMarkForDb(mark);
   // PTL is a credit applied against PL usage (prompt: PTL = -3).
   if (m === "PTL") return "PL";
-  if (m === "P/SL") return "SL";
-  if (m === "P/CL") return "CL";
-  if (m === "P/PL") return "PL";
+  if (m === "P/SL" || m === "LWP/SL") return "SL";
+  if (m === "P/CL" || m === "LWP/CL") return "CL";
+  if (m === "P/PL" || m === "LWP/PL") return "PL";
   if (m && REGISTER_LEAVE_ANNUAL_LIMITS[m] != null) return m;
   return null;
 }
@@ -216,6 +219,81 @@ export function formatLeaveUsage(used, limit) {
   const l = limit == null ? "—" : Number(limit);
   const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
   return `${fmt(u)} / ${l == null ? "—" : fmt(l)}`;
+}
+
+/** Unused balance columns for register leave types. */
+export const LEAVE_BALANCE_UNUSED_FIELDS = {
+  PL: "unused_pl",
+  CL: "unused_cl",
+  SL: "unused_sl",
+  SBEL: "unused_sbel",
+  SPLA: "unused_spla",
+  SPLB: "unused_splb",
+  SPLM: "unused_splm",
+};
+
+const LEAVE_BALANCE_SUGGEST_ORDER = ["PL", "CL", "SL", "SPLA", "SPLB", "SBEL", "SPLM"];
+
+function unusedLeaveBalance(balanceRow, leaveType) {
+  const field = LEAVE_BALANCE_UNUSED_FIELDS[leaveType];
+  if (!field) return null;
+  if (!balanceRow) return 0;
+  const n = Number(balanceRow[field]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatBalanceDays(n) {
+  const v = Number(n) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/**
+ * Warn when marking a leave type the employee cannot cover from yearly unused balance.
+ * Suggests other available leave types, or LWP when none remain.
+ * @returns {string|null} user-facing message, or null when balance is sufficient / not applicable
+ */
+export function buildInsufficientLeaveBalanceMessage({
+  employeeName,
+  empCode,
+  mark,
+  balanceRow,
+} = {}) {
+  const leaveType = leaveLimitTypeForMark(mark);
+  if (!leaveType || !LEAVE_BALANCE_UNUSED_FIELDS[leaveType]) return null;
+
+  const needed = leaveDayFraction(mark);
+  if (needed <= 0) return null;
+
+  const availableForType = unusedLeaveBalance(balanceRow, leaveType);
+  if (availableForType >= needed) return null;
+
+  const who = employeeName
+    ? `${employeeName}${empCode ? ` (${empCode})` : ""}`
+    : empCode || "This employee";
+
+  const alternatives = [];
+  for (const type of LEAVE_BALANCE_SUGGEST_ORDER) {
+    if (type === leaveType) continue;
+    const bal = unusedLeaveBalance(balanceRow, type);
+    if (bal > 0) alternatives.push(`${type} (${formatBalanceDays(bal)})`);
+  }
+
+  if (alternatives.length) {
+    return `${who} is not having ${leaveType} leave balance. Kindly use ${alternatives.join(", ")}.`;
+  }
+  return `${who} is not having ${leaveType} leave balance (or any other leave balance). Kindly use LWP.`;
+}
+
+export function indexLeaveBalancesByEmployeeCode(rows) {
+  const byCode = {};
+  for (const row of rows || []) {
+    const code = String(row.employee_code || "").trim();
+    if (!code) continue;
+    byCode[code] = row;
+    const upper = code.toUpperCase();
+    if (!byCode[upper]) byCode[upper] = row;
+  }
+  return byCode;
 }
 
 export function leaveFractionLabel(mark) {
