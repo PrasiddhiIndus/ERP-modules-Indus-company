@@ -14,6 +14,7 @@ import {
 import { supabase } from "../../../lib/supabase";
 import {
   REGISTER_BULK_BUTTON_CLASS,
+  REGISTER_LEAVE_SUBMENU_OPTIONS,
   REGISTER_MARK_NHPH,
   applyBulkRegisterMarks,
   attachRegisterRowSummaries,
@@ -76,14 +77,17 @@ import { RegisterDepartmentFilter } from "./RegisterDepartmentFilter";
 import {
   REGISTER_LEAVE_ANNUAL_LIMITS,
   aggregateLeaveUsageByEmployee,
+  buildInsufficientLeaveBalanceMessage,
   collectRegisterHolidayDates,
   dispatchLeaveLimitAlertsChanged,
   findAllLeaveLimitExceeded,
   formatLeaveUsage,
   hasLeaveAnnualLimit,
+  indexLeaveBalancesByEmployeeCode,
   projectLeaveUsageAfterMark,
   validateCoMark,
 } from "../../../lib/attendanceLeaveLimits";
+import { fetchLeaveBalancesForYear } from "../../../lib/leaveManagement";
 import { subscribeLeaveWorkflowRealtime } from "../../../lib/adminLeaveRequests";
 import { subscribeTourWorkflowRealtime } from "../../../lib/adminTourRequests";
 import { isSupabaseRealtimeEnabled } from "../../../lib/supabaseConfig";
@@ -110,9 +114,25 @@ const SUMMARY_COLUMNS = [
 const BULK_MARKS = [
   { mark: "P", label: "Mark P" },
   { mark: "L", label: "Mark L" },
+  { mark: "LWP", label: "Mark LWP" },
+  { mark: "WFH", label: "Mark WFH" },
   { mark: "WO", label: "Mark WO" },
   { mark: REGISTER_MARK_NHPH, label: "Mark NH/PH" },
 ];
+
+const BULK_LEAVE_TYPE_MARKS = REGISTER_LEAVE_SUBMENU_OPTIONS.map((opt) => ({
+  mark: opt.value,
+  label: `Mark ${opt.value}`,
+}));
+
+function bulkMarkLabel(mark) {
+  if (!mark) return "";
+  const fromPrimary = BULK_MARKS.find((b) => b.mark === mark);
+  if (fromPrimary) return fromPrimary.label;
+  const fromLeave = BULK_LEAVE_TYPE_MARKS.find((b) => b.mark === mark);
+  if (fromLeave) return fromLeave.label;
+  return mark;
+}
 
 /** Opens bulk employee picker for clear-range (not a register mark). */
 const BULK_CLEAR_MARK = "__CLEAR__";
@@ -234,6 +254,7 @@ export function EmployeeAttendanceDailyPage() {
   const [registerCodeWarning, setRegisterCodeWarning] = useState("");
   const [yearRegisterRows, setYearRegisterRows] = useState([]);
   const [configuredHolidays, setConfiguredHolidays] = useState([]);
+  const [leaveBalancesByCode, setLeaveBalancesByCode] = useState({});
   const [leaveLimitWarning, setLeaveLimitWarning] = useState("");
   const [commentEditor, setCommentEditor] = useState({
     open: false,
@@ -279,6 +300,7 @@ export function EmployeeAttendanceDailyPage() {
     setError("");
     setYearRegisterRows([]);
     setConfiguredHolidays([]);
+    setLeaveBalancesByCode({});
     try {
       const codeMapPromise = masterRegisterCodeMapRef.current
         ? Promise.resolve(masterRegisterCodeMapRef.current)
@@ -529,13 +551,15 @@ export function EmployeeAttendanceDailyPage() {
 
       void (async () => {
         try {
-          const [yearRows, holidayRows] = await Promise.all([
+          const [yearRows, holidayRows, balanceRows] = await Promise.all([
             fetchRegisterMarksForYear(supabase, monthMeta.year, masterCodeMap),
             fetchNationalPublicHolidays(supabase, { year: monthMeta.year }),
+            fetchLeaveBalancesForYear(supabase, monthMeta.year),
           ]);
           if (loadGeneration !== loadGenerationRef.current) return;
           setYearRegisterRows(yearRows);
           setConfiguredHolidays(holidayRows || []);
+          setLeaveBalancesByCode(indexLeaveBalancesByEmployeeCode(balanceRows));
         } catch (yearErr) {
           console.warn("Year register load failed:", yearErr);
         } finally {
@@ -703,6 +727,17 @@ export function EmployeeAttendanceDailyPage() {
     return map;
   }, [activeEmployees]);
 
+  const employeeNameByCode = useMemo(() => {
+    const map = new Map();
+    for (const emp of activeEmployees) {
+      const code = normalizeAttendanceEmpCode(emp.empCode);
+      if (!code) continue;
+      const name = String(emp.employeeName || emp.name || "").trim();
+      if (name) map.set(code, name);
+    }
+    return map;
+  }, [activeEmployees]);
+
   const calendarYear = monthMeta?.year ?? new Date().getFullYear();
 
   const yearLeaveUsageByEmp = useMemo(
@@ -748,6 +783,23 @@ export function EmployeeAttendanceDailyPage() {
             warnings.push(
               `${hit.leaveType} annual limit exceeded (${formatLeaveUsage(hit.used, hit.limit)} in ${calendarYear}).`
             );
+          }
+
+          const code = normalizeAttendanceEmpCode(empCodeKey);
+          const balanceMsg = buildInsufficientLeaveBalanceMessage({
+            employeeName: employeeNameByCode.get(code) || employeeNameByCode.get(empCodeKey),
+            empCode: code || empCodeKey,
+            mark: value,
+            balanceRow:
+              leaveBalancesByCode[code] ||
+              leaveBalancesByCode[empCodeKey] ||
+              leaveBalancesByCode[String(code || "").toUpperCase()] ||
+              null,
+          });
+          if (balanceMsg) {
+            setLeaveLimitWarning([balanceMsg, ...warnings].filter(Boolean).join(" "));
+            dispatchLeaveLimitAlertsChanged();
+            return;
           }
         }
       }
@@ -831,7 +883,9 @@ export function EmployeeAttendanceDailyPage() {
     [
       calendarYear,
       dateOfLeavingByEmp,
+      employeeNameByCode,
       holidayDatesInYear,
+      leaveBalancesByCode,
       manualMarks,
       manualRemarks,
       masterRegisterCodeMap,
@@ -1729,6 +1783,29 @@ export function EmployeeAttendanceDailyPage() {
                 </button>
               );
             })}
+            <label className="text-[11px] text-gray-600">
+              Leave type
+              <TinySelect
+                value={BULK_LEAVE_TYPE_MARKS.some((b) => b.mark === bulkPickerMark) ? bulkPickerMark : ""}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (!next) {
+                    if (BULK_LEAVE_TYPE_MARKS.some((b) => b.mark === bulkPickerMark)) closeBulkPicker();
+                    return;
+                  }
+                  openBulkPicker(next);
+                }}
+                className="w-[140px] ml-1"
+                disabled={savingMark || !bulkDayRange}
+              >
+                <option value="">Mark leave type…</option>
+                {BULK_LEAVE_TYPE_MARKS.map((b) => (
+                  <option key={b.mark} value={b.mark}>
+                    {b.mark}
+                  </option>
+                ))}
+              </TinySelect>
+            </label>
             <button
               type="button"
               onClick={() => {
@@ -1755,9 +1832,7 @@ export function EmployeeAttendanceDailyPage() {
                 search={bulkEmployeeSearch}
                 onSearchChange={setBulkEmployeeSearch}
                 markLabel={
-                  bulkPickerMark === BULK_CLEAR_MARK
-                    ? "Clear range"
-                    : BULK_MARKS.find((b) => b.mark === bulkPickerMark)?.label || bulkPickerMark
+                  bulkPickerMark === BULK_CLEAR_MARK ? "Clear range" : bulkMarkLabel(bulkPickerMark)
                 }
                 bulkDateFrom={bulkDateFrom}
                 bulkDateTo={bulkDateTo}

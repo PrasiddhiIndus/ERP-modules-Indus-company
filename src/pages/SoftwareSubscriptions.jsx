@@ -21,15 +21,40 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import { ROLES } from "../config/roles";
 import { supabase } from "../lib/supabase";
-import { apiUrl } from "../lib/apiBase";
+import {
+  deleteSoftwareSubR2Object,
+  presignSoftwareSubR2Get,
+  resolveSoftwareSubAttachmentStorage,
+  uploadSoftwareSubFileToR2,
+} from "../lib/softwareSubR2";
 import FormDateInput from "../components/FormDateInput";
 
 
 const TABLE_NAME = "software_subscriptions";
 const INVOICE_FILES_TABLE = "software_subscription_invoice_files";
 const INVOICE_BUCKET = "software-subscription-invoices";
-/** Backend R2 routes (upload via Node proxy; signed GET for opens). */
-const softwareSubR2Url = (subpath) => apiUrl(`/api/software-subscriptions/r2${subpath}`);
+/** Columns needed for list, reminders, and edit — avoid select('*'). */
+const SUBSCRIPTION_LIST_COLUMNS = [
+  "id",
+  "tool_service",
+  "description",
+  "purchase_price_first_year",
+  "monthly_cost_ongoing",
+  "yearly_cost_ongoing",
+  "currency",
+  "monthly_cost_inr",
+  "yearly_cost_inr",
+  "credit_card",
+  "invoices",
+  "invoice_attachments",
+  "billing_type",
+  "payment_type",
+  "next_payment_date",
+  "payment_status",
+  "reminder_days_before",
+  "notes",
+  "created_at",
+].join(", ");
 const FALLBACK_USD_INR_RATE = 94.62;
 const FX_RATE_API_URL = "https://open.er-api.com/v6/latest/USD";
 const FALLBACK_USD_RATES = { USD: 1, INR: FALLBACK_USD_INR_RATE };
@@ -155,17 +180,18 @@ function isUrl(value) {
 }
 
 function parseAttachments(value) {
-  if (Array.isArray(value)) return value.filter(Boolean);
-  if (!value) return [];
-  if (typeof value === "string") {
+  let raw = [];
+  if (Array.isArray(value)) raw = value;
+  else if (!value) raw = [];
+  else if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+      raw = Array.isArray(parsed) ? parsed : [];
     } catch (_) {
-      return [];
+      raw = [];
     }
   }
-  return [];
+  return raw.map(normalizeAttachment).filter(Boolean);
 }
 
 function attachmentKey(item) {
@@ -183,15 +209,27 @@ function dedupeAttachments(items) {
 }
 
 function invoiceFileRowToAttachment(row) {
+  const path = row.file_path;
   return {
     id: row.id || null,
-    name: row.file_name || row.file_path?.split("/").pop() || "Invoice attachment",
-    path: row.file_path,
-    storage: row.storage || "r2",
+    name: row.file_name || path?.split("/").pop() || "Invoice attachment",
+    path,
+    storage: resolveSoftwareSubAttachmentStorage({ storage: row.storage, path }),
     size: row.file_size,
     type: row.file_type,
     uploaded_at: row.created_at,
     invoice_month: normalizeInvoiceMonth(row.invoice_month) || null,
+  };
+}
+
+function normalizeAttachment(item) {
+  if (!item || typeof item !== "object") return null;
+  const path = String(item.path || "").trim();
+  if (!path) return null;
+  return {
+    ...item,
+    path,
+    storage: resolveSoftwareSubAttachmentStorage(item),
   };
 }
 
@@ -286,42 +324,19 @@ const SoftwareSubscriptions = () => {
     setLoading(true);
     setError("");
     try {
+      // List uses invoice_attachments JSON only — skip the heavy invoice_files join until edit.
       const { data, error: queryError } = await supabase
         .from(TABLE_NAME)
-        .select("*")
+        .select(SUBSCRIPTION_LIST_COLUMNS)
         .order("next_payment_date", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: false });
 
       if (queryError) throw queryError;
 
-      let rows = data || [];
-      if (rows.length > 0) {
-        const ids = rows.map((row) => row.id);
-        const { data: fileRows, error: filesError } = await supabase
-          .from(INVOICE_FILES_TABLE)
-          .select(
-            "id, software_subscription_id, file_path, file_name, file_type, file_size, storage, invoice_month, created_at"
-          )
-          .in("software_subscription_id", ids)
-          .order("created_at", { ascending: true });
-
-        if (filesError) throw filesError;
-
-        const filesBySubscription = {};
-        for (const fileRow of fileRows || []) {
-          const subId = fileRow.software_subscription_id;
-          if (!filesBySubscription[subId]) filesBySubscription[subId] = [];
-          filesBySubscription[subId].push(invoiceFileRowToAttachment(fileRow));
-        }
-
-        rows = rows.map((row) => ({
-          ...row,
-          invoice_attachments: dedupeAttachments([
-            ...parseAttachments(row.invoice_attachments),
-            ...(filesBySubscription[row.id] || []),
-          ]),
-        }));
-      }
+      const rows = (data || []).map((row) => ({
+        ...row,
+        invoice_attachments: parseAttachments(row.invoice_attachments),
+      }));
 
       setSubscriptions(rows);
     } catch (err) {
@@ -449,36 +464,12 @@ const SoftwareSubscriptions = () => {
     replaceFileInputRef.current?.click();
   };
 
-  const getAuthSessionToken = async () => {
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-    if (sessionError) throw sessionError;
-    if (!session?.access_token) {
-      throw new Error("You must be signed in to manage invoice attachments.");
-    }
-    return session.access_token;
-  };
-
   const resolveAttachmentUrl = async (attachment, downloadName) => {
     const path = attachment?.path;
     if (!path) throw new Error("Attachment path is missing.");
 
-    if (attachment.storage === "r2") {
-      const token = await getAuthSessionToken();
-      const res = await fetch(softwareSubR2Url("/presign-get"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ objectKey: path }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || `Download link failed (${res.status}).`);
-      if (!body.getUrl) throw new Error("Download link was not returned.");
-      return body.getUrl;
+    if (resolveSoftwareSubAttachmentStorage(attachment) === "r2") {
+      return presignSoftwareSubR2Get(path);
     }
 
     const { data, error: signedUrlError } = await supabase.storage
@@ -492,32 +483,14 @@ const SoftwareSubscriptions = () => {
   const uploadInvoiceFiles = async (recordId) => {
     if (!invoiceFiles.length) return [];
 
-    const token = await getAuthSessionToken();
     const uploaded = [];
     for (const entry of invoiceFiles) {
       const file = entry.file;
       const invoiceMonth = normalizeInvoiceMonth(entry.invoice_month) || currentInvoiceMonth();
-      const formData = new FormData();
-      formData.append("subscriptionId", recordId);
-      formData.append("fileName", file.name);
-      if (file.type) formData.append("contentType", file.type);
-      formData.append("file", file);
-
-      const uploadRes = await fetch(softwareSubR2Url("/upload"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
+      const { objectKey, contentType: storedContentType } = await uploadSoftwareSubFileToR2({
+        file,
+        subscriptionId: recordId,
       });
-      const uploadBody = await uploadRes.json().catch(() => ({}));
-      if (!uploadRes.ok) {
-        throw new Error(uploadBody.message || `Upload failed (${uploadRes.status}).`);
-      }
-      const { objectKey, contentType: storedContentType } = uploadBody;
-      if (!objectKey) {
-        throw new Error("Upload response missing object key.");
-      }
 
       uploaded.push({
         name: file.name,
@@ -536,18 +509,8 @@ const SoftwareSubscriptions = () => {
     const path = attachment?.path;
     if (!path) return;
 
-    if (attachment.storage === "r2") {
-      const token = await getAuthSessionToken();
-      const res = await fetch(softwareSubR2Url("/delete"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ objectKey: path }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || `Delete failed (${res.status}).`);
+    if (resolveSoftwareSubAttachmentStorage(attachment) === "r2") {
+      await deleteSoftwareSubR2Object(path);
       return;
     }
 
@@ -558,7 +521,10 @@ const SoftwareSubscriptions = () => {
   const persistRemovedAttachments = async (pathsToDelete, attachmentMetaByPath) => {
     const uniquePaths = [...new Set((pathsToDelete || []).filter(Boolean))];
     for (const path of uniquePaths) {
-      const meta = attachmentMetaByPath.get(path) || { path, storage: "r2" };
+      const meta = attachmentMetaByPath.get(path) || {
+        path,
+        storage: resolveSoftwareSubAttachmentStorage({ path }),
+      };
       await deleteStoredAttachment(meta);
       const { error: rowErr } = await supabase.from(INVOICE_FILES_TABLE).delete().eq("file_path", path);
       if (rowErr) throw rowErr;
@@ -567,7 +533,7 @@ const SoftwareSubscriptions = () => {
 
   const insertInvoiceFileRows = async (recordId, attachments) => {
     const rows = (attachments || [])
-      .filter((a) => a.storage === "r2" && a.path)
+      .filter((a) => resolveSoftwareSubAttachmentStorage(a) === "r2" && a.path)
       .map((a) => ({
         software_subscription_id: recordId,
         file_path: a.path,
@@ -1334,7 +1300,10 @@ const SoftwareSubscriptions = () => {
                           ) : (
                             <span className="line-clamp-2 break-all">{row.invoices || "—"}</span>
                           )}
-                          {parseAttachments(row.invoice_attachments).map((attachment) => (
+                          {(Array.isArray(row.invoice_attachments)
+                            ? row.invoice_attachments
+                            : parseAttachments(row.invoice_attachments)
+                          ).map((attachment) => (
                             <button
                               key={attachment.path || attachment.name}
                               type="button"
