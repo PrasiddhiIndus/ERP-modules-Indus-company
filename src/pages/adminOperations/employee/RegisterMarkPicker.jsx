@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   REGISTER_HALF_DAY_SUBMENU_OPTIONS,
   REGISTER_LEAVE_SUBMENU_OPTIONS,
+  REGISTER_LWP_SUBMENU_OPTIONS,
   REGISTER_PRIMARY_MARK_OPTIONS,
   registerMarkCellInlineStyle,
   registerMarkCompositeDisplayParts,
@@ -150,6 +151,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
   const [open, setOpen] = useState(false);
   const [leaveSubmenuOpen, setLeaveSubmenuOpen] = useState(false);
   const [halfDaySubmenuOpen, setHalfDaySubmenuOpen] = useState(false);
+  const [lwpSubmenuOpen, setLwpSubmenuOpen] = useState(false);
   const [submenuOpenLeft, setSubmenuOpenLeft] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
   const rootRef = useRef(null);
@@ -190,7 +192,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
     if (!open || !menuRef.current) return undefined;
     updateMenuPos();
     return undefined;
-  }, [open, leaveSubmenuOpen, halfDaySubmenuOpen, updateMenuPos]);
+  }, [open, leaveSubmenuOpen, halfDaySubmenuOpen, lwpSubmenuOpen, updateMenuPos]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -201,6 +203,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
         setOpen(false);
         setLeaveSubmenuOpen(false);
         setHalfDaySubmenuOpen(false);
+        setLwpSubmenuOpen(false);
       }
     };
     // pointerdown captures earlier than mousedown on some devices; use both-safe capture.
@@ -212,6 +215,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
     setOpen(false);
     setLeaveSubmenuOpen(false);
     setHalfDaySubmenuOpen(false);
+    setLwpSubmenuOpen(false);
   };
 
   const pick = (next) => {
@@ -277,8 +281,27 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
                     onOpen={() => {
                       setHalfDaySubmenuOpen(true);
                       setLeaveSubmenuOpen(false);
+                      setLwpSubmenuOpen(false);
                     }}
                     onCloseRequest={() => setHalfDaySubmenuOpen(false)}
+                    onPick={pick}
+                  />
+                );
+              }
+              if (opt.hasSubmenu && opt.submenuKey === "lwp") {
+                return (
+                  <SubmenuRow
+                    key={opt.value}
+                    label={opt.label}
+                    open={lwpSubmenuOpen}
+                    openLeft={submenuOpenLeft}
+                    options={REGISTER_LWP_SUBMENU_OPTIONS}
+                    onOpen={() => {
+                      setLwpSubmenuOpen(true);
+                      setLeaveSubmenuOpen(false);
+                      setHalfDaySubmenuOpen(false);
+                    }}
+                    onCloseRequest={() => setLwpSubmenuOpen(false)}
                     onPick={pick}
                   />
                 );
@@ -294,6 +317,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
                     onOpen={() => {
                       setLeaveSubmenuOpen(true);
                       setHalfDaySubmenuOpen(false);
+                      setLwpSubmenuOpen(false);
                     }}
                     onCloseRequest={() => setLeaveSubmenuOpen(false)}
                     onPick={pick}

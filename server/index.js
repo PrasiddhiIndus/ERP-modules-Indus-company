@@ -171,7 +171,7 @@ function applyEnvironmentSupabasePin() {
 }
 
 function getSupabaseUrlForServer() {
-  return normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+  return normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL).replace(/\/+$/, '');
 }
 
 function getSupabaseServiceRoleKeyForServer() {
@@ -382,12 +382,15 @@ const r2InvoiceUpload = multer({
   limits: { fileSize: R2_MAX_ATTACHMENT_BYTES },
 });
 
-/** Software subscriptions UI is super-admin-only; presign only requires a valid Supabase session. */
-async function requireSessionForSoftwareSubscriptionsR2(req) {
-  const authHeader = req.headers.authorization || '';
-  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
-  if (!jwt) throw new HttpError(401, 'Missing Authorization Bearer token.');
+/** Strip trailing slashes — Supabase client can mis-route auth with a trailing `/`. */
+function normalizeSupabaseUrl(url) {
+  return String(url || '').trim().replace(/\/+$/, '');
+}
 
+let r2AuthSupabaseClient = null;
+let r2AuthSupabaseClientKey = '';
+
+function getR2AuthSupabaseClient() {
   const supabaseUrl = getSupabaseUrlForServer();
   const { key: supabaseKey, canQueryProfiles } = getSupabaseAuthKeyForR2Presign();
   if (!supabaseUrl) {
@@ -409,9 +412,39 @@ async function requireSessionForSoftwareSubscriptionsR2(req) {
       '[server] R2 presign auth: SUPABASE_SERVICE_ROLE_KEY not set; using anon key. Role comes from JWT user_metadata only. Add service_role to .env.server if you rely on the profiles table for roles.'
     );
   }
+  const cacheKey = `${supabaseUrl}|${supabaseKey.slice(0, 12)}`;
+  if (r2AuthSupabaseClient && r2AuthSupabaseClientKey === cacheKey) {
+    return r2AuthSupabaseClient;
+  }
+  r2AuthSupabaseClient = createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  r2AuthSupabaseClientKey = cacheKey;
+  return r2AuthSupabaseClient;
+}
 
-  const client = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
-  const { data: userData, error } = await client.auth.getUser(jwt);
+function normalizeSoftwareSubObjectKey(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/^\/+/, '');
+}
+
+/** Software subscriptions UI is super-admin-only; presign only requires a valid Supabase session. */
+async function requireSessionForSoftwareSubscriptionsR2(req) {
+  const authHeader = req.headers.authorization || '';
+  const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
+  if (!jwt) throw new HttpError(401, 'Missing Authorization Bearer token.');
+
+  const client = getR2AuthSupabaseClient();
+  let userData;
+  let error;
+  try {
+    ({ data: userData, error } = await client.auth.getUser(jwt));
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[server] R2 session verify failed:', err?.message || err);
+    throw new HttpError(503, 'Could not verify session with Supabase. Try again in a moment.');
+  }
   if (error || !userData?.user) throw new HttpError(401, 'Invalid or expired session.');
   return userData.user;
 }
@@ -893,6 +926,11 @@ app.get('/api/health', (_req, res) => {
   const serviceRoleOk = isSupabaseServiceRoleKey(serviceRoleKey);
   const projectMismatchWarning = buildSupabaseEnvWarning(projectRef, serviceRoleOk);
   // Always expose non-secret readiness flags (needed to debug prod vs local auth mismatches).
+  const r2Configured = Boolean(
+    String(process.env.R2_ENDPOINT || '').trim() &&
+      String(process.env.R2_ACCESS_KEY_ID || '').trim() &&
+      String(process.env.R2_SECRET_ACCESS_KEY || '').trim()
+  );
   const body = {
     ok: true,
     service: 'indus-erp-api',
@@ -901,6 +939,7 @@ app.get('/api/health', (_req, res) => {
     supabase_url: supabaseUrl ? 'set' : 'missing',
     service_role_key: serviceRoleOk ? 'ok' : 'missing_or_invalid',
     anon_key: anonKey ? 'set' : 'missing',
+    r2_configured: r2Configured,
     warning: projectMismatchWarning,
   };
   if (IS_PRODUCTION) {
@@ -910,6 +949,7 @@ app.get('/api/health', (_req, res) => {
       erp_env: body.erp_env,
       supabase_project: body.supabase_project,
       service_role_key: body.service_role_key,
+      r2_configured: body.r2_configured,
       warning: body.warning,
     });
   }
@@ -1505,7 +1545,7 @@ app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
     await requireSessionForSoftwareSubscriptionsR2(req);
     const bucket = getR2BucketName();
 
-    const objectKey = String(req.body?.objectKey || '').trim();
+    const objectKey = normalizeSoftwareSubObjectKey(req.body?.objectKey);
     if (!objectKey.startsWith(R2_SOFTWARE_SUB_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
       return res.status(400).json({ message: 'Invalid object key.' });
     }
@@ -1516,6 +1556,10 @@ app.post('/api/software-subscriptions/r2/presign-get', async (req, res) => {
     res.json({ getUrl });
   } catch (err) {
     const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[server] software-subscriptions presign-get failed:', err?.message || err);
+    }
     res.status(status).json({ message: err?.message || 'Presign GET failed.' });
   }
 });
@@ -1525,7 +1569,7 @@ app.post('/api/software-subscriptions/r2/delete', async (req, res) => {
     await requireSessionForSoftwareSubscriptionsR2(req);
     const bucket = getR2BucketName();
 
-    const objectKey = String(req.body?.objectKey || '').trim();
+    const objectKey = normalizeSoftwareSubObjectKey(req.body?.objectKey);
     if (!objectKey.startsWith(R2_SOFTWARE_SUB_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
       return res.status(400).json({ message: 'Invalid object key.' });
     }
@@ -1535,6 +1579,10 @@ app.post('/api/software-subscriptions/r2/delete', async (req, res) => {
     res.json({ ok: true, objectKey });
   } catch (err) {
     const status = Number(err?.status) || 500;
+    if (status >= 500) {
+      // eslint-disable-next-line no-console
+      console.error('[server] software-subscriptions delete failed:', err?.message || err);
+    }
     res.status(status).json({ message: err?.message || 'Delete failed.' });
   }
 });
