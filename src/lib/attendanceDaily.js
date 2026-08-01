@@ -88,7 +88,7 @@ export const REGISTER_HALF_DAY_SUBMENU_OPTIONS = [
 ];
 
 /**
- * LWP composites: unpaid half + 0.5 typed leave (present credit 0).
+ * LWP composites: 0.5 present + 0.5 typed leave (PL/SL/CL balance).
  * Stored as LWP/PL | LWP/SL | LWP/CL.
  */
 export const REGISTER_LWP_COMPOSITE_MARKS = new Set(["LWP/PL", "LWP/SL", "LWP/CL"]);
@@ -225,7 +225,7 @@ export function isRegisterCommentMark(mark) {
 /** Marks that count toward monthly present-day totals (payroll / register summary). */
 const REGISTER_PRESENT_CREDIT_MARKS = new Set(["P", "P(OD)", "T", "CO", "WFH"]);
 
-/** LWP — leave without pay (incl. LWP/PL|SL|CL); counts as present 0. */
+/** LWP — leave without pay (full day or LWP/PL|SL|CL composite). */
 export function isRegisterLwpMark(mark) {
   const m = String(mark ?? "").trim();
   return m === "LWP" || isRegisterLwpCompositeMark(m);
@@ -236,26 +236,24 @@ export function isRegisterSummaryLeaveMark(mark) {
   const m = String(mark ?? "").trim();
   if (!m) return false;
   if (m === "A") return true;
-  if (isRegisterLwpCompositeMark(m)) return false;
   if (m === "HD" || isRegisterLwpMark(m)) return true;
-  if (isRegisterCompositeHalfDayMark(m)) return true;
+  if (isRegisterCompositeHalfDayMark(m) || isRegisterLwpCompositeMark(m)) return true;
   if (REGISTER_LEAVE_RED_CELL_MARKS.has(m)) return true;
   return false;
 }
 
-/** Leave-day credit for register summary (HD / P/SL|P/CL|P/PL = 0.5; LWP composites = 0). */
+/** Leave-day credit for register summary (HD / P/* / LWP/* composites = 0.5; full leave = 1). */
 export function registerSummaryLeaveCredit(mark) {
   const m = String(mark ?? "").trim();
-  if (isRegisterLwpCompositeMark(m)) return 0;
   if (!isRegisterSummaryLeaveMark(m)) return 0;
-  if (m === "HD" || isRegisterCompositeHalfDayMark(m)) return 0.5;
+  if (m === "HD" || isRegisterCompositeHalfDayMark(m) || isRegisterLwpCompositeMark(m)) return 0.5;
   return 1;
 }
 
 /**
  * Present-day credit for one register cell (0, 0.5, or 1).
  * P / P(OD) / T / CO / WFH, and paid leave types (PL, CL, SL, SPLA, SPLB, SBEL, PTL, ML, …)
- * count as present; LWP does not. HD / composites = 0.5; WO / NH/PH do not.
+ * count as present; full LWP does not. HD / P/* / LWP/* composites = 0.5; WO / NH/PH do not.
  */
 export function registerPresentDayCredit(mark) {
   const raw = String(mark ?? "").trim();
@@ -264,9 +262,18 @@ export function registerPresentDayCredit(mark) {
   if (REGISTER_PRESENT_CREDIT_MARKS.has(raw)) return 1;
   const canonical = normalizeRegisterMarkForDb(raw);
   if (canonical && REGISTER_PRESENT_CREDIT_MARKS.has(canonical)) return 1;
-  if (isRegisterLwpMark(raw)) return 0;
-  if (raw === "HD" || isRegisterCompositeHalfDayMark(raw)) return 0.5;
-  if (isRegisterSummaryLeaveMark(raw)) return 1;
+  // LWP + PL/SL/CL → half present (and 0.5 leave balance via leave limits).
+  if (isRegisterLwpCompositeMark(raw) || isRegisterLwpCompositeMark(canonical)) return 0.5;
+  if (isRegisterLwpMark(raw) || (canonical && isRegisterLwpMark(canonical))) return 0;
+  if (
+    raw === "HD" ||
+    canonical === "HD" ||
+    isRegisterCompositeHalfDayMark(raw) ||
+    isRegisterCompositeHalfDayMark(canonical)
+  ) {
+    return 0.5;
+  }
+  if (isRegisterSummaryLeaveMark(raw) || (canonical && isRegisterSummaryLeaveMark(canonical))) return 1;
   return 0;
 }
 
