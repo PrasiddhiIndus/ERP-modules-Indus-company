@@ -57,7 +57,7 @@ export default function AttendanceRegisterTable({
     <div className="w-full min-w-0 rounded-lg border border-gray-200 overflow-hidden bg-white">
       <div className="overflow-x-auto overflow-y-auto max-h-[calc(100dvh-20rem)] erp-attendance-register-scroll">
         <table className="w-full min-w-[1100px] text-xs border-collapse">
-          <thead className="sticky top-0 z-10 bg-gray-50 shadow-[0_1px_0_0_#e5e7eb]">
+          <thead className="sticky top-0 z-10 bg-gray-50 border-b border-border">
             <tr className="border-b border-gray-200 text-gray-600">
               {tableColumns.map((col) => (
                 <th

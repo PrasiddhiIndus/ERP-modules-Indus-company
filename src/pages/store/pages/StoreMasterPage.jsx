@@ -37,7 +37,7 @@ export default function StoreMasterPage({ data }) {
           </select>
           <TinyInput placeholder="Location" value={form.location} onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))} />
           <TinyInput placeholder="Incharge" value={form.incharge} onChange={(e) => setForm((p) => ({ ...p, incharge: e.target.value }))} />
-          <button onClick={submit} className="h-9 rounded bg-[#1F3A8A] text-white text-sm">Add Store</button>
+          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Add Store</button>
         </div>
       </SectionCard>
 

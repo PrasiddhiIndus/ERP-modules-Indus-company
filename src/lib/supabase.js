@@ -464,6 +464,83 @@ function shortUrlForLog(url) {
   }
 }
 
+/**
+ * Tables confirmed missing from PostgREST schema cache (404 / PGRST205).
+ * Session-scoped: after the first miss, GET/HEAD short-circuit to empty results
+ * so dashboards do not keep hammering missing relations (e.g. maintenance_*).
+ *
+ * Also pre-seed relations that exist in app code but are not deployed on this
+ * project's schema (no CREATE TABLE in tracked migrations) — avoids even the
+ * first browser Network 404.
+ */
+const missingRestRelations = new Set([
+  'maintenance_enquiries',
+  'maintenance_quotations',
+  'maintenance_quotation_items',
+  'maintenance_quotation_revisions',
+  'maintenance_clients',
+  'maintenance_products',
+  'maintenance_costing_sheets',
+  'maintenance_follow_ups',
+  'maintenance_site_visits',
+  'maintenance_contracts',
+  'maintenance_notifications',
+  'maintenance_enquiry_documents',
+  'maintenance_mail_templates',
+  'maintenance_gst_documents',
+  'maintenance_expo_seminars',
+  'maintenance_expo_visitors',
+])
+const missingRestRelationsLogged = new Set()
+/** In-flight probes keyed by table — collapses parallel HEAD/GETs racing the first 404. */
+const restRelationProbeInflight = new Map()
+
+function parseRestTableName(url) {
+  const entity = parseRestEntity(url)
+  if (!entity || entity.startsWith('rpc:')) return null
+  return entity
+}
+
+function looksLikeMissingRelation(status, bodyText = '') {
+  if (status === 404) return true
+  const text = String(bodyText || '')
+  return (
+    /PGRST205/i.test(text) ||
+    /could not find the table/i.test(text) ||
+    /relation .* does not exist/i.test(text) ||
+    /schema cache/i.test(text)
+  )
+}
+
+function emptyRestListResponse(method) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Content-Range': '*/0',
+  }
+  if (String(method || 'GET').toUpperCase() === 'HEAD') {
+    return new Response(null, { status: 200, headers })
+  }
+  return new Response('[]', { status: 200, headers })
+}
+
+/** True when this session already learned the relation is absent from the API schema. */
+export function isRestRelationMissing(tableName) {
+  return missingRestRelations.has(String(tableName || ''))
+}
+
+export function markRestRelationMissing(tableName) {
+  const name = String(tableName || '').trim()
+  if (name) missingRestRelations.add(name)
+}
+
+/** Clear a pre-seeded / discovered miss (e.g. after deploying maintenance schema). */
+export function clearRestRelationMissing(tableName) {
+  const name = String(tableName || '').trim()
+  if (!name) return
+  missingRestRelations.delete(name)
+  missingRestRelationsLogged.delete(name)
+}
+
 function isTimeoutError(err) {
   const name = String(err?.name || '').toLowerCase()
   const msg = String(err?.message || '').toLowerCase()
@@ -520,9 +597,42 @@ let supabaseClientRef = null;
 const customFetch = async (url, options = {}) => {
   const pathLog = shortUrlForLog(url)
   const urlStr = String(url)
+  const method = String(options?.method || 'GET').toUpperCase()
+  const restTable = parseRestTableName(urlStr)
+
+  // Known / previously missing relations: never hit the network on reads.
+  if (restTable && missingRestRelations.has(restTable) && (method === 'GET' || method === 'HEAD')) {
+    return emptyRestListResponse(method)
+  }
+
+  // Collapse parallel first-probes for the same table (avoids double browser 404).
+  if (restTable && (method === 'GET' || method === 'HEAD')) {
+    const inflight = restRelationProbeInflight.get(restTable)
+    if (inflight) {
+      const shared = await inflight
+      if (missingRestRelations.has(restTable)) return emptyRestListResponse(method)
+      // Re-run only if the shared probe succeeded (table exists).
+      if (shared?.ok) {
+        /* fall through to own request */
+      } else if (shared) {
+        return emptyRestListResponse(method)
+      }
+    }
+  }
+
   const fetchOptions = applyCachedUserAuthHeader(urlStr, options)
   const { signal, clearTimer } = resolveFetchSignal(fetchOptions, url)
   if (signal !== undefined) fetchOptions.signal = signal
+
+  let probeResolve
+  if (restTable && (method === 'GET' || method === 'HEAD') && !restRelationProbeInflight.has(restTable)) {
+    restRelationProbeInflight.set(
+      restTable,
+      new Promise((resolve) => {
+        probeResolve = resolve
+      })
+    )
+  }
 
   try {
     const res = await baseFetch(url, fetchOptions)
@@ -530,7 +640,6 @@ const customFetch = async (url, options = {}) => {
 
     // Activity log for mutations (batched). Keep payload minimal to avoid load/PII.
     if (shouldLogRequest(url, options)) {
-      const method = String(options?.method || 'GET').toUpperCase()
       const entity = parseRestEntity(url)
       const route = typeof window !== 'undefined' ? window.location.pathname : null
       const bodyCandidate = options.body
@@ -556,38 +665,59 @@ const customFetch = async (url, options = {}) => {
       }
     }
 
-    if (!res.ok && import.meta.env.DEV) {
-      const skipStagingBillingNoise =
-        import.meta.env.MODE === 'staging' &&
-        res.status === 406 &&
-        pathLog.includes('po_wo');
-      if (!skipStagingBillingNoise) {
+    if (!res.ok) {
+      let raw = ''
+      let detail = ''
       try {
         const ct = res.headers.get('content-type') || ''
         const clone = res.clone()
-        const raw = await clone.text()
-        let detail = ''
+        raw = await clone.text()
         if (ct.includes('application/json')) {
           try {
             const j = JSON.parse(raw)
-            detail = j.message || j.error_description || j.hint || raw.slice(0, 400)
+            detail = j.message || j.error_description || j.hint || j.code || raw.slice(0, 400)
           } catch {
             detail = raw.slice(0, 400)
           }
         } else {
           detail = raw.slice(0, 400)
         }
-        const method = (options.method || 'GET').toUpperCase()
-        console.warn(`[Supabase fetch] ${method} ${pathLog} → HTTP ${res.status}`, detail || '(no body)')
       } catch {
-        /* ignore logging failures */
+        /* ignore body read failures */
       }
+
+      const missing = restTable && looksLikeMissingRelation(res.status, `${detail}\n${raw}`)
+      if (missing) {
+        markRestRelationMissing(restTable)
+        if (import.meta.env.DEV && !missingRestRelationsLogged.has(restTable)) {
+          missingRestRelationsLogged.add(restTable)
+          console.info(
+            `[Supabase] Relation "${restTable}" is not in this project's schema — further reads will return empty until reload.`
+          )
+        }
+        probeResolve?.({ ok: false, missing: true })
+      } else if (import.meta.env.DEV) {
+        const skipStagingBillingNoise =
+          import.meta.env.MODE === 'staging' &&
+          res.status === 406 &&
+          pathLog.includes('po_wo')
+        if (!skipStagingBillingNoise) {
+          console.warn(`[Supabase fetch] ${method} ${pathLog} → HTTP ${res.status}`, detail || '(no body)')
+        }
+        probeResolve?.({ ok: false, missing: false })
+      } else {
+        probeResolve?.({ ok: false, missing: false })
       }
+    } else {
+      probeResolve?.({ ok: true })
     }
 
+    if (restTable) restRelationProbeInflight.delete(restTable)
     return res
   } catch (err) {
     clearTimer()
+    probeResolve?.({ ok: false, missing: false })
+    if (restTable) restRelationProbeInflight.delete(restTable)
     // Keep AbortError as-is so supabase-js cancellation/retries behave correctly.
     if (err?.name === 'AbortError') {
       throw err

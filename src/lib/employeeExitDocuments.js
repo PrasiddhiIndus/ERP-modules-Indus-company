@@ -8,6 +8,49 @@ import { normalizeToIsoDate } from "../utils/dateDisplay";
 
 const WT_RE = /<w:t(?: xml:space="preserve")?>([^<]*)<\/w:t>/g;
 
+function escapeXmlText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Fixed table row heights (especially exact) clip wrapped employee fields in Word.
+ * Keep the same minimum height but allow the row to grow with content.
+ */
+function ensureTableRowsCanGrow(xml) {
+  return String(xml || "").replace(/<w:trHeight\b([^>]*)\/>/g, (full, attrs) => {
+    const cleaned = String(attrs || "")
+      .replace(/\s*w:hRule="[^"]*"/g, "")
+      .replace(/\s+$/g, "");
+    return `<w:trHeight${cleaned} w:hRule="atLeast"/>`;
+  });
+}
+
+function replaceWtNodeTexts(xml, replacementsByIndex) {
+  let nodeIndex = 0;
+  return xml.replace(WT_RE, (match) => {
+    const current = nodeIndex;
+    nodeIndex += 1;
+    if (!Object.prototype.hasOwnProperty.call(replacementsByIndex, current)) {
+      return match;
+    }
+    // Newlines inside a single w:t are invalid OOXML and Word drops the remainder.
+    const lines = String(replacementsByIndex[current] ?? "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n");
+    return lines
+      .map((line, i) => {
+        const escaped = escapeXmlText(line);
+        const textNode = `<w:t xml:space="preserve">${escaped}</w:t>`;
+        return i === 0 ? textNode : `<w:br/>${textNode}`;
+      })
+      .join("");
+  });
+}
+
 const MONTH_NAMES = [
   "January",
   "February",
@@ -208,27 +251,6 @@ export function calculateExperienceParts(dojIso, dolIso) {
   return { years, months, days, label: parts.join(", ") };
 }
 
-function replaceWtNodeTexts(xml, replacementsByIndex) {
-  let nodeIndex = 0;
-  return xml.replace(WT_RE, (match, text) => {
-    const current = nodeIndex;
-    nodeIndex += 1;
-    if (!Object.prototype.hasOwnProperty.call(replacementsByIndex, current)) {
-      return match;
-    }
-    const newText = replacementsByIndex[current];
-    const preserveSpace = /xml:space="preserve"/.test(match);
-    const escaped = String(newText)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    if (preserveSpace) {
-      return `<w:t xml:space="preserve">${escaped}</w:t>`;
-    }
-    return `<w:t>${escaped}</w:t>`;
-  });
-}
-
 function buildCommonContext(employee, options = {}) {
   const doj = normalizeToIsoDate(employee?.date_of_joining);
   const dol = normalizeToIsoDate(employee?.date_of_leaving);
@@ -309,12 +331,13 @@ function buildExperienceReplacements(employee, options) {
     24: ` tenure with us, ${p.tenureHe} was designated as`,
     26: ctx.designation,
     28: ctx.department,
-    31: p.possessive[0],
+    // Template nodes keep surrounding words ("Throughout h", "e maintained…"); only swap gender bits.
+    31: `Throughout ${p.possessive[0]}`,
     32: p.possessive[1],
     33: ` employment, we found h`,
     34: p.object,
     37: p.subject[0],
-    38: p.subject[1],
+    38: `${p.subject[1]} maintained good professional conduct and interpersonal relationships with colleagues and management.`,
     39: p.subject[0],
     40: `${p.subject[1]} has been relieved from the `,
     42: ctx.dotDol.day,
@@ -329,19 +352,15 @@ function buildExperienceReplacements(employee, options) {
 
 function buildRelievingReplacements(employee, options) {
   const ctx = buildCommonContext(employee, options);
+  // Template placeholders are single runs: "Mr./Ms. [Employee Name]"
+  const titledName = `${ctx.title.letter1}${ctx.title.letter2}${ctx.title.letter3}${ctx.name}`;
 
   return {
-    2: salutationPrefix(employee?.gender),
-    3: ctx.name,
-    6: formatDayNumber(ctx.resignation),
-    7: formatOrdinalSuffix(ctx.resignation),
-    8: ` ${formatMonthName(ctx.resignation)}`,
-    10: formatYear(ctx.resignation),
-    17: formatDayNumber(ctx.dol),
-    18: formatOrdinalSuffix(ctx.dol),
-    19: formatMonthYearSpaced(ctx.dol),
-    32: `Place: ${ctx.place}`,
-    33: `Date: ${formatOrdinalDateLong(ctx.documentDate)}`,
+    3: titledName,
+    7: formatOrdinalDateLong(ctx.dol),
+    11: titledName,
+    18: `Place: ${ctx.place}`,
+    19: `Date: ${formatOrdinalDateLong(ctx.documentDate)}`,
   };
 }
 
@@ -382,7 +401,7 @@ export async function generateExitDocument(documentKey, employee, options = {}) 
   }
 
   const replacements = buildReplacements(employee, options);
-  const updatedXml = replaceWtNodeTexts(documentXml, replacements);
+  const updatedXml = ensureTableRowsCanGrow(replaceWtNodeTexts(documentXml, replacements));
   zip.file("word/document.xml", updatedXml);
 
   const blob = zip.generate({

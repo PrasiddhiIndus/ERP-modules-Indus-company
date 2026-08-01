@@ -1,29 +1,13 @@
 import React from "react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { Receipt, Wallet, Stethoscope, Building2, HandCoins } from "lucide-react";
 import { useOperations } from "../contexts/OperationsContext";
 import { getBreadcrumbs } from "../navConfig";
 import { formatCurrency } from "../data/mockOperationsData";
 import {
   Breadcrumbs,
-  ChartCard,
   DemoBanner,
   EnterpriseDataTable,
   ErrorState,
-  KpiTile,
   LoadingSkeleton,
   OpsStatusBadge,
   PageHeader,
@@ -32,6 +16,17 @@ import {
   Timeline,
   useThemeClasses,
 } from "../components/OperationsUi";
+import {
+  SparkKpi,
+  ChartPanel,
+  AreaTrendChart,
+  BarCompareChart,
+  DonutChart,
+  RadialScoreChart,
+  ComposedTrendChart,
+  sparkFromValue,
+  CHART_SERIES,
+} from "../../../components/charts/DashboardCharts";
 
 export default function Dashboard() {
   const { data, loading, error, refresh, theme, navigateTo } = useOperations();
@@ -64,59 +59,74 @@ export default function Dashboard() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-        <KpiTile label="Active Sites" value={kpis.active_sites ?? "—"} onClick={() => navigateTo("expense-site-dashboard")} />
-        <KpiTile label="Monthly Expenses" value={formatCurrency(kpis.monthly_expenses)} tone="border-blue-100" onClick={() => navigateTo("expense-summary")} />
-        <KpiTile label="Pending Advances" value={kpis.pending_advances ?? "—"} tone="border-amber-100" onClick={() => navigateTo("advance-approval")} />
-        <KpiTile label="Open Settlements" value={kpis.open_settlements ?? "—"} onClick={() => navigateTo("advance-settlement")} />
-        <KpiTile label="Rent Due" value={formatCurrency(kpis.rent_due)} tone="border-orange-100" onClick={() => navigateTo("rent-dashboard")} />
-        <KpiTile label="PME Due" value={kpis.pme_due ?? "—"} tone="border-red-100" onClick={() => navigateTo("pme-due")} />
+        <SparkKpi label="Active Sites" value={kpis.active_sites ?? "—"} series={sparkFromValue(kpis.active_sites)} color={CHART_SERIES[0]} onClick={() => navigateTo("expense-site-dashboard")} />
+        <SparkKpi label="Monthly Expenses" value={formatCurrency(kpis.monthly_expenses)} series={sparkFromValue(Number(kpis.monthly_expenses) || 0)} color={CHART_SERIES[1]} onClick={() => navigateTo("expense-summary")} />
+        <SparkKpi label="Pending Advances" value={kpis.pending_advances ?? "—"} series={sparkFromValue(kpis.pending_advances)} color={CHART_SERIES[2]} onClick={() => navigateTo("advance-approval")} />
+        <SparkKpi label="Open Settlements" value={kpis.open_settlements ?? "—"} series={sparkFromValue(kpis.open_settlements)} color={CHART_SERIES[4]} onClick={() => navigateTo("advance-settlement")} />
+        <SparkKpi label="Rent Due" value={formatCurrency(kpis.rent_due)} series={sparkFromValue(Number(kpis.rent_due) || 0)} color={CHART_SERIES[2]} onClick={() => navigateTo("rent-dashboard")} />
+        <SparkKpi label="PME Due" value={kpis.pme_due ?? "—"} series={sparkFromValue(kpis.pme_due)} color={CHART_SERIES[3]} onClick={() => navigateTo("pme-due")} />
       </div>
 
       <SectionCard title="Quick actions" className={t.card}>
         <QuickActions actions={quickActions} />
       </SectionCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ChartCard title="Monthly expense trend" theme={theme}>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={data?.monthlyTrends?.expenses || []}>
-              <CartesianGrid strokeDasharray="3 3" stroke={t.dark ? "#334155" : "#e5e7eb"} />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke={t.dark ? "#94a3b8" : "#6b7280"} />
-              <YAxis tick={{ fontSize: 11 }} stroke={t.dark ? "#94a3b8" : "#6b7280"} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Area type="monotone" dataKey="amount" stroke="#1F3A8A" fill="#1F3A8A" fillOpacity={0.15} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Advances — requested vs settled" theme={theme}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={data?.monthlyTrends?.advances || []}>
-              <CartesianGrid strokeDasharray="3 3" stroke={t.dark ? "#334155" : "#e5e7eb"} />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="requested" fill="#1F3A8A" name="Requested" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="settled" fill="#10B981" name="Settled" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <ChartPanel title="Monthly expense trend" className="lg:col-span-2" height={220}>
+          <AreaTrendChart
+            data={(data?.monthlyTrends?.expenses || []).map((r) => ({ name: r.month, value: r.amount }))}
+            series={[{ key: "value", name: "Expense", color: CHART_SERIES[0] }]}
+            height={220}
+            formatter={(v) => formatCurrency(v)}
+          />
+        </ChartPanel>
+        <ChartPanel title="Ops pressure" height={220}>
+          <RadialScoreChart
+            value={Math.max(10, 100 - (Number(kpis.pending_advances) || 0) * 5 - (Number(kpis.pme_due) || 0) * 3)}
+            label="Ready"
+            color={CHART_SERIES[5]}
+            height={200}
+          />
+        </ChartPanel>
       </div>
 
-      <ChartCard title="Rent collection trend" theme={theme}>
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={data?.monthlyTrends?.rent || []}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${(v / 100000).toFixed(1)}L`} />
-            <Tooltip formatter={(v) => formatCurrency(v)} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="due" stroke="#F59E0B" name="Due" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="paid" stroke="#1F3A8A" name="Paid" strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </ChartCard>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ChartPanel title="Advances — requested vs settled" height={220}>
+          <BarCompareChart
+            data={data?.monthlyTrends?.advances || []}
+            xKey="month"
+            series={[
+              { key: "requested", name: "Requested", color: CHART_SERIES[0] },
+              { key: "settled", name: "Settled", color: CHART_SERIES[5] },
+            ]}
+            height={200}
+            formatter={(v) => formatCurrency(v)}
+          />
+        </ChartPanel>
+        <ChartPanel title="Rent collection" height={220}>
+          <ComposedTrendChart
+            data={data?.monthlyTrends?.rent || []}
+            xKey="month"
+            areas={[{ key: "paid", name: "Paid", color: CHART_SERIES[0] }]}
+            lines={[{ key: "due", name: "Due", color: CHART_SERIES[2] }]}
+            height={200}
+            formatter={(v) => formatCurrency(v)}
+          />
+        </ChartPanel>
+      </div>
+
+      <ChartPanel title="Open work mix" height={200}>
+        <DonutChart
+          data={[
+            { name: "Pending advances", value: Number(kpis.pending_advances) || 0 },
+            { name: "Settlements", value: Number(kpis.open_settlements) || 0 },
+            { name: "PME due", value: Number(kpis.pme_due) || 0 },
+            { name: "Active sites", value: Number(kpis.active_sites) || 0 },
+          ].filter((x) => x.value > 0)}
+          height={180}
+          centerLabel="Signals"
+        />
+      </ChartPanel>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <SectionCard title="Recent activities" className={t.card}>

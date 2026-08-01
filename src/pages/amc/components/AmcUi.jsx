@@ -72,7 +72,7 @@ export function PrimaryButton({ children, onClick, icon: Icon = Plus }) {
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-white bg-[#1F3A8A] rounded-lg hover:bg-[#172554]"
+      className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-white bg-accent rounded-lg hover:bg-accent-deep"
     >
       <Icon className="w-3.5 h-3.5" />
       {children}
@@ -91,7 +91,7 @@ export function ProfileTabs({ tabs, active, onChange, children }) {
             onClick={() => onChange(t.id)}
             className={`px-3 py-1.5 text-xs font-medium rounded-t border-b-2 -mb-px ${
               active === t.id
-                ? "border-[#1F3A8A] text-[#1F3A8A] bg-blue-50/50"
+                ? "border-accent text-accent bg-blue-50/50"
                 : "border-transparent text-gray-600 hover:text-gray-900"
             }`}
           >
@@ -123,7 +123,7 @@ export function AlertCard({ alert, onAction }) {
         <AmcStatusBadge status={alert.severity} />
       </div>
       {onAction && (
-        <button type="button" onClick={() => onAction(alert)} className="mt-2 text-[11px] font-medium text-[#1F3A8A]">
+        <button type="button" onClick={() => onAction(alert)} className="mt-2 text-[11px] font-medium text-accent">
           View source →
         </button>
       )}

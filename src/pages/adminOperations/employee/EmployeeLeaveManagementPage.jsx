@@ -839,7 +839,7 @@ export function EmployeeLeaveManagementPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`h-9 px-3 rounded-lg text-xs font-semibold border transition ${
                   activeTab === tab.id
-                    ? "bg-[#1F3A8A] text-white border-[#1F3A8A]"
+                    ? "bg-accent text-white border-accent"
                     : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                 }`}
               >
@@ -969,7 +969,7 @@ export function EmployeeLeaveManagementPage() {
                   onClick={() => setLedgerSubTab(tab.id)}
                   className={`h-9 px-4 rounded-t-lg text-xs font-semibold border-b-2 transition ${
                     ledgerSubTab === tab.id
-                      ? "border-[#1F3A8A] text-[#1F3A8A] bg-[#1F3A8A]/5"
+                      ? "border-accent text-accent bg-accent/5"
                       : "border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                   }`}
                 >

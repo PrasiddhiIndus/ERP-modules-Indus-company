@@ -5,6 +5,7 @@
 import { supabase } from "../../../lib/supabase";
 import { financeErrorMsg, invalidateFinanceCache, isFinanceSchemaError } from "../../../services/financeApi";
 import { removeChildHeadRow, removeParentHeadRow } from "./financeHeadSync";
+import { TOKENS } from "../../../theme/tokens";
 
 const SCHEMA = "finance";
 export const SITE_META_PREFIX = "@@siteMeta::";
@@ -317,7 +318,7 @@ function buildParents(rows, defaultParents) {
   return active.map((p) => ({
     key: p.code,
     label: p.label,
-    color: p.color || "#1F6F4E",
+    color: p.color || TOKENS.accent,
     custom: !!p.is_custom,
   }));
 }
@@ -518,7 +519,7 @@ async function syncParents(parents) {
         {
           code: p.key,
           label: p.label,
-          color: p.color || "#1F6F4E",
+          color: p.color || TOKENS.accent,
           sort_order: i,
           is_custom: !!p.custom,
           is_active: true,

@@ -130,7 +130,7 @@ export default function ExpenseEntries() {
             {permissions.canEditSite(siteId) && (
               <div className="flex justify-end gap-2 mt-4">
                 {saved && <span className="text-xs text-green-700 self-center">Saved</span>}
-                <button type="button" className="h-8 px-4 text-xs bg-[#1F6F4E] text-white rounded" disabled={saving} onClick={save}>
+                <button type="button" className="h-8 px-4 text-xs bg-accent text-white rounded" disabled={saving} onClick={save}>
                   {saving ? "Saving…" : "Save Expenses"}
                 </button>
               </div>

@@ -42,10 +42,10 @@ export default function TechnicianAllocation() {
               label: "Drill down",
               render: (r) => (
                 <div className="flex gap-2">
-                  <button type="button" className="text-[10px] text-[#1F3A8A]" onClick={() => navigateTo("pm-schedule", { engineerId: r.id })}>
+                  <button type="button" className="text-[10px] text-accent" onClick={() => navigateTo("pm-schedule", { engineerId: r.id })}>
                     PM
                   </button>
-                  <button type="button" className="text-[10px] text-[#1F3A8A]" onClick={() => navigateTo("complaints", { engineerId: r.id })}>
+                  <button type="button" className="text-[10px] text-accent" onClick={() => navigateTo("complaints", { engineerId: r.id })}>
                     Calls
                   </button>
                 </div>

@@ -40,6 +40,7 @@ import {
   countByStatus,
   countByVertical,
 } from "./utils/manpowerInquiryDashboard";
+import { CHART_SERIES, TOKENS } from "../../theme/tokens";
 import {
   DEFAULT_BID_DEADLINE_REMINDER_DAYS,
   formatReminderDaysLabel,
@@ -402,15 +403,15 @@ const CommercialMtDashboard = () => {
                 <AreaChart data={trendData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="mtEnquiryTrend" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="#7c3aed" stopOpacity={0.02} />
+                      <stop offset="5%" stopColor={CHART_SERIES[1]} stopOpacity={0.35} />
+                      <stop offset="95%" stopColor={CHART_SERIES[1]} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6b7280" }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#6b7280" }} width={28} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: TOKENS.chartAxis }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: TOKENS.chartAxis }} width={28} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="count" name="Enquiries" stroke="#7c3aed" fill="url(#mtEnquiryTrend)" strokeWidth={2} />
+                  <Area type="monotone" dataKey="count" name="Enquiries" stroke={CHART_SERIES[1]} fill="url(#mtEnquiryTrend)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

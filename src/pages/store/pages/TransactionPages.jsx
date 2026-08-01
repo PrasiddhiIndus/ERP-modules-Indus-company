@@ -57,7 +57,7 @@ export function InwardPage({ data }) {
           </select>
           <input className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.sourceType} onChange={(e) => setHeader((p) => ({ ...p, sourceType: e.target.value }))} />
           <input className="h-9 border border-gray-300 rounded px-2 text-sm" placeholder="Source Ref" value={header.sourceRef} onChange={(e) => setHeader((p) => ({ ...p, sourceRef: e.target.value }))} />
-          <button onClick={submit} className="h-9 rounded bg-[#1F3A8A] text-white text-sm">Save Inward</button>
+          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Save Inward</button>
         </div>
       </SectionCard>
       <SectionCard title="Inward Item Rows" right={<button className="text-xs underline" onClick={() => setRows((p) => [...p, { itemId: "", qty: 0 }])}>+ Add Row</button>}>
@@ -87,7 +87,7 @@ export function OutwardPage({ data }) {
             <option value="">Linked Site</option>{sites.map((s) => <option key={s.id} value={s.id}>{s.siteName}</option>)}
           </select>
           <input className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.reason} onChange={(e) => setHeader((p) => ({ ...p, reason: e.target.value }))} />
-          <button onClick={submit} className="h-9 rounded bg-[#1F3A8A] text-white text-sm">Save Issue</button>
+          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Save Issue</button>
         </div>
       </SectionCard>
       <SectionCard title="Issue Rows" right={<button className="text-xs underline" onClick={() => setRows((p) => [...p, { itemId: "", qty: 0 }])}>+ Add Row</button>}>
@@ -110,7 +110,7 @@ export function ReturnPage({ data }) {
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.sourceStoreId} onChange={(e) => setHeader((p) => ({ ...p, sourceStoreId: e.target.value }))}><option value="">Source Store</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}</select>
           <select className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.destinationStoreId} onChange={(e) => setHeader((p) => ({ ...p, destinationStoreId: e.target.value }))}><option value="">Destination Store</option>{stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}</select>
           <input className="h-9 border border-gray-300 rounded px-2 text-sm" value={header.reason} onChange={(e) => setHeader((p) => ({ ...p, reason: e.target.value }))} />
-          <button onClick={submit} className="h-9 rounded bg-[#1F3A8A] text-white text-sm">Save Return</button>
+          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Save Return</button>
         </div>
       </SectionCard>
       <SectionCard title="Return Rows" right={<button className="text-xs underline" onClick={() => setRows((p) => [...p, { itemId: "", goodQty: 0, damagedQty: 0 }])}>+ Add Row</button>}>
@@ -139,7 +139,7 @@ export function TransferPage({ data }) {
             {["draft", "dispatched", "received", "cancelled"].map((s) => <option key={s}>{s}</option>)}
           </select>
           <div className="h-9 rounded border border-gray-300 px-2 flex items-center text-xs">Risk: {risk}</div>
-          <button onClick={submit} className="h-9 rounded bg-[#1F3A8A] text-white text-sm">Save Transfer</button>
+          <button onClick={submit} className="h-9 rounded bg-accent text-white text-sm">Save Transfer</button>
         </div>
       </SectionCard>
       <SectionCard title="Transfer Rows" right={<button className="text-xs underline" onClick={() => setRows((p) => [...p, { itemId: "", qty: 0 }])}>+ Add Row</button>}>

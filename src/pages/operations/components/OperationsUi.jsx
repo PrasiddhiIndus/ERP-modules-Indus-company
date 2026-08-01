@@ -74,7 +74,7 @@ export function useThemeClasses(theme) {
     input: dark
       ? "bg-slate-800 border-slate-600 text-slate-100 placeholder:text-slate-500"
       : "bg-white border-gray-300 text-gray-900",
-    navActive: dark ? "bg-blue-950 text-blue-300 border-blue-600" : "bg-blue-50 text-[#1F3A8A] border-[#1F3A8A]",
+    navActive: dark ? "bg-blue-950 text-blue-300 border-blue-600" : "bg-blue-50 text-accent border-accent",
     navIdle: dark ? "text-slate-400 hover:bg-slate-800 hover:text-slate-200" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
     tableHead: dark ? "bg-slate-800 text-slate-300" : "bg-gray-50 text-gray-600",
     tableRow: dark ? "hover:bg-slate-800/60" : "hover:bg-blue-50/40",
@@ -89,11 +89,11 @@ export function Breadcrumbs({ items, theme }) {
         <React.Fragment key={i}>
           {i > 0 && <span className={t.muted}>/</span>}
           {item.path && i < items.length - 1 ? (
-            <Link to={item.path} className={`${t.muted} hover:text-[#1F3A8A] font-medium`}>
+            <Link to={item.path} className={`${t.muted} hover:text-accent font-medium`}>
               {item.label}
             </Link>
           ) : (
-            <span className={i === items.length - 1 ? "font-semibold text-[#1F3A8A]" : t.muted}>{item.label}</span>
+            <span className={i === items.length - 1 ? "font-semibold text-accent" : t.muted}>{item.label}</span>
           )}
         </React.Fragment>
       ))}
@@ -142,7 +142,7 @@ export function PrimaryButton({ children, onClick, icon: Icon, disabled, type = 
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-white bg-[#1F3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-50"
+      className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium text-white bg-accent rounded-lg hover:bg-accent-deep disabled:opacity-50"
     >
       {Icon && <Icon className="w-3.5 h-3.5" />}
       {children}
@@ -255,7 +255,7 @@ export function ErrorState({ message, onRetry }) {
     <div className="text-center py-12 px-4 border border-red-200 bg-red-50 rounded-xl">
       <p className="text-sm font-medium text-red-800">{message || "Something went wrong"}</p>
       {onRetry && (
-        <button type="button" onClick={onRetry} className="mt-3 text-xs text-[#1F3A8A] font-medium">
+        <button type="button" onClick={onRetry} className="mt-3 text-xs text-accent font-medium">
           Try again
         </button>
       )}
@@ -292,7 +292,7 @@ export function LinkedEmployeeChip({ employee, onClick }) {
 function SortIndicator({ active, direction }) {
   return (
     <ChevronsUpDown
-      className={`w-3 h-3 ml-0.5 inline ${active ? "text-[#1F3A8A]" : "text-gray-300"}`}
+      className={`w-3 h-3 ml-0.5 inline ${active ? "text-accent" : "text-gray-300"}`}
       style={active ? { transform: direction === "desc" ? "rotate(180deg)" : undefined } : undefined}
     />
   );
@@ -369,7 +369,7 @@ export function EnterpriseDataTable({
       <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b ${t.dark ? "border-slate-700" : "border-gray-200"}`}>
         <div className="flex items-center gap-2">
           {enableBulk && selected.size > 0 && (
-            <span className="text-[11px] text-[#1F3A8A] font-medium">{selected.size} selected</span>
+            <span className="text-[11px] text-accent font-medium">{selected.size} selected</span>
           )}
           <div className="relative">
             <button
@@ -432,7 +432,7 @@ export function EnterpriseDataTable({
               {visibleColumns.map((c) => (
                 <th key={c.key} className="px-2 py-2 text-left font-semibold whitespace-nowrap">
                   {c.sortable !== false ? (
-                    <button type="button" onClick={() => toggleSort(c.key)} className="inline-flex items-center hover:text-[#1F3A8A]">
+                    <button type="button" onClick={() => toggleSort(c.key)} className="inline-flex items-center hover:text-accent">
                       {c.label}
                       <SortIndicator active={sort.key === c.key} direction={sort.direction} />
                     </button>
@@ -528,7 +528,7 @@ export function NotificationPanel({ open, onClose, notifications, onMarkRead, on
         <div className={`flex items-center justify-between px-4 py-3 border-b ${t.dark ? "border-slate-700" : "border-gray-200"}`}>
           <h4 className="text-sm font-semibold">Notifications</h4>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onMarkAllRead} className="text-[11px] text-[#1F3A8A]">Mark all read</button>
+            <button type="button" onClick={onMarkAllRead} className="text-[11px] text-accent">Mark all read</button>
             <button type="button" onClick={onClose} className={t.muted}><X className="w-4 h-4" /></button>
           </div>
         </div>
@@ -571,7 +571,7 @@ export function QuickActions({ actions }) {
           key={a.label}
           type="button"
           onClick={a.onClick}
-          className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-[#1F3A8A]/30 text-[#1F3A8A] rounded-lg bg-blue-50/50 hover:bg-blue-50"
+          className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-accent/30 text-accent rounded-lg bg-blue-50/50 hover:bg-blue-50"
         >
           {a.icon && <a.icon className="w-3.5 h-3.5" />}
           {a.label}

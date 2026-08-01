@@ -9,12 +9,12 @@ import FormDateInput from "../../../components/FormDateInput";
 /** Page title block: one primary task per screen (UI design philosophy). */
 export function PageTaskHeader({ title, subtitle, children, className = "" }) {
   return (
-    <div className={`flex flex-wrap items-start justify-between gap-3 ${className}`.trim()}>
+    <div className={`flex flex-wrap items-start justify-between gap-4 mb-1 ${className}`.trim()}>
       <div className="min-w-0">
-        <h1 className="text-lg font-bold text-gray-900">{title}</h1>
-        {subtitle ? <p className="text-xs text-gray-600 mt-0.5 max-w-3xl">{subtitle}</p> : null}
+        <h1 className="type-page-title text-ink type-truncate">{title}</h1>
+        {subtitle ? <p className="type-meta text-ink-secondary mt-1.5 max-w-3xl">{subtitle}</p> : null}
       </div>
-      {children ? <div className="flex flex-wrap items-center gap-2 shrink-0">{children}</div> : null}
+      {children ? <div className="flex flex-wrap items-center gap-2.5 shrink-0">{children}</div> : null}
     </div>
   );
 }
@@ -28,7 +28,7 @@ export function CollapsibleHelp({ label = "How this works", children, defaultOpe
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-[11px] font-medium text-[#1F3A8A] hover:underline"
+        className="text-[11px] font-medium text-accent hover:underline"
         aria-expanded={open}
       >
         {open ? "Hide" : "Show"} {label}
@@ -43,17 +43,17 @@ export function CollapsibleHelp({ label = "How this works", children, defaultOpe
 }
 
 export const SectionCard = ({ title, right, children, className = "" }) => (
-  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>
-    <div className="px-4 py-2.5 border-b border-gray-200 flex items-center justify-between gap-2 min-h-[44px]">
-      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+  <div className={`bg-surface rounded-card shadow-card border border-border ${className}`}>
+    <div className="erp-card-header border-b border-divider flex items-center justify-between gap-3 min-h-[52px] bg-surface-raised rounded-t-card">
+      <h3 className="type-card-title text-ink type-truncate">{title}</h3>
       {right}
     </div>
-    <div className="p-3 sm:p-4">{children}</div>
+    <div className="erp-card-body">{children}</div>
   </div>
 );
 
-export const Badge = ({ children, tone = "bg-gray-100 text-gray-700" }) => (
-  <span className={`inline-flex px-2 py-0.5 rounded text-[11px] font-medium ${tone}`}>{children}</span>
+export const Badge = ({ children, tone = "bg-surface-sunken text-ink-secondary border border-border" }) => (
+  <span className={`erp-badge inline-flex px-2 py-0.5 ${tone}`}>{children}</span>
 );
 
 export const TinyInput = ({ type, value, onChange, className = "", ...rest }) => {
@@ -89,15 +89,15 @@ export const TinySelect = ({ children, className = "", ...rest }) => (
 );
 
 const severityTone = {
-  info: "bg-sky-50 text-sky-800 border-sky-200",
-  warning: "bg-amber-50 text-amber-900 border-amber-200",
-  high: "bg-orange-50 text-orange-900 border-orange-200",
-  critical: "bg-red-50 text-red-900 border-red-200",
+  info: "bg-info-soft text-info border-info-border",
+  warning: "bg-warning-soft text-warning border-warning-border",
+  high: "bg-warning-soft text-warning border-warning-border",
+  critical: "bg-critical-soft text-critical border-critical-border",
 };
 
 export const StatusChip = ({ label, severity = "info" }) => (
   <span
-    className={`inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-medium ${
+    className={`erp-badge inline-flex items-center border ${
       severityTone[severity] || severityTone.info
     }`}
   >
@@ -105,20 +105,20 @@ export const StatusChip = ({ label, severity = "info" }) => (
   </span>
 );
 
-export const KpiTile = ({ label, value, sub, onClick, tone = "border-gray-100" }) => (
+export const KpiTile = ({ label, value, sub, onClick, tone = "border-border" }) => (
   <button
     type="button"
     onClick={onClick}
-    className={`text-left w-full rounded-xl border ${tone} bg-white shadow-sm px-3 py-2.5 transition ${onClick ? "cursor-pointer hover:border-[#1F3A8A]/40 hover:shadow" : ""}`}
+    className={`text-left w-full rounded-card border ${tone} bg-surface shadow-card px-4 py-3.5 transition-[border-color,background-color] duration-theme ease-theme ${onClick ? "cursor-pointer hover:border-accent-border" : ""}`}
   >
-    <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
-    <p className="text-xl font-bold text-gray-900 mt-0.5 tabular-nums">{value}</p>
-    {sub && <p className="text-[11px] text-gray-500 mt-1">{sub}</p>}
+    <p className="type-mono-caption">{label}</p>
+    <p className="type-figure text-ink mt-1.5">{value}</p>
+    {sub && <p className="type-meta text-ink-muted mt-1.5">{sub}</p>}
   </button>
 );
 
 export const FilterBar = ({ children }) => (
-  <div className="flex flex-wrap items-end gap-2 p-2 rounded-lg border border-gray-200 bg-gray-50/80">{children}</div>
+  <div className="flex flex-wrap items-end gap-3 px-3.5 py-3 rounded-lg border border-gray-200 bg-gray-50/80">{children}</div>
 );
 
 const DEFAULT_FROZEN_COLUMN_WIDTHS = [88, 104, 180, 132];
@@ -209,8 +209,8 @@ function FreezePaneDenseTable({
     >
       <div className="w-max min-w-full">
         <div
-          className={`flex border-b border-gray-200 bg-gray-50 text-xs text-gray-600 ${
-            stickyHeader ? "sticky top-0 z-20 shadow-[0_1px_0_0_#e5e7eb]" : ""
+          className={`flex border-b border-divider bg-gray-50 text-xs text-gray-600 ${
+            stickyHeader ? "sticky top-0 z-20" : ""
           }`}
         >
           <div
@@ -366,8 +366,8 @@ export const DenseTable = ({
         }`}
       >
         <thead
-          className={`bg-gray-50 text-gray-600 border-b border-gray-200 ${
-            stickyHeader ? "sticky top-0 z-20 shadow-[0_1px_0_0_#e5e7eb]" : ""
+          className={`bg-gray-50 text-gray-600 border-b border-divider ${
+            stickyHeader ? "sticky top-0 z-20" : ""
           }`}
         >
           <tr>
@@ -435,13 +435,13 @@ export function Drawer({ open, title, onClose, children, widthClass = "max-w-lg"
       <div
         className={`relative ml-auto h-full w-full ${widthClass} bg-white shadow-2xl border-l border-gray-200 flex flex-col`}
       >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-          <h4 className="text-sm font-semibold text-gray-900">{title}</h4>
+        <div className="erp-card-header border-b border-gray-200 flex items-center justify-between">
+          <h4 className="type-card-title text-gray-900">{title}</h4>
           <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-800 text-lg leading-none px-1">
             ×
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 text-sm">{children}</div>
+        <div className="flex-1 overflow-y-auto erp-card-body text-sm">{children}</div>
       </div>
     </div>
   );
@@ -453,14 +453,14 @@ export function Modal({ open, title, onClose, children, footer, widthClass = "ma
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Close" onClick={onClose} />
       <div className={`relative bg-white rounded-xl shadow-xl border border-gray-200 w-full ${widthClass} max-h-[90vh] flex flex-col`}>
-        <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-          <h4 className="text-sm font-semibold text-gray-900">{title}</h4>
+        <div className="erp-card-header border-b border-gray-200 flex items-center justify-between">
+          <h4 className="type-card-title text-gray-900">{title}</h4>
           <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-800">
             ×
           </button>
         </div>
-        <div className="p-4 overflow-y-auto text-sm">{children}</div>
-        {footer && <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 rounded-b-xl">{footer}</div>}
+        <div className="erp-card-body overflow-y-auto text-sm">{children}</div>
+        {footer && <div className="erp-card-header border-t border-gray-200 bg-gray-50 rounded-b-xl">{footer}</div>}
       </div>
     </div>
   );
@@ -477,7 +477,7 @@ export const Timeline = ({ items }) => (
   <ul className="space-y-2 border-l-2 border-gray-200 ml-1 pl-3">
     {items.map((it, i) => (
       <li key={i} className="relative">
-        <span className="absolute -left-[7px] top-1.5 w-2 h-2 rounded-full bg-[#1F3A8A]" />
+        <span className="absolute -left-[7px] top-1.5 w-2 h-2 rounded-full bg-accent" />
         <p className="text-xs font-medium text-gray-900">{it.title}</p>
         <p className="text-[11px] text-gray-500">{it.meta}</p>
       </li>

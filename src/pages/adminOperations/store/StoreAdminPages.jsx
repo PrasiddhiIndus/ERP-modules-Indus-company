@@ -39,7 +39,7 @@ export function StoreItemMasterPage() {
   ];
   return (
     <>
-      <SectionCard title="Item master — PPE & manpower support" right={<button className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs">Add item</button>}>
+      <SectionCard title="Item master — PPE & manpower support" right={<button className="h-8 px-3 rounded-lg bg-accent text-white text-xs">Add item</button>}>
         <FilterBar>
           <TinyInput placeholder="Search code / name" className="min-w-[160px]" />
           <TinySelect>
@@ -177,7 +177,7 @@ function IssueReturnForm({ title, mode }) {
         />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className="h-8 px-3 rounded-lg bg-[#1F3A8A] text-white text-xs">
+        <button type="button" className="h-8 px-3 rounded-lg bg-accent text-white text-xs">
           Post {mode === "return" ? "return" : "issue"}
         </button>
         <span className="text-[11px] text-gray-500">Balance preview updates ledger (integration later).</span>
@@ -338,7 +338,7 @@ export function StoreReconciliationPage() {
               <button type="button" className="h-8 px-3 rounded border text-xs" onClick={() => setM(null)}>
                 Cancel
               </button>
-              <button type="button" className="h-8 px-3 rounded bg-[#1F3A8A] text-white text-xs" onClick={() => setM(null)}>
+              <button type="button" className="h-8 px-3 rounded bg-accent text-white text-xs" onClick={() => setM(null)}>
                 Approve adjustment
               </button>
             </div>

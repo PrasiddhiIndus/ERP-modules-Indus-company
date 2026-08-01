@@ -1720,21 +1720,21 @@ Marketing Team`;
                 <p className="text-xs mt-1">Create your first quotation to get started</p>
               </div>
             ) : (
-              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#c084fc #f3f4f6' }}>
+              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent) var(--surface-sunken)' }}>
                 <style>{`
                   .overflow-x-auto::-webkit-scrollbar {
                     height: 8px;
                   }
                   .overflow-x-auto::-webkit-scrollbar-track {
-                    background: #f3f4f6;
+                    background: var(--surface-sunken);
                     border-radius: 4px;
                   }
                   .overflow-x-auto::-webkit-scrollbar-thumb {
-                    background: #c084fc;
+                    background: var(--accent);
                     border-radius: 4px;
                   }
                   .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-                    background: #a855f7;
+                    background: var(--accent-deep);
                   }
                 `}</style>
                 <table className="w-full min-w-[1000px] text-xs">
@@ -2074,21 +2074,21 @@ Marketing Team`;
                 No sent quotations with costing sheets found. Create and send quotations first.
               </div>
             ) : (
-              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: '#c084fc #f3f4f6' }}>
+              <div className="overflow-x-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--accent) var(--surface-sunken)' }}>
                 <style>{`
                   .overflow-x-auto::-webkit-scrollbar {
                     height: 8px;
                   }
                   .overflow-x-auto::-webkit-scrollbar-track {
-                    background: #f3f4f6;
+                    background: var(--surface-sunken);
                     border-radius: 4px;
                   }
                   .overflow-x-auto::-webkit-scrollbar-thumb {
-                    background: #c084fc;
+                    background: var(--accent);
                     border-radius: 4px;
                   }
                   .overflow-x-auto::-webkit-scrollbar-thumb:hover {
-                    background: #a855f7;
+                    background: var(--accent-deep);
                   }
                 `}</style>
                 <table className="w-full min-w-[1200px] text-xs">

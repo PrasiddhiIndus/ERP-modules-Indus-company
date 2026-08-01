@@ -64,7 +64,7 @@ export default function ImportExport() {
             type="button"
             disabled={busy}
             onClick={download}
-            className="inline-flex items-center gap-2 h-9 px-4 text-sm bg-[#1F6F4E] text-white rounded-lg"
+            className="inline-flex items-center gap-2 h-9 px-4 text-sm bg-accent text-white rounded-lg"
           >
             <Download size={16} />
             Download backup

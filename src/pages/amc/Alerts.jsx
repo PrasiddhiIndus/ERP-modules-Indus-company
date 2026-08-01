@@ -35,7 +35,7 @@ export default function Alerts() {
         r.record_type && r.record_id ? (
           <button
             type="button"
-            className="text-[11px] text-[#1F3A8A] font-medium"
+            className="text-[11px] text-accent font-medium"
             onClick={(e) => {
               e.stopPropagation();
               openRecord(r.record_type, r.record_id);

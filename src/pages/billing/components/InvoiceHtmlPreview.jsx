@@ -245,7 +245,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
     <div className="w-full bg-[#e8e8e8] p-4 sm:p-6">
       <div
         className="mx-auto w-full max-w-[780px] bg-white border border-[#ccc] text-[#1f2937]"
-        style={{ fontFamily: "'Times New Roman', serif" }}
+        style={{ fontFamily: 'var(--font-sans)' }}
       >
         <div className="px-[28px] pt-4 pb-3">
           <div className="flex items-start gap-3">
@@ -435,21 +435,21 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                   {hideQtyRateColumns ? null : (
                     <>
                       <td className="border border-[#bbb] px-1 py-1 text-right">{formatAmountUpTo3Decimals(it.quantity || 0)}</td>
-                      <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.rate || 0)}</td>
+                      <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(it.rate || 0)}</td>
                     </>
                   )}
                   <td className="border border-[#bbb] px-1 py-1 text-center">
                     {String(it.uom ?? '').trim() || '–'}
                   </td>
                   <td className="border border-[#bbb] px-1 py-1 text-center">—</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(it.amount || 0)}</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(it.amount || 0)}</td>
                 </tr>
               ))}
               {showPreGstRows ? (
                 <>
                   <tr className="bg-[#f0f4fa]">
                     <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Line items subtotal</td>
-                    <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewLineSubtotal)}</td>
+                    <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(previewLineSubtotal)}</td>
                   </tr>
                   {previewPreGstSupplementaryRows.length > 0
                     ? previewPreGstSupplementaryRows.map((row, sIdx) => {
@@ -466,7 +466,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                             <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">
                               {label}
                             </td>
-                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>
+                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: 'var(--font-mono)' }}>
                               {formatMoney2(signed)}
                             </td>
                           </tr>
@@ -477,45 +477,45 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                         {previewPreGstDeduction > 0 ? (
                           <tr className="bg-[#f0f4fa]">
                             <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Less: supplementary deduction</td>
-                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(-previewPreGstDeduction)}</td>
+                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(-previewPreGstDeduction)}</td>
                           </tr>
                         ) : null}
                         {previewPreGstAddition > 0 ? (
                           <tr className="bg-[#f0f4fa]">
                             <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Add: supplementary addition</td>
-                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewPreGstAddition)}</td>
+                            <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(previewPreGstAddition)}</td>
                           </tr>
                         ) : null}
                       </>
                     )}
                   <tr className="bg-[#f0f4fa]">
                     <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">Taxable value (before GST)</td>
-                    <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewTaxable)}</td>
+                    <td className="border border-[#bbb] px-1 py-1 text-right font-bold" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(previewTaxable)}</td>
                   </tr>
                 </>
               ) : null}
               {previewCgst > 0 ? (
                 <tr className="bg-[#f0f4fa]">
                   <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">CGST @ {previewCgstRate}%</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewCgst)}</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(previewCgst)}</td>
                 </tr>
               ) : null}
               {previewSgst > 0 ? (
                 <tr className="bg-[#f0f4fa]">
                   <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">SGST @ {previewSgstRate}%</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewSgst)}</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(previewSgst)}</td>
                 </tr>
               ) : null}
               {previewIgst > 0 ? (
                 <tr className="bg-[#f0f4fa]">
                   <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">IGST @ {previewIgstRate}%</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(previewIgst)}</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(previewIgst)}</td>
                 </tr>
               ) : null}
               {previewGstMode === 'sez_zero' && previewCgst === 0 && previewSgst === 0 && previewIgst === 0 ? (
                 <tr className="bg-[#f0f4fa]">
                   <td colSpan={summaryColSpan} className="border border-[#bbb] px-1 py-1 text-right font-bold text-[#1a3a6c]">GST @ 0% (SEZ / nil rated)</td>
-                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: "'Courier New', monospace" }}>{formatMoney2(0)}</td>
+                  <td className="border border-[#bbb] px-1 py-1 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{formatMoney2(0)}</td>
                 </tr>
               ) : null}
             </tbody>
@@ -550,7 +550,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
                     </span>
                     <span
                       className="text-[11px] font-bold tabular-nums text-right shrink-0 leading-none"
-                      style={{ fontFamily: "'Courier New', monospace" }}
+                      style={{ fontFamily: 'var(--font-mono)' }}
                     >
                       {PDF_RS} {formatInvoiceTotalDisplay(previewTotal)}
                     </span>
@@ -574,23 +574,23 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
             <div className="mt-1.5 space-y-1.5 text-[8px]">
               <div className="flex gap-2 items-start">
                 <span className="text-gray-600 shrink-0 w-[118px]">A/c Holder&apos;s Name</span>
-                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: "'Courier New', monospace" }}>{BANK.accountHolder}</span>
+                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: 'var(--font-mono)' }}>{BANK.accountHolder}</span>
               </div>
               <div className="flex gap-2 items-start">
                 <span className="text-gray-600 shrink-0 w-[118px]">Bank Name</span>
-                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: "'Courier New', monospace" }}>{BANK.bankName}</span>
+                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: 'var(--font-mono)' }}>{BANK.bankName}</span>
               </div>
               <div className="flex gap-2 items-start">
                 <span className="text-gray-600 shrink-0 w-[118px]">A/c No.</span>
-                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: "'Courier New', monospace" }}>{BANK.accountNo}</span>
+                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: 'var(--font-mono)' }}>{BANK.accountNo}</span>
               </div>
               <div className="flex gap-2 items-start">
                 <span className="text-gray-600 shrink-0 w-[118px]">Branch &amp; IFSC Code</span>
-                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: "'Courier New', monospace" }}>{BANK.ifsc}</span>
+                <span className="font-bold text-left leading-snug text-neutral-900 min-w-0" style={{ fontFamily: 'var(--font-mono)' }}>{BANK.ifsc}</span>
               </div>
               <div className="flex gap-2 items-start">
                 <span className="text-gray-600 shrink-0 w-[118px] pt-px">Bank Branch</span>
-                <span className="font-bold text-left leading-relaxed text-neutral-900 min-w-0" style={{ fontFamily: "'Courier New', monospace" }}>{BANK.branchAddress}</span>
+                <span className="font-bold text-left leading-relaxed text-neutral-900 min-w-0" style={{ fontFamily: 'var(--font-mono)' }}>{BANK.branchAddress}</span>
               </div>
             </div>
             <p className="text-right text-[7px] text-gray-500 mt-2">(E. &amp; O.E.)</p>

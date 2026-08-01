@@ -1,8 +1,7 @@
 import React from "react";
 
-const FONT =
-  '"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif';
-const MONO = 'ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace';
+const FONT = "var(--font-sans)";
+const MONO = "var(--font-mono)";
 
 /** Shared typography tokens for the Finance module. */
 export default function FinanceTypographyStyles() {
@@ -18,6 +17,12 @@ export default function FinanceTypographyStyles() {
       font-size: 13px;
       line-height: 1.45;
       -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      font-style: normal;
+    }
+    .finance-module i,
+    .finance-module em {
+      font-style: normal !important;
     }
     .finance-module h1,
     .finance-module h2,
@@ -30,12 +35,16 @@ export default function FinanceTypographyStyles() {
       font-family: var(--body);
       font-weight: 600;
       letter-spacing: -0.01em;
+      font-style: normal;
     }
     .finance-module .kpi-value,
     .finance-module .fin-kpi-value,
     .finance-module .sm-kpi-val {
-      font-family: var(--body);
-      font-weight: 700;
+      font-family: var(--mono);
+      font-weight: 400;
+      font-size: 21px;
+      line-height: 1.2;
+      font-variant-numeric: tabular-nums;
     }
     .finance-module .mono,
     .finance-module .fin-mono,
@@ -57,22 +66,28 @@ export default function FinanceTypographyStyles() {
     .finance-module .hist-section-label,
     .finance-module .blab,
     .finance-module .m-divider {
-      text-transform: none !important;
-      letter-spacing: 0 !important;
-      font-size: 12px !important;
-      font-weight: 600 !important;
+      font-family: var(--mono) !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.1em !important;
+      font-size: 9.5px !important;
+      font-weight: 500 !important;
+      line-height: 1 !important;
+      font-variant-numeric: tabular-nums;
     }
     .finance-module .tbl th,
     .finance-module .fin-tbl th,
     .finance-module .site-ie-card .vtbl thead th {
-      text-transform: none !important;
-      letter-spacing: 0 !important;
-      font-size: 12px !important;
-      font-weight: 600 !important;
+      font-family: var(--mono) !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.1em !important;
+      font-size: 9.5px !important;
+      font-weight: 500 !important;
+      font-variant-numeric: tabular-nums;
     }
     .finance-module .site-ie-card .vtbl tr.vsec td {
-      text-transform: none !important;
-      letter-spacing: 0 !important;
+      font-family: var(--body) !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.06em !important;
       font-size: 12px !important;
       font-weight: 600 !important;
     }

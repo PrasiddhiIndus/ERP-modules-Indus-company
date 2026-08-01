@@ -9,7 +9,7 @@ export const QUOTATION_PRINT_CSS = `
     padding: 0;
     background: #fff;
     color: #0f172a;
-    font-family: "Times New Roman", Times, serif;
+    font-family: var(--font-sans); font-size: 11pt;
     font-size: 13px;
     line-height: 1.45;
   }

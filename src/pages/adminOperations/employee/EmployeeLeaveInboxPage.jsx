@@ -32,7 +32,7 @@ const STATUS_KPI = [
   { id: "approved", label: "Approved", tone: "border-sky-200 bg-sky-50/40" },
   { id: "rejected", label: "Rejected", tone: "border-red-200 bg-red-50/40" },
   { id: "cancelled", label: "Cancelled", tone: "border-gray-200" },
-  { id: "all", label: "All requests", tone: "border-[#1F3A8A]/20 bg-indigo-50/30" },
+  { id: "all", label: "All requests", tone: "border-accent/20 bg-indigo-50/30" },
 ];
 
 function statusFilterLabel(value) {
@@ -259,7 +259,7 @@ export function EmployeeLeavesPage() {
             key={kpi.id}
             label={kpi.label}
             value={statusCounts ? statusCounts[kpi.id] ?? "—" : "…"}
-            tone={`${kpi.tone} ${statusFilter === kpi.id ? "ring-2 ring-[#1F3A8A]/40" : ""}`}
+            tone={`${kpi.tone} ${statusFilter === kpi.id ? "ring-2 ring-accent/40" : ""}`}
             onClick={() => changeStatusFilter(kpi.id)}
             sub={statusFilter === kpi.id ? "Filtered" : "Click to filter"}
           />
@@ -358,7 +358,7 @@ export function EmployeeLeavesPage() {
               refreshCounts();
             }}
             disabled={initialLoading && !rows.length}
-            className="h-8 px-3 rounded-lg border border-[#1F3A8A]/30 bg-[#1F3A8A]/5 text-xs font-semibold text-[#1F3A8A] hover:bg-[#1F3A8A]/10 disabled:opacity-60"
+            className="h-8 px-3 rounded-lg border border-accent/30 bg-accent/5 text-xs font-semibold text-accent hover:bg-accent/10 disabled:opacity-60"
           >
             Refresh
           </button>

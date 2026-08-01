@@ -106,7 +106,7 @@ export default function DahejExpenseRegister() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <div className="rounded-lg border bg-white px-3 py-2">
           <p className="text-gray-500">Advances</p>
-          <p className="font-bold text-[#1F3A8A]">{formatCurrency(dashboard.totalAdvances)}</p>
+          <p className="font-bold text-accent">{formatCurrency(dashboard.totalAdvances)}</p>
         </div>
         <div className="rounded-lg border bg-white px-3 py-2">
           <p className="text-gray-500">Expenses</p>

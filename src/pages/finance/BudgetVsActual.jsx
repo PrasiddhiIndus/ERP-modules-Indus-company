@@ -19,7 +19,7 @@ function VarCells({ est, actual, lowerIsBetter, hasEst }) {
     <>
       <td className="text-right font-mono text-gray-400">{hasEst ? inr(est) : "—"}</td>
       <td className="text-right font-mono">{inr(actual)}</td>
-      <td className="text-right font-mono" style={{ color: hasEst ? (fav ? "#16774E" : "#B23F2A") : "#8A938C" }}>
+      <td className="text-right font-mono" style={{ color: hasEst ? (fav ? "var(--success)" : "var(--critical)") : "var(--text-muted)" }}>
         {hasEst ? `${v >= 0 ? "+" : ""}${inr(v)}` : "—"}
       </td>
       <td className="text-right font-mono text-gray-400">

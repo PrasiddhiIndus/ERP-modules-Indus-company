@@ -141,7 +141,7 @@ export default function EmployeeMasterProfile() {
     <div className="space-y-4 min-h-[60vh]">
       <Link
         to={salaryAppPath('people-master')}
-        className="inline-flex items-center gap-1.5 text-xs text-[#1F3A8A] hover:underline"
+        className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
         Back to employee list
@@ -316,7 +316,7 @@ export default function EmployeeMasterProfile() {
               <div className="flex justify-center">
                 <button
                   type="submit"
-                  className="h-10 min-w-[140px] px-8 rounded-lg bg-[#1F3A8A] text-white text-sm font-medium hover:bg-[#1a3278] shadow-sm"
+                  className="h-10 min-w-[140px] px-8 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-deep shadow-sm"
                 >
                   Save
                 </button>

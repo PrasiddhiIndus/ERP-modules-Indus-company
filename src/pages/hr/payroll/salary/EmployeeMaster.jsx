@@ -55,7 +55,7 @@ export default function SalaryEmployeeMaster() {
   return (
     <div className="space-y-4 min-h-[60vh]">
       <div>
-        <h2 className="text-lg font-semibold text-[#1F3A8A]">People Master</h2>
+        <h2 className="text-lg font-semibold text-accent">People Master</h2>
         <p className="text-xs text-gray-500 mt-0.5">Employee master details · Indus Fire Safety Private Limited</p>
       </div>
 
@@ -101,7 +101,7 @@ export default function SalaryEmployeeMaster() {
         <button
           type="button"
           onClick={() => navigate(salaryAppPath('people-master/new'))}
-          className="ml-auto inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#1F3A8A] text-white text-xs font-medium hover:bg-[#1a3278] shadow-sm"
+          className="ml-auto inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-accent text-white text-xs font-medium hover:bg-accent-deep shadow-sm"
         >
           <UserPlus className="h-3.5 w-3.5" />
           Add employee
@@ -146,7 +146,7 @@ export default function SalaryEmployeeMaster() {
                   <button
                     type="button"
                     onClick={() => navigate(salaryAppPath(`people-master/${emp.id}`))}
-                    className="text-sm font-medium text-[#2563eb] hover:underline text-left"
+                    className="text-sm font-medium text-info hover:underline text-left"
                   >
                     {emp.name || '—'}
                   </button>
@@ -176,7 +176,7 @@ export default function SalaryEmployeeMaster() {
                 <button
                   type="button"
                   onClick={() => navigate(salaryAppPath(`people-master/${emp.id}`))}
-                  className="sm:justify-self-end h-8 px-3 rounded-md border border-[#1F3A8A] text-[#1F3A8A] text-xs font-medium hover:bg-blue-50 shrink-0"
+                  className="sm:justify-self-end h-8 px-3 rounded-md border border-accent text-accent text-xs font-medium hover:bg-blue-50 shrink-0"
                 >
                   Employee profile
                 </button>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { ROLES, MODULES as FALLBACK_MODULES } from '../config/roles'
 import { useAppAccessConfig } from '../contexts/AppAccessConfigContext'
+import { INDUS_LOGO_SRC } from '../constants/branding.js'
 import { Mail, Lock, Eye, EyeOff, UserPlus, User, ChevronDown, Shield } from 'lucide-react'
 
 const Register = () => {
@@ -83,38 +84,48 @@ const Register = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-xl p-8 space-y-6">
-          <div className="text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
-              <UserPlus className="w-8 h-8 text-green-600" />
+    <div className="login-page min-h-screen flex flex-col bg-canvas">
+      <main className="flex-1 flex flex-col justify-center items-center p-6 min-h-0 overflow-auto">
+        <div className="lg:hidden text-center mb-6 shrink-0">
+          <div className="h-11 w-11 rounded-full bg-accent-deep flex items-center justify-center mx-auto mb-3 overflow-hidden">
+            <img src={INDUS_LOGO_SRC} alt="Indus" className="h-8 w-8 object-contain" />
+          </div>
+          <h1 className="text-[22px] font-semibold text-ink">INDUS OS</h1>
+          <p className="erp-mono-caption text-ink-muted mt-1">Enterprise Operations Platform</p>
+        </div>
+
+        <div className="login-card w-full max-w-[400px] p-8 shrink-0">
+          <div className="mb-5 text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 bg-accent-soft rounded-full mb-3 border border-accent-border">
+              <UserPlus className="w-6 h-6 text-accent" strokeWidth={1.5} />
             </div>
-            <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
-            <p className="text-gray-600 mt-2">Sign up with username, team and role</p>
+            <h2 className="text-lg font-semibold text-ink">Create Account</h2>
+            <p className="text-[12.5px] text-ink-secondary mt-1 font-body">
+              Sign up with username, team and role
+            </p>
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-600 text-sm">{error}</p>
+            <div className="erp-alert-critical rounded-control p-3 text-[12.5px] mb-4 font-mono">
+              {error}
             </div>
           )}
           {success && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <p className="text-green-600 text-sm">{success}</p>
+            <div className="erp-alert-success rounded-control p-3 text-[12.5px] mb-4 font-mono">
+              {success}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
+              <label className="login-label block mb-2">Username</label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4" strokeWidth={1.5} />
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className="login-input w-full pl-10 pr-4 py-2.5 font-body"
                   placeholder="Choose a username"
                   required
                 />
@@ -122,14 +133,14 @@ const Register = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+              <label className="login-label block mb-2">Email</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4" strokeWidth={1.5} />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className="login-input w-full pl-10 pr-4 py-2.5 font-body"
                   placeholder="Enter email (used to sign in)"
                   required
                 />
@@ -137,56 +148,58 @@ const Register = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+              <label className="login-label block mb-2">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4" strokeWidth={1.5} />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-11 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className="login-input w-full pl-10 pr-10 py-2.5 font-body"
                   placeholder="Password (min 6 characters)"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-[color] duration-theme"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showPassword ? <EyeOff className="w-4 h-4" strokeWidth={1.5} /> : <Eye className="w-4 h-4" strokeWidth={1.5} />}
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+              <label className="login-label block mb-2">Confirm Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4" strokeWidth={1.5} />
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full pl-11 pr-11 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className="login-input w-full pl-10 pr-10 py-2.5 font-body"
                   placeholder="Confirm password"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink transition-[color] duration-theme"
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" strokeWidth={1.5} /> : <Eye className="w-4 h-4" strokeWidth={1.5} />}
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Team / Module</label>
+              <label className="login-label block mb-2">Team / Module</label>
               <div className="relative">
                 <select
                   value={team}
                   onChange={(e) => setTeam(e.target.value)}
-                  className="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white"
+                  className="login-input w-full pl-4 pr-10 py-2.5 font-body appearance-none"
                   required
                 >
                   <option value="">Select team/module</option>
@@ -196,21 +209,21 @@ const Register = () => {
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted pointer-events-none" strokeWidth={1.5} />
               </div>
-              <p className="text-[11px] text-gray-500 mt-1">
+              <p className="erp-mono-caption text-ink-muted mt-1">
                 This list is synced to backend config ({accessCfg?.source || 'fallback'}).
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+              <label className="login-label block mb-2">Role</label>
               <div className="relative">
-                <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5 z-10" />
+                <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4 z-10" strokeWidth={1.5} />
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
-                  className="w-full pl-11 pr-10 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white"
+                  className="login-input w-full pl-10 pr-10 py-2.5 font-body appearance-none"
                   required
                 >
                   <option value={ROLES.EXECUTIVE}>Executive (only your team module)</option>
@@ -219,55 +232,63 @@ const Register = () => {
                   <option value={ROLES.SUPER_ADMIN}>Super Admin (Management)</option>
                   <option value={ROLES.SUPER_ADMIN_PRO}>Super Admin Pro</option>
                 </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted pointer-events-none" strokeWidth={1.5} />
               </div>
-              <p className="text-[11px] text-gray-500 mt-1">
-                Note: Self-registration creates <span className="font-semibold">Executive</span> accounts by default.
-                Only <span className="font-semibold">rahul.ifspl@gmail.com</span> is hardcoded as <span className="font-semibold">Super Admin Pro</span>.
+              <p className="erp-mono-caption text-ink-muted mt-1">
+                Note: Self-registration creates <span className="font-medium text-ink-secondary">Executive</span> accounts by default.
+                Only <span className="font-medium text-ink-secondary">rahul.ifspl@gmail.com</span> is hardcoded as <span className="font-medium text-ink-secondary">Super Admin Pro</span>.
               </p>
             </div>
 
             {role === ROLES.MANAGER && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="login-label block mb-2">
                   Additional modules (check all that apply)
                 </label>
-                <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-40 overflow-y-auto">
+                <div className="border border-border rounded-card p-3 space-y-2 max-h-40 overflow-y-auto bg-surface-raised">
                   {modules.filter((m) => m.value !== team).map((m) => (
                     <label key={m.value} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={allowedModules.includes(m.value)}
                         onChange={() => toggleModule(m.value)}
-                        className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                        className="rounded border-border text-accent focus:ring-accent"
                       />
-                      <span className="text-sm text-gray-700">{m.label}</span>
+                      <span className="text-[12.5px] text-ink font-body">{m.label}</span>
                     </label>
                   ))}
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Your team module is always included.</p>
+                <p className="erp-mono-caption text-ink-muted mt-1">Your team module is always included.</p>
               </div>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-3 rounded-lg transition-colors"
+              className="login-btn-primary w-full font-medium py-2.5 px-4 flex items-center justify-center text-[13px] font-body"
             >
-              {loading ? 'Creating account…' : 'Create Account'}
+              {loading ? (
+                <div className="login-spinner rounded-full h-4 w-4 border-2 border-t-transparent" />
+              ) : (
+                'Create Account'
+              )}
             </button>
           </form>
 
-          <div className="text-center">
-            <p className="text-gray-600">
-              Already have an account?{' '}
-              <Link to="/login" className="text-green-600 hover:text-green-700 font-semibold">
-                Sign in
-              </Link>
+          <p className="text-center text-[12.5px] text-ink-secondary mt-4 font-body">
+            Already have an account?{' '}
+            <Link to="/login" className="text-accent hover:text-accent-deep font-medium">
+              Sign in
+            </Link>
+          </p>
+
+          <div className="mt-6 pt-4 border-t border-divider">
+            <p className="login-footer text-center">
+              Secure access · Internal Use Only
             </p>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

@@ -1,0 +1,147 @@
+/**
+ * INDUS OS design tokens — single source of truth for presentation colors.
+ * Application code must reference these variables (or Tailwind theme aliases),
+ * never hard-coded hex values.
+ */
+
+:root {
+  /* Neutrals / surfaces — cool blue-white; cards sit near canvas */
+  --canvas: #f5f7fa;
+  --surface: #f8fafc;
+  --surface-raised: #f5f7fa;
+  --surface-sunken: #e8eef5;
+  --border: #c5ced9;
+  --border-strong: #aeb8c6;
+  --divider: #dde3eb;
+
+  /* Text — higher contrast */
+  --text: #12151a;
+  --text-strong: #0e1116;
+  --text-secondary: #3a414c;
+  --text-muted: #4a5260;
+  --text-caption: #454d5a;
+  --text-disabled: #7a8494;
+
+  /* Accent — deeper for contrast on light surfaces */
+  --accent: #3d5c56;
+  --accent-deep: #2f4843;
+  --accent-soft: #e4ebe7;
+  --accent-border: #b7c9c2;
+
+  /* Semantic (desaturated, contrast-bumped) */
+  --critical: #8a4a3f;
+  --critical-soft: #f3e6e3;
+  --critical-border: #d9b8b1;
+  --warning: #7a5c28;
+  --warning-soft: #f2eadc;
+  --warning-border: #d4c19a;
+  --neutral-state: #5c636e;
+  --neutral-state-soft: #e8eef5;
+  --neutral-state-border: #c5ced9;
+  --success: #4a6144;
+  --success-soft: #e4ebe4;
+  --success-border: #b7c7b4;
+  --info: #3f5470;
+  --info-soft: #e4eaf2;
+  --info-border: #b8c5d6;
+
+  /* Charts */
+  --chart-1: #3d5c56;
+  --chart-2: #3f5470;
+  --chart-3: #8f7038;
+  --chart-4: #8a4a3f;
+  --chart-5: #5c636e;
+  --chart-6: #4a6144;
+  --chart-grid: #dde3eb;
+  --chart-axis: #4a5260;
+  --chart-inactive: #d0d7e0;
+
+  /* Interaction */
+  --row-hover: #eef3f8;
+  --focus-ring: rgba(61, 92, 86, 0.28);
+  --scrim: rgba(18, 21, 26, 0.4);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-popover: 0 4px 16px rgba(15, 23, 42, 0.1);
+  --shadow-modal: 0 12px 40px rgba(15, 23, 42, 0.14);
+  --shadow-nav-active: 0 1px 2px rgba(15, 23, 42, 0.07);
+
+  /* Skeletons */
+  --skeleton-from: #dce3ec;
+  --skeleton-to: #f5f7fa;
+
+  /* Shape */
+  --radius-card: 10px;
+  --radius-control: 7px;
+  --radius-badge: 5px;
+
+  /* Density / spacing — comfortable professional defaults */
+  --space-page: 2rem;
+  --space-page-sm: 1.5rem;
+  --space-section: 1.75rem;
+  --space-card: 1.375rem;
+  --space-card-lg: 1.5rem;
+  --space-card-header-x: 1.375rem;
+  --space-card-header-y: 0.875rem;
+  --space-stack: 1.25rem;
+  --space-grid: 1rem;
+  --space-grid-lg: 1.25rem;
+  --space-row: 0.75rem;
+  --space-inline: 0.875rem;
+  --table-pad-y: 0.7rem;
+  --table-pad-x: 1rem;
+
+  /* Motion */
+  --ease-out: ease-out;
+  --duration-fast: 140ms;
+
+  /* Legacy aliases */
+  --indus-red: var(--accent);
+  --indus-red-hover: var(--accent-deep);
+  --erp-accent: var(--accent);
+  --erp-accent-hover: var(--accent-deep);
+  --erp-accent-soft: var(--accent-soft);
+}
+
+/* Optional dark surfaces for local module toggles (API monitoring / ops) */
+[data-theme="dark"],
+.theme-dark {
+  --canvas: #12151a;
+  --surface: #1a1e26;
+  --surface-raised: #161a21;
+  --surface-sunken: #0e1116;
+  --border: #2e3542;
+  --border-strong: #3d4656;
+  --divider: #252b36;
+  --text: #f0f3f7;
+  --text-strong: #f8fafc;
+  --text-secondary: #c2c9d4;
+  --text-muted: #9aa3b2;
+  --text-caption: #a3acba;
+  --text-disabled: #6b7382;
+  --accent-soft: #243330;
+  --accent-border: #3d5c56;
+  --critical-soft: #3a2a27;
+  --warning-soft: #3a3224;
+  --neutral-state-soft: #252b36;
+  --success-soft: #243028;
+  --info-soft: #1e2633;
+  --row-hover: #1e2430;
+  --chart-grid: #252b36;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+@media print {
+  :root {
+    --canvas: #ffffff;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-sunken: #eef2f6;
+    --scrim: transparent;
+    --shadow-card: none;
+    --shadow-popover: none;
+    --shadow-modal: none;
+  }
+}

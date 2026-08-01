@@ -1,5 +1,5 @@
 -- Allow LWP + half leave composites on the daily attendance register:
--- LWP/PL, LWP/SL, LWP/CL (present credit 0; 0.5 leave balance against PL/SL/CL).
+-- LWP/PL, LWP/SL, LWP/CL (present credit 0.5; 0.5 leave balance against PL/SL/CL).
 
 ALTER TABLE public.admin_attendance_register
   DROP CONSTRAINT IF EXISTS admin_attendance_register_mark_check;

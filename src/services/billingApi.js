@@ -481,7 +481,8 @@ export async function isBillingDbAvailable() {
 
 /**
  * Fetch POs with rate categories and contact log (paginated).
- * @param {{ moduleType?: string, limit?: number, offset?: number } | string} [options]
+ * @param {{ moduleType?: string, limit?: number, offset?: number, includeChildren?: boolean } | string} [options]
+ *   `includeChildren: false` skips po_rate_category / po_contact_log (enough for contract-book KPIs).
  */
 export async function fetchCommercialPOs(options) {
   // Staging: skip billing REST until staging_billing_minimal.sql + API "billing" schema exposed.
@@ -516,51 +517,21 @@ export async function fetchCommercialPOs(options) {
     throw error;
   }
 
-  const poIds = (rows || []).map((r) => r.id);
+  const poIds = (rows || []).map((r) => r.id).filter(Boolean);
   if (poIds.length === 0) return [];
 
-  const [ratesRes, contactsRes] = await Promise.all([
-    table('po_rate_category').select('*').in('po_id', poIds),
-    table('po_contact_log').select('*').in('po_id', poIds),
-  ]);
+  // Executive / summary callers can skip child tables (avoids huge IN URLs + auth noise).
+  const includeChildren =
+    !(options && typeof options === 'object' && options.includeChildren === false);
 
-  const ratesByPo = {};
-  const sortedRates = [...(ratesRes.data || [])].sort((a, b) => {
-    const ao = Number(a.sort_order) || 0;
-    const bo = Number(b.sort_order) || 0;
-    return ao - bo;
-  });
-  const seenRateKeys = new Set();
-  sortedRates.forEach((r) => {
-    const hsnSac = String(r.hsn_sac || r.sac_hsn || '').trim();
-    const materialCode = r.material_code != null ? String(r.material_code).trim() : '';
-    const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${hsnSac.toLowerCase()}::${materialCode.toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.category_penalty) || 0}::${Number(r.sort_order) || 0}`;
-    if (seenRateKeys.has(dedupeKey)) return;
-    seenRateKeys.add(dedupeKey);
-    if (!ratesByPo[r.po_id]) ratesByPo[r.po_id] = [];
-    ratesByPo[r.po_id].push({
-      description: r.description,
-      hsnSac,
-      hsn_sac: hsnSac,
-      sacHsn: hsnSac,
-      materialCode: r.material_code != null ? String(r.material_code).trim() : '',
-      material_code: r.material_code != null ? String(r.material_code).trim() : '',
-      qty: firstNumber(r, ['qty', 'quantity', 'po_qty', 'poQuantity', 'po_quantity'], 0),
-      rate: firstNumber(r, ['rate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
-      penalty: r.category_penalty != null ? Number(r.category_penalty) : 0,
-    });
-  });
-  const contactsByPo = {};
-  (contactsRes.data || []).forEach((c) => {
-    if (!contactsByPo[c.po_id]) contactsByPo[c.po_id] = [];
-    contactsByPo[c.po_id].push({
-      name: c.contact_name,
-      number: c.contact_number,
-      email: c.contact_email,
-      from: c.from_date,
-      to: c.to_date,
-    });
-  });
+  let ratesByPo = {};
+  let contactsByPo = {};
+
+  if (includeChildren) {
+    const loaded = await fetchPoChildrenByPoIds(poIds);
+    ratesByPo = loaded.ratesByPo;
+    contactsByPo = loaded.contactsByPo;
+  }
 
   const mapped = (rows || []).map((po) => mapPoWoRowToClient(po, ratesByPo, contactsByPo));
 
@@ -568,6 +539,75 @@ export async function fetchCommercialPOs(options) {
     return mapped.filter((po) => getCommercialPoModuleType(po) === moduleType);
   }
   return mapped;
+}
+
+/** PostgREST rejects / proxies often choke on giant `in.(uuid,…)` URLs — batch them. */
+const PO_CHILD_IN_CHUNK = 40;
+
+async function fetchPoChildrenByPoIds(poIds) {
+  const ratesByPo = {};
+  const contactsByPo = {};
+  const ids = [...new Set((poIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return { ratesByPo, contactsByPo };
+
+  for (let i = 0; i < ids.length; i += PO_CHILD_IN_CHUNK) {
+    const chunk = ids.slice(i, i + PO_CHILD_IN_CHUNK);
+    const [ratesRes, contactsRes] = await Promise.all([
+      table('po_rate_category').select('*').in('po_id', chunk),
+      table('po_contact_log').select('*').in('po_id', chunk),
+    ]);
+
+    if (ratesRes.error) {
+      if (import.meta.env.DEV) {
+        console.warn('[billing] po_rate_category load skipped:', ratesRes.error.message || ratesRes.error);
+      }
+    } else {
+      const sortedRates = [...(ratesRes.data || [])].sort((a, b) => {
+        const ao = Number(a.sort_order) || 0;
+        const bo = Number(b.sort_order) || 0;
+        return ao - bo;
+      });
+      const seenRateKeys = new Set();
+      sortedRates.forEach((r) => {
+        const hsnSac = String(r.hsn_sac || r.sac_hsn || '').trim();
+        const materialCode = r.material_code != null ? String(r.material_code).trim() : '';
+        const dedupeKey = `${r.po_id}::${(r.description || '').trim().toLowerCase()}::${hsnSac.toLowerCase()}::${materialCode.toLowerCase()}::${Number(r.qty) || 0}::${Number(r.rate) || 0}::${Number(r.category_penalty) || 0}::${Number(r.sort_order) || 0}`;
+        if (seenRateKeys.has(dedupeKey)) return;
+        seenRateKeys.add(dedupeKey);
+        if (!ratesByPo[r.po_id]) ratesByPo[r.po_id] = [];
+        ratesByPo[r.po_id].push({
+          description: r.description,
+          hsnSac,
+          hsn_sac: hsnSac,
+          sacHsn: hsnSac,
+          materialCode: r.material_code != null ? String(r.material_code).trim() : '',
+          material_code: r.material_code != null ? String(r.material_code).trim() : '',
+          qty: firstNumber(r, ['qty', 'quantity', 'po_qty', 'poQuantity', 'po_quantity'], 0),
+          rate: firstNumber(r, ['rate', 'po_rate', 'poReferenceRate', 'po_reference_rate'], 0),
+          penalty: r.category_penalty != null ? Number(r.category_penalty) : 0,
+        });
+      });
+    }
+
+    if (contactsRes.error) {
+      if (import.meta.env.DEV) {
+        console.warn('[billing] po_contact_log load skipped:', contactsRes.error.message || contactsRes.error);
+      }
+    } else {
+      (contactsRes.data || []).forEach((c) => {
+        if (!contactsByPo[c.po_id]) contactsByPo[c.po_id] = [];
+        contactsByPo[c.po_id].push({
+          name: c.contact_name,
+          number: c.contact_number,
+          email: c.contact_email,
+          from: c.from_date,
+          to: c.to_date,
+        });
+      });
+    }
+  }
+
+  return { ratesByPo, contactsByPo };
 }
 
 /** Build a clear error message for billing DB failures (schema, RLS, etc.). */

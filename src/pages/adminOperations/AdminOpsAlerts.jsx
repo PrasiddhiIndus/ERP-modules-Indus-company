@@ -140,7 +140,7 @@ export default function AdminOpsAlerts() {
                 type="button"
                 onClick={() => setTab(t.id)}
                 className={`px-2 py-1 rounded text-[11px] border ${
-                  tab === t.id ? "bg-[#1F3A8A] text-white border-[#1F3A8A]" : "bg-white border-gray-200 text-gray-700"
+                  tab === t.id ? "bg-accent text-white border-accent" : "bg-white border-gray-200 text-gray-700"
                 }`}
               >
                 {t.label}

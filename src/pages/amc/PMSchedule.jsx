@@ -46,7 +46,7 @@ export default function PMSchedule() {
             type="button"
             onClick={() => setView(v)}
             className={`px-3 py-1.5 text-xs rounded-lg border ${
-              view === v ? "bg-[#1F3A8A] text-white border-[#1F3A8A]" : "bg-white border-gray-300"
+              view === v ? "bg-accent text-white border-accent" : "bg-white border-gray-300"
             }`}
           >
             {v.charAt(0).toUpperCase() + v.slice(1)}
@@ -83,7 +83,7 @@ export default function PMSchedule() {
                 className="border rounded p-1 min-h-[48px] bg-blue-50 text-left hover:bg-blue-100"
               >
                 <span className="font-medium block">{pm.due_date}</span>
-                <span className="text-[#1F3A8A]">{pm.pm_no}</span>
+                <span className="text-accent">{pm.pm_no}</span>
               </button>
             ))}
           </div>
@@ -128,7 +128,7 @@ export default function PMSchedule() {
                 <DetailField label="Due" value={selected.due_date} />
                 <button
                   type="button"
-                  className="text-xs mt-2 px-3 py-1.5 bg-[#1F3A8A] text-white rounded"
+                  className="text-xs mt-2 px-3 py-1.5 bg-accent text-white rounded"
                   onClick={() => navigateTo("visits", { pmId: selected.id })}
                 >
                   Create / view visits

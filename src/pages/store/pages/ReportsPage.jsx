@@ -43,7 +43,7 @@ export default function ReportsPage({ data }) {
               <option value="">All</option>
               {["INWARD", "OUTWARD", "RETURN", "TRANSFER"].map((t) => <option key={t}>{t}</option>)}
             </select>
-            <button onClick={exportCsv} className="h-8 px-3 rounded bg-[#1F3A8A] text-white text-xs">Export CSV</button>
+            <button onClick={exportCsv} className="h-8 px-3 rounded bg-accent text-white text-xs">Export CSV</button>
           </div>
         }
       >

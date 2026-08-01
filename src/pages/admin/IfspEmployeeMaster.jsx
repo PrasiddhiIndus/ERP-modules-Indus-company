@@ -1369,7 +1369,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             <button
               type="button"
               onClick={() => setShowAllTableColumns((v) => !v)}
-              className="text-xs font-medium text-[#1F3A8A] hover:underline"
+              className="text-xs font-medium text-accent hover:underline"
             >
               {showAllTableColumns ? "Show summary columns" : "Show all columns"}
             </button>

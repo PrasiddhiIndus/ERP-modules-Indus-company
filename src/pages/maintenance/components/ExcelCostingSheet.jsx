@@ -671,13 +671,13 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         )}
       </div>
 
-      <div className="overflow-x-auto border border-gray-300 rounded-md" style={{ maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) #f3f4f6' }}>
+      <div className="overflow-x-auto border border-gray-300 rounded-md" style={{ maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(220, 38, 38, 0.45) var(--surface-sunken)' }}>
         <style>{`
           .overflow-x-auto::-webkit-scrollbar {
             height: 6px;
           }
           .overflow-x-auto::-webkit-scrollbar-track {
-            background: #f3f4f6;
+            background: var(--surface-sunken);
             border-radius: 3px;
           }
           .overflow-x-auto::-webkit-scrollbar-thumb {
@@ -688,14 +688,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             background: rgba(220, 38, 38, 0.65);
           }
           .costing-manual-entry {
-            background-color: #fef2f2;
-            border: 1px solid #fecaca;
+            background-color: var(--critical-soft);
+            border: 1px solid var(--critical-border);
           }
           .costing-manual-entry:hover {
-            background-color: #fee2e2;
+            background-color: var(--critical-soft);
           }
           .costing-manual-entry:focus-within {
-            outline: 2px solid #dc2626;
+            outline: 2px solid var(--accent);
             outline-offset: -1px;
           }
         `}</style>
@@ -1008,7 +1008,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                 className="overflow-y-auto bg-white"
                 style={{ 
                   scrollbarWidth: 'thin', 
-                  scrollbarColor: '#c084fc #f3f4f6',
+                  scrollbarColor: 'var(--accent) var(--surface-sunken)',
                   maxHeight: '350px'
                 }}
               >
@@ -1017,15 +1017,15 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                     width: 8px;
                   }
                   .product-dropdown-list::-webkit-scrollbar-track {
-                    background: #f3f4f6;
+                    background: var(--surface-sunken);
                     border-radius: 4px;
                   }
                   .product-dropdown-list::-webkit-scrollbar-thumb {
-                    background: #c084fc;
+                    background: var(--accent);
                     border-radius: 4px;
                   }
                   .product-dropdown-list::-webkit-scrollbar-thumb:hover {
-                    background: #a855f7;
+                    background: var(--accent-deep);
                   }
                 `}</style>
                 <div className="product-dropdown-list">
@@ -1040,7 +1040,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                         }}
                         className="px-4 py-3 hover:bg-purple-50 active:bg-purple-100 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors duration-150"
                         style={{
-                          backgroundColor: idx % 2 === 0 ? '#fafafa' : '#ffffff'
+                          backgroundColor: idx % 2 === 0 ? 'var(--surface-raised)' : 'var(--surface)'
                         }}
                       >
                         <div className="font-semibold text-sm text-gray-900 leading-tight mb-1">

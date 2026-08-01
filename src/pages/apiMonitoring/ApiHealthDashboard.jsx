@@ -411,7 +411,7 @@ export default function ApiHealthDashboard() {
             </p>
             <ul className={`space-y-2 max-h-48 overflow-y-auto ${t.muted}`}>
               {UNMONITORABLE_APIS.map((item) => (
-                <li key={item.id} className="border-b border-dashed pb-2 last:border-0 last:pb-0" style={{ borderColor: t.dark ? "#334155" : "#e5e7eb" }}>
+                <li key={item.id} className="border-b border-dashed pb-2 last:border-0 last:pb-0" style={{ borderColor: t.dark ? "var(--text-strong)" : "var(--border)" }}>
                   <p className={`font-medium ${t.text}`}>{item.name}</p>
                   <p className="text-[10px] mt-0.5">{item.endpoint}</p>
                   <p className="text-[10px] mt-1">{item.reason}</p>

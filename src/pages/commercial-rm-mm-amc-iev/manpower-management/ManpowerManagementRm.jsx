@@ -273,10 +273,10 @@ const ManpowerManagementRm = () => {
               </p>
             </div>
           ) : (
-            <div className="manpower-table-scroll overflow-x-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(220, 38, 38, 0.45) #f3f4f6" }}>
+            <div className="manpower-table-scroll overflow-x-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(220, 38, 38, 0.45) var(--surface-sunken)" }}>
               <style>{`
                 .manpower-table-scroll::-webkit-scrollbar { height: 8px; }
-                .manpower-table-scroll::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 4px; }
+                .manpower-table-scroll::-webkit-scrollbar-track { background: var(--surface-sunken); border-radius: 4px; }
                 .manpower-table-scroll::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.45); border-radius: 4px; }
                 .manpower-table-scroll::-webkit-scrollbar-thumb:hover { background: rgba(220, 38, 38, 0.65); }
               `}</style>

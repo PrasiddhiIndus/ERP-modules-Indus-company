@@ -10,17 +10,21 @@ import {
 import { 
   Car, 
   Wrench, 
-  Clock, 
   AlertTriangle, 
   CheckCircle, 
-  Users, 
   FileText,
   Calendar,
-  TrendingUp,
-  MapPin,
-  Fuel,
-  Activity
+  MapPin
 } from 'lucide-react';
+import {
+  SparkKpi,
+  ChartPanel,
+  DonutChart,
+  BarCompareChart,
+  RadialScoreChart,
+  sparkFromValue,
+  CHART_SERIES,
+} from '../../components/charts/DashboardCharts';
 
 const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }) => {
   const { user, loading: authLoading } = useAuth();
@@ -37,6 +41,8 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
   });
   const [recentTrips, setRecentTrips] = useState([]);
   const [upcomingExpiries, setUpcomingExpiries] = useState([]);
+  const [statusMix, setStatusMix] = useState([]);
+  const [documentHealth, setDocumentHealth] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -83,6 +89,7 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
 
       const expiredDocs = expiries.filter(doc => doc.alert_status === 'Expired').length;
       const warningDocs = expiries.filter(doc => doc.alert_status === 'Warning').length;
+      const validDocs = Math.max(0, expiries.length - expiredDocs - warningDocs);
 
       // Fetch active trips
       const { data: trips, error: tripsError } = await withFleetMasterCategoryFilter(
@@ -124,6 +131,16 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
 
       setRecentTrips(trips || []);
       setUpcomingExpiries(expiries.filter(doc => doc.alert_status === 'Warning').slice(0, 5));
+      setStatusMix(
+        Object.entries(statusCounts)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value)
+      );
+      setDocumentHealth([
+        { name: 'Valid', value: validDocs },
+        { name: 'Expiring soon', value: warningDocs },
+        { name: 'Expired', value: expiredDocs },
+      ]);
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -176,95 +193,49 @@ const VehicleManagementDashboard = ({ onNavigate, vehicleCategory = 'in-house' }
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Total Vehicles */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Vehicles</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.totalVehicles}</p>
-            </div>
-            <Car className="h-8 w-8 text-blue-500" />
-          </div>
-        </div>
+      {/* Summary KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Vehicles', value: dashboardData.totalVehicles },
+          { label: 'Available', value: dashboardData.availableVehicles },
+          { label: 'On Duty', value: dashboardData.onDutyVehicles },
+          { label: 'Under Maintenance', value: dashboardData.underMaintenanceVehicles },
+          { label: 'Active Trips', value: dashboardData.activeTrips },
+          { label: 'Active Drivers', value: dashboardData.totalDrivers },
+          { label: 'Expired Documents', value: dashboardData.expiredDocuments },
+          { label: 'Upcoming Expiries', value: dashboardData.upcomingExpiries },
+        ].map((k, i) => (
+          <SparkKpi
+            key={k.label}
+            label={k.label}
+            value={k.value}
+            series={sparkFromValue(Number(k.value) || 0)}
+            color={CHART_SERIES[i % CHART_SERIES.length]}
+          />
+        ))}
+      </div>
 
-        {/* Available Vehicles */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Available</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.availableVehicles}</p>
-            </div>
-            <CheckCircle className="h-8 w-8 text-green-500" />
-          </div>
-        </div>
-
-        {/* On Duty Vehicles */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">On Duty</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.onDutyVehicles}</p>
-            </div>
-            <Activity className="h-8 w-8 text-blue-500" />
-          </div>
-        </div>
-
-        {/* Under Maintenance */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Under Maintenance</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.underMaintenanceVehicles}</p>
-            </div>
-            <Wrench className="h-8 w-8 text-yellow-500" />
-          </div>
-        </div>
-
-        {/* Active Trips */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-purple-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Active Trips</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.activeTrips}</p>
-            </div>
-            <MapPin className="h-8 w-8 text-purple-500" />
-          </div>
-        </div>
-
-        {/* Total Drivers */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-indigo-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Active Drivers</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.totalDrivers}</p>
-            </div>
-            <Users className="h-8 w-8 text-indigo-500" />
-          </div>
-        </div>
-
-        {/* Expired Documents */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-red-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Expired Documents</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.expiredDocuments}</p>
-            </div>
-            <AlertTriangle className="h-8 w-8 text-red-500" />
-          </div>
-        </div>
-
-        {/* Upcoming Expiries */}
-        <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-orange-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Upcoming Expiries</p>
-              <p className="text-3xl font-bold text-gray-900">{dashboardData.upcomingExpiries}</p>
-            </div>
-            <Clock className="h-8 w-8 text-orange-500" />
-          </div>
-        </div>
+      {/* Charts */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <ChartPanel title="Fleet status mix" subtitle="Vehicles by current status" height={220}>
+          <DonutChart data={statusMix} centerLabel="Vehicles" centerValue={dashboardData.totalVehicles} height={200} />
+        </ChartPanel>
+        <ChartPanel title="Document compliance" subtitle="Valid vs expiring vs expired" height={220}>
+          <BarCompareChart
+            data={documentHealth}
+            series={[{ key: 'value', name: 'Documents', color: CHART_SERIES[1] }]}
+            height={200}
+          />
+        </ChartPanel>
+        <ChartPanel title="Fleet availability" subtitle="Available of total fleet" height={220}>
+          <RadialScoreChart
+            value={dashboardData.availableVehicles}
+            max={dashboardData.totalVehicles}
+            label="Available"
+            color={CHART_SERIES[0]}
+            height={200}
+          />
+        </ChartPanel>
       </div>
 
       {/* Main Content Grid */}

@@ -145,7 +145,7 @@ export default function CostAllocation() {
             </label>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" className="h-8 px-3 text-xs border rounded" onClick={() => setOpen(false)}>Cancel</button>
-              <button type="button" className="h-8 px-3 text-xs bg-[#1F6F4E] text-white rounded" disabled={saving} onClick={save}>Save</button>
+              <button type="button" className="h-8 px-3 text-xs bg-accent text-white rounded" disabled={saving} onClick={save}>Save</button>
             </div>
           </div>
         </Modal>

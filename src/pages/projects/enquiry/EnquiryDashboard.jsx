@@ -34,25 +34,26 @@ import { flattenEnquiryRow, getEnquiryFieldValue, projectsTable } from '../../..
 import { formatDateDdMmYyyy, normalizeToIsoDate } from '../../../utils/dateDisplay';
 import { getRowStatusValue, STATUS_LEGEND } from './enquiryStatusStyles';
 import { useProjectsEnquiryDropdowns } from './useProjectsEnquiryDropdowns';
+import { CHART_SERIES, TOKENS } from '../../../theme/tokens';
 import './enquiryDashboard.css';
 
 const STATUS_CHART_COLORS = {
-  'Not Started': '#fbbf24',
-  'Work in Progress': '#38bdf8',
-  Completed: '#34d399',
-  Regret: '#f87171',
-  Unassigned: '#94a3b8',
-  Unknown: '#cbd5e1',
+  'Not Started': TOKENS.warning,
+  'Work in Progress': TOKENS.info,
+  Completed: TOKENS.success,
+  Regret: TOKENS.critical,
+  Unassigned: TOKENS.textDisabled,
+  Unknown: TOKENS.borderStrong,
 };
 
 const PRIORITY_COLORS = {
-  'High (>80%)': '#ef4444',
-  'Medium (>50%)': '#f59e0b',
-  'Low (<50%)': '#22c55e',
-  Unknown: '#94a3b8',
+  'High (>80%)': TOKENS.critical,
+  'Medium (>50%)': TOKENS.warning,
+  'Low (<50%)': TOKENS.success,
+  Unknown: TOKENS.textDisabled,
 };
 
-const CHART_PALETTE = ['#3b82f6', '#8b5cf6', '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1', '#eab308'];
+const CHART_PALETTE = [...CHART_SERIES];
 
 const EMPTY_FILTERS = {
   search: '',
@@ -67,7 +68,7 @@ const EMPTY_FILTERS = {
 const selectCls =
   'w-full min-h-[38px] py-2 px-3 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
 
-const labelStyle = { fontSize: 11, fontWeight: 600, fill: '#374151' };
+const labelStyle = { fontSize: 11, fontWeight: 600, fill: 'var(--text-strong)' };
 
 const CHART_ANIM = {
   isAnimationActive: true,
@@ -79,18 +80,18 @@ function ChartDefs() {
   return (
     <defs>
       <linearGradient id="enqBarGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#60a5fa" />
-        <stop offset="100%" stopColor="#1d4ed8" />
+        <stop offset="0%" stopColor="var(--info)" />
+        <stop offset="100%" stopColor="var(--info)" />
       </linearGradient>
       <linearGradient id="enqLineGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.45} />
-        <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
+        <stop offset="0%" stopColor="var(--info)" stopOpacity={0.45} />
+        <stop offset="100%" stopColor="var(--info)" stopOpacity={0.02} />
       </linearGradient>
       <filter id="enqPieGlow" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="#3b82f6" floodOpacity="0.35" />
+        <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="var(--info)" floodOpacity="0.35" />
       </filter>
       <filter id="enqBarShadow" x="-10%" y="-10%" width="130%" height="140%">
-        <feDropShadow dx="2" dy="5" stdDeviation="4" floodColor="#1e40af" floodOpacity="0.28" />
+        <feDropShadow dx="2" dy="5" stdDeviation="4" floodColor="var(--info)" floodOpacity="0.28" />
       </filter>
     </defs>
   );
@@ -592,7 +593,7 @@ export default function EnquiryDashboard() {
                   outerRadius={90}
                   paddingAngle={3}
                   label={renderPieLabel}
-                  labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                  labelLine={{ stroke: 'var(--text-disabled)', strokeWidth: 1 }}
                   activeIndex={activeStatusPie}
                   activeShape={renderActivePieShape}
                   onMouseEnter={(_, i) => setActiveStatusPie(i)}
@@ -603,7 +604,7 @@ export default function EnquiryDashboard() {
                     <Cell
                       key={entry.name}
                       fill={entry.fill}
-                      stroke="#fff"
+                      stroke="var(--surface)"
                       strokeWidth={2}
                       style={{ filter: 'url(#enqBarShadow)', animationDelay: `${i * 80}ms` }}
                     />
@@ -623,9 +624,9 @@ export default function EnquiryDashboard() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={assigneeData} layout="vertical" margin={{ left: 8, right: 28 }}>
                 <ChartDefs />
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11 }} />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={TOKENS.chartGrid} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
+                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
                 <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
                 <Bar dataKey="value" radius={[0, 6, 6, 0]} {...CHART_ANIM}>
                   {assigneeData.map((_, i) => (
@@ -658,7 +659,7 @@ export default function EnquiryDashboard() {
                   outerRadius={92}
                   paddingAngle={3}
                   label={renderPieLabel}
-                  labelLine={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                  labelLine={{ stroke: 'var(--text-disabled)', strokeWidth: 1 }}
                   activeIndex={activePriorityPie}
                   activeShape={renderActivePieShape}
                   onMouseEnter={(_, i) => setActivePriorityPie(i)}
@@ -669,7 +670,7 @@ export default function EnquiryDashboard() {
                     <Cell
                       key={entry.name}
                       fill={entry.fill}
-                      stroke="#fff"
+                      stroke="var(--surface)"
                       strokeWidth={2}
                       style={{ filter: 'url(#enqBarShadow)', animationDelay: `${i * 90}ms` }}
                     />
@@ -689,16 +690,16 @@ export default function EnquiryDashboard() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={sourceData.slice(0, 10)} margin={{ bottom: 48, top: 16 }}>
                 <ChartDefs />
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={TOKENS.chartGrid} />
                 <XAxis
                   dataKey="name"
-                  tick={{ fontSize: 10 }}
+                  tick={{ fontSize: 10, fill: TOKENS.chartAxis }}
                   angle={-30}
                   textAnchor="end"
                   interval={0}
                   height={70}
                 />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
                 <Tooltip content={<ChartTooltip valueKey="value" total={stats.total} />} />
                 <Bar dataKey="value" fill="url(#enqBarGrad)" radius={[6, 6, 0, 0]} style={{ filter: 'url(#enqBarShadow)' }} {...CHART_ANIM}>
                   <LabelList dataKey="value" position="top" style={labelStyle} />
@@ -717,9 +718,9 @@ export default function EnquiryDashboard() {
             <ResponsiveContainer width="100%" height={300}>
               <ComposedChart data={trendData} margin={{ top: 20, right: 12 }}>
                 <ChartDefs />
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={TOKENS.chartGrid} />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: TOKENS.chartAxis }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: TOKENS.chartAxis }} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
@@ -741,10 +742,10 @@ export default function EnquiryDashboard() {
                 <Line
                   type="monotone"
                   dataKey="count"
-                  stroke="#2563eb"
+                  stroke="var(--info)"
                   strokeWidth={3}
-                  dot={{ r: 5, strokeWidth: 2, fill: '#fff' }}
-                  activeDot={{ r: 8, strokeWidth: 0, fill: '#1d4ed8' }}
+                  dot={{ r: 5, strokeWidth: 2, fill: 'var(--surface)' }}
+                  activeDot={{ r: 8, strokeWidth: 0, fill: 'var(--info)' }}
                   {...CHART_ANIM}
                 >
                   <LabelList dataKey="count" position="top" offset={8} style={labelStyle} />
