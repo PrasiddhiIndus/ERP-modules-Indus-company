@@ -3,6 +3,7 @@ import { computePF } from '../src/modules/payroll/calc/statutory.js';
 import {
   canPunchSyncOverwriteExisting,
   isLeaveMarkSource,
+  isPurplePresentPunch,
   punchesToPresentRegisterRows,
   registerMarkFromPunchWindow,
 } from '../shared/attendanceRegisterSync.mjs';
@@ -14,6 +15,10 @@ describe('registerMarkFromPunchWindow', () => {
     expect(registerMarkFromPunchWindow({ punchIn: '08:30', punchOut: '13:00' })).toBe('HD');
   });
 
+  it('marks purple present when last punch is before noon', () => {
+    expect(registerMarkFromPunchWindow({ punchIn: '08:30', punchOut: '11:45' })).toBe('P');
+  });
+
   it('marks present for full day window', () => {
     expect(registerMarkFromPunchWindow({ punchIn: '08:30', punchOut: '18:00' })).toBe('P');
   });
@@ -21,6 +26,15 @@ describe('registerMarkFromPunchWindow', () => {
   it('keeps late punch-in as present when out is after cutoff', () => {
     expect(registerMarkFromPunchWindow({ punchIn: '13:15', punchOut: '18:00' })).toBe('P');
     expect(registerMarkFromPunchWindow({ punchIn: '13:15', punchOut: '' })).toBe('P');
+  });
+
+  it('flags purple present for afternoon first punch or early last punch', () => {
+    expect(isPurplePresentPunch({ punchIn: '12:00', punchOut: '18:00' })).toBe(true);
+    expect(isPurplePresentPunch({ punchIn: '14:30', punchOut: '18:00' })).toBe(true);
+    expect(isPurplePresentPunch({ punchIn: '15:00', punchOut: '18:00' })).toBe(true);
+    expect(isPurplePresentPunch({ punchIn: '08:30', punchOut: '11:30' })).toBe(true);
+    expect(isPurplePresentPunch({ punchIn: '08:30', punchOut: '18:00' })).toBe(false);
+    expect(isPurplePresentPunch({ punchIn: '09:00', punchOut: '' })).toBe(false);
   });
 
   it('keeps single morning punch as present', () => {

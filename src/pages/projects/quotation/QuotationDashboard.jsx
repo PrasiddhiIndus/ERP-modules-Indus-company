@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -21,6 +21,9 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
+import { supabase } from '../../../lib/supabase';
+import { isSupabaseRealtimeEnabled } from '../../../lib/supabaseConfig';
+import { PROJECTS_SCHEMA } from '../../../services/projectsApi';
 import {
   fetchQuotations,
   isFollowupOverdue,
@@ -46,24 +49,88 @@ function monthKey(dateStr) {
 export default function QuotationDashboard() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [realtimeLive, setRealtimeLive] = useState(false);
   const [error, setError] = useState('');
   const [detailId, setDetailId] = useState(null);
 
-  const fetchRows = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const mountedRef = useRef(true);
+  const refreshTimerRef = useRef(null);
+  const loadSeqRef = useRef(0);
+
+  const fetchRows = useCallback(async ({ showLoading = true } = {}) => {
+    const seq = ++loadSeqRef.current;
+    if (showLoading) {
+      setLoading(true);
+      setError('');
+    } else {
+      setRefreshing(true);
+    }
     try {
       const data = await fetchQuotations();
+      if (!mountedRef.current || seq !== loadSeqRef.current) return;
       setRows((data || []).filter((r) => !r.superseded));
+      setError('');
     } catch (err) {
+      if (!mountedRef.current || seq !== loadSeqRef.current) return;
       setError(err?.message || 'Failed to load dashboard.');
     } finally {
+      if (!mountedRef.current || seq !== loadSeqRef.current) return;
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchRows();
+    mountedRef.current = true;
+    fetchRows({ showLoading: true });
+
+    const schedule = () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = window.setTimeout(() => {
+        refreshTimerRef.current = null;
+        fetchRows({ showLoading: false });
+      }, 400);
+    };
+
+    let channel = null;
+    if (isSupabaseRealtimeEnabled()) {
+      channel = supabase
+        .channel('projects-quotation-dashboard-live')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: PROJECTS_SCHEMA, table: 'quotations' },
+          schedule
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: PROJECTS_SCHEMA, table: 'quotation_followups' },
+          schedule
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') setRealtimeLive(true);
+        });
+    }
+
+    const interval = window.setInterval(() => fetchRows({ showLoading: false }), 45000);
+    const onFocus = () => schedule();
+    const onVis = () => {
+      if (document.visibilityState === 'visible') schedule();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
+
+    return () => {
+      mountedRef.current = false;
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVis);
+      if (channel) {
+        channel.unsubscribe();
+      }
+      setRealtimeLive(false);
+    };
   }, [fetchRows]);
 
   const today = todayIsoDate();
@@ -134,7 +201,7 @@ export default function QuotationDashboard() {
       .map(([, v]) => v);
   }, [rows]);
 
-  if (loading) {
+  if (loading && rows.length === 0) {
     return (
       <div className="flex justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
@@ -147,15 +214,26 @@ export default function QuotationDashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Quotation Dashboard</h2>
-          <p className="text-sm text-slate-500">Pivot-style summary of the offer database.</p>
+          <p className="text-sm text-slate-500">Live summary from the offer database.</p>
         </div>
-        <button
-          type="button"
-          onClick={fetchRows}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium"
-        >
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {realtimeLive ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live updates
+            </span>
+          ) : null}
+          {refreshing ? (
+            <span className="text-[11px] text-slate-500 tabular-nums">Updating…</span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => fetchRows({ showLoading: false })}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -278,7 +356,11 @@ export default function QuotationDashboard() {
       </div>
 
       {detailId && (
-        <QuotationDetailDrawer quotationId={detailId} onClose={() => setDetailId(null)} onChanged={fetchRows} />
+        <QuotationDetailDrawer
+          quotationId={detailId}
+          onClose={() => setDetailId(null)}
+          onChanged={() => fetchRows({ showLoading: false })}
+        />
       )}
     </div>
   );

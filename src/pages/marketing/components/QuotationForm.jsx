@@ -573,12 +573,14 @@ const QuotationForm = ({
       if (quotation?.id && costingSheetRef.current?.save) {
         let saveResult = await costingSheetRef.current.save({
           silent: true,
+          keepDraftRows: false,
           quotationId: quotation.id,
         });
         if (saveResult?.notReady) {
           await waitForCostingSheetReady(5000);
           saveResult = await costingSheetRef.current.save({
             silent: true,
+            keepDraftRows: false,
             quotationId: quotation.id,
           });
         }
@@ -749,6 +751,7 @@ const QuotationForm = ({
         try {
           let saveResult = await costingSheetRef.current.save({
             silent: true,
+            keepDraftRows: false,
             quotationId: result.id,
           });
 
@@ -756,6 +759,7 @@ const QuotationForm = ({
             await waitForCostingSheetReady(5000);
             saveResult = await costingSheetRef.current.save({
               silent: true,
+              keepDraftRows: false,
               quotationId: result.id,
             });
           }
