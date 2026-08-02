@@ -450,13 +450,8 @@ export function EmployeeAttendanceDailyPage() {
             setManualRemarks(merged.remarks);
           }
 
-          const punchSync = await syncRegisterMarksFromPunches(supabase, punchRows, {
-            fromDate: monthMeta.fromDate,
-            toDate: monthMeta.toDate,
-            respectManualMarks: true,
-            masterCodeMap,
-            existingRegisterRows: monthRegisterRows,
-          });
+          // Auto WO/NH first; punch sync last so machine Present wins on weekoff days.
+          // Re-fetch after WO/holiday so punch overwrite checks see the latest WO cells.
           const tourSync = await syncApprovedToursToRegister(supabase, monthMeta.fromDate, monthMeta.toDate, {
             masterCodeMap,
             existingRegisterRows: monthRegisterRows,
@@ -483,6 +478,18 @@ export function EmployeeAttendanceDailyPage() {
             masterCodeMap,
             { existingRegisterRows: monthRegisterRows }
           );
+          const rowsAfterAutoMarks = await fetchRegisterMarkRowsInRange(supabase, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+            monthKey: monthMeta.monthKey,
+          });
+          const punchSync = await syncRegisterMarksFromPunches(supabase, punchRows, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+            respectManualMarks: true,
+            masterCodeMap,
+            existingRegisterRows: rowsAfterAutoMarks,
+          });
 
           if (loadGeneration !== loadGenerationRef.current) return;
 

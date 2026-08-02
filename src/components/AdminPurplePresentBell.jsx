@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Bell, Clock3, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
@@ -13,7 +14,7 @@ import {
 import { formatDateDdMmYyyy } from "../utils/dateDisplay";
 
 const REGISTER_ROUTE = "/app/admin/employee/attendance-daily";
-const LOOKBACK_DAYS = 3;
+const LOOKBACK_DAYS = 1;
 
 function seenStorageKey(userId) {
   return `admin_purple_present_seen:${userId || "anonymous"}`;
@@ -277,45 +278,48 @@ const AdminPurplePresentBell = () => {
         ) : null}
       </div>
 
-      {popupItem ? (
-        <div className="fixed bottom-5 right-5 z-[70] w-[min(92vw,380px)] rounded-2xl border border-purple-200 bg-white shadow-2xl">
-          <div className="flex items-start gap-3 p-4">
-            <div className="mt-0.5 rounded-full bg-purple-100 p-2 text-purple-800">
-              <Bell className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-gray-900">Purple Present (P)</p>
-              <p className="mt-1 text-sm text-gray-700">{popupItem.message}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    dismissPopup(popupItem.key);
-                    navigate(popupItem.route);
-                  }}
-                  className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-800"
-                >
-                  Open register
-                </button>
+      {popupItem && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed bottom-5 right-5 z-[70] w-[min(92vw,380px)] rounded-2xl border border-purple-200 bg-white shadow-2xl">
+              <div className="flex items-start gap-3 p-4">
+                <div className="mt-0.5 rounded-full bg-purple-100 p-2 text-purple-800">
+                  <Bell className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-gray-900">Purple Present (P)</p>
+                  <p className="mt-1 text-sm text-gray-700">{popupItem.message}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dismissPopup(popupItem.key);
+                        navigate(popupItem.route);
+                      }}
+                      className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-800"
+                    >
+                      Open register
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dismissPopup(popupItem.key)}
+                      className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => dismissPopup(popupItem.key)}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
                 >
-                  Dismiss
+                  <X className="h-4 w-4" />
                 </button>
               </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => dismissPopup(popupItem.key)}
-              className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body
+          )
+        : null}
     </>
   );
 };

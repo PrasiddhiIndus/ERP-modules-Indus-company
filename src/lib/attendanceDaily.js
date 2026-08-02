@@ -1,7 +1,7 @@
 /** Daily attendance register — pair raw punches into per-employee per-day rows. */
 
 import { formatDateDdMmYyyy } from "../utils/dateDisplay";
-import { CHART_SERIES, TOKENS } from "../theme/tokens";
+import { TOKENS } from "../theme/tokens";
 
 import {
   filterPresentRegisterRowsRespectingMarks,
@@ -444,10 +444,10 @@ export const REGISTER_LEAVE_MARKS = new Set([
 
 /** Shared palette — closed cell box + bulk Mark P/L/WO/NH/PH buttons. */
 export const REGISTER_MARK_PALETTE = {
-  present: { bg: TOKENS.success, border: TOKENS.accentDeep, hover: TOKENS.accentDeep },
-  leave: { bg: TOKENS.critical, border: TOKENS.critical, hover: TOKENS.critical },
-  weekoff: { bg: TOKENS.warning, border: TOKENS.warning, hover: TOKENS.warning },
-  nhph: { bg: CHART_SERIES[2], border: TOKENS.warning, hover: TOKENS.warning },
+  present: { bg: "#1a7a1a", border: "#1a7a1a", hover: "#1a7a1a" },
+  leave: { bg: "#c62818", border: "#c62818", hover: "#c62818" },
+  weekoff: { bg: "#c9a000", border: "#c9a000", hover: "#c9a000" },
+  nhph: { bg: "#ff7a29", border: "#ff7a29", hover: "#ff7a29" },
   empty: { bg: TOKENS.surfaceSunken, border: TOKENS.borderStrong, text: TOKENS.textSecondary },
 };
 
@@ -474,24 +474,24 @@ const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
 
 /** Per-mark colors for closed cells only (dropdown list stays neutral). */
 export const REGISTER_MARK_CELL_COLORS = {
-  P: { bg: "#14532d", border: "#14532d", text: "white" },
+  P: { bg: "#1a7a1a", border: "#1a7a1a", text: "white" },
   /** Present with afternoon first punch (12:00–15:00) or last punch before noon. */
-  P_PURPLE: { bg: "#6b21a8", border: "#6b21a8", text: "white" },
-  "P(OD)": { bg: TOKENS.info, border: TOKENS.info, text: "white" },
-  T: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
-  L: { bg: "#991b1b", border: "#991b1b", text: "white" },
-  WO: { bg: "#a16207", border: "#a16207", text: "white" },
-  [REGISTER_MARK_NHPH]: { bg: CHART_SERIES[2], border: TOKENS.warning, text: "white" },
-  NHPH: { bg: CHART_SERIES[2], border: TOKENS.warning, text: "white" },
-  CO: { bg: TOKENS.success, border: TOKENS.success, text: "white" },
-  HD: { bg: TOKENS.warning, border: TOKENS.warning, text: "white" },
+  P_PURPLE: { bg: "#9a2a9a", border: "#9a2a9a", text: "white" },
+  "P(OD)": { bg: "#9a2a9a", border: "#9a2a9a", text: "white" },
+  T: { bg: "#9a2a9a", border: "#9a2a9a", text: "white" },
+  L: { bg: "#c62818", border: "#c62818", text: "white" },
+  WO: { bg: "#c9a000", border: "#c9a000", text: "white" },
+  [REGISTER_MARK_NHPH]: { bg: "#ff7a29", border: "#ff7a29", text: "white" },
+  NHPH: { bg: "#ff7a29", border: "#ff7a29", text: "white" },
+  CO: { bg: "#1a7a1a", border: "#1a7a1a", text: "white" },
+  HD: { bg: "#ff7a29", border: "#ff7a29", text: "white" },
   /** Dual-state: present half (green) + leave half (red). */
-  "P/SL": { bg: "#14532d", border: "#a16207", text: "white", dual: true },
-  "P/CL": { bg: "#14532d", border: "#a16207", text: "white", dual: true },
-  "P/PL": { bg: "#14532d", border: "#a16207", text: "white", dual: true },
-  "LWP/PL": { bg: "#991b1b", border: "#991b1b", text: "white", dual: true },
-  "LWP/SL": { bg: "#991b1b", border: "#991b1b", text: "white", dual: true },
-  "LWP/CL": { bg: "#991b1b", border: "#991b1b", text: "white", dual: true },
+  "P/SL": { bg: "#1a7a1a", border: "#c62818", text: "white", dual: true },
+  "P/CL": { bg: "#1a7a1a", border: "#c62818", text: "white", dual: true },
+  "P/PL": { bg: "#1a7a1a", border: "#c62818", text: "white", dual: true },
+  "LWP/PL": { bg: "#c62818", border: "#c62818", text: "white", dual: true },
+  "LWP/SL": { bg: "#c62818", border: "#c62818", text: "white", dual: true },
+  "LWP/CL": { bg: "#c62818", border: "#c62818", text: "white", dual: true },
   WFH: { bg: TOKENS.info, border: TOKENS.info, text: "white" },
   [REGISTER_MARK_LEFT]: { bg: TOKENS.textMuted, border: TOKENS.textSecondary, text: "white" },
 };
@@ -553,7 +553,7 @@ export function registerMarkCellInlineStyle(value, options) {
   if (!colors) return undefined;
   if (colors.dual) {
     return {
-      backgroundImage: `linear-gradient(90deg, ${TOKENS.success} 50%, ${TOKENS.critical} 50%)`,
+      backgroundImage: `linear-gradient(90deg, #1a7a1a 50%, #c62818 50%)`,
       borderColor: colors.border,
     };
   }
@@ -714,9 +714,11 @@ export function buildMonthlyRegisterGrid(
       const iso = `${monthPrefix}-${pad(day)}`;
       let mark = "";
       const manual = overrides[day];
+      const hasPunch = presentKeys.has(`${code}|${iso}`);
       if (manual != null && manual !== "") {
-        mark = manual;
-      } else if (presentKeys.has(`${code}|${iso}`)) {
+        // Machine punch wins over weekoff on the same day.
+        mark = hasPunch && String(manual).trim() === "WO" ? "P" : manual;
+      } else if (hasPunch) {
         mark = "P";
       } else if (isAutoWeekoffDate(iso)) {
         mark = "WO";
@@ -2021,7 +2023,7 @@ export function listAutoWeekoffDatesForMonthAndNext(monthMeta) {
 
 /**
  * Whether auto WO may be written on a scheduled weekoff date.
- * Replaces punch-only Present; never overwrites leave or manual marks.
+ * Never overwrites machine punch Present, leave, or manual marks.
  */
 export function canAutoWeekoffApplyToExisting(existing) {
   if (!existing?.mark) return true;
@@ -2032,14 +2034,15 @@ export function canAutoWeekoffApplyToExisting(existing) {
   if (isManualMarkSource(src)) return false;
   const mark = String(existing.mark ?? "").trim();
   if (mark === "WO" && (src === REGISTER_MARK_SOURCE_AUTO_WO || !src)) return true;
-  if (isPunchMarkSource(mark, existing.mark_source)) return true;
-  if (mark === "P" || mark === "P(OD)" || mark === "T") return false;
+  // Machine punch always wins over auto weekoff.
+  if (isPunchMarkSource(mark, existing.mark_source)) return false;
+  if (mark === "P" || mark === "P(OD)" || mark === "T" || mark === "HD") return false;
   return true;
 }
 
 /**
  * Apply WO on all Sundays for every register employee on `weekoffDates`.
- * Skips leave, manual marks, and present; punch sync may overwrite WO afterward.
+ * Skips leave, manual marks, and punch Present; punch sync runs afterward and may overwrite WO.
  */
 function indexRegisterRowByEmpDate(existingByKey, row) {
   const date = normalizeDbDate(row.register_date);
