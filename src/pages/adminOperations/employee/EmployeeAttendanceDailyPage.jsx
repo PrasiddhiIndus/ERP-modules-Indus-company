@@ -37,6 +37,7 @@ import {
   resolveBulkDayRange,
   downloadMonthlyRegisterExcel,
   buildPunchLookupByEmpDate,
+  isPurplePresentPunch,
   sortRegisterEmployeeRows,
   formatAttendanceSupabaseError,
   fetchActiveEmployees,
@@ -449,13 +450,8 @@ export function EmployeeAttendanceDailyPage() {
             setManualRemarks(merged.remarks);
           }
 
-          const punchSync = await syncRegisterMarksFromPunches(supabase, punchRows, {
-            fromDate: monthMeta.fromDate,
-            toDate: monthMeta.toDate,
-            respectManualMarks: true,
-            masterCodeMap,
-            existingRegisterRows: monthRegisterRows,
-          });
+          // Auto WO/NH first; punch sync last so machine Present wins on weekoff days.
+          // Re-fetch after WO/holiday so punch overwrite checks see the latest WO cells.
           const tourSync = await syncApprovedToursToRegister(supabase, monthMeta.fromDate, monthMeta.toDate, {
             masterCodeMap,
             existingRegisterRows: monthRegisterRows,
@@ -482,6 +478,18 @@ export function EmployeeAttendanceDailyPage() {
             masterCodeMap,
             { existingRegisterRows: monthRegisterRows }
           );
+          const rowsAfterAutoMarks = await fetchRegisterMarkRowsInRange(supabase, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+            monthKey: monthMeta.monthKey,
+          });
+          const punchSync = await syncRegisterMarksFromPunches(supabase, punchRows, {
+            fromDate: monthMeta.fromDate,
+            toDate: monthMeta.toDate,
+            respectManualMarks: true,
+            masterCodeMap,
+            existingRegisterRows: rowsAfterAutoMarks,
+          });
 
           if (loadGeneration !== loadGenerationRef.current) return;
 
@@ -717,6 +725,8 @@ export function EmployeeAttendanceDailyPage() {
       applyLeavingDisplay: true,
     });
   }, [punches, activeEmployees, manualMarks, monthMeta]);
+
+  const punchByEmpDate = useMemo(() => buildPunchLookupByEmpDate(punches), [punches]);
 
   const dateOfLeavingByEmp = useMemo(() => {
     const map = new Map();
@@ -1461,6 +1471,16 @@ export function EmployeeAttendanceDailyPage() {
           const isCommentMark = isRegisterCommentMark(value);
           const commentMark = isCommentMark ? value : "";
           const hasComment = isCommentMark && !!comment;
+          const punchInfo = cellDate
+            ? punchByEmpDate.get(`${normalizeAttendanceEmpCode(row.empCode)}|${cellDate}`)
+            : null;
+          const purplePresent =
+            String(value || "").trim() === "P" &&
+            isPurplePresentPunch({
+              punchIn: punchInfo?.punchIn,
+              punchOut: punchInfo?.punchOut,
+            });
+          const markStyleOpts = purplePresent ? { purplePresent: true } : undefined;
           return (
             <div
               onClick={(e) => {
@@ -1471,12 +1491,18 @@ export function EmployeeAttendanceDailyPage() {
               }}
             >
               <div
-                style={registerMarkCellInlineStyle(value)}
-                className={`${registerMarkCellWrapperClass(value)} relative group/comment ${isCommentMark ? "cursor-pointer" : ""}`}
+                style={registerMarkCellInlineStyle(value, markStyleOpts)}
+                className={`${registerMarkCellWrapperClass(value, markStyleOpts)} relative group/comment ${isCommentMark ? "cursor-pointer" : ""}`}
+                title={
+                  purplePresent
+                    ? "Purple P: first punch 12:00–15:00 or last punch before 12:00"
+                    : undefined
+                }
               >
                 <RegisterMarkPicker
                   value={value}
                   readOnly={leavingLocked}
+                  purplePresent={purplePresent}
                   onChange={(next) => handleMarkChange(row.empCode, day, next)}
                 />
                 {hasComment && (
@@ -1506,6 +1532,7 @@ export function EmployeeAttendanceDailyPage() {
     manualRemarks,
     monthMeta?.monthKey,
     openPodCommentEditor,
+    punchByEmpDate,
     registerSortableHeader,
     summaryColumnDefs,
     yearLeaveUsageByEmp,

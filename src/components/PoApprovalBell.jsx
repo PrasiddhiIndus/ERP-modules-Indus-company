@@ -224,6 +224,8 @@ const PoApprovalBell = () => {
   };
 
   if (!shouldShow) return null;
+  // Hide when there is nothing unread so Purple Present is not paired with an empty bell.
+  if (unread.length === 0) return null;
 
   return (
     <div className="relative">

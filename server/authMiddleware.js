@@ -3,9 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 const ADMIN_ROLES = new Set(['super_admin', 'super_admin_pro', 'admin']);
 const HR_MODULES = new Set(['hr', 'payroll', 'admin']);
 const HR_TEAMS = new Set(['hr', 'admin']);
-const BILLING_MODULES = new Set(['billing', 'commercialMt', 'commercialRm', 'commercial']);
-const BILLING_TEAMS = new Set(['billing', 'commercial', 'commercialMt', 'commercialRm']);
+const BILLING_MODULES = new Set(['billing', 'commercialmt', 'commercialrm', 'commercial']);
+const BILLING_TEAMS = new Set(['billing', 'commercial', 'commercialmt', 'commercialrm']);
 const BILLING_ROLES = new Set(['admin', 'billing']);
+const BILLING_SUB_MODULE_PREFIXES = ['billing.', 'commercialmt.', 'commercialrm.', 'commercial.'];
 
 function parseModules(raw) {
   if (Array.isArray(raw)) {
@@ -107,26 +108,38 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
 
     const client = createSupabaseWithJwt(jwt);
 
-    const profileSelect = 'id, role, team, allowed_modules, employee_code, email';
+    const profileSelectWithSubs =
+      'id, role, team, allowed_modules, allowed_sub_modules, employee_code, email';
+    const profileSelectBasic = 'id, role, team, allowed_modules, employee_code, email';
+
+    async function loadProfile(db) {
+      const withSubs = await db
+        .from('profiles')
+        .select(profileSelectWithSubs)
+        .eq('id', userData.user.id)
+        .maybeSingle();
+      if (withSubs.data) return withSubs.data;
+      // Older DBs may lack allowed_sub_modules; retry without it.
+      if (withSubs.error) {
+        const basic = await db
+          .from('profiles')
+          .select(profileSelectBasic)
+          .eq('id', userData.user.id)
+          .maybeSingle();
+        return basic.data || null;
+      }
+      return null;
+    }
+
     let profile = null;
     if (url && svc) {
       const adminClient = createClient(url, svc, { auth: { persistSession: false } });
-      const { data } = await adminClient
-        .from('profiles')
-        .select(profileSelect)
-        .eq('id', userData.user.id)
-        .maybeSingle();
-      profile = data || null;
+      profile = await loadProfile(adminClient);
     }
 
     // Fallback: read own profile via user JWT + RLS (staging dev without matching service_role).
     if (!profile) {
-      const { data } = await client
-        .from('profiles')
-        .select(profileSelect)
-        .eq('id', userData.user.id)
-        .maybeSingle();
-      profile = data || null;
+      profile = await loadProfile(client);
     }
 
     return { jwt, user: userData.user, profile };
@@ -177,12 +190,15 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
 
   function hasBillingAccess(ctx) {
     if (isAdmin(ctx)) return true;
-    const role = String(ctx.profile?.role || '').trim();
+    const role = String(ctx.profile?.role || '').trim().toLowerCase();
     if (BILLING_ROLES.has(role)) return true;
-    const team = String(ctx.profile?.team || '').trim();
+    // Employee Master stores "Commercial"; RLS/UI map that to commercialMt — match case-insensitively.
+    const team = String(ctx.profile?.team || '').trim().toLowerCase();
     if (BILLING_TEAMS.has(team)) return true;
-    const modules = parseModules(ctx.profile?.allowed_modules);
-    return hasModule(modules, BILLING_MODULES);
+    const modules = parseModules(ctx.profile?.allowed_modules).map((m) => m.toLowerCase());
+    if (hasModule(modules, BILLING_MODULES)) return true;
+    const subModules = parseModules(ctx.profile?.allowed_sub_modules).map((m) => m.toLowerCase());
+    return subModules.some((s) => BILLING_SUB_MODULE_PREFIXES.some((prefix) => s.startsWith(prefix)));
   }
 
   return {
