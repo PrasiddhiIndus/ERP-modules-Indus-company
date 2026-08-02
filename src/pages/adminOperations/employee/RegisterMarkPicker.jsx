@@ -147,7 +147,7 @@ function SubmenuRow({
   );
 }
 
-export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
+export function RegisterMarkPicker({ value, onChange, readOnly = false, purplePresent = false }) {
   const [open, setOpen] = useState(false);
   const [leaveSubmenuOpen, setLeaveSubmenuOpen] = useState(false);
   const [halfDaySubmenuOpen, setHalfDaySubmenuOpen] = useState(false);
@@ -157,6 +157,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
   const rootRef = useRef(null);
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
+  const markStyleOpts = purplePresent ? { purplePresent: true } : undefined;
 
   const updateMenuPos = useCallback(() => {
     const menuHeight = menuRef.current?.offsetHeight || MENU_EST_HEIGHT;
@@ -236,7 +237,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
 
   const display = registerMarkDisplayValue(value);
   const compositeParts = registerMarkCompositeDisplayParts(value);
-  const displayClass = `${registerMarkSelectTextClass(value)} ${
+  const displayClass = `${registerMarkSelectTextClass(value, markStyleOpts)} ${
     compositeParts ? "text-[10px]" : String(value || "").includes("/") ? "text-[10px]" : "text-[11px]"
   }`;
 
@@ -358,7 +359,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false }) {
           aria-expanded={open}
           onClick={toggleOpen}
           onMouseDown={(e) => e.stopPropagation()}
-          style={registerMarkCellInlineStyle(value)}
+          style={registerMarkCellInlineStyle(value, markStyleOpts)}
           className={`${displayClass} w-full h-8 px-1 font-semibold text-center cursor-pointer bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-white/50 rounded`}
         >
           {renderMarkLabel()}

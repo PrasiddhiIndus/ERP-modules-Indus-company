@@ -95,6 +95,8 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
   useEffect(() => {
     const loadData = async () => {
+      // Don't wipe in-progress edits if quotationId/costingSheetId briefly change
+      if (userEditedRef.current && dataReadyRef.current) return;
       dataReadyRef.current = false;
       userEditedRef.current = false;
       await fetchProducts();
@@ -242,6 +244,13 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       const { data, error } = await query.order('updated_at', { ascending: false });
 
       if (error) throw error;
+
+      // User may have started editing while the fetch was in flight — keep their rows
+      if (userEditedRef.current) {
+        dataReadyRef.current = true;
+        setLoading(false);
+        return;
+      }
 
       if (data && data.length > 0) {
         const costingSheet = costingSheetId
@@ -539,7 +548,13 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     return { grandTotal, netTotal, gstAmount: grandTotal - netTotal, activeItems, fullCellData };
   }, []);
 
-  const saveCostingSheet = useCallback(async ({ silent = false, quotationId: providedQuotationId = null } = {}) => {
+  const saveCostingSheet = useCallback(async ({
+    silent = false,
+    quotationId: providedQuotationId = null,
+    // Auto-save keeps blank draft rows so they don't vanish from UI/DB mid-edit.
+    // Explicit save (Update Quotation / Save button) prunes empty rows.
+    keepDraftRows = false,
+  } = {}) => {
     // Wait if another save (e.g. auto-save) is in progress
     if (isSavingRef.current) {
       const waitStart = Date.now();
@@ -573,7 +588,9 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       const currentProducts = productsRef.current;
 
       const dedupedItems = dedupeCostingItemsById(currentItems);
-      const activeItems = filterEmptyCostingItems(dedupedItems, currentData);
+      const activeItems = keepDraftRows
+        ? dedupedItems
+        : filterEmptyCostingItems(dedupedItems, currentData);
       const prunedCellData = pruneCostingCellData(currentData, activeItems.map((i) => i.id));
       const fullCellData = buildFullCostingDataForSave(activeItems, prunedCellData);
 
@@ -691,8 +708,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         if (error) throw error;
       }
 
-      setItems(activeItems);
-      setCostingData(fullCellData);
+      // Never sync pruned rows back into UI during silent/auto-save — that made
+      // newly added blank rows appear then disappear before the user could fill them.
+      if (!silent && !keepDraftRows) {
+        setItems(activeItems);
+        setCostingData(fullCellData);
+        itemsRef.current = activeItems;
+        costingDataRef.current = fullCellData;
+      }
 
       // Update quotation with amounts from costing sheet
       const { error: quotationError } = await supabase
@@ -731,7 +754,8 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
   saveCostingSheetRef.current = saveCostingSheet;
 
-  // Auto-save costing sheet changes to DB (existing quotation only)
+  // Auto-save costing sheet changes to DB (existing quotation only).
+  // keepDraftRows: blank "Add Item" rows stay until the user fills them or submits the form.
   useEffect(() => {
     if (!quotationId || isViewMode || loading || !dataReadyRef.current) return;
     if (!userEditedRef.current) return;
@@ -739,7 +763,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     autoSaveTimerRef.current = setTimeout(() => {
       if (!userEditedRef.current || !quotationId) return;
-      saveCostingSheetRef.current?.({ silent: true, quotationId });
+      saveCostingSheetRef.current?.({ silent: true, keepDraftRows: true, quotationId });
     }, 900);
 
     return () => {
