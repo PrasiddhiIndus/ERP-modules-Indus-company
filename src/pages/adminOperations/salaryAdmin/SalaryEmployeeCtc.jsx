@@ -7,18 +7,33 @@ import { employmentTypeLabel } from "../../../utils/employeeMasterReminders";
 import FormDateInput from "../../../components/FormDateInput";
 import { Drawer } from "../components/AdminUi";
 import {
+  BASIC_GROSS_PERCENT,
+  BASIC_SLAB_MIN,
+  basicFromGross,
   computeCtcStructure,
   currentCompensationYear,
+  DEFAULT_EMP_ESIC_RATE_PCT,
+  DEFAULT_ER_ESIC_RATE_PCT,
+  DEFAULT_ESIC_CEILING,
+  defaultBasicModeForLevel,
   defaultPtForGross,
   emptyCtcStructure,
+  EMP_LEVEL_HELPER,
+  EMP_LEVEL_OFFICE,
   formatINR,
   formatSalaryDate,
   getSalaryStructure,
   hraFromBasic,
   HRA_MODE_CUSTOM,
   HRA_MODE_PERCENT,
+  HRA_PERCENT,
+  MODE_AUTO,
+  MODE_CUSTOM,
+  normalizeComponentMode,
+  normalizeEmployeeLevel,
   normalizeHraMode,
   paFromMonthly,
+  parseRateInput,
   parseRupeeInput,
   reviseSalaryStructure,
   saveSalaryStructure,
@@ -32,31 +47,44 @@ const amountInput =
 const dateInput =
   "w-full max-w-[12rem] h-9 text-sm border border-border-strong rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
 const fieldLabel = "text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted";
+const selectInput =
+  "w-full max-w-[12rem] h-9 text-sm border border-border-strong rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
 
-function HraModeSelect({ value, onChange, disabled = false }) {
+function ModeToggle({ value, onChange, disabled = false, autoLabel = "Auto", customLabel = "Custom", ariaLabel }) {
+  const isAuto = normalizeComponentMode(value) === MODE_AUTO;
   return (
-    <div className="relative inline-flex shrink-0">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+    <div
+      className={[
+        "inline-flex rounded-md border border-border-strong p-0.5 shrink-0",
+        disabled ? "bg-surface-sunken opacity-80" : "bg-row-hover",
+      ].join(" ")}
+      role="group"
+      aria-label={ariaLabel}
+    >
+      <button
+        type="button"
         disabled={disabled}
-        aria-label="HRA calculation mode"
+        onClick={() => onChange(MODE_AUTO)}
         className={[
-          "appearance-none h-8 pl-2.5 pr-8 text-[12px] font-medium tracking-tight",
-          "rounded-md border border-border-strong shadow-[0_1px_0_rgba(40,35,25,0.03)]",
-          "focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent",
-          disabled
-            ? "bg-surface-sunken text-ink-muted cursor-default"
-            : "bg-row-hover text-ink hover:border-border-strong cursor-pointer",
+          "h-7 px-2.5 text-[11px] font-semibold rounded",
+          isAuto ? "bg-ink-strong text-white" : "text-ink-muted hover:text-ink",
+          disabled ? "cursor-default" : "cursor-pointer",
         ].join(" ")}
       >
-        <option value={HRA_MODE_PERCENT}>40% of Basic</option>
-        <option value={HRA_MODE_CUSTOM}>Custom amount</option>
-      </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-muted"
-        aria-hidden
-      />
+        {autoLabel}
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange(MODE_CUSTOM)}
+        className={[
+          "h-7 px-2.5 text-[11px] font-semibold rounded",
+          !isAuto ? "bg-ink-strong text-white" : "text-ink-muted hover:text-ink",
+          disabled ? "cursor-default" : "cursor-pointer",
+        ].join(" ")}
+      >
+        {customLabel}
+      </button>
     </div>
   );
 }
@@ -85,7 +113,7 @@ function ProfileField({ label, children }) {
   );
 }
 
-function SheetRow({ label, monthly, pa, tone = "default", labelClass = "" }) {
+function SheetRow({ label, monthly, pa, tone = "default", labelClass = "", hint = null }) {
   const toneClass =
     tone === "gross"
       ? "bg-surface-sunken"
@@ -106,7 +134,10 @@ function SheetRow({ label, monthly, pa, tone = "default", labelClass = "" }) {
     <div
       className={`grid grid-cols-[minmax(0,1.4fr)_minmax(10rem,0.7fr)_minmax(9rem,0.55fr)] gap-3 items-center px-6 sm:px-8 lg:px-10 py-3.5 border-b border-divider ${toneClass}`}
     >
-      <div className={`text-[15px] ${labelWeight} ${labelClass}`}>{label}</div>
+      <div className={`text-[15px] ${labelWeight} ${labelClass}`}>
+        {label}
+        {hint ? <p className="mt-0.5 text-[11px] font-normal text-ink-muted leading-snug">{hint}</p> : null}
+      </div>
       <div className="flex justify-end">{monthly}</div>
       <div className="flex justify-end">
         <MoneyCell value={pa} strong={tone !== "default"} />
@@ -151,7 +182,6 @@ function AmountInput({ value, onChange, label, readOnly = false }) {
       autoComplete="off"
       value={value}
       onChange={(e) => {
-        // Digits only — avoids type="number" wheel-scroll changing 15000 → 14999
         const raw = e.target.value.replace(/[^\d]/g, "");
         onChange(raw);
       }}
@@ -161,7 +191,6 @@ function AmountInput({ value, onChange, label, readOnly = false }) {
         if (n != null && String(n) !== String(value)) onChange(String(n));
       }}
       onWheel={(e) => {
-        // If any number-like behavior remains, never let page scroll nudge the value
         e.currentTarget.blur();
       }}
       readOnly={readOnly}
@@ -170,6 +199,29 @@ function AmountInput({ value, onChange, label, readOnly = false }) {
       placeholder=""
       aria-label={label}
     />
+  );
+}
+
+function RateInput({ value, onChange, label, readOnly = false, stepHint = "0.05" }) {
+  return (
+    <div className="relative inline-flex items-center">
+      <input
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        value={value}
+        onChange={(e) => {
+          const raw = e.target.value.replace(/[^\d.]/g, "");
+          onChange(raw);
+        }}
+        readOnly={readOnly}
+        disabled={readOnly}
+        className={`${amountInput} w-[6.5rem] pr-7 ${readOnly ? "bg-surface-sunken text-ink-secondary cursor-default" : ""}`}
+        aria-label={label}
+        title={`Step ${stepHint}`}
+      />
+      <span className="pointer-events-none absolute right-2.5 text-[12px] text-ink-muted">%</span>
+    </div>
   );
 }
 
@@ -202,8 +254,14 @@ function numOrEmpty(saved) {
   return n == null ? "" : String(n);
 }
 
+function rateOrEmpty(saved, fallback) {
+  if (saved == null || saved === "") return String(fallback);
+  const n = parseRateInput(saved);
+  return n == null ? String(fallback) : String(n);
+}
+
 /**
- * Compensation structure — Indus sheet Year 2026-2027 layout.
+ * Compensation structure — Gross-master CTC per Salary Admin BRD.
  * First save creates CTC; later changes use ?mode=revise (archives previous).
  */
 export default function SalaryEmployeeCtc() {
@@ -221,11 +279,14 @@ export default function SalaryEmployeeCtc() {
   const [revisionCount, setRevisionCount] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [revisionReason, setRevisionReason] = useState("");
+  const [esicSettingsOpen, setEsicSettingsOpen] = useState(false);
 
+  const [employeeLevel, setEmployeeLevel] = useState(EMP_LEVEL_OFFICE);
+  const [gross, setGross] = useState("");
+  const [basicMode, setBasicMode] = useState(MODE_AUTO);
   const [basic, setBasic] = useState("");
   const [hraMode, setHraMode] = useState(HRA_MODE_PERCENT);
   const [hraCustom, setHraCustom] = useState("");
-  const [special, setSpecial] = useState("");
   const [empPf, setEmpPf] = useState("");
   const [erPf, setErPf] = useState("");
   const [pt, setPt] = useState("");
@@ -235,16 +296,22 @@ export default function SalaryEmployeeCtc() {
   const [lic, setLic] = useState("");
   const [bonus, setBonus] = useState("");
   const [wef, setWef] = useState("");
+  const [esicEnabled, setEsicEnabled] = useState(true);
+  const [esicCeiling, setEsicCeiling] = useState(String(DEFAULT_ESIC_CEILING));
+  const [esicEmpRate, setEsicEmpRate] = useState(String(DEFAULT_EMP_ESIC_RATE_PCT));
+  const [esicErRate, setEsicErRate] = useState(String(DEFAULT_ER_ESIC_RATE_PCT));
 
   const isRevisionMode = reviseRequested && hasExistingCtc;
   const isViewOnly = hasExistingCtc && !reviseRequested;
   const canEdit = !isViewOnly;
-  const hraIsCustom = hraMode === HRA_MODE_CUSTOM;
+  const basicIsCustom = normalizeComponentMode(basicMode) === MODE_CUSTOM;
+  const hraIsCustom = normalizeComponentMode(hraMode) === MODE_CUSTOM;
 
   const buildArgs = useCallback(
     () => ({
+      grossMonthly: parseRupeeInput(gross),
+      basicMode,
       basicMonthly: parseRupeeInput(basic) ?? 0,
-      specialAllowanceMonthly: parseRupeeInput(special) ?? 0,
       empPfMonthly: parseRupeeInput(empPf),
       erPfMonthly: parseRupeeInput(erPf),
       ptMonthly: parseRupeeInput(pt),
@@ -255,10 +322,16 @@ export default function SalaryEmployeeCtc() {
       licMonthly: parseRupeeInput(lic),
       hraMode,
       hraMonthly: hraIsCustom ? parseRupeeInput(hraCustom) : null,
+      employeeLevel,
+      esicEnabled,
+      esicCeiling: parseRupeeInput(esicCeiling),
+      esicEmpRatePct: parseRateInput(esicEmpRate),
+      esicErRatePct: parseRateInput(esicErRate),
     }),
     [
+      gross,
+      basicMode,
       basic,
-      special,
       empPf,
       erPf,
       pt,
@@ -270,6 +343,11 @@ export default function SalaryEmployeeCtc() {
       hraMode,
       hraIsCustom,
       hraCustom,
+      employeeLevel,
+      esicEnabled,
+      esicCeiling,
+      esicEmpRate,
+      esicErRate,
     ]
   );
 
@@ -285,6 +363,37 @@ export default function SalaryEmployeeCtc() {
     setErPf(String(er));
     return true;
   }, []);
+
+  const syncDerived = useCallback(
+    (argsOverride = {}) => {
+      const args = { ...buildArgs(), ...argsOverride };
+      const preview = computeCtcStructure(args);
+      if (!preview.declared) {
+        setEmpPf("");
+        setErPf("");
+        setPt("");
+        return preview;
+      }
+      // Keep Auto Basic / HRA display strings in sync with formula
+      if (normalizeComponentMode(args.basicMode) === MODE_AUTO) {
+        setBasic(preview.basic_monthly > 0 ? String(preview.basic_monthly) : "");
+      }
+      if (normalizeComponentMode(args.hraMode) === MODE_AUTO) {
+        setHraCustom(preview.hra_monthly > 0 ? String(preview.hra_monthly) : "");
+      }
+      if (args.empPfMonthly == null) {
+        setEmpPf(String(preview.emp_pf_monthly ?? ""));
+      }
+      if (args.erPfMonthly == null) {
+        setErPf(String(preview.er_pf_monthly ?? ""));
+      }
+      if (args.ptMonthly == null) {
+        setPt(String(preview.pt_monthly ?? defaultPtForGross(preview.gross_monthly)));
+      }
+      return preview;
+    },
+    [buildArgs]
+  );
 
   const load = useCallback(async () => {
     try {
@@ -309,13 +418,22 @@ export default function SalaryEmployeeCtc() {
       const declared = Boolean(saved?.declared);
       setHasExistingCtc(declared);
       setRevisionCount(Number(saved?.revision_count) || 0);
-      // New revise: blank reason for this revision. View: show saved reason.
       setRevisionReason(reviseRequested && declared ? "" : saved?.revision_reason || "");
-      setBasic(numOrEmpty(saved?.basic_monthly));
 
-      // HRA: prefer saved mode; legacy drafts without mode → custom if amount ≠ 40% of Basic
+      const level = normalizeEmployeeLevel(saved?.employee_level);
+      setEmployeeLevel(level);
+
       const basicSaved = parseRupeeInput(saved?.basic_monthly) ?? 0;
       const hraSaved = parseRupeeInput(saved?.hra_monthly);
+      const specialSaved =
+        saved?.special_allowance_monthly != null
+          ? parseRupeeInput(saved.special_allowance_monthly) ?? 0
+          : saved?.uniform_monthly != null &&
+              !saved?.conveyance_monthly &&
+              !saved?.medical_monthly
+            ? parseRupeeInput(saved.uniform_monthly) ?? 0
+            : 0;
+
       let loadedHraMode = HRA_MODE_PERCENT;
       if (saved?.hra_mode) {
         loadedHraMode = normalizeHraMode(saved.hra_mode);
@@ -327,6 +445,28 @@ export default function SalaryEmployeeCtc() {
       ) {
         loadedHraMode = HRA_MODE_CUSTOM;
       }
+
+      const loadedBasicMode = saved?.basic_mode
+        ? normalizeComponentMode(saved.basic_mode)
+        : declared
+          ? MODE_CUSTOM
+          : defaultBasicModeForLevel(level);
+
+      const resolvedHra =
+        loadedHraMode === HRA_MODE_CUSTOM
+          ? hraSaved ?? 0
+          : basicSaved > 0
+            ? hraFromBasic(basicSaved)
+            : hraSaved ?? 0;
+
+      // Gross master: prefer saved Gross; else reconstruct from legacy Part A lines
+      const grossSaved =
+        parseRupeeInput(saved?.gross_monthly) ??
+        (declared ? basicSaved + resolvedHra + specialSaved : null);
+
+      setGross(numOrEmpty(grossSaved));
+      setBasicMode(loadedBasicMode);
+      setBasic(numOrEmpty(basicSaved || null));
       setHraMode(loadedHraMode);
       setHraCustom(
         loadedHraMode === HRA_MODE_CUSTOM
@@ -334,16 +474,6 @@ export default function SalaryEmployeeCtc() {
           : numOrEmpty(hraSaved ?? (basicSaved > 0 ? hraFromBasic(basicSaved) : null))
       );
 
-      // Prefer Special Allowance; fall back to legacy uniform-only drafts
-      const specialSaved =
-        saved?.special_allowance_monthly != null
-          ? saved.special_allowance_monthly
-          : saved?.uniform_monthly != null &&
-              !saved?.conveyance_monthly &&
-              !saved?.medical_monthly
-            ? saved.uniform_monthly
-            : null;
-      setSpecial(numOrEmpty(specialSaved));
       setEmpPf(numOrEmpty(saved?.emp_pf_monthly));
       setErPf(numOrEmpty(saved?.er_pf_monthly));
       setPt(numOrEmpty(saved?.pt_monthly));
@@ -356,9 +486,10 @@ export default function SalaryEmployeeCtc() {
       setLicEnabled(Boolean(saved?.lic_enabled) || (parseRupeeInput(licAmt) ?? 0) > 0);
       setLic(licAmt);
       setBonus(numOrEmpty(saved?.bonus_monthly));
-      // Profile identity (location, code, name, designation, segment, DOB, DOJ)
-      // always comes from Employee Master and is locked — only W.E.F. is editable here.
-      // Revise: default W.E.F. to today (user can change). Otherwise keep saved.
+      setEsicEnabled(saved?.esic_enabled !== false);
+      setEsicCeiling(rateOrEmpty(saved?.esic_ceiling, DEFAULT_ESIC_CEILING));
+      setEsicEmpRate(rateOrEmpty(saved?.esic_emp_rate_pct, DEFAULT_EMP_ESIC_RATE_PCT));
+      setEsicErRate(rateOrEmpty(saved?.esic_er_rate_pct, DEFAULT_ER_ESIC_RATE_PCT));
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
       setSaveMsg("");
@@ -376,108 +507,162 @@ export default function SalaryEmployeeCtc() {
   }, [load]);
 
   const parsed = useMemo(() => {
-    if (basic === "" && special === "" && !(hraIsCustom && hraCustom !== "")) {
+    if (gross === "" && basic === "" && !(hraIsCustom && hraCustom !== "")) {
       return emptyCtcStructure();
     }
     return computeCtcStructure(buildArgs());
-  }, [basic, special, hraIsCustom, hraCustom, buildArgs]);
+  }, [gross, basic, hraIsCustom, hraCustom, buildArgs]);
+
+  // Keep Auto Basic / HRA display values aligned while editing
+  useEffect(() => {
+    if (!canEdit || !parsed.declared) return;
+    if (!basicIsCustom && parsed.basic_monthly != null) {
+      const next = String(parsed.basic_monthly);
+      if (basic !== next) setBasic(next);
+    }
+    if (!hraIsCustom && parsed.hra_monthly != null) {
+      const next = String(parsed.hra_monthly);
+      if (hraCustom !== next) setHraCustom(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync display when Auto results change
+  }, [parsed.basic_monthly, parsed.hra_monthly, basicIsCustom, hraIsCustom, canEdit]);
 
   const fy = currentCompensationYear();
   const segment = employee
     ? employmentTypeLabel(employee.employment_type || employee.employee_id) || "—"
     : "—";
 
-  const hraMonthlyDisplay = parsed.hra_monthly;
+  const handleLevelChange = (raw) => {
+    if (!canEdit) return;
+    const level = normalizeEmployeeLevel(raw);
+    setEmployeeLevel(level);
+    const nextBasicMode = defaultBasicModeForLevel(level);
+    // UX default only — does not wipe the current Basic figure
+    setBasicMode(nextBasicMode);
+    if (nextBasicMode === MODE_AUTO) {
+      const g = parseRupeeInput(gross) ?? 0;
+      const auto = basicFromGross(g);
+      if (auto > 0) setBasic(String(auto));
+      syncDerived({
+        employeeLevel: level,
+        basicMode: MODE_AUTO,
+        basicMonthly: auto,
+        empPfMonthly: null,
+        erPfMonthly: null,
+        ptMonthly: null,
+      });
+    } else {
+      syncDerived({
+        employeeLevel: level,
+        basicMode: MODE_CUSTOM,
+        empPfMonthly: null,
+        erPfMonthly: null,
+        ptMonthly: null,
+      });
+    }
+  };
 
-  const syncDerivedFromBasic = (basicRaw, specialRaw = special, mode = hraMode, customHra = hraCustom) => {
-    const b = parseRupeeInput(basicRaw);
-    if (basicRaw === "" || b == null || b <= 0) {
-      setEmpPf("");
-      setErPf("");
-      setPt("");
+  const handleGrossChange = (raw) => {
+    if (!canEdit) return;
+    setGross(raw);
+    const g = parseRupeeInput(raw) ?? 0;
+    const nextBasic =
+      basicIsCustom
+        ? parseRupeeInput(basic) ?? 0
+        : basicFromGross(g);
+    if (!basicIsCustom && nextBasic > 0) setBasic(String(nextBasic));
+    syncDerived({
+      grossMonthly: g > 0 ? g : null,
+      basicMonthly: nextBasic,
+      empPfMonthly: null,
+      erPfMonthly: null,
+      ptMonthly: null,
+    });
+  };
+
+  const handleBasicModeChange = (nextMode) => {
+    if (!canEdit) return;
+    const mode = normalizeComponentMode(nextMode);
+    if (mode === MODE_CUSTOM) {
+      // Prefill with current Auto figure so switching never silently blanks the field
+      const g = parseRupeeInput(gross) ?? 0;
+      const seed =
+        parseRupeeInput(basic) ??
+        (g > 0 ? basicFromGross(g) : 0);
+      const seedStr = seed > 0 ? String(seed) : basic;
+      setBasic(seedStr);
+      setBasicMode(mode);
+      syncDerived({
+        basicMode: mode,
+        basicMonthly: parseRupeeInput(seedStr) ?? 0,
+        empPfMonthly: null,
+        erPfMonthly: null,
+        ptMonthly: null,
+      });
       return;
     }
-    const { empPf: emp, erPf: er } = suggestedPfFromBasic(b);
-    setEmpPf(String(emp));
-    setErPf(String(er));
-    const preview = computeCtcStructure({
-      basicMonthly: b,
-      specialAllowanceMonthly: parseRupeeInput(specialRaw) ?? 0,
-      empPfMonthly: emp,
-      erPfMonthly: er,
+    setBasicMode(mode);
+    const g = parseRupeeInput(gross) ?? 0;
+    const auto = basicFromGross(g);
+    if (auto > 0) setBasic(String(auto));
+    syncDerived({
+      basicMode: mode,
+      basicMonthly: auto,
+      empPfMonthly: null,
+      erPfMonthly: null,
       ptMonthly: null,
-      hraMode: mode,
-      hraMonthly: mode === HRA_MODE_CUSTOM ? parseRupeeInput(customHra) : null,
     });
-    setPt(String(preview.pt_monthly ?? ""));
   };
 
   const handleBasicChange = (raw) => {
-    if (!canEdit) return;
+    if (!canEdit || !basicIsCustom) return;
     setBasic(raw);
-    syncDerivedFromBasic(raw, special);
+    syncDerived({
+      basicMonthly: parseRupeeInput(raw) ?? 0,
+      empPfMonthly: null,
+      erPfMonthly: null,
+      ptMonthly: null,
+    });
   };
 
   const handleHraModeChange = (nextMode) => {
     if (!canEdit) return;
-    const mode = normalizeHraMode(nextMode);
-    if (mode === HRA_MODE_CUSTOM) {
-      // Prefill custom with current 40% figure so user can tweak from there
+    const mode = normalizeComponentMode(nextMode);
+    if (mode === MODE_CUSTOM) {
       const auto = hraFromBasic(parseRupeeInput(basic) ?? 0);
       const seedStr =
-        auto > 0
-          ? String(auto)
-          : hraCustom !== ""
-            ? hraCustom
-            : "";
+        auto > 0 ? String(auto) : hraCustom !== "" ? hraCustom : "";
       setHraCustom(seedStr);
-      setHraMode(mode);
-      syncDerivedFromBasic(basic, special, mode, seedStr);
+      setHraMode(HRA_MODE_CUSTOM);
+      syncDerived({
+        hraMode: HRA_MODE_CUSTOM,
+        hraMonthly: parseRupeeInput(seedStr),
+        ptMonthly: null,
+      });
       return;
     }
-    setHraMode(mode);
-    syncDerivedFromBasic(basic, special, mode, hraCustom);
+    setHraMode(HRA_MODE_PERCENT);
+    syncDerived({
+      hraMode: HRA_MODE_PERCENT,
+      hraMonthly: null,
+      ptMonthly: null,
+    });
   };
 
   const handleHraCustomChange = (raw) => {
     if (!canEdit || !hraIsCustom) return;
     setHraCustom(raw);
-    const b = parseRupeeInput(basic);
-    if (b != null && b > 0) {
-      const preview = computeCtcStructure({
-        basicMonthly: b,
-        specialAllowanceMonthly: parseRupeeInput(special) ?? 0,
-        empPfMonthly: parseRupeeInput(empPf),
-        erPfMonthly: parseRupeeInput(erPf),
-        ptMonthly: null,
-        hraMode: HRA_MODE_CUSTOM,
-        hraMonthly: parseRupeeInput(raw),
-      });
-      setPt(String(preview.pt_monthly ?? defaultPtForGross(preview.gross_monthly)));
-    }
-  };
-
-  const handleSpecialChange = (raw) => {
-    if (!canEdit) return;
-    setSpecial(raw);
-    const b = parseRupeeInput(basic);
-    if (b != null && b > 0) {
-      const preview = computeCtcStructure({
-        basicMonthly: b,
-        specialAllowanceMonthly: parseRupeeInput(raw) ?? 0,
-        empPfMonthly: parseRupeeInput(empPf),
-        erPfMonthly: parseRupeeInput(erPf),
-        ptMonthly: null,
-        hraMode,
-        hraMonthly: hraIsCustom ? parseRupeeInput(hraCustom) : null,
-      });
-      setPt(String(preview.pt_monthly ?? defaultPtForGross(preview.gross_monthly)));
-    }
+    syncDerived({
+      hraMode: HRA_MODE_CUSTOM,
+      hraMonthly: parseRupeeInput(raw),
+      ptMonthly: null,
+    });
   };
 
   const applyPfDefaults = () => {
     if (!canEdit) return;
-    if (!applyPfFromBasic(basic)) return;
+    const b = parsed.basic_monthly ?? parseRupeeInput(basic);
+    if (!applyPfFromBasic(b)) return;
     if (parsed.gross_monthly != null) {
       setPt(String(defaultPtForGross(parsed.gross_monthly)));
     }
@@ -494,8 +679,31 @@ export default function SalaryEmployeeCtc() {
     setSaveError("");
     const structure = computeCtcStructure(buildArgs());
     if (!structure.declared) {
-      setSaveError("Enter Basic or Special Allowance before saving.");
+      setSaveError("Enter Gross salary before saving.");
       return;
+    }
+    if (structure.structure_invalid) {
+      setSaveError(
+        "Basic + HRA exceed Gross. Adjust Gross, Basic, or HRA so Special Allowance is not negative."
+      );
+      return;
+    }
+    if (normalizeComponentMode(structure.basic_mode) === MODE_AUTO && structure.basic_monthly < BASIC_SLAB_MIN) {
+      setSaveError(`Auto Basic cannot be below ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")}.`);
+      return;
+    }
+    const ceiling = parseRupeeInput(esicCeiling);
+    const empRate = parseRateInput(esicEmpRate);
+    const erRate = parseRateInput(esicErRate);
+    if (esicEnabled) {
+      if (ceiling == null || ceiling <= 0) {
+        setSaveError("ESIC ceiling must be a number greater than zero.");
+        return;
+      }
+      if (empRate == null || empRate <= 0 || erRate == null || erRate <= 0) {
+        setSaveError("ESIC rates must be numbers greater than zero.");
+        return;
+      }
     }
 
     const wefToSave = wef || (isRevisionMode ? todayInputDate() : null);
@@ -506,9 +714,10 @@ export default function SalaryEmployeeCtc() {
 
     const payload = {
       ...structure,
-      // Persist exact whole-rupee amounts entered / computed
       basic_monthly: structure.basic_monthly,
+      basic_mode: structure.basic_mode,
       special_allowance_monthly: structure.special_allowance_monthly,
+      gross_monthly: structure.gross_monthly,
       emp_pf_monthly: structure.emp_pf_monthly,
       er_pf_monthly: structure.er_pf_monthly,
       pt_monthly: structure.pt_monthly,
@@ -519,7 +728,11 @@ export default function SalaryEmployeeCtc() {
       lic_monthly: structure.lic_monthly,
       hra_mode: structure.hra_mode,
       hra_monthly: structure.hra_monthly,
-      // Snapshot from Employee Master (locked on this screen)
+      employee_level: structure.employee_level,
+      esic_enabled: structure.esic_enabled,
+      esic_ceiling: structure.esic_ceiling,
+      esic_emp_rate_pct: structure.esic_emp_rate_pct,
+      esic_er_rate_pct: structure.esic_er_rate_pct,
       date_of_birth: employee.date_of_birth || null,
       date_of_joining: employee.date_of_joining || null,
       wef_date: wefToSave,
@@ -539,13 +752,12 @@ export default function SalaryEmployeeCtc() {
     }
 
     setHasExistingCtc(true);
-    // Keep form in sync with what was actually saved (current revision)
+    setGross(numOrEmpty(savedRow?.gross_monthly ?? structure.gross_monthly));
+    setBasicMode(normalizeComponentMode(savedRow?.basic_mode ?? structure.basic_mode));
     setBasic(numOrEmpty(savedRow?.basic_monthly ?? structure.basic_monthly));
     setHraMode(normalizeHraMode(savedRow?.hra_mode ?? structure.hra_mode));
-    setHraCustom(
-      numOrEmpty(savedRow?.hra_monthly ?? structure.hra_monthly)
-    );
-    setSpecial(numOrEmpty(savedRow?.special_allowance_monthly ?? structure.special_allowance_monthly));
+    setHraCustom(numOrEmpty(savedRow?.hra_monthly ?? structure.hra_monthly));
+    setEmployeeLevel(normalizeEmployeeLevel(savedRow?.employee_level ?? structure.employee_level));
     setEmpPf(String(structure.emp_pf_monthly ?? ""));
     setErPf(String(structure.er_pf_monthly ?? ""));
     setPt(String(structure.pt_monthly ?? ""));
@@ -554,6 +766,10 @@ export default function SalaryEmployeeCtc() {
     setLicEnabled(Boolean(savedRow?.lic_enabled ?? structure.lic_enabled));
     setLic(numOrEmpty(savedRow?.lic_monthly ?? structure.lic_monthly));
     setBonus(String(structure.bonus_monthly ?? ""));
+    setEsicEnabled(savedRow?.esic_enabled !== false);
+    setEsicCeiling(String(savedRow?.esic_ceiling ?? structure.esic_ceiling));
+    setEsicEmpRate(String(savedRow?.esic_emp_rate_pct ?? structure.esic_emp_rate_pct));
+    setEsicErRate(String(savedRow?.esic_er_rate_pct ?? structure.esic_er_rate_pct));
     setWef(savedRow?.wef_date || wefToSave || "");
     setRevisionReason(savedRow?.revision_reason || revisionReason || "");
 
@@ -589,6 +805,14 @@ export default function SalaryEmployeeCtc() {
   const name = employee.full_name || "Employee";
   const code = employee.employee_code || employee.employee_id || "—";
   const metaLine = [code, employee.designation, employee.department].filter(Boolean).join(" · ");
+
+  const basicHint = basicIsCustom
+    ? "Custom: negotiated figure — used for helper / labour designations without the office slab."
+    : `Auto: ${BASIC_GROSS_PERCENT}% of Gross, floored at ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")}.`;
+
+  const hraHint = hraIsCustom
+    ? "Custom: fixed amount — stays put even if Gross or Basic change."
+    : `Auto: ${HRA_PERCENT}% of Basic.`;
 
   return (
     <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-canvas">
@@ -680,7 +904,7 @@ export default function SalaryEmployeeCtc() {
 
           {reviseRequested && !hasExistingCtc ? (
             <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-              No CTC yet for this employee. Enter the first structure below and save — later changes
+              No CTC yet for this employee. Enter Gross and save the first structure — later changes
               will use revision.
             </div>
           ) : null}
@@ -705,7 +929,7 @@ export default function SalaryEmployeeCtc() {
             </div>
 
             <div className="px-6 sm:px-8 lg:px-10 py-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-6 border-b border-divider">
-              <ProfileField label="Location">{employee.location || "—"}</ProfileField>
+              <ProfileField label="Location">Indus Headquater</ProfileField>
               <ProfileField label="Employee Code">{employee.employee_code || "—"}</ProfileField>
               <ProfileField label="Employee Name">{employee.full_name || "—"}</ProfileField>
               <ProfileField label="Designation">{employee.designation || "—"}</ProfileField>
@@ -717,6 +941,37 @@ export default function SalaryEmployeeCtc() {
                 {employee.date_of_joining ? formatSalaryDate(employee.date_of_joining) : "—"}
               </ProfileField>
               <div className="min-w-0">
+                <p className={fieldLabel}>Employee level</p>
+                <div className="mt-1.5">
+                  {canEdit ? (
+                    <div className="relative inline-flex w-full max-w-[12rem]">
+                      <select
+                        value={employeeLevel}
+                        onChange={(e) => handleLevelChange(e.target.value)}
+                        className={`${selectInput} appearance-none pr-8`}
+                        aria-label="Employee level"
+                      >
+                        <option value={EMP_LEVEL_OFFICE}>Office staff</option>
+                        <option value={EMP_LEVEL_HELPER}>Helper / labour</option>
+                      </select>
+                      <ChevronDown
+                        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink-muted"
+                        aria-hidden
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-[15px] text-ink-strong font-medium">
+                      {employeeLevel === EMP_LEVEL_HELPER ? "Helper / labour" : "Office staff"}
+                    </div>
+                  )}
+                </div>
+                {canEdit ? (
+                  <p className="mt-1 text-[10px] text-ink-muted">
+                    Helper defaults Basic to Custom; Office defaults to Auto (you can override).
+                  </p>
+                ) : null}
+              </div>
+              <div className="min-w-0">
                 <p className={fieldLabel}>W.E.F.</p>
                 <div className="mt-1.5">
                   <FormDateInput
@@ -725,13 +980,6 @@ export default function SalaryEmployeeCtc() {
                     className={`${dateInput} ${!canEdit ? "bg-surface-sunken pointer-events-none" : ""}`}
                   />
                 </div>
-                {canEdit ? (
-                  <p className="mt-1 text-[10px] text-ink-muted">
-                    {isRevisionMode
-                      ? "Only editable profile field — defaults to today"
-                      : "Only editable profile field"}
-                  </p>
-                ) : null}
               </div>
               {isRevisionMode ? (
                 <div className="min-w-0 sm:col-span-2 lg:col-span-4">
@@ -759,28 +1007,59 @@ export default function SalaryEmployeeCtc() {
             <ColHeads />
 
             <SheetRow
-              label="Basic"
+              label="Gross salary"
+              hint="Master input. Basic, HRA and Special Allowance recalculate from this figure."
+              tone="gross"
+              monthly={
+                <AmountInput
+                  value={gross}
+                  onChange={handleGrossChange}
+                  label="Gross monthly"
+                  readOnly={!canEdit}
+                />
+              }
+              pa={paFromMonthly(parseRupeeInput(gross) ?? parsed.gross_monthly)}
+            />
+            <SheetRow
+              label={
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="min-w-[2.5rem]">Basic</span>
+                  <ModeToggle
+                    value={basicMode}
+                    onChange={handleBasicModeChange}
+                    disabled={!canEdit}
+                    autoLabel="Auto (slab)"
+                    customLabel="Custom"
+                    ariaLabel="Basic calculation mode"
+                  />
+                </div>
+              }
+              hint={basicHint}
               monthly={
                 <AmountInput
                   value={basic}
                   onChange={handleBasicChange}
                   label="Basic monthly"
-                  readOnly={!canEdit}
+                  readOnly={!canEdit || !basicIsCustom}
                 />
               }
-              pa={paFromMonthly(parseRupeeInput(basic))}
+              pa={paFromMonthly(parsed.basic_monthly)}
             />
             <SheetRow
               label={
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="min-w-[2.5rem]">HRA</span>
-                  <HraModeSelect
-                    value={hraMode}
+                  <ModeToggle
+                    value={hraIsCustom ? MODE_CUSTOM : MODE_AUTO}
                     onChange={handleHraModeChange}
                     disabled={!canEdit}
+                    autoLabel={`Auto (${HRA_PERCENT}%)`}
+                    customLabel="Custom"
+                    ariaLabel="HRA calculation mode"
                   />
                 </div>
               }
+              hint={hraHint}
               monthly={
                 hraIsCustom ? (
                   <AmountInput
@@ -790,23 +1069,24 @@ export default function SalaryEmployeeCtc() {
                     readOnly={!canEdit}
                   />
                 ) : (
-                  <MoneyCell value={hraMonthlyDisplay} />
+                  <MoneyCell value={parsed.hra_monthly} />
                 )
               }
-              pa={paFromMonthly(hraMonthlyDisplay)}
+              pa={paFromMonthly(parsed.hra_monthly)}
             />
             <SheetRow
               label="Special Allowance"
-              monthly={
-                <AmountInput
-                  value={special}
-                  onChange={handleSpecialChange}
-                  label="Special allowance monthly"
-                  readOnly={!canEdit}
-                />
-              }
-              pa={paFromMonthly(parseRupeeInput(special))}
+              hint="Balancing figure: Gross − Basic − HRA. Always system-calculated."
+              monthly={<MoneyCell value={parsed.declared ? parsed.special_allowance_monthly : null} />}
+              pa={paFromMonthly(parsed.declared ? parsed.special_allowance_monthly : null)}
             />
+
+            {parsed.structure_warn ? (
+              <div className="mx-6 sm:mx-8 lg:mx-10 my-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] text-red-800 leading-snug">
+                {parsed.structure_warn}
+              </div>
+            ) : null}
+
             <SheetRow
               label="GROSS (PART A)"
               tone="gross"
@@ -843,6 +1123,13 @@ export default function SalaryEmployeeCtc() {
                   ? "Less : Employee ESIC"
                   : "Less : Employee ESIC (not applicable)"
               }
+              hint={
+                parsed.esic_eligible
+                  ? `On Basic × ${parsed.esic_emp_rate_pct}% · Gross within ₹${Number(parsed.esic_ceiling).toLocaleString("en-IN")} ceiling`
+                  : esicEnabled
+                    ? `Gross above ₹${Number(parsed.esic_ceiling || DEFAULT_ESIC_CEILING).toLocaleString("en-IN")} ceiling — no ESIC`
+                    : "ESIC turned off for this structure"
+              }
               monthly={<MoneyCell value={parsed.declared ? parsed.emp_esic_monthly : null} />}
               pa={paFromMonthly(parsed.declared ? parsed.emp_esic_monthly : null)}
             />
@@ -873,6 +1160,11 @@ export default function SalaryEmployeeCtc() {
                 parsed.er_esic_applicable
                   ? "Add : Employer ESIC"
                   : "Add : Employer ESIC (not applicable)"
+              }
+              hint={
+                parsed.esic_eligible
+                  ? `On Basic × ${parsed.esic_er_rate_pct}% · same Gross ceiling as employee ESIC`
+                  : null
               }
               monthly={<MoneyCell value={parsed.declared ? parsed.er_esic_monthly : null} />}
               pa={paFromMonthly(parsed.declared ? parsed.er_esic_monthly : null)}
@@ -963,6 +1255,76 @@ export default function SalaryEmployeeCtc() {
               monthly={<MoneyCell value={parsed.ctc_monthly} strong />}
               pa={parsed.ctc_annual}
             />
+
+            {/* ESIC settings — progressive disclosure */}
+            <div className="px-6 sm:px-8 lg:px-10 py-5 border-t border-divider bg-surface-sunken/40">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-[13px] font-semibold text-ink-strong">ESIC settings</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    Ceiling and rates are stored on this CTC and used by Monthly Salary Processing.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEsicSettingsOpen((v) => !v)}
+                  className="text-[11px] font-medium text-accent hover:underline"
+                  aria-expanded={esicSettingsOpen}
+                >
+                  {esicSettingsOpen ? "Hide settings" : "Edit ceiling & rates"}
+                </button>
+              </div>
+
+              {esicSettingsOpen ? (
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <label className="inline-flex items-center gap-2.5 select-none sm:col-span-2 lg:col-span-4">
+                    <input
+                      type="checkbox"
+                      checked={esicEnabled}
+                      onChange={(e) => canEdit && setEsicEnabled(e.target.checked)}
+                      disabled={!canEdit}
+                      className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent/30 accent-accent disabled:opacity-50"
+                    />
+                    <span className="text-[13px] font-medium text-ink">ESIC applicable for this structure</span>
+                  </label>
+                  <div>
+                    <p className={fieldLabel}>Eligibility ceiling (Gross)</p>
+                    <div className="mt-1.5">
+                      <AmountInput
+                        value={esicCeiling}
+                        onChange={canEdit ? setEsicCeiling : () => {}}
+                        label="ESIC ceiling"
+                        readOnly={!canEdit || !esicEnabled}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <p className={fieldLabel}>Employee ESIC %</p>
+                    <div className="mt-1.5">
+                      <RateInput
+                        value={esicEmpRate}
+                        onChange={canEdit ? setEsicEmpRate : () => {}}
+                        label="Employee ESIC percent"
+                        readOnly={!canEdit || !esicEnabled}
+                      />
+                    </div>
+                    <p className="mt-1 text-[10px] text-ink-muted">Contribution base: Basic</p>
+                  </div>
+                  <div>
+                    <p className={fieldLabel}>Employer ESIC %</p>
+                    <div className="mt-1.5">
+                      <RateInput
+                        value={esicErRate}
+                        onChange={canEdit ? setEsicErRate : () => {}}
+                        label="Employer ESIC percent"
+                        readOnly={!canEdit || !esicEnabled}
+                      />
+                    </div>
+                    <p className="mt-1 text-[10px] text-ink-muted">Contribution base: Basic</p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
@@ -998,7 +1360,7 @@ export default function SalaryEmployeeCtc() {
             <button
               type="button"
               onClick={applyPfDefaults}
-              disabled={!basic || (parseRupeeInput(basic) ?? 0) <= 0}
+              disabled={!parsed.basic_monthly || parsed.basic_monthly <= 0}
               className="h-10 px-4 rounded-md border border-border-strong bg-white text-sm font-medium text-ink hover:bg-row-hover disabled:opacity-40 disabled:pointer-events-none"
               title="Fill Employee PF 12% and Employer PF 13% of Basic (capped ₹15,000)"
             >
