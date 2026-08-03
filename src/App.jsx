@@ -542,6 +542,7 @@ function App() {
             <Route path="projects/quotation" element={<ProjectsQuotationHub />} />
             <Route path="projects/quotation/quotation-dashboard" element={<ProjectsQuotationHub />} />
             <Route path="projects/quotation/quotation-entry" element={<ProjectsQuotationHub />} />
+            <Route path="projects/quotation/quotation-summary" element={<ProjectsQuotationHub />} />
             <Route path="projects/quotation/quotation-list" element={<ProjectsQuotationHub />} />
             <Route path="projects/quotation/quotation-board" element={<ProjectsQuotationHub />} />
             <Route path="projects/quotation/quotation-dropdown" element={<ProjectsQuotationHub />} />

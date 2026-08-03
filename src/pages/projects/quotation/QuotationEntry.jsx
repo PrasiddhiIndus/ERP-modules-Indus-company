@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Eye,
+  ExternalLink,
   Loader2,
   Plus,
   RotateCcw,
   Save,
   Send,
   Trash2,
+  Download,
 } from 'lucide-react';
 import { DateInput } from '../../../components/DateInput';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -28,6 +31,7 @@ import {
 } from '../../../services/quotationApi';
 import {
   formatCurrency,
+  QUOTATION_BASE,
   qInput,
   qLabel,
   qSelect,
@@ -42,12 +46,31 @@ import {
 import QuotationPreview from './QuotationPreview';
 import { downloadQuotationPdf } from './quotationPrint.js';
 import { useQuotationDropdowns } from './useQuotationDropdowns';
+import { useQuotationDraft } from './QuotationDraftContext';
+import { formatMainHeadLabels, getScopeLabels } from './summary/summaryHelpers';
+import FetchFromSummaryModal from './FetchFromSummaryModal';
+import {
+  buildFetchedEntryRows,
+  collectFetchedItemIds,
+  isSourceItemHandEdited,
+  resyncSourceItemLines,
+} from './summary/fetchFromSummary';
 
 const cellInput =
   'w-full min-w-[4rem] px-1.5 py-1 border border-slate-200 rounded text-xs bg-white focus:ring-1 focus:ring-blue-400';
 
 export default function QuotationEntry() {
+  const navigate = useNavigate();
   const { user, userProfile } = useAuth();
+  const {
+    activeQuotationId,
+    getActiveTree,
+    startNewDraft,
+    setQuotationLabel,
+    setEntryFetchedItemIds,
+  } = useQuotationDraft();
+  const boqTree = getActiveTree();
+  const scopeLabels = useMemo(() => getScopeLabels(boqTree), [boqTree]);
   const { valuesForKindKey, loading: dropdownLoading, error: dropdownError } = useQuotationDropdowns();
   const ownerDefault = userProfile?.username || user?.email?.split('@')[0] || '';
 
@@ -67,8 +90,79 @@ export default function QuotationEntry() {
   const [offerNoTouched, setOfferNoTouched] = useState(false);
   const [jobReserved, setJobReserved] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [fetchOpen, setFetchOpen] = useState(false);
 
   const setField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const alreadyFetchedIds = useMemo(() => collectFetchedItemIds(lines), [lines]);
+  const defaultMarginPct = useMemo(
+    () => Number(lines.find((l) => l.row_type === 'line')?.margin_pct) || 25.45,
+    [lines]
+  );
+
+  // Fresh create flow: only mint a draft-* id when nothing is active yet.
+  useEffect(() => {
+    if (!activeQuotationId) {
+      startNewDraft();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep draft label in sync with Subject / Offer No for Summary header.
+  useEffect(() => {
+    if (!activeQuotationId?.startsWith('draft-')) return;
+    const label =
+      form.subject?.trim() ||
+      form.offer_no?.trim() ||
+      'New Quotation (unsaved)';
+    setQuotationLabel(activeQuotationId, label);
+  }, [activeQuotationId, form.subject, form.offer_no, setQuotationLabel]);
+
+  // Publish fetched source item ids so Summary can badge them.
+  useEffect(() => {
+    if (!activeQuotationId) return;
+    setEntryFetchedItemIds(activeQuotationId, alreadyFetchedIds);
+  }, [activeQuotationId, alreadyFetchedIds, setEntryFetchedItemIds]);
+
+  const insertScopeIntoSubject = () => {
+    const labels = formatMainHeadLabels(scopeLabels);
+    if (!labels) return;
+    setField(
+      'subject',
+      form.subject?.trim() ? `${form.subject.trim()}, ${labels}` : labels
+    );
+  };
+
+  const handleFetchConfirm = (selectedItemIds) => {
+    const newRows = buildFetchedEntryRows({
+      mainHeads: boqTree,
+      selectedItemIds,
+      alreadyFetchedIds,
+      existingLines: lines,
+      marginPct: defaultMarginPct,
+    });
+    if (newRows.length) {
+      setLines((prev) => [...prev, ...newRows]);
+      setMessage({
+        type: 'success',
+        text: `Fetched ${selectedItemIds.length} Summary item(s) into the pricing grid.`,
+      });
+    }
+    setFetchOpen(false);
+  };
+
+  const handleResync = (item, childHeadId) => {
+    if (isSourceItemHandEdited(lines, item.id)) {
+      const ok = window.confirm(
+        'This line was edited after fetching — overwrite with Summary\'s current values?'
+      );
+      if (!ok) return;
+    }
+    setLines((prev) =>
+      resyncSourceItemLines(prev, item, childHeadId, { marginPct: defaultMarginPct })
+    );
+    setMessage({ type: 'success', text: 'Re-synced from Summary.' });
+  };
 
   const recalculated = useMemo(
     () => calculateAllLines(lines, { advancedPricing }),
@@ -250,6 +344,7 @@ export default function QuotationEntry() {
       emptyLineItem({ section_no: 1, sub_letter: 'B', description: 'Installation Charge', margin_pct: 25.45 }),
     ]);
     setMessage({ type: '', text: '' });
+    startNewDraft();
     void loadTemplate('FFTG');
   };
 
@@ -677,6 +772,68 @@ export default function QuotationEntry() {
                   placeholder="Scope one-liner"
                 />
               </label>
+              <div className="md:col-span-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                  <span className={qLabel}>Scope / Systems Covered</span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {boqTree.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`${QUOTATION_BASE}/quotation-summary`)}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Edit in Summary
+                      </button>
+                    )}
+                    {scopeLabels.some((s) => s.mainHeadLabel) && (
+                      <button
+                        type="button"
+                        onClick={insertScopeIntoSubject}
+                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+                      >
+                        Insert into Subject
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {boqTree.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3.5 py-3 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-slate-500">
+                      No systems added yet — build them in the Summary tab
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`${QUOTATION_BASE}/quotation-summary`)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold"
+                    >
+                      <Plus className="h-4 w-4" /> Build Systems in Summary
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-3 space-y-2.5 shadow-sm">
+                    {scopeLabels.map((scope, idx) => (
+                      <div key={`scope-${idx}`}>
+                        <p className="text-sm font-bold text-slate-900">
+                          {scope.mainHeadLabel || '(Untitled main head)'}
+                        </p>
+                        {scope.childHeadLabels.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {scope.childHeadLabels.map((label) => (
+                              <span
+                                key={label}
+                                className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 border border-slate-200"
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 
@@ -693,6 +850,13 @@ export default function QuotationEntry() {
                   />
                   Advanced % (Accessories / Transport / Inflation)
                 </label>
+                <button
+                  type="button"
+                  onClick={() => setFetchOpen(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700"
+                >
+                  <Download className="h-3.5 w-3.5" /> Fetch from Summary
+                </button>
                 <button
                   type="button"
                   onClick={addSection}
@@ -744,8 +908,9 @@ export default function QuotationEntry() {
                             onChange={(e) => updateLine(line.id, { section_label: e.target.value })}
                           />
                         ) : (
-                          <input
-                            className={cellInput}
+                          <textarea
+                            className={`${cellInput} min-h-[2rem] resize-y`}
+                            rows={String(line.description || '').includes('\n') ? 3 : 1}
                             value={line.description || ''}
                             onChange={(e) => updateLine(line.id, { description: e.target.value })}
                           />
@@ -948,6 +1113,17 @@ export default function QuotationEntry() {
           </section>
         </div>
       </div>
+
+      {fetchOpen && (
+        <FetchFromSummaryModal
+          mainHeads={boqTree}
+          existingLines={lines}
+          alreadyFetchedIds={alreadyFetchedIds}
+          onClose={() => setFetchOpen(false)}
+          onConfirm={handleFetchConfirm}
+          onResync={handleResync}
+        />
+      )}
     </div>
   );
 }

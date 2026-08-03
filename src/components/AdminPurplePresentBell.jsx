@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Bell, Clock3, X } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { ROLES, normalizeAppRole } from "../config/roles";
 import { supabase } from "../lib/supabase";
 import {
   buildPunchLookupByEmpDate,
@@ -72,8 +73,10 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Admin module users only (full admin or any admin.* submodule). */
-export function isAdminModuleUser(accessibleModules) {
+/** Admin module users only (full admin or any admin.* submodule). Super admins excluded. */
+export function isAdminModuleUser(accessibleModules, profile = null) {
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return false;
   if (!accessibleModules?.size) return false;
   if (accessibleModules.has("admin")) return true;
   for (const key of accessibleModules) {
@@ -133,13 +136,13 @@ export function buildPurplePresentNotifications({
 
 const AdminPurplePresentBell = () => {
   const navigate = useNavigate();
-  const { user, accessibleModules } = useAuth();
+  const { user, accessibleModules, userProfile } = useAuth();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [seen, setSeen] = useState(() => readSeen(user?.id));
   const [dismissedPopups, setDismissedPopups] = useState(() => readDismissedPopups(user?.id));
 
-  const shouldShow = isAdminModuleUser(accessibleModules);
+  const shouldShow = isAdminModuleUser(accessibleModules, userProfile);
 
   useEffect(() => {
     setSeen(readSeen(user?.id));

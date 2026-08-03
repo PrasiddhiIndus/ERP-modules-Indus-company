@@ -1088,6 +1088,23 @@ export default function SiteLedgerApp({ embedded = true }) {
   });
   }, [sitesL, records, month, sitePeriodKeys, needsPortfolio]);
 
+  /** Sites Master: contract-to-date actuals (same window as Pending Months), not a single empty month. */
+  const sitesMasterRows = useMemo(() => {
+    if (!needsPortfolio) return [];
+    const upto = month || currentPeriodKey();
+    return sitesL.map((s) => {
+      const keys = expectedMonths(s, upto);
+      const periodKeys = keys.length ? keys : [upto];
+      const c = calcSiteOverPeriodKeys(s, periodKeys, records);
+      const est = estTotalsForPeriodKeys(s, periodKeys);
+      const profitVar = est ? c.profit - est.profit : null;
+      const pending = isPending(s, records, upto);
+      const pendingCount = pendingMonths(s, records, upto).length;
+      const hasData = periodKeys.some((mk) => !!records[`${s.id}__${mk}`]);
+      return { ...s, ...c, est, profitVar, pending, pendingCount, hasData };
+    });
+  }, [sitesL, records, month, needsPortfolio]);
+
   const overviewPeriodKeys = useMemo(
     () => periodKeysBetween(periodFrom, periodTo),
     [periodFrom, periodTo],
@@ -1555,7 +1572,7 @@ export default function SiteLedgerApp({ embedded = true }) {
           )}
           {view === "sites" && (
             <SitesTable
-              rows={rows}
+              rows={sitesMasterRows}
               records={records}
               month={month}
               sitesAll={sitesEnriched}
@@ -1624,23 +1641,23 @@ export default function SiteLedgerApp({ embedded = true }) {
           onActivate={activateSite}
           onSave={(s) => {
             if (s.isEdit) {
-              const nextSites = sites.map((site) => (
-                site.id === s.id
-                  ? {
-                    ...site,
-                    name: s.name,
-                    service: s.service,
-                    wo: s.wo,
-                    ocNumber: s.ocNumber,
-                    contractStart: s.contractStart,
-                    contractEnd: s.contractEnd,
-                  }
-                  : site
-              ));
-              setSites(nextSites);
-              stateRef.current = { ...stateRef.current, sites: nextSites };
+              applySiteSetupChange(({ sites: allSites }) => ({
+                sites: allSites.map((site) => (
+                  site.id === s.id
+                    ? {
+                      ...site,
+                      name: s.name,
+                      service: s.service,
+                      wo: s.wo,
+                      ocNumber: s.ocNumber,
+                      siteType: s.siteType === "shutdown" ? "shutdown" : "regular",
+                      contractStart: s.contractStart,
+                      contractEnd: s.contractEnd,
+                    }
+                    : site
+                )),
+              }), { scope: "site", siteCode: s.id, include: { meta: true }, immediate: true });
               setEditSite(null);
-              void persistSitesImmediate(nextSites, { siteCode: s.id, include: { meta: true } });
               return;
             }
             if (s.isRenewal) {
@@ -2153,7 +2170,7 @@ function Overview({
 
 
 /* ───────────────────────── SITES TABLE ───────────────────────── */
-const SITES_FILTERS_INIT = { status: "all", financial: "all" };
+const SITES_FILTERS_INIT = { status: "all", financial: "all", siteType: "all" };
 
 function pendingMonthsTone(count) {
   if (count <= 0) return "ok";
@@ -2199,6 +2216,8 @@ function SitesTable({
     );
     if (filters.status === "active") list = list.filter((r) => isSiteActive(r));
     if (filters.status === "inactive") list = list.filter((r) => !isSiteActive(r));
+    if (filters.siteType === "regular") list = list.filter((r) => r.siteType !== "shutdown");
+    if (filters.siteType === "shutdown") list = list.filter((r) => r.siteType === "shutdown");
     if (filters.financial === "completed") list = list.filter((r) => pendingMonths(r, records, month).length === 0);
     if (filters.financial === "pending") list = list.filter((r) => pendingMonths(r, records, month).length > 0);
     if (filters.financial === "loss") list = list.filter((r) => r.hasData && r.profit < 0);
@@ -2247,7 +2266,7 @@ function SitesTable({
   const setF = (patch) => { setFilters((f) => ({ ...f, ...patch })); setPage(1); };
   const setS = (key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
   const arr = (k) => (sort.key === k ? (sort.dir === "desc" ? " ▾" : " ▴") : "");
-  const hasActiveFilters = filters.status !== "all" || filters.financial !== "all";
+  const hasActiveFilters = filters.status !== "all" || filters.financial !== "all" || filters.siteType !== "all";
 
   const copySiteSummary = (r) => {
     const pend = pendingMonths(r, records, month).map(monthLabelOf).join(", ");
@@ -2341,6 +2360,14 @@ function SitesTable({
           </select>
         </label>
         <label className="sm-filter">
+          <span>Site type</span>
+          <select value={filters.siteType} onChange={(e) => setF({ siteType: e.target.value })}>
+            <option value="all">All</option>
+            <option value="regular">Regular</option>
+            <option value="shutdown">Shutdown</option>
+          </select>
+        </label>
+        <label className="sm-filter">
           <span>Financial Status</span>
           <select value={filters.financial} onChange={(e) => setF({ financial: e.target.value })}>
             <option value="all">All</option>
@@ -2371,6 +2398,7 @@ function SitesTable({
             <tr>
               <th className="r">Sr. No.</th>
               <th className="click" onClick={() => setS("name")}>Site Name{arr("name")}</th>
+              <th>Site Type</th>
               <th>Contract</th>
               <th>Client / OC</th>
               <th className="r click" onClick={() => setS("revenue")}>Revenue (₹){arr("revenue")}</th>
@@ -2389,6 +2417,9 @@ function SitesTable({
                 <td className="strong">
                   <button type="button" className="sm-site-link" onClick={() => openSite(r.id)}>{r.name}</button>
                   <span className="sm-ver">{versionLabel(r)}</span>
+                </td>
+                <td className="muted-s">
+                  {r.siteType === "shutdown" ? "Shutdown" : "Regular"}
                 </td>
                 <td className="muted-s mono">
                   {r.contractStart ? `${monthLabelOf(r.contractStart)} - ${monthLabelOf(r.contractEnd)}` : "—"}
@@ -2717,7 +2748,7 @@ function SiteDetail({
               </thead>
               <tbody>
                 <tr className="vsec"><td colSpan={5}>Revenue</td></tr>
-                {revBreak.map((it) => (
+                {revBreak.filter((it) => it.raw !== 0 || it.est !== 0).map((it) => (
                   <tr key={it.key}>
                     <td className="vtbl-part">{it.label}</td>
                     <VarCells est={it.sign * it.est} actual={it.sign * it.raw} lowerIsBetter={false} hasEst={!!it.est} />
@@ -2832,7 +2863,7 @@ function MonthlyIeTable({ site, records, keys, estVer, revBreak, tree, expanded,
         </thead>
         <tbody>
           <tr className="vsec"><td colSpan={colSpanAll}><span className="vsec-label">Revenue</span></td></tr>
-          {revBreak.map((it) => (
+          {revBreak.filter((it) => it.raw !== 0 || it.est !== 0).map((it) => (
             <tr key={it.key}>
               <td className="vtbl-part">{it.label}</td>
               <td className="r mono dim vtbl-num">{hasEst ? inr(it.sign * (Number(estVer?.revenue?.[it.key]) || 0)) : "—"}</td>
@@ -4842,6 +4873,9 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
   const [name, setName] = useState(editSite?.name || "");
   const [wo, setWo] = useState(editSite?.wo || "");
   const [ocNumber, setOcNumber] = useState(editSite?.ocNumber || "");
+  const [siteType, setSiteType] = useState(
+    editSite?.siteType === "shutdown" ? "shutdown" : "regular",
+  );
   const [cStart, setCStart] = useState(() => contractDateInputValue(editSite?.contractStart) || "2025-04-01");
   const [cEnd, setCEnd] = useState(() => contractDateInputValue(editSite?.contractEnd) || "2026-03-31");
   const [renewalMode, setRenewalMode] = useState(false);
@@ -4857,6 +4891,7 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
   const submit = () => {
     if (!name.trim()) return;
     const trimmed = name.trim();
+    const normalizedType = siteType === "shutdown" ? "shutdown" : "regular";
     if (isEdit) {
       onSave({
         isEdit: true,
@@ -4865,6 +4900,7 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
         service: editSite?.service || "",
         wo: wo.trim(),
         ocNumber: ocNumber.trim(),
+        siteType: normalizedType,
         contractStart: contractPeriodFromDateInput(cStart),
         contractEnd: contractPeriodFromDateInput(cEnd),
       });
@@ -4879,6 +4915,7 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
       service: (priorActive?.service || "").trim(),
       wo: wo.trim(),
       ocNumber: ocNumber.trim() || (priorActive?.ocNumber || "").trim(),
+      siteType: normalizedType,
       structure: isRenewal && priorActive?.structure?.length
         ? priorActive.structure.map((g) => ({ parent: g.parent, children: [...g.children] }))
         : [],
@@ -4910,6 +4947,13 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
           </label>
         </div>
       )}
+      <label className="m-field">
+        <span>Site type</span>
+        <select value={siteType} onChange={(e) => setSiteType(e.target.value)} style={{ width: "100%" }}>
+          <option value="regular">Regular</option>
+          <option value="shutdown">Shutdown</option>
+        </select>
+      </label>
       <label className="m-field"><span>OC Number (client ref)</span><input value={ocNumber} onChange={(e) => setOcNumber(e.target.value)} placeholder="e.g. IFSPL-MANP-OC-25/26-00001" /></label>
       <label className="m-field"><span>Work order / PO no.</span><input value={wo} onChange={(e) => setWo(e.target.value)} placeholder="e.g. PO-2026-0142" /></label>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -4955,8 +4999,8 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
           <span />
         )}
         <div className="m-actions-right">
-          <button className="ghost-d" onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={submit}>{isEdit ? "Save changes" : isRenewal ? "Create new version" : "Add & configure"}</button>
+          <button type="button" className="ghost-d" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary" onClick={submit}>{isEdit ? "Save changes" : isRenewal ? "Create new version" : "Add & configure"}</button>
         </div>
       </div>
     </Modal>

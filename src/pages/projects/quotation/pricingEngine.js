@@ -35,6 +35,11 @@ export function emptyLineItem(defaults = {}) {
     inflation_amount: 0,
     margin_amount: 0,
     basic_total: 0,
+    // Session-only tags from "Fetch from Summary" (not persisted by replaceLineItems)
+    sourceChildHeadId: defaults.sourceChildHeadId,
+    sourceItemId: defaults.sourceItemId,
+    sourceKind: defaults.sourceKind,
+    fetchedSnapshot: defaults.fetchedSnapshot,
   };
 }
 
