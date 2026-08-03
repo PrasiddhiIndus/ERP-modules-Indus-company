@@ -1481,6 +1481,14 @@ export function EmployeeAttendanceDailyPage() {
               punchOut: punchInfo?.punchOut,
             });
           const markStyleOpts = purplePresent ? { purplePresent: true } : undefined;
+          const skyBluePunchTitle = purplePresent
+            ? [
+                punchInfo?.punchIn ? `In: ${punchInfo.punchIn}` : null,
+                punchInfo?.punchOut ? `Out: ${punchInfo.punchOut}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "Unusual punch window"
+            : undefined;
           return (
             <div
               onClick={(e) => {
@@ -1493,16 +1501,13 @@ export function EmployeeAttendanceDailyPage() {
               <div
                 style={registerMarkCellInlineStyle(value, markStyleOpts)}
                 className={`${registerMarkCellWrapperClass(value, markStyleOpts)} relative group/comment ${isCommentMark ? "cursor-pointer" : ""}`}
-                title={
-                  purplePresent
-                    ? "Purple P: first punch 12:00–15:00 or last punch before 12:00"
-                    : undefined
-                }
+                title={skyBluePunchTitle}
               >
                 <RegisterMarkPicker
                   value={value}
                   readOnly={leavingLocked}
                   purplePresent={purplePresent}
+                  hoverTitle={skyBluePunchTitle}
                   onChange={(next) => handleMarkChange(row.empCode, day, next)}
                 />
                 {hasComment && (

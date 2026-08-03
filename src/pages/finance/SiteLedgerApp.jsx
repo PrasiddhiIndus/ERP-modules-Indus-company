@@ -1088,6 +1088,23 @@ export default function SiteLedgerApp({ embedded = true }) {
   });
   }, [sitesL, records, month, sitePeriodKeys, needsPortfolio]);
 
+  /** Sites Master: contract-to-date actuals (same window as Pending Months), not a single empty month. */
+  const sitesMasterRows = useMemo(() => {
+    if (!needsPortfolio) return [];
+    const upto = month || currentPeriodKey();
+    return sitesL.map((s) => {
+      const keys = expectedMonths(s, upto);
+      const periodKeys = keys.length ? keys : [upto];
+      const c = calcSiteOverPeriodKeys(s, periodKeys, records);
+      const est = estTotalsForPeriodKeys(s, periodKeys);
+      const profitVar = est ? c.profit - est.profit : null;
+      const pending = isPending(s, records, upto);
+      const pendingCount = pendingMonths(s, records, upto).length;
+      const hasData = periodKeys.some((mk) => !!records[`${s.id}__${mk}`]);
+      return { ...s, ...c, est, profitVar, pending, pendingCount, hasData };
+    });
+  }, [sitesL, records, month, needsPortfolio]);
+
   const overviewPeriodKeys = useMemo(
     () => periodKeysBetween(periodFrom, periodTo),
     [periodFrom, periodTo],
@@ -1555,7 +1572,7 @@ export default function SiteLedgerApp({ embedded = true }) {
           )}
           {view === "sites" && (
             <SitesTable
-              rows={rows}
+              rows={sitesMasterRows}
               records={records}
               month={month}
               sitesAll={sitesEnriched}
