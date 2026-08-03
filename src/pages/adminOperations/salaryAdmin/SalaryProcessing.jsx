@@ -305,7 +305,7 @@ export default function SalaryProcessing() {
             <Link to="/app/admin/salary-admin/salary-master" className="font-semibold underline">
               Salary Master
             </Link>
-            , enter Basic / Special, Save CTC — then rows appear here.
+            , set Gross / CTC, Save — then rows appear here.
           </p>
         ) : null}
       </div>
