@@ -1,29 +1,26 @@
 /**
  * Salary Admin — UI-only helpers (no salary DB yet).
- * Compensation scheme matches Indus sheet Year 2026-2027.
+ * CTC formulas per Salary Admin BRD (Gross master → Basic / HRA / Special).
  *
  * PART A (monthly; P.A. = monthly × 12):
- * - Basic — manual
- * - HRA — 40% of Basic (default) or custom manual amount
- * - Special Allowance — manual (balancing figure)
- * - GROSS = Basic + HRA + Special Allowance
- * - Employee PF — manual (suggest 12% of Basic, capped ₹15,000)
- * - P.Tax — manual (suggest ₹200 when Gross > ₹12,000)
- * - Employee ESIC = Gross × 0.75% if Gross ≤ ₹42,000 else 0
+ * - Gross — master input; drives Auto Basic / HRA / Special
+ * - Basic — Auto: MAX(50% of Gross, ₹15,000) · Custom: manual (helper / negotiated)
+ * - HRA — Auto: 40% of Basic · Custom: fixed manual amount
+ * - Special Allowance — system: Gross − Basic − HRA (floored at ₹0, never editable)
+ * - Employee PF / P.Tax / Bonus / Mediclaim / LIC — editable placeholders (pending separate sign-off)
+ * - Employee ESIC = Basic × emp% if Gross ≤ configurable ceiling (else 0)
  * - TAKE HOME = Gross − Emp PF − P.Tax − Emp ESIC
  *
  * PART B:
- * - Employer PF — manual (suggest 13% of Basic, capped ₹15,000)
- * - Employer ESIC = Gross × 3.25% if Gross ≤ ₹21,000 else 0
- * - Gratuity = Basic × 4.81%
- * - Leave Encashment = (Basic / 26) × (7 / 12)
- * - Mediclaim health policy — optional manual
- * - LIC policy — optional manual
- * - Bonus — manual
- * - Total (B) = Er PF + Er ESIC + Gratuity + Leave Encashment + Mediclaim + LIC + Bonus
+ * - Employer PF — manual placeholder
+ * - Employer ESIC = Basic × er% if Gross ≤ same ceiling (else 0)
+ * - Gratuity / Leave Encashment / Bonus / Mediclaim / LIC — placeholders
  *
  * CTC (Monthly) = Gross + Total (B) · CTC (Annual) = CTC Monthly × 12
- * Annual (every row) = Monthly × 12
+ *
+ * Monthly Salary Processing reads saved Basic / HRA / Special / ESIC from the CTC
+ * record (does not re-derive Part A). Earnings prorate by attendance; ESIC
+ * eligibility still checks the full monthly Gross on the CTC record.
  */
 
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
@@ -31,14 +28,27 @@ const STORAGE_KEY = "admin_salary_ctc_ui_v1";
 export const PF_WAGE_CAP = 15000;
 export const EMP_PF_RATE = 0.12;
 export const ER_PF_RATE = 0.13;
-/** Employee ESIC applies only when Gross (Part A) ≤ this monthly ceiling. */
-export const EMP_ESIC_GROSS_THRESHOLD = 42000;
-/** Employer ESIC applies only when Gross (Part A) ≤ this monthly ceiling. */
-export const ER_ESIC_GROSS_THRESHOLD = 21000;
-/** @deprecated Use EMP_ESIC_GROSS_THRESHOLD — kept for older imports. */
-export const ESIC_GROSS_THRESHOLD = EMP_ESIC_GROSS_THRESHOLD;
-export const EMP_ESIC_RATE = 0.0075;
-export const ER_ESIC_RATE = 0.0325;
+
+/** Office-level Basic floor (Auto mode). */
+export const BASIC_SLAB_MIN = 15000;
+/** Auto Basic share of Gross. */
+export const BASIC_GROSS_PERCENT = 50;
+
+/** Default ESIC eligibility ceiling on monthly Gross (configurable per CTC). */
+export const DEFAULT_ESIC_CEILING = 41999;
+/** @deprecated Prefer DEFAULT_ESIC_CEILING — same value family for older imports. */
+export const EMP_ESIC_GROSS_THRESHOLD = DEFAULT_ESIC_CEILING;
+/** @deprecated Single ceiling now applies to both parties. */
+export const ER_ESIC_GROSS_THRESHOLD = DEFAULT_ESIC_CEILING;
+/** @deprecated Use DEFAULT_ESIC_CEILING. */
+export const ESIC_GROSS_THRESHOLD = DEFAULT_ESIC_CEILING;
+
+export const DEFAULT_EMP_ESIC_RATE_PCT = 0.75;
+export const DEFAULT_ER_ESIC_RATE_PCT = 3.25;
+/** Decimal forms kept for older imports. */
+export const EMP_ESIC_RATE = DEFAULT_EMP_ESIC_RATE_PCT / 100;
+export const ER_ESIC_RATE = DEFAULT_ER_ESIC_RATE_PCT / 100;
+
 export const PT_AMOUNT = 200;
 export const PT_GROSS_MIN = 12000;
 export const GRATUITY_RATE = 0.0481;
@@ -53,10 +63,18 @@ export const HRA_FIXED = Object.freeze({
   d: 62,
 });
 
-/** HRA entry modes on Salary Master CTC. */
+/** Component entry modes. */
+export const MODE_AUTO = "auto";
+export const MODE_CUSTOM = "custom";
+
+/** HRA entry modes (aliases for saved drafts). */
 export const HRA_MODE_PERCENT = "percent_40";
 export const HRA_MODE_CUSTOM = "custom";
 export const HRA_PERCENT = 40;
+
+/** Employee level — UX default for Basic mode only. */
+export const EMP_LEVEL_OFFICE = "office";
+export const EMP_LEVEL_HELPER = "helper";
 
 /**
  * Round to whole rupees. Stabilizes float noise (e.g. 15999.999999 → 16000)
@@ -75,6 +93,14 @@ export function parseRupeeInput(raw) {
   const n = Number(String(raw).replace(/,/g, "").trim());
   if (!Number.isFinite(n)) return null;
   return round0(n);
+}
+
+/** Parse a percentage / decimal setting (null if empty/invalid). */
+export function parseRateInput(raw) {
+  if (raw == null || raw === "") return null;
+  const n = Number(String(raw).replace(/%/g, "").trim());
+  if (!Number.isFinite(n)) return null;
+  return n;
 }
 
 export function formatINR(value) {
@@ -197,7 +223,6 @@ export function saveSalaryStructure(employeeMasterId, payload) {
 
 /**
  * Revise an existing CTC: archives the current structure, then saves the new one.
- * Archived entry keeps that version's own W.E.F. and reason (not the new revision's).
  * @param {string|number} employeeMasterId
  * @param {object} payload — new CTC fields
  * @param {{ reason?: string, wef_date?: string }} [meta]
@@ -224,7 +249,6 @@ export function reviseSalaryStructure(employeeMasterId, payload, meta = {}) {
     ...archived,
     revision_no: nextCount,
     revised_at: new Date().toISOString(),
-    // Keep THIS version's W.E.F. and reason (as they were while current)
     wef_date: archivedWef,
     revision_reason: archivedReason,
     superseded_wef: archivedWef,
@@ -264,11 +288,59 @@ export function hraFixedMonthly() {
   return round0(HRA_FIXED.a + HRA_FIXED.b + HRA_FIXED.c - HRA_FIXED.d);
 }
 
+/** Normalize Basic / HRA mode to auto | custom. */
+export function normalizeComponentMode(mode) {
+  if (mode === MODE_CUSTOM || mode === HRA_MODE_CUSTOM) return MODE_CUSTOM;
+  if (mode === HRA_MODE_PERCENT || mode === MODE_AUTO) return MODE_AUTO;
+  return MODE_AUTO;
+}
+
+/** Normalize saved / UI HRA mode (keeps percent_40 alias for drafts). */
+export function normalizeHraMode(mode) {
+  return normalizeComponentMode(mode) === MODE_CUSTOM
+    ? HRA_MODE_CUSTOM
+    : HRA_MODE_PERCENT;
+}
+
+export function normalizeEmployeeLevel(level) {
+  return level === EMP_LEVEL_HELPER ? EMP_LEVEL_HELPER : EMP_LEVEL_OFFICE;
+}
+
+/** Default Basic mode for an employee level (UX default only). */
+export function defaultBasicModeForLevel(level) {
+  return normalizeEmployeeLevel(level) === EMP_LEVEL_HELPER
+    ? MODE_CUSTOM
+    : MODE_AUTO;
+}
+
+/** Basic (Auto) = MAX(50% of Gross, ₹15,000). */
+export function basicFromGross(grossMonthly) {
+  const gross = round0(grossMonthly);
+  if (gross <= 0) return 0;
+  return round0(Math.max((gross * BASIC_GROSS_PERCENT) / 100, BASIC_SLAB_MIN));
+}
+
 /** HRA = 40% of Basic (whole rupees). */
 export function hraFromBasic(basicMonthly) {
   const basic = round0(basicMonthly);
   if (basic <= 0) return 0;
   return round0((basic * HRA_PERCENT) / 100);
+}
+
+/**
+ * Resolve Basic monthly from mode.
+ * @param {{ basicMode?: string, grossMonthly?: number, basicMonthly?: number|null }} opts
+ */
+export function resolveBasicMonthly({
+  basicMode = MODE_AUTO,
+  grossMonthly = 0,
+  basicMonthly = null,
+} = {}) {
+  if (normalizeComponentMode(basicMode) === MODE_CUSTOM) {
+    if (basicMonthly == null || basicMonthly === "") return 0;
+    return round0(basicMonthly);
+  }
+  return basicFromGross(grossMonthly);
 }
 
 /**
@@ -280,27 +352,30 @@ export function resolveHraMonthly({
   basicMonthly = 0,
   hraMonthly = null,
 } = {}) {
-  if (hraMode === HRA_MODE_CUSTOM) {
+  if (normalizeComponentMode(hraMode) === MODE_CUSTOM) {
     if (hraMonthly == null || hraMonthly === "") return 0;
     return round0(hraMonthly);
   }
   return hraFromBasic(basicMonthly);
 }
 
-/** Normalize saved / UI HRA mode. */
-export function normalizeHraMode(mode) {
-  return mode === HRA_MODE_CUSTOM ? HRA_MODE_CUSTOM : HRA_MODE_PERCENT;
+/** Special Allowance = Gross − Basic − HRA (floored at 0). */
+export function specialFromParts(grossMonthly, basicMonthly, hraMonthly) {
+  const raw = round0(grossMonthly) - round0(basicMonthly) - round0(hraMonthly);
+  return {
+    special: Math.max(0, raw),
+    raw,
+    exceedsGross: raw < 0,
+  };
 }
 
 export function suggestedEmpPf(basicMonthly) {
   const pfBase = Math.min(round0(basicMonthly), PF_WAGE_CAP);
-  // 12% of PF base — same formula, integer-safe
   return round0((pfBase * 12) / 100);
 }
 
 export function suggestedErPf(basicMonthly) {
   const pfBase = Math.min(round0(basicMonthly), PF_WAGE_CAP);
-  // 13% of PF base — same formula, integer-safe
   return round0((pfBase * 13) / 100);
 }
 
@@ -316,16 +391,85 @@ export function suggestedPfFromBasic(basicMonthly) {
 export function leaveEncashFromBasic(basicMonthly) {
   const basic = round0(basicMonthly);
   if (basic <= 0) return 0;
-  // (Basic ÷ 26) × (7 ÷ 12) ≡ (Basic × 7) ÷ 312 — same formula, integer-safe
   return round0((basic * 7) / (LEAVE_ENCASH_DAYS * 12));
 }
 
 /**
- * Compute Part A / Part B / CTC per written compensation formulas.
+ * Resolve ESIC settings from args / saved structure (configurable, not hardcoded).
+ */
+export function resolveEsicSettings({
+  esicEnabled = true,
+  esicCeiling = null,
+  esicEmpRatePct = null,
+  esicErRatePct = null,
+} = {}) {
+  const ceiling =
+    esicCeiling != null && esicCeiling !== ""
+      ? round0(esicCeiling)
+      : DEFAULT_ESIC_CEILING;
+  const empPct =
+    esicEmpRatePct != null && esicEmpRatePct !== ""
+      ? Number(esicEmpRatePct)
+      : DEFAULT_EMP_ESIC_RATE_PCT;
+  const erPct =
+    esicErRatePct != null && esicErRatePct !== ""
+      ? Number(esicErRatePct)
+      : DEFAULT_ER_ESIC_RATE_PCT;
+  return {
+    esic_enabled: Boolean(esicEnabled),
+    esic_ceiling: Number.isFinite(ceiling) && ceiling > 0 ? ceiling : DEFAULT_ESIC_CEILING,
+    esic_emp_rate_pct: Number.isFinite(empPct) && empPct > 0 ? empPct : DEFAULT_EMP_ESIC_RATE_PCT,
+    esic_er_rate_pct: Number.isFinite(erPct) && erPct > 0 ? erPct : DEFAULT_ER_ESIC_RATE_PCT,
+  };
+}
+
+/**
+ * ESIC on Basic when Gross is within the ceiling (BRD + prototype).
+ * Eligibility uses full monthly Gross — never attendance-prorated Gross.
+ */
+export function computeEsicOnBasic({
+  grossMonthly = 0,
+  basicMonthly = 0,
+  esicEnabled = true,
+  esicCeiling = DEFAULT_ESIC_CEILING,
+  esicEmpRatePct = DEFAULT_EMP_ESIC_RATE_PCT,
+  esicErRatePct = DEFAULT_ER_ESIC_RATE_PCT,
+} = {}) {
+  const settings = resolveEsicSettings({
+    esicEnabled,
+    esicCeiling,
+    esicEmpRatePct,
+    esicErRatePct,
+  });
+  const gross = round0(grossMonthly);
+  const basic = round0(basicMonthly);
+  const eligible =
+    settings.esic_enabled && gross > 0 && gross <= settings.esic_ceiling;
+  const empEsic = eligible
+    ? round0((basic * settings.esic_emp_rate_pct) / 100)
+    : 0;
+  const erEsic = eligible
+    ? round0((basic * settings.esic_er_rate_pct) / 100)
+    : 0;
+  return {
+    ...settings,
+    esic_eligible: eligible,
+    emp_esic_monthly: empEsic,
+    er_esic_monthly: erEsic,
+    emp_esic_applicable: eligible,
+    er_esic_applicable: eligible,
+  };
+}
+
+/**
+ * Compute Part A / Part B / CTC.
+ * Gross is the master input when provided; legacy drafts without Gross
+ * still work via Basic + HRA + Special.
  */
 export function computeCtcStructure({
+  grossMonthly = null,
   basicMonthly = 0,
-  specialAllowanceMonthly = 0,
+  specialAllowanceMonthly = null,
   empPfMonthly = null,
   erPfMonthly = null,
   ptMonthly = null,
@@ -334,20 +478,55 @@ export function computeCtcStructure({
   mediclaimMonthly = null,
   licEnabled = false,
   licMonthly = null,
+  basicMode = MODE_AUTO,
   hraMode = HRA_MODE_PERCENT,
   hraMonthly = null,
+  employeeLevel = EMP_LEVEL_OFFICE,
+  esicEnabled = true,
+  esicCeiling = null,
+  esicEmpRatePct = null,
+  esicErRatePct = null,
 } = {}) {
-  const basic = round0(basicMonthly);
-  const special = round0(specialAllowanceMonthly);
-  const mode = normalizeHraMode(hraMode);
+  const bMode = normalizeComponentMode(basicMode);
+  const hMode = normalizeComponentMode(hraMode);
+  const level = normalizeEmployeeLevel(employeeLevel);
+
+  const hasGrossInput =
+    grossMonthly != null && grossMonthly !== "" && Number(grossMonthly) > 0;
+  let gross = hasGrossInput ? round0(grossMonthly) : 0;
+
+  const basic = resolveBasicMonthly({
+    basicMode: bMode,
+    grossMonthly: hasGrossInput ? gross : 0,
+    basicMonthly,
+  });
+
   const hra = resolveHraMonthly({
-    hraMode: mode,
+    hraMode: hMode,
     basicMonthly: basic,
     hraMonthly,
   });
-  const gross = basic + hra + special;
 
-  if (basic <= 0 && special <= 0 && hra <= 0) {
+  let special;
+  let structureWarn = null;
+  let structureInvalid = false;
+
+  if (hasGrossInput) {
+    const parts = specialFromParts(gross, basic, hra);
+    special = parts.special;
+    if (parts.exceedsGross) {
+      structureInvalid = true;
+      structureWarn =
+        `Basic (${formatINR(basic)}) + HRA (${formatINR(hra)}) exceed Gross (${formatINR(gross)}). ` +
+        `Special allowance is floored at ₹0 — raise Gross or lower Basic / HRA before saving.`;
+    }
+  } else {
+    // Legacy path: Gross derived from components (pre–Gross-master drafts)
+    special = round0(specialAllowanceMonthly ?? 0);
+    gross = basic + hra + special;
+  }
+
+  if (gross <= 0 && basic <= 0 && special <= 0 && hra <= 0) {
     return emptyCtcStructure();
   }
 
@@ -360,12 +539,14 @@ export function computeCtcStructure({
       ? round0(erPfMonthly)
       : suggestedErPf(basic);
 
-  // Employee ESIC: Gross × 0.75% only if Gross ≤ ₹42,000
-  const empEsicApplicable = gross > 0 && gross <= EMP_ESIC_GROSS_THRESHOLD;
-  const empEsic = empEsicApplicable ? round0((gross * 75) / 10000) : 0;
-  // Employer ESIC: Gross × 3.25% only if Gross ≤ ₹21,000
-  const erEsicApplicable = gross > 0 && gross <= ER_ESIC_GROSS_THRESHOLD;
-  const erEsic = erEsicApplicable ? round0((gross * 325) / 10000) : 0;
+  const esic = computeEsicOnBasic({
+    grossMonthly: gross,
+    basicMonthly: basic,
+    esicEnabled,
+    esicCeiling,
+    esicEmpRatePct,
+    esicErRatePct,
+  });
 
   const pt =
     ptMonthly != null && ptMonthly !== ""
@@ -374,12 +555,9 @@ export function computeCtcStructure({
         ? PT_AMOUNT
         : 0;
 
-  // TAKE HOME = GROSS_A − Employee_PF − P_Tax − Employee_ESIC
-  const takeHome = gross - empPf - pt - empEsic;
+  const takeHome = gross - empPf - pt - esic.emp_esic_monthly;
 
-  // Gratuity = Basic × 4.81%
   const gratuity = round0((basic * 481) / 10000);
-  // Leave Encashment = (Basic / 26) × (7 / 12)
   const leaveEncash = leaveEncashFromBasic(basic);
   const bonus =
     bonusMonthly != null && bonusMonthly !== "" ? round0(bonusMonthly) : 0;
@@ -392,27 +570,34 @@ export function computeCtcStructure({
       ? round0(licMonthly)
       : 0;
 
-  // Total (Part B) = Er PF + Er ESIC + Gratuity + Leave Encashment (+ optional Mediclaim / LIC / Bonus)
   const totalB =
-    erPf + erEsic + gratuity + leaveEncash + mediclaim + lic + bonus;
-  // CTC (Monthly) = GROSS_A + Total_B · CTC (Annual) = CTC_Monthly × 12
+    erPf + esic.er_esic_monthly + gratuity + leaveEncash + mediclaim + lic + bonus;
   const ctcMonthly = gross + totalB;
   const ctcAnnual = paFromMonthly(ctcMonthly);
 
   return {
+    employee_level: level,
+    basic_mode: bMode,
     basic_monthly: basic,
-    hra_mode: mode,
+    hra_mode: hMode === MODE_CUSTOM ? HRA_MODE_CUSTOM : HRA_MODE_PERCENT,
     hra_monthly: hra,
     special_allowance_monthly: special,
     gross_monthly: gross,
+    structure_warn: structureWarn,
+    structure_invalid: structureInvalid,
     emp_pf_monthly: empPf,
     pt_monthly: pt,
-    emp_esic_monthly: empEsic,
-    emp_esic_applicable: empEsicApplicable,
+    emp_esic_monthly: esic.emp_esic_monthly,
+    emp_esic_applicable: esic.emp_esic_applicable,
+    esic_enabled: esic.esic_enabled,
+    esic_ceiling: esic.esic_ceiling,
+    esic_emp_rate_pct: esic.esic_emp_rate_pct,
+    esic_er_rate_pct: esic.esic_er_rate_pct,
+    esic_eligible: esic.esic_eligible,
     take_home_monthly: takeHome,
     er_pf_monthly: erPf,
-    er_esic_monthly: erEsic,
-    er_esic_applicable: erEsicApplicable,
+    er_esic_monthly: esic.er_esic_monthly,
+    er_esic_applicable: esic.er_esic_applicable,
     gratuity_monthly: gratuity,
     leave_encash_monthly: leaveEncash,
     mediclaim_enabled: Boolean(mediclaimEnabled),
@@ -429,15 +614,24 @@ export function computeCtcStructure({
 
 export function emptyCtcStructure() {
   return {
+    employee_level: EMP_LEVEL_OFFICE,
+    basic_mode: MODE_AUTO,
     basic_monthly: null,
     hra_mode: HRA_MODE_PERCENT,
     hra_monthly: null,
     special_allowance_monthly: null,
     gross_monthly: null,
+    structure_warn: null,
+    structure_invalid: false,
     emp_pf_monthly: null,
     pt_monthly: null,
     emp_esic_monthly: null,
     emp_esic_applicable: false,
+    esic_enabled: true,
+    esic_ceiling: DEFAULT_ESIC_CEILING,
+    esic_emp_rate_pct: DEFAULT_EMP_ESIC_RATE_PCT,
+    esic_er_rate_pct: DEFAULT_ER_ESIC_RATE_PCT,
+    esic_eligible: false,
     take_home_monthly: null,
     er_pf_monthly: null,
     er_esic_monthly: null,
@@ -458,9 +652,10 @@ export function emptyCtcStructure() {
 
 export function statutoryHelpText() {
   return (
-    `HRA = ${HRA_PERCENT}% of Basic (or custom)` +
-    ` · Leave Encashment = (Basic ÷ ${LEAVE_ENCASH_DAYS}) × (7 ÷ 12)` +
-    ` · Bonus — manual`
+    `Basic (Auto) = MAX(${BASIC_GROSS_PERCENT}% of Gross, ₹${BASIC_SLAB_MIN.toLocaleString("en-IN")})` +
+    ` · HRA (Auto) = ${HRA_PERCENT}% of Basic` +
+    ` · Special = Gross − Basic − HRA` +
+    ` · ESIC on Basic when Gross ≤ ceiling`
   );
 }
 
@@ -471,7 +666,6 @@ function sheetProrate(amount, presentDays, totalDays = DEFAULT_MONTH_DAYS) {
   const k = Number(presentDays);
   const td = Number(totalDays) || DEFAULT_MONTH_DAYS;
   if (!Number.isFinite(k) || td <= 0 || base === 0) return 0;
-  // (amount ÷ TotalDays) × presentDays — same formula, integer-safe order
   return round0((base * k) / td);
 }
 
@@ -479,6 +673,11 @@ export function defaultPtForGross(grossWages) {
   return Number(grossWages) > PT_GROSS_MIN ? PT_AMOUNT : 0;
 }
 
+/**
+ * Monthly processing from saved CTC.
+ * Part A amounts are read from the structure (not re-derived).
+ * ESIC eligibility uses full monthly Gross on the CTC record.
+ */
 export function computeProcessingRow({
   structure,
   presentDays = DEFAULT_MONTH_DAYS,
@@ -551,14 +750,26 @@ export function computeProcessingRow({
   const specialQ = sheetProrate(specialStored, K, TotalDays);
   const grossWagesR = basicEarnedO + hraP + specialQ;
   const empPfS = round0((pfEarnedM * 12) / 100);
-  const empEsicT =
-    grossWagesR > 0 && grossWagesR <= ESIC_GROSS_THRESHOLD
-      ? round0((grossWagesR * 75) / 10000)
-      : 0;
+
+  // ESIC: eligibility from saved full monthly Gross; contribution on prorated Basic
+  // using rates / ceiling stored on the CTC record.
+  const fullGross = salaryRateJ;
+  const esic = computeEsicOnBasic({
+    grossMonthly: fullGross,
+    basicMonthly: basicEarnedO,
+    esicEnabled: structure.esic_enabled !== false,
+    esicCeiling: structure.esic_ceiling ?? DEFAULT_ESIC_CEILING,
+    esicEmpRatePct: structure.esic_emp_rate_pct ?? DEFAULT_EMP_ESIC_RATE_PCT,
+    esicErRatePct: structure.esic_er_rate_pct ?? DEFAULT_ER_ESIC_RATE_PCT,
+  });
+  const empEsicT = esic.emp_esic_monthly;
+
   const ptU =
     ptOverride != null && ptOverride !== ""
       ? round0(ptOverride)
-      : defaultPtForGross(grossWagesR);
+      : structure.pt_monthly != null && structure.pt_monthly !== ""
+        ? round0(structure.pt_monthly)
+        : defaultPtForGross(grossWagesR);
 
   const loanV = round0(loan);
   const salAdvW = round0(salAdv);
@@ -596,8 +807,8 @@ export function computeProcessingRow({
 export function processingHelpText() {
   return (
     `TotalDays = ${DEFAULT_MONTH_DAYS}. ` +
-    `Prorate Basic / HRA / Special from saved master · PF = PF earned × 12% · ` +
-    `ESIC if Gross ≤ ₹42,000 · Net = Gross − deductions.`
+    `Prorate Basic / HRA / Special from saved CTC · PF = PF earned × 12% · ` +
+    `ESIC eligibility from full monthly Gross on CTC · Net = Gross − deductions.`
   );
 }
 
