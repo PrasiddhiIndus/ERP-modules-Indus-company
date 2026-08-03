@@ -11,6 +11,7 @@ export const QUOTATION_BASE = '/app/projects/quotation';
 export const TAB_IDS = [
   'quotation-dashboard',
   'quotation-entry',
+  'quotation-summary',
   'quotation-list',
   'quotation-board',
   'quotation-dropdown',
@@ -23,6 +24,7 @@ export const LIST_COLUMNS = [
   { key: 'client_name', label: 'Client' },
   { key: 'location', label: 'Location' },
   { key: 'subject', label: 'Subject' },
+  { key: 'systems_covered', label: 'Systems Covered', type: 'systems' },
   { key: 'offer_type', label: 'Offer Type' },
   { key: 'quoted_rate', label: 'Quoted Rate', type: 'currency' },
   { key: 'offer_status', label: 'Status', type: 'status' },
