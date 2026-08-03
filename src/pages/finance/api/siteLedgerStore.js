@@ -29,6 +29,7 @@ export function serializeSiteMeta(site) {
     ocDate: site.ocDate ? String(site.ocDate).trim() : "",
     estContractStart: site.estContractStart ? String(site.estContractStart).trim() : "",
     estContractEnd: site.estContractEnd ? String(site.estContractEnd).trim() : "",
+    siteType: site.siteType === "shutdown" ? "shutdown" : "regular",
   };
   if (Array.isArray(site.customHeads) && site.customHeads.length) {
     meta.customHeads = site.customHeads;
@@ -403,6 +404,7 @@ function buildSites(raw, parentById, childById) {
       ocDate: meta.ocDate || "",
       estContractStart: meta.estContractStart || "",
       estContractEnd: meta.estContractEnd || "",
+      siteType: meta.siteType === "shutdown" ? "shutdown" : "regular",
       contractStart: s.contract_start_period || periodFromDate(s.contract_start),
       contractEnd: s.contract_end_period || periodFromDate(s.contract_end),
       status: s.status || "active",
@@ -647,27 +649,37 @@ async function getSiteUuidByCode(siteCode) {
   return data?.id || null;
 }
 
+function siteRowColumns(site, index) {
+  return {
+    code: site.id,
+    name: site.name,
+    service_type: site.service || null,
+    work_order_no: site.wo || null,
+    contract_start_period: site.contractStart || null,
+    contract_end_period: site.contractEnd || null,
+    contract_start: site.contractStart ? `${site.contractStart}-01` : null,
+    contract_end: site.contractEnd ? `${site.contractEnd}-01` : null,
+    status: site.status || "active",
+    remarks: serializeSiteMeta(site),
+    sort_order: index,
+  };
+}
+
 async function upsertSiteRow(site, index) {
+  const payload = siteRowColumns(site, index);
+  const existingId = await getSiteUuidByCode(site.id);
+  if (existingId) {
+    const { error } = await t("sites").update(payload).eq("id", existingId);
+    if (error) throw error;
+    siteUuidByCode.set(site.id, existingId);
+    return existingId;
+  }
   const { data: siteRow, error } = await t("sites")
-    .upsert(
-      {
-        code: site.id,
-        name: site.name,
-        service_type: site.service || null,
-        work_order_no: site.wo || null,
-        contract_start_period: site.contractStart || null,
-        contract_end_period: site.contractEnd || null,
-        contract_start: site.contractStart ? `${site.contractStart}-01` : null,
-        contract_end: site.contractEnd ? `${site.contractEnd}-01` : null,
-        status: site.status || "active",
-        remarks: serializeSiteMeta(site),
-        sort_order: index,
-      },
-      { onConflict: "code" },
-    )
+    .insert(payload)
     .select("id")
     .single();
   if (error) throw error;
+  siteUuidByCode.set(site.id, siteRow.id);
   return siteRow.id;
 }
 
@@ -1559,7 +1571,7 @@ async function saveLedgerStructureInner({ siteCode, sites, library, parents, lib
     const revIdByCode = await upsertRevenueHeads();
     siteUuid = await syncSite(site, parentIdByCode, childIdByCode, revIdByCode, 0);
   } else {
-    await t("sites").update({ remarks: serializeSiteMeta(site) }).eq("id", siteUuid);
+    siteUuid = await upsertSiteRow(site, 0);
     await syncSiteStructureBatch(siteUuid, site.structure, parentIdByCode, childIdByCode);
   }
 
@@ -1578,10 +1590,11 @@ async function saveLedgerMastersInner({ sites, library, parents }) {
   }));
   const childIdByCode = await syncLibrary(libraryForSitesPersist(library, normalizedSites), parentIdByCode);
 
-  for (const site of normalizedSites) {
+  for (let i = 0; i < normalizedSites.length; i++) {
+    const site = normalizedSites[i];
     const siteUuid = await getSiteUuidByCode(site.id);
     if (siteUuid) {
-      await t("sites").update({ remarks: serializeSiteMeta(site) }).eq("id", siteUuid);
+      await upsertSiteRow(site, i);
       await syncSiteStructureBatch(siteUuid, site.structure, parentIdByCode, childIdByCode);
     }
   }

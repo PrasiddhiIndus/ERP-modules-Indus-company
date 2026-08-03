@@ -476,7 +476,7 @@ const REGISTER_MARK_WRAPPER_BASE = "min-w-[58px] rounded-md border shadow-sm";
 export const REGISTER_MARK_CELL_COLORS = {
   P: { bg: "#1a7a1a", border: "#1a7a1a", text: "white" },
   /** Present with afternoon first punch (12:00–15:00) or last punch before noon. */
-  P_PURPLE: { bg: "#9a2a9a", border: "#9a2a9a", text: "white" },
+  P_PURPLE: { bg: "#0ea5e9", border: "#0ea5e9", text: "white" },
   "P(OD)": { bg: "#9a2a9a", border: "#9a2a9a", text: "white" },
   T: { bg: "#9a2a9a", border: "#9a2a9a", text: "white" },
   L: { bg: "#c62818", border: "#c62818", text: "white" },

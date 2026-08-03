@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Download,
+  ExternalLink,
   Eye,
   Loader2,
   MessageSquarePlus,
@@ -25,6 +27,7 @@ import {
   formatCurrency,
   formatDisplayDate,
   LIST_COLUMNS,
+  QUOTATION_BASE,
   qInput,
   qSelect,
   todayIsoDate,
@@ -36,9 +39,49 @@ import ConvertToProjectModal from './ConvertToProjectModal';
 import { useQuotationDropdowns } from './useQuotationDropdowns';
 import { useAuth } from '../../../contexts/AuthContext';
 import QuotationImportPanel from './QuotationImportPanel';
+import { useQuotationDraft } from './QuotationDraftContext';
+import {
+  formatMainHeadLabels,
+  formatScopeTooltip,
+  getScopeLabels,
+} from './summary/summaryHelpers';
 
 export default function QuotationList() {
+  const navigate = useNavigate();
   const { user } = useAuth();
+  const { boqTrees, setActiveQuotationId, getLabel } = useQuotationDraft();
+
+  const draftSessionRows = useMemo(() => {
+    return Object.entries(boqTrees)
+      .filter(([id, tree]) => String(id).startsWith('draft-') && (tree || []).length > 0)
+      .map(([id, tree]) => {
+        const scope = getScopeLabels(tree);
+        return {
+          id,
+          label: getLabel(id),
+          compact: formatMainHeadLabels(scope) || '—',
+          tooltip: formatScopeTooltip(scope),
+        };
+      });
+  }, [boqTrees, getLabel]);
+
+  const openSummaryFor = (quotationId, label) => {
+    setActiveQuotationId(quotationId, label);
+    navigate(`${QUOTATION_BASE}/quotation-summary`);
+  };
+
+  const openDetail = (row, mode) => {
+    const label =
+      row.offer_no ||
+      row.subject ||
+      row.scope ||
+      row.client_name ||
+      row.id;
+    setActiveQuotationId(row.id, label);
+    setDetailId(row.id);
+    setDetailMode(mode);
+  };
+
   const { valuesForKindKey } = useQuotationDropdowns();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -151,6 +194,8 @@ export default function QuotationList() {
         let v;
         if (col.key === 'days_since_followup') {
           v = daysBetween(row.last_followup_date ?? row.offer_date);
+        } else if (col.key === 'systems_covered') {
+          v = '';
         } else if (col.type === 'date') v = formatDisplayDate(row[col.key]);
         else if (col.type === 'currency') v = row[col.key] ?? '';
         else v = row[col.key] ?? '';
@@ -201,6 +246,10 @@ export default function QuotationList() {
     try {
       const inserted = await createQuotationRevision(row, { userId: user?.id });
       await fetchRows();
+      setActiveQuotationId(
+        inserted.id,
+        inserted.offer_no || row.offer_no || inserted.id
+      );
       setDetailId(inserted.id);
       setDetailMode('edit');
     } catch (err) {
@@ -349,16 +398,66 @@ export default function QuotationList() {
                     <Loader2 className="h-7 w-7 animate-spin text-slate-400 inline-block" />
                   </td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : filtered.length === 0 && draftSessionRows.length === 0 ? (
                 <tr>
                   <td colSpan={LIST_COLUMNS.length + 3} className="py-12 text-center text-slate-500">
                     No quotations found.
                   </td>
                 </tr>
               ) : (
-                filtered.map((row, idx) => {
+                <>
+                  {draftSessionRows.map((draft) => (
+                    <tr key={draft.id} className="border-t border-blue-100 bg-blue-50/50">
+                      <td className="px-3 py-2 text-xs text-slate-500 text-center whitespace-nowrap">—</td>
+                      <td className="px-3 py-2" />
+                      <td className="px-3 py-2 font-medium text-blue-800 whitespace-nowrap">
+                        Session draft
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-400">—</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-400">—</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-400">—</td>
+                      <td className="px-3 py-2 max-w-[160px] truncate text-slate-600" title={draft.label}>
+                        {draft.label}
+                      </td>
+                      <td className="px-3 py-2 max-w-[220px]" title={draft.tooltip || undefined}>
+                        <button
+                          type="button"
+                          onClick={() => openSummaryFor(draft.id, draft.label)}
+                          className="group inline-flex items-start gap-1.5 text-left max-w-full"
+                        >
+                          <span className="text-xs font-medium text-blue-700 group-hover:text-blue-800 group-hover:underline line-clamp-2">
+                            {draft.compact}
+                          </span>
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-600 opacity-70 group-hover:opacity-100" />
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-slate-400">—</td>
+                      <td className="px-3 py-2 text-slate-400">—</td>
+                      <td className="px-3 py-2">
+                        <span className="inline-flex items-center rounded-md bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-800">
+                          In session
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-400">—</td>
+                      <td className="px-3 py-2 text-slate-400">—</td>
+                      <td className="px-3 py-2 text-slate-400">—</td>
+                      <td className="px-3 py-2 text-slate-400">—</td>
+                      <td className="px-3 py-2 text-center text-slate-400">—</td>
+                      <td className="px-3 py-2 text-right text-[11px] text-slate-500 whitespace-nowrap">
+                        From Summary tab
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.map((row, idx) => {
                   const overdue = isFollowupOverdue(row, today);
                   const daysSince = daysBetween(row.last_followup_date ?? row.offer_date);
+                  const rowTree = boqTrees[row.id];
+                  const rowScope = rowTree?.length ? getScopeLabels(rowTree) : [];
+                  const rowSystemsCompact = rowScope.length
+                    ? formatMainHeadLabels(rowScope) || '—'
+                    : '—';
+                  const rowSystemsTooltip = rowScope.length ? formatScopeTooltip(rowScope) : '';
+                  const hasRowSystems = Boolean(rowTree?.length);
                   return (
                     <tr key={row.id} className={`border-t border-slate-100 hover:bg-slate-50/80 ${overdue ? 'bg-rose-50/40' : ''}`}>
                       <td className="px-3 py-2 text-xs text-slate-500 text-center whitespace-nowrap">{idx + 1}</td>
@@ -371,6 +470,30 @@ export default function QuotationList() {
                       <td className="px-3 py-2 whitespace-nowrap">{row.location || '—'}</td>
                       <td className="px-3 py-2 max-w-[160px] truncate" title={row.subject || row.scope || ''}>
                         {row.subject || row.scope || '—'}
+                      </td>
+                      <td
+                        className="px-3 py-2 max-w-[180px] text-xs"
+                        title={hasRowSystems ? rowSystemsTooltip : undefined}
+                      >
+                        {hasRowSystems ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openSummaryFor(
+                                row.id,
+                                row.offer_no || row.subject || row.client_name || row.id
+                              )
+                            }
+                            className="group inline-flex items-start gap-1.5 text-left max-w-full"
+                          >
+                            <span className="font-medium text-blue-700 group-hover:text-blue-800 group-hover:underline line-clamp-2">
+                              {rowSystemsCompact}
+                            </span>
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-600 opacity-70 group-hover:opacity-100" />
+                          </button>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2">{row.offer_type || '—'}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{formatCurrency(row.quoted_rate)}</td>
@@ -391,10 +514,10 @@ export default function QuotationList() {
                       <td className="px-3 py-2 text-center">{daysSince == null ? '—' : daysSince}</td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-end gap-1">
-                          <IconBtn title="View" onClick={() => { setDetailId(row.id); setDetailMode('view'); }}>
+                          <IconBtn title="View" onClick={() => openDetail(row, 'view')}>
                             <Eye className="h-3.5 w-3.5" />
                           </IconBtn>
-                          <IconBtn title="Edit" onClick={() => { setDetailId(row.id); setDetailMode('edit'); }}>
+                          <IconBtn title="Edit" onClick={() => openDetail(row, 'edit')}>
                             <Pencil className="h-3.5 w-3.5" />
                           </IconBtn>
                           <IconBtn title="Follow-up" onClick={() => setFollowupRow(row)}>
@@ -415,13 +538,19 @@ export default function QuotationList() {
                       </td>
                     </tr>
                   );
-                })
+                })}
+                </>
               )}
             </tbody>
           </table>
         </div>
         <div className="px-4 py-2 border-t border-slate-100 text-xs text-slate-500">
-          Showing {filtered.length} of {rows.length} quotations · sorted by next follow-up (overdue first)
+          Showing {filtered.length} of {rows.length} quotations
+          {draftSessionRows.length > 0
+            ? ` · +${draftSessionRows.length} in-session Summary draft${draftSessionRows.length > 1 ? 's' : ''}`
+            : ''}
+          {' '}
+          · sorted by next follow-up (overdue first)
         </div>
       </div>
 

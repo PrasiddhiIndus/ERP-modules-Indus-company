@@ -147,7 +147,13 @@ function SubmenuRow({
   );
 }
 
-export function RegisterMarkPicker({ value, onChange, readOnly = false, purplePresent = false }) {
+export function RegisterMarkPicker({
+  value,
+  onChange,
+  readOnly = false,
+  purplePresent = false,
+  hoverTitle,
+}) {
   const [open, setOpen] = useState(false);
   const [leaveSubmenuOpen, setLeaveSubmenuOpen] = useState(false);
   const [halfDaySubmenuOpen, setHalfDaySubmenuOpen] = useState(false);
@@ -347,6 +353,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false, purplePr
       {readOnly ? (
         <span
           aria-label={registerMarkOptionLabel(value)}
+          title={hoverTitle}
           className={`${displayClass} block w-full h-8 px-1 font-semibold text-center leading-8 cursor-default`}
         >
           {renderMarkLabel()}
@@ -357,6 +364,7 @@ export function RegisterMarkPicker({ value, onChange, readOnly = false, purplePr
           type="button"
           aria-label={registerMarkOptionLabel(value)}
           aria-expanded={open}
+          title={hoverTitle}
           onClick={toggleOpen}
           onMouseDown={(e) => e.stopPropagation()}
           style={registerMarkCellInlineStyle(value, markStyleOpts)}
