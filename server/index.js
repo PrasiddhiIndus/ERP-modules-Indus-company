@@ -239,6 +239,73 @@ function getSupabaseAnonKeyForServer() {
   return normalizeEnvValue(process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY);
 }
 
+/**
+ * Production self-heal: if SERVICE_ROLE_KEY is missing/invalid, load it from
+ * committed .env.server.example (same production project as indus-erp.in).
+ * Staging hosts (ERP_ENV=staging) never use this path.
+ */
+function ensureProductionServiceRoleFromExample() {
+  if (isStagingErpEnv()) return;
+
+  const url = normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+  const urlRef = getSupabaseProjectRefFromUrl(url) || PRODUCTION_SUPABASE_PROJECT_REF;
+  if (urlRef !== PRODUCTION_SUPABASE_PROJECT_REF) return;
+
+  const current = getRawSupabaseServiceRoleKey();
+  const probeUrl = url || `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`;
+  if (diagnoseServiceRoleKey(probeUrl, current) === 'ok') return;
+
+  const examplePath = path.join(repoRoot, '.env.server.example');
+  try {
+    if (!fs.existsSync(examplePath)) return;
+    const parsed = dotenv.parse(fs.readFileSync(examplePath, 'utf8'));
+    const fromExample = normalizeEnvValue(parsed.SUPABASE_SERVICE_ROLE_KEY || '');
+    const exampleUrl =
+      normalizeEnvValue(parsed.SUPABASE_URL || '') ||
+      `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`;
+    if (diagnoseServiceRoleKey(exampleUrl, fromExample) !== 'ok') return;
+
+    process.env.SUPABASE_SERVICE_ROLE_KEY = fromExample;
+    if (!normalizeEnvValue(process.env.SUPABASE_URL)) {
+      process.env.SUPABASE_URL = exampleUrl.replace(/\/+$/, '');
+    }
+    _envSourceMap.SUPABASE_SERVICE_ROLE_KEY = '.env.server.example (auto-heal)';
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[server] SUPABASE_SERVICE_ROLE_KEY was missing/invalid — loaded production key from .env.server.example. ' +
+        'Set PROD_SUPABASE_SERVICE_ROLE_KEY / .env.server for a permanent fix.'
+    );
+
+    try {
+      const serverEnvPath = path.join(repoRoot, '.env.server');
+      let body = '';
+      if (fs.existsSync(serverEnvPath)) {
+        body = fs
+          .readFileSync(serverEnvPath, 'utf8')
+          .split(/\r?\n/)
+          .filter((line) => !/^\s*SUPABASE_SERVICE_ROLE_KEY\s*=/.test(line))
+          .join('\n')
+          .replace(/\n{3,}/g, '\n\n');
+      }
+      if (body && !body.endsWith('\n')) body += '\n';
+      body += `SUPABASE_SERVICE_ROLE_KEY=${fromExample}\n`;
+      if (!/^\s*SUPABASE_URL\s*=/m.test(body)) {
+        body += `SUPABASE_URL=${exampleUrl.replace(/\/+$/, '')}\n`;
+      }
+      fs.writeFileSync(serverEnvPath, body, 'utf8');
+      // eslint-disable-next-line no-console
+      console.warn('[server] Wrote SUPABASE_SERVICE_ROLE_KEY into .env.server for future restarts.');
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[server] Could not persist service role into .env.server:', err?.message || err);
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[server] Could not auto-heal service role from example:', err?.message || err);
+  }
+}
+
+ensureProductionServiceRoleFromExample();
 applyEnvironmentSupabasePin();
 
 /**
