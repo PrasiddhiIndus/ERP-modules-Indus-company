@@ -247,12 +247,17 @@ function getSupabaseAnonKeyForServer() {
 function ensureProductionServiceRoleFromExample() {
   if (isStagingErpEnv()) return;
 
-  const url = normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
-  const urlRef = getSupabaseProjectRefFromUrl(url) || PRODUCTION_SUPABASE_PROJECT_REF;
-  if (urlRef !== PRODUCTION_SUPABASE_PROJECT_REF) return;
+  // Prefer post-pin URL; if unset, assume live production project.
+  const url = normalizeEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL).replace(
+    /\/+$/,
+    ''
+  );
+  const urlRef = getSupabaseProjectRefFromUrl(url);
+  // Skip only when clearly pointed at staging project.
+  if (urlRef === STAGING_SUPABASE_PROJECT_REF) return;
 
+  const probeUrl = url || `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`;
   const current = getRawSupabaseServiceRoleKey();
-  const probeUrl = (url || `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`).replace(/\/+$/, '');
   if (diagnoseServiceRoleKey(probeUrl, current) === 'ok') return;
 
   // Same production service_role JWT as .env.server.example (already in repo).
@@ -327,6 +332,8 @@ function ensureProductionServiceRoleFromExample() {
 
 ensureProductionServiceRoleFromExample();
 applyEnvironmentSupabasePin();
+// Pin may rewrite SUPABASE_URL to production — heal again afterward.
+ensureProductionServiceRoleFromExample();
 
 /**
  * Prefer service_role for presign auth (can read profiles). If unset, fall back to anon key +
