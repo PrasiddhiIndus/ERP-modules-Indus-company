@@ -129,6 +129,273 @@ function formatNumberDisplay(value) {
   return Number.isFinite(number) ? number.toLocaleString("en-IN") : value;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function printCellValue(row, key) {
+  if (key === "callDate") return formatDateDisplay(row.callDate);
+  if (key === "attachments") {
+    const files = Array.isArray(row.attachments) ? row.attachments : [];
+    if (!files.length) return "—";
+    const labels = files.map((item) => fileLabelFromCallingAttachment(item)).filter(Boolean);
+    return labels.length ? labels.join(", ") : `${files.length} file(s)`;
+  }
+  if (["salaryGross", "heightCm", "weightKg", "totalExperience"].includes(key)) {
+    return formatNumberDisplay(row[key]);
+  }
+  const value = row[key];
+  return value == null || value === "" ? "—" : String(value);
+}
+
+function buildCallingMasterPrintDocument({ rows, pipelineTab, registerTitle, generatedAt }) {
+  const columns = CALLING_MASTER_TABLE_COLUMNS;
+  const wideKeys = new Set(["remarks", "facilitiesProvided", "attachments"]);
+  const recordsHtml = rows
+    .map((row, index) => {
+      const fieldsHtml = columns
+        .map(
+          (column) => `
+            <div class="field${wideKeys.has(column.key) ? " wide" : ""}">
+              <div class="label">${escapeHtml(column.label)}</div>
+              <div class="value">${escapeHtml(printCellValue(row, column.key))}</div>
+            </div>`
+        )
+        .join("");
+
+      return `
+        <article class="record">
+          <header class="record-header">
+            <div class="record-title">
+              <span class="sno">${index + 1}.</span>
+              <span class="name">${escapeHtml(row.candidateName || "Unnamed candidate")}</span>
+            </div>
+            <div class="record-meta">
+              <span>${escapeHtml(formatDateDisplay(row.callDate))}</span>
+              <span>${escapeHtml(row.phoneNumber || "—")}</span>
+              <span>${escapeHtml(row.designation || "—")}</span>
+            </div>
+          </header>
+          <div class="fields">${fieldsHtml}</div>
+        </article>`;
+    })
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(registerTitle)} — Print</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm 9mm;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      color: #111827;
+      font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+      font-size: 9pt;
+      line-height: 1.35;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .sheet { width: 100%; }
+    .doc-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1.75px solid #111827;
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+    .doc-header h1 {
+      margin: 0;
+      font-size: 16pt;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    .doc-header .meta {
+      margin: 3px 0 0;
+      font-size: 9pt;
+      color: #374151;
+    }
+    .doc-header .right {
+      text-align: right;
+      font-size: 9pt;
+      color: #374151;
+      white-space: nowrap;
+    }
+    .record {
+      border: 1px solid #9ca3af;
+      border-radius: 4px;
+      margin: 0 0 8px;
+      padding: 8px 10px 10px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      background: #fff;
+    }
+    .record-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #d1d5db;
+    }
+    .record-title {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+    }
+    .record-title .sno {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      color: #111827;
+    }
+    .record-title .name {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #111827;
+    }
+    .record-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 4px 10px;
+      font-size: 8.5pt;
+      color: #374151;
+      font-variant-numeric: tabular-nums;
+    }
+    .fields {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px 10px;
+    }
+    .field {
+      min-width: 0;
+      padding: 2px 0;
+    }
+    .field.wide {
+      grid-column: 1 / -1;
+    }
+    .field .label {
+      font-size: 7pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #6b7280;
+      margin-bottom: 1px;
+    }
+    .field .value {
+      font-size: 8.5pt;
+      color: #111827;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    .doc-footer {
+      margin-top: 10px;
+      padding-top: 6px;
+      border-top: 1px solid #d1d5db;
+      font-size: 8pt;
+      color: #4b5563;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      page-break-inside: avoid;
+    }
+    .empty {
+      padding: 24px;
+      text-align: center;
+      color: #6b7280;
+      border: 1px dashed #cbd5e1;
+    }
+    @media screen {
+      body { background: #e5e7eb; padding: 16px; }
+      .sheet {
+        max-width: 980px;
+        margin: 0 auto;
+        background: #fff;
+        padding: 18px 20px 22px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+      }
+      .screen-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .screen-actions button {
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .screen-actions button.primary {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+        color: #fff;
+      }
+    }
+    @media print {
+      .screen-actions { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="screen-actions">
+      <button type="button" onclick="window.close()">Close</button>
+      <button type="button" class="primary" onclick="window.print()">Print</button>
+    </div>
+    <header class="doc-header">
+      <div>
+        <h1>${escapeHtml(registerTitle)}</h1>
+        <p class="meta">HR Module · Calling Database · ${escapeHtml(pipelineTab)} pipeline</p>
+      </div>
+      <div class="right">
+        <div>Generated: ${escapeHtml(generatedAt)}</div>
+        <div>Records: ${rows.length}</div>
+      </div>
+    </header>
+    ${
+      rows.length
+        ? recordsHtml
+        : `<div class="empty">No records to print.</div>`
+    }
+    <footer class="doc-footer">
+      <span>Indus ERP — Calling Database</span>
+      <span>End of report · ${rows.length} record(s)</span>
+    </footer>
+  </div>
+  <script>
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        window.focus();
+        window.print();
+      }, 120);
+    });
+  </script>
+</body>
+</html>`;
+}
+
 function matchesSearch(record, search) {
   if (!search.trim()) return true;
   const query = normalizeText(search);
@@ -510,17 +777,25 @@ export default function CallingMasterPage() {
     setFormOpen(true);
   };
 
-  const openEdit = () => {
-    if (selectedRows.length !== 1) return;
+  const openEdit = (row) => {
+    const target = row && row.id ? row : selectedRows.length === 1 ? selectedRows[0] : null;
+    if (!target) return;
     setFormMode("edit");
     setFormValues({
       ...createEmptyFormValues(),
-      ...selectedRows[0],
-      attachments: Array.isArray(selectedRows[0].attachments) ? selectedRows[0].attachments : [],
+      ...target,
+      attachments: Array.isArray(target.attachments) ? target.attachments : [],
     });
     setFormErrors({});
     setPendingFiles([]);
     setFormOpen(true);
+  };
+
+  const openEditFromFilesPreview = () => {
+    if (!filesPreviewCandidate) return;
+    const candidate = filesPreviewCandidate;
+    closeFilesPreview();
+    openEdit(candidate);
   };
 
   const closeFilesPreview = () => {
@@ -882,8 +1157,35 @@ export default function CallingMasterPage() {
   };
 
   const handlePrint = () => {
+    if (!filteredRows.length) {
+      pushToast("Nothing to print", "Apply different filters or add records first.", "warning");
+      return;
+    }
+
+    const generatedAt = new Date().toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const html = buildCallingMasterPrintDocument({
+      rows: filteredRows,
+      pipelineTab,
+      registerTitle,
+      generatedAt,
+    });
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      pushToast("Print blocked", "Allow pop-ups to open the print preview.", "warning");
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
     pushToast("Print view opened", "Browser print preview is being prepared.", "success");
-    window.print();
   };
 
   return (
@@ -899,7 +1201,7 @@ export default function CallingMasterPage() {
         ) : null}
         <button
           type="button"
-          onClick={openEdit}
+          onClick={() => openEdit()}
           disabled={selectedRows.length !== 1}
           className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2 disabled:opacity-50"
         >
@@ -1372,7 +1674,15 @@ export default function CallingMasterPage() {
         onClose={closeFilesPreview}
         widthClass="max-w-4xl"
         footer={
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={openEditFromFilesPreview}
+              className="erp-btn-secondary rounded-control px-4 py-2 inline-flex items-center gap-2"
+            >
+              <Edit3 className="h-4 w-4" />
+              Edit candidate
+            </button>
             <button type="button" onClick={closeFilesPreview} className="erp-btn-secondary rounded-control px-4 py-2">
               Close
             </button>
@@ -1414,14 +1724,18 @@ export default function CallingMasterPage() {
                     <p className="truncate text-sm font-medium text-slate-800">
                       {fileLabelFromCallingAttachment(filesPreviewActive)}
                     </p>
-                    <a
-                      href={filesPreviewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-medium text-accent hover:underline"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const opened = window.open(filesPreviewUrl, "_blank", "noopener,noreferrer");
+                        if (!opened) {
+                          pushToast("Open blocked", "Allow pop-ups to open the file in a new tab.", "warning");
+                        }
+                      }}
+                      className="rounded-md border border-accent/30 bg-white px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-blue-50"
                     >
                       Open in new tab
-                    </a>
+                    </button>
                   </div>
                   {isPreviewableCallingAttachment(filesPreviewActive) ? (
                     String(filesPreviewActive.contentType || "").includes("pdf") ||
