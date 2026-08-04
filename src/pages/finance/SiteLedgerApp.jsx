@@ -1650,7 +1650,9 @@ export default function SiteLedgerApp({ embedded = true }) {
                       service: s.service,
                       wo: s.wo,
                       ocNumber: s.ocNumber,
-                      siteType: s.siteType === "shutdown" ? "shutdown" : "regular",
+                      siteType: s.siteType === "shutdown" || s.siteType === "safety" || s.siteType === "fire"
+                        ? s.siteType
+                        : "fire",
                       contractStart: s.contractStart,
                       contractEnd: s.contractEnd,
                     }
@@ -1658,6 +1660,11 @@ export default function SiteLedgerApp({ embedded = true }) {
                 )),
               }), { scope: "site", siteCode: s.id, include: { meta: true }, immediate: true });
               setEditSite(null);
+              const successMsg = "Site updated successfully.";
+              setActionNotice(successMsg);
+              window.setTimeout(() => {
+                setActionNotice((current) => (current === successMsg ? "" : current));
+              }, 5000);
               return;
             }
             if (s.isRenewal) {
@@ -1677,6 +1684,11 @@ export default function SiteLedgerApp({ embedded = true }) {
               setActiveSite(newSite.id);
               setView("config");
               void persistSitesImmediate(next, { siteCodes: touched });
+              const successMsg = "Site saved successfully.";
+              setActionNotice(successMsg);
+              window.setTimeout(() => {
+                setActionNotice((current) => (current === successMsg ? "" : current));
+              }, 5000);
             } else {
               const seeded = defaultSiteSetup(stateRef.current.library || library);
               const nextSite = {
@@ -1695,6 +1707,11 @@ export default function SiteLedgerApp({ embedded = true }) {
               setActiveSite(nextSite.id);
               setView("config");
               void persistSitesImmediate(nextSites, { siteCode: nextSite.id });
+              const successMsg = "Site saved successfully.";
+              setActionNotice(successMsg);
+              window.setTimeout(() => {
+                setActionNotice((current) => (current === successMsg ? "" : current));
+              }, 5000);
             }
           }}
         />
@@ -2419,7 +2436,13 @@ function SitesTable({
                   <span className="sm-ver">{versionLabel(r)}</span>
                 </td>
                 <td className="muted-s">
-                  {r.siteType === "shutdown" ? "Shutdown" : "Regular"}
+                  {r.siteType === "shutdown"
+                    ? "Shutdown"
+                    : r.siteType === "safety"
+                      ? "Safety"
+                      : r.siteType === "fire"
+                        ? "Fire"
+                        : "Regular"}
                 </td>
                 <td className="muted-s mono">
                   {r.contractStart ? `${monthLabelOf(r.contractStart)} - ${monthLabelOf(r.contractEnd)}` : "—"}
@@ -4460,6 +4483,43 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
     }
   };
 
+  const downloadSiteTypeCsv = (siteType, reportName) => {
+    const typedSites = sites.filter((s) => s.siteType === siteType);
+    const typedReport = buildReport({
+      sites: typedSites,
+      records,
+      dim: "site",
+      measures: ["revenue", "expense", "profit", "margin"],
+      scope: "all",
+      periodMode: "single",
+      month,
+      from,
+      to,
+      filter: "none",
+      expandPendingHistory: false,
+    });
+    const head = ["Site", ...typedReport.columns.map((c) => c.label)];
+    const body = typedReport.rows.map((r) => [r.label, ...r.cells.map((c) => c.raw)]);
+    const tot = [typedReport.totals.label, ...typedReport.totals.cells.map((c) => c.raw)];
+    const typedGrid = [head, ...body, tot];
+    const typedCsv = typedGrid.map((row) => row.map((v) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(",")).join("\n");
+    const typedFileName = `${reportName.replace(/[^a-z0-9]+/gi, "_")}_${monthLabelOf(month).replace(/[^a-z0-9]+/gi, "_")}.csv`;
+    try {
+      const b = new Blob([typedCsv], { type: "text/csv" });
+      const u = URL.createObjectURL(b);
+      const a = document.createElement("a");
+      a.href = u;
+      a.download = typedFileName;
+      a.click();
+      URL.revokeObjectURL(u);
+    } catch {
+      navigator.clipboard?.writeText(typedCsv);
+    }
+  };
+
   const dims = [
     { k: "site", l: "By Site" },
     { k: "month", l: "By Month" },
@@ -4640,7 +4700,13 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
         title={title}
         pad={false}
         right={(
-          <span className="muted-s" style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <span className="muted-s" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="link" onClick={() => downloadSiteTypeCsv("shutdown", "Shutdown_Sites_Report")}>
+              <Download size={12} style={{ verticalAlign: "-2px" }} /> Shutdown CSV
+            </button>
+            <button type="button" className="link" onClick={() => downloadSiteTypeCsv("safety", "Safety_Sites_Report")}>
+              <Download size={12} style={{ verticalAlign: "-2px" }} /> Safety CSV
+            </button>
             <button type="button" className="link" onClick={copyCsv}><Copy size={12} style={{ verticalAlign: "-2px" }} /> Copy</button>
             <button type="button" className="link" onClick={downloadCsv}><Download size={12} style={{ verticalAlign: "-2px" }} /> CSV</button>
           </span>
@@ -4874,7 +4940,9 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
   const [wo, setWo] = useState(editSite?.wo || "");
   const [ocNumber, setOcNumber] = useState(editSite?.ocNumber || "");
   const [siteType, setSiteType] = useState(
-    editSite?.siteType === "shutdown" ? "shutdown" : "regular",
+    editSite?.siteType === "shutdown" || editSite?.siteType === "safety" || editSite?.siteType === "fire"
+      ? editSite.siteType
+      : "fire",
   );
   const [cStart, setCStart] = useState(() => contractDateInputValue(editSite?.contractStart) || "2025-04-01");
   const [cEnd, setCEnd] = useState(() => contractDateInputValue(editSite?.contractEnd) || "2026-03-31");
@@ -4891,7 +4959,8 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
   const submit = () => {
     if (!name.trim()) return;
     const trimmed = name.trim();
-    const normalizedType = siteType === "shutdown" ? "shutdown" : "regular";
+    const normalizedType =
+      siteType === "shutdown" || siteType === "safety" || siteType === "fire" ? siteType : "fire";
     if (isEdit) {
       onSave({
         isEdit: true,
@@ -4950,7 +5019,8 @@ function AddSiteModal({ onClose, onSave, onDeactivate, onActivate, existing, edi
       <label className="m-field">
         <span>Site type</span>
         <select value={siteType} onChange={(e) => setSiteType(e.target.value)} style={{ width: "100%" }}>
-          <option value="regular">Regular</option>
+          <option value="fire">Fire</option>
+          <option value="safety">Safety</option>
           <option value="shutdown">Shutdown</option>
         </select>
       </label>

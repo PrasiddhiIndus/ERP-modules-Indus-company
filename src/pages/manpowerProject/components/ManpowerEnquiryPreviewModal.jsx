@@ -1,7 +1,13 @@
 import React, { useMemo } from "react";
-import { Eye, Paperclip, Pencil, X } from "lucide-react";
+import { Download, Eye, Paperclip, Pencil, X } from "lucide-react";
+import { supabase } from "../../../lib/supabase";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
-import { inquiryRowToForm, formatInquiryCellValue } from "../utils/manpowerEnquiryExcelFields";
+import {
+  inquiryRowToForm,
+  formatInquiryCellValue,
+  isServiceCategoryOther,
+  isCustomWorkingHours,
+} from "../utils/manpowerEnquiryExcelFields";
 
 function displayValue(value) {
   if (value === null || value === undefined || value === "") return "—";
@@ -10,6 +16,65 @@ function displayValue(value) {
     return cleaned.length ? cleaned.join(", ") : "—";
   }
   return String(value);
+}
+
+function fileNameFromPath(path) {
+  return String(path || "").split("/").pop() || path || "file";
+}
+
+async function openManpowerStorageFile(path, { download = false } = {}) {
+  if (!path) return;
+  const fileName = fileNameFromPath(path);
+  const options = download ? { download: fileName } : undefined;
+  const { data, error } = await supabase.storage.from("manpower-docs").createSignedUrl(path, 120, options);
+  if (error) throw error;
+  if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
+function AttachmentPreviewRow({ path }) {
+  const label = fileNameFromPath(path);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+      <div className="min-w-0 flex items-center gap-2">
+        <Paperclip className="h-4 w-4 shrink-0" />
+        <span className="truncate" title={path}>
+          {label}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await openManpowerStorageFile(path, { download: false });
+            } catch (err) {
+              console.error(err);
+              alert("Could not open file preview.");
+            }
+          }}
+          className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 hover:text-purple-800"
+        >
+          <Eye className="h-3.5 w-3.5" />
+          Preview
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await openManpowerStorageFile(path, { download: true });
+            } catch (err) {
+              console.error(err);
+              alert("Could not download file.");
+            }
+          }}
+          className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-900"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function formatDateValue(value) {
@@ -133,21 +198,24 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
   const form = useMemo(() => (row ? inquiryRowToForm(row) : null), [row]);
   if (!row || !form) return null;
 
-  const contacts = (form.contacts || []).filter((c) => c?.name || c?.email || c?.phone);
+  const contacts = (form.contacts || []).filter((c) => c?.name || c?.designation || c?.email || c?.phone);
   const isOnlineTender = String(form.sourceType || "") === "Online Tender";
   const isTenderFeeApplicable = form.tenderFeeApplicable === "Applicable";
   const isEmdFeePayable = form.emdFeeStatus === "Applicable - Pay";
   const isPaymentRequired = isTenderFeeApplicable || isEmdFeePayable;
-  const isAsPerClientHours = form.workingHoursShift === "As per client";
+  const isCustomHours = isCustomWorkingHours(form.workingHoursShift);
   const showScopeText = form.scopeInputType === "Text" || form.scopeInputType === "Both" || !form.scopeInputType;
   const showScopeAttach =
     form.scopeInputType === "Attachment" ||
     form.scopeInputType === "Both" ||
     (form.scopeAttachmentPaths || []).length > 0;
-  const serviceCategoryDisplay =
-    form.serviceCategory === "Other (manual entry)"
-      ? form.serviceCategoryCustom || "Other (manual entry)"
-      : form.serviceCategory;
+  const industryDisplay =
+    form.industrySector === "Other"
+      ? form.industrySectorCustom || "Other"
+      : form.industrySector;
+  const serviceCategoryDisplay = isServiceCategoryOther(form.serviceCategory)
+    ? form.serviceCategoryCustom || "Other"
+    : form.serviceCategory;
   const assignedTo = form.assignedToList?.length
     ? form.assignedToList
     : String(form.enquiryAssignedTo || "")
@@ -225,9 +293,6 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
               </Field>
               <Field label="Source Type">
                 <ValueBox value={displayValue(form.sourceType)} />
-              </Field>
-              <Field label="Submission Remark" className="sm:col-span-2">
-                <ValueBox value={displayValue(form.submissionRemark)} tall />
               </Field>
             </div>
           </FormSection>
@@ -337,16 +402,19 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white shadow-sm">
-              <table className="w-full min-w-[640px] border-collapse text-sm">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-slate-300 bg-slate-100">
                     <th className="w-12 border-r border-slate-300 px-2 py-2.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600">
                       #
                     </th>
-                    <th className="min-w-[180px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                    <th className="min-w-[160px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
                       Name
                     </th>
-                    <th className="min-w-[200px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                    <th className="min-w-[140px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                      Designation
+                    </th>
+                    <th className="min-w-[180px] border-r border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
                       Email
                     </th>
                     <th className="min-w-[140px] px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wide text-slate-600">
@@ -355,12 +423,13 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {(contacts.length ? contacts : [{ name: "", email: "", phone: "" }]).map((contact, index) => (
+                  {(contacts.length ? contacts : [{ name: "", designation: "", email: "", phone: "" }]).map((contact, index) => (
                     <tr key={`preview-contact-${index}`} className="border-b border-slate-200">
                       <td className="border-r border-slate-200 bg-slate-50 px-2 py-2.5 text-center text-xs font-medium tabular-nums text-slate-500">
                         {index + 1}
                       </td>
                       <td className="border-r border-slate-200 px-3 py-2.5 text-slate-800">{displayValue(contact?.name)}</td>
+                      <td className="border-r border-slate-200 px-3 py-2.5 text-slate-800">{displayValue(contact?.designation)}</td>
                       <td className="border-r border-slate-200 px-3 py-2.5 text-slate-800">{displayValue(contact?.email)}</td>
                       <td className="px-3 py-2.5 text-slate-800">{displayValue(contact?.phone)}</td>
                     </tr>
@@ -387,7 +456,7 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
           <FormSection title="Service & Category">
             <div className={gridClass}>
               <Field label="Industry / Sector">
-                <ValueBox value={displayValue(form.industrySector)} />
+                <ValueBox value={displayValue(industryDisplay)} />
               </Field>
               <Field label="Service Category">
                 <ValueBox value={displayValue(serviceCategoryDisplay)} />
@@ -415,15 +484,7 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
                 {(form.scopeAttachmentPaths || []).length > 0 ? (
                   <div className="space-y-2">
                     {(form.scopeAttachmentPaths || []).map((path, index) => (
-                      <div
-                        key={`scope-path-${path}-${index}`}
-                        className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
-                      >
-                        <Paperclip className="h-4 w-4 shrink-0" />
-                        <span className="truncate" title={path}>
-                          {String(path).split("/").pop() || path}
-                        </span>
-                      </div>
+                      <AttachmentPreviewRow key={`scope-path-${path}-${index}`} path={path} />
                     ))}
                   </div>
                 ) : (
@@ -444,20 +505,16 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
                   <ValueBox value={displayValue(form.contractDurationUnit)} className="w-28 shrink-0" />
                 </div>
               </Field>
-              <Field label="Timeline">
-                <div className="flex items-center gap-2">
-                  <ValueBox value={formatDateValue(form.contractTimelineStart)} className="flex-1" />
-                  <span className="shrink-0 text-xs font-medium text-slate-500">to</span>
-                  <ValueBox value={formatDateValue(form.contractTimelineEnd)} className="flex-1" />
-                </div>
-              </Field>
               <Field label="Working Hours / Shift">
                 <ValueBox value={displayValue(form.workingHoursShift)} />
-                {isAsPerClientHours || form.customWorkingHours ? (
+                {isCustomHours || form.customWorkingHours ? (
                   <div className="mt-2">
                     <ValueBox value={displayValue(form.customWorkingHours)} />
                   </div>
                 ) : null}
+              </Field>
+              <Field label="Weekly Off Reliever">
+                <ValueBox value={displayValue(form.weeklyOffReliever)} />
               </Field>
               <Field label="Applicable State (for MW)">
                 <ValueBox value={displayValue(form.applicableStateMw)} />
@@ -473,6 +530,25 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
             </div>
           </FormSection>
 
+          <FormSection title="Status & Result" hint="Tracking status and final result for this enquiry.">
+            <div className={gridClass}>
+              <Field label="Status">
+                <ValueBox value={displayValue(form.trackingStatus)} />
+              </Field>
+              <Field label="Result">
+                <ValueBox value={displayValue(form.enquiryResult)} />
+              </Field>
+              <Field label="Amount">
+                <ValueBox value={formatCurrency(form.resultAmount)} />
+              </Field>
+              {form.enquiryResult === "Not Alloted" ? (
+                <Field label="Remarks" className="sm:col-span-2">
+                  <ValueBox value={displayValue(form.resultRemark)} tall />
+                </Field>
+              ) : null}
+            </div>
+          </FormSection>
+
           {(form.enquiryAttachmentPaths || []).length > 0 ? (
             <FormSection
               title="Additional Attachments"
@@ -480,15 +556,7 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
             >
               <div className="space-y-2">
                 {(form.enquiryAttachmentPaths || []).map((path, index) => (
-                  <div
-                    key={`enquiry-attach-${path}-${index}`}
-                    className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
-                  >
-                    <Paperclip className="h-4 w-4 shrink-0" />
-                    <span className="truncate" title={path}>
-                      {String(path).split("/").pop() || path}
-                    </span>
-                  </div>
+                  <AttachmentPreviewRow key={`enquiry-attach-${path}-${index}`} path={path} />
                 ))}
               </div>
             </FormSection>

@@ -11,7 +11,19 @@ export const MODE_OF_SUBMISSION_OPTIONS = [
 ];
 export const SOURCE_TYPE_OPTIONS = ["Direct Mail", "Online Tender", "Verbal"];
 export const INDUSTRY_OPTIONS = ["Oil & Gas", "Refinery", "Chemical", "Power", "Construction", "Port", "Other"];
-export const WORKING_HOURS_OPTIONS = ["8 hrs", "12 hrs", "As per client"];
+export const WORKING_HOURS_OPTIONS = [
+  "8 hours - 30/31",
+  "8 hours - 26/27",
+  "12 hours - 30/31",
+  "12 hours - 26/27",
+  "Custom",
+];
+export const WEEKLY_OFF_RELIEVER_OPTIONS = [
+  "Inclusive in strength",
+  "Extra in our scope",
+  "In client scope",
+  "Not applicable",
+];
 export const ENQUIRY_SUBTYPE_OPTIONS = ["Regular", "Shutdown"];
 export const SERVICE_CATEGORY_OPTIONS = [
   "Firefighting Manpower Only",
@@ -19,6 +31,7 @@ export const SERVICE_CATEGORY_OPTIONS = [
   "Manpower + Fire Tender",
   "Firefighting Manpower + Safety Manpower",
   "Fire Tender (without Crew)",
+  "Other",
 ];
 export const CONTRACT_DURATION_UNITS = ["Days", "Months", "Years"];
 export const TENDER_PORTAL_OPTIONS = ["Ariba", "GeM", "eProcurement", "Custom"];
@@ -27,6 +40,16 @@ export const PAYMENT_MODE_OPTIONS = ["Demand Draft", "NEFT", "Online"];
 export const PAYMENT_STATUS_OPTIONS = ["Pending", "Paid", "Refunded"];
 export const INQUIRY_RESULT_OPTIONS = ["Alloted", "Not Alloted"];
 export const INQUIRY_TRACKING_STATUS_OPTIONS = ["New", "In Progress", "Follow Up", "Closed"];
+
+export function isServiceCategoryOther(value) {
+  const v = String(value || "").trim();
+  return v === "Other" || v === "Other (manual entry)";
+}
+
+export function isCustomWorkingHours(value) {
+  const v = String(value || "").trim();
+  return v === "Custom" || v === "As per client";
+}
 export const INDIA_STATES_UT = [
   "Andaman and Nicobar Islands",
   "Andhra Pradesh",
@@ -107,9 +130,11 @@ const INQUIRY_META_KEYS = [
   "contractTimelineEnd",
   "workingHoursShift",
   "customWorkingHours",
+  "weeklyOffReliever",
   "applicableStateMw",
   "minWageEffectiveDate",
   "submissionBidDeadline",
+  "industrySectorCustom",
 ];
 
 export function parseAuthorizationMeta(value) {
@@ -154,6 +179,12 @@ export function getResultRemarkFromRow(row) {
   return String(meta.rejectionRemark || "").trim();
 }
 
+export function getResultAmountFromRow(row) {
+  const { meta } = parseAuthorizationMeta(row?.authorization_to);
+  if (meta.resultAmount === "" || meta.resultAmount == null) return "";
+  return String(meta.resultAmount);
+}
+
 export function getTrackingStatusFromRow(row) {
   const { meta } = parseAuthorizationMeta(row?.authorization_to);
   return meta.trackingStatus || "New";
@@ -180,7 +211,9 @@ export async function resolveIfslNumber(supabaseClient, currentIfslNumber) {
 export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supabase, { isEdit = false } = {}) {
   const base = extractWorkflowMeta(existingMeta);
   const trackingStatus = isEdit ? form.trackingStatus || base.trackingStatus || "New" : "New";
-  const next = { ...base, trackingStatus };
+  const resultAmount =
+    form.resultAmount === "" || form.resultAmount == null ? "" : String(form.resultAmount);
+  const next = { ...base, trackingStatus, ...(isEdit ? { resultAmount } : {}) };
 
   if (!isEdit) {
     return { workflowMeta: next, status: undefined };
@@ -200,6 +233,7 @@ export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supaba
       workflowMeta: {
         ...next,
         enquiryResult: "Alloted",
+        resultAmount,
         ifslNumber,
         approvedAt,
         convertedAt: approvedAt,
@@ -213,6 +247,7 @@ export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supaba
       workflowMeta: {
         ...next,
         enquiryResult: "Not Alloted",
+        resultAmount,
         rejectionRemark: String(form.resultRemark || "").trim(),
         rejectedAt: base.rejectedAt || new Date().toISOString(),
       },
@@ -220,7 +255,13 @@ export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supaba
     };
   }
 
-  return { workflowMeta: next, status: undefined };
+  return {
+    workflowMeta: {
+      ...next,
+      resultAmount,
+    },
+    status: undefined,
+  };
 }
 
 function toInputDate(value) {
@@ -269,7 +310,7 @@ function normalizeTotalManpower(value) {
 }
 
 export function emptyContactRow() {
-  return { name: "", email: "", phone: "" };
+  return { name: "", designation: "", email: "", phone: "" };
 }
 
 export function parseAssignedToList(value, meta = {}) {
@@ -296,18 +337,20 @@ function normalizeContactsFromRow(row, meta = {}) {
   const cleaned = fromColumn
     .map((c) => ({
       name: String(c?.name || "").trim(),
+      designation: String(c?.designation || "").trim(),
       email: String(c?.email || "").trim(),
       phone: String(c?.phone || "").trim(),
     }))
-    .filter((c) => c.name || c.email || c.phone);
+    .filter((c) => c.name || c.designation || c.email || c.phone);
 
   if (cleaned.length) return cleaned;
 
   const legacyName = String(meta.contactPersonName || "").trim();
+  const legacyDesignation = String(meta.contactPersonDesignation || meta.clientDesignation || "").trim();
   const legacyEmail = String(meta.contactPersonEmail || row?.email || "").trim();
   const legacyPhone = String(meta.contactPersonPhone || row?.phone || "").trim();
-  if (legacyName || legacyEmail || legacyPhone) {
-    return [{ name: legacyName, email: legacyEmail, phone: legacyPhone }];
+  if (legacyName || legacyDesignation || legacyEmail || legacyPhone) {
+    return [{ name: legacyName, designation: legacyDesignation, email: legacyEmail, phone: legacyPhone }];
   }
 
   return [emptyContactRow()];
@@ -337,7 +380,7 @@ export function getExcelInquiryFields(row) {
     srNo: row?.sr_no ?? meta.srNo ?? null,
     receivedDate: row?.received_date || meta.receivedDate || meta.enquiryDate || row?.created_at || null,
     vertical: row?.vertical || meta.vertical || "",
-    modeOfSubmission: row?.mode_of_submission || meta.modeOfSubmission || row?.source || "",
+    modeOfSubmission: row?.mode_of_submission || meta.modeOfSubmission || meta.sourceType || row?.source || "",
     totalManpower: row?.total_manpower ?? meta.totalManpower ?? "",
     clientName: row?.client || "",
     location,
@@ -388,15 +431,20 @@ export function inquiryRowToForm(row) {
     siteState: meta.siteState || row?.state || "",
     siteCity: meta.siteCity || row?.city || "",
     industrySector: meta.industrySector || "",
+    industrySectorCustom: meta.industrySectorCustom || "",
     serviceCategory: (() => {
       const stored = meta.serviceCategory || "";
-      if (meta.serviceCategoryCustom) return "Other (manual entry)";
-      if (stored && !SERVICE_CATEGORY_OPTIONS.includes(stored)) return "Other (manual entry)";
+      if (meta.serviceCategoryCustom || isServiceCategoryOther(stored)) return "Other";
+      if (stored && !SERVICE_CATEGORY_OPTIONS.includes(stored)) return "Other";
       return stored;
     })(),
     serviceCategoryCustom:
       meta.serviceCategoryCustom ||
-      (meta.serviceCategory && !SERVICE_CATEGORY_OPTIONS.includes(meta.serviceCategory) ? meta.serviceCategory : ""),
+      (meta.serviceCategory &&
+      !SERVICE_CATEGORY_OPTIONS.includes(meta.serviceCategory) &&
+      !isServiceCategoryOther(meta.serviceCategory)
+        ? meta.serviceCategory
+        : ""),
     enquirySubType: normalizedSubType,
     scopeInputType: meta.scopeInputType || "Text",
     scopeOfWork: row?.manpower_required || meta.descriptionOfWork || "",
@@ -408,8 +456,13 @@ export function inquiryRowToForm(row) {
     contractDurationUnit: meta.contractDurationUnit || "Months",
     contractTimelineStart: toInputDate(meta.contractTimelineStart),
     contractTimelineEnd: toInputDate(meta.contractTimelineEnd),
-    workingHoursShift: meta.workingHoursShift || "",
+    workingHoursShift: (() => {
+      const stored = meta.workingHoursShift || "";
+      if (stored === "As per client") return "Custom";
+      return stored;
+    })(),
     customWorkingHours: meta.customWorkingHours || "",
+    weeklyOffReliever: meta.weeklyOffReliever || "",
     applicableStateMw: meta.applicableStateMw || "",
     minWageEffectiveDate: toInputDate(meta.minWageEffectiveDate),
     submissionBidDeadline: toIsoDateTimeLocal(meta.submissionBidDeadline || excel.dueDate),
@@ -438,6 +491,7 @@ export function inquiryRowToForm(row) {
     trackingStatus: getTrackingStatusFromRow(row),
     enquiryResult: getEnquiryResultFromRow(row),
     resultRemark: getResultRemarkFromRow(row),
+    resultAmount: getResultAmountFromRow(row),
   };
 }
 
@@ -467,12 +521,14 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
   const contacts = (Array.isArray(form.contacts) ? form.contacts : [])
     .map((c) => ({
       name: String(c?.name || "").trim(),
+      designation: String(c?.designation || "").trim(),
       email: String(c?.email || "").trim(),
       phone: String(c?.phone || "").trim(),
     }))
-    .filter((c) => c.name || c.email || c.phone);
+    .filter((c) => c.name || c.designation || c.email || c.phone);
   const primaryContact = contacts[0] || {
     name: form.contactPersonName || "",
+    designation: form.contactPersonDesignation || "",
     email: form.contactPersonEmail || "",
     phone: form.contactPersonPhone || "",
   };
@@ -507,19 +563,21 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     assignedToList,
     submissionRemark: form.submissionRemark || "",
     contactPersonName: primaryContact.name || "",
-    contactPersonDesignation: form.contactPersonDesignation || "",
+    contactPersonDesignation: primaryContact.designation || form.contactPersonDesignation || "",
     contactPersonPhone: primaryContact.phone || "",
     contactPersonEmail: primaryContact.email || "",
     siteName: form.siteName || "",
     siteState: form.siteState || "",
     siteCity: form.siteCity || "",
     industrySector: form.industrySector || "",
-    serviceCategory:
-      form.serviceCategory === "Other (manual entry)"
-        ? String(form.serviceCategoryCustom || "").trim()
-        : form.serviceCategory || "",
-    serviceCategoryCustom:
-      form.serviceCategory === "Other (manual entry)" ? String(form.serviceCategoryCustom || "").trim() : "",
+    industrySectorCustom:
+      form.industrySector === "Other" ? String(form.industrySectorCustom || "").trim() : "",
+    serviceCategory: isServiceCategoryOther(form.serviceCategory)
+      ? String(form.serviceCategoryCustom || "").trim()
+      : form.serviceCategory || "",
+    serviceCategoryCustom: isServiceCategoryOther(form.serviceCategory)
+      ? String(form.serviceCategoryCustom || "").trim()
+      : "",
     enquirySubType: form.enquirySubType || "Regular",
     scopeInputType: form.scopeInputType || "Text",
     scopeAttachmentPaths: existingScopePaths,
@@ -529,7 +587,10 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     contractTimelineStart: form.contractTimelineStart || null,
     contractTimelineEnd: form.contractTimelineEnd || null,
     workingHoursShift: form.workingHoursShift || "",
-    customWorkingHours: form.customWorkingHours || "",
+    customWorkingHours: isCustomWorkingHours(form.workingHoursShift)
+      ? String(form.customWorkingHours || "").trim()
+      : "",
+    weeklyOffReliever: form.weeklyOffReliever || "",
     applicableStateMw: form.applicableStateMw || "",
     minWageEffectiveDate: form.minWageEffectiveDate || null,
     submissionBidDeadline: submissionDeadlineIso,
@@ -580,7 +641,7 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
     received_date: form.enquiryDate || form.receivedDate || null,
     vertical: form.vertical || null,
     source: form.sourceType || form.modeOfSubmission || null,
-    mode_of_submission: form.modeOfSubmission || form.sourceType || null,
+    mode_of_submission: form.sourceType || form.modeOfSubmission || null,
     total_manpower: normalizeTotalManpower(form.totalManpower),
     location,
     manpower_required: scopeText,
