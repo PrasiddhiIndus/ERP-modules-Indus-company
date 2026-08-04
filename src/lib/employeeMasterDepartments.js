@@ -3,6 +3,7 @@ import { EMPLOYEE_MASTER_TABLE } from './userManagementHierarchy';
 /** Curated defaults — same list as Employee Master form (IfspEmployeeMaster). */
 export const EMPLOYEE_MASTER_BASE_DEPARTMENTS = [
   'Administration',
+  'Apprentice',
   'Commercial',
   'Finance',
   'HR',
@@ -21,6 +22,7 @@ export const EMPLOYEE_MASTER_BASE_DEPARTMENTS = [
   'Projects',
   'R&M',
   'Technical',
+  'Training',
   'Projects-FTC',
   'Production-FTC',
   'Administration-FTC',

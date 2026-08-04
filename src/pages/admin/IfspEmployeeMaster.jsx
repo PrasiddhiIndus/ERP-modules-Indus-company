@@ -231,6 +231,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     son_name: '',
     son_dob: '',
     daughter_name: '',
+    daughter_dob: '',
     son_details: '',
     daughter_details: '',
     address: '',
@@ -710,6 +711,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       son_name: formData.son_name || null,
       son_dob: formData.son_dob || null,
       daughter_name: formData.daughter_name || null,
+      daughter_dob: formData.daughter_dob || null,
       son_details: formData.son_details || null,
       daughter_details: formData.daughter_details || null,
       address: formData.address || null,
@@ -885,6 +887,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       son_name: employee.son_name || '',
       son_dob: employee.son_dob || '',
       daughter_name: employee.daughter_name || '',
+      daughter_dob: employee.daughter_dob || '',
       son_details: employee.son_details || '',
       daughter_details: employee.daughter_details || '',
       address: employee.address || '',
@@ -1830,6 +1833,13 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                       type="text"
                       value={formData.daughter_name}
                       onChange={(e) => setFormData({...formData, daughter_name: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Daughter's DOB</label>
+                    <FormDateInput value={formData.daughter_dob} onChange={(e) => setFormData({...formData, daughter_dob: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
