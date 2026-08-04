@@ -47,6 +47,8 @@ export const ADMIN_OPS_NAV = [
   },
   {
     title: "Salary Admin",
+    /** Nav filtered client-side to salaryAccess allowlist emails only. */
+    salaryAdminOnly: true,
     items: [
       { label: "Dashboard", path: "salary-admin/dashboard" },
       { label: "Salary Master", path: "salary-admin/salary-master" },

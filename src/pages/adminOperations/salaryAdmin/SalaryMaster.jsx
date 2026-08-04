@@ -31,7 +31,7 @@ export default function SalaryMaster() {
   const navigate = useNavigate();
   const location = useLocation();
   const [employees, setEmployees] = useState([]);
-  const [salaryByEmployee, setSalaryByEmployee] = useState(() => fetchSalaryStructureMap());
+  const [salaryByEmployee, setSalaryByEmployee] = useState(() => new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -39,8 +39,13 @@ export default function SalaryMaster() {
   const [pageSize, setPageSize] = useState(50);
   const [historyEmployee, setHistoryEmployee] = useState(null);
 
-  const refreshSalaryMap = useCallback(() => {
-    setSalaryByEmployee(fetchSalaryStructureMap());
+  const refreshSalaryMap = useCallback(async () => {
+    try {
+      const map = await fetchSalaryStructureMap();
+      setSalaryByEmployee(map);
+    } catch (err) {
+      console.error("Salary Master: failed to load CTC map", err);
+    }
   }, []);
 
   const fetchEmployees = useCallback(async () => {
@@ -65,7 +70,7 @@ export default function SalaryMaster() {
 
       if (fetchError) throw fetchError;
       setEmployees(data || []);
-      refreshSalaryMap();
+      await refreshSalaryMap();
     } catch (err) {
       console.error("Salary Master: failed to load employees", err);
       setError("Could not load employee list. Please try again.");

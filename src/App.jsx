@@ -6,6 +6,7 @@ import PageLoader from "./components/PageLoader";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
+import SalaryAdminGuard from "./pages/adminOperations/salaryAdmin/SalaryAdminGuard";
 import { checkSupabaseConnection } from "./lib/supabase";
 import { runBackendDiagnostics } from "./lib/backendDiagnostics";
 import {
@@ -452,10 +453,10 @@ function App() {
             <Route path="admin/gate/vehicle-passes" element={<GateVehiclesPage />} />
             <Route path="admin/gate/delivery-courier-post" element={<GateDeliveryPage />} />
             <Route path="admin/gate/security-console" element={<GateSecurityConsolePage />} />
-            <Route path="admin/salary-admin/dashboard" element={<SalaryDashboardPage />} />
-            <Route path="admin/salary-admin/salary-master" element={<SalaryMasterPage />} />
-            <Route path="admin/salary-admin/salary-master/:employeeId" element={<SalaryEmployeeCtcPage />} />
-            <Route path="admin/salary-admin/salary-processing" element={<SalaryProcessingPage />} />
+            <Route path="admin/salary-admin/dashboard" element={<SalaryAdminGuard><SalaryDashboardPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-master" element={<SalaryAdminGuard><SalaryMasterPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-master/:employeeId" element={<SalaryAdminGuard><SalaryEmployeeCtcPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-processing" element={<SalaryAdminGuard><SalaryProcessingPage /></SalaryAdminGuard>} />
             <Route path="admin/misc/events-coordination" element={<MiscEventsPage />} />
             <Route path="admin/misc/tour-travel-details" element={<MiscTravelPage />} />
             <Route path="admin/misc/admin-tasks-other-requests" element={<MiscTasksPage />} />

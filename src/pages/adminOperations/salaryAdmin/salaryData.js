@@ -1,6 +1,6 @@
 /**
- * Salary Admin — UI-only helpers (no salary DB yet).
- * CTC formulas per Salary Admin BRD (Gross master → Basic / HRA / Special).
+ * Salary Admin — CTC formulas + persistence helpers.
+ * Persist via admin_salary schema (see salaryDb.js).
  *
  * PART A (monthly; P.A. = monthly × 12):
  * - Gross — master input; drives Auto Basic / HRA / Special
@@ -23,6 +23,16 @@
  * eligibility still checks the full monthly Gross on the CTC record.
  */
 
+import {
+  dbFetchSalaryStructureMap,
+  dbGetRevisionCount,
+  dbGetSalaryRevisions,
+  dbGetSalaryStructure,
+  dbReviseSalaryStructure,
+  dbSaveSalaryStructure,
+} from "./salaryDb";
+
+/** @deprecated Legacy browser key — kept only for one-time migration into admin_salary. */
 const STORAGE_KEY = "admin_salary_ctc_ui_v1";
 
 export const PF_WAGE_CAP = 15000;
@@ -157,7 +167,7 @@ export function currentCompensationYear(date = new Date()) {
   return `${start}-${start + 1}`;
 }
 
-function readStore() {
+function readLegacyStore() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
@@ -168,57 +178,68 @@ function readStore() {
   }
 }
 
-function writeStore(map) {
+/**
+ * One-time: copy localStorage CTC drafts into admin_salary when DB has no row yet.
+ * Safe to call repeatedly; skips employees that already have a declared structure.
+ */
+export async function migrateLegacySalaryStructuresToDb() {
+  const store = readLegacyStore();
+  const ids = Object.keys(store);
+  if (ids.length === 0) return { migrated: 0 };
+
+  let migrated = 0;
+  for (const id of ids) {
+    const row = store[id];
+    if (!row?.declared) continue;
+    try {
+      const existing = await dbGetSalaryStructure(id, { withRevisions: false });
+      if (existing?.declared) continue;
+      await dbSaveSalaryStructure(id, { ...row, declared: true });
+      migrated += 1;
+    } catch (err) {
+      console.warn("Salary Admin: legacy CTC migrate skipped for", id, err);
+    }
+  }
+  return { migrated };
+}
+
+export async function fetchSalaryStructureMap() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    await migrateLegacySalaryStructuresToDb();
   } catch (err) {
-    console.warn("Salary Admin: could not persist CTC draft", err);
+    console.warn("Salary Admin: legacy migrate failed", err);
+  }
+  try {
+    return await dbFetchSalaryStructureMap();
+  } catch (err) {
+    console.warn("Salary Admin: DB map failed, using legacy store", err);
+    const store = readLegacyStore();
+    const map = new Map();
+    for (const [id, row] of Object.entries(store)) {
+      if (row && typeof row === "object") map.set(String(id), row);
+    }
+    return map;
   }
 }
 
-export function fetchSalaryStructureMap() {
-  const store = readStore();
-  const map = new Map();
-  for (const [id, row] of Object.entries(store)) {
-    if (row && typeof row === "object") map.set(String(id), row);
-  }
-  return map;
-}
-
-export function getSalaryStructure(employeeMasterId) {
+export async function getSalaryStructure(employeeMasterId) {
   if (employeeMasterId == null) return null;
-  const store = readStore();
-  return store[String(employeeMasterId)] || null;
-}
-
-/** Snapshot of a CTC structure suitable for revision history. */
-function snapshotStructure(row) {
-  if (!row || typeof row !== "object") return null;
-  const {
-    revisions: _revisions,
-    employee_master_id: _eid,
-    ...rest
-  } = row;
-  return { ...rest };
+  try {
+    const row = await dbGetSalaryStructure(employeeMasterId, { withRevisions: true });
+    if (row) return row;
+  } catch (err) {
+    console.warn("Salary Admin: DB get structure failed, trying legacy", err);
+  }
+  const legacy = readLegacyStore()[String(employeeMasterId)];
+  return legacy && typeof legacy === "object" ? legacy : null;
 }
 
 /**
  * First-time CTC save. Does not create a revision entry.
  * If a structure already exists, prefer reviseSalaryStructure.
  */
-export function saveSalaryStructure(employeeMasterId, payload) {
-  const id = String(employeeMasterId);
-  const store = readStore();
-  const prev = store[id];
-  store[id] = {
-    ...payload,
-    employee_master_id: id,
-    revisions: Array.isArray(prev?.revisions) ? prev.revisions : [],
-    revision_count: Number(prev?.revision_count) || 0,
-    updated_at: new Date().toISOString(),
-  };
-  writeStore(store);
-  return store[id];
+export async function saveSalaryStructure(employeeMasterId, payload) {
+  return dbSaveSalaryStructure(employeeMasterId, { ...payload, declared: true });
 }
 
 /**
@@ -227,60 +248,29 @@ export function saveSalaryStructure(employeeMasterId, payload) {
  * @param {object} payload — new CTC fields
  * @param {{ reason?: string, wef_date?: string }} [meta]
  */
-export function reviseSalaryStructure(employeeMasterId, payload, meta = {}) {
-  const id = String(employeeMasterId);
-  const store = readStore();
-  const prev = store[id];
-  if (!prev?.declared) {
-    return saveSalaryStructure(employeeMasterId, {
-      ...payload,
-      wef_date: meta.wef_date ?? payload.wef_date ?? null,
-      revision_reason: meta.reason?.trim() || payload.revision_reason || null,
-    });
-  }
-
-  const history = Array.isArray(prev.revisions) ? [...prev.revisions] : [];
-  const archived = snapshotStructure(prev);
-  const nextCount = (Number(prev.revision_count) || 0) + 1;
-  const archivedWef = prev.wef_date || archived?.wef_date || null;
-  const archivedReason = prev.revision_reason || archived?.revision_reason || null;
-
-  history.unshift({
-    ...archived,
-    revision_no: nextCount,
-    revised_at: new Date().toISOString(),
-    wef_date: archivedWef,
-    revision_reason: archivedReason,
-    superseded_wef: archivedWef,
-  });
-
-  const newReason = meta.reason?.trim() || null;
-  const newWef = meta.wef_date ?? payload.wef_date ?? null;
-
-  store[id] = {
-    ...payload,
-    employee_master_id: id,
-    wef_date: newWef,
-    revision_reason: newReason,
-    revisions: history,
-    revision_count: nextCount,
-    updated_at: new Date().toISOString(),
-  };
-  writeStore(store);
-  return store[id];
+export async function reviseSalaryStructure(employeeMasterId, payload, meta = {}) {
+  return dbReviseSalaryStructure(employeeMasterId, { ...payload, declared: true }, meta);
 }
 
 /** Revision history newest-first (archived versions only). */
-export function getSalaryRevisions(employeeMasterId) {
-  const row = getSalaryStructure(employeeMasterId);
-  if (!row) return [];
-  return Array.isArray(row.revisions) ? row.revisions : [];
+export async function getSalaryRevisions(employeeMasterId) {
+  try {
+    return await dbGetSalaryRevisions(employeeMasterId);
+  } catch (err) {
+    console.warn("Salary Admin: DB revisions failed", err);
+    const legacy = readLegacyStore()[String(employeeMasterId)];
+    return Array.isArray(legacy?.revisions) ? legacy.revisions : [];
+  }
 }
 
-export function getRevisionCount(employeeMasterId) {
-  const row = getSalaryStructure(employeeMasterId);
-  if (!row) return 0;
-  return Number(row.revision_count) || (Array.isArray(row.revisions) ? row.revisions.length : 0);
+export async function getRevisionCount(employeeMasterId) {
+  try {
+    return await dbGetRevisionCount(employeeMasterId);
+  } catch {
+    const legacy = readLegacyStore()[String(employeeMasterId)];
+    if (!legacy) return 0;
+    return Number(legacy.revision_count) || (Array.isArray(legacy.revisions) ? legacy.revisions.length : 0);
+  }
 }
 
 /** @deprecated Legacy fixed HRA monthly. Prefer hraFromBasic / resolveHraMonthly. */
@@ -426,6 +416,7 @@ export function resolveEsicSettings({
 /**
  * ESIC on Basic when Gross is within the ceiling (BRD + prototype).
  * Eligibility uses full monthly Gross — never attendance-prorated Gross.
+ * Auto mode uses the formula; Custom mode uses the manual amount (may be set even when not eligible).
  */
 export function computeEsicOnBasic({
   grossMonthly = 0,
@@ -434,6 +425,10 @@ export function computeEsicOnBasic({
   esicCeiling = DEFAULT_ESIC_CEILING,
   esicEmpRatePct = DEFAULT_EMP_ESIC_RATE_PCT,
   esicErRatePct = DEFAULT_ER_ESIC_RATE_PCT,
+  empEsicMode = MODE_AUTO,
+  erEsicMode = MODE_AUTO,
+  empEsicMonthly = null,
+  erEsicMonthly = null,
 } = {}) {
   const settings = resolveEsicSettings({
     esicEnabled,
@@ -445,19 +440,40 @@ export function computeEsicOnBasic({
   const basic = round0(basicMonthly);
   const eligible =
     settings.esic_enabled && gross > 0 && gross <= settings.esic_ceiling;
-  const empEsic = eligible
+  const autoEmp = eligible
     ? round0((basic * settings.esic_emp_rate_pct) / 100)
     : 0;
-  const erEsic = eligible
+  const autoEr = eligible
     ? round0((basic * settings.esic_er_rate_pct) / 100)
     : 0;
+
+  const empMode = normalizeComponentMode(empEsicMode);
+  const erMode = normalizeComponentMode(erEsicMode);
+  const empEsic =
+    empMode === MODE_CUSTOM
+      ? empEsicMonthly != null && empEsicMonthly !== ""
+        ? round0(empEsicMonthly)
+        : 0
+      : autoEmp;
+  const erEsic =
+    erMode === MODE_CUSTOM
+      ? erEsicMonthly != null && erEsicMonthly !== ""
+        ? round0(erEsicMonthly)
+        : 0
+      : autoEr;
+
   return {
     ...settings,
     esic_eligible: eligible,
+    emp_esic_mode: empMode,
+    er_esic_mode: erMode,
     emp_esic_monthly: empEsic,
     er_esic_monthly: erEsic,
-    emp_esic_applicable: eligible,
-    er_esic_applicable: eligible,
+    emp_esic_auto_monthly: autoEmp,
+    er_esic_auto_monthly: autoEr,
+    // Applicable for display: auto uses eligibility; custom is applicable when amount > 0 or eligibility
+    emp_esic_applicable: empMode === MODE_CUSTOM ? empEsic > 0 || eligible : eligible,
+    er_esic_applicable: erMode === MODE_CUSTOM ? erEsic > 0 || eligible : eligible,
   };
 }
 
@@ -486,6 +502,10 @@ export function computeCtcStructure({
   esicCeiling = null,
   esicEmpRatePct = null,
   esicErRatePct = null,
+  empEsicMode = MODE_AUTO,
+  erEsicMode = MODE_AUTO,
+  empEsicMonthly = null,
+  erEsicMonthly = null,
 } = {}) {
   const bMode = normalizeComponentMode(basicMode);
   const hMode = normalizeComponentMode(hraMode);
@@ -546,6 +566,10 @@ export function computeCtcStructure({
     esicCeiling,
     esicEmpRatePct,
     esicErRatePct,
+    empEsicMode,
+    erEsicMode,
+    empEsicMonthly,
+    erEsicMonthly,
   });
 
   const pt =
@@ -588,6 +612,7 @@ export function computeCtcStructure({
     emp_pf_monthly: empPf,
     pt_monthly: pt,
     emp_esic_monthly: esic.emp_esic_monthly,
+    emp_esic_mode: esic.emp_esic_mode,
     emp_esic_applicable: esic.emp_esic_applicable,
     esic_enabled: esic.esic_enabled,
     esic_ceiling: esic.esic_ceiling,
@@ -597,6 +622,7 @@ export function computeCtcStructure({
     take_home_monthly: takeHome,
     er_pf_monthly: erPf,
     er_esic_monthly: esic.er_esic_monthly,
+    er_esic_mode: esic.er_esic_mode,
     er_esic_applicable: esic.er_esic_applicable,
     gratuity_monthly: gratuity,
     leave_encash_monthly: leaveEncash,
@@ -626,6 +652,7 @@ export function emptyCtcStructure() {
     emp_pf_monthly: null,
     pt_monthly: null,
     emp_esic_monthly: null,
+    emp_esic_mode: MODE_AUTO,
     emp_esic_applicable: false,
     esic_enabled: true,
     esic_ceiling: DEFAULT_ESIC_CEILING,
@@ -634,6 +661,7 @@ export function emptyCtcStructure() {
     esic_eligible: false,
     take_home_monthly: null,
     er_pf_monthly: null,
+    er_esic_mode: MODE_AUTO,
     er_esic_monthly: null,
     er_esic_applicable: false,
     gratuity_monthly: null,
@@ -761,8 +789,17 @@ export function computeProcessingRow({
     esicCeiling: structure.esic_ceiling ?? DEFAULT_ESIC_CEILING,
     esicEmpRatePct: structure.esic_emp_rate_pct ?? DEFAULT_EMP_ESIC_RATE_PCT,
     esicErRatePct: structure.esic_er_rate_pct ?? DEFAULT_ER_ESIC_RATE_PCT,
+    empEsicMode: structure.emp_esic_mode ?? MODE_AUTO,
+    erEsicMode: structure.er_esic_mode ?? MODE_AUTO,
+    empEsicMonthly: structure.emp_esic_monthly,
+    erEsicMonthly: structure.er_esic_monthly,
   });
-  const empEsicT = esic.emp_esic_monthly;
+  const empEsicMode = normalizeComponentMode(structure.emp_esic_mode ?? MODE_AUTO);
+  // Auto: already based on prorated Basic. Custom: prorate the saved monthly amount.
+  const empEsicT =
+    empEsicMode === MODE_CUSTOM
+      ? sheetProrate(esic.emp_esic_monthly, K, TotalDays)
+      : esic.emp_esic_monthly;
 
   const ptU =
     ptOverride != null && ptOverride !== ""
