@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS admin_salary.structures (
   er_esic_applicable boolean NOT NULL DEFAULT false,
   gratuity_monthly numeric(14,2),
   leave_encash_monthly numeric(14,2),
+  leave_encash_mode text NOT NULL DEFAULT 'auto'
+    CHECK (leave_encash_mode IN ('auto', 'custom')),
   mediclaim_enabled boolean NOT NULL DEFAULT false,
   mediclaim_monthly numeric(14,2),
   lic_enabled boolean NOT NULL DEFAULT false,
@@ -193,6 +195,7 @@ CREATE TABLE IF NOT EXISTS admin_salary.structure_revisions (
   er_esic_applicable boolean,
   gratuity_monthly numeric(14,2),
   leave_encash_monthly numeric(14,2),
+  leave_encash_mode text,
   mediclaim_enabled boolean,
   mediclaim_monthly numeric(14,2),
   lic_enabled boolean,

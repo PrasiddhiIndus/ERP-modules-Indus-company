@@ -385,6 +385,22 @@ export function leaveEncashFromBasic(basicMonthly) {
 }
 
 /**
+ * Resolve Leave Encashment monthly from mode.
+ * Auto: company policy formula from Basic · Custom: manual amount.
+ */
+export function resolveLeaveEncashMonthly({
+  leaveEncashMode = MODE_AUTO,
+  basicMonthly = 0,
+  leaveEncashMonthly = null,
+} = {}) {
+  if (normalizeComponentMode(leaveEncashMode) === MODE_CUSTOM) {
+    if (leaveEncashMonthly == null || leaveEncashMonthly === "") return 0;
+    return round0(leaveEncashMonthly);
+  }
+  return leaveEncashFromBasic(basicMonthly);
+}
+
+/**
  * Resolve ESIC settings from args / saved structure (configurable, not hardcoded).
  */
 export function resolveEsicSettings({
@@ -506,9 +522,12 @@ export function computeCtcStructure({
   erEsicMode = MODE_AUTO,
   empEsicMonthly = null,
   erEsicMonthly = null,
+  leaveEncashMode = MODE_AUTO,
+  leaveEncashMonthly = null,
 } = {}) {
   const bMode = normalizeComponentMode(basicMode);
   const hMode = normalizeComponentMode(hraMode);
+  const leaveMode = normalizeComponentMode(leaveEncashMode);
   const level = normalizeEmployeeLevel(employeeLevel);
 
   const hasGrossInput =
@@ -582,7 +601,11 @@ export function computeCtcStructure({
   const takeHome = gross - empPf - pt - esic.emp_esic_monthly;
 
   const gratuity = round0((basic * 481) / 10000);
-  const leaveEncash = leaveEncashFromBasic(basic);
+  const leaveEncash = resolveLeaveEncashMonthly({
+    leaveEncashMode: leaveMode,
+    basicMonthly: basic,
+    leaveEncashMonthly,
+  });
   const bonus =
     bonusMonthly != null && bonusMonthly !== "" ? round0(bonusMonthly) : 0;
   const mediclaim =
@@ -625,6 +648,7 @@ export function computeCtcStructure({
     er_esic_mode: esic.er_esic_mode,
     er_esic_applicable: esic.er_esic_applicable,
     gratuity_monthly: gratuity,
+    leave_encash_mode: leaveMode,
     leave_encash_monthly: leaveEncash,
     mediclaim_enabled: Boolean(mediclaimEnabled),
     mediclaim_monthly: mediclaimEnabled ? mediclaim : 0,
@@ -665,6 +689,7 @@ export function emptyCtcStructure() {
     er_esic_monthly: null,
     er_esic_applicable: false,
     gratuity_monthly: null,
+    leave_encash_mode: MODE_AUTO,
     leave_encash_monthly: null,
     mediclaim_enabled: false,
     mediclaim_monthly: null,
