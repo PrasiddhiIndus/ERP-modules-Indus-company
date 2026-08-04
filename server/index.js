@@ -197,6 +197,12 @@ function applyEnvironmentSupabasePin() {
     );
     process.env.SUPABASE_URL = productionUrl;
   }
+
+  // Ensure JWT validation works even when SERVICE_ROLE_KEY is missing on the host.
+  if (!normalizeEnvValue(process.env.SUPABASE_ANON_KEY)) {
+    const viteAnon = normalizeEnvValue(process.env.VITE_SUPABASE_ANON_KEY);
+    if (viteAnon) process.env.SUPABASE_ANON_KEY = viteAnon;
+  }
 }
 
 function getSupabaseUrlForServer() {
