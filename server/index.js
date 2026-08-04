@@ -89,11 +89,25 @@ function getSupabaseProjectRefFromUrl(url) {
   return m ? m[1] : '';
 }
 
-function getSupabaseProjectRefFromJwt(token) {
+function decodeJwtPayloadJson(token) {
   try {
     const parts = String(token || '').split('.');
-    if (parts.length < 2) return '';
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    if (parts.length < 2) return null;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4;
+    if (pad) b64 += '='.repeat(4 - pad);
+    // Prefer base64; avoid base64url encoding (missing on some Node builds).
+    const json = Buffer.from(b64, 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function getSupabaseProjectRefFromJwt(token) {
+  try {
+    const payload = decodeJwtPayloadJson(token);
+    if (!payload) return '';
     const fromRef = String(payload?.ref || '').trim();
     if (fromRef) return fromRef;
     const iss = String(payload?.iss || '').trim();
@@ -114,10 +128,7 @@ function isSupabaseServiceRoleKey(key) {
   // New Supabase secret keys (not JWTs)
   if (k.startsWith('sb_secret_')) return true;
   try {
-    const parts = k.split('.');
-    if (parts.length < 2) return false;
-    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
-    const payload = JSON.parse(json);
+    const payload = decodeJwtPayloadJson(k);
     return payload?.role === 'service_role';
   } catch {
     return false;
