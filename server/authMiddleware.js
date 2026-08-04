@@ -52,11 +52,12 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     return authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length).trim() : '';
   }
 
-  function createSupabaseWithJwt(jwt) {
+  /** User-scoped client (anon + JWT) for RLS. Prefer anon — same key the browser uses. */
+  function createUserClient(jwt) {
     const url = getSupabaseUrl();
-    const svc = getServiceRoleKey();
     const anon = getAnonKey();
-    const key = svc || anon;
+    const svc = getServiceRoleKey();
+    const key = anon || svc;
     if (!url || !key) {
       throw new HttpError(500, 'Server missing Supabase URL or API key.');
     }
@@ -73,8 +74,7 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     const url = getSupabaseUrl();
     const svc = getServiceRoleKey();
     const anon = getAnonKey();
-    const key = svc || anon;
-    if (!url || !key) {
+    if (!url || (!svc && !anon)) {
       throw new HttpError(500, 'Server missing Supabase URL or API key.');
     }
 
@@ -87,26 +87,37 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       );
       throw new HttpError(
         401,
-        `API server is linked to a different Supabase project than this login. Update SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the production .env.server (must match the website), then restart the API.`
+        `API server is linked to a different Supabase project than this login. Update SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.server (must match the website), then restart the API.`
       );
     }
 
-    const validateClient = createClient(url, key, {
+    // Validate the user JWT with the anon key first (matches the website login).
+    // Do not require service_role for getUser — missing/mismatched service_role must not
+    // surface as a false "expired session / fix SERVICE_ROLE_KEY" error on Sync.
+    const validateKey = anon || svc;
+    const validateClient = createClient(url, validateKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const { data: userData, error } = await validateClient.auth.getUser(jwt);
     if (error || !userData?.user) {
       const hint = String(error?.message || '').toLowerCase();
-      const message =
-        hint.includes('fetch') || hint.includes('network') || hint.includes('econnrefused')
-          ? 'Could not verify session with Supabase. Check server network and SUPABASE_URL.'
-          : !svc
-            ? 'Invalid or expired session (API missing a valid SUPABASE_SERVICE_ROLE_KEY matching SUPABASE_URL). Sign out and sign in again, or fix production .env.server and restart the API.'
-            : 'Invalid or expired session. Sign out and sign in again.';
+      // eslint-disable-next-line no-console
+      console.warn('[auth] getUser failed:', error?.message || 'no user', {
+        hasAnon: Boolean(anon),
+        hasServiceRole: Boolean(svc),
+        serverRef: serverRef || null,
+        sessionRef: sessionRef || null,
+      });
+      let message = 'Invalid or expired session. Sign out and sign in again.';
+      if (hint.includes('fetch') || hint.includes('network') || hint.includes('econnrefused')) {
+        message =
+          'Could not verify session with Supabase. Check server network and SUPABASE_URL, then restart the API.';
+      } else if (hint.includes('missing sub') || hint.includes('bad_jwt')) {
+        message =
+          'Session token is invalid. Sign out and sign in again, then retry Sync eTimeOffice.';
+      }
       throw new HttpError(401, message);
     }
-
-    const client = createSupabaseWithJwt(jwt);
 
     const profileSelectWithSubs =
       'id, role, team, allowed_modules, allowed_sub_modules, employee_code, email';
@@ -137,9 +148,9 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       profile = await loadProfile(adminClient);
     }
 
-    // Fallback: read own profile via user JWT + RLS (staging dev without matching service_role).
+    // Fallback: read own profile via user JWT + RLS (works when service_role is missing).
     if (!profile) {
-      profile = await loadProfile(client);
+      profile = await loadProfile(createUserClient(jwt));
     }
 
     return { jwt, user: userData.user, profile };
@@ -154,14 +165,17 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
         req.profile = ctx.profile;
         if (checkFn && !checkFn(ctx)) {
           const message = !ctx.profile
-            ? 'Could not load your profile on the API server. For staging, add SUPABASE_SERVICE_ROLE_KEY to .env.server.staging (matching .env.staging) and restart npm run dev:staging.'
+            ? 'Could not load your profile on the API server. Add a valid SUPABASE_SERVICE_ROLE_KEY matching SUPABASE_URL to .env.server (or ensure profiles RLS allows reading your own row), then restart the API.'
             : 'Admin or HR module access is required for this API.';
           return res.status(403).json({ error: 'Forbidden.', message });
         }
         return next();
       } catch (err) {
         const status = Number(err?.status) || 401;
-        return res.status(status).json({ error: err?.message || 'Unauthorized.' });
+        return res.status(status).json({
+          error: err?.message || 'Unauthorized.',
+          message: err?.message || 'Unauthorized.',
+        });
       }
     };
   }
