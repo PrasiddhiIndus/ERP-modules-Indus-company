@@ -118,14 +118,35 @@ jobs:
                 > .env.production
             fi
 
+            # Force production Supabase secrets onto .env.server before deploy.sh
+            # (appleboy passes these via `envs:` — empty secret must not wipe a good local key)
+            if [ -n "${PROD_SUPABASE_URL:-}" ]; then
+              sed -i '/^SUPABASE_URL=/d' .env.server || true
+              echo "SUPABASE_URL=${PROD_SUPABASE_URL}" >> .env.server
+            fi
+            if [ -n "${PROD_SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+              sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server || true
+              echo "SUPABASE_SERVICE_ROLE_KEY=${PROD_SUPABASE_SERVICE_ROLE_KEY}" >> .env.server
+            else
+              echo "WARNING: PROD_SUPABASE_SERVICE_ROLE_KEY secret is empty — deploy.sh will validate existing .env.server key"
+            fi
+
             export REPO_DIR APP_DIR
             export PM2_NAME=indus-erp
+            export PROD_SUPABASE_URL PROD_SUPABASE_SERVICE_ROLE_KEY VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY
             bash scripts/deploy.sh
+
+            # Public health must show service_role_key=ok (Raw Attendance Sync depends on it)
+            PUBLIC_HEALTH="$(curl -sf --max-time 15 https://indus-erp.in/api/health || true)"
+            echo "==> Public health: ${PUBLIC_HEALTH}"
+            echo "${PUBLIC_HEALTH}" | grep -q '"service_role_key":"ok"' || {
+              echo "ERROR: https://indus-erp.in/api/health service_role_key is not ok"
+              exit 1
+            }
 
             # Keep legacy entrypoint in sync for manual runs
             cp scripts/deploy.sh /root/deploy.sh
-            chmod +x /root/deploy.sh
-        env:
+            chmod +x /root/deploy.sh        env:
           PROD_SUPABASE_URL: ${{ secrets.PROD_SUPABASE_URL }}
           PROD_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
