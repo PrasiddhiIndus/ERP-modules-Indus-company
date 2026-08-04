@@ -46,6 +46,62 @@ function projectRefFromJwt(token) {
   }
 }
 
+function decodeJwtPayload(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length < 2) return null;
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** @returns {'valid'|'expired'|'invalid'} */
+function jwtAccessState(token) {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.sub) return 'invalid';
+  const exp = Number(payload.exp);
+  if (!Number.isFinite(exp)) return 'valid';
+  const now = Math.floor(Date.now() / 1000);
+  // 30s clock skew tolerance
+  if (exp < now - 30) return 'expired';
+  return 'valid';
+}
+
+/**
+ * Validate user JWT via GoTrue REST (same as auth.getUser under the hood).
+ * Avoids supabase-js edge cases when service_role is missing on the API host.
+ */
+async function verifyUserJwtWithAuthApi(url, apiKey, jwt) {
+  const base = String(url || '').replace(/\/+$/, '');
+  if (!base || !apiKey || !jwt) {
+    return { user: null, error: 'missing_url_or_key' };
+  }
+  try {
+    const res = await fetch(`${base}/auth/v1/user`, {
+      method: 'GET',
+      headers: {
+        apikey: apiKey,
+        Authorization: `Bearer ${jwt}`,
+      },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg =
+        body.msg ||
+        body.error_description ||
+        body.message ||
+        body.error ||
+        `auth_user_http_${res.status}`;
+      return { user: null, error: String(msg) };
+    }
+    if (!body?.id) return { user: null, error: 'no_user' };
+    return { user: body, error: null };
+  } catch (err) {
+    return { user: null, error: err?.message || 'auth_user_fetch_failed' };
+  }
+}
+
 export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAnonKey, HttpError }) {
   function extractBearer(req) {
     const authHeader = req.headers.authorization || '';
@@ -91,30 +147,59 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       );
     }
 
-    // Validate the user JWT with the anon key first (matches the website login).
-    // Do not require service_role for getUser — missing/mismatched service_role must not
-    // surface as a false "expired session / fix SERVICE_ROLE_KEY" error on Sync.
+    const accessState = jwtAccessState(jwt);
+    if (accessState === 'invalid') {
+      throw new HttpError(401, 'Session token is invalid. Sign out and sign in again, then retry.');
+    }
+    if (accessState === 'expired') {
+      throw new HttpError(401, 'Session expired. Sign out and sign in again, then retry Sync eTimeOffice.');
+    }
+
+    // Prefer anon (website key). Fall back to service_role only if anon is missing.
     const validateKey = anon || svc;
-    const validateClient = createClient(url, validateKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const { data: userData, error } = await validateClient.auth.getUser(jwt);
-    if (error || !userData?.user) {
-      const hint = String(error?.message || '').toLowerCase();
+    let userData = null;
+    let verifyError = null;
+
+    const rest = await verifyUserJwtWithAuthApi(url, validateKey, jwt);
+    if (rest.user) {
+      userData = { user: rest.user };
+    } else {
+      verifyError = rest.error;
+      // Fallback: supabase-js getUser
+      const validateClient = createClient(url, validateKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data, error } = await validateClient.auth.getUser(jwt);
+      if (data?.user) {
+        userData = data;
+        verifyError = null;
+      } else {
+        verifyError = error?.message || verifyError || 'getUser failed';
+      }
+    }
+
+    if (!userData?.user) {
+      const hint = String(verifyError || '').toLowerCase();
       // eslint-disable-next-line no-console
-      console.warn('[auth] getUser failed:', error?.message || 'no user', {
+      console.warn('[auth] user JWT verify failed:', verifyError || 'no user', {
         hasAnon: Boolean(anon),
         hasServiceRole: Boolean(svc),
         serverRef: serverRef || null,
         sessionRef: sessionRef || null,
+        accessState,
       });
       let message = 'Invalid or expired session. Sign out and sign in again.';
       if (hint.includes('fetch') || hint.includes('network') || hint.includes('econnrefused')) {
         message =
           'Could not verify session with Supabase. Check server network and SUPABASE_URL, then restart the API.';
-      } else if (hint.includes('missing sub') || hint.includes('bad_jwt')) {
+      } else if (!svc && anon) {
         message =
-          'Session token is invalid. Sign out and sign in again, then retry Sync eTimeOffice.';
+          'Could not verify your login with the attendance API. Sign out and sign in again. If it still fails, production API is missing SUPABASE_SERVICE_ROLE_KEY — add the production service_role key to .env.server and restart PM2.';
+      } else if (!svc && !anon) {
+        message =
+          'Attendance API is missing Supabase keys. Fix production .env.server (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY + anon key) and restart the API.';
+      } else if (hint.includes('missing sub') || hint.includes('bad_jwt')) {
+        message = 'Session token is invalid. Sign out and sign in again, then retry Sync eTimeOffice.';
       }
       throw new HttpError(401, message);
     }
@@ -151,6 +236,22 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     // Fallback: read own profile via user JWT + RLS (works when service_role is missing).
     if (!profile) {
       profile = await loadProfile(createUserClient(jwt));
+    }
+
+    // Last resort: build a minimal profile from JWT user_metadata so Sync is not blocked
+    // when service_role is missing and profiles RLS cannot be read.
+    if (!profile && userData.user) {
+      const meta = userData.user.user_metadata || {};
+      const appMeta = userData.user.app_metadata || {};
+      profile = {
+        id: userData.user.id,
+        email: userData.user.email || null,
+        role: String(meta.role || appMeta.role || '').trim(),
+        team: String(meta.team || appMeta.team || '').trim(),
+        allowed_modules: meta.allowed_modules || appMeta.allowed_modules || [],
+        allowed_sub_modules: meta.allowed_sub_modules || appMeta.allowed_sub_modules || [],
+        employee_code: meta.employee_code || null,
+      };
     }
 
     return { jwt, user: userData.user, profile };
