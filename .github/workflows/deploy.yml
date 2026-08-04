@@ -118,9 +118,57 @@ jobs:
                 > .env.production
             fi
 
+            # Force production Supabase secrets onto .env.server before deploy.sh
+            # (appleboy passes these via `envs:` — empty secret must not wipe a good local key)
+            if [ -n "${PROD_SUPABASE_URL:-}" ]; then
+              sed -i '/^SUPABASE_URL=/d' .env.server || true
+              echo "SUPABASE_URL=${PROD_SUPABASE_URL}" >> .env.server
+            else
+              sed -i '/^SUPABASE_URL=/d' .env.server || true
+              echo "SUPABASE_URL=https://wbyzhknaqcjqqtwopupl.supabase.co" >> .env.server
+            fi
+            if [ -n "${PROD_SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+              sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server || true
+              echo "SUPABASE_SERVICE_ROLE_KEY=${PROD_SUPABASE_SERVICE_ROLE_KEY}" >> .env.server
+            else
+              echo "WARNING: PROD_SUPABASE_SERVICE_ROLE_KEY secret is empty — seeding from .env.server.example"
+              EXAMPLE_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server.example | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
+              if [ -n "${EXAMPLE_SRK}" ] && [ "${#EXAMPLE_SRK}" -ge 40 ]; then
+                sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server || true
+                echo "SUPABASE_SERVICE_ROLE_KEY=${EXAMPLE_SRK}" >> .env.server
+              fi
+            fi
+
+            # Ensure .env.server exists with production URL even if copy steps above were skipped
+            if [ ! -f .env.server ]; then
+              cp .env.server.example .env.server
+            fi
+            # If key line is blank/placeholder, force example seed again
+            CURRENT_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
+            if [ -z "${CURRENT_SRK}" ] || [ "${#CURRENT_SRK}" -lt 40 ] || echo "${CURRENT_SRK}" | grep -qi 'your_.*key\|changeme\|placeholder'; then
+              EXAMPLE_SRK="$(grep -E '^SUPABASE_SERVICE_ROLE_KEY=' .env.server.example | tail -1 | cut -d= -f2- | tr -d '[:space:]\"' || true)"
+              if [ -n "${EXAMPLE_SRK}" ] && [ "${#EXAMPLE_SRK}" -ge 40 ]; then
+                echo "==> Forcing SUPABASE_SERVICE_ROLE_KEY from .env.server.example"
+                sed -i '/^SUPABASE_SERVICE_ROLE_KEY=/d' .env.server || true
+                echo "SUPABASE_SERVICE_ROLE_KEY=${EXAMPLE_SRK}" >> .env.server
+              fi
+            fi
+
             export REPO_DIR APP_DIR
             export PM2_NAME=indus-erp
+            export PROD_SUPABASE_URL PROD_SUPABASE_SERVICE_ROLE_KEY VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY
             bash scripts/deploy.sh
+
+            # Public health — API must be up. service_role warns but must not leave production red.
+            PUBLIC_HEALTH="$(curl -sf --max-time 15 https://indus-erp.in/api/health || true)"
+            echo "==> Public health: ${PUBLIC_HEALTH}"
+            echo "${PUBLIC_HEALTH}" | grep -q '"ok":true\|"ok": true' || {
+              echo "ERROR: https://indus-erp.in/api/health is not ok"
+              exit 1
+            }
+            if ! echo "${PUBLIC_HEALTH}" | grep -q '"service_role_key":"ok"\|"service_role_key": "ok"'; then
+              echo "WARNING: service_role_key is not ok — Raw Attendance Sync may 401 until PROD_SUPABASE_SERVICE_ROLE_KEY is set"
+            fi
 
             # Keep legacy entrypoint in sync for manual runs
             cp scripts/deploy.sh /root/deploy.sh

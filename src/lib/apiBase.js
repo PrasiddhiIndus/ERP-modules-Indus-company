@@ -118,7 +118,8 @@ async function fetchApiWithBearer(path, token, options = {}) {
 
 /** Authenticated fetch to the Node API (Bearer JWT from current session). */
 export async function fetchApiWithAuth(path, options = {}) {
-  const token = await getAdminApiAccessToken(supabase);
+  const { forceRefresh = false, ...fetchOptions } = options;
+  let token = await getAdminApiAccessToken(supabase, { forceRefresh: Boolean(forceRefresh) });
   if (!token) {
     return {
       ok: false,
@@ -128,13 +129,14 @@ export async function fetchApiWithAuth(path, options = {}) {
     };
   }
 
-  let result = await fetchApiWithBearer(path, token, options);
+  let result = await fetchApiWithBearer(path, token, fetchOptions);
 
   // Stale cached JWT can look valid client-side but fail server getUser (same as e-invoice).
   if (result.status === 401) {
     const refreshed = await getAdminApiAccessToken(supabase, { forceRefresh: true });
     if (refreshed && refreshed !== token) {
-      result = await fetchApiWithBearer(path, refreshed, options);
+      token = refreshed;
+      result = await fetchApiWithBearer(path, refreshed, fetchOptions);
     }
   }
 

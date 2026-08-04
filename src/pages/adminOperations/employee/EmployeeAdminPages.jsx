@@ -260,7 +260,22 @@ function formatAttendanceApiError(err, res, data) {
     return "eTimeOffice request timed out. Try a single date or fewer employees, then sync again.";
   }
   const msg = String(err?.message || data?.message || data?.error || "").trim();
-  if (res?.status === 401 || res?.status === 403) {
+  if (
+    /SERVICE_ROLE_KEY matching SUPABASE_URL|missing a valid SUPABASE_SERVICE_ROLE_KEY/i.test(msg)
+  ) {
+    return [
+      "Could not verify your login with the attendance API.",
+      "Sign out and sign in again, then retry Sync eTimeOffice.",
+      "If it still fails, ask an admin to confirm SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.server match this website and restart the API.",
+    ].join(" ");
+  }
+  if (res?.status === 401 || /invalid or expired session|sign out and sign in|session expired|could not verify your login/i.test(msg)) {
+    return (
+      msg ||
+      "Session expired. Sign out and sign in again on this website, then retry Sync eTimeOffice."
+    );
+  }
+  if (res?.status === 403) {
     return msg || "Session expired or insufficient access. Sign in as admin/HR and retry.";
   }
   if (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(msg)) {
@@ -479,10 +494,18 @@ export function EmployeeAttendanceInputsPage() {
     try {
       const result = await fetchApiWithAuth(`/api/admin/attendance/punches?${params.toString()}`, {
         timeoutMs: 120_000,
+        // Always refresh before Sync — production often has a stale cached JWT that fails API getUser.
+        forceRefresh: true,
       });
       const data = result.data || {};
       if (!result.ok) {
-        throw new Error(formatAttendanceApiError(null, { status: result.status }, data));
+        throw new Error(
+          formatAttendanceApiError(
+            { message: result.error || data.message || data.error },
+            { status: result.status },
+            data
+          )
+        );
       }
       const apiRecords = Array.isArray(data?.records) ? data.records : [];
       const dbRows = apiRecords.map((record, index) => mapApiPunchToDbRow(record, index));
