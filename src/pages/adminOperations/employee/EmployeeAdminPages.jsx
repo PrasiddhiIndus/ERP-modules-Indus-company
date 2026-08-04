@@ -269,8 +269,11 @@ function formatAttendanceApiError(err, res, data) {
       "If it still fails, ask an admin to confirm SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.server match this website and restart the API.",
     ].join(" ");
   }
-  if (res?.status === 401 || /invalid or expired session|sign out and sign in/i.test(msg)) {
-    return msg || "Session expired. Sign out and sign in again, then retry Sync eTimeOffice.";
+  if (res?.status === 401 || /invalid or expired session|sign out and sign in|session expired|could not verify your login/i.test(msg)) {
+    return (
+      msg ||
+      "Session expired. Sign out and sign in again on this website, then retry Sync eTimeOffice."
+    );
   }
   if (res?.status === 403) {
     return msg || "Session expired or insufficient access. Sign in as admin/HR and retry.";
@@ -491,6 +494,8 @@ export function EmployeeAttendanceInputsPage() {
     try {
       const result = await fetchApiWithAuth(`/api/admin/attendance/punches?${params.toString()}`, {
         timeoutMs: 120_000,
+        // Always refresh before Sync — production often has a stale cached JWT that fails API getUser.
+        forceRefresh: true,
       });
       const data = result.data || {};
       if (!result.ok) {
