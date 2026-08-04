@@ -29,7 +29,11 @@ export function serializeSiteMeta(site) {
     ocDate: site.ocDate ? String(site.ocDate).trim() : "",
     estContractStart: site.estContractStart ? String(site.estContractStart).trim() : "",
     estContractEnd: site.estContractEnd ? String(site.estContractEnd).trim() : "",
-    siteType: site.siteType === "shutdown" ? "shutdown" : "regular",
+    siteType: site.siteType === "shutdown" || site.siteType === "safety" || site.siteType === "fire"
+      ? site.siteType
+      : site.siteType === "regular"
+        ? "regular"
+        : "fire",
   };
   if (Array.isArray(site.customHeads) && site.customHeads.length) {
     meta.customHeads = site.customHeads;
@@ -404,7 +408,11 @@ function buildSites(raw, parentById, childById) {
       ocDate: meta.ocDate || "",
       estContractStart: meta.estContractStart || "",
       estContractEnd: meta.estContractEnd || "",
-      siteType: meta.siteType === "shutdown" ? "shutdown" : "regular",
+      siteType: meta.siteType === "shutdown" || meta.siteType === "safety" || meta.siteType === "fire"
+        ? meta.siteType
+        : meta.siteType === "regular"
+          ? "regular"
+          : "fire",
       contractStart: s.contract_start_period || periodFromDate(s.contract_start),
       contractEnd: s.contract_end_period || periodFromDate(s.contract_end),
       status: s.status || "active",

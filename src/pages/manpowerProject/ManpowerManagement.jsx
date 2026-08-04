@@ -37,7 +37,7 @@ import {
   INQUIRY_DB_COLUMNS,
   INQUIRY_LIST_DISPLAY_COLUMNS,
   INQUIRY_TABLE_COLUMNS,
-  MODE_OF_SUBMISSION_OPTIONS,
+  SOURCE_TYPE_OPTIONS,
   VERTICAL_OPTIONS,
 } from "./utils/manpowerEnquiryExcelFields";
 import {
@@ -640,7 +640,7 @@ const ManpowerManagement = () => {
                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                   >
                     <option value="">All</option>
-                    {MODE_OF_SUBMISSION_OPTIONS.map((opt) => (
+                    {SOURCE_TYPE_OPTIONS.map((opt) => (
                       <option key={opt} value={opt}>
                         {opt}
                       </option>
