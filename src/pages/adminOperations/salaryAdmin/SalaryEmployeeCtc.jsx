@@ -305,6 +305,8 @@ export default function SalaryEmployeeCtc() {
   const [empEsicCustom, setEmpEsicCustom] = useState("");
   const [erEsicMode, setErEsicMode] = useState(MODE_AUTO);
   const [erEsicCustom, setErEsicCustom] = useState("");
+  const [leaveEncashMode, setLeaveEncashMode] = useState(MODE_AUTO);
+  const [leaveEncashCustom, setLeaveEncashCustom] = useState("");
 
   const isRevisionMode = reviseRequested && hasExistingCtc;
   const isViewOnly = hasExistingCtc && !reviseRequested;
@@ -313,6 +315,7 @@ export default function SalaryEmployeeCtc() {
   const hraIsCustom = normalizeComponentMode(hraMode) === MODE_CUSTOM;
   const empEsicIsCustom = normalizeComponentMode(empEsicMode) === MODE_CUSTOM;
   const erEsicIsCustom = normalizeComponentMode(erEsicMode) === MODE_CUSTOM;
+  const leaveEncashIsCustom = normalizeComponentMode(leaveEncashMode) === MODE_CUSTOM;
 
   const buildArgs = useCallback(
     () => ({
@@ -338,6 +341,8 @@ export default function SalaryEmployeeCtc() {
       erEsicMode,
       empEsicMonthly: empEsicIsCustom ? parseRupeeInput(empEsicCustom) : null,
       erEsicMonthly: erEsicIsCustom ? parseRupeeInput(erEsicCustom) : null,
+      leaveEncashMode,
+      leaveEncashMonthly: leaveEncashIsCustom ? parseRupeeInput(leaveEncashCustom) : null,
     }),
     [
       gross,
@@ -365,6 +370,9 @@ export default function SalaryEmployeeCtc() {
       empEsicCustom,
       erEsicIsCustom,
       erEsicCustom,
+      leaveEncashMode,
+      leaveEncashIsCustom,
+      leaveEncashCustom,
     ]
   );
 
@@ -406,6 +414,11 @@ export default function SalaryEmployeeCtc() {
       if (normalizeComponentMode(args.erEsicMode) === MODE_AUTO) {
         setErEsicCustom(
           preview.er_esic_monthly != null ? String(preview.er_esic_monthly) : ""
+        );
+      }
+      if (normalizeComponentMode(args.leaveEncashMode) === MODE_AUTO) {
+        setLeaveEncashCustom(
+          preview.leave_encash_monthly != null ? String(preview.leave_encash_monthly) : ""
         );
       }
       if (args.empPfMonthly == null) {
@@ -528,6 +541,11 @@ export default function SalaryEmployeeCtc() {
       setErEsicMode(loadedErEsicMode);
       setEmpEsicCustom(numOrEmpty(saved?.emp_esic_monthly));
       setErEsicCustom(numOrEmpty(saved?.er_esic_monthly));
+      const loadedLeaveEncashMode = saved?.leave_encash_mode
+        ? normalizeComponentMode(saved.leave_encash_mode)
+        : MODE_AUTO;
+      setLeaveEncashMode(loadedLeaveEncashMode);
+      setLeaveEncashCustom(numOrEmpty(saved?.leave_encash_monthly));
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
       setSaveMsg("");
@@ -570,16 +588,22 @@ export default function SalaryEmployeeCtc() {
       const next = String(parsed.er_esic_monthly);
       if (erEsicCustom !== next) setErEsicCustom(next);
     }
+    if (!leaveEncashIsCustom && parsed.leave_encash_monthly != null) {
+      const next = String(parsed.leave_encash_monthly);
+      if (leaveEncashCustom !== next) setLeaveEncashCustom(next);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync display when Auto results change
   }, [
     parsed.basic_monthly,
     parsed.hra_monthly,
     parsed.emp_esic_monthly,
     parsed.er_esic_monthly,
+    parsed.leave_encash_monthly,
     basicIsCustom,
     hraIsCustom,
     empEsicIsCustom,
     erEsicIsCustom,
+    leaveEncashIsCustom,
     canEdit,
   ]);
 
@@ -781,6 +805,39 @@ export default function SalaryEmployeeCtc() {
     });
   };
 
+  const handleLeaveEncashModeChange = (nextMode) => {
+    if (!canEdit) return;
+    const mode = normalizeComponentMode(nextMode);
+    if (mode === MODE_CUSTOM) {
+      const seed =
+        parseRupeeInput(leaveEncashCustom) ??
+        parsed.leave_encash_monthly ??
+        0;
+      const seedStr = String(seed);
+      setLeaveEncashCustom(seedStr);
+      setLeaveEncashMode(mode);
+      syncDerived({
+        leaveEncashMode: mode,
+        leaveEncashMonthly: parseRupeeInput(seedStr),
+      });
+      return;
+    }
+    setLeaveEncashMode(mode);
+    syncDerived({
+      leaveEncashMode: mode,
+      leaveEncashMonthly: null,
+    });
+  };
+
+  const handleLeaveEncashCustomChange = (raw) => {
+    if (!canEdit || !leaveEncashIsCustom) return;
+    setLeaveEncashCustom(raw);
+    syncDerived({
+      leaveEncashMode: MODE_CUSTOM,
+      leaveEncashMonthly: parseRupeeInput(raw),
+    });
+  };
+
   const applyPfDefaults = () => {
     if (!canEdit) return;
     const b = parsed.basic_monthly ?? parseRupeeInput(basic);
@@ -859,6 +916,8 @@ export default function SalaryEmployeeCtc() {
       emp_esic_monthly: structure.emp_esic_monthly,
       er_esic_mode: structure.er_esic_mode,
       er_esic_monthly: structure.er_esic_monthly,
+      leave_encash_mode: structure.leave_encash_mode,
+      leave_encash_monthly: structure.leave_encash_monthly,
       date_of_birth: employee.date_of_birth || null,
       date_of_joining: employee.date_of_joining || null,
       wef_date: wefToSave,
@@ -912,6 +971,12 @@ export default function SalaryEmployeeCtc() {
     setErEsicMode(normalizeComponentMode(savedRow?.er_esic_mode ?? structure.er_esic_mode));
     setEmpEsicCustom(numOrEmpty(savedRow?.emp_esic_monthly ?? structure.emp_esic_monthly));
     setErEsicCustom(numOrEmpty(savedRow?.er_esic_monthly ?? structure.er_esic_monthly));
+    setLeaveEncashMode(
+      normalizeComponentMode(savedRow?.leave_encash_mode ?? structure.leave_encash_mode)
+    );
+    setLeaveEncashCustom(
+      numOrEmpty(savedRow?.leave_encash_monthly ?? structure.leave_encash_monthly)
+    );
     setWef(savedRow?.wef_date || wefToSave || "");
     setRevisionReason(savedRow?.revision_reason || revisionReason || "");
 
@@ -1369,9 +1434,37 @@ export default function SalaryEmployeeCtc() {
               pa={paFromMonthly(parsed.gratuity_monthly)}
             />
             <SheetRow
-              label="Add : Leave Encashment (as per company policy)"
-              monthly={<MoneyCell value={parsed.leave_encash_monthly} />}
-              pa={paFromMonthly(parsed.leave_encash_monthly)}
+              label={
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>Add : Leave Encashment (as per company policy)</span>
+                  <ModeToggle
+                    value={leaveEncashMode}
+                    onChange={handleLeaveEncashModeChange}
+                    disabled={!canEdit}
+                    autoLabel="Auto"
+                    customLabel="Custom"
+                    ariaLabel="Leave Encashment calculation mode"
+                  />
+                </div>
+              }
+              hint={
+                leaveEncashIsCustom
+                  ? "Manual amount — overrides the company-policy formula"
+                  : "Auto: (Basic × 7) ÷ (26 × 12) — company policy from Basic"
+              }
+              monthly={
+                leaveEncashIsCustom ? (
+                  <AmountInput
+                    value={leaveEncashCustom}
+                    onChange={handleLeaveEncashCustomChange}
+                    label="Leave Encashment monthly"
+                    readOnly={!canEdit}
+                  />
+                ) : (
+                  <MoneyCell value={parsed.declared ? parsed.leave_encash_monthly : null} />
+                )
+              }
+              pa={paFromMonthly(parsed.declared ? parsed.leave_encash_monthly : null)}
             />
             <SheetRow
               label={
