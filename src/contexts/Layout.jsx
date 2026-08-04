@@ -55,6 +55,7 @@ import {
   Wallet,
   UserX,
   ClipboardList,
+  PhoneCall,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -337,13 +338,21 @@ const Layout = () => {
                       const path = pathname;
                       const active =
                         path.startsWith("/app/hr/employee-master") ||
-                        path.startsWith("/app/hr/salary-inputs") ||
                         path === "/app/hr";
                       return subNavClass({ isActive: active });
                     }}
                   >
                     <User className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">HR Management</span>
+                  </NavLink>
+                  <NavLink
+                    to="hr/calling-master"
+                    className={() =>
+                      subNavClass({ isActive: pathname.startsWith("/app/hr/calling-master") })
+                    }
+                  >
+                    <PhoneCall className="w-4 h-4 shrink-0 text-sky-600" />
+                    <span className="type-meta type-truncate">Recruitment</span>
                   </NavLink>
                   <NavLink to="attendance" className={subNavClass}>
                     <Clock className="w-4 h-4 shrink-0 text-amber-600" />
@@ -500,6 +509,10 @@ const Layout = () => {
                       <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
                         <Calendar className="h-4 w-4 shrink-0 text-purple-600" />
                         <span className="type-meta type-truncate">Leave Approvals</span>
+                      </NavLink>
+                      <NavLink to="admin/employee/tour-approvals" className={subNavClass}>
+                        <MapPin className="h-4 w-4 shrink-0 text-teal-600" />
+                        <span className="type-meta type-truncate">Tour Approvals</span>
                       </NavLink>
                       <NavLink to="admin/employee/leave-management" className={subNavClass}>
                         <CalendarDays className="h-4 w-4 shrink-0 text-indigo-600" />

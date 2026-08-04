@@ -185,6 +185,7 @@ export const NAV_MODULE_TREE = [
     subModules: [
       { value: "hr.dashboard",          label: "Dashboard",          pathPrefix: "/app/hr/dashboard" },
       { value: "hr.employee-master",     label: "HR Management",      pathPrefix: "/app/hr/employee-master" },
+      { value: "hr.calling-master",      label: "Recruitment",         pathPrefix: "/app/hr/calling-master" },
       { value: "hr.attendance",          label: "Attendance",         pathPrefix: "/app/attendance" },
       { value: "hr.salary-management",   label: "Salary Management",  pathPrefix: "/app/hr/payroll/salary" },
       { value: "hr.people-management",   label: "People Management",  pathPrefix: "/app/people-management" },

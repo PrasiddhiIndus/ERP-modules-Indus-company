@@ -1,0 +1,1476 @@
+import React, { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
+import {
+  Check,
+  Edit3,
+  Eye,
+  FileSpreadsheet,
+  Filter,
+  ListChecks,
+  Paperclip,
+  PhoneCall,
+  Plus,
+  Printer,
+  RefreshCw,
+  Search,
+  Trash2,
+  UserCheck,
+  UserX,
+  X,
+} from "lucide-react";
+import FormDateInput from "../../../components/FormDateInput";
+import {
+  callingAttachmentStoragePath,
+  fileLabelFromCallingAttachment,
+  isPreviewableCallingAttachment,
+  presignCallingMasterR2Get,
+  uploadCallingMasterFileToR2,
+} from "../../../lib/callingMasterR2";
+import {
+  DenseTable,
+  FilterBar,
+  Modal,
+  PageTaskHeader,
+  SectionCard,
+  StatusChip,
+  TinySelect,
+} from "../../adminOperations/components/AdminUi";
+import {
+  CALLING_MASTER_EXPORT_HEADERS,
+  CALLING_MASTER_FIELDS,
+  CALLING_MASTER_FILTER_KEYS,
+  CALLING_MASTER_SEARCH_KEYS,
+  CALLING_MASTER_TABLE_COLUMNS,
+  CALLING_PIPELINE_TABS,
+} from "./callingMasterConfig";
+import { normalizePipelineStatus } from "./callingMasterApi";
+import {
+  deleteCallingMasterRecords,
+  loadCallingMasterRecords,
+  updateCallingMasterPipelineStatus,
+  upsertCallingMasterRecord,
+} from "./callingMasterStorage";
+import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
+
+
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
+
+const EMPTY_FILTERS = {
+  callDate: "",
+  callingBy: "",
+  homeState: "",
+  workingState: "",
+  fireCourse: "",
+  industryWorked: "",
+  siteSuitable: "",
+  currentlyWorking: "",
+};
+
+const NUMERIC_FIELD_RULES = {
+  yearCompleted: { label: "Year Completed", allowDecimal: false, min: 1950, max: 2100 },
+  heightCm: { label: "Height", allowDecimal: false, min: 1, max: 300 },
+  weightKg: { label: "Weight", allowDecimal: true, min: 0, max: 500 },
+  salaryGross: { label: "Salary", allowDecimal: true, min: 0, max: 1000000 },
+  totalExperience: { label: "Experience", allowDecimal: true, min: 0, max: 60 },
+  drivingLicenseYear: { label: "Driving License Year", allowDecimal: false, min: 1950, max: 2100 },
+};
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function createEmptyFormValues() {
+  return {
+    id: "",
+    callDate: todayIso(),
+    callingBy: "",
+    candidateName: "",
+    phoneNumber: "",
+    cvSubmitted: "",
+    academicQualification: "",
+    fireCourse: "",
+    yearCompleted: "",
+    heightCm: "",
+    weightKg: "",
+    homeState: "",
+    homeTown: "",
+    currentlyWorking: "",
+    designation: "",
+    company: "",
+    workingState: "",
+    contractor: "",
+    industryWorked: "",
+    salaryGross: "",
+    facilitiesProvided: "",
+    totalExperience: "",
+    hmvLmv: "",
+    drivingLicenseYear: "",
+    remarks: "",
+    siteSuitable: "",
+    attachments: [],
+    hiringStatus: "Calling",
+  };
+}
+
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function formatDateDisplay(value) {
+  if (!value) return "—";
+  const [year, month, day] = String(value).slice(0, 10).split("-");
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+}
+
+function formatNumberDisplay(value) {
+  if (value == null || value === "") return "—";
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString("en-IN") : value;
+}
+
+function matchesSearch(record, search) {
+  if (!search.trim()) return true;
+  const query = normalizeText(search);
+  return CALLING_MASTER_SEARCH_KEYS.some((key) => normalizeText(record[key]).includes(query));
+}
+
+function matchesFilters(record, filters) {
+  return CALLING_MASTER_FILTER_KEYS.every((key) => {
+    const wanted = normalizeText(filters[key]);
+    if (!wanted) return true;
+    if (key === "callDate") return String(record[key] || "") === filters[key];
+    return normalizeText(record[key]) === wanted;
+  });
+}
+
+function compareValues(a, b) {
+  const left = a ?? "";
+  const right = b ?? "";
+  const leftNum = Number(left);
+  const rightNum = Number(right);
+  if (left !== "" && right !== "" && Number.isFinite(leftNum) && Number.isFinite(rightNum)) {
+    return leftNum - rightNum;
+  }
+  return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function sortRows(rows, sortConfig) {
+  const next = [...rows];
+  next.sort((a, b) => {
+    const result = compareValues(a[sortConfig.key], b[sortConfig.key]);
+    return sortConfig.direction === "asc" ? result : -result;
+  });
+  return next;
+}
+
+function buildExportRows(rows) {
+  return rows.map((row) => {
+    const exportRow = {};
+    CALLING_MASTER_EXPORT_HEADERS.forEach(({ key, label }) => {
+      if (key === "attachments") {
+        const files = Array.isArray(row.attachments) ? row.attachments : [];
+        exportRow[label] = files
+          .map((item) => callingAttachmentStoragePath(item) || fileLabelFromCallingAttachment(item))
+          .filter(Boolean)
+          .join("; ");
+        return;
+      }
+      exportRow[label] = row[key] ?? "";
+    });
+    return exportRow;
+  });
+}
+
+function validateCallingMasterForm(values, existingRows) {
+  const errors = {};
+  const cleanPhone = String(values.phoneNumber || "").replace(/\D/g, "");
+
+  if (!values.candidateName.trim()) errors.candidateName = "Candidate name is required.";
+  if (!cleanPhone) errors.phoneNumber = "Mobile number is required.";
+  else if (!/^\d{10}$/.test(cleanPhone)) errors.phoneNumber = "Mobile number must be exactly 10 digits.";
+
+  const heightRaw = String(values.heightCm || "").trim();
+  if (heightRaw) {
+    if (!/^\d+$/.test(heightRaw)) {
+      errors.heightCm = "Height must be a whole number (no decimals).";
+    }
+  }
+  const duplicate = existingRows.find(
+    (row) => String(row.id) !== String(values.id) && String(row.phoneNumber || "").replace(/\D/g, "") === cleanPhone
+  );
+  if (duplicate) {
+    errors.phoneNumber = "This mobile number already exists in Calling Master.";
+  }
+
+  Object.entries(NUMERIC_FIELD_RULES).forEach(([key, rule]) => {
+    const raw = String(values[key] || "").trim();
+    if (!raw) return;
+    const pattern = rule.allowDecimal ? /^\d+(\.\d+)?$/ : /^\d+$/;
+    if (!pattern.test(raw)) {
+      errors[key] = `${rule.label} must be numeric.`;
+      return;
+    }
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric)) {
+      errors[key] = `${rule.label} must be numeric.`;
+      return;
+    }
+    if (rule.min != null && numeric < rule.min) {
+      errors[key] = `${rule.label} must be ${rule.min} or more.`;
+      return;
+    }
+    if (rule.max != null && numeric > rule.max) {
+      errors[key] = `${rule.label} must be ${rule.max} or less.`;
+    }
+  });
+
+  return errors;
+}
+
+function FormField({ field, value, error, onChange, selectOptions }) {
+  const options = selectOptions?.[field.optionsKey] || [];
+  const inputClassName = `w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 ${
+    error ? "border-rose-300 focus:ring-rose-100" : "border-slate-200 focus:ring-blue-100"
+  }`;
+
+  let control = null;
+  if (field.type === "date") {
+    control = (
+      <FormDateInput
+        value={value}
+        onChange={(event) => onChange(field.key, event.target.value)}
+        className={inputClassName}
+      />
+    );
+  } else if (field.type === "select") {
+    control = (
+      <select
+        value={value}
+        onChange={(event) => onChange(field.key, event.target.value)}
+        className={`${inputClassName} bg-white`}
+      >
+        <option value="">{field.placeholder || `Select ${field.label}`}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  } else if (field.type === "textarea") {
+    control = (
+      <textarea
+        value={value}
+        onChange={(event) => onChange(field.key, event.target.value)}
+        placeholder={field.placeholder}
+        rows={4}
+        className={`${inputClassName} resize-y`}
+      />
+    );
+  } else {
+    const integerOnly = field.key === "heightCm" || field.key === "yearCompleted" || field.key === "drivingLicenseYear" || field.key === "phoneNumber";
+    control = (
+      <input
+        type={field.type === "number" || integerOnly ? "text" : field.type}
+        inputMode={field.type === "number" || integerOnly || field.key === "phoneNumber" ? "numeric" : undefined}
+        value={value}
+        maxLength={field.maxLength}
+        onChange={(event) => {
+          let next = event.target.value;
+          if (field.key === "phoneNumber") next = String(next || "").replace(/\D/g, "").slice(0, 10);
+          else if (field.key === "heightCm") next = String(next || "").replace(/[^\d]/g, "").slice(0, 3);
+          onChange(field.key, next);
+        }}
+        placeholder={field.placeholder}
+        className={inputClassName}
+      />
+    );
+  }
+
+  return (
+    <label className={field.fullWidth ? "sm:col-span-2 lg:col-span-4" : ""}>
+      <span className="mb-1.5 block text-xs font-medium text-slate-700">
+        {field.label}
+        {field.required ? <span className="text-rose-500"> *</span> : null}
+      </span>
+      {control}
+      {error ? <span className="mt-1 block text-xs text-rose-600">{error}</span> : null}
+    </label>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      <div className="grid gap-3 md:grid-cols-4">
+        {[0, 1, 2, 3].map((item) => (
+          <div key={item} className="h-20 rounded-card border border-slate-200 bg-slate-100" />
+        ))}
+      </div>
+      <div className="rounded-card border border-slate-200 bg-white p-4">
+        <div className="mb-4 h-10 rounded-lg bg-slate-100" />
+        <div className="space-y-3">
+          {[0, 1, 2, 3, 4].map((item) => (
+            <div key={item} className="h-12 rounded-lg bg-slate-100" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToastStack({ items, onDismiss }) {
+  if (!items.length) return null;
+  return (
+    <div className="fixed right-4 top-20 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
+      {items.map((toast) => (
+        <div
+          key={toast.id}
+          className={`rounded-xl border px-4 py-3 shadow-lg ${
+            toast.tone === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : toast.tone === "warning"
+                ? "border-amber-200 bg-amber-50 text-amber-900"
+                : "border-slate-200 bg-white text-slate-900"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 shrink-0">
+              {toast.tone === "success" ? <Check className="h-4 w-4" /> : <PhoneCall className="h-4 w-4" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{toast.title}</p>
+              {toast.message ? <p className="mt-1 text-xs opacity-90">{toast.message}</p> : null}
+            </div>
+            <button type="button" onClick={() => onDismiss(toast.id)} className="shrink-0 opacity-60 hover:opacity-100">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function CallingMasterPage() {
+  const { options: selectOptions } = useCallingMasterDropdowns();
+  const [records, setRecords] = useState([]);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [sortConfig, setSortConfig] = useState({ key: "callDate", direction: "desc" });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [loading, setLoading] = useState(true);
+  const [formOpen, setFormOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [formMode, setFormMode] = useState("create");
+  const [formValues, setFormValues] = useState(createEmptyFormValues());
+  const [formErrors, setFormErrors] = useState({});
+  const [toastItems, setToastItems] = useState([]);
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [filesPreviewOpen, setFilesPreviewOpen] = useState(false);
+  const [filesPreviewCandidate, setFilesPreviewCandidate] = useState(null);
+  const [filesPreviewActive, setFilesPreviewActive] = useState(null);
+  const [filesPreviewUrl, setFilesPreviewUrl] = useState("");
+  const [filesPreviewLoading, setFilesPreviewLoading] = useState(false);
+  const [filesPreviewError, setFilesPreviewError] = useState("");
+  const [pipelineTab, setPipelineTab] = useState("Calling");
+  const [statusUpdatingId, setStatusUpdatingId] = useState("");
+
+  const pushToast = (title, message = "", tone = "default") => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToastItems((current) => [...current, { id, title, message, tone }]);
+    window.setTimeout(() => {
+      setToastItems((current) => current.filter((item) => item.id !== id));
+    }, 3200);
+  };
+
+  const dismissToast = (id) => {
+    setToastItems((current) => current.filter((item) => item.id !== id));
+  };
+
+  const loadRecords = (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    loadCallingMasterRecords()
+      .then((next) => {
+        setRecords(next);
+      })
+      .catch((err) => {
+        setRecords([]);
+        pushToast("Unable to load candidates", err.message || "Please try again.", "warning");
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadRecords(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const stageRecords = useMemo(() => {
+    // Calling is the master register — shortlisted / selected / rejected rows stay visible here.
+    if (pipelineTab === "Calling") return records;
+    return records.filter((record) => normalizePipelineStatus(record.hiringStatus) === pipelineTab);
+  }, [records, pipelineTab]);
+
+  const filteredRows = useMemo(() => {
+    const searched = stageRecords.filter((record) => matchesSearch(record, search));
+    const filtered = searched.filter((record) => matchesFilters(record, filters));
+    return sortRows(filtered, sortConfig);
+  }, [stageRecords, search, filters, sortConfig]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  useEffect(() => {
+    setSelectedIds([]);
+    setPage(1);
+  }, [pipelineTab]);
+
+  const pagedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, page, pageSize]);
+
+  const selectedRows = useMemo(
+    () => stageRecords.filter((record) => selectedIds.includes(record.id)),
+    [stageRecords, selectedIds]
+  );
+
+  const summary = useMemo(() => {
+    const workingCount = stageRecords.filter((row) => row.currentlyWorking === "Yes").length;
+    const immediateCount = stageRecords.filter((row) => row.siteSuitable === "Immediate").length;
+    const cvSubmittedCount = stageRecords.filter((row) => row.cvSubmitted === "Yes").length;
+    const uniqueStates = new Set(stageRecords.map((row) => row.homeState).filter(Boolean)).size;
+    const summaryLabel =
+      pipelineTab === "Shortlisted"
+        ? "Shortlisted"
+        : pipelineTab === "Selected"
+          ? "Selected"
+          : "Calling records";
+    return [
+      { label: `Total ${summaryLabel}`, value: stageRecords.length, sub: `${pipelineTab} register` },
+      { label: "Currently Working", value: workingCount, sub: "Useful for fast screening" },
+      { label: "CV Submitted", value: cvSubmittedCount, sub: "Ready for recruiter review" },
+      { label: "Immediate Fit", value: immediateCount, sub: `${uniqueStates} home states covered` },
+    ];
+  }, [stageRecords, pipelineTab]);
+
+  const allVisibleSelected = pagedRows.length > 0 && pagedRows.every((row) => selectedIds.includes(row.id));
+  const hasFiltersApplied = Boolean(search.trim() || Object.values(filters).some(Boolean));
+  const noResults = !loading && stageRecords.length > 0 && filteredRows.length === 0;
+  const emptyState = !loading && stageRecords.length === 0;
+
+  const registerTitle =
+    pipelineTab === "Shortlisted"
+      ? "Shortlisted Register"
+      : pipelineTab === "Selected"
+        ? "Selected Register"
+        : "Calling Register";
+
+  const pageTitle =
+    pipelineTab === "Shortlisted" ? "Shortlisted" : pipelineTab === "Selected" ? "Selected" : "Calling";
+
+  const pageSubtitle =
+    pipelineTab === "Shortlisted"
+      ? "Shortlisted from Calling. Choose Selected or Rejected for each record."
+      : pipelineTab === "Selected"
+        ? "Candidates marked Selected from the Shortlisted register."
+        : "Master calling register. Shortlisted records remain here as well.";
+
+  const emptyTitle =
+    pipelineTab === "Shortlisted"
+      ? "No shortlisted candidates yet"
+      : pipelineTab === "Selected"
+        ? "No selected candidates yet"
+        : "No calling records yet";
+
+  const emptyMessage =
+    pipelineTab === "Shortlisted"
+      ? "Use Shortlist on the Calling register to add candidates here. They also remain in Calling."
+      : pipelineTab === "Selected"
+        ? "Use Selected on the Shortlisted register to move candidates here."
+        : "Start by adding your first calling record from today’s screening sheet.";
+
+  const resetForm = () => {
+    setFormValues(createEmptyFormValues());
+    setFormErrors({});
+    setFormMode("create");
+    setPendingFiles([]);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setFormOpen(true);
+  };
+
+  const openEdit = () => {
+    if (selectedRows.length !== 1) return;
+    setFormMode("edit");
+    setFormValues({
+      ...createEmptyFormValues(),
+      ...selectedRows[0],
+      attachments: Array.isArray(selectedRows[0].attachments) ? selectedRows[0].attachments : [],
+    });
+    setFormErrors({});
+    setPendingFiles([]);
+    setFormOpen(true);
+  };
+
+  const closeFilesPreview = () => {
+    setFilesPreviewOpen(false);
+    setFilesPreviewCandidate(null);
+    setFilesPreviewActive(null);
+    setFilesPreviewUrl("");
+    setFilesPreviewError("");
+    setFilesPreviewLoading(false);
+  };
+
+  const loadAttachmentPreview = async (attachment) => {
+    const path = callingAttachmentStoragePath(attachment);
+    if (!path) {
+      setFilesPreviewError("File path is missing.");
+      return;
+    }
+    setFilesPreviewActive(attachment);
+    setFilesPreviewLoading(true);
+    setFilesPreviewError("");
+    setFilesPreviewUrl("");
+    try {
+      const url = await presignCallingMasterR2Get(path);
+      setFilesPreviewUrl(url);
+    } catch (err) {
+      setFilesPreviewError(err.message || "Unable to open file preview.");
+    } finally {
+      setFilesPreviewLoading(false);
+    }
+  };
+
+  const openFilesPreview = (row, event) => {
+    event?.stopPropagation?.();
+    const attachments = Array.isArray(row?.attachments) ? row.attachments : [];
+    if (!attachments.length) {
+      pushToast("No files", "This candidate has no uploaded files yet.", "warning");
+      return;
+    }
+    setFilesPreviewCandidate(row);
+    setFilesPreviewOpen(true);
+    setFilesPreviewActive(null);
+    setFilesPreviewUrl("");
+    setFilesPreviewError("");
+    void loadAttachmentPreview(attachments[0]);
+  };
+
+  const handlePipelineStatusChange = async (row, nextStatus, event) => {
+    event?.stopPropagation?.();
+    if (!row?.id) return;
+    try {
+      setStatusUpdatingId(row.id);
+      await updateCallingMasterPipelineStatus(row.id, nextStatus);
+      await loadRecords(false);
+      if (pipelineTab !== "Calling") {
+        setSelectedIds((current) => current.filter((id) => id !== row.id));
+      }
+      const toastTitle =
+        nextStatus === "Selected"
+          ? "Moved to Selected"
+          : nextStatus === "Rejected"
+            ? "Marked Rejected"
+            : "Marked Shortlisted";
+      const toastMessage =
+        nextStatus === "Selected"
+          ? `${row.candidateName || "Candidate"} is now in Selected.`
+          : nextStatus === "Rejected"
+            ? `${row.candidateName || "Candidate"} left Shortlisted and remains in Calling.`
+            : `${row.candidateName || "Candidate"} is shortlisted and still listed in Calling.`;
+      pushToast(toastTitle, toastMessage, "success");
+    } catch (err) {
+      pushToast("Status update failed", err.message || "Unable to update status.", "warning");
+    } finally {
+      setStatusUpdatingId("");
+    }
+  };
+
+  const toggleSort = (key) => {
+    setSortConfig((current) =>
+      current.key === key
+        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: "asc" }
+    );
+  };
+
+  const desktopColumns = useMemo(() => {
+    const actionColumn =
+      pipelineTab === "Calling" || pipelineTab === "Shortlisted"
+        ? {
+            key: "__pipelineAction",
+            label: "Action",
+            headerClassName: pipelineTab === "Shortlisted" ? "min-w-[120px]" : "min-w-[72px]",
+            cellClassName: pipelineTab === "Shortlisted" ? "min-w-[120px]" : "min-w-[72px]",
+            render: (row) => {
+              const busy = statusUpdatingId === row.id;
+              const status = normalizePipelineStatus(row.hiringStatus);
+
+              if (pipelineTab === "Calling") {
+                const canShortlist = status === "Calling" || status === "Rejected";
+                if (!canShortlist) {
+                  return (
+                    <span className="text-[11px] font-medium text-slate-500">
+                      {status}
+                    </span>
+                  );
+                }
+                return (
+                  <button
+                    type="button"
+                    title="Mark Shortlisted"
+                    disabled={busy}
+                    onClick={(event) => void handlePipelineStatusChange(row, "Shortlisted", event)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
+                  >
+                    <ListChecks className="h-4 w-4" />
+                  </button>
+                );
+              }
+
+              return (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    title="Selected"
+                    disabled={busy}
+                    onClick={(event) => void handlePipelineStatusChange(row, "Selected", event)}
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 hover:border-emerald-300 disabled:opacity-50"
+                  >
+                    <UserCheck className="h-3.5 w-3.5" />
+                    Selected
+                  </button>
+                  <button
+                    type="button"
+                    title="Rejected"
+                    disabled={busy}
+                    onClick={(event) => void handlePipelineStatusChange(row, "Rejected", event)}
+                    className="inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-700 hover:border-rose-300 disabled:opacity-50"
+                  >
+                    <UserX className="h-3.5 w-3.5" />
+                    Rejected
+                  </button>
+                </div>
+              );
+            },
+          }
+        : null;
+
+    const selectionColumn = {
+      key: "__select",
+      label: "",
+      headerRender: () => (
+        <input
+          type="checkbox"
+          checked={allVisibleSelected}
+          onChange={(event) => {
+            const visibleIds = pagedRows.map((row) => row.id);
+            setSelectedIds((current) => {
+              const lookup = new Set(current);
+              if (event.target.checked) visibleIds.forEach((id) => lookup.add(id));
+              else visibleIds.forEach((id) => lookup.delete(id));
+              return [...lookup];
+            });
+          }}
+          aria-label="Select visible candidates"
+        />
+      ),
+      render: (row) => (
+        <input
+          type="checkbox"
+          checked={selectedIds.includes(row.id)}
+          onChange={(event) => {
+            event.stopPropagation();
+            setSelectedIds((current) =>
+              current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
+            );
+          }}
+          aria-label={`Select ${row.candidateName}`}
+        />
+      ),
+    };
+
+    const dataColumns = CALLING_MASTER_TABLE_COLUMNS.map((column) => ({
+      key: column.key,
+      label: column.label,
+      headerClassName: column.widthClassName,
+      cellClassName: column.widthClassName,
+      headerRender: () => (
+        <button
+          type="button"
+          onClick={() => toggleSort(column.key)}
+          className="inline-flex items-center gap-1 text-left"
+        >
+          <span>{column.label}</span>
+          <span className="text-[10px] text-slate-400">
+            {sortConfig.key === column.key ? (sortConfig.direction === "asc" ? "▲" : "▼") : "↕"}
+          </span>
+        </button>
+      ),
+      render: (row) => {
+        if (column.key === "callDate") return formatDateDisplay(row.callDate);
+        if (column.key === "cvSubmitted") {
+          return (
+            <StatusChip
+              label={row.cvSubmitted || "Pending"}
+              severity={row.cvSubmitted === "Yes" ? "info" : "warning"}
+            />
+          );
+        }
+        if (column.key === "currentlyWorking") {
+          return (
+            <StatusChip
+              label={row.currentlyWorking || "Unknown"}
+              severity={row.currentlyWorking === "Yes" ? "info" : "warning"}
+            />
+          );
+        }
+        if (column.key === "siteSuitable") {
+          const severity =
+            row.siteSuitable === "Immediate"
+              ? "info"
+              : row.siteSuitable === "Not suitable"
+                ? "critical"
+                : "warning";
+          return <StatusChip label={row.siteSuitable || "Review"} severity={severity} />;
+        }
+        if (column.key === "attachments") {
+          const count = Array.isArray(row.attachments) ? row.attachments.length : 0;
+          if (!count) return <span className="text-slate-400">—</span>;
+          return (
+            <button
+              type="button"
+              onClick={(event) => openFilesPreview(row, event)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-accent hover:text-accent"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Preview ({count})
+            </button>
+          );
+        }
+        if (["salaryGross", "heightCm", "weightKg", "totalExperience"].includes(column.key)) {
+          return formatNumberDisplay(row[column.key]);
+        }
+        return row[column.key] || "—";
+      },
+    }));
+    return [...(actionColumn ? [actionColumn] : []), selectionColumn, ...dataColumns];
+  }, [allVisibleSelected, pagedRows, pipelineTab, selectedIds, sortConfig, statusUpdatingId]);
+
+  const handleFilterChange = (key, value) => {
+    setFilters((current) => ({ ...current, [key]: value }));
+    setPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearch("");
+    setFilters(EMPTY_FILTERS);
+    setPage(1);
+  };
+
+  const handleFormValueChange = (key, value) => {
+    if (key === "phoneNumber") {
+      value = String(value || "").replace(/\D/g, "").slice(0, 10);
+    }
+    if (key === "heightCm") {
+      value = String(value || "").replace(/[^\d]/g, "").slice(0, 3);
+    }
+    setFormValues((current) => ({ ...current, [key]: value }));
+    setFormErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const nextValues = {
+      ...formValues,
+      phoneNumber: String(formValues.phoneNumber || "").replace(/\D/g, ""),
+      heightCm: String(formValues.heightCm || "").replace(/[^\d]/g, ""),
+    };
+    const errors = validateCallingMasterForm(nextValues, records);
+    if (Object.keys(errors).length) {
+      setFormErrors(errors);
+      pushToast("Form validation pending", "Please correct the highlighted fields.", "warning");
+      return;
+    }
+
+    try {
+      setUploadingFiles(true);
+      const candidateKey = nextValues.id || nextValues.phoneNumber || `draft-${Date.now()}`;
+      const uploaded = [];
+      for (const file of pendingFiles) {
+        const result = await uploadCallingMasterFileToR2({ file, candidateKey });
+        const storagePath = result.filePath || result.objectKey;
+        uploaded.push({
+          filePath: storagePath,
+          objectKey: storagePath,
+          bucket: result.bucket || "indus-erp-uploads",
+          fileName: result.fileName || file.name,
+          contentType: result.contentType || file.type || "",
+          uploadedAt: new Date().toISOString(),
+        });
+      }
+
+      const saved = await upsertCallingMasterRecord({
+        ...nextValues,
+        hiringStatus: normalizePipelineStatus(nextValues.hiringStatus),
+        attachments: [...(Array.isArray(nextValues.attachments) ? nextValues.attachments : []), ...uploaded],
+      });
+      await loadRecords(false);
+      setFormOpen(false);
+      setPendingFiles([]);
+      setSelectedIds(
+        pipelineTab === "Calling" || normalizePipelineStatus(saved.hiringStatus) === pipelineTab
+          ? [saved.id]
+          : []
+      );
+      pushToast(
+        formMode === "edit" ? "Calling record updated" : "Calling record added",
+        `${saved.candidateName} is ready in Calling.`,
+        "success"
+      );
+    } catch (err) {
+      if (/already exists|mobile number/i.test(err.message || "")) {
+        setFormErrors((current) => ({ ...current, phoneNumber: err.message }));
+      }
+      pushToast("Save failed", err.message || "Unable to save candidate.", "warning");
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedIds.length) return;
+    const count = selectedIds.length;
+    try {
+      await deleteCallingMasterRecords(selectedIds);
+      await loadRecords(false);
+      setSelectedIds([]);
+      setDeleteOpen(false);
+      pushToast("Records removed", `${count} record(s) deleted from ${pipelineTab}.`, "success");
+    } catch (err) {
+      pushToast("Delete failed", err.message || "Unable to delete candidates.", "warning");
+    }
+  };
+
+  const handleExport = () => {
+    const exportRows = buildExportRows(filteredRows);
+    if (!exportRows.length) {
+      pushToast("Nothing to export", "Apply different filters or add records first.", "warning");
+      return;
+    }
+    const sheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, pipelineTab);
+    XLSX.writeFile(workbook, `recruitment-${pipelineTab.toLowerCase()}-${todayIso()}.xlsx`);
+    pushToast("Excel exported", `Current ${pipelineTab} view downloaded successfully.`, "success");
+  };
+
+  const handlePrint = () => {
+    pushToast("Print view opened", "Browser print preview is being prepared.", "success");
+    window.print();
+  };
+
+  return (
+    <div className="space-y-5">
+      <ToastStack items={toastItems} onDismiss={dismissToast} />
+
+      <PageTaskHeader title={pageTitle} subtitle={pageSubtitle}>
+        {pipelineTab === "Calling" ? (
+          <button type="button" onClick={openCreate} className="erp-btn-primary rounded-control px-3.5 py-2 inline-flex items-center gap-2">
+            <Plus className="h-4 w-4" />
+            Add Calling
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={openEdit}
+          disabled={selectedRows.length !== 1}
+          className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2 disabled:opacity-50"
+        >
+          <Edit3 className="h-4 w-4" />
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={() => setDeleteOpen(true)}
+          disabled={!selectedIds.length}
+          className="rounded-control border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm font-medium text-rose-700 inline-flex items-center gap-2 disabled:opacity-50"
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </button>
+        <button type="button" onClick={handleExport} className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2">
+          <FileSpreadsheet className="h-4 w-4" />
+          Export Excel
+        </button>
+        <button type="button" onClick={handlePrint} className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2">
+          <Printer className="h-4 w-4" />
+          Print
+        </button>
+        <button type="button" onClick={() => loadRecords(true)} className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2">
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </button>
+      </PageTaskHeader>
+
+      <div className="flex flex-wrap gap-2">
+        {CALLING_PIPELINE_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setPipelineTab(tab.key)}
+            className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
+              pipelineTab === tab.key
+                ? "border-accent bg-accent text-white"
+                : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <LoadingSkeleton />
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {summary.map((item) => (
+              <div key={item.label} className="rounded-card border border-border bg-surface px-4 py-3.5 shadow-card">
+                <p className="type-mono-caption">{item.label}</p>
+                <p className="mt-1.5 text-2xl font-semibold text-ink">{item.value}</p>
+                <p className="mt-1 text-xs text-ink-muted">{item.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <SectionCard
+            title={registerTitle}
+            right={
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span>{filteredRows.length} result(s)</span>
+                {selectedIds.length ? <span>{selectedIds.length} selected</span> : null}
+              </div>
+            }
+          >
+            <div className="space-y-4">
+              <FilterBar>
+                <label className="min-w-[14rem] flex-1">
+                  <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Search</span>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={search}
+                      onChange={(event) => {
+                        setSearch(event.target.value);
+                        setPage(1);
+                      }}
+                      placeholder="Search mobile, candidate, company, designation"
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm"
+                    />
+                  </div>
+                </label>
+
+                <label>
+                  <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Date</span>
+                  <FormDateInput
+                    value={filters.callDate}
+                    onChange={(event) => handleFilterChange("callDate", event.target.value)}
+                    className="h-10 min-w-[11rem] rounded-lg border border-slate-200 bg-white"
+                  />
+                </label>
+
+                {[
+                  ["callingBy", "Calling By"],
+                  ["homeState", "Home State"],
+                  ["workingState", "Working State"],
+                  ["fireCourse", "Fire Course"],
+                  ["industryWorked", "Industry Worked"],
+                  ["siteSuitable", "Site Suitable"],
+                  ["currentlyWorking", "Currently Working"],
+                ].map(([key, label]) => (
+                  <label key={key}>
+                    <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</span>
+                    <TinySelect
+                      value={filters[key]}
+                      onChange={(event) => handleFilterChange(key, event.target.value)}
+                      className="min-w-[10rem] rounded-lg border-slate-200 bg-white text-sm"
+                    >
+                      <option value="">All</option>
+                      {(selectOptions[key] || []).map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </TinySelect>
+                  </label>
+                ))}
+
+                <div className="ml-auto flex flex-wrap gap-2">
+                  <button type="button" onClick={clearFilters} className="erp-btn-secondary rounded-control px-3 py-2 inline-flex items-center gap-2">
+                    <Filter className="h-4 w-4" />
+                    Clear
+                  </button>
+                </div>
+              </FilterBar>
+
+              {emptyState ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
+                  <h3 className="text-base font-semibold text-slate-900">{emptyTitle}</h3>
+                  <p className="mt-2 text-sm text-slate-500">{emptyMessage}</p>
+                  {pipelineTab === "Calling" ? (
+                    <button type="button" onClick={openCreate} className="erp-btn-primary mt-4 rounded-control px-4 py-2">
+                      Add first calling record
+                    </button>
+                  ) : null}
+                </div>
+              ) : noResults ? (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
+                  <h3 className="text-base font-semibold text-slate-900">No matching records</h3>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Try changing search text or filters to see more records.
+                  </p>
+                  {hasFiltersApplied ? (
+                    <button type="button" onClick={clearFilters} className="erp-btn-secondary mt-4 rounded-control px-4 py-2">
+                      Reset filters
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <div className="hidden lg:block">
+                    <DenseTable
+                      columns={desktopColumns}
+                      rows={pagedRows}
+                      rowKey="id"
+                      frozenColumnCount={pipelineTab === "Selected" ? 4 : 5}
+                      frozenColumnWidths={
+                        pipelineTab === "Selected"
+                          ? [48, 110, 120, 180]
+                          : pipelineTab === "Shortlisted"
+                            ? [128, 48, 110, 120, 180]
+                            : [72, 48, 110, 120, 180]
+                      }
+                      stickyHeader
+                      scrollMaxHeight="calc(100dvh - 26rem)"
+                      serialOffset={(page - 1) * pageSize}
+                      onRowClick={(row) =>
+                        setSelectedIds((current) =>
+                          current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-3 lg:hidden">
+                    {pagedRows.map((row) => {
+                      const selected = selectedIds.includes(row.id);
+                      const status = normalizePipelineStatus(row.hiringStatus);
+                      const canShortlist =
+                        pipelineTab === "Calling" && (status === "Calling" || status === "Rejected");
+                      const showShortlistActions = pipelineTab === "Shortlisted";
+                      return (
+                        <div
+                          key={row.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            setSelectedIds((current) =>
+                              current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
+                            )
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setSelectedIds((current) =>
+                                current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
+                              );
+                            }
+                          }}
+                          className={`rounded-xl border p-4 text-left shadow-sm transition ${
+                            selected ? "border-accent bg-blue-50/60" : "border-slate-200 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-base font-semibold text-slate-900">{row.candidateName || "Unnamed candidate"}</p>
+                              <p className="mt-1 text-sm text-slate-500">{row.designation || "Designation pending"} {row.company ? `· ${row.company}` : ""}</p>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              {canShortlist ? (
+                                <button
+                                  type="button"
+                                  title="Mark Shortlisted"
+                                  disabled={statusUpdatingId === row.id}
+                                  onClick={(event) => void handlePipelineStatusChange(row, "Shortlisted", event)}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 disabled:opacity-50"
+                                >
+                                  <ListChecks className="h-4 w-4" />
+                                </button>
+                              ) : null}
+                              {showShortlistActions ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    title="Selected"
+                                    disabled={statusUpdatingId === row.id}
+                                    onClick={(event) => void handlePipelineStatusChange(row, "Selected", event)}
+                                    className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 disabled:opacity-50"
+                                  >
+                                    <UserCheck className="h-3.5 w-3.5" />
+                                    Selected
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Rejected"
+                                    disabled={statusUpdatingId === row.id}
+                                    onClick={(event) => void handlePipelineStatusChange(row, "Rejected", event)}
+                                    className="inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-700 disabled:opacity-50"
+                                  >
+                                    <UserX className="h-3.5 w-3.5" />
+                                    Rejected
+                                  </button>
+                                </>
+                              ) : null}
+                              {pipelineTab === "Calling" && !canShortlist ? (
+                                <span className="text-[11px] font-medium text-slate-500">{status}</span>
+                              ) : null}
+                              <StatusChip label={row.siteSuitable || "Review"} severity={row.siteSuitable === "Immediate" ? "info" : "warning"} />
+                            </div>
+                          </div>
+                          <div className="mt-4 grid gap-2 sm:grid-cols-2 text-sm text-slate-600">
+                            <div><span className="font-medium text-slate-800">Mobile:</span> {row.phoneNumber || "—"}</div>
+                            <div><span className="font-medium text-slate-800">Date:</span> {formatDateDisplay(row.callDate)}</div>
+                            <div><span className="font-medium text-slate-800">Calling By:</span> {row.callingBy || "—"}</div>
+                            <div><span className="font-medium text-slate-800">Current State:</span> {row.workingState || "—"}</div>
+                            <div><span className="font-medium text-slate-800">Home State:</span> {row.homeState || "—"}</div>
+                            <div><span className="font-medium text-slate-800">Experience:</span> {row.totalExperience || "—"}</div>
+                          </div>
+                          {Array.isArray(row.attachments) && row.attachments.length ? (
+                            <div className="mt-3">
+                              <button
+                                type="button"
+                                onClick={(event) => openFilesPreview(row, event)}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                Preview files ({row.attachments.length})
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-col gap-3 border-t border-slate-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-xs text-slate-500">
+                      Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredRows.length)} of {filteredRows.length}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <TinySelect
+                        value={String(pageSize)}
+                        onChange={(event) => {
+                          setPageSize(Number(event.target.value));
+                          setPage(1);
+                        }}
+                        className="rounded-lg border-slate-200 bg-white text-sm"
+                      >
+                        {PAGE_SIZE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option} / page
+                          </option>
+                        ))}
+                      </TinySelect>
+                      <button
+                        type="button"
+                        disabled={page === 1}
+                        onClick={() => setPage((current) => Math.max(1, current - 1))}
+                        className="erp-btn-secondary rounded-control px-3 py-2 disabled:opacity-50"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-sm text-slate-600">
+                        Page {page} of {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={page === totalPages}
+                        onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                        className="erp-btn-secondary rounded-control px-3 py-2 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </SectionCard>
+        </>
+      )}
+
+      <Modal
+        open={formOpen}
+        title={formMode === "edit" ? "Edit Calling" : "Add Calling"}
+        onClose={() => setFormOpen(false)}
+        widthClass="max-w-5xl"
+        footer={
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">Mobile number must be unique for active calling records.</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setFormOpen(false)} className="erp-btn-secondary rounded-control px-4 py-2">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="calling-master-form"
+                disabled={uploadingFiles}
+                className="erp-btn-primary rounded-control px-4 py-2 disabled:opacity-50"
+              >
+                {uploadingFiles ? "Uploading…" : formMode === "edit" ? "Save Changes" : "Create Calling"}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <form id="calling-master-form" onSubmit={handleSubmit} className="space-y-5">
+          {CALLING_MASTER_FIELDS.map((section) => {
+            const Icon = section.icon;
+            return (
+              <section key={section.section} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                <div className="mb-4 flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-accent" />
+                  <h3 className="text-sm font-semibold text-slate-900">{section.section}</h3>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {section.fields.map((field) => (
+                    <FormField
+                      key={field.key}
+                      field={field}
+                      value={formValues[field.key]}
+                      error={formErrors[field.key]}
+                      onChange={handleFormValueChange}
+                      selectOptions={selectOptions}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+
+          <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+            <div className="mb-4 flex items-center gap-2">
+              <Paperclip className="h-4 w-4 text-accent" />
+              <h3 className="text-sm font-semibold text-slate-900">Attachments</h3>
+            </div>
+            <p className="mb-3 text-xs text-slate-500">
+              Upload multiple files (CV, certificates, photos). Files are stored securely with the candidate record.
+            </p>
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+              onChange={(event) => {
+                const files = Array.from(event.target.files || []);
+                if (!files.length) return;
+                setPendingFiles((current) => [...current, ...files]);
+                event.target.value = "";
+              }}
+              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-accent file:px-3 file:py-2 file:text-xs file:font-medium file:text-white"
+            />
+
+            {(formValues.attachments?.length || pendingFiles.length) ? (
+              <ul className="mt-4 space-y-2">
+                {(formValues.attachments || []).map((item) => {
+                  const path = callingAttachmentStoragePath(item);
+                  return (
+                  <li
+                    key={path || item.fileName}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate text-slate-800">{fileLabelFromCallingAttachment(item)}</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-accent hover:underline"
+                        onClick={async () => {
+                          try {
+                            const url = await presignCallingMasterR2Get(path);
+                            window.open(url, "_blank", "noopener,noreferrer");
+                          } catch (err) {
+                            pushToast("Open failed", err.message || "Unable to open file.", "warning");
+                          }
+                        }}
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-rose-600 hover:underline"
+                        onClick={() =>
+                          setFormValues((current) => ({
+                            ...current,
+                            attachments: (current.attachments || []).filter(
+                              (row) => callingAttachmentStoragePath(row) !== path
+                            ),
+                          }))
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                  );
+                })}
+                {pendingFiles.map((file, index) => (
+                  <li
+                    key={`${file.name}-${index}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate text-slate-800">{file.name} <span className="text-slate-400">(pending)</span></span>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-rose-600 hover:underline"
+                      onClick={() => setPendingFiles((current) => current.filter((_, i) => i !== index))}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">No attachments yet.</p>
+            )}
+          </section>
+        </form>
+      </Modal>
+
+      <Modal
+        open={filesPreviewOpen}
+        title={
+          filesPreviewCandidate
+            ? `Files · ${filesPreviewCandidate.candidateName || "Candidate"}`
+            : "Files"
+        }
+        onClose={closeFilesPreview}
+        widthClass="max-w-4xl"
+        footer={
+          <div className="flex justify-end">
+            <button type="button" onClick={closeFilesPreview} className="erp-btn-secondary rounded-control px-4 py-2">
+              Close
+            </button>
+          </div>
+        }
+      >
+        {filesPreviewCandidate ? (
+          <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+            <ul className="space-y-2">
+              {(filesPreviewCandidate.attachments || []).map((item) => {
+                const path = callingAttachmentStoragePath(item);
+                const active = callingAttachmentStoragePath(filesPreviewActive) === path;
+                return (
+                  <li key={path}>
+                    <button
+                      type="button"
+                      onClick={() => void loadAttachmentPreview(item)}
+                      className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                        active
+                          ? "border-accent bg-blue-50 text-slate-900"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                      }`}
+                    >
+                      <span className="block truncate font-medium">{fileLabelFromCallingAttachment(item)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="min-h-[280px] rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {filesPreviewLoading ? (
+                <p className="text-sm text-slate-500">Loading preview…</p>
+              ) : filesPreviewError ? (
+                <p className="text-sm text-rose-600">{filesPreviewError}</p>
+              ) : filesPreviewUrl && filesPreviewActive ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="truncate text-sm font-medium text-slate-800">
+                      {fileLabelFromCallingAttachment(filesPreviewActive)}
+                    </p>
+                    <a
+                      href={filesPreviewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-accent hover:underline"
+                    >
+                      Open in new tab
+                    </a>
+                  </div>
+                  {isPreviewableCallingAttachment(filesPreviewActive) ? (
+                    String(filesPreviewActive.contentType || "").includes("pdf") ||
+                    /\.pdf$/i.test(fileLabelFromCallingAttachment(filesPreviewActive)) ? (
+                      <iframe
+                        title={fileLabelFromCallingAttachment(filesPreviewActive)}
+                        src={filesPreviewUrl}
+                        className="h-[420px] w-full rounded-lg border border-slate-200 bg-white"
+                      />
+                    ) : (
+                      <img
+                        src={filesPreviewUrl}
+                        alt={fileLabelFromCallingAttachment(filesPreviewActive)}
+                        className="max-h-[420px] w-full rounded-lg border border-slate-200 bg-white object-contain"
+                      />
+                    )
+                  ) : (
+                    <p className="text-sm text-slate-600">
+                      Preview is available for images and PDFs. Use Open in new tab for this file type.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">Select a file to preview.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={deleteOpen}
+        title="Delete Record"
+        onClose={() => setDeleteOpen(false)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setDeleteOpen(false)} className="erp-btn-secondary rounded-control px-4 py-2">
+              Cancel
+            </button>
+            <button type="button" onClick={handleDelete} className="rounded-control bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">
+              Delete
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Delete {selectedIds.length} selected record(s) from {pipelineTab}? Active records will be marked inactive.
+        </p>
+      </Modal>
+    </div>
+  );
+}
