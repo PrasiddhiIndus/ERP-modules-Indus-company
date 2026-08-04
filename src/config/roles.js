@@ -10,6 +10,11 @@
  */
 
 import { isStagingSupabaseProject } from '../lib/stagingProject';
+import {
+  canAccessSalaryAdmin,
+  isSalaryAdminPath,
+  SALARY_ADMIN_SUBMODULE_KEY,
+} from '../pages/adminOperations/salaryAdmin/salaryAccess';
 
 export const ROLES = {
   EXECUTIVE: "executive",
@@ -108,6 +113,14 @@ export function hasFullModuleAccess(accessibleModules, moduleKey) {
 export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMetadata = null) {
   const moduleKey = String(subModuleKey || "").split(".")[0];
   if (!moduleKey) return false;
+
+  // Salary Admin: email allowlist is the only gate (not full Admin module).
+  if (subModuleKey === SALARY_ADMIN_SUBMODULE_KEY) {
+    return canAccessSalaryAdmin(profile, {
+      email: userMetadata?.email || profile?.email,
+    });
+  }
+
   if (hasFullModuleAccess(accessibleModules, moduleKey)) return true;
   return getEffectiveAllowedSubModules(profile, userMetadata).includes(subModuleKey);
 }
@@ -818,9 +831,16 @@ export function getAccessibleModules(profile) {
  * @param {string} pathname
  * @param {Set<string>} accessibleModules
  * @param {Set<string>} [subModulePaths] - result of getAccessibleSubModulePaths()
+ * @param {{ email?: string } | null} [accessIdentity] - optional email for Salary Admin allowlist
  */
-export function isPathAllowed(pathname, accessibleModules, subModulePaths) {
+export function isPathAllowed(pathname, accessibleModules, subModulePaths, accessIdentity = null) {
   if (!pathname || !pathname.startsWith("/app")) return false;
+
+  // Hard gate: Salary Admin only for allowlisted emails
+  if (isSalaryAdminPath(pathname)) {
+    return canAccessSalaryAdmin(accessIdentity, accessIdentity);
+  }
+
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
   if (accessibleModules.has("settings") && pathname.startsWith("/app/settings")) return true;
   for (const mod of accessibleModules) {

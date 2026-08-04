@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { SectionCard, Badge, LinkedChip, PageTaskHeader, StatusChip } from "./components/AdminUi";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
+import { canAccessSalaryAdmin } from "./salaryAdmin/salaryAccess";
 import {
   fetchLeaveStatusCounts,
   fetchLeaveRequests,
@@ -80,6 +82,7 @@ function bucketActivityByDay(rows, days = 14) {
 
 export default function AdminOpsDashboard() {
   const navigate = useNavigate();
+  const { user, userProfile } = useAuth();
   const mountedRef = useRef(true);
   const refreshTimerRef = useRef(null);
 
@@ -547,9 +550,11 @@ export default function AdminOpsDashboard() {
           <button type="button" className="text-[11px] border border-border px-2 py-1" onClick={() => navigate(`${base}/employee/attendance-daily`)}>
             Attendance
           </button>
-          <button type="button" className="text-[11px] border border-border px-2 py-1" onClick={() => navigate(`${base}/salary-admin/dashboard`)}>
-            Salary admin
-          </button>
+          {canAccessSalaryAdmin(userProfile, user) ? (
+            <button type="button" className="text-[11px] border border-border px-2 py-1" onClick={() => navigate(`${base}/salary-admin/dashboard`)}>
+              Salary admin
+            </button>
+          ) : null}
         </div>
       </SectionCard>
     </div>

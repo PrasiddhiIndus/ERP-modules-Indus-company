@@ -280,6 +280,7 @@ export default function SalaryEmployeeCtc() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [revisionReason, setRevisionReason] = useState("");
   const [esicSettingsOpen, setEsicSettingsOpen] = useState(false);
+  const [savedStructure, setSavedStructure] = useState(null);
 
   const [employeeLevel, setEmployeeLevel] = useState(EMP_LEVEL_OFFICE);
   const [gross, setGross] = useState("");
@@ -300,12 +301,18 @@ export default function SalaryEmployeeCtc() {
   const [esicCeiling, setEsicCeiling] = useState(String(DEFAULT_ESIC_CEILING));
   const [esicEmpRate, setEsicEmpRate] = useState(String(DEFAULT_EMP_ESIC_RATE_PCT));
   const [esicErRate, setEsicErRate] = useState(String(DEFAULT_ER_ESIC_RATE_PCT));
+  const [empEsicMode, setEmpEsicMode] = useState(MODE_AUTO);
+  const [empEsicCustom, setEmpEsicCustom] = useState("");
+  const [erEsicMode, setErEsicMode] = useState(MODE_AUTO);
+  const [erEsicCustom, setErEsicCustom] = useState("");
 
   const isRevisionMode = reviseRequested && hasExistingCtc;
   const isViewOnly = hasExistingCtc && !reviseRequested;
   const canEdit = !isViewOnly;
   const basicIsCustom = normalizeComponentMode(basicMode) === MODE_CUSTOM;
   const hraIsCustom = normalizeComponentMode(hraMode) === MODE_CUSTOM;
+  const empEsicIsCustom = normalizeComponentMode(empEsicMode) === MODE_CUSTOM;
+  const erEsicIsCustom = normalizeComponentMode(erEsicMode) === MODE_CUSTOM;
 
   const buildArgs = useCallback(
     () => ({
@@ -327,6 +334,10 @@ export default function SalaryEmployeeCtc() {
       esicCeiling: parseRupeeInput(esicCeiling),
       esicEmpRatePct: parseRateInput(esicEmpRate),
       esicErRatePct: parseRateInput(esicErRate),
+      empEsicMode,
+      erEsicMode,
+      empEsicMonthly: empEsicIsCustom ? parseRupeeInput(empEsicCustom) : null,
+      erEsicMonthly: erEsicIsCustom ? parseRupeeInput(erEsicCustom) : null,
     }),
     [
       gross,
@@ -348,6 +359,12 @@ export default function SalaryEmployeeCtc() {
       esicCeiling,
       esicEmpRate,
       esicErRate,
+      empEsicMode,
+      erEsicMode,
+      empEsicIsCustom,
+      empEsicCustom,
+      erEsicIsCustom,
+      erEsicCustom,
     ]
   );
 
@@ -380,6 +397,16 @@ export default function SalaryEmployeeCtc() {
       }
       if (normalizeComponentMode(args.hraMode) === MODE_AUTO) {
         setHraCustom(preview.hra_monthly > 0 ? String(preview.hra_monthly) : "");
+      }
+      if (normalizeComponentMode(args.empEsicMode) === MODE_AUTO) {
+        setEmpEsicCustom(
+          preview.emp_esic_monthly != null ? String(preview.emp_esic_monthly) : ""
+        );
+      }
+      if (normalizeComponentMode(args.erEsicMode) === MODE_AUTO) {
+        setErEsicCustom(
+          preview.er_esic_monthly != null ? String(preview.er_esic_monthly) : ""
+        );
       }
       if (args.empPfMonthly == null) {
         setEmpPf(String(preview.emp_pf_monthly ?? ""));
@@ -414,8 +441,9 @@ export default function SalaryEmployeeCtc() {
       }
       setEmployee(data);
 
-      const saved = getSalaryStructure(data.id);
+      const saved = await getSalaryStructure(data.id);
       const declared = Boolean(saved?.declared);
+      setSavedStructure(saved);
       setHasExistingCtc(declared);
       setRevisionCount(Number(saved?.revision_count) || 0);
       setRevisionReason(reviseRequested && declared ? "" : saved?.revision_reason || "");
@@ -490,6 +518,16 @@ export default function SalaryEmployeeCtc() {
       setEsicCeiling(rateOrEmpty(saved?.esic_ceiling, DEFAULT_ESIC_CEILING));
       setEsicEmpRate(rateOrEmpty(saved?.esic_emp_rate_pct, DEFAULT_EMP_ESIC_RATE_PCT));
       setEsicErRate(rateOrEmpty(saved?.esic_er_rate_pct, DEFAULT_ER_ESIC_RATE_PCT));
+      const loadedEmpEsicMode = saved?.emp_esic_mode
+        ? normalizeComponentMode(saved.emp_esic_mode)
+        : MODE_AUTO;
+      const loadedErEsicMode = saved?.er_esic_mode
+        ? normalizeComponentMode(saved.er_esic_mode)
+        : MODE_AUTO;
+      setEmpEsicMode(loadedEmpEsicMode);
+      setErEsicMode(loadedErEsicMode);
+      setEmpEsicCustom(numOrEmpty(saved?.emp_esic_monthly));
+      setErEsicCustom(numOrEmpty(saved?.er_esic_monthly));
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
       setSaveMsg("");
@@ -513,7 +551,7 @@ export default function SalaryEmployeeCtc() {
     return computeCtcStructure(buildArgs());
   }, [gross, basic, hraIsCustom, hraCustom, buildArgs]);
 
-  // Keep Auto Basic / HRA display values aligned while editing
+  // Keep Auto Basic / HRA / ESIC display values aligned while editing
   useEffect(() => {
     if (!canEdit || !parsed.declared) return;
     if (!basicIsCustom && parsed.basic_monthly != null) {
@@ -524,8 +562,26 @@ export default function SalaryEmployeeCtc() {
       const next = String(parsed.hra_monthly);
       if (hraCustom !== next) setHraCustom(next);
     }
+    if (!empEsicIsCustom && parsed.emp_esic_monthly != null) {
+      const next = String(parsed.emp_esic_monthly);
+      if (empEsicCustom !== next) setEmpEsicCustom(next);
+    }
+    if (!erEsicIsCustom && parsed.er_esic_monthly != null) {
+      const next = String(parsed.er_esic_monthly);
+      if (erEsicCustom !== next) setErEsicCustom(next);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync display when Auto results change
-  }, [parsed.basic_monthly, parsed.hra_monthly, basicIsCustom, hraIsCustom, canEdit]);
+  }, [
+    parsed.basic_monthly,
+    parsed.hra_monthly,
+    parsed.emp_esic_monthly,
+    parsed.er_esic_monthly,
+    basicIsCustom,
+    hraIsCustom,
+    empEsicIsCustom,
+    erEsicIsCustom,
+    canEdit,
+  ]);
 
   const fy = currentCompensationYear();
   const segment = employee
@@ -659,6 +715,72 @@ export default function SalaryEmployeeCtc() {
     });
   };
 
+  const handleEmpEsicModeChange = (nextMode) => {
+    if (!canEdit) return;
+    const mode = normalizeComponentMode(nextMode);
+    if (mode === MODE_CUSTOM) {
+      const seed =
+        parseRupeeInput(empEsicCustom) ??
+        parsed.emp_esic_monthly ??
+        0;
+      const seedStr = seed > 0 || seed === 0 ? String(seed) : empEsicCustom;
+      setEmpEsicCustom(seedStr);
+      setEmpEsicMode(mode);
+      syncDerived({
+        empEsicMode: mode,
+        empEsicMonthly: parseRupeeInput(seedStr),
+      });
+      return;
+    }
+    setEmpEsicMode(mode);
+    syncDerived({
+      empEsicMode: mode,
+      empEsicMonthly: null,
+    });
+  };
+
+  const handleEmpEsicCustomChange = (raw) => {
+    if (!canEdit || !empEsicIsCustom) return;
+    setEmpEsicCustom(raw);
+    syncDerived({
+      empEsicMode: MODE_CUSTOM,
+      empEsicMonthly: parseRupeeInput(raw),
+    });
+  };
+
+  const handleErEsicModeChange = (nextMode) => {
+    if (!canEdit) return;
+    const mode = normalizeComponentMode(nextMode);
+    if (mode === MODE_CUSTOM) {
+      const seed =
+        parseRupeeInput(erEsicCustom) ??
+        parsed.er_esic_monthly ??
+        0;
+      const seedStr = seed > 0 || seed === 0 ? String(seed) : erEsicCustom;
+      setErEsicCustom(seedStr);
+      setErEsicMode(mode);
+      syncDerived({
+        erEsicMode: mode,
+        erEsicMonthly: parseRupeeInput(seedStr),
+      });
+      return;
+    }
+    setErEsicMode(mode);
+    syncDerived({
+      erEsicMode: mode,
+      erEsicMonthly: null,
+    });
+  };
+
+  const handleErEsicCustomChange = (raw) => {
+    if (!canEdit || !erEsicIsCustom) return;
+    setErEsicCustom(raw);
+    syncDerived({
+      erEsicMode: MODE_CUSTOM,
+      erEsicMonthly: parseRupeeInput(raw),
+    });
+  };
+
   const applyPfDefaults = () => {
     if (!canEdit) return;
     const b = parsed.basic_monthly ?? parseRupeeInput(basic);
@@ -674,7 +796,7 @@ export default function SalaryEmployeeCtc() {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!employee || !canEdit) return;
     setSaveError("");
     const structure = computeCtcStructure(buildArgs());
@@ -733,25 +855,41 @@ export default function SalaryEmployeeCtc() {
       esic_ceiling: structure.esic_ceiling,
       esic_emp_rate_pct: structure.esic_emp_rate_pct,
       esic_er_rate_pct: structure.esic_er_rate_pct,
+      emp_esic_mode: structure.emp_esic_mode,
+      emp_esic_monthly: structure.emp_esic_monthly,
+      er_esic_mode: structure.er_esic_mode,
+      er_esic_monthly: structure.er_esic_monthly,
       date_of_birth: employee.date_of_birth || null,
       date_of_joining: employee.date_of_joining || null,
       wef_date: wefToSave,
     };
 
     let savedRow;
-    if (isRevisionMode) {
-      savedRow = reviseSalaryStructure(employee.id, payload, {
-        reason: revisionReason,
-        wef_date: wefToSave,
-      });
-      setRevisionCount(Number(savedRow?.revision_count) || 0);
-      setSaveMsg("Revision saved");
-    } else {
-      savedRow = saveSalaryStructure(employee.id, payload);
-      setSaveMsg("Saved");
+    try {
+      if (isRevisionMode) {
+        savedRow = await reviseSalaryStructure(employee.id, payload, {
+          reason: revisionReason,
+          wef_date: wefToSave,
+        });
+        setRevisionCount(Number(savedRow?.revision_count) || 0);
+        setSaveMsg("Revision saved");
+      } else {
+        savedRow = await saveSalaryStructure(employee.id, payload);
+        setSaveMsg("Saved");
+      }
+    } catch (err) {
+      console.error("Salary CTC: save failed", err);
+      const msg = String(err?.message || err?.details || "");
+      setSaveError(
+        /schema|PGRST106|does not exist/i.test(msg)
+          ? "Salary database schema is not ready. Run the admin_salary migration and expose schema admin_salary in Supabase API settings."
+          : "Could not save CTC to the database. Please try again."
+      );
+      return;
     }
 
     setHasExistingCtc(true);
+    setSavedStructure(savedRow || { ...structure, declared: true });
     setGross(numOrEmpty(savedRow?.gross_monthly ?? structure.gross_monthly));
     setBasicMode(normalizeComponentMode(savedRow?.basic_mode ?? structure.basic_mode));
     setBasic(numOrEmpty(savedRow?.basic_monthly ?? structure.basic_monthly));
@@ -770,6 +908,10 @@ export default function SalaryEmployeeCtc() {
     setEsicCeiling(String(savedRow?.esic_ceiling ?? structure.esic_ceiling));
     setEsicEmpRate(String(savedRow?.esic_emp_rate_pct ?? structure.esic_emp_rate_pct));
     setEsicErRate(String(savedRow?.esic_er_rate_pct ?? structure.esic_er_rate_pct));
+    setEmpEsicMode(normalizeComponentMode(savedRow?.emp_esic_mode ?? structure.emp_esic_mode));
+    setErEsicMode(normalizeComponentMode(savedRow?.er_esic_mode ?? structure.er_esic_mode));
+    setEmpEsicCustom(numOrEmpty(savedRow?.emp_esic_monthly ?? structure.emp_esic_monthly));
+    setErEsicCustom(numOrEmpty(savedRow?.er_esic_monthly ?? structure.er_esic_monthly));
     setWef(savedRow?.wef_date || wefToSave || "");
     setRevisionReason(savedRow?.revision_reason || revisionReason || "");
 
@@ -1119,18 +1261,43 @@ export default function SalaryEmployeeCtc() {
             />
             <SheetRow
               label={
-                parsed.emp_esic_applicable
-                  ? "Less : Employee ESIC"
-                  : "Less : Employee ESIC (not applicable)"
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>
+                    {parsed.emp_esic_applicable
+                      ? "Less : Employee ESIC"
+                      : "Less : Employee ESIC (not applicable)"}
+                  </span>
+                  <ModeToggle
+                    value={empEsicMode}
+                    onChange={handleEmpEsicModeChange}
+                    disabled={!canEdit}
+                    autoLabel="Auto"
+                    customLabel="Custom"
+                    ariaLabel="Employee ESIC calculation mode"
+                  />
+                </div>
               }
               hint={
-                parsed.esic_eligible
-                  ? `On Basic × ${parsed.esic_emp_rate_pct}% · Gross within ₹${Number(parsed.esic_ceiling).toLocaleString("en-IN")} ceiling`
-                  : esicEnabled
-                    ? `Gross above ₹${Number(parsed.esic_ceiling || DEFAULT_ESIC_CEILING).toLocaleString("en-IN")} ceiling — no ESIC`
-                    : "ESIC turned off for this structure"
+                empEsicIsCustom
+                  ? "Manual amount — used even when Gross is above the ESIC ceiling"
+                  : parsed.esic_eligible
+                    ? `On Basic × ${parsed.esic_emp_rate_pct}% · Gross within ₹${Number(parsed.esic_ceiling).toLocaleString("en-IN")} ceiling`
+                    : esicEnabled
+                      ? `Gross above ₹${Number(parsed.esic_ceiling || DEFAULT_ESIC_CEILING).toLocaleString("en-IN")} ceiling — no ESIC`
+                      : "ESIC turned off for this structure"
               }
-              monthly={<MoneyCell value={parsed.declared ? parsed.emp_esic_monthly : null} />}
+              monthly={
+                empEsicIsCustom ? (
+                  <AmountInput
+                    value={empEsicCustom}
+                    onChange={handleEmpEsicCustomChange}
+                    label="Employee ESIC monthly"
+                    readOnly={!canEdit}
+                  />
+                ) : (
+                  <MoneyCell value={parsed.declared ? parsed.emp_esic_monthly : null} />
+                )
+              }
               pa={paFromMonthly(parsed.declared ? parsed.emp_esic_monthly : null)}
             />
             <SheetRow
@@ -1157,16 +1324,43 @@ export default function SalaryEmployeeCtc() {
             />
             <SheetRow
               label={
-                parsed.er_esic_applicable
-                  ? "Add : Employer ESIC"
-                  : "Add : Employer ESIC (not applicable)"
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>
+                    {parsed.er_esic_applicable
+                      ? "Add : Employer ESIC"
+                      : "Add : Employer ESIC (not applicable)"}
+                  </span>
+                  <ModeToggle
+                    value={erEsicMode}
+                    onChange={handleErEsicModeChange}
+                    disabled={!canEdit}
+                    autoLabel="Auto"
+                    customLabel="Custom"
+                    ariaLabel="Employer ESIC calculation mode"
+                  />
+                </div>
               }
               hint={
-                parsed.esic_eligible
-                  ? `On Basic × ${parsed.esic_er_rate_pct}% · same Gross ceiling as employee ESIC`
-                  : null
+                erEsicIsCustom
+                  ? "Manual amount — used even when Gross is above the ESIC ceiling"
+                  : parsed.esic_eligible
+                    ? `On Basic × ${parsed.esic_er_rate_pct}% · same Gross ceiling as employee ESIC`
+                    : esicEnabled
+                      ? `Gross above ceiling — Auto shows ₹0; switch to Custom to enter an amount`
+                      : "ESIC turned off for this structure"
               }
-              monthly={<MoneyCell value={parsed.declared ? parsed.er_esic_monthly : null} />}
+              monthly={
+                erEsicIsCustom ? (
+                  <AmountInput
+                    value={erEsicCustom}
+                    onChange={handleErEsicCustomChange}
+                    label="Employer ESIC monthly"
+                    readOnly={!canEdit}
+                  />
+                ) : (
+                  <MoneyCell value={parsed.declared ? parsed.er_esic_monthly : null} />
+                )
+              }
               pa={paFromMonthly(parsed.declared ? parsed.er_esic_monthly : null)}
             />
             <SheetRow
@@ -1389,7 +1583,7 @@ export default function SalaryEmployeeCtc() {
       >
         <SalaryRevisionHistory
           employee={employee}
-          salary={getSalaryStructure(employee.id)}
+          salary={savedStructure}
         />
       </Drawer>
     </div>

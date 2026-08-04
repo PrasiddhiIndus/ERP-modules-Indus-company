@@ -5,27 +5,38 @@ import { ADMIN_OPS_QUICK_ACTIONS } from "../../config/quickActionRoutes";
 import { ADMIN_OPS_NAV } from "./navConfig";
 import { FilterBar, TinyInput, TinySelect } from "./components/AdminUi";
 import { mockAlerts } from "./data/mockAdminData";
+import { useAuth } from "../../contexts/AuthContext";
+import { canAccessSalaryAdmin } from "./salaryAdmin/salaryAccess";
 
 const base = "/app/admin-operations";
 
 export default function AdminOperationsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, userProfile } = useAuth();
   const [q, setQ] = useState("");
   const [company, setCompany] = useState("All");
   const [site, setSite] = useState("All");
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const alertCount = useMemo(() => mockAlerts.filter((a) => a.severity === "critical" || a.severity === "high").length, []);
 
+  const navGroups = useMemo(
+    () =>
+      ADMIN_OPS_NAV.filter(
+        (g) => !g.salaryAdminOnly || canAccessSalaryAdmin(userProfile, user)
+      ),
+    [user, userProfile]
+  );
+
   const openGroups = useMemo(() => {
     const rel = location.pathname.replace(base, "").replace(/^\//, "");
     const matched = new Set();
-    ADMIN_OPS_NAV.forEach((g) => {
+    navGroups.forEach((g) => {
       if (g.title === "Admin Operations") return;
       if (g.items.some((it) => rel === it.path || rel.startsWith(it.path + "/"))) matched.add(g.title);
     });
     return matched;
-  }, [location.pathname]);
+  }, [location.pathname, navGroups]);
 
   const [collapsed, setCollapsed] = useState(() => {
     const o = {};
@@ -163,7 +174,7 @@ export default function AdminOperationsLayout() {
         <aside className="bg-white rounded-xl shadow-sm border border-gray-100 p-2 h-fit xl:sticky xl:top-4">
           <p className="px-2 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Navigation</p>
           <nav className="space-y-1 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
-            {ADMIN_OPS_NAV.map((group) => (
+            {navGroups.map((group) => (
               <div key={group.title} className="mb-1">
                 {group.title === "Admin Operations" ? (
                   <div className="space-y-0.5">

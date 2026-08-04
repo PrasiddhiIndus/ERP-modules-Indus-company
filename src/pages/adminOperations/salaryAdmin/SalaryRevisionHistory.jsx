@@ -1,11 +1,37 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { formatINR, formatSalaryDate, getSalaryRevisions } from "./salaryData";
 
 /**
  * Shared CTC revision history panel (Salary Master drawer + CTC page drawer).
  */
 export default function SalaryRevisionHistory({ employee, salary, currentPreview = null }) {
-  const revisions = employee ? getSalaryRevisions(employee.id) : [];
+  const [revisions, setRevisions] = useState(() =>
+    Array.isArray(salary?.revisions) ? salary.revisions : []
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (Array.isArray(salary?.revisions) && salary.revisions.length > 0) {
+      setRevisions(salary.revisions);
+      return undefined;
+    }
+    if (!employee?.id) {
+      setRevisions([]);
+      return undefined;
+    }
+    getSalaryRevisions(employee.id)
+      .then((rows) => {
+        if (!cancelled) setRevisions(rows || []);
+      })
+      .catch((err) => {
+        console.error("Salary revision history load failed", err);
+        if (!cancelled) setRevisions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [employee?.id, salary?.id, salary?.revision_count, salary?.revisions]);
+
   const current = salary?.declared
     ? salary
     : currentPreview?.declared
@@ -78,45 +104,35 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
                   : null;
 
               return (
-                <li
-                  key={`${rev.revision_no}-${rev.revised_at}-${i}`}
-                  className="relative pl-4 pb-5 last:pb-0"
-                >
-                  <span className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-accent ring-2 ring-white" />
-                  <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-gray-900">
-                        Version {currentVersion - 1 - i}
-                        <span className="ml-1.5 font-normal text-gray-500">
-                          (archived)
-                        </span>
+                <li key={rev.id || `${rev.revision_no}-${i}`} className="relative pl-5 pb-5 last:pb-0">
+                  <span className="absolute left-[-5px] top-1.5 h-2.5 w-2.5 rounded-full bg-gray-400 ring-2 ring-white" />
+                  <div className="rounded-lg border border-gray-200 bg-white px-3.5 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold text-gray-800">
+                        Revision {rev.revision_no || revisions.length - i}
                       </p>
-                      <p className="text-[11px] text-gray-500">
-                        Archived {formatSalaryDate(rev.revised_at)}
+                      <p className="text-[10px] text-gray-500">
+                        {formatSalaryDate(rev.revised_at)}
                       </p>
                     </div>
-
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                      <Meta label="Basic / mo" value={formatINR(rev.basic_monthly)} compact />
-                      <Meta label="Gross / mo" value={formatINR(rev.gross_monthly)} compact />
-                      <Meta label="CTC annual" value={formatINR(rev.ctc_annual)} compact />
-                      <Meta label="Take home" value={formatINR(rev.take_home_monthly)} compact />
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
+                      <Meta label="Gross" value={formatINR(rev.gross_monthly)} />
+                      <Meta label="CTC annual" value={formatINR(rev.ctc_annual)} />
                     </div>
-
-                    <div className="mt-2.5 pt-2 border-t border-gray-100 space-y-1.5">
-                      <MetaRow label="W.E.F. date" value={formatSalaryDate(wef)} />
-                      <MetaRow label="Revision reason" value={reason || "—"} />
-                    </div>
-
                     {delta != null && delta !== 0 ? (
                       <p
-                        className={`mt-1.5 text-[11px] font-medium tabular-nums ${
-                          delta > 0 ? "text-emerald-700" : "text-rose-700"
+                        className={`mt-1.5 text-[11px] font-medium ${
+                          delta > 0 ? "text-emerald-700" : "text-amber-700"
                         }`}
                       >
-                        {delta > 0 ? "↑" : "↓"} {formatINR(Math.abs(delta))} vs prior
+                        {delta > 0 ? "+" : ""}
+                        {formatINR(delta)} vs earlier
                       </p>
                     ) : null}
+                    <div className="mt-2 space-y-1 text-[11px] text-gray-600">
+                      <p>W.E.F. {formatSalaryDate(wef)}</p>
+                      {reason ? <p className="text-gray-500">{reason}</p> : null}
+                    </div>
                   </div>
                 </li>
               );
@@ -128,32 +144,20 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
   );
 }
 
-function Meta({ label, value, compact = false }) {
+function Meta({ label, value }) {
   return (
     <div>
-      <p
-        className={`${
-          compact ? "text-gray-500" : "text-[10px] uppercase tracking-wide text-emerald-700/80"
-        }`}
-      >
-        {label}
-      </p>
-      <p
-        className={`font-medium tabular-nums text-gray-900 ${
-          compact ? "text-xs" : "text-sm font-semibold"
-        }`}
-      >
-        {value}
-      </p>
+      <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-gray-500">{label}</p>
+      <p className="mt-0.5 text-[13px] font-semibold tabular-nums text-gray-900">{value}</p>
     </div>
   );
 }
 
 function MetaRow({ label, value }) {
   return (
-    <div className="flex items-start justify-between gap-3 text-xs">
+    <div className="flex items-start justify-between gap-3 text-[12px]">
       <span className="text-gray-500 shrink-0">{label}</span>
-      <span className="text-gray-900 font-medium text-right break-words">{value}</span>
+      <span className="text-gray-800 text-right font-medium">{value}</span>
     </div>
   );
 }
