@@ -6,7 +6,9 @@ function isChunkLoadError(error) {
     error?.name === "ChunkLoadError" ||
     message.includes("Failed to fetch dynamically imported module") ||
     message.includes("Loading chunk") ||
-    message.includes("Importing a module script failed")
+    message.includes("Importing a module script failed") ||
+    message.includes("Unable to preload CSS") ||
+    message.includes("error loading dynamically imported module")
   );
 }
 
@@ -23,6 +25,17 @@ export default class RouteErrorBoundary extends React.Component {
   componentDidCatch(error) {
     // eslint-disable-next-line no-console
     console.error("Route render failed:", error);
+    if (isChunkLoadError(error)) {
+      const key = "erp_chunk_reload_once";
+      try {
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "1");
+          window.location.reload();
+        }
+      } catch {
+        // ignore storage failures
+      }
+    }
   }
 
   handleRetry = () => {

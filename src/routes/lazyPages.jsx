@@ -16,8 +16,8 @@ export { default as demoQuotations } from "../pages/projects/demoQuotations";
 // Shell & auth (loaded with app shell)
 export { default as Layout } from "../contexts/Layout";
 
-// Public
-export const Login = lazy(() => import("../pages/Login"));
+// Public — Login is eager so its CSS is not a separate preload that can time out on slow prod
+export { default as Login } from "../pages/Login";
 export const Register = lazy(() => import("../pages/Register"));
 export const ForgotPassword = lazy(() => import("../pages/ForgotPassword"));
 export const ResetPassword = lazy(() => import("../pages/ResetPassword"));
