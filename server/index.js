@@ -108,11 +108,40 @@ function getSupabaseProjectRefFromJwt(token) {
 const PRODUCTION_SUPABASE_PROJECT_REF = 'wbyzhknaqcjqqtwopupl';
 const STAGING_SUPABASE_PROJECT_REF = 'xjzhlbpgnpcmbdlufhwo';
 
-function serviceRoleMatchesUrl(url, svcKey) {
-  if (!url || !svcKey || !isSupabaseServiceRoleKey(svcKey)) return false;
+/** Supabase API keys are JWTs; service_role can read `profiles`, anon cannot (RLS). */
+function isSupabaseServiceRoleKey(key) {
+  const k = String(key || '').trim();
+  // New Supabase secret keys (not JWTs)
+  if (k.startsWith('sb_secret_')) return true;
+  try {
+    const parts = k.split('.');
+    if (parts.length < 2) return false;
+    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
+    const payload = JSON.parse(json);
+    return payload?.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @returns {'ok'|'missing'|'not_service_role'|'project_mismatch'|'unreadable_key_ref'}
+ */
+function diagnoseServiceRoleKey(url, svcKey) {
+  const key = String(svcKey || '').trim();
+  if (!key) return 'missing';
+  if (!isSupabaseServiceRoleKey(key)) return 'not_service_role';
+  // New secret keys do not embed project ref — accept when URL is configured.
+  if (key.startsWith('sb_secret_')) return url ? 'ok' : 'missing';
   const urlRef = getSupabaseProjectRefFromUrl(url);
-  const keyRef = getSupabaseProjectRefFromJwt(svcKey);
-  return Boolean(urlRef && keyRef && urlRef === keyRef);
+  const keyRef = getSupabaseProjectRefFromJwt(key);
+  if (!keyRef) return 'unreadable_key_ref';
+  if (urlRef && keyRef !== urlRef) return 'project_mismatch';
+  return 'ok';
+}
+
+function serviceRoleMatchesUrl(url, svcKey) {
+  return diagnoseServiceRoleKey(url, svcKey) === 'ok';
 }
 
 function getRawSupabaseServiceRoleKey() {
@@ -177,21 +206,24 @@ function getSupabaseUrlForServer() {
 function getSupabaseServiceRoleKeyForServer() {
   const raw = getRawSupabaseServiceRoleKey();
   const url = getSupabaseUrlForServer();
-  if (raw && url && !serviceRoleMatchesUrl(url, raw)) {
-    const keyRef = getSupabaseProjectRefFromJwt(raw);
-    const urlRef = getSupabaseProjectRefFromUrl(url);
-    const keySource =
-      _envSourceMap['SUPABASE_SERVICE_ROLE_KEY'] ||
-      _envSourceMap['SUPABASE_SERVICE_KEY'] ||
-      _envSourceMap['SERVICE_ROLE_KEY'] ||
-      'unknown';
-    const urlSource = _envSourceMap['SUPABASE_URL'] || _envSourceMap['VITE_SUPABASE_URL'] || 'unknown';
-    // eslint-disable-next-line no-console
-    console.error(
-      `[server] SERVICE_ROLE_KEY REJECTED: key is for project "${keyRef}" (from ${keySource}) ` +
-        `but SUPABASE_URL is "${urlRef}" (from ${urlSource}). ` +
-        `Both must be from the SAME Supabase project. Fix the file that has the wrong value and restart.`
-    );
+  const diagnosis = diagnoseServiceRoleKey(url, raw);
+  if (diagnosis !== 'ok') {
+    if (raw) {
+      const keyRef = getSupabaseProjectRefFromJwt(raw);
+      const urlRef = getSupabaseProjectRefFromUrl(url);
+      const keySource =
+        _envSourceMap['SUPABASE_SERVICE_ROLE_KEY'] ||
+        _envSourceMap['SUPABASE_SERVICE_KEY'] ||
+        _envSourceMap['SERVICE_ROLE_KEY'] ||
+        'unknown';
+      const urlSource = _envSourceMap['SUPABASE_URL'] || _envSourceMap['VITE_SUPABASE_URL'] || 'unknown';
+      // eslint-disable-next-line no-console
+      console.error(
+        `[server] SERVICE_ROLE_KEY REJECTED (${diagnosis}): key project="${keyRef || 'n/a'}" (from ${keySource}) ` +
+          `URL project="${urlRef || 'n/a'}" (from ${urlSource}). ` +
+          `Fix .env.server on the API host: use the service_role key from Supabase project ${urlRef || PRODUCTION_SUPABASE_PROJECT_REF}, then pm2 restart.`
+      );
+    }
     return '';
   }
   return raw;
@@ -202,19 +234,6 @@ function getSupabaseAnonKeyForServer() {
 }
 
 applyEnvironmentSupabasePin();
-
-/** Supabase API keys are JWTs; service_role can read `profiles`, anon cannot (RLS). */
-function isSupabaseServiceRoleKey(key) {
-  try {
-    const parts = String(key || '').split('.');
-    if (parts.length < 2) return false;
-    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
-    const payload = JSON.parse(json);
-    return payload?.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Prefer service_role for presign auth (can read profiles). If unset, fall back to anon key +
@@ -889,7 +908,7 @@ function normalizeBuyerForB2B(payload, sellerGstin) {
   return safe;
 }
 
-function buildSupabaseEnvWarning(projectRef, serviceRoleOk) {
+function buildSupabaseEnvWarning(projectRef, serviceRoleOk, diagnosis = null) {
   // Staging hosts are allowed to use the staging project; never warn them about production.
   if (isStagingErpEnv()) {
     if (projectRef && projectRef !== STAGING_SUPABASE_PROJECT_REF) {
@@ -909,9 +928,21 @@ function buildSupabaseEnvWarning(projectRef, serviceRoleOk) {
     );
   }
   if (!serviceRoleOk) {
+    if (diagnosis === 'project_mismatch') {
+      return (
+        'Attendance sync API SUPABASE_SERVICE_ROLE_KEY is from a different Supabase project than SUPABASE_URL. ' +
+        `Use the service_role key for ${projectRef || PRODUCTION_SUPABASE_PROJECT_REF} in production .env.server, then restart the API.`
+      );
+    }
+    if (diagnosis === 'not_service_role') {
+      return (
+        'Attendance sync API SUPABASE_SERVICE_ROLE_KEY is not a service_role key (anon/publishable keys are rejected). ' +
+        'Paste the service_role secret from Supabase → Project Settings → API into .env.server, then restart.'
+      );
+    }
     return (
       'Attendance sync API is missing a valid SUPABASE_SERVICE_ROLE_KEY matching SUPABASE_URL. ' +
-      'Fix .env.server and restart the API.'
+      'Fix production .env.server and restart the API.'
     );
   }
   return null;
@@ -919,12 +950,18 @@ function buildSupabaseEnvWarning(projectRef, serviceRoleOk) {
 
 app.get('/api/health', (_req, res) => {
   const supabaseUrl = getSupabaseUrlForServer();
+  const rawServiceRoleKey = getRawSupabaseServiceRoleKey();
   const serviceRoleKey = getSupabaseServiceRoleKeyForServer();
   const anonKey = getSupabaseAnonKeyForServer();
   const projectRef = getSupabaseProjectRefFromUrl(supabaseUrl);
   const erpEnv = String(process.env.ERP_ENV || '').toLowerCase() || null;
-  const serviceRoleOk = isSupabaseServiceRoleKey(serviceRoleKey);
-  const projectMismatchWarning = buildSupabaseEnvWarning(projectRef, serviceRoleOk);
+  const serviceRoleDiagnosis = diagnoseServiceRoleKey(supabaseUrl, rawServiceRoleKey);
+  const serviceRoleOk = serviceRoleDiagnosis === 'ok' && Boolean(serviceRoleKey);
+  const projectMismatchWarning = buildSupabaseEnvWarning(
+    projectRef,
+    serviceRoleOk,
+    serviceRoleDiagnosis
+  );
   // Always expose non-secret readiness flags (needed to debug prod vs local auth mismatches).
   const r2Configured = Boolean(
     String(process.env.R2_ENDPOINT || '').trim() &&
@@ -938,6 +975,7 @@ app.get('/api/health', (_req, res) => {
     supabase_project: projectRef || null,
     supabase_url: supabaseUrl ? 'set' : 'missing',
     service_role_key: serviceRoleOk ? 'ok' : 'missing_or_invalid',
+    service_role_diagnosis: serviceRoleDiagnosis,
     anon_key: anonKey ? 'set' : 'missing',
     r2_configured: r2Configured,
     warning: projectMismatchWarning,
@@ -949,6 +987,7 @@ app.get('/api/health', (_req, res) => {
       erp_env: body.erp_env,
       supabase_project: body.supabase_project,
       service_role_key: body.service_role_key,
+      service_role_diagnosis: body.service_role_diagnosis,
       r2_configured: body.r2_configured,
       warning: body.warning,
     });
