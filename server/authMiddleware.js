@@ -30,11 +30,23 @@ function projectRefFromUrl(url) {
   return m ? m[1] : '';
 }
 
-function projectRefFromJwt(token) {
+function decodeJwtPayload(token) {
   try {
     const parts = String(token || '').split('.');
-    if (parts.length < 2) return '';
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    if (parts.length < 2) return null;
+    let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4;
+    if (pad) b64 += '='.repeat(4 - pad);
+    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function projectRefFromJwt(token) {
+  try {
+    const payload = decodeJwtPayload(token);
+    if (!payload) return '';
     const fromRef = String(payload?.ref || '').trim();
     if (fromRef) return fromRef;
     // Access tokens often omit `ref`; iss is https://<project>.supabase.co/auth/v1
@@ -43,16 +55,6 @@ function projectRefFromJwt(token) {
     return fromIss ? fromIss[1] : '';
   } catch {
     return '';
-  }
-}
-
-function decodeJwtPayload(token) {
-  try {
-    const parts = String(token || '').split('.');
-    if (parts.length < 2) return null;
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-  } catch {
-    return null;
   }
 }
 
