@@ -4,6 +4,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
 import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule } from "../config/roles";
+import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
@@ -120,7 +121,10 @@ const Layout = () => {
   const { user, signOut, accessibleModules, subModulePaths, navVisibleModules, userProfile } = useAuth();
   const can = (moduleKey) => Boolean(navVisibleModules?.has(moduleKey));
   const canSub = (subModuleKey) =>
-    canSeeSubModule(userProfile, accessibleModules, subModuleKey, user?.user_metadata);
+    canSeeSubModule(userProfile, accessibleModules, subModuleKey, {
+      ...(user?.user_metadata || {}),
+      email: userProfile?.email || user?.email,
+    });
   const hasFullAdmin = Boolean(accessibleModules?.has("admin"));
   const { isConsoleVisible } = useAuditConsole();
   const navigate = useNavigate();
@@ -150,7 +154,9 @@ const Layout = () => {
       setIsAccessDenied(false);
       return;
     }
-    const allowed = isPathAllowed(pathname, accessibleModules, subModulePaths);
+    const allowed = isPathAllowed(pathname, accessibleModules, subModulePaths, {
+      email: userProfile?.email || user?.email || "",
+    });
     if (!allowed && pathname === "/app/dashboard") {
       const landing = getLandingPathForUser(userProfile, accessibleModules);
       navigate(landing, { replace: true });
@@ -158,7 +164,7 @@ const Layout = () => {
       return;
     }
     setIsAccessDenied(!allowed);
-  }, [pathname, accessibleModules, subModulePaths, navigate, userProfile]);
+  }, [pathname, accessibleModules, subModulePaths, navigate, userProfile, user?.email]);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
@@ -424,7 +430,7 @@ const Layout = () => {
             )}
 
             {/* Admin */}
-            {can("admin") && (
+            {(can("admin") || canAccessSalaryAdmin(userProfile, user)) && (
             <div>
               <button
                 onClick={() => {

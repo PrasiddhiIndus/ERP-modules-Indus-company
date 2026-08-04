@@ -11,6 +11,14 @@ import {
   fetchSalaryStructureMap,
   formatINRPlain,
 } from "./salaryData";
+import {
+  dbFinalizeProcessingRun,
+  dbGetOrCreateDraftRun,
+  dbGetProcessingRun,
+  dbListProcessingLines,
+  dbUpdateProcessingRunTotals,
+  dbUpsertProcessingLines,
+} from "./salaryDb";
 
 const th =
   "px-2.5 py-2.5 text-[10px] font-semibold text-slate-600 uppercase tracking-[0.06em] whitespace-nowrap border-b border-slate-200 align-middle leading-tight bg-slate-50";
@@ -101,7 +109,7 @@ function GroupHead({ label, cols, tone, bg }) {
  */
 export default function SalaryProcessing() {
   const [employees, setEmployees] = useState([]);
-  const [salaryMap, setSalaryMap] = useState(() => fetchSalaryStructureMap());
+  const [salaryMap, setSalaryMap] = useState(() => new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -109,6 +117,10 @@ export default function SalaryProcessing() {
   const [showUnset, setShowUnset] = useState(false);
   const [overrides, setOverrides] = useState({});
   const [selectedId, setSelectedId] = useState(null);
+  const [runMeta, setRunMeta] = useState(null);
+  const [persistMsg, setPersistMsg] = useState("");
+  const [persistError, setPersistError] = useState("");
+  const [savingRun, setSavingRun] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -131,7 +143,7 @@ export default function SalaryProcessing() {
 
       if (fetchError) throw fetchError;
       setEmployees(data || []);
-      setSalaryMap(fetchSalaryStructureMap());
+      setSalaryMap(await fetchSalaryStructureMap());
     } catch (err) {
       console.error("Salary Processing: failed to load", err);
       setError("Could not load employees for processing. Please try again.");
@@ -146,10 +158,59 @@ export default function SalaryProcessing() {
   }, [load]);
 
   useEffect(() => {
-    const refresh = () => setSalaryMap(fetchSalaryStructureMap());
+    const refresh = () => {
+      fetchSalaryStructureMap()
+        .then(setSalaryMap)
+        .catch((err) => console.error("Salary Processing: refresh failed", err));
+    };
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, []);
+
+  // Load saved run / line overrides for the selected pay month
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setPersistError("");
+        const run = await dbGetProcessingRun(payMonth);
+        if (cancelled) return;
+        setRunMeta(run);
+        if (!run?.id) {
+          setOverrides({});
+          return;
+        }
+        const lines = await dbListProcessingLines(run.id);
+        if (cancelled) return;
+        const next = {};
+        for (const line of lines) {
+          const id = line.employee_master_id;
+          if (id == null) continue;
+          next[id] = {
+            presentDays: line.present_days,
+            pfBasic: line.pf_basic,
+            pt: line.pt_amount,
+            loan: line.loan,
+            salAdv: line.sal_adv,
+            unpaidPaid: line.unpaid_paid,
+            tds: line.tds,
+            accountNo: line.account_no,
+            ifsc: line.ifsc,
+            confirmationDate: line.confirmation_date,
+          };
+        }
+        setOverrides(next);
+      } catch (err) {
+        console.warn("Salary Processing: no saved run yet / load failed", err);
+        if (!cancelled) {
+          setRunMeta(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [payMonth]);
 
   const setOverride = (id, patch) => {
     setOverrides((prev) => ({
@@ -216,6 +277,88 @@ export default function SalaryProcessing() {
     return { gross, ded, net };
   }, [rows]);
 
+  const persistRun = async ({ finalize = false } = {}) => {
+    try {
+      setSavingRun(true);
+      setPersistError("");
+      setPersistMsg("");
+      let run = runMeta?.status === "draft" ? runMeta : null;
+      if (!run || run.month_key !== payMonth) {
+        run = await dbGetOrCreateDraftRun(payMonth, { totalDays: DEFAULT_MONTH_DAYS });
+      }
+      const lines = rows
+        .filter(({ calc }) => calc.declared)
+        .map(({ emp, calc }) => {
+          const ov = overrides[emp.id] || {};
+          const structure = salaryMap.get(String(emp.id));
+          return {
+            employee_master_id: emp.id,
+            employee_code: emp.employee_code || emp.employee_id || null,
+            employee_name: emp.full_name || null,
+            designation: emp.designation || null,
+            account_no: ov.accountNo ?? emp.bank_account_no ?? null,
+            ifsc: ov.ifsc ?? emp.ifsc_code ?? null,
+            confirmation_date: ov.confirmationDate ?? emp.confirmation_date ?? null,
+            structure_id: structure?.id || null,
+            declared: true,
+            salary_rate: calc.salary_rate,
+            basic_full: calc.basic,
+            hra_full: structure?.hra_monthly ?? null,
+            special_full: structure?.special_allowance_monthly ?? null,
+            present_days: calc.present_days,
+            total_days: calc.total_days,
+            pf_basic: calc.pf_basic,
+            pt_amount: calc.pt,
+            loan: calc.loan,
+            sal_adv: calc.sal_adv,
+            unpaid_paid: calc.unpaid_paid,
+            tds: calc.tds,
+            pf_earned_basic: calc.pf_earned_basic,
+            basic_earned: calc.basic_earned,
+            hra_earned: calc.hra,
+            special_allowance: calc.special_allowance,
+            gross_wages: calc.gross_wages,
+            emp_pf: calc.emp_pf,
+            emp_esic: calc.emp_esic,
+            total_ded: calc.total_ded,
+            net_salary: calc.net_salary,
+            bank_amount: calc.bank,
+            overrides_json: ov,
+            computed_json: calc,
+          };
+        });
+
+      await dbUpsertProcessingLines(run.id, lines);
+      const updated = await dbUpdateProcessingRunTotals(run.id, {
+        employee_count: employees.length,
+        declared_count: declaredCount,
+        total_gross_wages: totals.gross,
+        total_deductions: totals.ded,
+        total_net: totals.net,
+      });
+      setRunMeta(updated);
+
+      if (finalize) {
+        const fin = await dbFinalizeProcessingRun(run.id);
+        setRunMeta(fin);
+        setPersistMsg("Month finalized");
+      } else {
+        setPersistMsg("Draft saved");
+      }
+      window.setTimeout(() => setPersistMsg(""), 2500);
+    } catch (err) {
+      console.error("Salary Processing: save failed", err);
+      const msg = String(err?.message || err?.details || "");
+      setPersistError(
+        /schema|PGRST106|does not exist/i.test(msg)
+          ? "Salary database schema is not ready. Run admin_salary migration and expose it in API settings."
+          : err?.message || "Could not save this pay month. Please try again."
+      );
+    } finally {
+      setSavingRun(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -239,7 +382,18 @@ export default function SalaryProcessing() {
               </h1>
               <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
                 Process monthly payroll from Salary Master CTC.
+                {runMeta?.status ? (
+                  <span className="ml-2 text-slate-700 font-medium">
+                    · {runMeta.status === "finalized" ? "Finalized" : "Draft"} for {payMonth}
+                  </span>
+                ) : null}
               </p>
+              {persistMsg ? (
+                <p className="text-xs text-emerald-700 mt-1 font-medium">{persistMsg}</p>
+              ) : null}
+              {persistError ? (
+                <p className="text-xs text-red-600 mt-1 font-medium">{persistError}</p>
+              ) : null}
             </div>
           </div>
           <Link
@@ -249,6 +403,22 @@ export default function SalaryProcessing() {
             Salary Master
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
+          <button
+            type="button"
+            disabled={savingRun || runMeta?.status === "finalized"}
+            onClick={() => persistRun({ finalize: false })}
+            className="inline-flex items-center h-9 px-3.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {savingRun ? "Saving…" : "Save draft"}
+          </button>
+          <button
+            type="button"
+            disabled={savingRun || runMeta?.status === "finalized"}
+            onClick={() => persistRun({ finalize: true })}
+            className="inline-flex items-center h-9 px-3.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+          >
+            Finalize month
+          </button>
         </div>
 
         <div className="px-4 sm:px-6 lg:px-8 pb-4 flex flex-wrap items-center gap-2">

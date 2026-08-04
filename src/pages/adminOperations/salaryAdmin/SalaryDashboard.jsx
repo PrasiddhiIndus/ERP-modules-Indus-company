@@ -17,7 +17,7 @@ import { fetchSalaryStructureMap, formatINR } from "./salaryData";
  */
 export default function SalaryDashboard() {
   const [employees, setEmployees] = useState([]);
-  const [salaryMap, setSalaryMap] = useState(() => fetchSalaryStructureMap());
+  const [salaryMap, setSalaryMap] = useState(() => new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -38,7 +38,7 @@ export default function SalaryDashboard() {
         .order("employee_id", { ascending: true });
       if (fetchError) throw fetchError;
       setEmployees(data || []);
-      setSalaryMap(fetchSalaryStructureMap());
+      setSalaryMap(await fetchSalaryStructureMap());
     } catch (err) {
       console.error("Salary Dashboard: failed to load", err);
       setError("Could not load salary overview. Please try again.");
