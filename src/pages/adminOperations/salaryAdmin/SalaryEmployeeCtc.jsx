@@ -307,6 +307,10 @@ export default function SalaryEmployeeCtc() {
   const [erEsicCustom, setErEsicCustom] = useState("");
   const [leaveEncashMode, setLeaveEncashMode] = useState(MODE_AUTO);
   const [leaveEncashCustom, setLeaveEncashCustom] = useState("");
+  const [gratuityMode, setGratuityMode] = useState(MODE_AUTO);
+  const [gratuityCustom, setGratuityCustom] = useState("");
+  const [specialPerfBonusEnabled, setSpecialPerfBonusEnabled] = useState(false);
+  const [specialPerfBonus, setSpecialPerfBonus] = useState("");
 
   const isRevisionMode = reviseRequested && hasExistingCtc;
   const isViewOnly = hasExistingCtc && !reviseRequested;
@@ -316,6 +320,7 @@ export default function SalaryEmployeeCtc() {
   const empEsicIsCustom = normalizeComponentMode(empEsicMode) === MODE_CUSTOM;
   const erEsicIsCustom = normalizeComponentMode(erEsicMode) === MODE_CUSTOM;
   const leaveEncashIsCustom = normalizeComponentMode(leaveEncashMode) === MODE_CUSTOM;
+  const gratuityIsCustom = normalizeComponentMode(gratuityMode) === MODE_CUSTOM;
 
   const buildArgs = useCallback(
     () => ({
@@ -330,6 +335,8 @@ export default function SalaryEmployeeCtc() {
       mediclaimMonthly: parseRupeeInput(mediclaim),
       licEnabled,
       licMonthly: parseRupeeInput(lic),
+      specialPerfBonusEnabled,
+      specialPerfBonusMonthly: parseRupeeInput(specialPerfBonus),
       hraMode,
       hraMonthly: hraIsCustom ? parseRupeeInput(hraCustom) : null,
       employeeLevel,
@@ -343,6 +350,8 @@ export default function SalaryEmployeeCtc() {
       erEsicMonthly: erEsicIsCustom ? parseRupeeInput(erEsicCustom) : null,
       leaveEncashMode,
       leaveEncashMonthly: leaveEncashIsCustom ? parseRupeeInput(leaveEncashCustom) : null,
+      gratuityMode,
+      gratuityMonthly: gratuityIsCustom ? parseRupeeInput(gratuityCustom) : null,
     }),
     [
       gross,
@@ -356,6 +365,8 @@ export default function SalaryEmployeeCtc() {
       mediclaim,
       licEnabled,
       lic,
+      specialPerfBonusEnabled,
+      specialPerfBonus,
       hraMode,
       hraIsCustom,
       hraCustom,
@@ -373,6 +384,9 @@ export default function SalaryEmployeeCtc() {
       leaveEncashMode,
       leaveEncashIsCustom,
       leaveEncashCustom,
+      gratuityMode,
+      gratuityIsCustom,
+      gratuityCustom,
     ]
   );
 
@@ -419,6 +433,11 @@ export default function SalaryEmployeeCtc() {
       if (normalizeComponentMode(args.leaveEncashMode) === MODE_AUTO) {
         setLeaveEncashCustom(
           preview.leave_encash_monthly != null ? String(preview.leave_encash_monthly) : ""
+        );
+      }
+      if (normalizeComponentMode(args.gratuityMode) === MODE_AUTO) {
+        setGratuityCustom(
+          preview.gratuity_monthly != null ? String(preview.gratuity_monthly) : ""
         );
       }
       if (args.empPfMonthly == null) {
@@ -526,6 +545,11 @@ export default function SalaryEmployeeCtc() {
       setMediclaim(mediclaimAmt);
       setLicEnabled(Boolean(saved?.lic_enabled) || (parseRupeeInput(licAmt) ?? 0) > 0);
       setLic(licAmt);
+      const perfAmt = numOrEmpty(saved?.special_perf_bonus_monthly);
+      setSpecialPerfBonusEnabled(
+        Boolean(saved?.special_perf_bonus_enabled) || (parseRupeeInput(perfAmt) ?? 0) > 0
+      );
+      setSpecialPerfBonus(perfAmt);
       setBonus(numOrEmpty(saved?.bonus_monthly));
       setEsicEnabled(saved?.esic_enabled !== false);
       setEsicCeiling(rateOrEmpty(saved?.esic_ceiling, DEFAULT_ESIC_CEILING));
@@ -546,6 +570,11 @@ export default function SalaryEmployeeCtc() {
         : MODE_AUTO;
       setLeaveEncashMode(loadedLeaveEncashMode);
       setLeaveEncashCustom(numOrEmpty(saved?.leave_encash_monthly));
+      const loadedGratuityMode = saved?.gratuity_mode
+        ? normalizeComponentMode(saved.gratuity_mode)
+        : MODE_AUTO;
+      setGratuityMode(loadedGratuityMode);
+      setGratuityCustom(numOrEmpty(saved?.gratuity_monthly));
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
       setSaveMsg("");
@@ -592,6 +621,10 @@ export default function SalaryEmployeeCtc() {
       const next = String(parsed.leave_encash_monthly);
       if (leaveEncashCustom !== next) setLeaveEncashCustom(next);
     }
+    if (!gratuityIsCustom && parsed.gratuity_monthly != null) {
+      const next = String(parsed.gratuity_monthly);
+      if (gratuityCustom !== next) setGratuityCustom(next);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync display when Auto results change
   }, [
     parsed.basic_monthly,
@@ -599,11 +632,13 @@ export default function SalaryEmployeeCtc() {
     parsed.emp_esic_monthly,
     parsed.er_esic_monthly,
     parsed.leave_encash_monthly,
+    parsed.gratuity_monthly,
     basicIsCustom,
     hraIsCustom,
     empEsicIsCustom,
     erEsicIsCustom,
     leaveEncashIsCustom,
+    gratuityIsCustom,
     canEdit,
   ]);
 
@@ -838,6 +873,39 @@ export default function SalaryEmployeeCtc() {
     });
   };
 
+  const handleGratuityModeChange = (nextMode) => {
+    if (!canEdit) return;
+    const mode = normalizeComponentMode(nextMode);
+    if (mode === MODE_CUSTOM) {
+      const seed =
+        parseRupeeInput(gratuityCustom) ??
+        parsed.gratuity_monthly ??
+        0;
+      const seedStr = String(seed);
+      setGratuityCustom(seedStr);
+      setGratuityMode(mode);
+      syncDerived({
+        gratuityMode: mode,
+        gratuityMonthly: parseRupeeInput(seedStr),
+      });
+      return;
+    }
+    setGratuityMode(mode);
+    syncDerived({
+      gratuityMode: mode,
+      gratuityMonthly: null,
+    });
+  };
+
+  const handleGratuityCustomChange = (raw) => {
+    if (!canEdit || !gratuityIsCustom) return;
+    setGratuityCustom(raw);
+    syncDerived({
+      gratuityMode: MODE_CUSTOM,
+      gratuityMonthly: parseRupeeInput(raw),
+    });
+  };
+
   const applyPfDefaults = () => {
     if (!canEdit) return;
     const b = parsed.basic_monthly ?? parseRupeeInput(basic);
@@ -918,6 +986,10 @@ export default function SalaryEmployeeCtc() {
       er_esic_monthly: structure.er_esic_monthly,
       leave_encash_mode: structure.leave_encash_mode,
       leave_encash_monthly: structure.leave_encash_monthly,
+      gratuity_mode: structure.gratuity_mode,
+      gratuity_monthly: structure.gratuity_monthly,
+      special_perf_bonus_enabled: structure.special_perf_bonus_enabled,
+      special_perf_bonus_monthly: structure.special_perf_bonus_monthly,
       date_of_birth: employee.date_of_birth || null,
       date_of_joining: employee.date_of_joining || null,
       wef_date: wefToSave,
@@ -967,6 +1039,12 @@ export default function SalaryEmployeeCtc() {
     setMediclaim(numOrEmpty(savedRow?.mediclaim_monthly ?? structure.mediclaim_monthly));
     setLicEnabled(Boolean(savedRow?.lic_enabled ?? structure.lic_enabled));
     setLic(numOrEmpty(savedRow?.lic_monthly ?? structure.lic_monthly));
+    setSpecialPerfBonusEnabled(
+      Boolean(savedRow?.special_perf_bonus_enabled ?? structure.special_perf_bonus_enabled)
+    );
+    setSpecialPerfBonus(
+      numOrEmpty(savedRow?.special_perf_bonus_monthly ?? structure.special_perf_bonus_monthly)
+    );
     setBonus(String(structure.bonus_monthly ?? ""));
     setEsicEnabled(savedRow?.esic_enabled !== false);
     setEsicCeiling(String(savedRow?.esic_ceiling ?? structure.esic_ceiling));
@@ -982,6 +1060,8 @@ export default function SalaryEmployeeCtc() {
     setLeaveEncashCustom(
       numOrEmpty(savedRow?.leave_encash_monthly ?? structure.leave_encash_monthly)
     );
+    setGratuityMode(normalizeComponentMode(savedRow?.gratuity_mode ?? structure.gratuity_mode));
+    setGratuityCustom(numOrEmpty(savedRow?.gratuity_monthly ?? structure.gratuity_monthly));
     setWef(savedRow?.wef_date || wefToSave || "");
     setRevisionReason(savedRow?.revision_reason || revisionReason || "");
 
@@ -1434,9 +1514,37 @@ export default function SalaryEmployeeCtc() {
               pa={paFromMonthly(parsed.declared ? parsed.er_esic_monthly : null)}
             />
             <SheetRow
-              label="Add : Gratuity (as per Govt. rules)"
-              monthly={<MoneyCell value={parsed.gratuity_monthly} />}
-              pa={paFromMonthly(parsed.gratuity_monthly)}
+              label={
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>Add : Gratuity (as per Govt. rules)</span>
+                  <ModeToggle
+                    value={gratuityMode}
+                    onChange={handleGratuityModeChange}
+                    disabled={!canEdit}
+                    autoLabel="Auto"
+                    customLabel="Custom"
+                    ariaLabel="Gratuity calculation mode"
+                  />
+                </div>
+              }
+              hint={
+                gratuityIsCustom
+                  ? "Manual amount — overrides the Govt. accrual formula"
+                  : "Auto: Basic × 4.81% — as per Govt. rules"
+              }
+              monthly={
+                gratuityIsCustom ? (
+                  <AmountInput
+                    value={gratuityCustom}
+                    onChange={handleGratuityCustomChange}
+                    label="Gratuity monthly"
+                    readOnly={!canEdit}
+                  />
+                ) : (
+                  <MoneyCell value={parsed.declared ? parsed.gratuity_monthly : null} />
+                )
+              }
+              pa={paFromMonthly(parsed.declared ? parsed.gratuity_monthly : null)}
             />
             <SheetRow
               label={
@@ -1524,12 +1632,45 @@ export default function SalaryEmployeeCtc() {
               pa={paFromMonthly(licEnabled ? parsed.lic_monthly : null)}
             />
             <SheetRow
+              label={
+                <OptionalAddLabel
+                  label="Special Performance bonus (variable-annually)"
+                  checked={specialPerfBonusEnabled}
+                  onCheckedChange={(on) => {
+                    if (!canEdit) return;
+                    setSpecialPerfBonusEnabled(on);
+                  }}
+                  disabled={!canEdit}
+                />
+              }
+              hint={
+                specialPerfBonusEnabled
+                  ? "Optional Part B amount — enter the monthly accrual for variable annual performance bonus"
+                  : "Tick to include this optional employer cost in Part B / CTC"
+              }
+              monthly={
+                specialPerfBonusEnabled ? (
+                  <AmountInput
+                    value={specialPerfBonus}
+                    onChange={canEdit ? setSpecialPerfBonus : () => {}}
+                    label="Special Performance bonus monthly"
+                    readOnly={!canEdit}
+                  />
+                ) : (
+                  <span className="text-[12px] text-ink-disabled">Not included</span>
+                )
+              }
+              pa={paFromMonthly(
+                specialPerfBonusEnabled ? parsed.special_perf_bonus_monthly : null
+              )}
+            />
+            <SheetRow
               label="Add : Bonus"
               monthly={
                 <AmountInput
-                  value={bonus}
-                  onChange={canEdit ? setBonus : () => {}}
-                  label="Bonus monthly"
+                    value={bonus}
+                    onChange={canEdit ? setBonus : () => {}}
+                    label="Bonus monthly"
                   readOnly={!canEdit}
                 />
               }
