@@ -348,11 +348,14 @@ export default function SalaryProcessing() {
       window.setTimeout(() => setPersistMsg(""), 2500);
     } catch (err) {
       console.error("Salary Processing: save failed", err);
-      const msg = String(err?.message || err?.details || "");
+      const msg = String(err?.message || err?.details || err?.hint || "");
+      const code = String(err?.code || "");
       setPersistError(
-        /schema|PGRST106|does not exist/i.test(msg)
-          ? "Salary database schema is not ready. Run admin_salary migration and expose it in API settings."
-          : err?.message || "Could not save this pay month. Please try again."
+        /42501|row-level security|permission denied|RLS/i.test(`${code} ${msg}`)
+          ? "You do not have permission to save salary processing. Sign in with an allowed Salary Admin account."
+          : /PGRST205|does not exist|Could not find the table|relation .* does not exist/i.test(`${code} ${msg}`)
+            ? "Salary tables are not set up yet. Ask an admin to run the latest salary database migration, then try again."
+            : err?.message || "Could not save this pay month. Please try again."
       );
     } finally {
       setSavingRun(false);

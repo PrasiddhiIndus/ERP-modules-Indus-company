@@ -1,13 +1,21 @@
 /**
- * Admin Salary — Supabase data layer (schema: admin_salary).
- * Tables: structures, structure_revisions, processing_runs, processing_lines.
- *
- * Dashboard → Settings → API → Exposed schemas: add `admin_salary`
+ * Admin Salary — Supabase data layer.
+ * Tables live in public schema (always exposed to the API):
+ *   admin_salary_structures, admin_salary_structure_revisions,
+ *   admin_salary_processing_runs, admin_salary_processing_lines
  */
 
 import { supabase } from "../../../lib/supabase";
 
-export const ADMIN_SALARY_SCHEMA = "admin_salary";
+/** @deprecated Prefer public table names; kept for docs/compat. */
+export const ADMIN_SALARY_SCHEMA = "public";
+
+const SALARY_TABLES = Object.freeze({
+  structures: "admin_salary_structures",
+  structure_revisions: "admin_salary_structure_revisions",
+  processing_runs: "admin_salary_processing_runs",
+  processing_lines: "admin_salary_processing_lines",
+});
 
 const STRUCTURE_COLUMNS = [
   "id",
@@ -56,13 +64,33 @@ const STRUCTURE_COLUMNS = [
 ].join(", ");
 
 function salaryTable(name) {
-  return supabase.schema(ADMIN_SALARY_SCHEMA).from(name);
+  const table = SALARY_TABLES[name] || name;
+  return supabase.from(table);
 }
 
 function toMasterId(employeeMasterId) {
   const n = Number(employeeMasterId);
   if (!Number.isFinite(n)) return null;
   return n;
+}
+
+async function currentAuthUserId() {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user?.id) return user.id;
+  } catch {
+    /* fall through */
+  }
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    return session?.user?.id || null;
+  } catch {
+    return null;
+  }
 }
 
 function numOrNull(v) {
@@ -225,12 +253,10 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
   const id = toMasterId(employeeMasterId);
   if (id == null) throw new Error("Invalid employee.");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await currentAuthUserId();
 
   const cols = uiPayloadToStructureColumns(payload, id);
-  cols.updated_by = user?.id || null;
+  cols.updated_by = userId;
 
   const existing = await dbGetSalaryStructure(id, { withRevisions: false });
 
@@ -252,7 +278,7 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
     .insert({
       ...cols,
       revision_count: 0,
-      created_by: user?.id || null,
+      created_by: userId,
     })
     .select(STRUCTURE_COLUMNS)
     .single();
@@ -276,9 +302,7 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
     });
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await currentAuthUserId();
 
   const nextCount = (Number(prev.revision_count) || 0) + 1;
   const archivedWef = prev.wef_date || null;
@@ -346,7 +370,7 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
     .update({
       ...cols,
       revision_count: nextCount,
-      updated_by: user?.id || null,
+      updated_by: userId,
     })
     .eq("id", prev.id)
     .select(STRUCTURE_COLUMNS)
@@ -396,9 +420,7 @@ export async function dbGetOrCreateDraftRun(monthKey, { totalDays = 26 } = {}) {
     throw new Error("This month is already finalized. Open a new revision only via a new draft if allowed.");
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await currentAuthUserId();
 
   const { data, error } = await salaryTable("processing_runs")
     .insert({
@@ -406,8 +428,8 @@ export async function dbGetOrCreateDraftRun(monthKey, { totalDays = 26 } = {}) {
       month_key: key,
       status: "draft",
       total_days: totalDays,
-      created_by: user?.id || null,
-      updated_by: user?.id || null,
+      created_by: userId,
+      updated_by: userId,
     })
     .select("*")
     .single();
@@ -477,9 +499,7 @@ export async function dbUpsertProcessingLines(runId, lines) {
 
 export async function dbUpdateProcessingRunTotals(runId, totals = {}) {
   if (!runId) return null;
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await currentAuthUserId();
 
   const { data, error } = await salaryTable("processing_runs")
     .update({
@@ -489,7 +509,7 @@ export async function dbUpdateProcessingRunTotals(runId, totals = {}) {
       total_deductions: numOrNull(totals.total_deductions) ?? 0,
       total_net: numOrNull(totals.total_net) ?? 0,
       summary_json: totals.summary_json || {},
-      updated_by: user?.id || null,
+      updated_by: userId,
     })
     .eq("id", runId)
     .select("*")
@@ -500,16 +520,14 @@ export async function dbUpdateProcessingRunTotals(runId, totals = {}) {
 
 export async function dbFinalizeProcessingRun(runId) {
   if (!runId) throw new Error("Missing run.");
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await currentAuthUserId();
 
   const { data, error } = await salaryTable("processing_runs")
     .update({
       status: "finalized",
-      finalized_by: user?.id || null,
+      finalized_by: userId,
       finalized_at: new Date().toISOString(),
-      updated_by: user?.id || null,
+      updated_by: userId,
     })
     .eq("id", runId)
     .eq("status", "draft")

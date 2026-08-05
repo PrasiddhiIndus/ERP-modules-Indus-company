@@ -1,6 +1,6 @@
 /**
  * Salary Admin — CTC formulas + persistence helpers.
- * Persist via admin_salary schema (see salaryDb.js).
+ * Persist via public admin_salary_* tables (see salaryDb.js).
  *
  * PART A (monthly; P.A. = monthly × 12):
  * - Gross — master input; drives Auto Basic / HRA / Special

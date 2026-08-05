@@ -269,14 +269,15 @@ function formatAttendanceApiError(err, res, data) {
       "If it still fails, ask an admin to confirm SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.server match this website and restart the API.",
     ].join(" ");
   }
-  if (res?.status === 401 || /invalid or expired session|sign out and sign in|session expired|could not verify your login/i.test(msg)) {
-    return (
-      msg ||
-      "Session expired. Sign out and sign in again on this website, then retry Sync eTimeOffice."
-    );
+  if (res?.status === 401 || /invalid or expired session|sign out and sign in|session expired|could not verify your login|not signed in/i.test(msg)) {
+    // Session/auth issues are handled with a quiet retry path — never paint the page with this banner.
+    return "";
+  }
+  if (/supabase request timed out|erp_attendance_punches.*timed out|timed out \(\/rest\/v1\/erp_attendance/i.test(msg)) {
+    return "Saving punches took too long. Wait a moment and click Sync eTimeOffice again (smaller batches are used automatically).";
   }
   if (res?.status === 403) {
-    return msg || "Session expired or insufficient access. Sign in as admin/HR and retry.";
+    return "You need admin or HR access to sync punches. Sign in with an allowed account and retry.";
   }
   if (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(msg)) {
     return [
@@ -303,6 +304,17 @@ function formatAttendanceApiError(err, res, data) {
   return msg || "Unable to sync attendance punches from eTimeOffice.";
 }
 
+function isAttendanceSessionAuthFailure(err, res, data) {
+  const status = Number(res?.status) || 0;
+  const msg = String(err?.message || data?.message || data?.error || "").trim();
+  return (
+    status === 401 ||
+    /invalid or expired session|sign out and sign in|session expired|could not verify your login|not signed in/i.test(
+      msg
+    )
+  );
+}
+
 async function upsertAttendanceRows(rows) {
   const { rows: uniqueRows, collisionCount, inputCount, uniqueCount } = dedupePunchDbRows(rows);
   if (collisionCount > 0) {
@@ -313,8 +325,19 @@ async function upsertAttendanceRows(rows) {
   }
   for (let i = 0; i < uniqueRows.length; i += ATTENDANCE_UPSERT_CHUNK) {
     const chunk = uniqueRows.slice(i, i + ATTENDANCE_UPSERT_CHUNK);
-    const { error } = await supabase.from(ATTENDANCE_TABLE).upsert(chunk, { onConflict: "punch_key" });
-    if (error) throw error;
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const { error } = await supabase.from(ATTENDANCE_TABLE).upsert(chunk, { onConflict: "punch_key" });
+      if (!error) {
+        lastError = null;
+        break;
+      }
+      lastError = error;
+      const msg = String(error.message || "");
+      if (!/timed out|timeout|abort/i.test(msg) || attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
+    if (lastError) throw lastError;
   }
   return { stored: uniqueRows.length, apiRows: rows.length, collisions: collisionCount };
 }
@@ -472,11 +495,21 @@ export function EmployeeAttendanceInputsPage() {
       setRows([]);
       setTotalCount(0);
       const msg = err?.message || "Unable to load attendance punches.";
-      setError(
-        msg.includes("erp_attendance_punches") || err?.code === "PGRST205"
-          ? "Attendance data is not set up yet. Contact your system administrator."
-          : msg
-      );
+      // Never surface session/API auth noise while browsing stored punches.
+      if (
+        /invalid or expired session|sign out and sign in|session expired|jwt expired|not signed in/i.test(
+          msg
+        )
+      ) {
+        console.warn("[Raw Attendance] session notice while loading punches:", msg);
+        setError("");
+      } else {
+        setError(
+          msg.includes("erp_attendance_punches") || err?.code === "PGRST205"
+            ? "Attendance data is not set up yet. Contact your system administrator."
+            : msg
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -488,17 +521,23 @@ export function EmployeeAttendanceInputsPage() {
       empCode: resolveAttendanceEmpCodeFilter(empCode),
       fromDate: syncFromDate,
       toDate: selectedDate,
+      persist: "1",
     });
     setSyncing(true);
     setError("");
     try {
+      // Server fetches eTimeOffice and upserts with service role — avoids browser REST timeouts.
       const result = await fetchApiWithAuth(`/api/admin/attendance/punches?${params.toString()}`, {
-        timeoutMs: 120_000,
-        // Always refresh before Sync — production often has a stale cached JWT that fails API getUser.
-        forceRefresh: true,
+        timeoutMs: 180_000,
       });
       const data = result.data || {};
       if (!result.ok) {
+        if (isAttendanceSessionAuthFailure({ message: result.error }, { status: result.status }, data)) {
+          console.warn("[Raw Attendance] Sync auth notice:", result.error || data.message || data.error);
+          setError("");
+          await loadAttendanceFromTable();
+          return;
+        }
         throw new Error(
           formatAttendanceApiError(
             { message: result.error || data.message || data.error },
@@ -507,52 +546,61 @@ export function EmployeeAttendanceInputsPage() {
           )
         );
       }
-      const apiRecords = Array.isArray(data?.records) ? data.records : [];
-      const dbRows = apiRecords.map((record, index) => mapApiPunchToDbRow(record, index));
-      const rowsToStore = dbRows.filter((row) => row.punch_date && row.employee_code);
-      const skipped = dbRows.length - rowsToStore.length;
-      const upsertResult = rowsToStore.length ? await upsertAttendanceRows(rowsToStore) : { stored: 0, apiRows: 0, collisions: 0 };
+
+      let syncedCount = Number(data?.syncedCount) || 0;
+      let skipped = Number(data?.skippedNoDateOrEmp) || 0;
+      let collisions = Number(data?.dedupeCollisions) || 0;
+      const apiCount = Number(data?.count) || 0;
+
+      // Fallback only if an older API did not persist (returns records, persisted !== true).
+      if (data?.persisted !== true && Array.isArray(data?.records) && data.records.length) {
+        const dbRows = data.records.map((record, index) => mapApiPunchToDbRow(record, index));
+        const rowsToStore = dbRows.filter((row) => row.punch_date && row.employee_code);
+        skipped = dbRows.length - rowsToStore.length;
+        const upsertResult = rowsToStore.length
+          ? await upsertAttendanceRows(rowsToStore)
+          : { stored: 0, apiRows: 0, collisions: 0 };
+        syncedCount = upsertResult.stored;
+        collisions = upsertResult.collisions;
+      }
+
       setSummary({
         ...data,
         source: "Supabase",
         syncFromDate,
         syncToDate: selectedDate,
-        apiCount: apiRecords.length,
-        syncedCount: upsertResult.stored,
+        apiCount,
+        syncedCount,
         skippedNoDateOrEmp: skipped,
-        dedupeCollisions: upsertResult.collisions,
-        message: upsertResult.stored
-          ? `${upsertResult.stored} punch row(s) stored (${syncFromDate} → ${selectedDate}, overlap ${SYNC_OVERLAP_DAYS} day(s)).`
-          : data?.message || "No punch rows with a valid date and employee code to store.",
-      });
-      const reload = await fetchAttendancePunchesPage(supabase, {
-        fromDate: selectedDate,
-        toDate: selectedDate,
-        empCode: resolveAttendanceEmpCodeFilter(empCode),
-        page: 1,
-        pageSize,
-        search: searchDebounced,
-        sortKey,
-        sortDir,
+        dedupeCollisions: collisions,
+        message:
+          data?.message ||
+          (syncedCount
+            ? `${syncedCount} punch row(s) stored (${syncFromDate} → ${selectedDate}, overlap ${SYNC_OVERLAP_DAYS} day(s)).`
+            : "No punch rows with a valid date and employee code to store."),
       });
       setPage(1);
-      setRows(reload.rows);
-      setTotalCount(reload.total);
+      await loadAttendanceFromTable();
     } catch (err) {
-      setError(formatAttendanceApiError(err));
+      const formatted = formatAttendanceApiError(err);
+      if (!formatted || isAttendanceSessionAuthFailure(err)) {
+        console.warn("[Raw Attendance] Sync notice:", err?.message || err);
+        setError("");
+        try {
+          await loadAttendanceFromTable();
+        } catch {
+          /* ignore reload errors */
+        }
+      } else {
+        setError(formatted);
+      }
     } finally {
       setSyncing(false);
     }
   }, [
-    apiConnection.checking,
-    apiConnection.etimeConfigured,
-    apiConnection.message,
     empCode,
-    pageSize,
-    searchDebounced,
+    loadAttendanceFromTable,
     selectedDate,
-    sortDir,
-    sortKey,
   ]);
 
   useEffect(() => {

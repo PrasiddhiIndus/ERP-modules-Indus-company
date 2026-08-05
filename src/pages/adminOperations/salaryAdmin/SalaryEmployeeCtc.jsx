@@ -938,12 +938,17 @@ export default function SalaryEmployeeCtc() {
       }
     } catch (err) {
       console.error("Salary CTC: save failed", err);
-      const msg = String(err?.message || err?.details || "");
-      setSaveError(
-        /schema|PGRST106|does not exist/i.test(msg)
-          ? "Salary database schema is not ready. Run the admin_salary migration and expose schema admin_salary in Supabase API settings."
-          : "Could not save CTC to the database. Please try again."
-      );
+      const msg = String(err?.message || err?.details || err?.hint || "");
+      const code = String(err?.code || "");
+      if (/42501|row-level security|permission denied|RLS/i.test(`${code} ${msg}`)) {
+        setSaveError("You do not have permission to save salary CTC. Sign in with an allowed Salary Admin account.");
+      } else if (/PGRST205|does not exist|Could not find the table|relation .* does not exist/i.test(`${code} ${msg}`)) {
+        setSaveError("Salary tables are not set up yet. Ask an admin to run the latest salary database migration, then try again.");
+      } else if (/foreign key|employee_master|23503/i.test(`${code} ${msg}`)) {
+        setSaveError("This employee is missing from Employee Master. Save the employee first, then save CTC.");
+      } else {
+        setSaveError(msg ? `Could not save CTC: ${msg}` : "Could not save CTC to the database. Please try again.");
+      }
       return;
     }
 
