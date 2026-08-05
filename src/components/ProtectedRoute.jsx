@@ -6,19 +6,28 @@ import {
   readCachedAccessToken,
   readCachedSessionUser,
   isCachedAccessTokenExpired,
+  hasCachedRefreshToken,
 } from "../lib/authSessionUtils";
 import { logLoginStage } from "../lib/loginFlow";
 
-/** True when localStorage still holds a valid JWT (direct REST login path). */
+/** True when localStorage still holds a usable access JWT. */
 function hasValidCachedSession() {
   const token = readCachedAccessToken();
   return Boolean(token && !isCachedAccessTokenExpired());
 }
 
+/** Access JWT expired/missing but refresh_token can renew the session. */
+function hasRefreshableCachedSession() {
+  return hasCachedRefreshToken() && Boolean(readCachedSessionUser()?.id);
+}
+
 const ProtectedRoute = ({ children }) => {
   const { user, loading, profileLoading, permissionsReady } = useAuth();
   const location = useLocation();
-  const cachedUser = hasValidCachedSession() ? readCachedSessionUser() : null;
+  const cachedUser =
+    hasValidCachedSession() || hasRefreshableCachedSession()
+      ? readCachedSessionUser()
+      : null;
   const effectiveUser = user || cachedUser;
 
   if (loading) {
@@ -26,10 +35,12 @@ const ProtectedRoute = ({ children }) => {
   }
 
   if (!effectiveUser) {
-    if (hasValidCachedSession()) {
+    if (hasValidCachedSession() || hasRefreshableCachedSession()) {
       logLoginStage("route-guard-wait", {
         path: location.pathname,
-        reason: "valid-jwt-missing-react-user",
+        reason: hasValidCachedSession()
+          ? "valid-jwt-missing-react-user"
+          : "refreshing-expired-jwt",
       });
       return <PageLoader fullScreen label="Restoring session…" />;
     }

@@ -25,6 +25,7 @@ import { adminCreateUser } from './adminCreateUserApi.js';
 import { adminBulkCreateUsers } from './adminBulkCreateUserApi.js';
 import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
 import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
+import { fetchAllTourInboxTables } from './adminTourRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -435,6 +436,7 @@ app.use('/api', apiRateLimit);
 
 /** R2 object keys for software-subscriptions page; presign-get only signs keys under this prefix. */
 const R2_SOFTWARE_SUB_KEY_PREFIX = 'software-subscriptions/';
+const R2_HR_CALLING_KEY_PREFIX = 'hr-calling/';
 const R2_PRESIGN_GET_EXPIRES_SEC = 600;
 const R2_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
@@ -1311,6 +1313,34 @@ app.get('/api/admin/leave-requests', requireHrOrAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/admin/tour-requests', requireHrOrAdmin, async (req, res) => {
+  try {
+    const payload = await fetchAllTourInboxTables({
+      getSupabaseUrl: getSupabaseUrlForServer,
+      getServiceKey: getSupabaseServiceRoleKeyForServer,
+    });
+    res.json({
+      ok: true,
+      lmsRows: payload.lmsRows,
+      adminRows: payload.adminRows,
+      warnings: payload.warnings,
+      counts: {
+        tour_requests: payload.lmsRows.length,
+        admin_tour_requests: payload.adminRows.length,
+      },
+    });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    // eslint-disable-next-line no-console
+    console.error('[tour-requests]', status, err?.message || err);
+    res.status(status).json({
+      ok: false,
+      message: err?.message || 'Failed to load tour requests.',
+      details: err?.details || null,
+    });
+  }
+});
+
 app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res) => {
   try {
     const c = etimeCfg(getRequiredEnv);
@@ -1824,6 +1854,78 @@ app.post('/api/fleet/r2/presign-get', async (req, res) => {
 
     const objectKey = String(req.body?.objectKey || '').trim();
     assertFleetObjectKeyAllowedForUser(objectKey, user.id);
+
+    const client = getR2S3Client();
+    const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });
+    const getUrl = await getSignedUrl(client, getCmd, { expiresIn: R2_PRESIGN_GET_EXPIRES_SEC });
+    res.json({ getUrl });
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ message: err?.message || 'Presign GET failed.' });
+  }
+});
+
+// HR Calling Master: Cloudflare R2 (same bucket indus-erp-uploads; keys under hr-calling/).
+app.post(
+  '/api/hr-calling/r2/upload',
+  (req, res, next) => {
+    r2InvoiceUpload.single('file')(req, res, (err) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({ message: `File too large (max ${R2_MAX_ATTACHMENT_BYTES} bytes).` });
+        return;
+      }
+      res.status(400).json({ message: err.message || 'Upload failed.' });
+    });
+  },
+  async (req, res) => {
+    try {
+      const user = await requireSessionForSoftwareSubscriptionsR2(req);
+      const bucket = getR2BucketName();
+
+      const candidateKey = sanitizeR2UploadFileName(String(req.body?.candidateKey || 'draft').trim() || 'draft');
+      const rawName = String(req.body?.fileName || '').trim();
+      if (!rawName) {
+        return res.status(400).json({ message: 'fileName is required.' });
+      }
+      if (!req.file?.buffer) {
+        return res.status(400).json({ message: 'file is required (multipart field name: file).' });
+      }
+
+      const contentTypeHint = String(req.body?.contentType || req.file.mimetype || '').trim();
+      const resolvedType = resolveR2ContentType(rawName, contentTypeHint || null);
+      const safeName = sanitizeR2UploadFileName(rawName);
+      const objectKey = `${R2_HR_CALLING_KEY_PREFIX}${user.id}/${candidateKey}/${Date.now()}-${safeName}`;
+
+      const client = getR2S3Client();
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: objectKey,
+          Body: req.file.buffer,
+          ContentType: resolvedType,
+        })
+      );
+
+      res.json({ objectKey, bucket, contentType: resolvedType, fileName: safeName });
+    } catch (err) {
+      const status = Number(err?.status) || 500;
+      res.status(status).json({ message: err?.message || 'Upload failed.' });
+    }
+  }
+);
+
+app.post('/api/hr-calling/r2/presign-get', async (req, res) => {
+  try {
+    await requireSessionForSoftwareSubscriptionsR2(req);
+    const bucket = getR2BucketName();
+    const objectKey = String(req.body?.objectKey || '').trim();
+    if (!objectKey.startsWith(R2_HR_CALLING_KEY_PREFIX) || objectKey.includes('..') || objectKey.includes('//')) {
+      return res.status(400).json({ message: 'Invalid object key.' });
+    }
 
     const client = getR2S3Client();
     const getCmd = new GetObjectCommand({ Bucket: bucket, Key: objectKey });

@@ -2,6 +2,7 @@ import {
   combineIsoDateAndTimeForStorage,
   extractIsoDateFromDateTime,
   extractTimeHHmmFromDateTime,
+  formatDateDdMmYyyy,
   formatDateTimeAmPmDdMmYyyy,
 } from '../../utils/dateDisplay';
 import React, { useState, useEffect, useMemo } from 'react';
@@ -373,19 +374,43 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         return;
       }
 
-      const outDate = toIsoDateOrNull(formData.out_date) || visitDate;
+      const outDate = toIsoDateOrNull(formData.out_date);
       const inDate = toIsoDateOrNull(formData.in_date);
+      const outTime = String(formData.out_time || '').trim();
+
+      if (!isFireTender) {
+        if (!outDate) {
+          alert('Please enter a valid Out Date (dd/mm/yyyy).');
+          return;
+        }
+        if (!/^\d{2}:\d{2}$/.test(outTime)) {
+          alert('Please enter Out Time.');
+          return;
+        }
+        if (toNumberOrNull(formData.number_of_passengers) == null) {
+          alert('Please enter Number of Passengers.');
+          return;
+        }
+        if (!formData.departments_allotted.length) {
+          alert('Please select at least one Department allotted.');
+          return;
+        }
+        if (toNumberOrNull(formData.km_out) == null) {
+          alert('Please enter Odometer Out (Km).');
+          return;
+        }
+      }
 
       const startDateTime = isFireTender
         ? combineIsoDateAndTimeForStorage(mobilisationDate, '00:00')
-        : combineIsoDateAndTimeForStorage(outDate, formData.out_time);
+        : combineIsoDateAndTimeForStorage(outDate, outTime);
       const endDateTime = isFireTender
         ? (toIsoDateOrNull(formData.contract_end_date)
           ? combineIsoDateAndTimeForStorage(toIsoDateOrNull(formData.contract_end_date), '00:00')
           : null)
         : inDate && /^\d{2}:\d{2}$/.test(String(formData.in_time || '').trim())
           ? combineIsoDateAndTimeForStorage(inDate, formData.in_time)
-          : combineInHouseEndDateTime(outDate, formData.out_time, formData.in_time);
+          : combineInHouseEndDateTime(outDate, outTime, formData.in_time);
 
       if (!startDateTime) {
         alert('Start date/time is required.');
@@ -750,6 +775,11 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
             a.operations_fire_tender_vehicle_master?.registration_number,
             b.operations_fire_tender_vehicle_master?.registration_number
           );
+        case 'created_at': {
+          const av = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bv = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return (av - bv) * mul;
+        }
         case 'purpose':
           return compareText(a.trip_purpose, b.trip_purpose);
         case 'assignedTo':
@@ -1070,8 +1100,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                           <input type="text" value={formData.site_name} onChange={(e) => setFormData({ ...formData, site_name: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                         </div>
                         <div className="min-w-0">
-                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Number of Passengers</label>
-                          <input type="number" min="0" value={formData.number_of_passengers} onChange={(e) => setFormData({ ...formData, number_of_passengers: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Number of Passengers *</label>
+                          <input type="number" min="0" value={formData.number_of_passengers} onChange={(e) => setFormData({ ...formData, number_of_passengers: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                         </div>
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Visit Date *</label>
@@ -1101,7 +1131,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Time</h3>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
                         <div className="min-w-0">
-                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Date</label>
+                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Date *</label>
                           <FormDateInput
                             value={formData.out_date}
                             onChange={(e) => {
@@ -1113,15 +1143,17 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                               }));
                             }}
                             className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
                           />
                         </div>
                         <div className="min-w-0">
-                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Time</label>
+                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Time *</label>
                           <input
                             type="time"
                             value={formData.out_time}
                             onChange={(e) => setFormData({ ...formData, out_time: e.target.value })}
                             className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
                           />
                         </div>
                         <div className="min-w-0">
@@ -1155,7 +1187,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                     </section>
 
                     <section className="rounded-lg border border-gray-200 p-4">
-                      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Department(s) allotted</h3>
+                      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Department(s) allotted *</h3>
                       <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
                         <div className="relative border-b border-gray-200">
                           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -1209,8 +1241,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Odometer</h3>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                         <div className="min-w-0">
-                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Odometer Out (Km)</label>
-                          <input type="number" min="0" value={formData.km_out} onChange={(e) => setFormData({ ...formData, km_out: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <label className="mb-1.5 block text-sm font-medium text-gray-700">Odometer Out (Km) *</label>
+                          <input type="number" min="0" value={formData.km_out} onChange={(e) => setFormData({ ...formData, km_out: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" required />
                         </div>
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Odometer In (Km)</label>
@@ -1286,9 +1318,10 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
           </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-[1200px] w-full table-fixed divide-y divide-gray-200 text-sm">
+          <table className="min-w-[1280px] w-full table-fixed divide-y divide-gray-200 text-sm">
             <colgroup>
               <col className="w-12" />
+              <col className="w-[6.5rem]" />
               <col className="w-[7.5rem]" />
               <col className="w-[8.5rem]" />
               <col className="w-[9.5rem]" />
@@ -1305,6 +1338,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
               <tr>
                 <th className="px-3 py-2.5 text-center align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
                   S.No
+                </th>
+                <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
+                  {renderSortableHeader('Created', 'created_at')}
                 </th>
                 <th className="px-3 py-2.5 text-left align-middle text-xs font-medium uppercase tracking-wider text-gray-500">
                   {renderSortableHeader('Vehicle', 'vehicle')}
@@ -1354,6 +1390,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                 return (
                 <tr key={trip.id} className="hover:bg-gray-50">
                   <td className="px-3 py-3 align-middle text-center tabular-nums text-gray-700">{idx + 1}</td>
+                  <td className="px-3 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-gray-900">
+                    {formatDateDdMmYyyy(trip.created_at) || '—'}
+                  </td>
                   <td className="px-3 py-3 align-middle">
                     <div className="flex flex-col gap-0.5 leading-tight">
                       <div className="truncate font-medium text-gray-900">

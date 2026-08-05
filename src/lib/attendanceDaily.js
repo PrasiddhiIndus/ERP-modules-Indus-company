@@ -64,6 +64,7 @@ export const REGISTER_STATUS_OPTIONS = [
 
 /** Leave types under L in the register mark picker submenu. */
 export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
+  { value: "L", label: "L — Leave" },
   { value: "PL", label: "PL — Privilege Leave" },
   { value: "CL", label: "CL — Casual Leave" },
   { value: "SL", label: "SL — Sick Leave" },

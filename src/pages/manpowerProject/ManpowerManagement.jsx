@@ -262,8 +262,25 @@ const ManpowerManagement = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isDashboardView = location.pathname === `${MANPOWER_BASE}/dashboard`;
+  const isDashboardView =
+    location.pathname === `${MANPOWER_BASE}/dashboard` ||
+    location.pathname === "/app/manpower/dashboard" ||
+    routeId === "dashboard";
   const { user, userProfile } = useAuth();
+
+  const enquiryHubTabs = [
+    { id: "dashboard", label: "Dashboard", path: `${MANPOWER_BASE}/dashboard` },
+    { id: "list", label: "Enquiry List", path: MANPOWER_BASE },
+  ];
+  const activeEnquiryTab = isDashboardView ? "dashboard" : "list";
+
+  const handleEnquiryTabChange = (tab) => {
+    if (tab.id === activeEnquiryTab && !showForm) return;
+    setShowForm(false);
+    setEditingId(null);
+    setPreviewRow(null);
+    navigate(tab.path);
+  };
 
   const [enquiries, setEnquiries] = useState([]);
   const [listError, setListError] = useState(null);
@@ -508,68 +525,88 @@ const ManpowerManagement = () => {
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto w-full max-w-[1680px] px-3 py-4 sm:px-4 md:px-6 lg:py-6">
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-5 sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Enquiry Master List</h1>
-              <p className="mt-1 text-sm text-slate-600 sm:text-base">
-                {isDashboardView
-                  ? "Dashboard analytics, charts, and filtered summaries for manpower enquiries."
-                  : "Track and manage commercial manpower, fire tender and training enquiries."}
-              </p>
-              {listError && !isDashboardView && (
-                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  Could not load enquiries. Please refresh and try again. If the problem continues, contact your administrator.
+        <div className="border-b border-slate-200">
+          <div className="px-4 py-5 sm:px-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                  Manpower — Enquiry Master
+                </h1>
+                <p className="mt-1 text-sm text-slate-600 sm:text-base">
+                  {isDashboardView
+                    ? "Dashboard analytics, charts, and filtered summaries for manpower enquiries."
+                    : "Track and manage commercial manpower, fire tender and training enquiries."}
                 </p>
-              )}
+                {listError && !isDashboardView && (
+                  <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    Could not load enquiries. Please refresh and try again. If the problem continues, contact your administrator.
+                  </p>
+                )}
+              </div>
+              <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+                <button
+                  type="button"
+                  onClick={openNew}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-purple-700 sm:px-4"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Add Enquiry</span>
+                </button>
+                {!isDashboardView && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleExport}
+                      disabled={exportBusy || !sorted.length}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                    >
+                      <Download className="h-4 w-4 text-emerald-600" />
+                      {exportBusy ? "Exporting…" : "Export"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadManpowerInquiryImportTemplate()}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      <Download className="h-4 w-4 text-slate-500" />
+                      Template
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => importFileRef.current?.click()}
+                      disabled={importBusy}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      <Upload className="h-4 w-4 text-blue-600" />
+                      {importBusy ? "Reading…" : "Import"}
+                    </button>
+                    <input
+                      ref={importFileRef}
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      className="hidden"
+                      onChange={(e) => handleImportFile(e.target.files?.[0])}
+                    />
+                  </>
+                )}
+              </div>
             </div>
-            <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+          </div>
+          <div className="flex gap-2 overflow-x-auto border-t border-slate-100 px-4 sm:px-6">
+            {enquiryHubTabs.map((tab) => (
               <button
+                key={tab.id}
                 type="button"
-                onClick={openNew}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-purple-700 sm:px-4"
+                onClick={() => handleEnquiryTabChange(tab)}
+                className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+                  activeEnquiryTab === tab.id
+                    ? "border-purple-600 text-purple-700"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
               >
-                <Plus className="h-4 w-4" />
-                <span>Add Enquiry</span>
+                {tab.label}
               </button>
-              {!isDashboardView && (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleExport}
-                    disabled={exportBusy || !sorted.length}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-                  >
-                    <Download className="h-4 w-4 text-emerald-600" />
-                    {exportBusy ? "Exporting…" : "Export"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => downloadManpowerInquiryImportTemplate()}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Download className="h-4 w-4 text-slate-500" />
-                    Template
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => importFileRef.current?.click()}
-                    disabled={importBusy}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-                  >
-                    <Upload className="h-4 w-4 text-blue-600" />
-                    {importBusy ? "Reading…" : "Import"}
-                  </button>
-                  <input
-                    ref={importFileRef}
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    className="hidden"
-                    onChange={(e) => handleImportFile(e.target.files?.[0])}
-                  />
-                </>
-              )}
-            </div>
+            ))}
           </div>
         </div>
 

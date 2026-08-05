@@ -134,6 +134,73 @@ export async function refreshCachedAccessToken() {
   }
 }
 
+/** Refresh token from cached session (if any). */
+export function readCachedRefreshToken() {
+  try {
+    const session = readCachedAuthSession();
+    const token = String(session?.refresh_token || '').trim();
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+
+export function hasCachedRefreshToken() {
+  return Boolean(readCachedRefreshToken());
+}
+
+let ensureFreshInFlight = null;
+
+/**
+ * Keep the cached access JWT usable by refreshing when expired or near expiry.
+ * Only clears local auth storage when refresh is impossible or fails while access is already expired.
+ * @returns {Promise<object|null>} Fresh or existing session, or null if logged out
+ */
+export async function ensureFreshCachedSession(options = {}) {
+  const { forceRefresh = false, refreshIfWithinSeconds = 120 } = options;
+  if (typeof window === 'undefined') return null;
+  if (clearSessionIfSupabaseProjectMismatch()) return null;
+
+  const session = readCachedAuthSession();
+  if (!session?.access_token && !session?.refresh_token) return null;
+
+  if (
+    !forceRefresh &&
+    session?.access_token &&
+    !isCachedAccessTokenExpired(refreshIfWithinSeconds)
+  ) {
+    return session;
+  }
+
+  if (!session?.refresh_token) {
+    if (isCachedAccessTokenExpired(0)) {
+      clearSupabaseAuthStorage();
+      return null;
+    }
+    return session;
+  }
+
+  if (ensureFreshInFlight) return ensureFreshInFlight;
+
+  ensureFreshInFlight = (async () => {
+    try {
+      const refreshed = await refreshCachedAccessToken();
+      if (refreshed?.access_token) return refreshed;
+
+      // Refresh failed — keep session only while access JWT is still valid.
+      if (readCachedAccessToken() && !isCachedAccessTokenExpired(0)) {
+        return readCachedAuthSession();
+      }
+      clearSupabaseAuthStorage();
+      return null;
+    } finally {
+      ensureFreshInFlight = null;
+    }
+  })();
+
+  return ensureFreshInFlight;
+}
+
 /** Read cached access token without a network round-trip. */
 export function readCachedAccessToken() {
   try {
@@ -151,8 +218,8 @@ export function readCachedAuthSession() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const session = parsed?.currentSession ?? parsed?.session ?? null;
-    if (session?.access_token) return session;
-    if (parsed?.access_token) return parsed;
+    if (session?.access_token || session?.refresh_token) return session;
+    if (parsed?.access_token || parsed?.refresh_token) return parsed;
     return null;
   } catch {
     return null;
@@ -168,7 +235,10 @@ const HYDRATE_SESSION_TIMEOUT_MS = 8000;
 export async function hydrateSupabaseAuthFromCache(supabaseClient) {
   if (typeof window === 'undefined') return false;
   if (clearSessionIfSupabaseProjectMismatch()) return false;
-  if (isCachedAccessTokenExpired()) return false;
+  if (isCachedAccessTokenExpired()) {
+    const refreshed = await ensureFreshCachedSession({ forceRefresh: true });
+    if (!refreshed?.access_token) return false;
+  }
   const session = readCachedAuthSession();
   if (!session?.access_token) return false;
   try {
@@ -184,8 +254,11 @@ export async function hydrateSupabaseAuthFromCache(supabaseClient) {
       if (isInvalidRefreshTokenError(error.message)) {
         // Direct REST login can yield a valid access JWT before refresh sync succeeds.
         // Never wipe a still-valid cached session — that caused post-login redirect to /login.
-        if (isCachedAccessTokenExpired()) {
+        if (isCachedAccessTokenExpired(0) && !hasCachedRefreshToken()) {
           clearSupabaseAuthStorage();
+        } else if (isCachedAccessTokenExpired(0)) {
+          const recovered = await ensureFreshCachedSession({ forceRefresh: true });
+          if (!recovered?.access_token) clearSupabaseAuthStorage();
         }
       }
       return false;
@@ -214,11 +287,17 @@ export function markSupabaseSessionHydrated() {
  */
 export function ensureSupabaseSessionHydrated(supabaseClient) {
   if (typeof window === 'undefined') return Promise.resolve(false);
-  if (!readCachedAccessToken() || isCachedAccessTokenExpired()) {
+  if (!readCachedAccessToken() && !hasCachedRefreshToken()) {
     return Promise.resolve(false);
   }
   if (!sessionHydratePromise) {
-    sessionHydratePromise = hydrateSupabaseAuthFromCache(supabaseClient)
+    sessionHydratePromise = (async () => {
+      if (isCachedAccessTokenExpired()) {
+        const fresh = await ensureFreshCachedSession({ forceRefresh: true });
+        if (!fresh?.access_token) return false;
+      }
+      return hydrateSupabaseAuthFromCache(supabaseClient);
+    })()
       .catch(() => false)
       .finally(() => {
         sessionHydratePromise = null;

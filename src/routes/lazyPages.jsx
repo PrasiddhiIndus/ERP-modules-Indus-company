@@ -62,7 +62,10 @@ export const StoreInventory = lazy(() => import("../pages/store/StoreInventory")
 export const HR = lazy(() => import("../pages/hr/HR"));
 export const HrDashboard = lazy(() => import("../pages/hr/HrDashboard"));
 export const HrEmployeeMaster = lazy(() => import("../pages/hr/HrEmployeeMaster"));
-export const HrSalaryInputs = lazy(() => import("../pages/hr/HrSalaryInputs"));
+export const HrCallingMaster = lazy(() => import("../pages/hr/callingMaster/CallingMasterLayout"));
+export const HrCallingMasterCandidates = lazy(() => import("../pages/hr/callingMaster/CallingMasterPage"));
+export const HrCallingMasterDropdowns = lazy(() => import("../pages/hr/callingMaster/CallingMasterDropdownPage"));
+export const HrCallingMasterDatabase = lazy(() => import("../pages/hr/callingMaster/CallingMasterDatabasePage"));
 export const Procurement = lazy(() => import("../pages/procurement/Procurement"));
 export const Operations = lazy(() => import("../pages/operations/Operations"));
 export const ProjectsBilling = lazy(() => import("../pages/projectsBilling/ProjectsBilling"));
@@ -146,6 +149,10 @@ export const EmployeeAttendanceSheetsPage = lazyNamed(
 export const EmployeeLeavesPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeLeaveInboxPage"),
   "EmployeeLeavesPage"
+);
+export const EmployeeTourApprovalsPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/EmployeeTourInboxPage"),
+  "EmployeeTourApprovalsPage"
 );
 export const EmployeeCompliancePage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),

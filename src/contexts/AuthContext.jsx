@@ -24,6 +24,9 @@ import {
   directSignInWithPassword,
   isCachedAccessTokenExpired,
   hydrateSupabaseAuthFromCache,
+  ensureFreshCachedSession,
+  hasCachedRefreshToken,
+  readCachedAuthSession,
 } from "../lib/authSessionUtils";
 import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules, ROLES } from "../config/roles";
 import { logLoginStage } from "../lib/loginFlow";
@@ -62,9 +65,11 @@ export const useAuth = () => useContext(AuthContext);
 function readInitialAuthUser() {
   if (typeof window === 'undefined') return null;
   if (clearSessionIfSupabaseProjectMismatch()) return null;
-  const token = readCachedAccessToken();
-  if (!token) return null;
+  const session = readCachedAuthSession();
+  if (!session?.access_token && !session?.refresh_token) return null;
   if (isCachedAccessTokenExpired()) {
+    // Keep identity while refresh_token can renew the JWT (async bootstrap refreshes).
+    if (session?.refresh_token && session?.user) return session.user;
     clearSupabaseAuthStorage();
     return null;
   }
@@ -101,13 +106,23 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (user?.id) return;
     const token = readCachedAccessToken();
-    if (!token || isCachedAccessTokenExpired()) return;
+    if (token && !isCachedAccessTokenExpired()) {
+      const cachedUser = readCachedSessionUser();
+      if (!cachedUser?.id) return;
+      userRef.current = cachedUser.id;
+      setUser(cachedUser);
+      setProfileRow(readCachedProfileRow(cachedUser.id));
+      logLoginStage('session-restored-from-cache', { userId: cachedUser.id });
+      return;
+    }
+    // Expired access JWT with refresh token — restore after refresh (handled in bootstrap effect).
+    if (!hasCachedRefreshToken()) return;
     const cachedUser = readCachedSessionUser();
     if (!cachedUser?.id) return;
     userRef.current = cachedUser.id;
     setUser(cachedUser);
     setProfileRow(readCachedProfileRow(cachedUser.id));
-    logLoginStage('session-restored-from-cache', { userId: cachedUser.id });
+    logLoginStage('session-restored-pending-refresh', { userId: cachedUser.id });
   }, [user?.id]);
 
   useEffect(() => {
@@ -123,34 +138,36 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
+    let cancelled = false;
+    let refreshTimer = null;
+
     const refreshSessionInBackground = async () => {
-      if (typeof window !== 'undefined' && window.location.pathname === '/') return;
-      if (!readCachedAccessToken() || isCachedAccessTokenExpired()) return;
+      // On login page, still refresh when access JWT is expired/near-expiry so we can redirect.
+      const onLoginPage =
+        typeof window !== 'undefined' && window.location.pathname === '/';
+      if (
+        onLoginPage &&
+        readCachedAccessToken() &&
+        !isCachedAccessTokenExpired()
+      ) {
+        return;
+      }
       try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('getSession timed out')), 8000);
-        });
-        const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]);
-        if (error) {
-          if (isInvalidRefreshTokenError(error.message)) {
-            // Keep direct-REST sessions when localStorage JWT is still valid.
-            if (readCachedAccessToken() && !isCachedAccessTokenExpired()) {
-              const cachedUser = readCachedSessionUser();
-              if (cachedUser?.id) {
-                userRef.current = cachedUser.id;
-                setUser((prev) => prev ?? cachedUser);
-                return;
-              }
-            }
-            clearSupabaseAuthStorage();
-            userRef.current = null;
-            setUser(null);
+        const fresh = await ensureFreshCachedSession({ refreshIfWithinSeconds: 120 });
+        if (cancelled) return;
+        if (fresh?.user) {
+          if (userRef.current !== fresh.user.id) {
+            applySessionUser(fresh.user);
+          } else if (!userRef.current) {
+            applySessionUser(fresh.user);
           }
+          void hydrateSupabaseAuthFromCache(supabase);
           return;
         }
-        if (session?.user && userRef.current !== session.user.id) {
-          applySessionUser(session.user);
+        if (!readCachedAccessToken() && !hasCachedRefreshToken()) {
+          userRef.current = null;
+          setUser(null);
+          setProfileRow(null);
         }
       } catch {
         // Non-blocking — cached session already shown or user on login page.
@@ -158,13 +175,21 @@ export const AuthProvider = ({ children }) => {
     };
 
     void refreshSessionInBackground();
+    // Proactively renew access JWT before expiry so long sessions stay signed in.
+    refreshTimer = window.setInterval(() => {
+      void ensureFreshCachedSession({ refreshIfWithinSeconds: 300 }).then((fresh) => {
+        if (cancelled || !fresh?.user) return;
+        if (userRef.current !== fresh.user.id) applySessionUser(fresh.user);
+        void hydrateSupabaseAuthFromCache(supabase);
+      });
+    }, 60_000);
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         // directSignInWithPassword persists JWT in localStorage before supabase-js hydrates;
-        // ignore spurious SIGNED_OUT while a valid cached session still exists.
+        // ignore spurious SIGNED_OUT while a valid or refreshable cached session still exists.
         const token = readCachedAccessToken();
         if (token && !isCachedAccessTokenExpired()) {
           const cachedUser = readCachedSessionUser();
@@ -175,11 +200,32 @@ export const AuthProvider = ({ children }) => {
             return;
           }
         }
+        if (hasCachedRefreshToken()) {
+          void ensureFreshCachedSession({ forceRefresh: true }).then((fresh) => {
+            if (fresh?.user) {
+              userRef.current = fresh.user.id;
+              setUser(fresh.user);
+              setProfileRow(readCachedProfileRow(fresh.user.id));
+              return;
+            }
+            userRef.current = null;
+            setUser(null);
+            setProfileRow(null);
+            clearCachedProfileRow();
+            profileSyncAttemptedRef.current = null;
+          });
+          return;
+        }
         userRef.current = null;
         setUser(null);
         setProfileRow(null);
         clearCachedProfileRow();
         profileSyncAttemptedRef.current = null;
+        return;
+      }
+
+      if (event === 'TOKEN_REFRESHED' && session?.user) {
+        applySessionUser(session.user);
         return;
       }
 
@@ -195,7 +241,11 @@ export const AuthProvider = ({ children }) => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      if (refreshTimer) window.clearInterval(refreshTimer);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const STAGING_PROFILE_SQL_HINT =
