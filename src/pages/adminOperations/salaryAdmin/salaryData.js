@@ -14,7 +14,9 @@
  * PART B:
  * - Employer PF — manual placeholder
  * - Employer ESIC = Basic × er% if Gross ≤ same ceiling (else 0)
- * - Gratuity / Leave Encashment / Bonus / Mediclaim / LIC — placeholders
+ * - Gratuity — Auto: Basic × 4.81% (Govt.) · Custom: manual
+ * - Leave Encashment / Bonus / Mediclaim / LIC — placeholders
+ * - Special Performance bonus (variable-annually) — optional checkbox + amount
  *
  * CTC (Monthly) = Gross + Total (B) · CTC (Annual) = CTC Monthly × 12
  *
@@ -384,6 +386,29 @@ export function leaveEncashFromBasic(basicMonthly) {
   return round0((basic * 7) / (LEAVE_ENCASH_DAYS * 12));
 }
 
+/** Auto Gratuity monthly = Basic × 4.81% (Govt. rules accrual). */
+export function gratuityFromBasic(basicMonthly) {
+  const basic = round0(basicMonthly);
+  if (basic <= 0) return 0;
+  return round0((basic * 481) / 10000);
+}
+
+/**
+ * Resolve Gratuity monthly from mode.
+ * Auto: Govt. formula from Basic · Custom: manual amount.
+ */
+export function resolveGratuityMonthly({
+  gratuityMode = MODE_AUTO,
+  basicMonthly = 0,
+  gratuityMonthly = null,
+} = {}) {
+  if (normalizeComponentMode(gratuityMode) === MODE_CUSTOM) {
+    if (gratuityMonthly == null || gratuityMonthly === "") return 0;
+    return round0(gratuityMonthly);
+  }
+  return gratuityFromBasic(basicMonthly);
+}
+
 /**
  * Resolve Leave Encashment monthly from mode.
  * Auto: company policy formula from Basic · Custom: manual amount.
@@ -524,10 +549,15 @@ export function computeCtcStructure({
   erEsicMonthly = null,
   leaveEncashMode = MODE_AUTO,
   leaveEncashMonthly = null,
+  gratuityMode = MODE_AUTO,
+  gratuityMonthly = null,
+  specialPerfBonusEnabled = false,
+  specialPerfBonusMonthly = null,
 } = {}) {
   const bMode = normalizeComponentMode(basicMode);
   const hMode = normalizeComponentMode(hraMode);
   const leaveMode = normalizeComponentMode(leaveEncashMode);
+  const gratMode = normalizeComponentMode(gratuityMode);
   const level = normalizeEmployeeLevel(employeeLevel);
 
   const hasGrossInput =
@@ -600,7 +630,11 @@ export function computeCtcStructure({
 
   const takeHome = gross - empPf - pt - esic.emp_esic_monthly;
 
-  const gratuity = round0((basic * 481) / 10000);
+  const gratuity = resolveGratuityMonthly({
+    gratuityMode: gratMode,
+    basicMonthly: basic,
+    gratuityMonthly,
+  });
   const leaveEncash = resolveLeaveEncashMonthly({
     leaveEncashMode: leaveMode,
     basicMonthly: basic,
@@ -616,9 +650,22 @@ export function computeCtcStructure({
     licEnabled && licMonthly != null && licMonthly !== ""
       ? round0(licMonthly)
       : 0;
+  const specialPerfBonus =
+    specialPerfBonusEnabled &&
+    specialPerfBonusMonthly != null &&
+    specialPerfBonusMonthly !== ""
+      ? round0(specialPerfBonusMonthly)
+      : 0;
 
   const totalB =
-    erPf + esic.er_esic_monthly + gratuity + leaveEncash + mediclaim + lic + bonus;
+    erPf +
+    esic.er_esic_monthly +
+    gratuity +
+    leaveEncash +
+    mediclaim +
+    lic +
+    specialPerfBonus +
+    bonus;
   const ctcMonthly = gross + totalB;
   const ctcAnnual = paFromMonthly(ctcMonthly);
 
@@ -647,6 +694,7 @@ export function computeCtcStructure({
     er_esic_monthly: esic.er_esic_monthly,
     er_esic_mode: esic.er_esic_mode,
     er_esic_applicable: esic.er_esic_applicable,
+    gratuity_mode: gratMode,
     gratuity_monthly: gratuity,
     leave_encash_mode: leaveMode,
     leave_encash_monthly: leaveEncash,
@@ -654,6 +702,8 @@ export function computeCtcStructure({
     mediclaim_monthly: mediclaimEnabled ? mediclaim : 0,
     lic_enabled: Boolean(licEnabled),
     lic_monthly: licEnabled ? lic : 0,
+    special_perf_bonus_enabled: Boolean(specialPerfBonusEnabled),
+    special_perf_bonus_monthly: specialPerfBonusEnabled ? specialPerfBonus : 0,
     bonus_monthly: bonus,
     total_b_monthly: totalB,
     ctc_monthly: ctcMonthly,
@@ -688,6 +738,7 @@ export function emptyCtcStructure() {
     er_esic_mode: MODE_AUTO,
     er_esic_monthly: null,
     er_esic_applicable: false,
+    gratuity_mode: MODE_AUTO,
     gratuity_monthly: null,
     leave_encash_mode: MODE_AUTO,
     leave_encash_monthly: null,
@@ -695,6 +746,8 @@ export function emptyCtcStructure() {
     mediclaim_monthly: null,
     lic_enabled: false,
     lic_monthly: null,
+    special_perf_bonus_enabled: false,
+    special_perf_bonus_monthly: null,
     bonus_monthly: null,
     total_b_monthly: null,
     ctc_monthly: null,
