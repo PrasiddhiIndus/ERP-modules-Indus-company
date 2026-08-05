@@ -15,11 +15,14 @@ import {
   etimeCfg,
   fetchEtimePunchDataMerged,
   fetchEtimePunchesForIsoRange,
+  getSupabaseServiceClient,
   normalizeEtimeDate,
   runAttendanceOverlapSync,
   startAttendanceSyncCron,
   uniqueEtimePunchEndpoints,
+  upsertPunchRows,
 } from './attendanceEtime.js';
+import { mapApiPunchToDbRow } from '../shared/attendancePunchSync.mjs';
 import { adminUpdateProfile } from './adminProfileApi.js';
 import { adminCreateUser } from './adminCreateUserApi.js';
 import { adminBulkCreateUsers } from './adminBulkCreateUserApi.js';
@@ -1347,6 +1350,9 @@ app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res
     const empCode = String(req.query.empCode || req.query.Empcode || 'ALL').trim() || 'ALL';
     const fromIso = String(req.query.fromDate || req.query.FromDate || '').trim();
     const toIso = String(req.query.toDate || req.query.ToDate || '').trim();
+    // Admin Sync UI defaults to persist=1 so the browser never bulk-upserts punches.
+    const persistRaw = String(req.query.persist ?? '1').trim().toLowerCase();
+    const persist = persistRaw !== '0' && persistRaw !== 'false' && persistRaw !== 'no';
 
     let records;
     let endpointsUsed;
@@ -1378,14 +1384,43 @@ app.get('/api/admin/attendance/punches', requireAttendanceAdmin, async (req, res
       endpointsUsed = result.endpointsUsed || [result.endpoint];
     }
 
+    let syncedCount = 0;
+    let skippedNoDateOrEmp = 0;
+    let dedupeCollisions = 0;
+    if (persist) {
+      const dbRows = (records || []).map((record, index) => mapApiPunchToDbRow(record, index));
+      const rowsToStore = dbRows.filter((row) => row.punch_date && row.employee_code);
+      skippedNoDateOrEmp = dbRows.length - rowsToStore.length;
+      if (rowsToStore.length) {
+        const supabase = getSupabaseServiceClient(
+          getSupabaseUrlForServer,
+          getSupabaseServiceRoleKeyForServer
+        );
+        const upsertResult = await upsertPunchRows(supabase, rowsToStore);
+        syncedCount = upsertResult.upserted;
+        dedupeCollisions = upsertResult.collisionCount;
+      }
+    }
+
     res.json({
+      ok: true,
       source: 'eTimeOffice',
       providerEndpoints: endpointsUsed,
       empCode,
       fromDate,
       toDate,
       count: records.length,
-      records,
+      persisted: persist,
+      syncedCount,
+      skippedNoDateOrEmp,
+      dedupeCollisions,
+      message: persist
+        ? syncedCount
+          ? `${syncedCount} punch row(s) stored (${fromDate} → ${toDate}).`
+          : 'No punch rows with a valid date and employee code to store.'
+        : undefined,
+      // Avoid shipping huge payloads back to the browser when already persisted.
+      records: persist ? [] : records,
     });
   } catch (err) {
     const status = Number(err?.status) || 500;

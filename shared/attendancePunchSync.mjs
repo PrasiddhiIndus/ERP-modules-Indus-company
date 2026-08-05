@@ -4,7 +4,8 @@
  */
 
 export const ATTENDANCE_PUNCH_TABLE = 'erp_attendance_punches';
-export const ATTENDANCE_UPSERT_CHUNK = 500;
+/** Keep chunks small — large jsonb upserts time out on browser and slow PostgREST links. */
+export const ATTENDANCE_UPSERT_CHUNK = 100;
 export const DEFAULT_SYNC_TIMEZONE = 'Asia/Kolkata';
 export const DEFAULT_SYNC_OVERLAP_HOURS = 24;
 export const DEFAULT_SYNC_LOOKBACK_DAYS = 14;
@@ -121,15 +122,48 @@ export function makePunchKey(record, index = 0) {
   return parts.join('|').toLowerCase();
 }
 
+/** Keep only fields needed for punch_key / display — full provider rows blow upsert payloads. */
+export function slimPunchSourcePayload(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const keys = [
+    'PunchId',
+    'LogId',
+    'SerialNumber',
+    'Empcode',
+    'EmpCode',
+    'Name',
+    'DateString',
+    'PunchDate',
+    'PunchDateTime',
+    'PunchTime',
+    'PunchTimeOnly',
+    'Time',
+    'INOut',
+    'InOut',
+    'Status',
+    'DeviceName',
+    'Device',
+  ];
+  const slim = {};
+  for (const key of keys) {
+    const val = pickField(raw, [key]);
+    if (val !== '' && val != null) slim[key] = val;
+  }
+  const providerId = extractProviderPunchId(raw);
+  if (providerId && !slim.PunchId) slim.PunchId = providerId;
+  return Object.keys(slim).length ? slim : null;
+}
+
 export function mapApiPunchToDbRow(record, index = 0) {
   const now = new Date().toISOString();
+  const rawPayload = record.sourcePayload || record.source_payload || record;
   const punchDate =
     normalizeDbDate(record.punchDate) ||
-    normalizeDbDate(pickField(record.sourcePayload || {}, ['DateString', 'PunchDate', 'Date']));
+    normalizeDbDate(pickField(rawPayload || {}, ['DateString', 'PunchDate', 'Date']));
   const punchTime =
     normalizeDbTime(record.punchTime) ||
     normalizeDbTime(record.punchDate) ||
-    normalizeDbTime(pickField(record.sourcePayload || {}, ['PunchTimeOnly', 'Time', 'AttendanceTime']));
+    normalizeDbTime(pickField(rawPayload || {}, ['PunchTimeOnly', 'Time', 'AttendanceTime']));
 
   return {
     punch_key: makePunchKey(record, index),
@@ -141,7 +175,7 @@ export function mapApiPunchToDbRow(record, index = 0) {
     direction: String(record.direction || '').trim() || null,
     status: String(record.status || '').trim() || null,
     source: 'eTimeOffice',
-    source_payload: record.sourcePayload || record.source_payload || record,
+    source_payload: slimPunchSourcePayload(rawPayload),
     synced_at: now,
     updated_at: now,
   };
