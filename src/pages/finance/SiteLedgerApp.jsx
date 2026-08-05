@@ -4283,6 +4283,14 @@ const REPORT_PRESETS = [
   { id: "pending", name: "Data Entry Status", desc: "Which months are still pending for each site.", cfg: { dim: "pending", measures: [], scope: "all", periodMode: "single", filter: "none" } },
 ];
 
+function siteTypeLabel(siteOrType) {
+  const t = typeof siteOrType === "string" ? siteOrType : siteOrType?.siteType;
+  if (t === "shutdown") return "Shutdown";
+  if (t === "safety") return "Safety";
+  if (t === "fire") return "Fire";
+  return "Regular";
+}
+
 function aggPairs(pairs, records) {
   let rev = 0, exp = 0, profit = 0, eR = 0, eE = 0, eP = 0, he = false;
   pairs.forEach(([s, mk]) => {
@@ -4329,21 +4337,21 @@ function buildReport(cfg) {
   const reported = (s, mk) => !!records[`${s.id}__${mk}`];
 
   if (dim === "pending") {
-    const cols = ["Site", "Contract", "Expected", "Filled", "Pending", `Pending periods (to ${monthLabelOf(month)})`];
+    const cols = ["Site", "Site Type", "Contract", "Expected", "Filled", "Pending", `Pending periods (to ${monthLabelOf(month)})`];
     const rows = scopeSites.map((s) => {
       const exp = expectedMonths(s, month);
       const pend = pendingMonthsFiltered(s, records, month, { expandHistory: expandPendingHistory });
-      return [s.name, s.contractStart ? `${monthLabelOf(s.contractStart)}–${monthLabelOf(s.contractEnd)}` : "—", exp.length, exp.length - pend.length, pend.length, pend.map(monthLabelOf).join(", ") || "—"];
-    }).sort((a, b) => b[4] - a[4]);
+      return [s.name, siteTypeLabel(s), s.contractStart ? `${monthLabelOf(s.contractStart)}–${monthLabelOf(s.contractEnd)}` : "—", exp.length, exp.length - pend.length, pend.length, pend.map(monthLabelOf).join(", ") || "—"];
+    }).sort((a, b) => b[5] - a[5]);
     return { kind: "pending", cols, rows };
   }
 
   if (dim === "spread") {
-    const cols = ["Site", "Head", "Note", "Total", "From", "Months", "Per month", `State @ ${monthLabelOf(month)}`];
+    const cols = ["Site", "Site Type", "Head", "Note", "Total", "From", "Months", "Per month", `State @ ${monthLabelOf(month)}`];
     const rows = [];
     scopeSites.forEach((s) => (s.spreads || []).forEach((sp) => {
       const si = monthIdx(sp.start), state = monthIdx(month) < si ? "upcoming" : monthIdx(month) < si + Number(sp.months) ? "active" : "ended";
-      rows.push([s.name, childLabel(s, sp.head), sp.note || "", sp.total, monthLabelOf(sp.start), sp.months, Math.round(sp.total / sp.months), state]);
+      rows.push([s.name, siteTypeLabel(s), childLabel(s, sp.head), sp.note || "", sp.total, monthLabelOf(sp.start), sp.months, Math.round(sp.total / sp.months), state]);
     }));
     return { kind: "spread", cols, rows };
   }
@@ -4364,21 +4372,35 @@ function buildReport(cfg) {
     const tA = rows.reduce((a, r) => a + Number(r.cells[0].raw || 0), 0);
     const tE = rows.reduce((a, r) => a + Number(r.cells[1].raw || 0), 0);
     const totals = { label: "Total Expense", cells: [{ raw: Math.round(tA), text: inr(tA) }, { raw: Math.round(tE), text: tE ? inr(tE) : "—" }, { raw: Math.round(tA - tE), text: tE ? `${tA - tE >= 0 ? "+" : ""}${inr(tA - tE)}` : "—" }, { raw: 100, text: "100%" }] };
-    return { kind: "head", columns, rows, totals };
+    return { kind: "head", columns, rows, totals, showSiteType: false };
   }
 
   // dim === site | month  → financial
   const columns = measures.map((k) => FIN_MEASURES.find((m) => m.key === k)).filter(Boolean);
   let entities;
-  if (dim === "site") entities = scopeSites.map((s) => ({ label: s.name, pairs: mks.filter((mk) => reported(s, mk)).map((mk) => [s, mk]) })).filter((e) => e.pairs.length);
-  else entities = mks.map((mk) => ({ label: monthLabelOf(mk), pairs: scopeSites.filter((s) => reported(s, mk)).map((s) => [s, mk]) })).filter((e) => e.pairs.length);
-  let rows = entities.map((e) => { const a = aggPairs(e.pairs, records); return { label: e.label, a, cells: columns.map((m) => measureCell(m.key, a)) }; });
+  if (dim === "site") {
+    entities = scopeSites.map((s) => ({
+      label: s.name,
+      siteType: siteTypeLabel(s),
+      pairs: mks.filter((mk) => reported(s, mk)).map((mk) => [s, mk]),
+    })).filter((e) => e.pairs.length);
+  } else {
+    entities = mks.map((mk) => ({
+      label: monthLabelOf(mk),
+      siteType: "",
+      pairs: scopeSites.filter((s) => reported(s, mk)).map((s) => [s, mk]),
+    })).filter((e) => e.pairs.length);
+  }
+  let rows = entities.map((e) => {
+    const a = aggPairs(e.pairs, records);
+    return { label: e.label, siteType: e.siteType, a, cells: columns.map((m) => measureCell(m.key, a)) };
+  });
   if (filter === "loss") rows = rows.filter((r) => r.a.profit < 0);
   else if (filter === "belowEst") rows = rows.filter((r) => r.a.he && r.a.profit < r.a.estProfit);
   const allPairs = entities.flatMap((e) => e.pairs);
   const tA = aggPairs(allPairs, records);
-  const totals = { label: dim === "site" ? "Portfolio total" : "Total", cells: columns.map((m) => measureCell(m.key, tA)) };
-  return { kind: "fin", columns, rows, totals };
+  const totals = { label: dim === "site" ? "Portfolio total" : "Total", siteType: "", cells: columns.map((m) => measureCell(m.key, tA)) };
+  return { kind: "fin", columns, rows, totals, showSiteType: dim === "site" };
 }
 
 function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistorical, setShowHistorical, onViewSite }) {
@@ -4453,12 +4475,22 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
 
   const grid = useMemo(() => {
     if (report.cols) return [report.cols, ...report.rows];
-    const head = ["Site", ...report.columns.map((c) => c.label)];
-    const body = report.rows.map((r) => [r.label, ...r.cells.map((c) => c.raw)]);
+    const withSiteType = !!report.showSiteType;
+    const firstLabel = report.kind === "head" ? "Expense head" : dim === "month" ? "Month" : "Site";
+    const head = withSiteType
+      ? [firstLabel, "Site Type", ...report.columns.map((c) => c.label)]
+      : [firstLabel, ...report.columns.map((c) => c.label)];
+    const body = report.rows.map((r) => (
+      withSiteType
+        ? [r.label, r.siteType || "", ...r.cells.map((c) => c.raw)]
+        : [r.label, ...r.cells.map((c) => c.raw)]
+    ));
     if (!showTotals) return [head, ...body];
-    const tot = [report.totals.label, ...report.totals.cells.map((c) => c.raw)];
+    const tot = withSiteType
+      ? [report.totals.label, "", ...report.totals.cells.map((c) => c.raw)]
+      : [report.totals.label, ...report.totals.cells.map((c) => c.raw)];
     return [head, ...body, tot];
-  }, [report, showTotals]);
+  }, [report, showTotals, dim]);
 
   const csv = useMemo(
     () => grid.map((row) => row.map((v) => {
@@ -4498,9 +4530,9 @@ function Reports({ sites, sitesAll, records, parents, defaultMonth, showHistoric
       filter: "none",
       expandPendingHistory: false,
     });
-    const head = ["Site", ...typedReport.columns.map((c) => c.label)];
-    const body = typedReport.rows.map((r) => [r.label, ...r.cells.map((c) => c.raw)]);
-    const tot = [typedReport.totals.label, ...typedReport.totals.cells.map((c) => c.raw)];
+    const head = ["Site", "Site Type", ...typedReport.columns.map((c) => c.label)];
+    const body = typedReport.rows.map((r) => [r.label, r.siteType || siteTypeLabel(siteType), ...r.cells.map((c) => c.raw)]);
+    const tot = [typedReport.totals.label, "", ...typedReport.totals.cells.map((c) => c.raw)];
     const typedGrid = [head, ...body, tot];
     const typedCsv = typedGrid.map((row) => row.map((v) => {
       const s = String(v ?? "");
@@ -4724,17 +4756,18 @@ function ReportTable({ report, showTotals = true, dim }) {
     return (
       <table className="tbl">
         <thead>
-          <tr>{report.cols.map((c, i) => <th key={i} className={i >= 2 && i <= 4 ? "r" : ""}>{c}</th>)}</tr>
+          <tr>{report.cols.map((c, i) => <th key={i} className={i >= 3 && i <= 5 ? "r" : ""}>{c}</th>)}</tr>
         </thead>
         <tbody>
           {report.rows.map((r, ri) => (
-            <tr key={ri} className={r[4] > 0 ? "row-pending" : ""}>
+            <tr key={ri} className={r[5] > 0 ? "row-pending" : ""}>
               <td className="strong">{r[0]}</td>
-              <td className="muted-s mono">{r[1]}</td>
-              <td className="r mono">{r[2]}</td>
-              <td className="r mono" style={{ color: "var(--profit)" }}>{r[3]}</td>
-              <td className="r mono" style={{ color: r[4] > 0 ? "var(--warn)" : "var(--muted)", fontWeight: r[4] > 0 ? 700 : 400 }}>{r[4]}</td>
-              <td className="muted-s">{r[5]}</td>
+              <td className="muted-s">{r[1]}</td>
+              <td className="muted-s mono">{r[2]}</td>
+              <td className="r mono">{r[3]}</td>
+              <td className="r mono" style={{ color: "var(--profit)" }}>{r[4]}</td>
+              <td className="r mono" style={{ color: r[5] > 0 ? "var(--warn)" : "var(--muted)", fontWeight: r[5] > 0 ? 700 : 400 }}>{r[5]}</td>
+              <td className="muted-s">{r[6]}</td>
             </tr>
           ))}
         </tbody>
@@ -4746,14 +4779,14 @@ function ReportTable({ report, showTotals = true, dim }) {
     return (
       <table className="tbl">
         <thead>
-          <tr>{report.cols.map((c, i) => <th key={i} className={i >= 3 && i <= 6 ? "r" : ""}>{c}</th>)}</tr>
+          <tr>{report.cols.map((c, i) => <th key={i} className={i >= 4 && i <= 7 ? "r" : ""}>{c}</th>)}</tr>
         </thead>
         <tbody>
           {report.rows.map((r, ri) => (
             <tr key={ri}>
               {r.map((v, ci) => (
-                <td key={ci} className={(ci >= 3 && ci <= 6 ? "r mono" : "") + (ci === 7 ? " " : "")}>
-                  {ci === 3 || ci === 6 ? inr(v) : ci === 7 ? <span className={"pill " + (v === "active" ? "pill-ok" : v === "upcoming" ? "pill-watch" : "pill-warn")}>{v}</span> : String(v)}
+                <td key={ci} className={(ci >= 4 && ci <= 7 ? "r mono" : "") + (ci === 8 ? " " : "")}>
+                  {ci === 4 || ci === 7 ? inr(v) : ci === 8 ? <span className={"pill " + (v === "active" ? "pill-ok" : v === "upcoming" ? "pill-watch" : "pill-warn")}>{v}</span> : String(v)}
                 </td>
               ))}
             </tr>
@@ -4765,12 +4798,14 @@ function ReportTable({ report, showTotals = true, dim }) {
   if (report.rows.length === 0) return <div className="chart-empty">No data for this selection. Try a different month or scope.</div>;
 
   const rowLabel = report.kind === "head" ? "Expense head" : dim === "month" ? "Month" : "Site";
+  const showSiteType = !!report.showSiteType;
 
   return (
     <table className="tbl">
       <thead>
         <tr>
           <th>{rowLabel}</th>
+          {showSiteType && <th>Site Type</th>}
           {report.columns.map((c, i) => <th key={i} className="r">{report.kind === "fin" ? c.label.toUpperCase() : c.label}</th>)}
         </tr>
       </thead>
@@ -4781,6 +4816,7 @@ function ReportTable({ report, showTotals = true, dim }) {
               {r.color && <span className="pdot" style={{ background: r.color }} />}
               {r.label}
             </td>
+            {showSiteType && <td className="muted-s">{r.siteType || "—"}</td>}
             {r.cells.map((c, ci) => (
               <td key={ci} className="r mono" style={{ color: c.color || undefined }}>{c.text}</td>
             ))}
@@ -4789,6 +4825,7 @@ function ReportTable({ report, showTotals = true, dim }) {
         {showTotals && (
           <tr className="vtot green">
             <td>{report.totals.label}</td>
+            {showSiteType && <td />}
             {report.totals.cells.map((c, ci) => (
               <td key={ci} className="r mono" style={{ color: c.color || undefined }}>{c.text}</td>
             ))}
