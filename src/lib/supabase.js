@@ -36,6 +36,8 @@ if (!isConfigured) {
 // Avoid AbortSignal.any — combining signals broke some saves/updates with supabase-js.
 const FETCH_TIMEOUT_MS = 20000
 const AUTH_FETCH_TIMEOUT_MS = 25000
+/** Bulk punch upserts / large REST writes need more headroom than normal reads. */
+const HEAVY_REST_FETCH_TIMEOUT_MS = 60000
 const baseFetch = fetch
 const useStrictSupabaseHealthCheck =
   import.meta.env.VITE_STRICT_SUPABASE_HEALTH_CHECK === 'true' ||
@@ -558,7 +560,18 @@ function resolveFetchSignal(options, url) {
     return { signal: options.signal, clearTimer: () => {} }
   }
   const urlStr = String(url)
-  const timeoutMs = urlStr.includes('/auth/v1/') ? AUTH_FETCH_TIMEOUT_MS : FETCH_TIMEOUT_MS
+  const method = String(options?.method || 'GET').toUpperCase()
+  let timeoutMs = FETCH_TIMEOUT_MS
+  if (urlStr.includes('/auth/v1/')) {
+    timeoutMs = AUTH_FETCH_TIMEOUT_MS
+  } else if (
+    urlStr.includes('erp_attendance_punches') &&
+    method !== 'GET' &&
+    method !== 'HEAD'
+  ) {
+    // POST/PATCH/PUT upserts of punch batches
+    timeoutMs = HEAVY_REST_FETCH_TIMEOUT_MS
+  }
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return { signal: AbortSignal.timeout(timeoutMs), clearTimer: () => {} }
   }
@@ -733,6 +746,11 @@ const customFetch = async (url, options = {}) => {
       throw err
     }
     if (isTimeoutError(err)) {
+      if (String(pathLog).includes('erp_attendance_punches')) {
+        throw new Error(
+          'Saving attendance punches timed out. Try Sync again; the server now saves punches in smaller batches.'
+        )
+      }
       throw new Error(
         `Supabase request timed out (${pathLog}). Check internet, firewall/VPN, or Supabase project availability.`
       )

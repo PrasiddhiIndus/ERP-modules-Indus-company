@@ -121,6 +121,10 @@ export async function fetchApiWithAuth(path, options = {}) {
   const { forceRefresh = false, ...fetchOptions } = options;
   let token = await getAdminApiAccessToken(supabase, { forceRefresh: Boolean(forceRefresh) });
   if (!token) {
+    // Last chance: use any non-expired cached JWT before giving up.
+    token = await getAdminApiAccessToken(supabase, { forceRefresh: false });
+  }
+  if (!token) {
     return {
       ok: false,
       status: 401,
@@ -135,8 +139,13 @@ export async function fetchApiWithAuth(path, options = {}) {
   if (result.status === 401) {
     const refreshed = await getAdminApiAccessToken(supabase, { forceRefresh: true });
     if (refreshed && refreshed !== token) {
-      token = refreshed;
       result = await fetchApiWithBearer(path, refreshed, fetchOptions);
+    } else if (!forceRefresh) {
+      // Token may have been near expiry; one more refresh attempt then retry same path.
+      const again = await getAdminApiAccessToken(supabase, { forceRefresh: true });
+      if (again) {
+        result = await fetchApiWithBearer(path, again, fetchOptions);
+      }
     }
   }
 

@@ -157,17 +157,21 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       throw new HttpError(401, 'Session expired. Sign out and sign in again, then retry Sync eTimeOffice.');
     }
 
-    // Prefer anon (website key). Fall back to service_role only if anon is missing.
-    const validateKey = anon || svc;
+    // Try anon first (same key the browser uses), then service_role.
+    // A wrong/stale anon key must not block Sync when service_role is valid.
+    const validateKeys = [...new Set([anon, svc].filter(Boolean))];
     let userData = null;
     let verifyError = null;
 
-    const rest = await verifyUserJwtWithAuthApi(url, validateKey, jwt);
-    if (rest.user) {
-      userData = { user: rest.user };
-    } else {
-      verifyError = rest.error;
-      // Fallback: supabase-js getUser
+    for (const validateKey of validateKeys) {
+      const rest = await verifyUserJwtWithAuthApi(url, validateKey, jwt);
+      if (rest.user) {
+        userData = { user: rest.user };
+        verifyError = null;
+        break;
+      }
+      verifyError = rest.error || verifyError;
+
       const validateClient = createClient(url, validateKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
@@ -175,9 +179,9 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       if (data?.user) {
         userData = data;
         verifyError = null;
-      } else {
-        verifyError = error?.message || verifyError || 'getUser failed';
+        break;
       }
+      verifyError = error?.message || verifyError || 'getUser failed';
     }
 
     if (!userData?.user) {
@@ -186,6 +190,7 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
       console.warn('[auth] user JWT verify failed:', verifyError || 'no user', {
         hasAnon: Boolean(anon),
         hasServiceRole: Boolean(svc),
+        keysTried: validateKeys.length,
         serverRef: serverRef || null,
         sessionRef: sessionRef || null,
         accessState,
