@@ -240,6 +240,24 @@ export async function updateOfferDetailsOnly(record) {
   return mapCandidateFromDb(data);
 }
 
+/** Alphanumeric employee code (matches Employee Master usage). */
+export function isValidOfferEmployeeCode(value) {
+  const code = String(value || "").trim();
+  if (!code) return false;
+  return /^[A-Za-z0-9]+$/.test(code);
+}
+
+/** Peek last used + suggested next employee code without incrementing counter. */
+export async function peekNextEmployeeCode() {
+  const { data, error } = await supabase.rpc("hr_calling_peek_next_employee_code");
+  if (error) throw new Error(friendlyError(error, "Unable to load employee code suggestion."));
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    lastUsed: String(row?.last_used ?? "").trim(),
+    suggestedNext: String(row?.suggested_next ?? "").trim(),
+  };
+}
+
 /**
  * Persist offer details, allocate employee code + reference (if needed), return updated row.
  * Used when generating the offer letter.
@@ -265,13 +283,20 @@ export async function saveCandidateOfferDetails(record) {
     throw new Error("Gross salary is required.");
   }
 
+  const existingCode = toText(record.employeeCode);
+  if (!existingCode && !isValidOfferEmployeeCode(record.requestedEmployeeCode)) {
+    throw new Error("Employee code is required and must contain only letters and numbers.");
+  }
+
   await updateOfferDetailsOnly(record);
 
   const year = new Date().getFullYear();
+  const manualCode = existingCode ? null : toText(record.requestedEmployeeCode);
   const { data: allocated, error: allocError } = await supabase.rpc("hr_calling_allocate_offer_codes", {
     p_candidate_id: record.id,
     p_site_code: siteCode,
     p_year: year,
+    p_employee_code: manualCode || null,
   });
 
   if (allocError) {

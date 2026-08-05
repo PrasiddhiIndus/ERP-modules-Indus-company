@@ -127,12 +127,55 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Peek next employee code (does not increment counter)
+-- ---------------------------------------------------------------------------
+create or replace function public.hr_calling_peek_next_employee_code()
+returns table (
+  last_used text,
+  suggested_next text
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_last bigint := 0;
+begin
+  if not public.current_user_can_access_module('hr') then
+    raise exception 'Permission denied.';
+  end if;
+
+  insert into public.hr_calling_offer_counters (counter_key, last_value)
+  values ('employee_code', 0)
+  on conflict (counter_key) do nothing;
+
+  select coalesce(last_value, 0)
+    into v_last
+  from public.hr_calling_offer_counters
+  where counter_key = 'employee_code';
+
+  last_used := case when v_last > 0 then v_last::text else '' end;
+  suggested_next := (v_last + 1)::text;
+  return next;
+end;
+$$;
+
+revoke all on function public.hr_calling_peek_next_employee_code() from public;
+grant execute on function public.hr_calling_peek_next_employee_code() to authenticated;
+
+comment on function public.hr_calling_peek_next_employee_code() is
+  'Returns last assigned employee_code counter value and suggested next code without incrementing.';
+
+-- ---------------------------------------------------------------------------
 -- Allocate employee code + reference number (idempotent if already assigned)
 -- ---------------------------------------------------------------------------
+drop function if exists public.hr_calling_allocate_offer_codes(uuid, text, integer);
+
 create or replace function public.hr_calling_allocate_offer_codes(
   p_candidate_id uuid,
   p_site_code text,
-  p_year integer default null
+  p_year integer default null,
+  p_employee_code text default null
 )
 returns table (
   employee_code text,
@@ -150,6 +193,8 @@ declare
   v_emp_next bigint;
   v_ref_next bigint;
   v_ref_key text;
+  v_manual text;
+  v_manual_num bigint;
   v_row public.hr_calling_candidates%rowtype;
 begin
   if p_candidate_id is null then
@@ -187,17 +232,50 @@ begin
   v_ref := nullif(btrim(coalesce(v_row.offer_reference_no, '')), '');
 
   if v_emp is null then
-    insert into public.hr_calling_offer_counters (counter_key, last_value)
-    values ('employee_code', 0)
-    on conflict (counter_key) do nothing;
+    v_manual := nullif(btrim(coalesce(p_employee_code, '')), '');
 
-    update public.hr_calling_offer_counters
-    set last_value = last_value + 1,
-        updated_at = now()
-    where counter_key = 'employee_code'
-    returning last_value into v_emp_next;
+    if v_manual is not null then
+      if v_manual !~ '^[A-Za-z0-9]+$' then
+        raise exception 'Employee code must contain only letters and numbers.';
+      end if;
 
-    v_emp := v_emp_next::text;
+      if exists (
+        select 1
+        from public.hr_calling_candidates c
+        where c.is_active = true
+          and c.id <> p_candidate_id
+          and lower(btrim(c.employee_code)) = lower(v_manual)
+      ) then
+        raise exception 'Employee code % is already taken. Please use a different one.', v_manual;
+      end if;
+
+      v_emp := v_manual;
+
+      insert into public.hr_calling_offer_counters (counter_key, last_value)
+      values ('employee_code', 0)
+      on conflict (counter_key) do nothing;
+
+      v_manual_num := nullif(regexp_replace(v_manual, '[^0-9]', '', 'g'), '')::bigint;
+
+      if v_manual_num is not null then
+        update public.hr_calling_offer_counters
+        set last_value = greatest(last_value, v_manual_num),
+            updated_at = now()
+        where counter_key = 'employee_code';
+      end if;
+    else
+      insert into public.hr_calling_offer_counters (counter_key, last_value)
+      values ('employee_code', 0)
+      on conflict (counter_key) do nothing;
+
+      update public.hr_calling_offer_counters
+      set last_value = last_value + 1,
+          updated_at = now()
+      where counter_key = 'employee_code'
+      returning last_value into v_emp_next;
+
+      v_emp := v_emp_next::text;
+    end if;
   end if;
 
   if v_ref is null then
@@ -237,8 +315,8 @@ begin
 end;
 $$;
 
-revoke all on function public.hr_calling_allocate_offer_codes(uuid, text, integer) from public;
-grant execute on function public.hr_calling_allocate_offer_codes(uuid, text, integer) to authenticated;
+revoke all on function public.hr_calling_allocate_offer_codes(uuid, text, integer, text) from public;
+grant execute on function public.hr_calling_allocate_offer_codes(uuid, text, integer, text) to authenticated;
 
-comment on function public.hr_calling_allocate_offer_codes(uuid, text, integer) is
-  'Assigns sequential employee_code (global, never reused) and IFSPL/HR/<Site>/OL/<Year>/<Seq> reference on first offer generation.';
+comment on function public.hr_calling_allocate_offer_codes(uuid, text, integer, text) is
+  'Assigns employee_code (HR-provided or sequential) and IFSPL/HR/<Site>/OL/<Year>/<Seq> reference on first offer generation.';

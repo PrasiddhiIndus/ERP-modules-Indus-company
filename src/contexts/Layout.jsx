@@ -168,7 +168,6 @@ const Layout = () => {
   }, [pathname, accessibleModules, subModulePaths, navigate, userProfile, user?.email]);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [hrAdminOpen, setHrAdminOpen] = useState(false);
-  const [hrRecruitmentOpen, setHrRecruitmentOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [commercialMtOpen, setCommercialMtOpen] = useState(false);
@@ -203,7 +202,6 @@ const Layout = () => {
   // Keep expandable section open when current path is under that section
   useEffect(() => {
     if (pathname.startsWith("/app/hr") || pathname.startsWith("/app/attendance") || pathname.startsWith("/app/salary") || pathname.startsWith("/app/people-management") || pathname.startsWith("/app/hr/payroll/salary")) setHrAdminOpen(true);
-    if (pathname.startsWith("/app/hr/calling-master")) setHrRecruitmentOpen(true);
     if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
@@ -347,46 +345,30 @@ const Layout = () => {
                     <User className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">HR Management</span>
                   </NavLink>
-                  <div className="flex items-stretch w-full rounded-md hover:bg-surface transition-colors">
-                    <NavLink
-                      to="hr/calling-master"
-                      className={() => {
-                        const path = pathname;
-                        const active =
-                          path.startsWith("/app/hr/calling-master") &&
-                          !path.startsWith("/app/hr/calling-master/offer-generation");
-                        return `${subLinkBase} flex-1 min-w-0 rounded-md ${active ? activeClass : "text-ink-strong"}`;
-                      }}
-                      onClick={() => setHrRecruitmentOpen(true)}
-                    >
-                      <PhoneCall className="w-4 h-4 shrink-0 text-sky-600" />
-                      <span className="type-meta type-truncate">Recruitment</span>
-                    </NavLink>
-                    <button
-                      type="button"
-                      onClick={() => setHrRecruitmentOpen(!hrRecruitmentOpen)}
-                      className="flex items-center px-1.5 rounded-md hover:bg-surface-sunken shrink-0 self-stretch"
-                      aria-expanded={hrRecruitmentOpen}
-                      aria-label="Toggle recruitment menu"
-                    >
-                      <ChevronDown
-                        className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${
-                          hrRecruitmentOpen ? "rotate-180" : ""
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  {hrRecruitmentOpen && (
-                    <div className="space-y-0.5 ml-2 border-l border-border pl-2">
-                      <NavLink
-                        to="hr/calling-master/offer-generation"
-                        className={subNavClass}
-                      >
-                        <FileText className="w-4 h-4 shrink-0 text-sky-600" />
-                        <span className="type-meta type-truncate">Offer Generation</span>
-                      </NavLink>
-                    </div>
-                  )}
+                  <NavLink
+                    to="hr/calling-master"
+                    className={() =>
+                      subNavClass({
+                        isActive:
+                          pathname.startsWith("/app/hr/calling-master") &&
+                          !pathname.startsWith("/app/hr/calling-master/offer-generation"),
+                      })
+                    }
+                  >
+                    <PhoneCall className="w-4 h-4 shrink-0 text-sky-600" />
+                    <span className="type-meta type-truncate">Recruitment</span>
+                  </NavLink>
+                  <NavLink
+                    to="hr/calling-master/offer-generation"
+                    className={() =>
+                      subNavClass({
+                        isActive: pathname.startsWith("/app/hr/calling-master/offer-generation"),
+                      })
+                    }
+                  >
+                    <FileText className="w-4 h-4 shrink-0 text-sky-600" />
+                    <span className="type-meta type-truncate">Offer Generation</span>
+                  </NavLink>
                   <NavLink to="attendance" className={subNavClass}>
                     <Clock className="w-4 h-4 shrink-0 text-amber-600" />
                     <span className="type-meta type-truncate">Attendance</span>
