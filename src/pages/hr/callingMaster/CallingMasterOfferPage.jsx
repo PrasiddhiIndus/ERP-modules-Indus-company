@@ -30,9 +30,11 @@ import OfferDetailsFields, {
 } from "./OfferDetailsFields";
 import {
   loadSelectedOfferCandidates,
+  peekOfferEmployeeCodeSuggestion,
   saveOfferAndAllocateCodes,
   saveSelectedOfferDetails,
 } from "./callingMasterStorage";
+import { isValidOfferEmployeeCode } from "./callingMasterApi";
 
 function offerStatusLabel(row) {
   return String(row?.offerStatus || "").trim() === "Generated" ? "Generated" : "Not Generated";
@@ -85,6 +87,13 @@ export default function CallingMasterOfferPage() {
   const [form, setForm] = useState(emptyOfferDetailValues());
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [generateRow, setGenerateRow] = useState(null);
+  const [generateDetails, setGenerateDetails] = useState(null);
+  const [employeeCodeInput, setEmployeeCodeInput] = useState("");
+  const [lastUsedCode, setLastUsedCode] = useState("");
+  const [codeError, setCodeError] = useState("");
+  const [peekLoading, setPeekLoading] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -200,33 +209,103 @@ export default function CallingMasterOfferPage() {
     }
   };
 
-  const handleGenerateLetter = async (row) => {
+  const closeGenerateModal = () => {
+    setGenerateOpen(false);
+    setGenerateRow(null);
+    setGenerateDetails(null);
+    setEmployeeCodeInput("");
+    setLastUsedCode("");
+    setCodeError("");
+    setPeekLoading(false);
+  };
+
+  const openGenerateModal = async (row) => {
     setError("");
-    setSaving(true);
+    setCodeError("");
+    const details = offerDetailsFromCandidate(row);
+    if (!details.siteCode) {
+      details.siteCode = deriveSiteCodeFromName(row.siteSuitable || row.siteFullName);
+    }
+    const missing = missingOfferFields(details);
+    if (missing.length) {
+      setError(
+        `Offer details incomplete on Selected register. Missing: ${missing.join(", ")}. Open Edit on Selected or Edit here to fill them.`
+      );
+      return;
+    }
+
+    const existing = String(row.employeeCode || "").trim();
+    setGenerateRow(row);
+    setGenerateDetails(details);
+    setGenerateOpen(true);
+
+    if (existing) {
+      setEmployeeCodeInput(existing);
+      setLastUsedCode("");
+      return;
+    }
+
+    setPeekLoading(true);
     try {
-      const details = offerDetailsFromCandidate(row);
-      if (!details.siteCode) {
-        details.siteCode = deriveSiteCodeFromName(row.siteSuitable || row.siteFullName);
-      }
-      const missing = missingOfferFields(details);
-      if (missing.length) {
-        throw new Error(
-          `Offer details incomplete on Selected register. Missing: ${missing.join(", ")}. Open Edit on Selected or Edit here to fill them.`
-        );
-      }
+      const peek = await peekOfferEmployeeCodeSuggestion();
+      setLastUsedCode(peek.lastUsed || "");
+      setEmployeeCodeInput(peek.suggestedNext || "");
+    } catch (err) {
+      console.error(err);
+      setCodeError(err?.message || "Unable to load employee code suggestion.");
+      setEmployeeCodeInput("");
+    } finally {
+      setPeekLoading(false);
+    }
+  };
+
+  const validateEmployeeCodeInput = (value, alreadyAssigned) => {
+    const code = String(value || "").trim();
+    if (alreadyAssigned) return "";
+    if (!code) return "Employee code is required.";
+    if (!isValidOfferEmployeeCode(code)) {
+      return "Employee code must contain only letters and numbers.";
+    }
+    return "";
+  };
+
+  const handleConfirmGenerate = async () => {
+    if (!generateRow || !generateDetails) return;
+    const alreadyAssigned = Boolean(String(generateRow.employeeCode || "").trim());
+    const validationError = validateEmployeeCodeInput(employeeCodeInput, alreadyAssigned);
+    if (validationError) {
+      setCodeError(validationError);
+      return;
+    }
+
+    setSaving(true);
+    setCodeError("");
+    setError("");
+    try {
       const saved = await saveOfferAndAllocateCodes({
-        ...row,
-        ...details,
-        siteCode: String(details.siteCode || "").trim().toUpperCase(),
+        ...generateRow,
+        ...generateDetails,
+        siteCode: String(generateDetails.siteCode || "").trim().toUpperCase(),
+        requestedEmployeeCode: alreadyAssigned ? undefined : String(employeeCodeInput).trim(),
       });
       setRecords((prev) => prev.map((r) => (r.id === saved.id ? saved : r)));
       await downloadOfferLetter(toOfferLetterPayload(saved));
+      closeGenerateModal();
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Unable to generate offer letter.");
+      const message = err?.message || "Unable to generate offer letter.";
+      if (/already taken/i.test(message)) {
+        setCodeError(message);
+      } else {
+        setError(message);
+      }
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleGenerateLetter = async (row) => {
+    await openGenerateModal(row);
   };
 
   const columns = [
@@ -341,6 +420,7 @@ export default function CallingMasterOfferPage() {
 
   const isView = modalMode === "view";
   const isEdit = modalMode === "edit";
+  const generateAlreadyAssigned = Boolean(String(generateRow?.employeeCode || "").trim());
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 max-w-[1600px] mx-auto w-full min-h-0 space-y-4">
@@ -465,6 +545,84 @@ export default function CallingMasterOfferPage() {
             candidateName={activeRow?.candidateName}
             siteSuitable={activeRow?.siteSuitable}
           />
+        </div>
+      </Modal>
+
+      <Modal
+        open={generateOpen}
+        onClose={closeGenerateModal}
+        title={
+          generateRow
+            ? `Generate offer — ${generateRow.candidateName}`
+            : "Generate offer"
+        }
+        widthClass="max-w-md"
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeGenerateModal}
+              className="h-8 px-3 text-xs rounded border border-slate-300 bg-white"
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirmGenerate()}
+              className="h-8 px-3 text-xs rounded bg-accent text-white disabled:opacity-50"
+              disabled={saving || peekLoading}
+            >
+              {saving ? "Generating…" : "Confirm & generate"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs">
+          {codeError ? (
+            <p className="text-red-600" role="alert">
+              {codeError}
+            </p>
+          ) : null}
+
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
+            <p className="font-medium text-slate-900">{generateRow?.candidateName || "—"}</p>
+            <p>Designation: {generateDetails?.designation || "—"}</p>
+            <p>Site: {generateDetails?.siteFullName || generateRow?.siteSuitable || "—"}</p>
+          </div>
+
+          {generateAlreadyAssigned ? (
+            <p className="text-slate-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              Already assigned — editing will not change the code unless you clear it from the database.
+            </p>
+          ) : lastUsedCode ? (
+            <p className="text-slate-500">
+              Last used code: <span className="font-mono text-slate-800">{lastUsedCode}</span>
+            </p>
+          ) : peekLoading ? (
+            <p className="text-slate-500">Loading code suggestion…</p>
+          ) : (
+            <p className="text-slate-500">No employee code has been assigned yet.</p>
+          )}
+
+          <label className="flex flex-col gap-1 text-slate-600">
+            Employee Code
+            <TinyInput
+              value={employeeCodeInput}
+              onChange={(e) => {
+                setEmployeeCodeInput(e.target.value);
+                setCodeError("");
+              }}
+              disabled={generateAlreadyAssigned || peekLoading}
+              placeholder="e.g. 9976"
+              className="font-mono"
+            />
+            {!generateAlreadyAssigned ? (
+              <span className="text-[10px] text-slate-500">
+                Suggested next code is pre-filled. You can edit it before generating.
+              </span>
+            ) : null}
+          </label>
         </div>
       </Modal>
     </div>

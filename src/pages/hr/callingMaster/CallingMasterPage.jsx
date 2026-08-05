@@ -22,7 +22,6 @@ import FormDateInput from "../../../components/FormDateInput";
 import {
   callingAttachmentStoragePath,
   fileLabelFromCallingAttachment,
-  isPreviewableCallingAttachment,
   presignCallingMasterR2Get,
   uploadCallingMasterFileToR2,
 } from "../../../lib/callingMasterR2";
@@ -628,25 +627,19 @@ export default function CallingMasterPage() {
   const [records, setRecords] = useState([]);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [selectedIds, setSelectedIds] = useState([]);
   const [sortConfig, setSortConfig] = useState({ key: "callDate", direction: "desc" });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [formMode, setFormMode] = useState("create");
   const [formValues, setFormValues] = useState(createEmptyFormValues());
   const [formErrors, setFormErrors] = useState({});
   const [toastItems, setToastItems] = useState([]);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
-  const [filesPreviewOpen, setFilesPreviewOpen] = useState(false);
-  const [filesPreviewCandidate, setFilesPreviewCandidate] = useState(null);
-  const [filesPreviewActive, setFilesPreviewActive] = useState(null);
-  const [filesPreviewUrl, setFilesPreviewUrl] = useState("");
-  const [filesPreviewLoading, setFilesPreviewLoading] = useState(false);
-  const [filesPreviewError, setFilesPreviewError] = useState("");
   const [pipelineTab, setPipelineTab] = useState("Calling");
   const [statusUpdatingId, setStatusUpdatingId] = useState("");
 
@@ -699,7 +692,6 @@ export default function CallingMasterPage() {
   }, [totalPages]);
 
   useEffect(() => {
-    setSelectedIds([]);
     setPage(1);
   }, [pipelineTab]);
 
@@ -707,11 +699,6 @@ export default function CallingMasterPage() {
     const start = (page - 1) * pageSize;
     return filteredRows.slice(start, start + pageSize);
   }, [filteredRows, page, pageSize]);
-
-  const selectedRows = useMemo(
-    () => stageRecords.filter((record) => selectedIds.includes(record.id)),
-    [stageRecords, selectedIds]
-  );
 
   const summary = useMemo(() => {
     const workingCount = stageRecords.filter((row) => row.currentlyWorking === "Yes").length;
@@ -732,7 +719,6 @@ export default function CallingMasterPage() {
     ];
   }, [stageRecords, pipelineTab]);
 
-  const allVisibleSelected = pagedRows.length > 0 && pagedRows.every((row) => selectedIds.includes(row.id));
   const hasFiltersApplied = Boolean(search.trim() || Object.values(filters).some(Boolean));
   const noResults = !loading && stageRecords.length > 0 && filteredRows.length === 0;
   const emptyState = !loading && stageRecords.length === 0;
@@ -781,15 +767,14 @@ export default function CallingMasterPage() {
   };
 
   const openEdit = (row) => {
-    const target = row && row.id ? row : selectedRows.length === 1 ? selectedRows[0] : null;
-    if (!target) return;
+    if (!row?.id) return;
     setFormMode("edit");
     const merged = {
       ...createEmptyFormValues(),
-      ...target,
-      attachments: Array.isArray(target.attachments) ? target.attachments : [],
+      ...row,
+      attachments: Array.isArray(row.attachments) ? row.attachments : [],
     };
-    if (pipelineTab === "Selected" || normalizePipelineStatus(target.hiringStatus) === "Selected") {
+    if (pipelineTab === "Selected" || normalizePipelineStatus(row.hiringStatus) === "Selected") {
       merged.dutyPattern = merged.dutyPattern || "26";
       merged.siteFullName = merged.siteFullName || merged.siteSuitable || "";
       merged.siteCode =
@@ -803,55 +788,39 @@ export default function CallingMasterPage() {
     setFormOpen(true);
   };
 
-  const openEditFromFilesPreview = () => {
-    if (!filesPreviewCandidate) return;
-    const candidate = filesPreviewCandidate;
-    closeFilesPreview();
-    openEdit(candidate);
+  const openDelete = (row, event) => {
+    event?.stopPropagation?.();
+    if (!row?.id) return;
+    setDeleteTarget(row);
+    setDeleteOpen(true);
   };
 
-  const closeFilesPreview = () => {
-    setFilesPreviewOpen(false);
-    setFilesPreviewCandidate(null);
-    setFilesPreviewActive(null);
-    setFilesPreviewUrl("");
-    setFilesPreviewError("");
-    setFilesPreviewLoading(false);
-  };
-
-  const loadAttachmentPreview = async (attachment) => {
-    const path = callingAttachmentStoragePath(attachment);
-    if (!path) {
-      setFilesPreviewError("File path is missing.");
-      return;
-    }
-    setFilesPreviewActive(attachment);
-    setFilesPreviewLoading(true);
-    setFilesPreviewError("");
-    setFilesPreviewUrl("");
-    try {
-      const url = await presignCallingMasterR2Get(path);
-      setFilesPreviewUrl(url);
-    } catch (err) {
-      setFilesPreviewError(err.message || "Unable to open file preview.");
-    } finally {
-      setFilesPreviewLoading(false);
-    }
-  };
-
-  const openFilesPreview = (row, event) => {
+  const openFilesPreview = async (row, event) => {
     event?.stopPropagation?.();
     const attachments = Array.isArray(row?.attachments) ? row.attachments : [];
     if (!attachments.length) {
       pushToast("No files", "This candidate has no uploaded files yet.", "warning");
       return;
     }
-    setFilesPreviewCandidate(row);
-    setFilesPreviewOpen(true);
-    setFilesPreviewActive(null);
-    setFilesPreviewUrl("");
-    setFilesPreviewError("");
-    void loadAttachmentPreview(attachments[0]);
+    let openedAny = false;
+    for (const attachment of attachments) {
+      const path = callingAttachmentStoragePath(attachment);
+      if (!path) continue;
+      try {
+        const url = await presignCallingMasterR2Get(path);
+        const opened = window.open(url, "_blank", "noopener,noreferrer");
+        if (!opened) {
+          pushToast("Open blocked", "Allow pop-ups to open the file in a new tab.", "warning");
+          return;
+        }
+        openedAny = true;
+      } catch (err) {
+        pushToast("Open failed", err.message || "Unable to open file.", "warning");
+      }
+    }
+    if (!openedAny) {
+      pushToast("Open failed", "File path is missing.", "warning");
+    }
   };
 
   const handlePipelineStatusChange = async (row, nextStatus, event) => {
@@ -861,9 +830,6 @@ export default function CallingMasterPage() {
       setStatusUpdatingId(row.id);
       await updateCallingMasterPipelineStatus(row.id, nextStatus);
       await loadRecords(false);
-      if (pipelineTab !== "Calling") {
-        setSelectedIds((current) => current.filter((id) => id !== row.id));
-      }
       const toastTitle =
         nextStatus === "Selected"
           ? "Moved to Selected"
@@ -893,99 +859,90 @@ export default function CallingMasterPage() {
   };
 
   const desktopColumns = useMemo(() => {
-    const actionColumn =
-      pipelineTab === "Calling" || pipelineTab === "Shortlisted"
-        ? {
-            key: "__pipelineAction",
-            label: "Action",
-            headerClassName: pipelineTab === "Shortlisted" ? "min-w-[120px]" : "min-w-[72px]",
-            cellClassName: pipelineTab === "Shortlisted" ? "min-w-[120px]" : "min-w-[72px]",
-            render: (row) => {
-              const busy = statusUpdatingId === row.id;
-              const status = normalizePipelineStatus(row.hiringStatus);
+    const actionColumn = {
+      key: "__rowActions",
+      label: "Actions",
+      headerClassName:
+        pipelineTab === "Shortlisted"
+          ? "min-w-[200px]"
+          : pipelineTab === "Calling"
+            ? "min-w-[140px]"
+            : "min-w-[100px]",
+      cellClassName:
+        pipelineTab === "Shortlisted"
+          ? "min-w-[200px]"
+          : pipelineTab === "Calling"
+            ? "min-w-[140px]"
+            : "min-w-[100px]",
+      render: (row) => {
+        const busy = statusUpdatingId === row.id;
+        const status = normalizePipelineStatus(row.hiringStatus);
 
-              if (pipelineTab === "Calling") {
-                const canShortlist = status === "Calling" || status === "Rejected";
-                if (!canShortlist) {
-                  return (
-                    <span className="text-[11px] font-medium text-slate-500">
-                      {status}
-                    </span>
-                  );
-                }
-                return (
-                  <button
-                    type="button"
-                    title="Mark Shortlisted"
-                    disabled={busy}
-                    onClick={(event) => void handlePipelineStatusChange(row, "Shortlisted", event)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
-                  >
-                    <ListChecks className="h-4 w-4" />
-                  </button>
-                );
-              }
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              title="Edit"
+              onClick={(event) => {
+                event.stopPropagation();
+                openEdit(row);
+              }}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-accent hover:text-accent"
+            >
+              <Edit3 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title="Delete"
+              onClick={(event) => openDelete(row, event)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
 
-              return (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    title="Selected"
-                    disabled={busy}
-                    onClick={(event) => void handlePipelineStatusChange(row, "Selected", event)}
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 hover:border-emerald-300 disabled:opacity-50"
-                  >
-                    <UserCheck className="h-3.5 w-3.5" />
-                    Selected
-                  </button>
-                  <button
-                    type="button"
-                    title="Rejected"
-                    disabled={busy}
-                    onClick={(event) => void handlePipelineStatusChange(row, "Rejected", event)}
-                    className="inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-700 hover:border-rose-300 disabled:opacity-50"
-                  >
-                    <UserX className="h-3.5 w-3.5" />
-                    Rejected
-                  </button>
-                </div>
-              );
-            },
-          }
-        : null;
+            {pipelineTab === "Calling" ? (
+              status === "Calling" || status === "Rejected" ? (
+                <button
+                  type="button"
+                  title="Mark Shortlisted"
+                  disabled={busy}
+                  onClick={(event) => void handlePipelineStatusChange(row, "Shortlisted", event)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
+                >
+                  <ListChecks className="h-4 w-4" />
+                </button>
+              ) : (
+                <span className="text-[11px] font-medium text-slate-500">{status}</span>
+              )
+            ) : null}
 
-    const selectionColumn = {
-      key: "__select",
-      label: "",
-      headerRender: () => (
-        <input
-          type="checkbox"
-          checked={allVisibleSelected}
-          onChange={(event) => {
-            const visibleIds = pagedRows.map((row) => row.id);
-            setSelectedIds((current) => {
-              const lookup = new Set(current);
-              if (event.target.checked) visibleIds.forEach((id) => lookup.add(id));
-              else visibleIds.forEach((id) => lookup.delete(id));
-              return [...lookup];
-            });
-          }}
-          aria-label="Select visible candidates"
-        />
-      ),
-      render: (row) => (
-        <input
-          type="checkbox"
-          checked={selectedIds.includes(row.id)}
-          onChange={(event) => {
-            event.stopPropagation();
-            setSelectedIds((current) =>
-              current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
-            );
-          }}
-          aria-label={`Select ${row.candidateName}`}
-        />
-      ),
+            {pipelineTab === "Shortlisted" ? (
+              <>
+                <button
+                  type="button"
+                  title="Selected"
+                  disabled={busy}
+                  onClick={(event) => void handlePipelineStatusChange(row, "Selected", event)}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 hover:border-emerald-300 disabled:opacity-50"
+                >
+                  <UserCheck className="h-3.5 w-3.5" />
+                  Selected
+                </button>
+                <button
+                  type="button"
+                  title="Rejected"
+                  disabled={busy}
+                  onClick={(event) => void handlePipelineStatusChange(row, "Rejected", event)}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-700 hover:border-rose-300 disabled:opacity-50"
+                >
+                  <UserX className="h-3.5 w-3.5" />
+                  Rejected
+                </button>
+              </>
+            ) : null}
+          </div>
+        );
+      },
     };
 
     const dataColumns = CALLING_MASTER_TABLE_COLUMNS.map((column) => ({
@@ -1052,8 +1009,8 @@ export default function CallingMasterPage() {
         return row[column.key] || "—";
       },
     }));
-    return [...(actionColumn ? [actionColumn] : []), selectionColumn, ...dataColumns];
-  }, [allVisibleSelected, pagedRows, pipelineTab, selectedIds, sortConfig, statusUpdatingId]);
+    return [actionColumn, ...dataColumns];
+  }, [pipelineTab, sortConfig, statusUpdatingId]);
 
   const handleFilterChange = (key, value) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -1144,11 +1101,6 @@ export default function CallingMasterPage() {
 
       setFormOpen(false);
       setPendingFiles([]);
-      setSelectedIds(
-        pipelineTab === "Calling" || normalizePipelineStatus(saved.hiringStatus) === pipelineTab
-          ? [saved.id]
-          : []
-      );
       pushToast(
         formMode === "edit" ? "Calling record updated" : "Calling record added",
         isSelectedContext && formMode === "edit"
@@ -1167,16 +1119,16 @@ export default function CallingMasterPage() {
   };
 
   const handleDelete = async () => {
-    if (!selectedIds.length) return;
-    const count = selectedIds.length;
+    if (!deleteTarget?.id) return;
+    const name = deleteTarget.candidateName || "Candidate";
     try {
-      await deleteCallingMasterRecords(selectedIds);
+      await deleteCallingMasterRecords([deleteTarget.id]);
       await loadRecords(false);
-      setSelectedIds([]);
+      setDeleteTarget(null);
       setDeleteOpen(false);
-      pushToast("Records removed", `${count} record(s) deleted from ${pipelineTab}.`, "success");
+      pushToast("Record removed", `${name} deleted from ${pipelineTab}.`, "success");
     } catch (err) {
-      pushToast("Delete failed", err.message || "Unable to delete candidates.", "warning");
+      pushToast("Delete failed", err.message || "Unable to delete candidate.", "warning");
     }
   };
 
@@ -1236,24 +1188,6 @@ export default function CallingMasterPage() {
             Add Calling
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={() => openEdit()}
-          disabled={selectedRows.length !== 1}
-          className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2 disabled:opacity-50"
-        >
-          <Edit3 className="h-4 w-4" />
-          Edit
-        </button>
-        <button
-          type="button"
-          onClick={() => setDeleteOpen(true)}
-          disabled={!selectedIds.length}
-          className="rounded-control border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm font-medium text-rose-700 inline-flex items-center gap-2 disabled:opacity-50"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete
-        </button>
         <button type="button" onClick={handleExport} className="erp-btn-secondary rounded-control px-3.5 py-2 inline-flex items-center gap-2">
           <FileSpreadsheet className="h-4 w-4" />
           Export Excel
@@ -1304,7 +1238,6 @@ export default function CallingMasterPage() {
             right={
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <span>{filteredRows.length} result(s)</span>
-                {selectedIds.length ? <span>{selectedIds.length} selected</span> : null}
               </div>
             }
           >
@@ -1398,28 +1331,22 @@ export default function CallingMasterPage() {
                       columns={desktopColumns}
                       rows={pagedRows}
                       rowKey="id"
-                      frozenColumnCount={pipelineTab === "Selected" ? 4 : 5}
+                      frozenColumnCount={4}
                       frozenColumnWidths={
-                        pipelineTab === "Selected"
-                          ? [48, 110, 120, 180]
-                          : pipelineTab === "Shortlisted"
-                            ? [128, 48, 110, 120, 180]
-                            : [72, 48, 110, 120, 180]
+                        pipelineTab === "Shortlisted"
+                          ? [200, 110, 120, 180]
+                          : pipelineTab === "Calling"
+                            ? [140, 110, 120, 180]
+                            : [100, 110, 120, 180]
                       }
                       stickyHeader
                       scrollMaxHeight="calc(100dvh - 26rem)"
                       serialOffset={(page - 1) * pageSize}
-                      onRowClick={(row) =>
-                        setSelectedIds((current) =>
-                          current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
-                        )
-                      }
                     />
                   </div>
 
                   <div className="grid gap-3 lg:hidden">
                     {pagedRows.map((row) => {
-                      const selected = selectedIds.includes(row.id);
                       const status = normalizePipelineStatus(row.hiringStatus);
                       const canShortlist =
                         pipelineTab === "Calling" && (status === "Calling" || status === "Rejected");
@@ -1427,24 +1354,7 @@ export default function CallingMasterPage() {
                       return (
                         <div
                           key={row.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() =>
-                            setSelectedIds((current) =>
-                              current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
-                            )
-                          }
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter" || event.key === " ") {
-                              event.preventDefault();
-                              setSelectedIds((current) =>
-                                current.includes(row.id) ? current.filter((id) => id !== row.id) : [...current, row.id]
-                              );
-                            }
-                          }}
-                          className={`rounded-xl border p-4 text-left shadow-sm transition ${
-                            selected ? "border-accent bg-blue-50/60" : "border-slate-200 bg-white"
-                          }`}
+                          className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div>
@@ -1452,6 +1362,22 @@ export default function CallingMasterPage() {
                               <p className="mt-1 text-sm text-slate-500">{row.designation || "Designation pending"} {row.company ? `· ${row.company}` : ""}</p>
                             </div>
                             <div className="flex flex-wrap items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                title="Edit"
+                                onClick={() => openEdit(row)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700"
+                              >
+                                <Edit3 className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete"
+                                onClick={(event) => openDelete(row, event)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                               {canShortlist ? (
                                 <button
                                   type="button"
@@ -1730,114 +1656,22 @@ export default function CallingMasterPage() {
       </Modal>
 
       <Modal
-        open={filesPreviewOpen}
-        title={
-          filesPreviewCandidate
-            ? `Files · ${filesPreviewCandidate.candidateName || "Candidate"}`
-            : "Files"
-        }
-        onClose={closeFilesPreview}
-        widthClass="max-w-4xl"
-        footer={
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={openEditFromFilesPreview}
-              className="erp-btn-secondary rounded-control px-4 py-2 inline-flex items-center gap-2"
-            >
-              <Edit3 className="h-4 w-4" />
-              Edit candidate
-            </button>
-            <button type="button" onClick={closeFilesPreview} className="erp-btn-secondary rounded-control px-4 py-2">
-              Close
-            </button>
-          </div>
-        }
-      >
-        {filesPreviewCandidate ? (
-          <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-            <ul className="space-y-2">
-              {(filesPreviewCandidate.attachments || []).map((item) => {
-                const path = callingAttachmentStoragePath(item);
-                const active = callingAttachmentStoragePath(filesPreviewActive) === path;
-                return (
-                  <li key={path}>
-                    <button
-                      type="button"
-                      onClick={() => void loadAttachmentPreview(item)}
-                      className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-                        active
-                          ? "border-accent bg-blue-50 text-slate-900"
-                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                      }`}
-                    >
-                      <span className="block truncate font-medium">{fileLabelFromCallingAttachment(item)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-
-            <div className="min-h-[280px] rounded-xl border border-slate-200 bg-slate-50 p-3">
-              {filesPreviewLoading ? (
-                <p className="text-sm text-slate-500">Loading preview…</p>
-              ) : filesPreviewError ? (
-                <p className="text-sm text-rose-600">{filesPreviewError}</p>
-              ) : filesPreviewUrl && filesPreviewActive ? (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="truncate text-sm font-medium text-slate-800">
-                      {fileLabelFromCallingAttachment(filesPreviewActive)}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const opened = window.open(filesPreviewUrl, "_blank", "noopener,noreferrer");
-                        if (!opened) {
-                          pushToast("Open blocked", "Allow pop-ups to open the file in a new tab.", "warning");
-                        }
-                      }}
-                      className="rounded-md border border-accent/30 bg-white px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-blue-50"
-                    >
-                      Open in new tab
-                    </button>
-                  </div>
-                  {isPreviewableCallingAttachment(filesPreviewActive) ? (
-                    String(filesPreviewActive.contentType || "").includes("pdf") ||
-                    /\.pdf$/i.test(fileLabelFromCallingAttachment(filesPreviewActive)) ? (
-                      <iframe
-                        title={fileLabelFromCallingAttachment(filesPreviewActive)}
-                        src={filesPreviewUrl}
-                        className="h-[420px] w-full rounded-lg border border-slate-200 bg-white"
-                      />
-                    ) : (
-                      <img
-                        src={filesPreviewUrl}
-                        alt={fileLabelFromCallingAttachment(filesPreviewActive)}
-                        className="max-h-[420px] w-full rounded-lg border border-slate-200 bg-white object-contain"
-                      />
-                    )
-                  ) : (
-                    <p className="text-sm text-slate-600">
-                      Preview is available for images and PDFs. Use Open in new tab for this file type.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">Select a file to preview.</p>
-              )}
-            </div>
-          </div>
-        ) : null}
-      </Modal>
-
-      <Modal
         open={deleteOpen}
         title="Delete Record"
-        onClose={() => setDeleteOpen(false)}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteTarget(null);
+        }}
         footer={
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setDeleteOpen(false)} className="erp-btn-secondary rounded-control px-4 py-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteOpen(false);
+                setDeleteTarget(null);
+              }}
+              className="erp-btn-secondary rounded-control px-4 py-2"
+            >
               Cancel
             </button>
             <button type="button" onClick={handleDelete} className="rounded-control bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">
@@ -1847,7 +1681,7 @@ export default function CallingMasterPage() {
         }
       >
         <p className="text-sm text-slate-600">
-          Delete {selectedIds.length} selected record(s) from {pipelineTab}? Active records will be marked inactive.
+          Delete {deleteTarget?.candidateName || "this candidate"} from {pipelineTab}? Active records will be marked inactive.
         </p>
       </Modal>
     </div>

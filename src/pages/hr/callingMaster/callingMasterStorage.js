@@ -12,6 +12,7 @@ import {
   listDropdownCatalog,
   listSelectOptionsMap,
   listSelectedOfferCandidates,
+  peekNextEmployeeCode,
   saveCandidateOfferDetails,
   updateOfferDetailsOnly,
   updateDropdownOptionRow,
@@ -83,6 +84,10 @@ export async function resetAllDropdownMasters() {
 
 export async function loadSelectedOfferCandidates() {
   return listSelectedOfferCandidates();
+}
+
+export async function peekOfferEmployeeCodeSuggestion() {
+  return peekNextEmployeeCode();
 }
 
 export async function saveOfferAndAllocateCodes(record) {

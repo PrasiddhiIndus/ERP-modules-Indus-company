@@ -269,7 +269,7 @@ export function openOfferLetterPrintPreview(offer) {
   Address: ${escapeXmlText(p["{{ADDRESS_LINE}}"])}<br/>
   Dist: ${escapeXmlText(p["{{DISTRICT}}"])}, ${escapeXmlText(p["{{STATE}}"])}-${escapeXmlText(p["{{PINCODE}}"])}
   </p>
-  <h1>Sub: Offer of Employment Engagement</h1>
+  <h1>Sub: Appointment Letter</h1>
   <p>Dear ${escapeXmlText(p["{{SALUTATION}}"])} ${escapeXmlText(p["{{CANDIDATE_NAME}}"])},</p>
   <p>With reference to your application and subsequent interview with us, we are pleased to appoint you as
   <strong>${escapeXmlText(p["{{DESIGNATION}}"])}</strong> on a purely contractual basis under IFSPL for specified period.
