@@ -10,7 +10,6 @@ import ActivityLogDrawer from "../components/ActivityLogDrawer";
 import { SALARY_SUB_NAV, HR_SALARY_BASE, HR_SALARY_DASHBOARD, salaryNavIsActive, salaryNavPath } from "../pages/hr/payroll/salary/salaryNav";
 import { OPERATIONS_NAV, operationsNavHref, operationsNavIsActive } from "../pages/operations/navConfig";
 import PoApprovalBell from "../components/PoApprovalBell";
-import AdminPurplePresentBell from "../components/AdminPurplePresentBell";
 import {
   LogOut,
   User,
@@ -1413,7 +1412,6 @@ const Layout = () => {
               ) : null}
               <div className="hidden sm:block h-6 w-px bg-border shrink-0" aria-hidden />
               <PoApprovalBell />
-              <AdminPurplePresentBell />
               {canSeeActivityLog ? (
                 <button
                   type="button"

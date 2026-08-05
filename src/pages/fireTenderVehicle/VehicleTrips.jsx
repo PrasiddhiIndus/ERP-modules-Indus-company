@@ -5,7 +5,7 @@ import {
   formatDateDdMmYyyy,
   formatDateTimeAmPmDdMmYyyy,
 } from '../../utils/dateDisplay';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
@@ -16,6 +16,7 @@ import {
   fetchEmployeeMasterDepartments,
   mergeEmployeeMasterDepartments,
 } from '../../lib/employeeMasterDepartments';
+import { EMPLOYEE_MASTER_TABLE } from '../../lib/userManagementHierarchy';
 
 import { 
   MapPin, 
@@ -166,6 +167,84 @@ const formatDurationFromOutIn = (outDate, outTime, inDate, inTime) => {
   return formatDurationFromDateTimes(start, end);
 };
 
+const createPassengerEntry = (name = '') => ({
+  id: `p-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+  name: String(name ?? ''),
+});
+
+/** Load saved names; do not expand a count into empty textboxes (keeps large groups scalable). */
+const passengerEntriesFromTrip = (trip) => {
+  if (Array.isArray(trip?.passenger_names)) {
+    return trip.passenger_names.map((n) => createPassengerEntry(n));
+  }
+  return [];
+};
+
+/** Free-text passenger name with People Master suggestions (full name + department). */
+const PassengerNameSuggestInput = ({ value, onChange, people, placeholder, className }) => {
+  const rootRef = useRef(null);
+  const [open, setOpen] = useState(false);
+
+  const filtered = useMemo(() => {
+    const q = String(value || '').trim().toLowerCase();
+    if (!q) return [];
+    return (people || [])
+      .filter((person) => {
+        const hay = `${person.full_name} ${person.department}`.toLowerCase();
+        return hay.includes(q);
+      })
+      .slice(0, 40);
+  }, [people, value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => {
+      if (!rootRef.current?.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative min-w-0 flex-1">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        className={className}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <ul className="absolute left-0 right-0 z-[70] mt-1 max-h-44 overflow-y-auto rounded-lg border border-gray-200 bg-white text-sm shadow-lg">
+          {filtered.map((person) => (
+            <li key={person.id}>
+              <button
+                type="button"
+                className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-blue-50"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChange(person.full_name);
+                  setOpen(false);
+                }}
+              >
+                <span className="font-medium text-gray-900">{person.full_name}</span>
+                {person.department ? (
+                  <span className="text-xs text-gray-500">{person.department}</span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 /** Keep Out/In time as HH:mm only — never invent a clock value (e.g. browser "now"). */
 const normalizeTimeHHmmInput = (raw) => {
   const s = String(raw || '').trim();
@@ -205,6 +284,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [purposeFilter, setPurposeFilter] = useState('All');
   const [departmentOptions, setDepartmentOptions] = useState(() => mergeEmployeeMasterDepartments([]));
   const [departmentSearch, setDepartmentSearch] = useState('');
+  const [peopleMasterOptions, setPeopleMasterOptions] = useState([]);
   const [filesModalTrip, setFilesModalTrip] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: 'start_date_time', direction: 'desc' });
   const [tripsView, setTripsView] = useState('list');
@@ -228,7 +308,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     notes: '',
     responsible_person: '',
     site_visit_location: '',
-    number_of_passengers: '',
+    number_of_passengers: 0,
+    passenger_entries: [],
     visit_date: '',
     out_date: '',
     in_date: '',
@@ -290,11 +371,32 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     let cancelled = false;
     (async () => {
       try {
-        const fromDb = await fetchEmployeeMasterDepartments(supabase);
-        if (!cancelled) setDepartmentOptions(fromDb);
+        const [fromDb, peopleResult] = await Promise.all([
+          fetchEmployeeMasterDepartments(supabase),
+          supabase
+            .from(EMPLOYEE_MASTER_TABLE)
+            .select('id, full_name, department')
+            .eq('status', 'Active')
+            .order('full_name', { ascending: true }),
+        ]);
+        if (cancelled) return;
+        setDepartmentOptions(fromDb);
+        if (peopleResult.error) throw peopleResult.error;
+        setPeopleMasterOptions(
+          (peopleResult.data || [])
+            .map((row) => ({
+              id: row.id,
+              full_name: String(row.full_name || '').trim(),
+              department: String(row.department || '').trim(),
+            }))
+            .filter((row) => row.full_name)
+        );
       } catch (error) {
-        console.error('Error fetching departments:', error);
-        if (!cancelled) setDepartmentOptions(mergeEmployeeMasterDepartments([]));
+        console.error('Error fetching people master / departments:', error);
+        if (!cancelled) {
+          setDepartmentOptions(mergeEmployeeMasterDepartments([]));
+          setPeopleMasterOptions([]);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -427,8 +529,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
           alert('Please enter Out Time.');
           return;
         }
-        if (toNumberOrNull(formData.number_of_passengers) == null) {
-          alert('Please enter Number of Passengers.');
+        if (formData.passenger_entries.some((entry) => !String(entry.name || '').trim())) {
+          alert('Please enter a name for each passenger, or remove empty passenger rows.');
           return;
         }
         if (!formData.departments_allotted.length) {
@@ -460,6 +562,11 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       let r2Keys = [...(formData.expense_attachments || [])];
       const kmOut = toNumberOrNull(formData.km_out);
       const kmIn = toNumberOrNull(formData.km_in);
+
+      const passengerNames = formData.passenger_entries.map((entry) => String(entry.name || '').trim());
+      const passengerCount = formData.passenger_entries.length > 0
+        ? formData.passenger_entries.length
+        : (toNumberOrNull(formData.number_of_passengers) ?? 0);
 
       const tripDataBase = {
         assignment_type: formData.assignment_type || null,
@@ -495,8 +602,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         notes: formData.notes || null,
         responsible_person: formData.responsible_person || null,
         site_visit_location: formData.site_visit_location || null,
-        number_of_passengers: toNumberOrNull(formData.number_of_passengers) != null
-          ? Math.trunc(toNumberOrNull(formData.number_of_passengers))
+        number_of_passengers: isFireTender ? null : passengerCount,
+        passenger_names: !isFireTender && formData.passenger_entries.length
+          ? passengerNames
           : null,
         visit_date: visitDate,
         visit_duration_days: toNumberOrNull(formData.visit_duration_days) != null
@@ -596,7 +704,10 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       notes: trip.notes || (assignmentType === 'fire-tender' ? (trip.remarks || '') : ''),
       responsible_person: trip.responsible_person || (assignmentType === 'in-house' ? (trip.issued_to_name || '') : ''),
       site_visit_location: trip.site_visit_location || (assignmentType === 'in-house' ? (trip.origin_location || '') : ''),
-      number_of_passengers: trip.number_of_passengers ?? '',
+      passenger_entries: passengerEntriesFromTrip(trip),
+      number_of_passengers: Array.isArray(trip.passenger_names)
+        ? trip.passenger_names.length
+        : (trip.number_of_passengers ?? 0),
       visit_date: trip.visit_date || (assignmentType === 'in-house' && trip.start_date_time ? extractIsoDateFromDateTime(trip.start_date_time) : ''),
       out_date:
         assignmentType === 'in-house' && trip.start_date_time
@@ -639,10 +750,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         const trip = trips.find((item) => item.id === tripId);
         const { error } = await supabase
           .from('operations_fire_tender_vehicle_trips')
-          .update({ 
-            trip_status: 'Completed',
-            end_date_time: new Date().toISOString()
-          })
+          .update({ trip_status: 'Completed' })
           .eq('id', tripId);
 
         if (error) throw error;
@@ -722,7 +830,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       notes: '',
       responsible_person: '',
       site_visit_location: '',
-      number_of_passengers: '',
+      number_of_passengers: 0,
+      passenger_entries: [],
       visit_date: '',
       out_date: '',
       in_date: '',
@@ -750,6 +859,35 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     setEditingTrip(null);
     setShowForm(false);
   };
+
+  const setPassengerEntries = (updater) => {
+    setFormData((prev) => {
+      const nextEntries = typeof updater === 'function' ? updater(prev.passenger_entries || []) : updater;
+      return {
+        ...prev,
+        passenger_entries: nextEntries,
+        number_of_passengers: nextEntries.length,
+      };
+    });
+  };
+
+  const addPassengerEntry = () => {
+    setPassengerEntries((prev) => [...prev, createPassengerEntry()]);
+  };
+
+  const updatePassengerEntry = (id, name) => {
+    setPassengerEntries((prev) =>
+      prev.map((entry) => (entry.id === id ? { ...entry, name } : entry))
+    );
+  };
+
+  const removePassengerEntry = (id) => {
+    setPassengerEntries((prev) => prev.filter((entry) => entry.id !== id));
+  };
+
+  const passengerCountDisplay = formData.passenger_entries.length > 0
+    ? formData.passenger_entries.length
+    : (toNumberOrNull(formData.number_of_passengers) ?? 0);
 
   const openTripAttachment = async (objectKey) => {
     try {
@@ -1416,6 +1554,19 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                         <option value="fire-tender">Fire Tender Vehicle</option>
                       </select>
                     </div>
+                    <div className="min-w-0">
+                      <label className="mb-1.5 block text-sm font-medium text-gray-700">Trip Status *</label>
+                      <select
+                        value={formData.trip_status}
+                        onChange={(e) => setFormData({ ...formData, trip_status: e.target.value })}
+                        className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      >
+                        {tripStatuses.map((status) => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </section>
 
@@ -1570,7 +1721,16 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                         </div>
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Number of Passengers *</label>
-                          <input type="number" min="0" value={formData.number_of_passengers} onChange={(e) => setFormData({ ...formData, number_of_passengers: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                          <input
+                            type="text"
+                            value={passengerCountDisplay}
+                            readOnly
+                            className="h-10 w-full rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm text-gray-700"
+                            aria-describedby="passenger-count-hint"
+                          />
+                          <p id="passenger-count-hint" className="mt-1 text-xs text-gray-500">
+                            Updates automatically as passengers are added or removed.
+                          </p>
                         </div>
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Visit Date *</label>
@@ -1594,6 +1754,51 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                           <input type="number" min="0" value={formData.visit_duration_days} onChange={(e) => setFormData({ ...formData, visit_duration_days: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500" />
                         </div>
                       </div>
+                    </section>
+
+                    <section className="rounded-lg border border-gray-200 p-4">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Passengers</h3>
+                        <button
+                          type="button"
+                          onClick={addPassengerEntry}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-50 px-3 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add passenger
+                        </button>
+                      </div>
+                      {formData.passenger_entries.length === 0 ? (
+                        <p className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                          No passengers added yet. Use Add passenger to enter names — the count updates automatically.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {formData.passenger_entries.map((entry, index) => (
+                            <div key={entry.id} className="flex items-center gap-2">
+                              <span className="w-7 shrink-0 text-center text-xs font-medium text-gray-400">
+                                {index + 1}
+                              </span>
+                              <PassengerNameSuggestInput
+                                value={entry.name}
+                                onChange={(name) => updatePassengerEntry(entry.id, name)}
+                                people={peopleMasterOptions}
+                                placeholder={`Passenger ${index + 1} name`}
+                                className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removePassengerEntry(entry.id)}
+                                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600"
+                                aria-label={`Remove passenger ${index + 1}`}
+                                title="Remove"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </section>
 
                     <section className="rounded-lg border border-gray-200 p-4">
