@@ -118,8 +118,20 @@ export function mapCandidateFromDb(row) {
     followUpDate: row.follow_up_date || "",
     recruiterNotes: row.recruiter_notes || "",
     hiringStatus: row.hiring_status || "",
-    offerStatus: row.offer_status || "",
+    offerStatus: normalizeOfferStatus(row.offer_status),
     joiningDate: row.joining_date || "",
+    fatherName: row.father_name || "",
+    addressLine: row.address_line || "",
+    addressDistrict: row.address_district || "",
+    addressState: row.address_state || "",
+    addressPincode: row.address_pincode || "",
+    dutyPattern: row.duty_pattern || "",
+    siteFullName: row.site_full_name || "",
+    siteCode: row.site_code || "",
+    employeeCode: row.employee_code || "",
+    offerReferenceNo: row.offer_reference_no || "",
+    offerGeneratedAt: row.offer_generated_at || "",
+    offerSalutation: row.offer_salutation || "Mr.",
     isActive: row.is_active !== false,
     createdAt: row.created_at || "",
     updatedAt: row.updated_at || "",
@@ -160,6 +172,125 @@ export function mapCandidateToDb(record) {
     hiring_status: normalizePipelineStatus(record.hiringStatus),
     is_active: record.isActive !== false,
   };
+}
+
+export function normalizeDutyPattern(value) {
+  const v = String(value || "").trim();
+  return v === "26" || v === "27" ? v : "";
+}
+
+export function normalizeOfferSalutation(value) {
+  const v = String(value || "").trim();
+  if (v === "Ms." || v === "Mrs.") return v;
+  return "Mr.";
+}
+
+export function normalizeOfferStatus(value) {
+  const v = String(value || "").trim();
+  if (v === "Generated") return "Generated";
+  return "Not Generated";
+}
+
+/** Selected candidates for Offer Generation tab. */
+export async function listSelectedOfferCandidates() {
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("is_active", true)
+    .eq("hiring_status", "Selected")
+    .order("updated_at", { ascending: false });
+
+  if (error) throw new Error(friendlyError(error, "Unable to load selected candidates."));
+  return (data || []).map(mapCandidateFromDb);
+}
+
+/**
+ * Persist offer detail fields only (no employee code / reference allocation).
+ * Used for data entry on the Selected register.
+ */
+export async function updateOfferDetailsOnly(record) {
+  if (!record?.id) throw new Error("Candidate is required.");
+
+  const siteCode = toText(record.siteCode).toUpperCase();
+  const duty = normalizeDutyPattern(record.dutyPattern);
+
+  const payload = {
+    father_name: toText(record.fatherName),
+    address_line: toText(record.addressLine),
+    address_district: toText(record.addressDistrict),
+    address_state: toText(record.addressState),
+    address_pincode: toText(record.addressPincode),
+    duty_pattern: duty,
+    site_full_name: toText(record.siteFullName),
+    site_code: siteCode,
+    joining_date: record.joiningDate || null,
+    offer_salutation: normalizeOfferSalutation(record.offerSalutation),
+    designation: toText(record.designation),
+    salary_gross: toNullableNumber(record.salaryGross),
+  };
+
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .update(payload)
+    .eq("id", record.id)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(friendlyError(error, "Unable to save offer details."));
+  return mapCandidateFromDb(data);
+}
+
+/**
+ * Persist offer details, allocate employee code + reference (if needed), return updated row.
+ * Used when generating the offer letter.
+ */
+export async function saveCandidateOfferDetails(record) {
+  if (!record?.id) throw new Error("Candidate is required.");
+
+  const siteCode = toText(record.siteCode).toUpperCase();
+  if (!siteCode) throw new Error("Site code is required for the offer reference number.");
+
+  const duty = normalizeDutyPattern(record.dutyPattern);
+  if (!duty) throw new Error("Duty pattern must be 26 or 27 days.");
+
+  if (!toText(record.fatherName)) throw new Error("Father's name is required.");
+  if (!toText(record.addressLine)) throw new Error("Address is required.");
+  if (!toText(record.addressDistrict)) throw new Error("District is required.");
+  if (!toText(record.addressState)) throw new Error("State is required.");
+  if (!toText(record.addressPincode)) throw new Error("Pincode is required.");
+  if (!record.joiningDate) throw new Error("Date of joining is required.");
+  if (!toText(record.siteFullName)) throw new Error("Site name and location is required.");
+  if (!toText(record.designation)) throw new Error("Designation is required.");
+  if (record.salaryGross === "" || record.salaryGross == null) {
+    throw new Error("Gross salary is required.");
+  }
+
+  await updateOfferDetailsOnly(record);
+
+  const year = new Date().getFullYear();
+  const { data: allocated, error: allocError } = await supabase.rpc("hr_calling_allocate_offer_codes", {
+    p_candidate_id: record.id,
+    p_site_code: siteCode,
+    p_year: year,
+  });
+
+  if (allocError) {
+    throw new Error(friendlyError(allocError, "Unable to assign employee code / reference number."));
+  }
+
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("id", record.id)
+    .single();
+
+  if (error) throw new Error(friendlyError(error, "Unable to reload candidate after offer save."));
+
+  const mapped = mapCandidateFromDb(data);
+  const row = Array.isArray(allocated) ? allocated[0] : allocated;
+  if (row?.employee_code) mapped.employeeCode = row.employee_code;
+  if (row?.offer_reference_no) mapped.offerReferenceNo = row.offer_reference_no;
+  return mapped;
 }
 
 export const CALLING_PIPELINE_STATUSES = ["Calling", "Shortlisted", "Selected", "Rejected"];

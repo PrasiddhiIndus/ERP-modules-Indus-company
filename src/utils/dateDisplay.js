@@ -118,12 +118,20 @@ export function extractTimeHHmmFromDateTime(value) {
   if (value == null || String(value).trim() === "") return "";
   const dt = new Date(String(value).trim());
   if (Number.isNaN(dt.getTime())) return "";
-  return dt.toLocaleTimeString(ERP_DATE_LOCALE, {
+  const parts = new Intl.DateTimeFormat(ERP_DATE_LOCALE, {
+    timeZone: ERP_TIMEZONE,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: ERP_TIMEZONE,
-  });
+    hourCycle: "h23",
+  }).formatToParts(dt);
+  const hourRaw = parts.find((p) => p.type === "hour")?.value;
+  const minuteRaw = parts.find((p) => p.type === "minute")?.value;
+  if (hourRaw == null || minuteRaw == null) return "";
+  const hour = Number(hourRaw) % 24;
+  const minute = Number(minuteRaw);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return "";
+  return `${pad2(hour)}:${pad2(minute)}`;
 }
 
 /** Combine YYYY-MM-DD + HH:mm as ISO string with explicit IST offset for timestamptz storage. */
