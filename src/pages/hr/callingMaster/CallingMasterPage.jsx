@@ -47,11 +47,13 @@ import { normalizePipelineStatus } from "./callingMasterApi";
 import {
   deleteCallingMasterRecords,
   loadCallingMasterRecords,
+  saveSelectedOfferDetails,
   updateCallingMasterPipelineStatus,
   upsertCallingMasterRecord,
 } from "./callingMasterStorage";
 import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
-
+import OfferDetailsFields, { emptyOfferDetailValues } from "./OfferDetailsFields";
+import { deriveSiteCodeFromName } from "../../../lib/offerLetterDocuments";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 
@@ -109,6 +111,7 @@ function createEmptyFormValues() {
     siteSuitable: "",
     attachments: [],
     hiringStatus: "Calling",
+    ...emptyOfferDetailValues(),
   };
 }
 
@@ -748,7 +751,7 @@ export default function CallingMasterPage() {
     pipelineTab === "Shortlisted"
       ? "Shortlisted from Calling. Choose Selected or Rejected for each record."
       : pipelineTab === "Selected"
-        ? "Candidates marked Selected from the Shortlisted register."
+        ? "Candidates marked Selected from the Shortlisted register. Enter offer letter details here (Edit), then use Offer Generation to view, edit, or download the letter."
         : "Master calling register. Shortlisted records remain here as well.";
 
   const emptyTitle =
@@ -781,11 +784,20 @@ export default function CallingMasterPage() {
     const target = row && row.id ? row : selectedRows.length === 1 ? selectedRows[0] : null;
     if (!target) return;
     setFormMode("edit");
-    setFormValues({
+    const merged = {
       ...createEmptyFormValues(),
       ...target,
       attachments: Array.isArray(target.attachments) ? target.attachments : [],
-    });
+    };
+    if (pipelineTab === "Selected" || normalizePipelineStatus(target.hiringStatus) === "Selected") {
+      merged.dutyPattern = merged.dutyPattern || "26";
+      merged.siteFullName = merged.siteFullName || merged.siteSuitable || "";
+      merged.siteCode =
+        merged.siteCode || deriveSiteCodeFromName(merged.siteSuitable || merged.siteFullName);
+      merged.addressState = merged.addressState || merged.homeState || "";
+      merged.offerSalutation = merged.offerSalutation || "Mr.";
+    }
+    setFormValues(merged);
     setFormErrors({});
     setPendingFiles([]);
     setFormOpen(true);
@@ -1106,7 +1118,30 @@ export default function CallingMasterPage() {
         hiringStatus: normalizePipelineStatus(nextValues.hiringStatus),
         attachments: [...(Array.isArray(nextValues.attachments) ? nextValues.attachments : []), ...uploaded],
       });
-      await loadRecords(false);
+
+      const isSelectedContext =
+        pipelineTab === "Selected" || normalizePipelineStatus(saved.hiringStatus) === "Selected";
+      if (isSelectedContext && formMode === "edit") {
+        await saveSelectedOfferDetails({
+          id: saved.id,
+          offerSalutation: nextValues.offerSalutation,
+          fatherName: nextValues.fatherName,
+          addressLine: nextValues.addressLine,
+          addressDistrict: nextValues.addressDistrict,
+          addressState: nextValues.addressState,
+          addressPincode: nextValues.addressPincode,
+          joiningDate: nextValues.joiningDate,
+          dutyPattern: nextValues.dutyPattern,
+          siteFullName: nextValues.siteFullName,
+          siteCode: nextValues.siteCode,
+          designation: nextValues.designation,
+          salaryGross: nextValues.salaryGross,
+        });
+        await loadRecords(false);
+      } else {
+        await loadRecords(false);
+      }
+
       setFormOpen(false);
       setPendingFiles([]);
       setSelectedIds(
@@ -1116,7 +1151,9 @@ export default function CallingMasterPage() {
       );
       pushToast(
         formMode === "edit" ? "Calling record updated" : "Calling record added",
-        `${saved.candidateName} is ready in Calling.`,
+        isSelectedContext && formMode === "edit"
+          ? `${saved.candidateName} offer details saved on Selected.`
+          : `${saved.candidateName} is ready in Calling.`,
         "success"
       );
     } catch (err) {
@@ -1530,12 +1567,22 @@ export default function CallingMasterPage() {
 
       <Modal
         open={formOpen}
-        title={formMode === "edit" ? "Edit Calling" : "Add Calling"}
+        title={
+          formMode === "edit"
+            ? pipelineTab === "Selected"
+              ? "Edit Selected"
+              : "Edit Calling"
+            : "Add Calling"
+        }
         onClose={() => setFormOpen(false)}
         widthClass="max-w-5xl"
         footer={
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-slate-500">Mobile number must be unique for active calling records.</p>
+            <p className="text-xs text-slate-500">
+              {pipelineTab === "Selected"
+                ? "Offer details are saved with this Selected candidate for letter generation."
+                : "Mobile number must be unique for active calling records."}
+            </p>
             <div className="flex gap-2">
               <button type="button" onClick={() => setFormOpen(false)} className="erp-btn-secondary rounded-control px-4 py-2">
                 Cancel
@@ -1576,6 +1623,24 @@ export default function CallingMasterPage() {
               </section>
             );
           })}
+
+          {pipelineTab === "Selected" && formMode === "edit" ? (
+            <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-slate-900">Offer letter details</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Fill these for the Offer of Employment letter. Generate the Word file from Offer Generation.
+                </p>
+              </div>
+              <OfferDetailsFields
+                values={formValues}
+                onChange={handleFormValueChange}
+                showRegisterSummary
+                candidateName={formValues.candidateName}
+                siteSuitable={formValues.siteSuitable}
+              />
+            </section>
+          ) : null}
 
           <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
             <div className="mb-4 flex items-center gap-2">

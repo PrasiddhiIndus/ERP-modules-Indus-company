@@ -21,8 +21,12 @@ import {
   User,
   Wrench,
   FileText,
-  AlertTriangle
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+
+const VEHICLES_PAGE_SIZE = 20;
 
 /** DB may store YYYY-MM (preferred) or legacy MM-YYYY; <input type="month"> needs YYYY-MM. */
 const manufactureToMonthInput = (stored) => {
@@ -90,6 +94,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [formData, setFormData] = useState(() => createEmptyVehicleForm(vehicleCategory));
   const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
@@ -387,6 +392,20 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
     
     return matchesSearch && matchesStatus && matchesType;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredVehicles.length / VEHICLES_PAGE_SIZE));
+  const paginatedVehicles = filteredVehicles.slice(
+    (currentPage - 1) * VEHICLES_PAGE_SIZE,
+    currentPage * VEHICLES_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, typeFilter, vehicleCategory]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   if (loading) {
     return (
@@ -965,9 +984,11 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredVehicles.map((vehicle, idx) => (
+              {paginatedVehicles.map((vehicle, idx) => (
                 <tr key={vehicle.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-center tabular-nums">{idx + 1}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-center tabular-nums">
+                    {(currentPage - 1) * VEHICLES_PAGE_SIZE + idx + 1}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm font-medium text-gray-900">
@@ -1038,6 +1059,45 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
             </tbody>
           </table>
         </div>
+        {filteredVehicles.length > 0 && (
+          <div className="flex flex-col gap-3 border-t border-gray-200 bg-gray-50 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-gray-600">
+              Showing {(currentPage - 1) * VEHICLES_PAGE_SIZE + 1}-
+              {Math.min(currentPage * VEHICLES_PAGE_SIZE, filteredVehicles.length)} of {filteredVehicles.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium ${
+                  currentPage <= 1
+                    ? 'cursor-not-allowed bg-gray-100 text-gray-400'
+                    : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </button>
+              <span className="px-2 text-sm text-gray-700">
+                Page {currentPage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium ${
+                  currentPage >= totalPages
+                    ? 'cursor-not-allowed bg-gray-100 text-gray-400'
+                    : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
         {filteredVehicles.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             <Car className="h-12 w-12 mx-auto mb-4 text-gray-300" />

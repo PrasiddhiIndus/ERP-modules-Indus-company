@@ -11,6 +11,9 @@ import {
   listCallingCandidates,
   listDropdownCatalog,
   listSelectOptionsMap,
+  listSelectedOfferCandidates,
+  saveCandidateOfferDetails,
+  updateOfferDetailsOnly,
   updateDropdownOptionRow,
   upsertCallingCandidate,
   updateCandidatePipelineStatus,
@@ -76,4 +79,21 @@ export async function resetDropdownMaster(key) {
 export async function resetAllDropdownMasters() {
   await clearAllDropdownOptions();
   notify(CALLING_MASTER_DROPDOWNS_EVENT);
+}
+
+export async function loadSelectedOfferCandidates() {
+  return listSelectedOfferCandidates();
+}
+
+export async function saveOfferAndAllocateCodes(record) {
+  const saved = await saveCandidateOfferDetails(record);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+/** Save offer fields from Selected register without allocating codes. */
+export async function saveSelectedOfferDetails(record) {
+  const saved = await updateOfferDetailsOnly(record);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
 }
