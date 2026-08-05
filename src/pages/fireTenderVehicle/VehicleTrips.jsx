@@ -6,6 +6,7 @@ import {
   formatDateTimeAmPmDdMmYyyy,
 } from '../../utils/dateDisplay';
 import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase';
 import { withFleetVehicleCategoryFilter, withFleetMasterCategoryFilter } from './fleetLoadUtils';
 import { uploadFleetFileToR2, buildFleetUploadSegment, presignFleetR2Get } from '../../lib/fleetR2';
@@ -36,7 +37,13 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  ChevronLeft,
+  ChevronRight,
+  ArrowLeft,
 } from 'lucide-react';
+
+const TRIPS_PAGE_SIZE = 20;
+const REPORT_PAGE_SIZE = 20;
 
 const parseTripR2Keys = (row) => {
   const raw = row?.expense_attachments;
@@ -159,6 +166,32 @@ const formatDurationFromOutIn = (outDate, outTime, inDate, inTime) => {
   return formatDurationFromDateTimes(start, end);
 };
 
+/** Keep Out/In time as HH:mm only — never invent a clock value (e.g. browser "now"). */
+const normalizeTimeHHmmInput = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const match = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return '';
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return '';
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+};
+
+const currentYearMonth = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const tripMonthKey = (trip) => {
+  const iso =
+    extractIsoDateFromDateTime(trip?.start_date_time) ||
+    toIsoDateOrNull(trip?.visit_date) ||
+    toIsoDateOrNull(trip?.date_of_mobilisation) ||
+    '';
+  return iso ? iso.slice(0, 7) : '';
+};
+
 const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [trips, setTrips] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -174,6 +207,12 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [departmentSearch, setDepartmentSearch] = useState('');
   const [filesModalTrip, setFilesModalTrip] = useState(null);
   const [sortConfig, setSortConfig] = useState({ key: 'start_date_time', direction: 'desc' });
+  const [tripsView, setTripsView] = useState('list');
+  const [reportMonth, setReportMonth] = useState(currentYearMonth);
+  const [reportVehicleId, setReportVehicleId] = useState(null);
+  const [tripsPage, setTripsPage] = useState(1);
+  const [reportPage, setReportPage] = useState(1);
+  const [reportDetailPage, setReportDetailPage] = useState(1);
 
   const [formData, setFormData] = useState({
     assignment_type: 'in-house',
@@ -376,7 +415,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
       const outDate = toIsoDateOrNull(formData.out_date);
       const inDate = toIsoDateOrNull(formData.in_date);
-      const outTime = String(formData.out_time || '').trim();
+      const outTime = normalizeTimeHHmmInput(formData.out_time);
+      const inTime = normalizeTimeHHmmInput(formData.in_time);
 
       if (!isFireTender) {
         if (!outDate) {
@@ -408,9 +448,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         ? (toIsoDateOrNull(formData.contract_end_date)
           ? combineIsoDateAndTimeForStorage(toIsoDateOrNull(formData.contract_end_date), '00:00')
           : null)
-        : inDate && /^\d{2}:\d{2}$/.test(String(formData.in_time || '').trim())
-          ? combineIsoDateAndTimeForStorage(inDate, formData.in_time)
-          : combineInHouseEndDateTime(outDate, outTime, formData.in_time);
+        : inDate && /^\d{2}:\d{2}$/.test(inTime)
+          ? combineIsoDateAndTimeForStorage(inDate, inTime)
+          : combineInHouseEndDateTime(outDate, outTime, inTime);
 
       if (!startDateTime) {
         alert('Start date/time is required.');
@@ -819,6 +859,197 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     return list;
   }, [filteredTrips, sortConfig]);
 
+  const monthlyVehicleReport = useMemo(() => {
+    const monthTrips = trips.filter((trip) => tripMonthKey(trip) === reportMonth);
+    const byVehicle = new Map();
+
+    monthTrips.forEach((trip) => {
+      const vehicleId = trip.vehicle_id ?? 'unknown';
+      const registration =
+        trip.operations_fire_tender_vehicle_master?.registration_number || 'Unknown vehicle';
+      const vehicleType = trip.operations_fire_tender_vehicle_master?.vehicle_type || '';
+      if (!byVehicle.has(vehicleId)) {
+        byVehicle.set(vehicleId, {
+          vehicleId,
+          registration,
+          vehicleType,
+          tripCount: 0,
+          completedCount: 0,
+          activeCount: 0,
+          cancelledCount: 0,
+          totalDurationMinutes: 0,
+          totalKm: 0,
+        });
+      }
+      const row = byVehicle.get(vehicleId);
+      row.tripCount += 1;
+      if (trip.trip_status === 'Completed') row.completedCount += 1;
+      else if (trip.trip_status === 'Active') row.activeCount += 1;
+      else if (trip.trip_status === 'Cancelled') row.cancelledCount += 1;
+      const mins = getTripDurationMinutes(trip);
+      if (mins != null) row.totalDurationMinutes += mins;
+      const kmDiff = parseFloat(getTripOdometerDifference(trip));
+      if (Number.isFinite(kmDiff) && kmDiff >= 0) row.totalKm += kmDiff;
+    });
+
+    return [...byVehicle.values()].sort((a, b) =>
+      String(a.registration).localeCompare(String(b.registration), undefined, { sensitivity: 'base' })
+    );
+  }, [trips, reportMonth]);
+
+  const reportMonthLabel = useMemo(() => {
+    const [y, m] = String(reportMonth || '').split('-').map(Number);
+    if (!y || !m) return reportMonth;
+    return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  }, [reportMonth]);
+
+  const reportSelectedVehicle = useMemo(
+    () => monthlyVehicleReport.find((row) => String(row.vehicleId) === String(reportVehicleId)) || null,
+    [monthlyVehicleReport, reportVehicleId]
+  );
+
+  const reportVehicleTrips = useMemo(() => {
+    if (reportVehicleId == null) return [];
+    return trips
+      .filter(
+        (trip) =>
+          tripMonthKey(trip) === reportMonth && String(trip.vehicle_id) === String(reportVehicleId)
+      )
+      .sort((a, b) => {
+        const av = a.start_date_time ? new Date(a.start_date_time).getTime() : 0;
+        const bv = b.start_date_time ? new Date(b.start_date_time).getTime() : 0;
+        return bv - av;
+      });
+  }, [trips, reportMonth, reportVehicleId]);
+
+  const tripsTotalPages = Math.max(1, Math.ceil(sortedTrips.length / TRIPS_PAGE_SIZE));
+  const paginatedTrips = useMemo(() => {
+    const start = (tripsPage - 1) * TRIPS_PAGE_SIZE;
+    return sortedTrips.slice(start, start + TRIPS_PAGE_SIZE);
+  }, [sortedTrips, tripsPage]);
+
+  const reportTotalPages = Math.max(1, Math.ceil(monthlyVehicleReport.length / REPORT_PAGE_SIZE));
+  const paginatedReportRows = useMemo(() => {
+    const start = (reportPage - 1) * REPORT_PAGE_SIZE;
+    return monthlyVehicleReport.slice(start, start + REPORT_PAGE_SIZE);
+  }, [monthlyVehicleReport, reportPage]);
+
+  const reportDetailTotalPages = Math.max(1, Math.ceil(reportVehicleTrips.length / REPORT_PAGE_SIZE));
+  const paginatedReportVehicleTrips = useMemo(() => {
+    const start = (reportDetailPage - 1) * REPORT_PAGE_SIZE;
+    return reportVehicleTrips.slice(start, start + REPORT_PAGE_SIZE);
+  }, [reportVehicleTrips, reportDetailPage]);
+
+  useEffect(() => {
+    setTripsPage(1);
+  }, [searchTerm, statusFilter, purposeFilter, sortConfig, vehicleCategory]);
+
+  useEffect(() => {
+    setReportPage(1);
+    setReportVehicleId(null);
+    setReportDetailPage(1);
+  }, [reportMonth, vehicleCategory]);
+
+  useEffect(() => {
+    if (tripsPage > tripsTotalPages) setTripsPage(tripsTotalPages);
+  }, [tripsPage, tripsTotalPages]);
+
+  useEffect(() => {
+    if (reportPage > reportTotalPages) setReportPage(reportTotalPages);
+  }, [reportPage, reportTotalPages]);
+
+  useEffect(() => {
+    if (reportDetailPage > reportDetailTotalPages) setReportDetailPage(reportDetailTotalPages);
+  }, [reportDetailPage, reportDetailTotalPages]);
+
+  const exportReportToExcel = () => {
+    if (reportVehicleId != null) {
+      const rows = reportVehicleTrips.map((trip, index) => ({
+        'S.No': index + 1,
+        Vehicle: trip.operations_fire_tender_vehicle_master?.registration_number || '',
+        Type: trip.operations_fire_tender_vehicle_master?.vehicle_type || '',
+        Purpose: trip.trip_purpose || '',
+        'Assigned To': trip.issued_to_name || '',
+        Department: trip.issued_to_department || '',
+        From: trip.origin_location || '',
+        To: trip.destination_location || '',
+        Out: formatDateTimeAmPmDdMmYyyy(trip.start_date_time) || '',
+        In: formatDateTimeAmPmDdMmYyyy(trip.end_date_time) || '',
+        Difference: getTripTimeDifference(trip) || '',
+        'Km Out': formatKmDisplay(getTripKmOut(trip)),
+        'Km In': formatKmDisplay(getTripKmIn(trip)),
+        'Km Diff': getTripOdometerDifference(trip) || '',
+        Status: trip.trip_status || '',
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Vehicle Trips');
+      const reg = reportSelectedVehicle?.registration || 'vehicle';
+      XLSX.writeFile(wb, `vehicle-trips-${reg}-${reportMonth}.xlsx`);
+      return;
+    }
+
+    const rows = monthlyVehicleReport.map((row, index) => ({
+      'S.No': index + 1,
+      Vehicle: row.registration,
+      Type: row.vehicleType || '',
+      Trips: row.tripCount,
+      Active: row.activeCount,
+      Completed: row.completedCount,
+      Cancelled: row.cancelledCount,
+      'Total Km': formatKmDisplay(row.totalKm),
+      'Total Duration': formatDurationMinutes(row.totalDurationMinutes) || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Monthly Report');
+    XLSX.writeFile(wb, `vehicle-trips-monthly-${reportMonth}.xlsx`);
+  };
+
+  const renderPaginationBar = ({ page, totalPages, totalItems, pageSize, onPageChange }) => {
+    if (totalItems === 0) return null;
+    const start = (page - 1) * pageSize + 1;
+    const end = Math.min(page * pageSize, totalItems);
+    return (
+      <div className="flex flex-col gap-3 border-t border-gray-200 bg-gray-50 px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-gray-600">
+          Showing {start}-{end} of {totalItems}
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium ${
+              page <= 1
+                ? 'cursor-not-allowed bg-gray-100 text-gray-400'
+                : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Previous
+          </button>
+          <span className="px-2 text-sm text-gray-700">
+            Page {page} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+            className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium ${
+              page >= totalPages
+                ? 'cursor-not-allowed bg-gray-100 text-gray-400'
+                : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            Next
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const toggleSort = (key) => {
     setSortConfig((prev) =>
       prev.key === key ? { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: 'asc' }
@@ -857,15 +1088,253 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
           <h1 className="text-3xl font-bold text-gray-900">Vehicle Trips</h1>
           <p className="text-gray-600 mt-2">Track and manage vehicle usage</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-        >
-          <Plus className="h-5 w-5" />
-          <span>Assign Vehicle</span>
-        </button>
+        {tripsView === 'list' && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+          >
+            <Plus className="h-5 w-5" />
+            <span>Assign Vehicle</span>
+          </button>
+        )}
       </div>
 
+      <div className="border-b border-gray-200">
+        <nav className="flex space-x-6">
+          <button
+            type="button"
+            onClick={() => setTripsView('list')}
+            className={`flex items-center space-x-2 border-b-2 py-3 text-sm font-medium transition-colors ${
+              tripsView === 'list'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+            }`}
+          >
+            <MapPin className="h-4 w-4" />
+            <span>Trips</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTripsView('reports')}
+            className={`flex items-center space-x-2 border-b-2 py-3 text-sm font-medium transition-colors ${
+              tripsView === 'reports'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+            }`}
+          >
+            <FileText className="h-4 w-4" />
+            <span>Reports</span>
+          </button>
+        </nav>
+      </div>
+
+      {tripsView === 'reports' ? (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                {reportVehicleId != null ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportVehicleId(null);
+                      setReportDetailPage(1);
+                    }}
+                    className="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Back to monthly summary
+                  </button>
+                ) : null}
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {reportVehicleId != null
+                    ? `Trips — ${reportSelectedVehicle?.registration || 'Vehicle'}`
+                    : 'Monthly trips by vehicle'}
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  {reportVehicleId != null
+                    ? `${reportMonthLabel} · ${reportVehicleTrips.length} trip${reportVehicleTrips.length === 1 ? '' : 's'}`
+                    : `Summary for ${reportMonthLabel} — click a vehicle to view its trips`}
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="min-w-[11rem]">
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Month</label>
+                  <input
+                    type="month"
+                    value={reportMonth}
+                    onChange={(e) => setReportMonth(e.target.value || currentYearMonth())}
+                    className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={exportReportToExcel}
+                  disabled={
+                    reportVehicleId != null
+                      ? reportVehicleTrips.length === 0
+                      : monthlyVehicleReport.length === 0
+                  }
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-gray-700 px-4 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300"
+                >
+                  <Download className="h-4 w-4" />
+                  Export Excel
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {reportVehicleId != null ? (
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Vehicle Trips ({reportVehicleTrips.length})
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Purpose</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Assigned To</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Route</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Out</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">In</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Difference</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Km Diff</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {paginatedReportVehicleTrips.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-gray-500">
+                          No trips for this vehicle in the selected month.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedReportVehicleTrips.map((trip, index) => (
+                        <tr key={trip.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-500">
+                            {(reportDetailPage - 1) * REPORT_PAGE_SIZE + index + 1}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">{trip.trip_purpose || '—'}</td>
+                          <td className="px-4 py-3 text-gray-900">{trip.issued_to_name || '—'}</td>
+                          <td className="px-4 py-3 text-gray-700">
+                            {trip.origin_location || '—'} → {trip.destination_location || '—'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-900">
+                            {formatDateTimeAmPmDdMmYyyy(trip.start_date_time) || '—'}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-gray-900">
+                            {formatDateTimeAmPmDdMmYyyy(trip.end_date_time) || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">{getTripTimeDifference(trip) || '—'}</td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {getTripOdometerDifference(trip) ? `${getTripOdometerDifference(trip)} km` : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(trip.trip_status)}`}>
+                              {trip.trip_status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {renderPaginationBar({
+                page: reportDetailPage,
+                totalPages: reportDetailTotalPages,
+                totalItems: reportVehicleTrips.length,
+                pageSize: REPORT_PAGE_SIZE,
+                onPageChange: setReportDetailPage,
+              })}
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Vehicles ({monthlyVehicleReport.length})
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Vehicle</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Type</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Trips</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Active</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Completed</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Cancelled</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Total Km</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Total Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 bg-white">
+                    {paginatedReportRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-gray-500">
+                          No trips found for this month.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedReportRows.map((row, index) => (
+                        <tr
+                          key={row.vehicleId}
+                          className="cursor-pointer hover:bg-blue-50"
+                          onClick={() => {
+                            setReportVehicleId(row.vehicleId);
+                            setReportDetailPage(1);
+                          }}
+                        >
+                          <td className="px-4 py-3 text-gray-500">
+                            {(reportPage - 1) * REPORT_PAGE_SIZE + index + 1}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReportVehicleId(row.vehicleId);
+                                setReportDetailPage(1);
+                              }}
+                            >
+                              {row.registration}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">{row.vehicleType || '—'}</td>
+                          <td className="px-4 py-3 text-right text-gray-900">{row.tripCount}</td>
+                          <td className="px-4 py-3 text-right text-gray-600">{row.activeCount}</td>
+                          <td className="px-4 py-3 text-right text-gray-600">{row.completedCount}</td>
+                          <td className="px-4 py-3 text-right text-gray-600">{row.cancelledCount}</td>
+                          <td className="px-4 py-3 text-right text-gray-900">{formatKmDisplay(row.totalKm)}</td>
+                          <td className="px-4 py-3 text-right text-gray-900">
+                            {formatDurationMinutes(row.totalDurationMinutes) || '—'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {renderPaginationBar({
+                page: reportPage,
+                totalPages: reportTotalPages,
+                totalItems: monthlyVehicleReport.length,
+                pageSize: REPORT_PAGE_SIZE,
+                onPageChange: setReportPage,
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* Filters and Search */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1149,11 +1618,22 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">Out Time *</label>
                           <input
-                            type="time"
-                            value={formData.out_time}
-                            onChange={(e) => setFormData({ ...formData, out_time: e.target.value })}
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="HH:mm"
+                            value={formData.out_time || ''}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/[^\d:]/g, '').slice(0, 5);
+                              setFormData({ ...formData, out_time: raw });
+                            }}
+                            onBlur={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                out_time: normalizeTimeHHmmInput(prev.out_time),
+                              }))
+                            }
+                            autoComplete="off"
                             className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            required
                           />
                         </div>
                         <div className="min-w-0">
@@ -1167,9 +1647,21 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
                         <div className="min-w-0">
                           <label className="mb-1.5 block text-sm font-medium text-gray-700">In Time</label>
                           <input
-                            type="time"
-                            value={formData.in_time}
-                            onChange={(e) => setFormData({ ...formData, in_time: e.target.value })}
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="HH:mm"
+                            value={formData.in_time || ''}
+                            onChange={(e) => {
+                              const raw = e.target.value.replace(/[^\d:]/g, '').slice(0, 5);
+                              setFormData({ ...formData, in_time: raw });
+                            }}
+                            onBlur={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                in_time: normalizeTimeHHmmInput(prev.in_time),
+                              }))
+                            }
+                            autoComplete="off"
                             className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
@@ -1378,7 +1870,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
-              {sortedTrips.map((trip, idx) => {
+              {paginatedTrips.map((trip, idx) => {
                 const attachmentKeys = parseTripR2Keys(trip);
                 const outDateTime = formatDateTimeAmPmDdMmYyyy(trip.start_date_time);
                 const inDateTime = formatDateTimeAmPmDdMmYyyy(trip.end_date_time);
@@ -1389,7 +1881,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
                 return (
                 <tr key={trip.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-3 align-middle text-center tabular-nums text-gray-700">{idx + 1}</td>
+                  <td className="px-3 py-3 align-middle text-center tabular-nums text-gray-700">
+                    {(tripsPage - 1) * TRIPS_PAGE_SIZE + idx + 1}
+                  </td>
                   <td className="px-3 py-3 align-middle whitespace-nowrap text-xs tabular-nums text-gray-900">
                     {formatDateDdMmYyyy(trip.created_at) || '—'}
                   </td>
@@ -1517,6 +2011,13 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
             </tbody>
           </table>
         </div>
+        {renderPaginationBar({
+          page: tripsPage,
+          totalPages: tripsTotalPages,
+          totalItems: sortedTrips.length,
+          pageSize: TRIPS_PAGE_SIZE,
+          onPageChange: setTripsPage,
+        })}
         {sortedTrips.length === 0 && (
           <div className="text-center py-12 text-gray-500">
             <MapPin className="h-12 w-12 mx-auto mb-4 text-gray-300" />
@@ -1565,6 +2066,8 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

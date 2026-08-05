@@ -50,6 +50,7 @@ import {
   HrEmployeeMaster,
   HrCallingMaster,
   HrCallingMasterCandidates,
+  HrCallingMasterOffers,
   HrCallingMasterDropdowns,
   HrCallingMasterDatabase,
   Procurement,
@@ -360,6 +361,7 @@ function App() {
             
             {/* HR & Admin */}
             <Route path="hr/dashboard" element={<HrDashboard />} />
+            <Route path="hr/calling-master/offer-generation" element={<HrCallingMasterOffers />} />
             <Route path="hr/calling-master" element={<HrCallingMaster />}>
               <Route index element={<HrCallingMasterDatabase />} />
               <Route path="candidates" element={<HrCallingMasterCandidates />} />
