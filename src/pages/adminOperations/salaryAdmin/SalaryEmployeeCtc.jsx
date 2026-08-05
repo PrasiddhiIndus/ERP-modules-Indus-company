@@ -225,23 +225,55 @@ function RateInput({ value, onChange, label, readOnly = false, stepHint = "0.05"
   );
 }
 
+/** High-contrast checkbox used on Salary CTC optional lines. */
+function SalaryTick({ checked, onChange, disabled = false, ariaLabel }) {
+  return (
+    <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
+        aria-label={ariaLabel}
+      />
+      <span
+        aria-hidden
+        className={`pointer-events-none flex h-5 w-5 items-center justify-center rounded-[5px] border-2 transition-colors ${
+          checked
+            ? "border-slate-800 bg-slate-800 text-white shadow-sm"
+            : "border-slate-400 bg-white text-transparent"
+        } peer-focus-visible:ring-2 peer-focus-visible:ring-slate-400/50 peer-focus-visible:ring-offset-1`}
+      >
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden>
+          <path
+            d="M3.5 8.2 6.4 11l6.1-6.5"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    </span>
+  );
+}
+
 /** Optional Part B line: tick to include and enter amount. */
 function OptionalAddLabel({ label, checked, onCheckedChange, disabled = false }) {
   return (
     <label
       className={`inline-flex items-center gap-2.5 select-none ${
-        disabled ? "cursor-default" : "cursor-pointer"
+        disabled ? "cursor-default opacity-70" : "cursor-pointer"
       }`}
     >
-      <input
-        type="checkbox"
+      <SalaryTick
         checked={checked}
-        onChange={(e) => onCheckedChange(e.target.checked)}
+        onChange={onCheckedChange}
         disabled={disabled}
-        className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent/30 accent-accent disabled:opacity-50"
-        aria-label={`Include ${label}`}
+        ariaLabel={`Include ${label}`}
       />
-      <span className={checked ? "text-ink" : "text-ink-muted"}>
+      <span className={checked ? "text-ink font-medium" : "text-ink-muted"}>
         Add : {label}
       </span>
     </label>
@@ -1711,12 +1743,11 @@ export default function SalaryEmployeeCtc() {
               {esicSettingsOpen ? (
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <label className="inline-flex items-center gap-2.5 select-none sm:col-span-2 lg:col-span-4">
-                    <input
-                      type="checkbox"
+                    <SalaryTick
                       checked={esicEnabled}
-                      onChange={(e) => canEdit && setEsicEnabled(e.target.checked)}
+                      onChange={(on) => canEdit && setEsicEnabled(on)}
                       disabled={!canEdit}
-                      className="h-4 w-4 rounded border-border-strong text-accent focus:ring-accent/30 accent-accent disabled:opacity-50"
+                      ariaLabel="ESIC applicable for this structure"
                     />
                     <span className="text-[13px] font-medium text-ink">ESIC applicable for this structure</span>
                   </label>
