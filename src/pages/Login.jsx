@@ -7,6 +7,8 @@ import {
   clearSupabaseAuthStorage,
   isCachedAccessTokenExpired,
   readCachedAccessToken,
+  hasCachedRefreshToken,
+  ensureFreshCachedSession,
 } from '../lib/authSessionUtils';
 import {
   planPostLoginNavigation,
@@ -158,7 +160,12 @@ const Login = () => {
   useEffect(() => {
     validateTeamLandingPaths();
     if (isCachedAccessTokenExpired()) {
-      clearSupabaseAuthStorage();
+      // Do not wipe refresh_token — renew access JWT so long-lived sessions stay signed in.
+      if (hasCachedRefreshToken()) {
+        void ensureFreshCachedSession({ forceRefresh: true });
+      } else {
+        clearSupabaseAuthStorage();
+      }
     }
     emailRef.current?.focus();
   }, []);
@@ -188,7 +195,10 @@ const Login = () => {
   }, []);
 
   useEffect(() => {
-    if (!user?.id || !readCachedAccessToken() || isCachedAccessTokenExpired()) return;
+    if (!user?.id) return;
+    if (!readCachedAccessToken() && !hasCachedRefreshToken()) return;
+    // Wait until access JWT is usable (AuthContext / mount refresh may still be in flight).
+    if (isCachedAccessTokenExpired()) return;
     if (!permissionsReady || !userProfile) return;
     const mods = getAccessibleModules(userProfile);
     const path = resolveSafeLandingPath(userProfile, mods);

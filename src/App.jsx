@@ -48,7 +48,10 @@ import {
   HR,
   HrDashboard,
   HrEmployeeMaster,
-  HrSalaryInputs,
+  HrCallingMaster,
+  HrCallingMasterCandidates,
+  HrCallingMasterDropdowns,
+  HrCallingMasterDatabase,
   Procurement,
   Operations,
   ProjectsBilling,
@@ -98,6 +101,7 @@ import {
   EmployeeAttendanceInputsPage,
   EmployeeAttendanceSheetsPage,
   EmployeeLeavesPage,
+  EmployeeTourApprovalsPage,
   EmployeeCompliancePage,
   EmployeeSalaryInputsPage,
   EmployeeExitPage,
@@ -356,10 +360,16 @@ function App() {
             
             {/* HR & Admin */}
             <Route path="hr/dashboard" element={<HrDashboard />} />
+            <Route path="hr/calling-master" element={<HrCallingMaster />}>
+              <Route index element={<HrCallingMasterDatabase />} />
+              <Route path="candidates" element={<HrCallingMasterCandidates />} />
+              <Route path="dropdown-master" element={<HrCallingMasterDropdowns />} />
+              <Route path="database" element={<Navigate to="/app/hr/calling-master" replace />} />
+            </Route>
             <Route path="hr" element={<HR />}>
               <Route index element={<Navigate to="employee-master" replace />} />
               <Route path="employee-master" element={<HrEmployeeMaster />} />
-              <Route path="salary-inputs" element={<HrSalaryInputs />} />
+              <Route path="salary-inputs" element={<Navigate to="/app/hr/employee-master" replace />} />
             </Route>
             <Route path="attendance" element={<Attendance />} />
             <Route path="salary" element={<Navigate to="/app/hr/payroll/salary/dashboard" replace />} />
@@ -435,6 +445,7 @@ function App() {
             <Route path="admin/employee/leave-management" element={<EmployeeLeaveManagementPage />} />
             <Route path="admin/employee/attendance-sheets" element={<EmployeeAttendanceSheetsPage />} />
             <Route path="admin/employee/leaves-permissions" element={<EmployeeLeavesPage />} />
+            <Route path="admin/employee/tour-approvals" element={<EmployeeTourApprovalsPage />} />
             <Route path="admin/employee/compliance-documents" element={<EmployeeCompliancePage />} />
             <Route path="admin/employee/salary-inputs" element={<EmployeeSalaryInputsPage />} />
             <Route path="admin/employee/exit-ff" element={<EmployeeExitPage />} />

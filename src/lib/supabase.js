@@ -3,6 +3,8 @@ import {
   SUPABASE_AUTH_STORAGE_KEY,
   readCachedAccessToken,
   isCachedAccessTokenExpired,
+  hasCachedRefreshToken,
+  ensureFreshCachedSession,
 } from './authSessionUtils'
 import {
   assertBrowserSafeSupabaseKey,
@@ -578,10 +580,18 @@ function fetchNeedsSessionHydration(urlStr) {
 }
 
 /** Attach user JWT from localStorage — avoids setSession/getSession auth lock that blocks login. */
-function applyCachedUserAuthHeader(urlStr, options = {}) {
+async function applyCachedUserAuthHeader(urlStr, options = {}) {
   if (!fetchNeedsSessionHydration(urlStr)) return options;
-  const token = readCachedAccessToken();
-  if (!token || isCachedAccessTokenExpired()) return options;
+  let token = readCachedAccessToken();
+  if ((!token || isCachedAccessTokenExpired()) && hasCachedRefreshToken()) {
+    const fresh = await ensureFreshCachedSession({
+      forceRefresh: !token || isCachedAccessTokenExpired(0),
+      refreshIfWithinSeconds: 120,
+    });
+    token = fresh?.access_token || readCachedAccessToken();
+  }
+  // Prefer a still-usable JWT; if refresh failed keep trying with cached token only when not hard-expired.
+  if (!token || isCachedAccessTokenExpired(0)) return options;
 
   const headers = new Headers(options.headers || {});
   const existing = headers.get('Authorization') || '';
@@ -620,7 +630,7 @@ const customFetch = async (url, options = {}) => {
     }
   }
 
-  const fetchOptions = applyCachedUserAuthHeader(urlStr, options)
+  const fetchOptions = await applyCachedUserAuthHeader(urlStr, options)
   const { signal, clearTimer } = resolveFetchSignal(fetchOptions, url)
   if (signal !== undefined) fetchOptions.signal = signal
 
