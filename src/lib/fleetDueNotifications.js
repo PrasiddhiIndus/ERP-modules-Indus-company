@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
-import { canSeeSubModule } from '../config/roles';
+import { ROLES, canSeeSubModule, normalizeAppRole } from '../config/roles';
 import { formatDateDdMmYyyy } from '../utils/dateDisplay';
 
 const FLEET_DOCUMENTS_ROUTE = '/app/fire-tender-vehicle-management';
@@ -8,6 +8,17 @@ const FLEET_DOCUMENTS_ROUTE = '/app/fire-tender-vehicle-management';
 export function hasFleetModuleAccess(accessibleModules, profile = null, userMetadata = null) {
   if (accessibleModules?.has('operations')) return true;
   return canSeeSubModule(profile, accessibleModules, 'operations.fleet', userMetadata);
+}
+
+/**
+ * Who receives fleet document-dues bell + once-per-day popup:
+ * admins, or users with fleet management access — never super admins.
+ */
+export function canReceiveFleetDueNotifications(accessibleModules, profile = null, userMetadata = null) {
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return false;
+  if (role === ROLES.ADMIN) return true;
+  return hasFleetModuleAccess(accessibleModules, profile, userMetadata);
 }
 
 function todayIsoLocal() {

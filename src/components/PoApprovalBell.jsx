@@ -28,8 +28,8 @@ import {
 } from '../config/roles';
 import {
   buildFleetDueNotifications,
+  canReceiveFleetDueNotifications,
   fetchFleetDocumentsForDueAlerts,
-  hasFleetModuleAccess,
   isFleetDuePopupDismissedToday,
   markFleetDuePopupDismissedToday,
   summarizeFleetDueNotifications,
@@ -218,7 +218,7 @@ const PoApprovalBell = () => {
 
   const canShowFleet =
     Boolean(user?.id) &&
-    hasFleetModuleAccess(accessibleModules, userProfile, {
+    canReceiveFleetDueNotifications(accessibleModules, userProfile, {
       email: user?.email,
       allowed_sub_modules: user?.user_metadata?.allowed_sub_modules,
     });
