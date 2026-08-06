@@ -240,3 +240,71 @@ export function marksByEmpDayFromRegisterDbRows(dbRows, normalizeMarkFn) {
   }
   return marks;
 }
+
+/** Null / blank string treated as equal for register upsert comparisons. */
+export function normalizeRegisterComparableValue(value) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s === '' ? null : s;
+}
+
+/**
+ * Emp+date lookup keys for matching upsert payloads to existing register rows
+ * (covers leading-zero / raw code variants).
+ */
+export function registerUpsertLookupKeys(row) {
+  const date = normalizeDbDate(row?.register_date);
+  if (!date) return [];
+  const raw = String(row?.employee_code ?? '').trim();
+  const norm = normalizeAttendanceEmpCode(raw);
+  const keys = [];
+  if (norm) keys.push(`${norm}|${date}`);
+  if (raw && raw !== norm) keys.push(`${raw}|${date}`);
+  return keys;
+}
+
+/**
+ * True when an upsert would not change any meaningful register columns.
+ * Compares mark, mark_source, mark_remark, leave_request_id, tour_request_id.
+ * updated_at (and any other fields) are ignored. Fields omitted on `incoming`
+ * are not compared (partial payloads must not force a write).
+ */
+export function isRegisterUpsertNoop(incoming, existing) {
+  if (!existing) return false;
+  const fields = ['mark', 'mark_source', 'mark_remark', 'leave_request_id', 'tour_request_id'];
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(incoming, field)) continue;
+    const next = normalizeRegisterComparableValue(incoming[field]);
+    const prev = normalizeRegisterComparableValue(existing[field]);
+    if (next !== prev) return false;
+  }
+  return Object.prototype.hasOwnProperty.call(incoming, 'mark');
+}
+
+/** Index existing register rows by emp|date for noop filtering. */
+export function indexRegisterRowsForUpsertDiff(existingRows) {
+  const byKey = new Map();
+  for (const row of existingRows || []) {
+    for (const key of registerUpsertLookupKeys(row)) {
+      byKey.set(key, row);
+    }
+  }
+  return byKey;
+}
+
+/**
+ * Drop upsert rows that already match the DB on meaningful columns.
+ * Prevents redundant WAL / Realtime messages from identical re-writes.
+ */
+export function filterChangedRegisterUpserts(incomingRows, existingRows) {
+  const byKey = indexRegisterRowsForUpsertDiff(existingRows);
+  return (incomingRows || []).filter((row) => {
+    const keys = registerUpsertLookupKeys(row);
+    let existing;
+    for (const key of keys) {
+      existing = byKey.get(key);
+      if (existing) break;
+    }
+    return !isRegisterUpsertNoop(row, existing);
+  });
+}
