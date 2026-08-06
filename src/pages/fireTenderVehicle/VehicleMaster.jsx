@@ -51,6 +51,7 @@ const createEmptyVehicleForm = (vehicleCategory) => ({
   vehicle_name: '',
   chassis_model: '',
   vehicle_type: '',
+  vehicle_type_other: '',
   registration_number: '',
   chassis_number: '',
   engine_number: '',
@@ -182,6 +183,10 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
       alert('Please choose a valid month and year for Month and year of manufacture.');
       return;
     }
+    if (formData.vehicle_type === 'Other' && !String(formData.vehicle_type_other || '').trim()) {
+      alert('Please enter the vehicle type.');
+      return;
+    }
     const maxFiles = 10;
     if ((formData.r2_attachment_keys || []).length + pendingAttachmentFiles.length > maxFiles) {
       alert(`Too many attachments (max ${maxFiles}).`);
@@ -196,10 +201,14 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
       const yearFromMonth =
         dm && /^\d{4}-(0[1-9]|1[0-2])$/.test(dm) ? parseInt(dm.slice(0, 4), 10) : null;
 
+      const resolvedVehicleType = formData.vehicle_type === 'Other'
+        ? String(formData.vehicle_type_other || '').trim()
+        : (formData.vehicle_type || null);
+
       const vehicleData = {
         vehicle_category: formData.vehicle_category || null,
         vehicle_name: formData.vehicle_name || null,
-        vehicle_type: formData.vehicle_type || null,
+        vehicle_type: resolvedVehicleType || null,
         registration_number: formData.registration_number || null,
         chassis_number: formData.chassis_number || null,
         chassis_model: formData.chassis_model || null,
@@ -290,11 +299,17 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
   const handleEdit = (vehicle) => {
     setEditingVehicle(vehicle);
     setPendingAttachmentFiles([]);
+    const category = vehicle.vehicle_category || (fireTenderTypes.includes(vehicle.vehicle_type) ? 'fire-tender' : 'in-house');
+    const categoryTypes = vehicleTypeByCategory[category] || [];
+    const standardTypes = categoryTypes.filter((type) => type !== 'Other');
+    const savedType = vehicle.vehicle_type || '';
+    const isCustomType = Boolean(savedType) && !standardTypes.includes(savedType);
     setFormData({
-      vehicle_category: vehicle.vehicle_category || (fireTenderTypes.includes(vehicle.vehicle_type) ? 'fire-tender' : 'in-house'),
+      vehicle_category: category,
       vehicle_name: vehicle.vehicle_name || '',
       chassis_model: vehicle.chassis_model || '',
-      vehicle_type: vehicle.vehicle_type || '',
+      vehicle_type: isCustomType ? 'Other' : savedType,
+      vehicle_type_other: isCustomType && savedType !== 'Other' ? savedType : '',
       registration_number: vehicle.registration_number || '',
       chassis_number: vehicle.chassis_number || '',
       engine_number: vehicle.engine_number || '',
@@ -493,7 +508,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle Category *</label>
                     <select
                       value={formData.vehicle_category}
-                      onChange={(e) => setFormData({ ...formData, vehicle_category: e.target.value, vehicle_type: '' })}
+                      onChange={(e) => setFormData({ ...formData, vehicle_category: e.target.value, vehicle_type: '', vehicle_type_other: '' })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     >
@@ -508,7 +523,14 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                     </label>
                     <select
                       value={formData.vehicle_type}
-                      onChange={(e) => setFormData({...formData, vehicle_type: e.target.value})}
+                      onChange={(e) => {
+                        const nextType = e.target.value;
+                        setFormData({
+                          ...formData,
+                          vehicle_type: nextType,
+                          vehicle_type_other: nextType === 'Other' ? formData.vehicle_type_other : '',
+                        });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required
                     >
@@ -518,6 +540,20 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
                       ))}
                     </select>
                   </div>
+
+                  {formData.vehicle_type === 'Other' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Specify Vehicle Type *</label>
+                      <input
+                        type="text"
+                        value={formData.vehicle_type_other}
+                        onChange={(e) => setFormData({ ...formData, vehicle_type_other: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter vehicle type"
+                        required
+                      />
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Vehicle Name *</label>
