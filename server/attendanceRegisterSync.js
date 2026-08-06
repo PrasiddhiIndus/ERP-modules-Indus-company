@@ -3,6 +3,7 @@
  */
 
 import {
+  filterChangedRegisterUpserts,
   filterPresentRegisterRowsRespectingMarks,
   marksByEmpDayFromRegisterDbRows,
   punchesToPresentRegisterRows,
@@ -30,6 +31,7 @@ function pickRegisterUpsertFields(row) {
 
 const REGISTER_TABLE = 'admin_attendance_register';
 const UPSERT_CHUNK = 200;
+const EXISTING_FETCH_CODE_CHUNK = 200;
 
 const REGISTER_MARKS_DB_ALLOWED = new Set([
   'P',
@@ -68,6 +70,31 @@ function normalizeRegisterMarkForDb(mark) {
   return 'L';
 }
 
+async function fetchExistingRegisterRowsForUpsertDiff(supabase, rows) {
+  const dates = [
+    ...new Set((rows || []).map((r) => String(r.register_date || '').slice(0, 10)).filter(Boolean)),
+  ];
+  const codes = [
+    ...new Set((rows || []).map((r) => String(r.employee_code || '').trim()).filter(Boolean)),
+  ];
+  if (!dates.length || !codes.length) return [];
+
+  const select =
+    'employee_code,register_date,mark,mark_source,mark_remark,leave_request_id,tour_request_id';
+  const out = [];
+  for (let i = 0; i < codes.length; i += EXISTING_FETCH_CODE_CHUNK) {
+    const codeChunk = codes.slice(i, i + EXISTING_FETCH_CODE_CHUNK);
+    const { data, error } = await supabase
+      .from(REGISTER_TABLE)
+      .select(select)
+      .in('employee_code', codeChunk)
+      .in('register_date', dates);
+    if (error) throw error;
+    out.push(...(data || []));
+  }
+  return out;
+}
+
 async function upsertRegisterBatch(supabase, rows) {
   const normalized = (rows || [])
     .map((row) => {
@@ -83,14 +110,19 @@ async function upsertRegisterBatch(supabase, rows) {
     })
     .filter(Boolean);
   if (!normalized.length) return 0;
-  for (let i = 0; i < normalized.length; i += UPSERT_CHUNK) {
-    const chunk = normalized.slice(i, i + UPSERT_CHUNK);
+
+  const existingRows = await fetchExistingRegisterRowsForUpsertDiff(supabase, normalized);
+  const changed = filterChangedRegisterUpserts(normalized, existingRows);
+  if (!changed.length) return 0;
+
+  for (let i = 0; i < changed.length; i += UPSERT_CHUNK) {
+    const chunk = changed.slice(i, i + UPSERT_CHUNK);
     const { error } = await supabase.from(REGISTER_TABLE).upsert(chunk, {
       onConflict: 'employee_code,register_date',
     });
     if (error) throw error;
   }
-  return normalized.length;
+  return changed.length;
 }
 
 /**

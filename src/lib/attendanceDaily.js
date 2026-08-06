@@ -4,6 +4,7 @@ import { formatDateDdMmYyyy } from "../utils/dateDisplay";
 import { TOKENS } from "../theme/tokens";
 
 import {
+  filterChangedRegisterUpserts,
   filterPresentRegisterRowsRespectingMarks,
   isLeaveMarkSource,
   isManualMarkSource,
@@ -2034,7 +2035,10 @@ export function canAutoWeekoffApplyToExisting(existing) {
   const src = String(existing.mark_source ?? "").trim().toLowerCase();
   if (isManualMarkSource(src)) return false;
   const mark = String(existing.mark ?? "").trim();
-  if (mark === "WO" && (src === REGISTER_MARK_SOURCE_AUTO_WO || !src)) return true;
+  // Already auto-WO — skip re-upsert (noop writes burned Realtime quota).
+  if (mark === "WO" && src === REGISTER_MARK_SOURCE_AUTO_WO) return false;
+  // Legacy WO with empty source: one write to stamp mark_source=auto_wo.
+  if (mark === "WO" && !src) return true;
   // Machine punch always wins over auto weekoff.
   if (isPunchMarkSource(mark, existing.mark_source)) return false;
   if (mark === "P" || mark === "P(OD)" || mark === "T" || mark === "HD") return false;
@@ -2061,6 +2065,29 @@ function lookupRegisterRow(existingByKey, normCode, dbCode, register_date) {
   );
 }
 
+/**
+ * Reuse a caller's register cache only when it covers the full date span;
+ * otherwise fetch so auto WO/holiday do not treat out-of-range days as blank.
+ */
+async function resolveExistingRegisterRowsForDateSpan(supabase, { fromDate, toDate }, cachedRows) {
+  if (!fromDate || !toDate) return cachedRows || [];
+  if (!cachedRows?.length) {
+    return fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate });
+  }
+  let minDate = null;
+  let maxDate = null;
+  for (const row of cachedRows) {
+    const d = normalizeDbDate(row.register_date);
+    if (!d) continue;
+    if (!minDate || d < minDate) minDate = d;
+    if (!maxDate || d > maxDate) maxDate = d;
+  }
+  if (minDate && maxDate && minDate <= fromDate && maxDate >= toDate) {
+    return cachedRows;
+  }
+  return fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate });
+}
+
 export async function syncRegisterAutoWeekoffMarks(
   supabase,
   employeeCodes,
@@ -2074,9 +2101,11 @@ export async function syncRegisterAutoWeekoffMarks(
 
   const fromDate = dates[0];
   const toDate = dates[dates.length - 1];
-  const existingRows =
-    options.existingRegisterRows ??
-    (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
+  const existingRows = await resolveExistingRegisterRowsForDateSpan(
+    supabase,
+    { fromDate, toDate },
+    options.existingRegisterRows
+  );
 
   const existingByKey = new Map();
   for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
@@ -2139,7 +2168,10 @@ export function canAutoHolidayApplyToExisting(existing) {
   const src = String(existing.mark_source ?? "").trim().toLowerCase();
   if (isManualMarkSource(src)) return false;
   const mark = String(existing.mark ?? "").trim();
-  if (isRegisterNhphMark(mark) && (src === REGISTER_MARK_SOURCE_AUTO_HOLIDAY || !src)) return true;
+  // Already auto-holiday — skip re-upsert.
+  if (isRegisterNhphMark(mark) && src === REGISTER_MARK_SOURCE_AUTO_HOLIDAY) return false;
+  // Legacy NH/PH with empty source: one write to stamp mark_source=auto_holiday.
+  if (isRegisterNhphMark(mark) && !src) return true;
   if (mark === "WO" && (src === REGISTER_MARK_SOURCE_AUTO_WO || !src)) return true;
   if (isPunchMarkSource(mark, existing.mark_source)) return true;
   if (mark === "P" || mark === "P(OD)" || mark === "T") return false;
@@ -2162,9 +2194,11 @@ export async function syncRegisterAutoHolidayMarks(
 
   const fromDate = dates[0];
   const toDate = dates[dates.length - 1];
-  const existingRows =
-    options.existingRegisterRows ??
-    (await fetchRegisterMarkRowsInRange(supabase, { fromDate, toDate }));
+  const existingRows = await resolveExistingRegisterRowsForDateSpan(
+    supabase,
+    { fromDate, toDate },
+    options.existingRegisterRows
+  );
 
   const existingByKey = new Map();
   for (const row of existingRows || []) indexRegisterRowByEmpDate(existingByKey, row);
@@ -2348,8 +2382,14 @@ export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
     })
     .filter(Boolean);
   if (!normalized.length) return;
-  for (let i = 0; i < normalized.length; i += REGISTER_MARK_UPSERT_CHUNK) {
-    const chunk = normalized.slice(i, i + REGISTER_MARK_UPSERT_CHUNK);
+
+  // Diff-before-write: skip rows that already match on meaningful columns.
+  const existingRows = await fetchExistingRegisterRowsForUpsertDiff(supabase, normalized);
+  const changed = filterChangedRegisterUpserts(normalized, existingRows);
+  if (!changed.length) return;
+
+  for (let i = 0; i < changed.length; i += REGISTER_MARK_UPSERT_CHUNK) {
+    const chunk = changed.slice(i, i + REGISTER_MARK_UPSERT_CHUNK);
     const { error } = await supabase.from(ATTENDANCE_REGISTER_TABLE).upsert(chunk, {
       onConflict: "employee_code,register_date",
     });
@@ -2358,11 +2398,38 @@ export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
   if (syncLeaveBalances) {
     try {
       const { reconcileLeaveBalancesForRegisterMutations } = await import("./leaveManagement");
-      await reconcileLeaveBalancesForRegisterMutations(supabase, normalized);
+      await reconcileLeaveBalancesForRegisterMutations(supabase, changed);
     } catch (err) {
       console.warn("Leave balance sync after register batch failed:", err);
     }
   }
+}
+
+/** Fetch existing register rows for the emp+date keys about to be upserted. */
+async function fetchExistingRegisterRowsForUpsertDiff(supabase, rows) {
+  const dates = [
+    ...new Set((rows || []).map((r) => normalizeDbDate(r.register_date)).filter(Boolean)),
+  ];
+  const codes = [
+    ...new Set((rows || []).map((r) => String(r.employee_code ?? "").trim()).filter(Boolean)),
+  ];
+  if (!dates.length || !codes.length) return [];
+
+  const select =
+    "employee_code,register_date,mark,mark_source,mark_remark,leave_request_id,tour_request_id";
+  const out = [];
+  const CODE_CHUNK = 200;
+  for (let i = 0; i < codes.length; i += CODE_CHUNK) {
+    const codeChunk = codes.slice(i, i + CODE_CHUNK);
+    const { data, error } = await supabase
+      .from(ATTENDANCE_REGISTER_TABLE)
+      .select(select)
+      .in("employee_code", codeChunk)
+      .in("register_date", dates);
+    if (error) throw error;
+    out.push(...(data || []));
+  }
+  return out;
 }
 
 export async function deleteRegisterMarksBatch(supabase, deletes, masterCodeMap = null, options = {}) {
