@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { computePF } from '../src/modules/payroll/calc/statutory.js';
 import {
   canPunchSyncOverwriteExisting,
+  filterChangedRegisterUpserts,
   isLeaveMarkSource,
   isPurplePresentPunch,
+  isRegisterUpsertNoop,
   punchesToPresentRegisterRows,
   registerMarkFromPunchWindow,
 } from '../shared/attendanceRegisterSync.mjs';
@@ -94,6 +96,52 @@ describe('canPunchSyncOverwriteExisting', () => {
   it('allows punch sync to replace auto WO and auto holiday', () => {
     expect(canPunchSyncOverwriteExisting({ mark: 'WO', mark_source: 'auto_wo' })).toBe(true);
     expect(canPunchSyncOverwriteExisting({ mark: 'NH/PH', mark_source: 'auto_holiday' })).toBe(true);
+  });
+});
+
+describe('filterChangedRegisterUpserts', () => {
+  it('skips identical auto_wo rows and keeps real changes', () => {
+    const existing = [
+      {
+        employee_code: '101',
+        register_date: '2026-08-02',
+        mark: 'WO',
+        mark_source: 'auto_wo',
+        mark_remark: null,
+        leave_request_id: null,
+        tour_request_id: null,
+      },
+    ];
+    const incoming = [
+      {
+        employee_code: '101',
+        register_date: '2026-08-02',
+        mark: 'WO',
+        mark_source: 'auto_wo',
+        leave_request_id: null,
+        updated_at: '2026-08-06T12:00:00.000Z',
+      },
+      {
+        employee_code: '102',
+        register_date: '2026-08-02',
+        mark: 'WO',
+        mark_source: 'auto_wo',
+        leave_request_id: null,
+        updated_at: '2026-08-06T12:00:00.000Z',
+      },
+      {
+        employee_code: '101',
+        register_date: '2026-08-03',
+        mark: 'P',
+        mark_source: 'punch',
+        leave_request_id: null,
+        updated_at: '2026-08-06T12:00:00.000Z',
+      },
+    ];
+    expect(isRegisterUpsertNoop(incoming[0], existing[0])).toBe(true);
+    const changed = filterChangedRegisterUpserts(incoming, existing);
+    expect(changed).toHaveLength(2);
+    expect(changed.map((r) => r.employee_code)).toEqual(['102', '101']);
   });
 });
 
