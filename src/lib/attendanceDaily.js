@@ -1141,29 +1141,35 @@ function addLeaveMark(marks, employeeCode, registerDate, mark) {
   const code = normalizeAttendanceEmpCode(employeeCode);
   const day = dayOfMonthFromIsoDate(registerDate);
   const canonical = normalizeRegisterMarkForDb(mark);
-  if (!code || !day || !canonical) return;
+  if (!code || !day || !canonical) return false;
   if (!marks[code]) marks[code] = {};
   marks[code][day] = canonical;
+  return true;
+}
+
+function leaveTypeCodeFromLeaveRow(row) {
+  return String(row?.leave_type_code ?? row?.leave_type ?? "").trim();
+}
+
+function isLeaveRequestFullyApproved(row) {
+  const overall = String(row?.overall_status ?? "")
+    .trim()
+    .toLowerCase();
+  const status = String(row?.status ?? "")
+    .trim()
+    .toLowerCase();
+  return (overall || status) === "approved";
 }
 
 /**
  * Fetch approved leave marks for the daily register (read-only).
- * Only fully approved admin_leave_requests / their attendance marks are included.
+ * Merges admin_leave_requests + LMS leave_requests (approved only).
+ * Prefer per-day applied marks; fill any gaps from the leave date range + type.
  * Punch priority is applied later via mergeApprovedLeaveMarksIntoManualMarks.
  */
 export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate) {
   const marks = {};
   if (!fromDate || !toDate) return marks;
-
-  const isFullyApproved = (row) => {
-    const overall = String(row?.overall_status ?? "")
-      .trim()
-      .toLowerCase();
-    const status = String(row?.status ?? "")
-      .trim()
-      .toLowerCase();
-    return (overall || status) === "approved";
-  };
 
   const codesMatch = (a, b) => {
     const left = normalizeAttendanceEmpCode(a);
@@ -1171,27 +1177,131 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
     return left && right && left === right;
   };
 
-  const { data: approvedReqs, error: reqErr } = await supabase
-    .schema("indus_one")
-    .from("admin_leave_requests")
-    .select("id, employee_code, leave_type_code, from_date, to_date, status, overall_status")
-    .lte("from_date", toDate)
-    .gte("to_date", fromDate);
-
-  if (reqErr) throw reqErr;
-
   const approvedById = new Map();
-  for (const req of approvedReqs || []) {
-    if (!isFullyApproved(req)) continue;
-    const code = normalizeAttendanceEmpCode(req.employee_code);
-    if (!code) continue;
-    approvedById.set(req.id, { ...req, employee_code: code });
+
+  const ingestApprovedRequests = (rows) => {
+    for (const req of rows || []) {
+      if (!isLeaveRequestFullyApproved(req)) continue;
+      const id = req.id;
+      if (!id) continue;
+      const existing = approvedById.get(id);
+      const leave_type_code = leaveTypeCodeFromLeaveRow(req) || leaveTypeCodeFromLeaveRow(existing) || "";
+      const employee_code =
+        normalizeAttendanceEmpCode(req.employee_code) ||
+        normalizeAttendanceEmpCode(existing?.employee_code) ||
+        "";
+      approvedById.set(id, {
+        ...(existing || {}),
+        ...req,
+        id,
+        employee_code,
+        leave_type_code,
+        user_id: req.user_id || existing?.user_id || null,
+        employee_master_id: req.employee_master_id ?? existing?.employee_master_id ?? null,
+        reason: String(req.reason || existing?.reason || "").trim(),
+      });
+    }
+  };
+
+  const requestOverlapsMonth = (req) => {
+    const reqFrom = normalizeDbDate(req.from_date);
+    const reqTo = normalizeDbDate(req.to_date);
+    if (!reqFrom || !reqTo) return false;
+    return reqFrom <= toDate && reqTo >= fromDate;
+  };
+
+  // Prefer HR admin API (service role) so all employees' leave is visible — same RLS
+  // bypass as the leave inbox. Fall back to direct Supabase if API is unavailable.
+  let loadedFromApi = false;
+  try {
+    const { fetchApiWithAuth } = await import("./apiBase");
+    const result = await fetchApiWithAuth("/api/admin/leave-requests");
+    if (result.ok && (Array.isArray(result.data?.lmsRows) || Array.isArray(result.data?.adminRows))) {
+      ingestApprovedRequests((result.data.adminRows || []).filter(requestOverlapsMonth));
+      ingestApprovedRequests((result.data.lmsRows || []).filter(requestOverlapsMonth));
+      loadedFromApi = true;
+    }
+  } catch (err) {
+    console.warn("Leave API unavailable for register overlay; using Supabase:", err?.message || err);
+  }
+
+  if (!loadedFromApi) {
+    const [adminRes, lmsRes] = await Promise.all([
+      supabase
+        .schema("indus_one")
+        .from("admin_leave_requests")
+        .select(
+          "id, employee_code, employee_master_id, user_id, leave_type_code, from_date, to_date, status, overall_status, reason"
+        )
+        .lte("from_date", toDate)
+        .gte("to_date", fromDate),
+      supabase
+        .schema("indus_one")
+        .from("leave_requests")
+        .select(
+          "id, employee_code, employee_master_id, user_id, leave_type_code, leave_type, from_date, to_date, status, overall_status, reason"
+        )
+        .lte("from_date", toDate)
+        .gte("to_date", fromDate),
+    ]);
+
+    if (adminRes.error && lmsRes.error) throw adminRes.error;
+    if (!adminRes.error) ingestApprovedRequests(adminRes.data);
+    if (!lmsRes.error) ingestApprovedRequests(lmsRes.data);
+    else if (!adminRes.error) {
+      console.warn("LMS leave_requests fetch failed; using admin_leave_requests only:", lmsRes.error.message);
+    }
+  }
+
+  // Resolve missing employee_code via Employee Master (user_id / master id).
+  const missingCodeReqs = [...approvedById.values()].filter((r) => !normalizeAttendanceEmpCode(r.employee_code));
+  if (missingCodeReqs.length) {
+    const userIds = [...new Set(missingCodeReqs.map((r) => r.user_id).filter(Boolean))];
+    const masterIds = [...new Set(missingCodeReqs.map((r) => r.employee_master_id).filter(Boolean))];
+    const byUserId = new Map();
+    const byMasterId = new Map();
+    if (userIds.length) {
+      const { data, error } = await supabase
+        .from(EMPLOYEE_MASTER_TABLE)
+        .select("id, user_id, employee_code")
+        .in("user_id", userIds);
+      if (!error) {
+        for (const row of data || []) {
+          if (row.user_id) byUserId.set(row.user_id, row);
+        }
+      }
+    }
+    if (masterIds.length) {
+      const { data, error } = await supabase
+        .from(EMPLOYEE_MASTER_TABLE)
+        .select("id, user_id, employee_code")
+        .in("id", masterIds);
+      if (!error) {
+        for (const row of data || []) {
+          if (row.id != null) byMasterId.set(row.id, row);
+        }
+      }
+    }
+    for (const req of missingCodeReqs) {
+      const master =
+        (req.employee_master_id != null ? byMasterId.get(req.employee_master_id) : null) ||
+        (req.user_id ? byUserId.get(req.user_id) : null);
+      const code = normalizeAttendanceEmpCode(master?.employee_code);
+      if (!code) continue;
+      approvedById.set(req.id, { ...req, employee_code: code });
+    }
+  }
+
+  // Drop requests we still cannot place on the register.
+  for (const [id, req] of [...approvedById.entries()]) {
+    if (!normalizeAttendanceEmpCode(req.employee_code)) approvedById.delete(id);
   }
 
   if (!approvedById.size) return marks;
 
   const approvedIds = [...approvedById.keys()];
 
+  // Applied marks are best-effort (RLS may hide rows); date-range fill covers gaps.
   const { data: applied, error: appliedErr } = await supabase
     .schema("indus_one")
     .from("admin_leave_attendance_marks")
@@ -1201,29 +1311,35 @@ export async function fetchApprovedLeaveMarksForMonth(supabase, fromDate, toDate
     .gte("register_date", fromDate)
     .lte("register_date", toDate);
 
-  if (appliedErr) throw appliedErr;
-
-  const coveredRequestIds = new Set();
-
-  for (const row of applied || []) {
-    const req = approvedById.get(row.leave_request_id);
-    if (!req || !codesMatch(req.employee_code, row.employee_code)) continue;
-    addLeaveMark(marks, req.employee_code, row.register_date, row.applied_mark);
-    coveredRequestIds.add(req.id);
+  if (appliedErr) {
+    console.warn("Leave attendance marks fetch failed; using leave date ranges:", appliedErr.message);
+  } else {
+    for (const row of applied || []) {
+      const req = approvedById.get(row.leave_request_id);
+      if (!req) continue;
+      const empCode = normalizeAttendanceEmpCode(req.employee_code);
+      if (!empCode) continue;
+      if (row.employee_code && !codesMatch(empCode, row.employee_code)) continue;
+      const mark = row.applied_mark || registerMarkFromApprovedLeaveType(req.leave_type_code);
+      addLeaveMark(marks, empCode, row.register_date, mark);
+    }
   }
 
+  // Fill any days still missing from the approved leave date range (partial applied marks,
+  // invalid applied_mark, or attendance-marks not yet written after approval).
   for (const req of approvedById.values()) {
-    if (coveredRequestIds.has(req.id)) continue;
+    const empCode = normalizeAttendanceEmpCode(req.employee_code);
     const mark = registerMarkFromApprovedLeaveType(req.leave_type_code);
     const reqFrom = normalizeDbDate(req.from_date);
     const reqTo = normalizeDbDate(req.to_date);
-    if (!reqFrom || !reqTo) continue;
+    if (!empCode || !mark || !reqFrom || !reqTo) continue;
     const windowFrom = reqFrom < fromDate ? fromDate : reqFrom;
     const windowTo = reqTo > toDate ? toDate : reqTo;
-    // Use full request range for sandwich anchors, then clip to the viewed month.
     for (const iso of enumerateLeaveDatesWithSandwich(reqFrom, reqTo)) {
       if (iso < windowFrom || iso > windowTo) continue;
-      addLeaveMark(marks, req.employee_code, iso, mark);
+      const day = dayOfMonthFromIsoDate(iso);
+      if (day && marks[empCode]?.[day]) continue;
+      addLeaveMark(marks, empCode, iso, mark);
     }
   }
 
@@ -1316,9 +1432,13 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = next[code][day];
       if (existing === "P" || existing === "P(OD)" || isRegisterHalfDayAttendanceMark(existing)) continue;
-      // Do not overwrite leave (or any mark) already present from the register table.
-      if (preferRegisterMarks && existing) continue;
-      if (existing && !isRegisterLeaveMark(existing) && existing !== "") continue;
+      // Register leave/manual marks stay; approved leave may replace blank / auto WO / auto NH.
+      if (preferRegisterMarks && existing) {
+        const replaceAutoCalendar = existing === "WO" || isRegisterNhphMark(existing);
+        if (!replaceAutoCalendar) continue;
+      } else if (existing && !isRegisterLeaveMark(existing) && existing !== "") {
+        if (!(existing === "WO" || isRegisterNhphMark(existing))) continue;
+      }
       next[code][day] = canonical;
     }
   }

@@ -223,7 +223,6 @@ function RegisterAttendanceTableSkeleton({ rowCount = 10, daysInMonth = 31 }) {
 
 export function EmployeeAttendanceDailyPage() {
   const [monthValue, setMonthValue] = useState(isoMonthToday());
-  const [empCode, setEmpCode] = useState("");
   const [search, setSearch] = useState("");
   const [selectedDepartments, setSelectedDepartments] = useState([]);
   const [punches, setPunches] = useState([]);
@@ -960,10 +959,8 @@ export function EmployeeAttendanceDailyPage() {
   }, [commentEditor, closePodCommentEditor, manualRemarks, masterRegisterCodeMap, monthMeta]);
 
   const filteredRows = useMemo(() => {
-    const codeFilter = normalizeAttendanceEmpCode(empCode.trim());
     const needle = search.trim().toLowerCase();
     return gridRows.filter((row) => {
-      if (codeFilter && row.empCode !== codeFilter) return false;
       if (
         selectedDepartments.length > 0 &&
         !selectedDepartments.includes(row.department || "")
@@ -973,7 +970,7 @@ export function EmployeeAttendanceDailyPage() {
       if (!needle) return true;
       return [row.employeeId, row.empCode, row.employeeName, row.department].join(" ").toLowerCase().includes(needle);
     });
-  }, [gridRows, search, empCode, selectedDepartments]);
+  }, [gridRows, search, selectedDepartments]);
 
   const bulkDayNumber = useMemo(() => {
     if (!monthMeta?.monthKey || !bulkDateFrom?.startsWith(monthMeta.monthKey)) return null;
@@ -1045,7 +1042,6 @@ export function EmployeeAttendanceDailyPage() {
     rowsWithSummary.length,
     search,
     monthValue,
-    empCode,
     selectedDepartments,
     tableDayAttendanceFilter,
     bulkDateFrom,
@@ -1092,7 +1088,7 @@ export function EmployeeAttendanceDailyPage() {
 
   useEffect(() => {
     setTableDayAttendanceFilter(null);
-  }, [bulkDateFrom, bulkDateTo, monthValue, empCode, selectedDepartments, search]);
+  }, [bulkDateFrom, bulkDateTo, monthValue, selectedDepartments, search]);
 
   const handleExportExcel = async () => {
     if (!monthMeta || !rowsWithSummary.length) return;
@@ -1591,12 +1587,6 @@ export function EmployeeAttendanceDailyPage() {
               className="w-[140px] ml-1"
             />
           </label>
-          <TinyInput
-            value={empCode}
-            onChange={(e) => setEmpCode(e.target.value)}
-            placeholder="Employee code (optional)"
-            className="w-[140px]"
-          />
           <TinyInput
             value={search}
             onChange={(e) => setSearch(e.target.value)}

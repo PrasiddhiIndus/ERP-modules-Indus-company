@@ -246,6 +246,25 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][10]).toBe('P');
   });
 
+  it('approved leave replaces blank and auto weekoff cells', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-12',
+        mark: 'WO',
+        mark_source: 'auto_wo',
+        leave_request_id: null,
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 12: 'WO' } },
+      { '101': { 4: 'CL', 12: 'SL' } },
+      { monthKey, registerRows }
+    );
+    expect(merged['101'][4]).toBe('CL');
+    expect(merged['101'][12]).toBe('SL');
+  });
+
   it('keeps punch-derived HD from register even with stale leave_request_id', () => {
     const registerRows = [
       {
