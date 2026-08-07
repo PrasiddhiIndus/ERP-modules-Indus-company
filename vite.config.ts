@@ -6,7 +6,22 @@ import react from '@vitejs/plugin-react';
 // Vite loads `.env`, then `.env.[mode]` from envDir (repo root by default).
 export default defineConfig({
   envDir: '.',
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'html-no-cache-hints',
+      transformIndexHtml(html) {
+        // Helps some browsers avoid sticky cached shells after deploys.
+        if (html.includes('http-equiv="Cache-Control"')) return html;
+        return html.replace(
+          /<head>/i,
+          `<head>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />`
+        );
+      },
+    },
+  ],
   resolve: {
     // Single React instance so Context (e.g. BillingProvider) is not null in child hooks.
     dedupe: ['react', 'react-dom'],
@@ -37,4 +52,3 @@ export default defineConfig({
     },
   },
 });
-

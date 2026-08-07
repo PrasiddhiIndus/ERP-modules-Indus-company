@@ -146,6 +146,7 @@ mkdir -p "${APP_DIR}"
 echo "==> rsync dist -> ${APP_DIR}"
 rsync -a --delete dist/ "${APP_DIR}/"
 echo "==> Frontend live at ${APP_DIR}"
+echo "==> Reminder: nginx must not long-cache index.html (see scripts/nginx-production-cache-snippet.conf)"
 
 # Stop legacy duplicate API name
 pm2 delete "${LEGACY_PM2_NAME}" >/dev/null 2>&1 || true
