@@ -3,13 +3,13 @@ import {
   clearAllDropdownOptions,
   clearDropdownOptionsForMaster,
   closeNoShowCandidate,
+  confirmCandidateIom,
   convertCandidateToEmployeeMaster,
   createDropdownOption,
   deleteCallingCandidates,
   deleteDropdownOptionRow,
   flagCandidateNoShow,
   getOfferExpiryDays,
-  issueCandidateIom,
   listCallingCandidates,
   listConversionCandidates,
   listDropdownCatalog,
@@ -21,9 +21,9 @@ import {
   markCandidateJoined,
   peekNextEmployeeCode,
   saveCandidateOfferDetails,
+  saveOpenIomEntry,
   setCandidateOfferResponse,
   setOfferExpiryDays,
-  updateIomDepartments,
   updateJoiningChecklist,
   updateOfferDetailsOnly,
   updateDropdownOptionRow,
@@ -176,14 +176,13 @@ export async function loadIomCandidates() {
   return listIomCandidates();
 }
 
-export async function saveIomDepartments(id, departments) {
-  const saved = await updateIomDepartments(id, departments);
-  notify(CALLING_MASTER_RECORDS_EVENT);
-  return saved;
+export async function saveIomEntry(id, entry) {
+  // Persist open entry only — still editable. Avoid list refresh so the form stays open for further edits.
+  return saveOpenIomEntry(id, entry);
 }
 
-export async function issueIomAndAllocate(record) {
-  const saved = await issueCandidateIom(record);
+export async function confirmIomEntry(record) {
+  const saved = await confirmCandidateIom(record);
   notify(CALLING_MASTER_RECORDS_EVENT);
   return saved;
 }

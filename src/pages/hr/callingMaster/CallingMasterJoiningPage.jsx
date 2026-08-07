@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, ExternalLink, Paperclip, RefreshCw, Search, Trash2, UserX } from "lucide-react";
+import { AlertTriangle, Check, ClipboardList, ExternalLink, Paperclip, RefreshCw, Search, Trash2, UserX } from "lucide-react";
 import { FormDateInput } from "../../../components/FormDateInput";
 import {
   callingAttachmentStoragePath,
@@ -26,6 +26,7 @@ import {
   journeyStatusSeverity,
   normalizeJoiningChecklist,
 } from "./callingMasterConfig";
+import { CallingActionBar, CallingActionBtn, CallingActionHint } from "./CallingTableActions";
 import {
   closeNoShow,
   flagNoShow,
@@ -263,80 +264,57 @@ export default function CallingMasterJoiningPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[340px]",
+      widthClassName: "min-w-[240px]",
+      cellClassName: "align-middle",
       render: (row) => {
         const complete = isJoiningChecklistComplete(row.joiningChecklist);
         const joined = row.joiningStatus === "Joined";
         const noShow = row.joiningStatus === "No-show";
         return (
-          <div className="flex flex-wrap gap-1.5">
+          <CallingActionBar>
             {!joined && !noShow ? (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-slate-300 text-slate-700"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openChecklist(row);
-                }}
-              >
-                Checklist
-              </button>
+              <CallingActionBtn
+                icon={ClipboardList}
+                label="Checklist"
+                onClick={() => openChecklist(row)}
+              />
             ) : null}
             {!joined && !noShow ? (
-              <button
-                type="button"
+              <CallingActionBtn
+                icon={Check}
+                label="Joined"
+                title="Mark joined"
+                tone="accent"
                 disabled={!complete || saving}
-                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-accent text-accent hover:bg-accent/5 disabled:opacity-40"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openJoinModal(row);
-                }}
-              >
-                <Check className="w-3.5 h-3.5" />
-                Mark joined
-              </button>
+                onClick={() => openJoinModal(row)}
+              />
             ) : null}
             {!joined && !noShow && isOverdueForJoining(row) ? (
-              <button
-                type="button"
+              <CallingActionBtn
+                icon={AlertTriangle}
+                label="No-show"
+                tone="danger"
                 disabled={saving}
-                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-red-300 text-red-800 hover:bg-red-50 disabled:opacity-40"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleNoShow(row);
-                }}
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                No-show
-              </button>
+                onClick={() => void handleNoShow(row)}
+              />
             ) : null}
             {noShow ? (
               <>
                 <StatusChip label="No-show" severity="critical" />
-                <button
-                  type="button"
-                  disabled={saving}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-slate-300 text-slate-700 disabled:opacity-40"
+                <CallingActionBtn
+                  icon={UserX}
+                  label="Close out"
                   title="Close out as Declined. To re-offer, generate a new letter from Offer Generation."
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleCloseNoShow(row);
-                  }}
-                >
-                  <UserX className="w-3.5 h-3.5" />
-                  Close out
-                </button>
-                <span className="text-[10px] text-slate-500 self-center">
-                  Re-offer via Offer Generation
-                </span>
+                  disabled={saving}
+                  onClick={() => void handleCloseNoShow(row)}
+                />
+                <CallingActionHint>Re-offer via Offer Generation</CallingActionHint>
               </>
             ) : null}
             {joined ? (
-              <span className="text-[11px] text-slate-600">
-                Joined {row.actualJoiningDate || "—"}
-              </span>
+              <CallingActionHint>Joined {row.actualJoiningDate || "—"}</CallingActionHint>
             ) : null}
-          </div>
+          </CallingActionBar>
         );
       },
     },
@@ -400,7 +378,8 @@ export default function CallingMasterJoiningPage() {
               rowKey="id"
               showSerialNumber
               frozenColumnCount={1}
-              frozenColumnWidths={[160]}
+              frozenColumnWidths={[168]}
+              density="comfortable"
             />
           )}
         </div>

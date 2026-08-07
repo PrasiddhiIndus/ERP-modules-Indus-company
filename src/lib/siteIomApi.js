@@ -56,6 +56,7 @@ export function emptySiteIomForm(overrides = {}) {
     fatherName: "",
     bankAccountNo: "",
     ifscCode: "",
+    bankName: "",
     dateOfBirth: "",
     dateOfJoining: "",
     remarks: "",
@@ -64,6 +65,7 @@ export function emptySiteIomForm(overrides = {}) {
     panNo: "",
     uanNo: "",
     pfNo: "",
+    sourceCallingCandidateId: null,
     ...overrides,
   };
 }
@@ -85,6 +87,7 @@ export function mapSiteIomFromDb(row) {
     fatherName: row.father_name || "",
     bankAccountNo: row.bank_account_no || "",
     ifscCode: row.ifsc_code || "",
+    bankName: row.bank_name || "",
     dateOfBirth: row.date_of_birth || "",
     dateOfJoining: row.date_of_joining || "",
     remarks: row.remarks || "",
@@ -93,6 +96,7 @@ export function mapSiteIomFromDb(row) {
     panNo: row.pan_no || "",
     uanNo: row.uan_no || "",
     pfNo: row.pf_no || "",
+    sourceCallingCandidateId: row.source_calling_candidate_id || null,
     previousSiteName: row.previous_site_name || "",
     previousDesignation: row.previous_designation || "",
     previousSalaryAmount:
@@ -118,6 +122,7 @@ function mapFormToDb(form) {
     father_name: toText(form.fatherName),
     bank_account_no: toText(form.bankAccountNo),
     ifsc_code: toText(form.ifscCode).toUpperCase(),
+    bank_name: toText(form.bankName),
     date_of_birth: toNullableDate(form.dateOfBirth),
     date_of_joining: toNullableDate(form.dateOfJoining),
     remarks: toText(form.remarks),
@@ -126,6 +131,7 @@ function mapFormToDb(form) {
     pan_no: toText(form.panNo).toUpperCase(),
     uan_no: toText(form.uanNo),
     pf_no: toText(form.pfNo),
+    source_calling_candidate_id: form.sourceCallingCandidateId || null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -145,6 +151,7 @@ export function formFromSiteIomEntry(entry) {
     fatherName: entry.fatherName || "",
     bankAccountNo: entry.bankAccountNo || "",
     ifscCode: entry.ifscCode || "",
+    bankName: entry.bankName || "",
     dateOfBirth: entry.dateOfBirth || "",
     dateOfJoining: entry.dateOfJoining || "",
     remarks: entry.remarks || "",
@@ -153,6 +160,7 @@ export function formFromSiteIomEntry(entry) {
     panNo: entry.panNo || "",
     uanNo: entry.uanNo || "",
     pfNo: entry.pfNo || "",
+    sourceCallingCandidateId: entry.sourceCallingCandidateId || null,
   });
 }
 
@@ -319,7 +327,7 @@ export async function loadPersonSensitiveDetails(personId) {
   if (!personId) return null;
   const { data, error } = await supabase
     .from("people_sensitive_details")
-    .select("date_of_birth, aadhaar_no, pan_no, uan_no, bank_account_no, ifsc_code")
+    .select("date_of_birth, aadhaar_no, pan_no, uan_no, bank_account_no, ifsc_code, bank_name")
     .eq("person_id", personId)
     .maybeSingle();
   if (error) throw new Error(friendlyError(error, "Unable to load employee details."));
@@ -331,6 +339,7 @@ export async function loadPersonSensitiveDetails(personId) {
     uanNo: data.uan_no || "",
     bankAccountNo: data.bank_account_no || "",
     ifscCode: data.ifsc_code || "",
+    bankName: data.bank_name || "",
   };
 }
 

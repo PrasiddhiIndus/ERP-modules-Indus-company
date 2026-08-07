@@ -1191,7 +1191,7 @@ export default function CallingMasterPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <ToastStack items={toastItems} onDismiss={dismissToast} />
 
       <PageTaskHeader title={pageTitle} subtitle={pageSubtitle}>

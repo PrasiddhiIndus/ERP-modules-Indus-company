@@ -217,6 +217,7 @@ export default function SiteIomPage() {
         uanNo: sensitive?.uanNo || current.uanNo,
         bankAccountNo: sensitive?.bankAccountNo || current.bankAccountNo,
         ifscCode: sensitive?.ifscCode || current.ifscCode,
+        bankName: sensitive?.bankName || current.bankName,
         siteName:
           current.rotationType === "Transferred"
             ? current.siteName
@@ -746,6 +747,13 @@ export default function SiteIomPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-slate-600">
+              Bank name
+              <TinyInput
+                value={form.bankName}
+                onChange={(e) => setField("bankName", e.target.value)}
+              />
+            </label>
             <label className="flex flex-col gap-1 text-slate-600">
               Bank account no
               <TinyInput

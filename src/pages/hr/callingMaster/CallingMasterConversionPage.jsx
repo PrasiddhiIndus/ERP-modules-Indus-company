@@ -10,6 +10,7 @@ import {
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
 import { CALLING_MASTER_RECORDS_EVENT, journeyStatusSeverity } from "./callingMasterConfig";
+import { CallingActionBar, CallingActionBtn, CallingActionHint } from "./CallingTableActions";
 import { convertToEmployeeMaster, loadConversionCandidates } from "./callingMasterStorage";
 
 export default function CallingMasterConversionPage() {
@@ -121,25 +122,29 @@ export default function CallingMasterConversionPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[200px]",
+      widthClassName: "min-w-[180px]",
+      cellClassName: "align-middle",
       render: (row) => {
         const converted = row.conversionStatus === "Converted";
         const busy = savingId === row.id;
+        if (converted) {
+          return (
+            <CallingActionBar>
+              <CallingActionHint>Converted</CallingActionHint>
+            </CallingActionBar>
+          );
+        }
         return (
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              disabled={converted || busy}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-accent text-accent hover:bg-accent/5 disabled:opacity-40"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleConvert(row);
-              }}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              {converted ? "Converted" : busy ? "Converting…" : "Convert to Employee Master"}
-            </button>
-          </div>
+          <CallingActionBar>
+            <CallingActionBtn
+              icon={UserPlus}
+              label={busy ? "Converting…" : "Convert"}
+              title="Convert to Employee Master"
+              tone="accent"
+              disabled={busy}
+              onClick={() => void handleConvert(row)}
+            />
+          </CallingActionBar>
         );
       },
     },
@@ -206,7 +211,8 @@ export default function CallingMasterConversionPage() {
               rowKey="id"
               showSerialNumber
               frozenColumnCount={1}
-              frozenColumnWidths={[160]}
+              frozenColumnWidths={[168]}
+              density="comfortable"
             />
           )}
         </div>

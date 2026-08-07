@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Check, RefreshCw, Search, X } from "lucide-react";
+import { Check, Clock, RefreshCw, Search, X } from "lucide-react";
 import {
   DenseTable,
   FilterBar,
@@ -15,6 +15,7 @@ import {
   journeyStatusSeverity,
 } from "./callingMasterConfig";
 import { offerResponseLabel } from "./callingMasterApi";
+import { CallingActionBar, CallingActionBtn } from "./CallingTableActions";
 import {
   loadOfferExpiryDays,
   loadOfferResponseCandidates,
@@ -141,48 +142,35 @@ export default function CallingMasterOfferResponsePage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[280px]",
+      widthClassName: "min-w-[200px]",
+      cellClassName: "align-middle",
       render: (row) => {
         const awaiting = offerResponseLabel(row) === "Awaiting response";
         const busy = savingId === row.id;
         return (
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
+          <CallingActionBar>
+            <CallingActionBtn
+              icon={Check}
+              label="Accept"
+              tone="success"
               disabled={!awaiting || busy}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-emerald-300 text-emerald-800 hover:bg-emerald-50 disabled:opacity-40"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleResponse(row, "Accepted");
-              }}
-            >
-              <Check className="w-3.5 h-3.5" />
-              Accept
-            </button>
-            <button
-              type="button"
+              onClick={() => void handleResponse(row, "Accepted")}
+            />
+            <CallingActionBtn
+              icon={X}
+              label="Decline"
               disabled={!awaiting || busy}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleResponse(row, "Declined");
-              }}
-            >
-              <X className="w-3.5 h-3.5" />
-              Decline
-            </button>
-            <button
-              type="button"
+              onClick={() => void handleResponse(row, "Declined")}
+            />
+            <CallingActionBtn
+              icon={Clock}
+              label="Expired"
+              title="Mark expired"
+              tone="warning"
               disabled={!awaiting || busy}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-amber-300 text-amber-900 hover:bg-amber-50 disabled:opacity-40"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleResponse(row, "Expired");
-              }}
-            >
-              Mark expired
-            </button>
-          </div>
+              onClick={() => void handleResponse(row, "Expired")}
+            />
+          </CallingActionBar>
         );
       },
     },
@@ -274,7 +262,8 @@ export default function CallingMasterOfferResponsePage() {
               rowKey="id"
               showSerialNumber
               frozenColumnCount={1}
-              frozenColumnWidths={[160]}
+              frozenColumnWidths={[168]}
+              density="comfortable"
             />
           )}
         </div>

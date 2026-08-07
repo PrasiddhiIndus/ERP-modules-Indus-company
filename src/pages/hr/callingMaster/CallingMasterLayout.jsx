@@ -34,8 +34,8 @@ export default function CallingMasterLayout() {
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6 max-w-[1600px] mx-auto w-full min-h-0">
       <div className="shrink-0">
-        <h1 className="text-xl font-semibold text-gray-900">Calling Database</h1>
-        <p className="text-xs text-gray-600 mt-0.5">
+        <h1 className="type-page-title text-ink">Calling Database</h1>
+        <p className="type-meta text-ink-secondary mt-1.5 max-w-3xl">
           Maintain candidate calling records through offer, joining, IOM, and Employee Master conversion.
         </p>
       </div>

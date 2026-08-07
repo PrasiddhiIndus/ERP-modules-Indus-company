@@ -128,6 +128,154 @@ export function isJoiningChecklistComplete(checklist) {
   return JOINING_CHECKLIST_ITEMS.every((item) => normalized[item.key].received === true);
 }
 
+/** Empty recruitment IOM form — same column set as Site Employee IOM. */
+export function emptyRecruitmentIomEntry(overrides = {}) {
+  return {
+    rotationType: "New",
+    eventDate: "",
+    siteId: "",
+    siteName: "",
+    siteCode: "",
+    employeeCode: "",
+    employeeName: "",
+    designation: "",
+    salaryAmount: "",
+    fatherName: "",
+    bankAccountNo: "",
+    ifscCode: "",
+    bankName: "",
+    dateOfBirth: "",
+    dateOfJoining: "",
+    remarks: "",
+    contactNumber: "",
+    aadhaarNo: "",
+    panNo: "",
+    uanNo: "",
+    pfNo: "",
+    ...overrides,
+  };
+}
+
+export function normalizeRecruitmentIomEntry(value) {
+  const base = emptyRecruitmentIomEntry();
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = {};
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
+  return emptyRecruitmentIomEntry({
+    rotationType: "New",
+    eventDate: String(raw.eventDate || "").slice(0, 10),
+    siteId: raw.siteId == null || raw.siteId === "" ? "" : String(raw.siteId),
+    siteName: String(raw.siteName || "").trim(),
+    siteCode: String(raw.siteCode || "").trim().toUpperCase(),
+    employeeCode: String(raw.employeeCode || "").trim(),
+    employeeName: String(raw.employeeName || "").trim(),
+    designation: String(raw.designation || "").trim(),
+    salaryAmount: raw.salaryAmount == null ? "" : String(raw.salaryAmount),
+    fatherName: String(raw.fatherName || "").trim(),
+    bankAccountNo: String(raw.bankAccountNo || "").trim(),
+    ifscCode: String(raw.ifscCode || "").trim().toUpperCase(),
+    bankName: String(raw.bankName || "").trim(),
+    dateOfBirth: String(raw.dateOfBirth || "").slice(0, 10),
+    dateOfJoining: String(raw.dateOfJoining || "").slice(0, 10),
+    remarks: String(raw.remarks || "").trim(),
+    contactNumber: String(raw.contactNumber || "").trim(),
+    aadhaarNo: String(raw.aadhaarNo || "").trim(),
+    panNo: String(raw.panNo || "").trim().toUpperCase(),
+    uanNo: String(raw.uanNo || "").trim(),
+    pfNo: String(raw.pfNo || "").trim(),
+  });
+}
+
+export function isIomConfirmed(row) {
+  const status = String(row?.iomStatus ?? row?.iom_status ?? "").trim();
+  return status === "Issued";
+}
+
+/** UI label: Open (editable) vs Confirmed (locked). */
+export function iomEntryStatusLabel(row) {
+  return isIomConfirmed(row) ? "Confirmed" : "Open";
+}
+
+/**
+ * Prefill recruitment IOM from candidate + site master match.
+ * Prefers saved open-entry fields; otherwise builds from candidate details.
+ * @param {object} candidate
+ * @param {Array<{ id: number|string, site_name?: string, siteName?: string }>} sites
+ */
+export function buildRecruitmentIomEntryFromCandidate(candidate, sites = []) {
+  const saved = normalizeRecruitmentIomEntry(candidate?.iomEntryPayload);
+  const hasSaved = Boolean(candidate?.iomEntrySaved);
+
+  const siteLabel = String(
+    (hasSaved && saved.siteName) || candidate?.siteFullName || candidate?.siteSuitable || ""
+  ).trim();
+
+  let siteId = hasSaved ? saved.siteId : "";
+  let siteName = siteLabel;
+  if (!siteId && siteLabel && Array.isArray(sites)) {
+    const match = sites.find(
+      (s) =>
+        String(s.site_name || s.siteName || "")
+          .trim()
+          .toLowerCase() === siteLabel.toLowerCase()
+    );
+    if (match) {
+      siteId = String(match.id);
+      siteName = String(match.site_name || match.siteName || siteLabel).trim();
+    }
+  } else if (siteId && Array.isArray(sites)) {
+    const match = sites.find((s) => String(s.id) === String(siteId));
+    if (match) siteName = String(match.site_name || match.siteName || siteName).trim();
+  }
+
+  const joining =
+    candidate?.actualJoiningDate || candidate?.joiningDate || new Date().toISOString().slice(0, 10);
+
+  if (hasSaved) {
+    return normalizeRecruitmentIomEntry({
+      ...saved,
+      rotationType: "New",
+      siteId: siteId || saved.siteId,
+      siteName: siteName || saved.siteName,
+      siteCode: saved.siteCode || candidate?.siteCode || "",
+      employeeCode: saved.employeeCode || candidate?.employeeCode || "",
+      employeeName: saved.employeeName || candidate?.candidateName || "",
+    });
+  }
+
+  return emptyRecruitmentIomEntry({
+    rotationType: "New",
+    eventDate: joining,
+    siteId,
+    siteName,
+    siteCode: candidate?.siteCode || "",
+    employeeCode: candidate?.employeeCode || "",
+    employeeName: candidate?.candidateName || "",
+    designation: candidate?.designation || "",
+    salaryAmount: candidate?.salaryGross == null ? "" : String(candidate.salaryGross),
+    fatherName: candidate?.fatherName || "",
+    dateOfJoining: joining,
+    contactNumber: candidate?.phoneNumber || "",
+    remarks: candidate?.offerReferenceNo
+      ? `Recruitment offer ${candidate.offerReferenceNo}`
+      : "",
+  });
+}
+
+/** Payload to persist when opening an IOM entry after checklist completion. */
+export function seedOpenIomEntryPayload(candidate, sites = []) {
+  return buildRecruitmentIomEntryFromCandidate(
+    { ...candidate, iomEntrySaved: false, iomEntryPayload: {} },
+    sites
+  );
+}
+
 export function normalizeIomDepartments(value) {
   let list = value;
   if (typeof list === "string") {
@@ -148,7 +296,7 @@ export function normalizeIomDepartments(value) {
 /** StatusChip severity for post-offer journey labels. */
 export function journeyStatusSeverity(status) {
   const value = String(status || "").trim();
-  if (["Accepted", "Joined", "Issued", "Converted", "Generated"].includes(value)) return "info";
+  if (["Accepted", "Joined", "Issued", "Confirmed", "Converted", "Generated", "Open"].includes(value)) return "info";
   if (["Pending", "Not Generated", "Awaiting response"].includes(value)) return "warning";
   if (["Declined", "Expired", "No-show"].includes(value)) return "critical";
   return "warning";

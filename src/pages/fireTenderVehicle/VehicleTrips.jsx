@@ -280,6 +280,9 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
   const [editingTrip, setEditingTrip] = useState(null);
   const [pendingAttachmentFiles, setPendingAttachmentFiles] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [vehicleFilter, setVehicleFilter] = useState('All');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [purposeFilter, setPurposeFilter] = useState('All');
   const [departmentOptions, setDepartmentOptions] = useState(() => mergeEmployeeMasterDepartments([]));
@@ -923,19 +926,56 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     return formData.assignment_type === 'fire-tender' ? isFireTenderVehicle : !isFireTenderVehicle;
   });
 
-  const filteredTrips = trips.filter(trip => {
+  const filteredTrips = trips.filter((trip) => {
     const vm = trip.operations_fire_tender_vehicle_master;
-    const matchesSearch = 
-      vm?.registration_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      trip.issued_to_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      trip.trip_purpose?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      trip.origin_location?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      trip.destination_location?.toLowerCase().includes(searchTerm.toLowerCase());
-    
+    const needle = searchTerm.trim().toLowerCase();
+    const matchesSearch =
+      !needle ||
+      [
+        vm?.registration_number,
+        vm?.vehicle_type,
+        vm?.make,
+        vm?.model,
+        trip.issued_to_name,
+        trip.issued_to_department,
+        trip.issued_to_contact,
+        trip.trip_purpose,
+        trip.origin_location,
+        trip.destination_location,
+        trip.trip_status,
+        trip.driver_name,
+        trip.remarks,
+        trip.site_name,
+        trip.deployment_location,
+        trip.site_visit_location,
+        formatDateDdMmYyyy(trip.created_at),
+        formatDateTimeAmPmDdMmYyyy(trip.start_date_time),
+        formatDateTimeAmPmDdMmYyyy(trip.end_date_time),
+        getTripTimeDifference(trip),
+        getTripOdometerDifference(trip),
+        formatKmDisplay(getTripKmOut(trip)),
+        formatKmDisplay(getTripKmIn(trip)),
+      ].some((value) => String(value || '').toLowerCase().includes(needle));
+
+    const matchesVehicle =
+      vehicleFilter === 'All' || String(trip.vehicle_id) === String(vehicleFilter);
+
+    const tripDate =
+      extractIsoDateFromDateTime(trip.start_date_time) ||
+      extractIsoDateFromDateTime(trip.end_date_time) ||
+      toIsoDateOrNull(trip.created_at);
+    const fromIso = toIsoDateOrNull(dateFrom);
+    const toIso = toIsoDateOrNull(dateTo);
+    const matchesDate =
+      (!fromIso && !toIso) ||
+      (Boolean(tripDate) &&
+        (!fromIso || tripDate >= fromIso) &&
+        (!toIso || tripDate <= toIso));
+
     const matchesStatus = statusFilter === 'All' || trip.trip_status === statusFilter;
     const matchesPurpose = purposeFilter === 'All' || trip.trip_purpose === purposeFilter;
-    
-    return matchesSearch && matchesStatus && matchesPurpose;
+
+    return matchesSearch && matchesVehicle && matchesDate && matchesStatus && matchesPurpose;
   });
 
   const sortedTrips = useMemo(() => {
@@ -1080,7 +1120,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
   useEffect(() => {
     setTripsPage(1);
-  }, [searchTerm, statusFilter, purposeFilter, sortConfig, vehicleCategory]);
+  }, [searchTerm, vehicleFilter, dateFrom, dateTo, statusFilter, purposeFilter, sortConfig, vehicleCategory]);
 
   useEffect(() => {
     setReportPage(1);
@@ -1475,41 +1515,96 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       <>
       {/* Filters and Search */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-            <input
-              type="text"
-              placeholder="Search trips..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="min-w-0 sm:col-span-2">
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">Search</label>
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-0 z-10 flex items-center pl-3">
+                <Search className="h-4 w-4 text-gray-400" aria-hidden />
+              </span>
+              <input
+                type="text"
+                placeholder="Search vehicle, person, route, purpose, status…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="h-10 w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">Vehicle</label>
+            <select
+              value={vehicleFilter}
+              onChange={(e) => setVehicleFilter(e.target.value)}
+              className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="All">All Vehicles</option>
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.registration_number}
+                  {vehicle.vehicle_type ? ` — ${vehicle.vehicle_type}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="All">All Status</option>
+              {tripStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">From date</label>
+            <FormDateInput
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="All">All Status</option>
-            {tripStatuses.map(status => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </select>
-          <select
-            value={purposeFilter}
-            onChange={(e) => setPurposeFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="All">All Purposes</option>
-            {tripPurposes.map(purpose => (
-              <option key={purpose} value={purpose}>{purpose}</option>
-            ))}
-          </select>
-          <button className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center space-x-2">
-            <Download className="h-5 w-5" />
-            <span>Export</span>
-          </button>
+          <div className="min-w-0">
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">To date</label>
+            <FormDateInput
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1.5 block text-xs font-medium text-gray-600">Purpose</label>
+            <select
+              value={purposeFilter}
+              onChange={(e) => setPurposeFilter(e.target.value)}
+              className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="All">All Purposes</option>
+              {tripPurposes.map((purpose) => (
+                <option key={purpose} value={purpose}>
+                  {purpose}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0">
+            <label className="mb-1.5 block text-xs font-medium text-transparent select-none" aria-hidden>
+              Export
+            </label>
+            <button
+              type="button"
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-gray-600 px-4 text-sm font-medium text-white hover:bg-gray-700"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export</span>
+            </button>
+          </div>
         </div>
       </div>
 

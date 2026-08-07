@@ -6,6 +6,8 @@ import {
   isJoiningChecklistComplete,
   normalizeIomDepartments,
   normalizeJoiningChecklist,
+  normalizeRecruitmentIomEntry,
+  seedOpenIomEntryPayload,
 } from "./callingMasterConfig";
 
 const CANDIDATES_TABLE = "hr_calling_candidates";
@@ -136,6 +138,14 @@ export function mapCandidateFromDb(row) {
     iomReferenceNo: row.iom_reference_no || "",
     iomGeneratedAt: row.iom_generated_at || "",
     iomDepartments: normalizeIomDepartments(row.iom_departments),
+    iomEntryPayload: normalizeRecruitmentIomEntry(row.iom_entry_payload),
+    iomEntrySaved: Boolean(
+      row.iom_entry_payload &&
+        typeof row.iom_entry_payload === "object" &&
+        !Array.isArray(row.iom_entry_payload) &&
+        Object.keys(row.iom_entry_payload).length > 0
+    ),
+    siteIomEntryId: row.site_iom_entry_id || null,
     conversionStatus: normalizeConversionStatus(row.conversion_status),
     employeeMasterId: row.employee_master_id == null ? null : row.employee_master_id,
     convertedAt: row.converted_at || "",
@@ -721,7 +731,7 @@ export async function updateJoiningChecklist(id, checklist) {
 
   const { data: existing, error: loadError } = await supabase
     .from(CANDIDATES_TABLE)
-    .select("joining_status, offer_status")
+    .select("*")
     .eq("id", id)
     .single();
 
@@ -736,10 +746,24 @@ export async function updateJoiningChecklist(id, checklist) {
     throw new Error("Checklist cannot be changed for a no-show candidate.");
   }
 
+  const normalizedChecklist = normalizeJoiningChecklist(checklist);
+  const mapped = mapCandidateFromDb(existing);
   const payload = {
-    joining_checklist: normalizeJoiningChecklist(checklist),
+    joining_checklist: normalizedChecklist,
     joining_status: "Pending",
   };
+
+  // Auto-open one IOM entry when checklist becomes complete (editable until Confirm).
+  if (
+    isJoiningChecklistComplete(normalizedChecklist) &&
+    mapped.iomStatus !== "Issued" &&
+    !mapped.iomEntrySaved
+  ) {
+    payload.iom_entry_payload = seedOpenIomEntryPayload({
+      ...mapped,
+      joiningChecklist: normalizedChecklist,
+    });
+  }
 
   const { data, error } = await supabase
     .from(CANDIDATES_TABLE)
@@ -781,6 +805,14 @@ export async function markCandidateJoined(id, actualJoiningDate) {
       joining_status: "Joined",
       actual_joining_date: actualJoiningDate,
       no_show_flagged_at: null,
+      ...(mapped.iomStatus !== "Issued" && !mapped.iomEntrySaved
+        ? {
+            iom_entry_payload: seedOpenIomEntryPayload({
+              ...mapped,
+              actualJoiningDate,
+            }),
+          }
+        : {}),
     })
     .eq("id", id)
     .select("*")
@@ -844,63 +876,168 @@ export async function closeNoShowCandidate(id) {
   return setCandidateOfferResponse(id, "Declined");
 }
 
-/** Joined candidates for IOM tab. */
+/** Open + confirmed IOM entries: accepted candidates with complete checklist (or already confirmed). */
 export async function listIomCandidates() {
   const { data, error } = await supabase
     .from(CANDIDATES_TABLE)
     .select("*")
     .eq("is_active", true)
-    .eq("joining_status", "Joined")
+    .eq("offer_status", "Accepted")
+    .neq("joining_status", "No-show")
     .order("actual_joining_date", { ascending: false })
     .order("updated_at", { ascending: false });
 
   if (error) throw new Error(friendlyError(error, "Unable to load IOM candidates."));
-  return (data || []).map(mapCandidateFromDb);
+
+  const rows = (data || []).map(mapCandidateFromDb).filter((row) => {
+    if (row.iomStatus === "Issued") return true;
+    return isJoiningChecklistComplete(row.joiningChecklist);
+  });
+
+  // Ensure open entry exists for checklist-complete candidates (legacy rows).
+  const ensured = [];
+  for (const row of rows) {
+    if (row.iomStatus === "Issued" || row.iomEntrySaved) {
+      ensured.push(row);
+      continue;
+    }
+    try {
+      const seeded = await saveOpenIomEntry(row.id, seedOpenIomEntryPayload(row));
+      ensured.push(seeded);
+    } catch (err) {
+      console.warn("Unable to open IOM entry for candidate:", row.id, err);
+      ensured.push(row);
+    }
+  }
+  return ensured;
 }
 
-export async function updateIomDepartments(id, departments) {
+/** Persist IOM form fields (editable before and after Confirm). */
+export async function saveOpenIomEntry(id, entry) {
   if (!id) throw new Error("Candidate is required.");
+
+  const { data: existing, error: loadError } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("iom_status, offer_status, joining_status, site_iom_entry_id")
+    .eq("id", id)
+    .single();
+
+  if (loadError) throw new Error(friendlyError(loadError, "Unable to load candidate."));
+  if (String(existing?.offer_status || "").trim() !== "Accepted") {
+    throw new Error("Only accepted candidates can edit an IOM entry.");
+  }
+  if (String(existing?.joining_status || "").trim() === "No-show") {
+    throw new Error("No-show candidates cannot edit an IOM entry.");
+  }
+
+  const normalized = normalizeRecruitmentIomEntry(entry);
+  const payload = {
+    iom_entry_payload: normalized,
+  };
+  if (normalized.siteCode) payload.site_code = normalized.siteCode;
+  if (normalized.siteName) payload.site_full_name = normalized.siteName;
+
   const { data, error } = await supabase
     .from(CANDIDATES_TABLE)
-    .update({ iom_departments: normalizeIomDepartments(departments) })
+    .update(payload)
     .eq("id", id)
     .select("*")
     .single();
 
-  if (error) throw new Error(friendlyError(error, "Unable to save IOM departments."));
+  if (error) throw new Error(friendlyError(error, "Unable to save IOM entry."));
+
+  // Keep linked Site Employee IOM row in sync when this recruitment IOM was already confirmed.
+  const siteEntryId = existing?.site_iom_entry_id;
+  if (siteEntryId) {
+    const siteId =
+      normalized.siteId === "" || normalized.siteId == null ? null : Number(normalized.siteId);
+    const sitePayload = {
+      site_id: Number.isFinite(siteId) ? siteId : null,
+      site_name: normalized.siteName || "",
+      employee_code: normalized.employeeCode || "",
+      employee_name: normalized.employeeName || "",
+      designation: normalized.designation || "",
+      salary_amount:
+        normalized.salaryAmount === "" || normalized.salaryAmount == null
+          ? null
+          : Number(normalized.salaryAmount),
+      father_name: normalized.fatherName || "",
+      bank_account_no: normalized.bankAccountNo || "",
+      ifsc_code: (normalized.ifscCode || "").toUpperCase(),
+      bank_name: normalized.bankName || "",
+      date_of_birth: normalized.dateOfBirth || null,
+      date_of_joining: normalized.dateOfJoining || null,
+      remarks: normalized.remarks || "",
+      contact_number: normalized.contactNumber || "",
+      aadhaar_no: normalized.aadhaarNo || "",
+      pan_no: (normalized.panNo || "").toUpperCase(),
+      uan_no: normalized.uanNo || "",
+      pf_no: normalized.pfNo || "",
+      event_date: normalized.eventDate || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error: siteErr } = await supabase
+      .from("hr_site_iom_entries")
+      .update(sitePayload)
+      .eq("id", siteEntryId);
+    if (siteErr) {
+      console.warn("IOM saved, but Site Employee IOM sync failed:", siteErr);
+    }
+  }
+
   return mapCandidateFromDb(data);
 }
 
-export async function issueCandidateIom(record) {
+/**
+ * Confirm open IOM entry: allocate reference and create Site IOM (New).
+ * Entry remains editable after confirm via saveOpenIomEntry.
+ */
+export async function confirmCandidateIom(record) {
   if (!record?.id) throw new Error("Candidate is required.");
-  const siteCode = toText(record.siteCode).toUpperCase();
-  if (!siteCode) throw new Error("Site code is required for the IOM reference number.");
 
-  const departments = normalizeIomDepartments(record.iomDepartments);
-  await updateIomDepartments(record.id, departments);
+  const entry = normalizeRecruitmentIomEntry(record.iomEntryPayload || record);
+  if (!entry.siteId && !entry.siteName) {
+    throw new Error("Site is required for the IOM entry.");
+  }
+  if (!entry.employeeName) {
+    throw new Error("Employee name is required.");
+  }
 
-  const year = new Date().getFullYear();
-  const { data: allocated, error: allocError } = await supabase.rpc("hr_calling_allocate_iom_reference", {
+  const { data, error } = await supabase.rpc("hr_calling_confirm_iom_entry", {
     p_candidate_id: record.id,
-    p_site_code: siteCode,
-    p_year: year,
-    p_departments: departments,
+    p_entry: {
+      rotationType: "New",
+      eventDate: entry.eventDate || null,
+      siteId: entry.siteId || null,
+      siteName: entry.siteName || "",
+      siteCode: entry.siteCode || record.siteCode || "",
+      employeeCode: entry.employeeCode || record.employeeCode || "",
+      employeeName: entry.employeeName || record.candidateName || "",
+      designation: entry.designation || "",
+      salaryAmount: entry.salaryAmount || "",
+      fatherName: entry.fatherName || "",
+      bankAccountNo: entry.bankAccountNo || "",
+      ifscCode: entry.ifscCode || "",
+      bankName: entry.bankName || "",
+      dateOfBirth: entry.dateOfBirth || "",
+      dateOfJoining: entry.dateOfJoining || "",
+      remarks: entry.remarks || "",
+      contactNumber: entry.contactNumber || "",
+      aadhaarNo: entry.aadhaarNo || "",
+      panNo: entry.panNo || "",
+      uanNo: entry.uanNo || "",
+      pfNo: entry.pfNo || "",
+    },
   });
 
-  if (allocError) throw new Error(friendlyError(allocError, "Unable to allocate IOM reference."));
+  if (error) throw new Error(friendlyError(error, "Unable to confirm IOM entry."));
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapCandidateFromDb(row);
+}
 
-  const { data, error } = await supabase
-    .from(CANDIDATES_TABLE)
-    .select("*")
-    .eq("id", record.id)
-    .single();
-
-  if (error) throw new Error(friendlyError(error, "Unable to reload candidate after IOM issue."));
-  const mapped = mapCandidateFromDb(data);
-  const row = Array.isArray(allocated) ? allocated[0] : allocated;
-  if (row?.iom_reference_no) mapped.iomReferenceNo = row.iom_reference_no;
-  mapped.iomStatus = "Issued";
-  return mapped;
+/** @deprecated Use confirmCandidateIom */
+export async function issueCandidateIom(record) {
+  return confirmCandidateIom(record);
 }
 
 /** IOM-issued candidates for Conversion tab. */

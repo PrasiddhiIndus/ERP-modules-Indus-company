@@ -24,6 +24,7 @@ import {
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
 import { CALLING_MASTER_RECORDS_EVENT, journeyStatusSeverity } from "./callingMasterConfig";
+import { CallingActionBar, CallingActionBtn, CallingActionMenu } from "./CallingTableActions";
 import OfferDetailsFields, {
   emptyOfferDetailValues,
   offerDetailsFromCandidate,
@@ -368,70 +369,40 @@ export default function CallingMasterOfferPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[320px]",
+      widthClassName: "min-w-[220px]",
+      cellClassName: "align-middle",
       render: (row) => {
         const generated = canDownloadOfferLetter(row);
         return (
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-slate-300 text-slate-700"
-              onClick={(e) => {
-                e.stopPropagation();
-                openModal(row, "view");
-              }}
-            >
-              <Eye className="w-3.5 h-3.5" />
-              View
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-slate-300 text-slate-700"
-              onClick={(e) => {
-                e.stopPropagation();
-                openModal(row, "edit");
-              }}
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              Edit
-            </button>
-            <button
-              type="button"
+          <CallingActionBar>
+            <CallingActionBtn icon={Eye} label="View" iconOnly onClick={() => openModal(row, "view")} />
+            <CallingActionBtn icon={Edit3} label="Edit" iconOnly onClick={() => openModal(row, "edit")} />
+            <CallingActionBtn
+              icon={FileText}
+              label={generated ? "Regenerate" : "Generate"}
+              tone="accent"
               disabled={saving}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-accent text-accent hover:bg-accent/5 disabled:opacity-50"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleGenerateLetter(row);
-              }}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              {generated ? "Regenerate" : "Generate letter"}
-            </button>
-            <button
-              type="button"
-              disabled={!generated}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-slate-300 text-slate-700 disabled:opacity-40"
-              onClick={(e) => {
-                e.stopPropagation();
-                handlePreview(row);
-              }}
-            >
-              <Printer className="w-3.5 h-3.5" />
-              Print
-            </button>
-            <button
-              type="button"
-              disabled={!generated}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-slate-300 text-slate-700 disabled:opacity-40"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleDownload(row);
-              }}
-            >
-              <Download className="w-3.5 h-3.5" />
-              Download
-            </button>
-          </div>
+              onClick={() => void handleGenerateLetter(row)}
+            />
+            <CallingActionMenu
+              items={[
+                {
+                  key: "print",
+                  label: "Print",
+                  icon: Printer,
+                  disabled: !generated,
+                  onClick: () => handlePreview(row),
+                },
+                {
+                  key: "download",
+                  label: "Download",
+                  icon: Download,
+                  disabled: !generated,
+                  onClick: () => void handleDownload(row),
+                },
+              ]}
+            />
+          </CallingActionBar>
         );
       },
     },
@@ -500,7 +471,8 @@ export default function CallingMasterOfferPage() {
               rowKey="id"
               showSerialNumber
               frozenColumnCount={1}
-              frozenColumnWidths={[160]}
+              frozenColumnWidths={[168]}
+              density="comfortable"
             />
           )}
         </div>
