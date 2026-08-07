@@ -348,25 +348,12 @@ const Layout = () => {
                     to="hr/calling-master"
                     className={() =>
                       subNavClass({
-                        isActive:
-                          pathname.startsWith("/app/hr/calling-master") &&
-                          !pathname.startsWith("/app/hr/calling-master/offer-generation"),
+                        isActive: pathname.startsWith("/app/hr/calling-master"),
                       })
                     }
                   >
                     <PhoneCall className="w-4 h-4 shrink-0 text-sky-600" />
                     <span className="type-meta type-truncate">Recruitment</span>
-                  </NavLink>
-                  <NavLink
-                    to="hr/calling-master/offer-generation"
-                    className={() =>
-                      subNavClass({
-                        isActive: pathname.startsWith("/app/hr/calling-master/offer-generation"),
-                      })
-                    }
-                  >
-                    <FileText className="w-4 h-4 shrink-0 text-sky-600" />
-                    <span className="type-meta type-truncate">Offer Generation</span>
                   </NavLink>
                   <NavLink to="attendance" className={subNavClass}>
                     <Clock className="w-4 h-4 shrink-0 text-amber-600" />
@@ -410,6 +397,17 @@ const Layout = () => {
                       ))}
                     </div>
                   )}
+                  <NavLink
+                    to="hr/site-iom"
+                    className={() =>
+                      subNavClass({
+                        isActive: pathname.startsWith("/app/hr/site-iom"),
+                      })
+                    }
+                  >
+                    <FileText className="w-4 h-4 shrink-0 text-violet-600" />
+                    <span className="type-meta type-truncate">Site Employee IOM</span>
+                  </NavLink>
                   <NavLink to="people-management" className={subNavClass}>
                     <UserPlus className="w-4 h-4 shrink-0 text-pink-600" />
                     <span className="type-meta type-truncate">People Management</span>

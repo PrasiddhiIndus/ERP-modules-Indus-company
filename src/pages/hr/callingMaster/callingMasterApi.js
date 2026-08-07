@@ -1,5 +1,14 @@
 import { supabase } from "../../../lib/supabase";
-import { CALLING_BY_DEPARTMENTS, CALLING_DROPDOWN_MASTERS } from "./callingMasterConfig";
+import {
+  CALLING_BY_DEPARTMENTS,
+  CALLING_DROPDOWN_MASTERS,
+  DEFAULT_OFFER_EXPIRY_DAYS,
+  isJoiningChecklistComplete,
+  normalizeIomDepartments,
+  normalizeJoiningChecklist,
+  normalizeRecruitmentIomEntry,
+  seedOpenIomEntryPayload,
+} from "./callingMasterConfig";
 
 const CANDIDATES_TABLE = "hr_calling_candidates";
 const DROPDOWN_MASTERS_TABLE = "hr_calling_dropdown_masters";
@@ -120,6 +129,26 @@ export function mapCandidateFromDb(row) {
     hiringStatus: row.hiring_status || "",
     offerStatus: normalizeOfferStatus(row.offer_status),
     joiningDate: row.joining_date || "",
+    offerRespondedAt: row.offer_responded_at || "",
+    joiningStatus: normalizeJoiningStatus(row.joining_status),
+    joiningChecklist: normalizeJoiningChecklist(row.joining_checklist),
+    actualJoiningDate: row.actual_joining_date || "",
+    noShowFlaggedAt: row.no_show_flagged_at || "",
+    iomStatus: normalizeIomStatus(row.iom_status),
+    iomReferenceNo: row.iom_reference_no || "",
+    iomGeneratedAt: row.iom_generated_at || "",
+    iomDepartments: normalizeIomDepartments(row.iom_departments),
+    iomEntryPayload: normalizeRecruitmentIomEntry(row.iom_entry_payload),
+    iomEntrySaved: Boolean(
+      row.iom_entry_payload &&
+        typeof row.iom_entry_payload === "object" &&
+        !Array.isArray(row.iom_entry_payload) &&
+        Object.keys(row.iom_entry_payload).length > 0
+    ),
+    siteIomEntryId: row.site_iom_entry_id || null,
+    conversionStatus: normalizeConversionStatus(row.conversion_status),
+    employeeMasterId: row.employee_master_id == null ? null : row.employee_master_id,
+    convertedAt: row.converted_at || "",
     fatherName: row.father_name || "",
     addressLine: row.address_line || "",
     addressDistrict: row.address_district || "",
@@ -187,7 +216,40 @@ export function normalizeOfferSalutation(value) {
 
 export function normalizeOfferStatus(value) {
   const v = String(value || "").trim();
-  if (v === "Generated") return "Generated";
+  if (v === "Generated" || v === "Accepted" || v === "Declined" || v === "Expired") return v;
+  return "Not Generated";
+}
+
+export function normalizeJoiningStatus(value) {
+  const v = String(value || "").trim();
+  if (v === "Pending" || v === "Joined" || v === "No-show") return v;
+  return "";
+}
+
+export function normalizeIomStatus(value) {
+  const v = String(value || "").trim();
+  return v === "Issued" ? "Issued" : "";
+}
+
+export function normalizeConversionStatus(value) {
+  const v = String(value || "").trim();
+  return v === "Converted" ? "Converted" : "";
+}
+
+/** True when an offer letter has been generated (including later response stages). */
+export function hasOfferLetterBeenGenerated(row) {
+  const status = normalizeOfferStatus(row?.offerStatus ?? row?.offer_status);
+  if (status === "Generated" || status === "Accepted" || status === "Declined" || status === "Expired") {
+    return true;
+  }
+  return Boolean(String(row?.offerReferenceNo || row?.offer_reference_no || "").trim());
+}
+
+/** Display label for offer response stage. */
+export function offerResponseLabel(row) {
+  const status = normalizeOfferStatus(row?.offerStatus);
+  if (status === "Accepted" || status === "Declined" || status === "Expired") return status;
+  if (status === "Generated" || hasOfferLetterBeenGenerated(row)) return "Awaiting response";
   return "Not Generated";
 }
 
@@ -583,4 +645,436 @@ export async function clearAllDropdownOptions() {
     .not("master_key", "in", '("callingBy","siteSuitable")');
 
   if (error) throw new Error(friendlyError(error, "Unable to clear dropdown options."));
+}
+
+const SETTINGS_TABLE = "hr_calling_settings";
+
+export async function getOfferExpiryDays() {
+  const { data, error } = await supabase
+    .from(SETTINGS_TABLE)
+    .select("setting_value")
+    .eq("setting_key", "offer_expiry_days")
+    .maybeSingle();
+
+  if (error) throw new Error(friendlyError(error, "Unable to load offer expiry setting."));
+  const raw = Number(String(data?.setting_value || "").replace(/\D/g, ""));
+  if (!Number.isFinite(raw) || raw < 1) return DEFAULT_OFFER_EXPIRY_DAYS;
+  return Math.min(Math.floor(raw), 365);
+}
+
+export async function setOfferExpiryDays(days) {
+  const value = Math.min(Math.max(Number(days) || DEFAULT_OFFER_EXPIRY_DAYS, 1), 365);
+  const { error } = await supabase.from(SETTINGS_TABLE).upsert(
+    {
+      setting_key: "offer_expiry_days",
+      setting_value: String(value),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "setting_key" }
+  );
+  if (error) throw new Error(friendlyError(error, "Unable to save offer expiry setting."));
+  return value;
+}
+
+/** Run server-side auto-expire for Generated offers past the configured window. */
+export async function autoExpireOffers() {
+  const { data, error } = await supabase.rpc("hr_calling_auto_expire_offers");
+  if (error) throw new Error(friendlyError(error, "Unable to auto-expire offers."));
+  return Number(data) || 0;
+}
+
+/** Candidates with a generated offer (any response stage) for Offer Response tab. */
+export async function listOfferResponseCandidates() {
+  await autoExpireOffers().catch((err) => {
+    console.error("Auto-expire offers failed:", err);
+  });
+
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("is_active", true)
+    .eq("hiring_status", "Selected")
+    .in("offer_status", ["Generated", "Accepted", "Declined", "Expired"])
+    .order("updated_at", { ascending: false });
+
+  if (error) throw new Error(friendlyError(error, "Unable to load offer response candidates."));
+  return (data || []).map(mapCandidateFromDb);
+}
+
+export async function setCandidateOfferResponse(id, response) {
+  if (!id) throw new Error("Candidate is required.");
+  const { data, error } = await supabase.rpc("hr_calling_set_offer_response", {
+    p_candidate_id: id,
+    p_response: response,
+  });
+  if (error) throw new Error(friendlyError(error, "Unable to record offer response."));
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapCandidateFromDb(row);
+}
+
+/** Accepted candidates for Joining tab. */
+export async function listJoiningCandidates() {
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("is_active", true)
+    .eq("offer_status", "Accepted")
+    .order("joining_date", { ascending: true })
+    .order("updated_at", { ascending: false });
+
+  if (error) throw new Error(friendlyError(error, "Unable to load joining candidates."));
+  return (data || []).map(mapCandidateFromDb);
+}
+
+export async function updateJoiningChecklist(id, checklist) {
+  if (!id) throw new Error("Candidate is required.");
+
+  const { data: existing, error: loadError } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (loadError) throw new Error(friendlyError(loadError, "Unable to load candidate."));
+  if (String(existing?.offer_status || "").trim() !== "Accepted") {
+    throw new Error("Only accepted candidates can update the joining checklist.");
+  }
+  if (String(existing?.joining_status || "").trim() === "Joined") {
+    throw new Error("Checklist cannot be changed after the candidate has joined.");
+  }
+  if (String(existing?.joining_status || "").trim() === "No-show") {
+    throw new Error("Checklist cannot be changed for a no-show candidate.");
+  }
+
+  const normalizedChecklist = normalizeJoiningChecklist(checklist);
+  const mapped = mapCandidateFromDb(existing);
+  const payload = {
+    joining_checklist: normalizedChecklist,
+    joining_status: "Pending",
+  };
+
+  // Auto-open one IOM entry when checklist becomes complete (editable until Confirm).
+  if (
+    isJoiningChecklistComplete(normalizedChecklist) &&
+    mapped.iomStatus !== "Issued" &&
+    !mapped.iomEntrySaved
+  ) {
+    payload.iom_entry_payload = seedOpenIomEntryPayload({
+      ...mapped,
+      joiningChecklist: normalizedChecklist,
+    });
+  }
+
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .update(payload)
+    .eq("id", id)
+    .eq("offer_status", "Accepted")
+    .select("*")
+    .single();
+
+  if (error) throw new Error(friendlyError(error, "Unable to update joining checklist."));
+  return mapCandidateFromDb(data);
+}
+
+export async function markCandidateJoined(id, actualJoiningDate) {
+  if (!id) throw new Error("Candidate is required.");
+  if (!actualJoiningDate) throw new Error("Actual joining date is required.");
+
+  const { data: existing, error: loadError } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (loadError) throw new Error(friendlyError(loadError, "Unable to load candidate."));
+  const mapped = mapCandidateFromDb(existing);
+  if (mapped.offerStatus !== "Accepted") {
+    throw new Error("Only accepted candidates can be marked as Joined.");
+  }
+  if (mapped.joiningStatus === "No-show") {
+    throw new Error("This candidate is flagged as a no-show. Clear that status before marking Joined.");
+  }
+  if (!isJoiningChecklistCompleteLocal(mapped.joiningChecklist)) {
+    throw new Error("Complete the pre-joining checklist before marking Joined.");
+  }
+
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .update({
+      joining_status: "Joined",
+      actual_joining_date: actualJoiningDate,
+      no_show_flagged_at: null,
+      ...(mapped.iomStatus !== "Issued" && !mapped.iomEntrySaved
+        ? {
+            iom_entry_payload: seedOpenIomEntryPayload({
+              ...mapped,
+              actualJoiningDate,
+            }),
+          }
+        : {}),
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(friendlyError(error, "Unable to mark candidate as Joined."));
+  return mapCandidateFromDb(data);
+}
+
+function isJoiningChecklistCompleteLocal(checklist) {
+  return isJoiningChecklistComplete(checklist);
+}
+
+export async function flagCandidateNoShow(id) {
+  if (!id) throw new Error("Candidate is required.");
+
+  const { data: existing, error: loadError } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (loadError) throw new Error(friendlyError(loadError, "Unable to load candidate."));
+  const mapped = mapCandidateFromDb(existing);
+  if (mapped.offerStatus !== "Accepted") {
+    throw new Error("Only accepted candidates can be flagged as no-show.");
+  }
+  if (mapped.joiningStatus === "Joined") {
+    throw new Error("Joined candidates cannot be flagged as no-show.");
+  }
+
+  const { error: releaseError } = await supabase.rpc("hr_calling_release_offer_codes", {
+    p_candidate_id: id,
+    p_reason: "No-show",
+  });
+  if (releaseError) throw new Error(friendlyError(releaseError, "Unable to free allocated codes."));
+
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .update({
+      joining_status: "No-show",
+      no_show_flagged_at: new Date().toISOString(),
+      actual_joining_date: null,
+      iom_status: "",
+      iom_reference_no: "",
+      iom_generated_at: null,
+      conversion_status: "",
+      employee_master_id: null,
+      converted_at: null,
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(friendlyError(error, "Unable to flag no-show."));
+  return mapCandidateFromDb(data);
+}
+
+/** Close out a no-show by marking offer Declined (codes already freed). */
+export async function closeNoShowCandidate(id) {
+  return setCandidateOfferResponse(id, "Declined");
+}
+
+/** Open + confirmed IOM entries: accepted candidates with complete checklist (or already confirmed). */
+export async function listIomCandidates() {
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("is_active", true)
+    .eq("offer_status", "Accepted")
+    .neq("joining_status", "No-show")
+    .order("actual_joining_date", { ascending: false })
+    .order("updated_at", { ascending: false });
+
+  if (error) throw new Error(friendlyError(error, "Unable to load IOM candidates."));
+
+  const rows = (data || []).map(mapCandidateFromDb).filter((row) => {
+    if (row.iomStatus === "Issued") return true;
+    return isJoiningChecklistComplete(row.joiningChecklist);
+  });
+
+  // Ensure open entry exists for checklist-complete candidates (legacy rows).
+  const ensured = [];
+  for (const row of rows) {
+    if (row.iomStatus === "Issued" || row.iomEntrySaved) {
+      ensured.push(row);
+      continue;
+    }
+    try {
+      const seeded = await saveOpenIomEntry(row.id, seedOpenIomEntryPayload(row));
+      ensured.push(seeded);
+    } catch (err) {
+      console.warn("Unable to open IOM entry for candidate:", row.id, err);
+      ensured.push(row);
+    }
+  }
+  return ensured;
+}
+
+/** Persist IOM form fields (editable before and after Confirm). */
+export async function saveOpenIomEntry(id, entry) {
+  if (!id) throw new Error("Candidate is required.");
+
+  const { data: existing, error: loadError } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("iom_status, offer_status, joining_status, site_iom_entry_id")
+    .eq("id", id)
+    .single();
+
+  if (loadError) throw new Error(friendlyError(loadError, "Unable to load candidate."));
+  if (String(existing?.offer_status || "").trim() !== "Accepted") {
+    throw new Error("Only accepted candidates can edit an IOM entry.");
+  }
+  if (String(existing?.joining_status || "").trim() === "No-show") {
+    throw new Error("No-show candidates cannot edit an IOM entry.");
+  }
+
+  const normalized = normalizeRecruitmentIomEntry(entry);
+  const payload = {
+    iom_entry_payload: normalized,
+  };
+  if (normalized.siteCode) payload.site_code = normalized.siteCode;
+  if (normalized.siteName) payload.site_full_name = normalized.siteName;
+
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .update(payload)
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error) throw new Error(friendlyError(error, "Unable to save IOM entry."));
+
+  // Keep linked Site Employee IOM row in sync when this recruitment IOM was already confirmed.
+  const siteEntryId = existing?.site_iom_entry_id;
+  if (siteEntryId) {
+    const siteId =
+      normalized.siteId === "" || normalized.siteId == null ? null : Number(normalized.siteId);
+    const sitePayload = {
+      site_id: Number.isFinite(siteId) ? siteId : null,
+      site_name: normalized.siteName || "",
+      employee_code: normalized.employeeCode || "",
+      employee_name: normalized.employeeName || "",
+      designation: normalized.designation || "",
+      salary_amount:
+        normalized.salaryAmount === "" || normalized.salaryAmount == null
+          ? null
+          : Number(normalized.salaryAmount),
+      father_name: normalized.fatherName || "",
+      bank_account_no: normalized.bankAccountNo || "",
+      ifsc_code: (normalized.ifscCode || "").toUpperCase(),
+      bank_name: normalized.bankName || "",
+      date_of_birth: normalized.dateOfBirth || null,
+      date_of_joining: normalized.dateOfJoining || null,
+      remarks: normalized.remarks || "",
+      contact_number: normalized.contactNumber || "",
+      aadhaar_no: normalized.aadhaarNo || "",
+      pan_no: (normalized.panNo || "").toUpperCase(),
+      uan_no: normalized.uanNo || "",
+      pf_no: normalized.pfNo || "",
+      event_date: normalized.eventDate || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error: siteErr } = await supabase
+      .from("hr_site_iom_entries")
+      .update(sitePayload)
+      .eq("id", siteEntryId);
+    if (siteErr) {
+      console.warn("IOM saved, but Site Employee IOM sync failed:", siteErr);
+    }
+  }
+
+  return mapCandidateFromDb(data);
+}
+
+/**
+ * Confirm open IOM entry: allocate reference and create Site IOM (New).
+ * Entry remains editable after confirm via saveOpenIomEntry.
+ */
+export async function confirmCandidateIom(record) {
+  if (!record?.id) throw new Error("Candidate is required.");
+
+  const entry = normalizeRecruitmentIomEntry(record.iomEntryPayload || record);
+  if (!entry.siteId && !entry.siteName) {
+    throw new Error("Site is required for the IOM entry.");
+  }
+  if (!entry.employeeName) {
+    throw new Error("Employee name is required.");
+  }
+
+  const { data, error } = await supabase.rpc("hr_calling_confirm_iom_entry", {
+    p_candidate_id: record.id,
+    p_entry: {
+      rotationType: "New",
+      eventDate: entry.eventDate || null,
+      siteId: entry.siteId || null,
+      siteName: entry.siteName || "",
+      siteCode: entry.siteCode || record.siteCode || "",
+      employeeCode: entry.employeeCode || record.employeeCode || "",
+      employeeName: entry.employeeName || record.candidateName || "",
+      designation: entry.designation || "",
+      salaryAmount: entry.salaryAmount || "",
+      fatherName: entry.fatherName || "",
+      bankAccountNo: entry.bankAccountNo || "",
+      ifscCode: entry.ifscCode || "",
+      bankName: entry.bankName || "",
+      dateOfBirth: entry.dateOfBirth || "",
+      dateOfJoining: entry.dateOfJoining || "",
+      remarks: entry.remarks || "",
+      contactNumber: entry.contactNumber || "",
+      aadhaarNo: entry.aadhaarNo || "",
+      panNo: entry.panNo || "",
+      uanNo: entry.uanNo || "",
+      pfNo: entry.pfNo || "",
+    },
+  });
+
+  if (error) throw new Error(friendlyError(error, "Unable to confirm IOM entry."));
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapCandidateFromDb(row);
+}
+
+/** @deprecated Use confirmCandidateIom */
+export async function issueCandidateIom(record) {
+  return confirmCandidateIom(record);
+}
+
+/** IOM-issued candidates for Conversion tab. */
+export async function listConversionCandidates() {
+  const { data, error } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("is_active", true)
+    .eq("iom_status", "Issued")
+    .order("iom_generated_at", { ascending: false })
+    .order("updated_at", { ascending: false });
+
+  if (error) throw new Error(friendlyError(error, "Unable to load conversion candidates."));
+  return (data || []).map(mapCandidateFromDb);
+}
+
+export async function convertCandidateToEmployeeMaster(id) {
+  if (!id) throw new Error("Candidate is required.");
+  const { data, error } = await supabase.rpc("hr_calling_convert_to_employee_master", {
+    p_candidate_id: id,
+  });
+  if (error) throw new Error(friendlyError(error, "Unable to convert to Employee Master."));
+
+  const result = Array.isArray(data) ? data[0] : data;
+
+  const { data: row, error: reloadError } = await supabase
+    .from(CANDIDATES_TABLE)
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (reloadError) throw new Error(friendlyError(reloadError, "Converted, but unable to reload candidate."));
+
+  return {
+    candidate: mapCandidateFromDb(row),
+    employeeMasterId: result?.employee_master_id ?? null,
+    employeeId: result?.employee_id || "",
+    employeeCode: result?.employee_code || "",
+  };
 }

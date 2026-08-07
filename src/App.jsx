@@ -51,8 +51,13 @@ import {
   HrCallingMaster,
   HrCallingMasterCandidates,
   HrCallingMasterOffers,
+  HrCallingMasterOfferResponse,
+  HrCallingMasterJoining,
+  HrCallingMasterIom,
+  HrCallingMasterConversion,
   HrCallingMasterDropdowns,
   HrCallingMasterDatabase,
+  HrSiteIom,
   Procurement,
   Operations,
   ProjectsBilling,
@@ -361,10 +366,14 @@ function App() {
             
             {/* HR & Admin */}
             <Route path="hr/dashboard" element={<HrDashboard />} />
-            <Route path="hr/calling-master/offer-generation" element={<HrCallingMasterOffers />} />
             <Route path="hr/calling-master" element={<HrCallingMaster />}>
               <Route index element={<HrCallingMasterDatabase />} />
               <Route path="candidates" element={<HrCallingMasterCandidates />} />
+              <Route path="offer-generation" element={<HrCallingMasterOffers />} />
+              <Route path="offer-response" element={<HrCallingMasterOfferResponse />} />
+              <Route path="joining" element={<HrCallingMasterJoining />} />
+              <Route path="iom" element={<HrCallingMasterIom />} />
+              <Route path="conversion" element={<HrCallingMasterConversion />} />
               <Route path="dropdown-master" element={<HrCallingMasterDropdowns />} />
               <Route path="database" element={<Navigate to="/app/hr/calling-master" replace />} />
             </Route>
@@ -421,6 +430,7 @@ function App() {
               <Route path="register" element={<Navigate to="../reports-exports" replace />} />
               <Route path="outputs" element={<Navigate to="../payslips" replace />} />
             </Route>
+            <Route path="hr/site-iom" element={<HrSiteIom />} />
             <Route path="people-management" element={<PeopleManagement />} />
             
             {/* Compliance */}

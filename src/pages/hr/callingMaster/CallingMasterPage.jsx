@@ -41,8 +41,9 @@ import {
   CALLING_MASTER_SEARCH_KEYS,
   CALLING_MASTER_TABLE_COLUMNS,
   CALLING_PIPELINE_TABS,
+  journeyStatusSeverity,
 } from "./callingMasterConfig";
-import { normalizePipelineStatus } from "./callingMasterApi";
+import { normalizePipelineStatus, offerResponseLabel } from "./callingMasterApi";
 import {
   deleteCallingMasterRecords,
   loadCallingMasterRecords,
@@ -867,13 +868,17 @@ export default function CallingMasterPage() {
           ? "min-w-[200px]"
           : pipelineTab === "Calling"
             ? "min-w-[140px]"
-            : "min-w-[100px]",
+            : pipelineTab === "Selected"
+              ? "min-w-[180px]"
+              : "min-w-[100px]",
       cellClassName:
         pipelineTab === "Shortlisted"
           ? "min-w-[200px]"
           : pipelineTab === "Calling"
             ? "min-w-[140px]"
-            : "min-w-[100px]",
+            : pipelineTab === "Selected"
+              ? "min-w-[180px]"
+              : "min-w-[100px]",
       render: (row) => {
         const busy = statusUpdatingId === row.id;
         const status = normalizePipelineStatus(row.hiringStatus);
@@ -899,6 +904,14 @@ export default function CallingMasterPage() {
             >
               <Trash2 className="h-4 w-4" />
             </button>
+
+            {pipelineTab === "Selected" ? (
+              (() => {
+                const label = offerResponseLabel(row);
+                if (label === "Not Generated") return null;
+                return <StatusChip label={label} severity={journeyStatusSeverity(label)} />;
+              })()
+            ) : null}
 
             {pipelineTab === "Calling" ? (
               status === "Calling" || status === "Rejected" ? (
@@ -1178,7 +1191,7 @@ export default function CallingMasterPage() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <ToastStack items={toastItems} onDismiss={dismissToast} />
 
       <PageTaskHeader title={pageTitle} subtitle={pageSubtitle}>
@@ -1337,7 +1350,9 @@ export default function CallingMasterPage() {
                           ? [200, 110, 120, 180]
                           : pipelineTab === "Calling"
                             ? [140, 110, 120, 180]
-                            : [100, 110, 120, 180]
+                            : pipelineTab === "Selected"
+                              ? [180, 110, 120, 180]
+                              : [100, 110, 120, 180]
                       }
                       stickyHeader
                       scrollMaxHeight="calc(100dvh - 26rem)"
@@ -1378,6 +1393,13 @@ export default function CallingMasterPage() {
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
+                              {pipelineTab === "Selected" ? (
+                                (() => {
+                                  const label = offerResponseLabel(row);
+                                  if (label === "Not Generated") return null;
+                                  return <StatusChip label={label} severity={journeyStatusSeverity(label)} />;
+                                })()
+                              ) : null}
                               {canShortlist ? (
                                 <button
                                   type="button"

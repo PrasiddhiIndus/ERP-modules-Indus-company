@@ -173,7 +173,12 @@ function FreezePaneDenseTable({
   stickyHeader = false,
   scrollMaxHeight = "calc(100dvh - 22rem)",
   activeRowId = null,
+  density = "compact",
 }) {
+  const comfortable = density === "comfortable";
+  const cellPad = comfortable ? "px-3 py-2.5" : "px-2 py-1.5";
+  const headPad = comfortable ? "px-3 py-2.5" : "px-2 py-2";
+  const textSize = comfortable ? "text-[12px] leading-snug" : "text-xs";
   const tableColumns = useMemo(
     () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
     [columns, showSerialNumber, serialLabel, serialOffset]
@@ -209,7 +214,7 @@ function FreezePaneDenseTable({
     >
       <div className="w-max min-w-full">
         <div
-          className={`flex border-b border-divider bg-gray-50 text-xs text-gray-600 ${
+          className={`flex border-b border-divider bg-gray-50 ${textSize} text-gray-600 ${
             stickyHeader ? "sticky top-0 z-20" : ""
           }`}
         >
@@ -223,7 +228,7 @@ function FreezePaneDenseTable({
               <div
                 key={c.key}
                 title={c.headerTitle || c.label}
-                className="box-border px-2 py-2 font-semibold text-left whitespace-nowrap overflow-hidden text-ellipsis shrink-0"
+                className={`box-border ${headPad} font-semibold text-left whitespace-nowrap overflow-hidden text-ellipsis shrink-0`}
                 style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
               >
                 {renderDenseHeader(c)}
@@ -235,7 +240,7 @@ function FreezePaneDenseTable({
               <div
                 key={c.key}
                 title={c.headerTitle || undefined}
-                className={`box-border px-2 py-2 font-semibold text-left whitespace-nowrap shrink-0 ${c.headerClassName || ""}`}
+                className={`box-border ${headPad} font-semibold text-left whitespace-nowrap shrink-0 ${c.headerClassName || ""}`}
               >
                 {renderDenseHeader(c)}
               </div>
@@ -274,7 +279,7 @@ function FreezePaneDenseTable({
           return (
           <div
             key={row[rowKey]}
-            className={`flex border-b border-gray-100 text-xs group ${onRowClick ? "cursor-pointer" : ""} ${
+            className={`flex border-b border-gray-100 ${textSize} group ${onRowClick ? "cursor-pointer" : ""} ${
               isActive ? "bg-blue-50/80" : ""
             }`}
             onClick={() => onRowClick?.(row)}
@@ -288,7 +293,7 @@ function FreezePaneDenseTable({
               {frozenCols.map((c, i) => (
                 <div
                   key={c.key}
-                  className={`box-border px-2 py-1.5 text-gray-800 align-top shrink-0 overflow-hidden ${c.cellClassName || ""}`}
+                  className={`box-border ${cellPad} text-gray-800 align-middle shrink-0 overflow-hidden ${c.cellClassName || ""}`}
                   style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
                 >
                   {renderDenseCell(c, row, rowIndex)}
@@ -299,7 +304,7 @@ function FreezePaneDenseTable({
               {scrollCols.map((c) => (
                 <div
                   key={c.key}
-                  className={`box-border px-2 py-1.5 text-gray-800 align-top shrink-0 ${c.cellClassName || ""}`}
+                  className={`box-border ${cellPad} text-gray-800 align-middle shrink-0 ${c.cellClassName || ""}`}
                 >
                   {renderDenseCell(c, row, rowIndex)}
                 </div>
@@ -326,11 +331,16 @@ export const DenseTable = ({
   stickyHeader = false,
   scrollMaxHeight = "calc(100dvh - 22rem)",
   activeRowId = null,
+  density = "compact",
 }) => {
   const tableColumns = useMemo(
     () => resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }),
     [columns, showSerialNumber, serialLabel, serialOffset]
   );
+  const comfortable = density === "comfortable";
+  const cellPad = comfortable ? "px-3 py-2.5" : "px-2 py-1.5";
+  const headPad = comfortable ? "px-3 py-2.5" : "px-2 py-2";
+  const textSize = comfortable ? "text-[12px] leading-snug" : "text-xs";
 
   if (frozenColumnCount > 0) {
     return (
@@ -347,6 +357,7 @@ export const DenseTable = ({
         stickyHeader={stickyHeader}
         scrollMaxHeight={scrollMaxHeight}
         activeRowId={activeRowId}
+        density={density}
       />
     );
   }
@@ -361,7 +372,7 @@ export const DenseTable = ({
       style={stickyHeader ? { maxHeight: scrollMaxHeight } : undefined}
     >
       <table
-        className={`w-max min-w-full text-xs ${
+        className={`w-max min-w-full ${textSize} ${
           stickyHeader ? "border-collapse" : "border-separate border-spacing-0"
         }`}
       >
@@ -375,7 +386,7 @@ export const DenseTable = ({
               <th
                 key={c.key}
                 title={c.headerTitle || undefined}
-                className={`text-left font-semibold px-2 py-2 whitespace-nowrap bg-gray-50 ${c.headerClassName || ""}`}
+                className={`text-left font-semibold ${headPad} whitespace-nowrap bg-gray-50 ${c.headerClassName || ""}`}
               >
                 {renderDenseHeader(c)}
               </th>
@@ -384,7 +395,7 @@ export const DenseTable = ({
           {showFilters ? (
             <tr className="border-b border-gray-200 bg-gray-50/95">
               {tableColumns.map((c) => (
-                <th key={`filter-${c.key}`} className="px-1 py-1 font-normal bg-gray-50/95">
+                <th key={`filter-${c.key}`} className="px-1.5 py-1.5 font-normal bg-gray-50/95">
                   {renderDenseFilter(c)}
                 </th>
               ))}
@@ -394,7 +405,7 @@ export const DenseTable = ({
         <tbody className="divide-y divide-gray-100 bg-white">
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={tableColumns.length} className="px-3 py-6 text-center text-gray-500">
+              <td colSpan={tableColumns.length} className="px-3 py-8 text-center text-gray-500">
                 No records
               </td>
             </tr>
@@ -410,7 +421,7 @@ export const DenseTable = ({
                 {tableColumns.map((c) => (
                   <td
                     key={c.key}
-                    className={`px-2 py-1.5 align-middle text-gray-800 whitespace-nowrap ${
+                    className={`${cellPad} align-middle text-gray-800 whitespace-nowrap ${
                       isActive ? "bg-blue-50/80" : "bg-white group-hover:bg-blue-50/40"
                     } ${c.cellClassName || ""}`}
                   >
