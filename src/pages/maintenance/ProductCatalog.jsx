@@ -120,7 +120,7 @@ const ProductCatalog = () => {
       const to = from + itemsPerPage - 1;
 
       let query = supabase
-        .from('maintenance_products')
+        .from('marketing_products')
         .select('*', { count: 'exact' })
         .order('product_code', { ascending: true });
 
@@ -170,7 +170,7 @@ const ProductCatalog = () => {
 
     try {
       const { error } = await supabase
-        .from('maintenance_products')
+        .from('marketing_products')
         .delete()
         .eq('id', id);
 
@@ -290,7 +290,7 @@ const ProductCatalog = () => {
       }
 
       const { error } = await supabase
-        .from('maintenance_products')
+        .from('marketing_products')
         .update(updateData)
         .eq('id', productId);
 
@@ -307,7 +307,7 @@ const ProductCatalog = () => {
   const generateUniqueProductCode = async () => {
     // Get all existing product codes to find the next available one
     const { data: existingProducts } = await supabase
-      .from('maintenance_products')
+      .from('marketing_products')
       .select('product_code');
     
     const existingCodes = new Set(existingProducts?.map(p => p.product_code) || []);
@@ -350,7 +350,7 @@ const ProductCatalog = () => {
       const newProductCode = await generateUniqueProductCode();
       
       const { error } = await supabase
-        .from('maintenance_products')
+        .from('marketing_products')
         .insert([{
           product_name: 'New Product',
           product_code: newProductCode,
@@ -435,7 +435,7 @@ const ProductCatalog = () => {
 
       if (editingProduct) {
         const { error } = await supabase
-          .from('maintenance_products')
+          .from('marketing_products')
           .update({
             ...submitData,
             updated_by: user.id,
@@ -446,7 +446,7 @@ const ProductCatalog = () => {
         if (error) throw error;
       } else {
         const { error } = await supabase
-          .from('maintenance_products')
+          .from('marketing_products')
           .insert([{
             ...submitData,
             created_by: user.id,
@@ -589,7 +589,7 @@ const ProductCatalog = () => {
 
           // Get existing products to avoid duplicates and generate sequential IDs
           const { data: existingProducts } = await supabase
-        .from('maintenance_products')
+        .from('marketing_products')
             .select('product_code')
             .order('created_at', { ascending: false });
           
@@ -924,7 +924,7 @@ const ProductCatalog = () => {
           for (let i = 0; i < chunks.length; i++) {
             setUploadProgress(`Uploading batch ${i + 1} of ${chunks.length}...`);
             const { data, error } = await supabase
-              .from('maintenance_products')
+              .from('marketing_products')
               .insert(chunks[i])
               .select();
 
@@ -1012,7 +1012,9 @@ const ProductCatalog = () => {
                 />
               </div>
             </div>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">Manage your product catalog</p>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">
+              Shared with Marketing — products added in either module appear here
+            </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
             <button
