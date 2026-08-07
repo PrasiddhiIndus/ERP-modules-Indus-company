@@ -493,7 +493,7 @@ export default function SalaryEmployeeCtc() {
       const { data, error: fetchError } = await supabase
         .from(EMPLOYEE_MASTER_TABLE)
         .select(
-          "id, employee_id, employment_type, employee_code, full_name, designation, department, location, date_of_birth, date_of_joining"
+          "id, employee_id, employment_type, employee_code, full_name, designation, department, location, date_of_birth, date_of_joining, confirmation_date, bank_account_no, ifsc_code"
         )
         .eq("id", employeeId)
         .maybeSingle();
@@ -1263,6 +1263,11 @@ export default function SalaryEmployeeCtc() {
               </ProfileField>
               <ProfileField label="D.O.J.">
                 {employee.date_of_joining ? formatSalaryDate(employee.date_of_joining) : "—"}
+              </ProfileField>
+              <ProfileField label="Account Number">{employee.bank_account_no || "—"}</ProfileField>
+              <ProfileField label="IFSC Code">{employee.ifsc_code || "—"}</ProfileField>
+              <ProfileField label="Confirmation">
+                {employee.confirmation_date ? formatSalaryDate(employee.confirmation_date) : "—"}
               </ProfileField>
               <div className="min-w-0">
                 <p className={fieldLabel}>Employee level</p>
