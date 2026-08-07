@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Search, Wallet } from "lucide-react";
+import { ArrowRight, Search, Upload, Wallet } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
@@ -12,13 +12,10 @@ import {
   formatINRPlain,
 } from "./salaryData";
 import {
-  dbFinalizeProcessingRun,
-  dbGetOrCreateDraftRun,
   dbGetProcessingRun,
   dbListProcessingLines,
-  dbUpdateProcessingRunTotals,
-  dbUpsertProcessingLines,
 } from "./salaryDb";
+import { SalaryBankImportModal } from "./SalaryBankImportModal";
 
 const th =
   "px-2.5 py-2.5 text-[10px] font-semibold text-slate-600 uppercase tracking-[0.06em] whitespace-nowrap border-b border-slate-200 align-middle leading-tight bg-slate-50";
@@ -30,6 +27,14 @@ const td = "px-2.5 py-2 text-[12px] text-slate-800 border-b border-slate-100 ali
 const tdC = `${td} text-center tabular-nums`;
 const tdR = `${td} text-right tabular-nums`;
 const tdL = `${td} text-left`;
+
+/** Prefer override when set; otherwise fall back to employee master (uploaded bank sheet). */
+function bankField(overrideVal, masterVal) {
+  const o = overrideVal == null ? "" : String(overrideVal).trim();
+  if (o) return o;
+  const m = masterVal == null ? "" : String(masterVal).trim();
+  return m;
+}
 
 const numIn =
   "w-[4.5rem] h-8 px-1.5 text-right text-[12px] tabular-nums border border-slate-200 rounded-md bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent";
@@ -77,6 +82,13 @@ function monthInputDefault() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function formatPayMonthLabel(ym) {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || "";
+  const [y, m] = ym.split("-").map(Number);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[m - 1] || m} ${y}`;
+}
+
 function Money({ value, muted = false, strong = false }) {
   if (value == null || value === "") {
     return <span className="text-slate-300">—</span>;
@@ -119,8 +131,7 @@ export default function SalaryProcessing() {
   const [selectedId, setSelectedId] = useState(null);
   const [runMeta, setRunMeta] = useState(null);
   const [persistMsg, setPersistMsg] = useState("");
-  const [persistError, setPersistError] = useState("");
-  const [savingRun, setSavingRun] = useState(false);
+  const [bankImportOpen, setBankImportOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -172,7 +183,6 @@ export default function SalaryProcessing() {
     let cancelled = false;
     (async () => {
       try {
-        setPersistError("");
         const run = await dbGetProcessingRun(payMonth);
         if (cancelled) return;
         setRunMeta(run);
@@ -218,6 +228,49 @@ export default function SalaryProcessing() {
       [id]: { ...(prev[id] || {}), ...patch },
     }));
   };
+
+  const handleBankImported = useCallback(
+    async ({ message, rows }) => {
+      const imported = Array.isArray(rows) ? rows : [];
+      if (imported.length) {
+        // Always keep master fields in local state so processing rows fill immediately
+        setEmployees((prev) =>
+          prev.map((emp) => {
+            const row = imported.find((r) => r.employeeMasterId === emp.id);
+            if (!row) return emp;
+            return {
+              ...emp,
+              ...(row.accountNo ? { bank_account_no: row.accountNo } : {}),
+              ...(row.ifsc ? { ifsc_code: row.ifsc } : {}),
+              ...(row.designation ? { designation: row.designation } : {}),
+              ...(row.department ? { department: row.department } : {}),
+              ...(row.dateOfJoining ? { date_of_joining: row.dateOfJoining } : {}),
+              ...(row.confirmationDate ? { confirmation_date: row.confirmationDate } : {}),
+            };
+          })
+        );
+        // Fill current month grid for anyone already in processing
+        setOverrides((prev) => {
+          const next = { ...prev };
+          for (const row of imported) {
+            const id = row.employeeMasterId;
+            if (id == null) continue;
+            next[id] = {
+              ...(next[id] || {}),
+              ...(row.accountNo ? { accountNo: row.accountNo } : {}),
+              ...(row.ifsc ? { ifsc: row.ifsc } : {}),
+              ...(row.confirmationDate ? { confirmationDate: row.confirmationDate } : {}),
+            };
+          }
+          return next;
+        });
+      }
+      setPersistMsg(message || "Bank details saved");
+      window.setTimeout(() => setPersistMsg(""), 5000);
+      await load();
+    },
+    [load]
+  );
 
   const rows = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -277,91 +330,6 @@ export default function SalaryProcessing() {
     return { gross, ded, net };
   }, [rows]);
 
-  const persistRun = async ({ finalize = false } = {}) => {
-    try {
-      setSavingRun(true);
-      setPersistError("");
-      setPersistMsg("");
-      let run = runMeta?.status === "draft" ? runMeta : null;
-      if (!run || run.month_key !== payMonth) {
-        run = await dbGetOrCreateDraftRun(payMonth, { totalDays: DEFAULT_MONTH_DAYS });
-      }
-      const lines = rows
-        .filter(({ calc }) => calc.declared)
-        .map(({ emp, calc }) => {
-          const ov = overrides[emp.id] || {};
-          const structure = salaryMap.get(String(emp.id));
-          return {
-            employee_master_id: emp.id,
-            employee_code: emp.employee_code || emp.employee_id || null,
-            employee_name: emp.full_name || null,
-            designation: emp.designation || null,
-            account_no: ov.accountNo ?? emp.bank_account_no ?? null,
-            ifsc: ov.ifsc ?? emp.ifsc_code ?? null,
-            confirmation_date: ov.confirmationDate ?? emp.confirmation_date ?? null,
-            structure_id: structure?.id || null,
-            declared: true,
-            salary_rate: calc.salary_rate,
-            basic_full: calc.basic,
-            hra_full: structure?.hra_monthly ?? null,
-            special_full: structure?.special_allowance_monthly ?? null,
-            present_days: calc.present_days,
-            total_days: calc.total_days,
-            pf_basic: calc.pf_basic,
-            pt_amount: calc.pt,
-            loan: calc.loan,
-            sal_adv: calc.sal_adv,
-            unpaid_paid: calc.unpaid_paid,
-            tds: calc.tds,
-            pf_earned_basic: calc.pf_earned_basic,
-            basic_earned: calc.basic_earned,
-            hra_earned: calc.hra,
-            special_allowance: calc.special_allowance,
-            gross_wages: calc.gross_wages,
-            emp_pf: calc.emp_pf,
-            emp_esic: calc.emp_esic,
-            total_ded: calc.total_ded,
-            net_salary: calc.net_salary,
-            bank_amount: calc.bank,
-            overrides_json: ov,
-            computed_json: calc,
-          };
-        });
-
-      await dbUpsertProcessingLines(run.id, lines);
-      const updated = await dbUpdateProcessingRunTotals(run.id, {
-        employee_count: employees.length,
-        declared_count: declaredCount,
-        total_gross_wages: totals.gross,
-        total_deductions: totals.ded,
-        total_net: totals.net,
-      });
-      setRunMeta(updated);
-
-      if (finalize) {
-        const fin = await dbFinalizeProcessingRun(run.id);
-        setRunMeta(fin);
-        setPersistMsg("Month finalized");
-      } else {
-        setPersistMsg("Draft saved");
-      }
-      window.setTimeout(() => setPersistMsg(""), 2500);
-    } catch (err) {
-      console.error("Salary Processing: save failed", err);
-      const msg = String(err?.message || err?.details || err?.hint || "");
-      const code = String(err?.code || "");
-      setPersistError(
-        /42501|row-level security|permission denied|RLS/i.test(`${code} ${msg}`)
-          ? "You do not have permission to save salary processing. Sign in with an allowed Salary Admin account."
-          : /PGRST205|does not exist|Could not find the table|relation .* does not exist/i.test(`${code} ${msg}`)
-            ? "Salary tables are not set up yet. Ask an admin to run the latest salary database migration, then try again."
-            : err?.message || "Could not save this pay month. Please try again."
-      );
-    } finally {
-      setSavingRun(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -372,6 +340,12 @@ export default function SalaryProcessing() {
 
   return (
     <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-canvas">
+      <SalaryBankImportModal
+        open={bankImportOpen}
+        employees={employees}
+        onClose={() => setBankImportOpen(false)}
+        onImported={handleBankImported}
+      />
       {/* Header */}
       <div className="shrink-0 border-b border-slate-200 bg-white">
         <div className="px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap items-start justify-between gap-3">
@@ -384,44 +358,37 @@ export default function SalaryProcessing() {
                 Salary Processing
               </h1>
               <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                Process monthly payroll from Salary Master CTC.
-                {runMeta?.status ? (
-                  <span className="ml-2 text-slate-700 font-medium">
-                    · {runMeta.status === "finalized" ? "Finalized" : "Draft"} for {payMonth}
+                Monthly payroll from Salary Master
+                {payMonth ? (
+                  <span className="text-slate-700 font-medium">
+                    {" "}
+                    · {formatPayMonthLabel(payMonth)}
+                    {runMeta?.status === "finalized" ? " · Finalized" : ""}
                   </span>
                 ) : null}
               </p>
               {persistMsg ? (
                 <p className="text-xs text-emerald-700 mt-1 font-medium">{persistMsg}</p>
               ) : null}
-              {persistError ? (
-                <p className="text-xs text-red-600 mt-1 font-medium">{persistError}</p>
-              ) : null}
             </div>
           </div>
-          <Link
-            to="/app/admin/salary-admin/salary-master"
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accent-deep shadow-sm"
-          >
-            Salary Master
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-          <button
-            type="button"
-            disabled={savingRun || runMeta?.status === "finalized"}
-            onClick={() => persistRun({ finalize: false })}
-            className="inline-flex items-center h-9 px-3.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {savingRun ? "Saving…" : "Save draft"}
-          </button>
-          <button
-            type="button"
-            disabled={savingRun || runMeta?.status === "finalized"}
-            onClick={() => persistRun({ finalize: true })}
-            className="inline-flex items-center h-9 px-3.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-          >
-            Finalize month
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/app/admin/salary-admin/salary-master"
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-accent text-white text-xs font-semibold hover:bg-accent-deep shadow-sm"
+            >
+              Salary Master
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+            <button
+              type="button"
+              onClick={() => setBankImportOpen(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-sky-200 bg-sky-50 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Upload bank file
+            </button>
+          </div>
         </div>
 
         <div className="px-4 sm:px-6 lg:px-8 pb-4 flex flex-wrap items-center gap-2">
@@ -678,7 +645,7 @@ export default function SalaryProcessing() {
                           <input
                             type="text"
                             className={`${textIn} w-[9.5rem] font-mono`}
-                            value={ov.accountNo ?? emp.bank_account_no ?? ""}
+                            value={bankField(ov.accountNo, emp.bank_account_no)}
                             onChange={(e) => setOverride(emp.id, { accountNo: e.target.value })}
                             placeholder="Account no."
                             aria-label="Account number"
@@ -688,7 +655,7 @@ export default function SalaryProcessing() {
                           <input
                             type="text"
                             className={`${textIn} w-[7rem] font-mono uppercase`}
-                            value={ov.ifsc ?? emp.ifsc_code ?? ""}
+                            value={bankField(ov.ifsc, emp.ifsc_code)}
                             onChange={(e) =>
                               setOverride(emp.id, { ifsc: e.target.value.toUpperCase() })
                             }
@@ -704,7 +671,7 @@ export default function SalaryProcessing() {
                         </td>
                         <td className={`${tdC} ${baseBg}`} onClick={(e) => e.stopPropagation()}>
                           <FormDateInput
-                            value={ov.confirmationDate ?? emp.confirmation_date ?? ""}
+                            value={bankField(ov.confirmationDate, emp.confirmation_date)}
                             onChange={(e) =>
                               setOverride(emp.id, { confirmationDate: e.target.value })
                             }
