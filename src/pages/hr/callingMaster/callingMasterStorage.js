@@ -1,24 +1,39 @@
 import {
-  CALLING_MASTER_DROPDOWNS_EVENT,
-  CALLING_MASTER_RECORDS_EVENT,
-} from "./callingMasterConfig";
-import {
+  autoExpireOffers,
   clearAllDropdownOptions,
   clearDropdownOptionsForMaster,
+  closeNoShowCandidate,
+  confirmCandidateIom,
+  convertCandidateToEmployeeMaster,
   createDropdownOption,
   deleteCallingCandidates,
   deleteDropdownOptionRow,
+  flagCandidateNoShow,
+  getOfferExpiryDays,
   listCallingCandidates,
+  listConversionCandidates,
   listDropdownCatalog,
+  listIomCandidates,
+  listJoiningCandidates,
+  listOfferResponseCandidates,
   listSelectOptionsMap,
   listSelectedOfferCandidates,
+  markCandidateJoined,
   peekNextEmployeeCode,
   saveCandidateOfferDetails,
+  saveOpenIomEntry,
+  setCandidateOfferResponse,
+  setOfferExpiryDays,
+  updateJoiningChecklist,
   updateOfferDetailsOnly,
   updateDropdownOptionRow,
   upsertCallingCandidate,
   updateCandidatePipelineStatus,
 } from "./callingMasterApi";
+import {
+  CALLING_MASTER_DROPDOWNS_EVENT,
+  CALLING_MASTER_RECORDS_EVENT,
+} from "./callingMasterConfig";
 
 function notify(eventName) {
   if (typeof window === "undefined") return;
@@ -101,4 +116,83 @@ export async function saveSelectedOfferDetails(record) {
   const saved = await updateOfferDetailsOnly(record);
   notify(CALLING_MASTER_RECORDS_EVENT);
   return saved;
+}
+
+export async function loadOfferResponseCandidates() {
+  return listOfferResponseCandidates();
+}
+
+export async function loadOfferExpiryDays() {
+  return getOfferExpiryDays();
+}
+
+export async function saveOfferExpiryDays(days) {
+  const saved = await setOfferExpiryDays(days);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+export async function recordOfferResponse(id, response) {
+  const saved = await setCandidateOfferResponse(id, response);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+export async function runAutoExpireOffers() {
+  const count = await autoExpireOffers();
+  if (count > 0) notify(CALLING_MASTER_RECORDS_EVENT);
+  return count;
+}
+
+export async function loadJoiningCandidates() {
+  return listJoiningCandidates();
+}
+
+export async function saveJoiningChecklist(id, checklist) {
+  const saved = await updateJoiningChecklist(id, checklist);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+export async function markJoined(id, actualJoiningDate) {
+  const saved = await markCandidateJoined(id, actualJoiningDate);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+export async function flagNoShow(id) {
+  const saved = await flagCandidateNoShow(id);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+export async function closeNoShow(id) {
+  const saved = await closeNoShowCandidate(id);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+export async function loadIomCandidates() {
+  return listIomCandidates();
+}
+
+export async function saveIomEntry(id, entry) {
+  // Persist open entry only — still editable. Avoid list refresh so the form stays open for further edits.
+  return saveOpenIomEntry(id, entry);
+}
+
+export async function confirmIomEntry(record) {
+  const saved = await confirmCandidateIom(record);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return saved;
+}
+
+export async function loadConversionCandidates() {
+  return listConversionCandidates();
+}
+
+export async function convertToEmployeeMaster(id) {
+  const result = await convertCandidateToEmployeeMaster(id);
+  notify(CALLING_MASTER_RECORDS_EVENT);
+  return result;
 }

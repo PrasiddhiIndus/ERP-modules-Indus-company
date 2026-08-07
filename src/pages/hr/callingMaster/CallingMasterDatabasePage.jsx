@@ -269,7 +269,7 @@ export default function CallingMasterDatabasePage() {
   const hasData = filtered.length > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <PageTaskHeader
         title="Calling Dashboard"
         subtitle="Live calling metrics, caller productivity, and screening outcomes from Calling Database."
