@@ -1012,7 +1012,9 @@ const ProductCatalog = () => {
                 />
               </div>
             </div>
-            <p className="text-sm sm:text-base text-gray-600 mt-1">Manage your product catalog</p>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">
+              Shared with Maintenance — products added here also show in Maintenance Product Catalog
+            </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
             <button
