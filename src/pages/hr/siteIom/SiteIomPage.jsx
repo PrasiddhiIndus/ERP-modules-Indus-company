@@ -9,9 +9,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { FormDateInput } from "../../components/FormDateInput";
-import { listSites } from "../../lib/peopleAttendanceApi";
-import { supabase } from "../../lib/supabase";
+import { FormDateInput } from "../../../components/FormDateInput";
+import { listSites } from "../../../lib/peopleAttendanceApi";
+import { supabase } from "../../../lib/supabase";
 import {
   cancelSiteIomDraft,
   confirmSiteIomEntry,
@@ -26,8 +26,8 @@ import {
   searchSitePeople,
   SITE_IOM_ENTRY_STATUSES,
   SITE_IOM_ROTATION_TYPES,
-} from "../../lib/siteIomApi";
-import { downloadSiteIomExcel } from "../../lib/siteIomExport";
+} from "../../../lib/siteIomApi";
+import { downloadSiteIomExcel } from "../../../lib/siteIomExport";
 import {
   DenseTable,
   FilterBar,
@@ -37,7 +37,7 @@ import {
   StatusChip,
   TinyInput,
   TinySelect,
-} from "../adminOperations/components/AdminUi";
+} from "../../adminOperations/components/AdminUi";
 
 function monthStartIso() {
   const d = new Date();
