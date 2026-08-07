@@ -104,7 +104,7 @@ const MaintenanceDashboard = () => {
         supabase.from('maintenance_enquiries').select('id', { count: 'exact', head: true }),
         supabase.from('maintenance_quotations').select('id', { count: 'exact', head: true }),
         supabase.from('maintenance_clients').select('id', { count: 'exact', head: true }),
-        supabase.from('maintenance_products').select('id', { count: 'exact', head: true }),
+        supabase.from('marketing_products').select('id', { count: 'exact', head: true }),
       ]);
 
       setStats({

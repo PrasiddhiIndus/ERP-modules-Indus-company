@@ -16,6 +16,9 @@ export function calcFinalAmountFromCostingData(costingData) {
   return parsed.items.reduce((sum, item) => {
     const withGst = parseFloat(parsed[`${item.id}_grand_total_supply_cost_with_gst`] || 0);
     if (withGst > 0) return sum + withGst;
+    const totalAmt = parseFloat(parsed[`${item.id}_total_amount`] || 0);
+    const gstPct = parseFloat(parsed[`${item.id}_gst_pct`] || 0);
+    if (totalAmt > 0) return sum + totalAmt * (1 + gstPct / 100);
     const legacy = parseFloat(parsed[`${item.id}_final_price`] || 0);
     return sum + legacy;
   }, 0);
@@ -47,6 +50,16 @@ export function buildLatestCostingMap(sheets) {
 
 const COSTING_MANUAL_CELL_KEYS = [
   'qty',
+  'vendor_rate',
+  'gst_pct',
+  'specifications',
+  'picture',
+  'make',
+  'model',
+  'hsn_sac_code',
+  'uom',
+  'vendor_name',
+  // legacy keys (old sheets)
   'import_base_cost',
   'import_custom_duty_pct',
   'import_freight',
@@ -56,7 +69,6 @@ const COSTING_MANUAL_CELL_KEYS = [
   'margin_pct',
   'business_dev_pct',
   'other_misc_cost',
-  'gst_pct',
 ];
 
 /** True when a costing row has a product name or any manual cell value. */
@@ -66,6 +78,7 @@ export function costingItemHasContent(item, costingData = {}) {
   return COSTING_MANUAL_CELL_KEYS.some((key) => {
     const raw = costingData[`${item.id}_${key}`];
     if (raw === '' || raw === null || raw === undefined) return false;
+    if (typeof raw === 'string' && raw.trim() !== '' && Number.isNaN(parseFloat(raw))) return true;
     const n = parseFloat(raw);
     return !Number.isNaN(n) && n !== 0;
   });

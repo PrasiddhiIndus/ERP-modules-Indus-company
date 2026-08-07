@@ -241,7 +241,7 @@ const QuotationForm = ({
   const fetchProducts = async () => {
     try {
       const { data } = await supabase
-        .from('maintenance_products')
+        .from('marketing_products')
         .select('id, product_name, product_code, detailed_specifications')
         .eq('is_active', true)
         .order('product_name');
