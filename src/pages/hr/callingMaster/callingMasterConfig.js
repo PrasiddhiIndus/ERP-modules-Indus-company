@@ -10,6 +10,150 @@ export const CALLING_PIPELINE_TABS = [
   { key: "Selected", label: "Selected" },
 ];
 
+/** Fixed pre-joining checklist — not editable by HR. */
+export const JOINING_CHECKLIST_ITEMS = [
+  { key: "aadhaar", label: "Aadhaar" },
+  { key: "pan", label: "PAN" },
+  { key: "photo", label: "Photo" },
+  { key: "bankDetails", label: "Bank details" },
+  { key: "educationCertificates", label: "Education certificates" },
+  { key: "policeVerification", label: "Police verification" },
+];
+
+export const DEFAULT_IOM_DEPARTMENTS = ["IT", "Admin", "Payroll", "Site", "Accounts"];
+
+export const OFFER_RESPONSE_STATUSES = ["Generated", "Accepted", "Declined", "Expired"];
+export const JOINING_WORKFLOW_STATUSES = ["Pending", "Joined", "No-show"];
+export const DEFAULT_OFFER_EXPIRY_DAYS = 7;
+
+/** Empty checklist item: received flag + optional uploaded file metadata. */
+export function emptyJoiningChecklistItem() {
+  return { received: false, file: null };
+}
+
+export function emptyJoiningChecklist() {
+  return JOINING_CHECKLIST_ITEMS.reduce((acc, item) => {
+    acc[item.key] = emptyJoiningChecklistItem();
+    return acc;
+  }, {});
+}
+
+/** Normalize one uploaded checklist document (R2 metadata). */
+export function normalizeJoiningChecklistFile(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const path = value.trim();
+    if (!path) return null;
+    return {
+      filePath: path,
+      objectKey: path,
+      fileName: path.slice(path.lastIndexOf("/") + 1) || path,
+      contentType: "",
+      bucket: "indus-erp-uploads",
+      uploadedAt: "",
+    };
+  }
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const filePath = String(value.filePath || value.objectKey || "").trim();
+  if (!filePath) return null;
+  return {
+    filePath,
+    objectKey: String(value.objectKey || filePath).trim(),
+    fileName: String(value.fileName || filePath.slice(filePath.lastIndexOf("/") + 1) || "file").trim(),
+    contentType: String(value.contentType || "").trim(),
+    bucket: String(value.bucket || "indus-erp-uploads").trim(),
+    uploadedAt: String(value.uploadedAt || "").trim(),
+  };
+}
+
+/**
+ * Normalize one checklist entry.
+ * Supports legacy boolean values and richer `{ received, file }` objects.
+ */
+export function normalizeJoiningChecklistItem(value) {
+  if (value === true || value === false) {
+    return { received: value, file: null };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return emptyJoiningChecklistItem();
+  }
+
+  const nestedFile = normalizeJoiningChecklistFile(value.file || value.attachment);
+  const topLevelFile =
+    !nestedFile && (value.filePath || value.objectKey)
+      ? normalizeJoiningChecklistFile(value)
+      : null;
+  const file = nestedFile || topLevelFile;
+
+  const received =
+    value.received != null
+      ? Boolean(value.received)
+      : Boolean(file);
+
+  return { received, file };
+}
+
+export function normalizeJoiningChecklist(value) {
+  const base = emptyJoiningChecklist();
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = {};
+    }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return base;
+  JOINING_CHECKLIST_ITEMS.forEach((item) => {
+    base[item.key] = normalizeJoiningChecklistItem(raw[item.key]);
+  });
+  return base;
+}
+
+export function isChecklistItemReceived(item) {
+  return normalizeJoiningChecklistItem(item).received === true;
+}
+
+export function getChecklistItemFile(item) {
+  return normalizeJoiningChecklistItem(item).file;
+}
+
+export function countJoiningChecklistDone(checklist) {
+  const normalized = normalizeJoiningChecklist(checklist);
+  return JOINING_CHECKLIST_ITEMS.filter((item) => normalized[item.key].received).length;
+}
+
+export function isJoiningChecklistComplete(checklist) {
+  const normalized = normalizeJoiningChecklist(checklist);
+  return JOINING_CHECKLIST_ITEMS.every((item) => normalized[item.key].received === true);
+}
+
+export function normalizeIomDepartments(value) {
+  let list = value;
+  if (typeof list === "string") {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      list = String(list)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+  }
+  if (!Array.isArray(list) || !list.length) return [...DEFAULT_IOM_DEPARTMENTS];
+  const cleaned = [...new Set(list.map((d) => String(d || "").trim()).filter(Boolean))];
+  return cleaned.length ? cleaned : [...DEFAULT_IOM_DEPARTMENTS];
+}
+
+/** StatusChip severity for post-offer journey labels. */
+export function journeyStatusSeverity(status) {
+  const value = String(status || "").trim();
+  if (["Accepted", "Joined", "Issued", "Converted", "Generated"].includes(value)) return "info";
+  if (["Pending", "Not Generated", "Awaiting response"].includes(value)) return "warning";
+  if (["Declined", "Expired", "No-show"].includes(value)) return "critical";
+  return "warning";
+}
+
 export const CALLING_MASTER_FILTER_KEYS = [
   "callDate",
   "callingBy",

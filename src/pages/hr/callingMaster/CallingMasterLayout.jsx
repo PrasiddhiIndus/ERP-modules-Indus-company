@@ -1,11 +1,25 @@
 import React, { Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { LayoutDashboard, ListChecks, PhoneCall } from "lucide-react";
+import {
+  ClipboardCheck,
+  FileText,
+  LayoutDashboard,
+  ListChecks,
+  Mail,
+  PhoneCall,
+  UserCheck,
+  UserPlus,
+} from "lucide-react";
 import PageLoader from "../../../components/PageLoader";
 
 const TABS = [
   { to: ".", end: true, label: "Dashboard", icon: LayoutDashboard },
   { to: "candidates", label: "Candidates", icon: PhoneCall },
+  { to: "offer-generation", label: "Offer Generation", icon: FileText },
+  { to: "offer-response", label: "Offer Response", icon: ClipboardCheck },
+  { to: "joining", label: "Joining", icon: UserPlus },
+  { to: "iom", label: "IOM", icon: Mail },
+  { to: "conversion", label: "Conversion", icon: UserCheck },
   { to: "dropdown-master", label: "Dropdown Master", icon: ListChecks },
 ];
 
@@ -22,7 +36,7 @@ export default function CallingMasterLayout() {
       <div className="shrink-0">
         <h1 className="text-xl font-semibold text-gray-900">Calling Database</h1>
         <p className="text-xs text-gray-600 mt-0.5">
-          Maintain candidate calling records, manage dropdown masters, and review calling metrics.
+          Maintain candidate calling records through offer, joining, IOM, and Employee Master conversion.
         </p>
       </div>
 

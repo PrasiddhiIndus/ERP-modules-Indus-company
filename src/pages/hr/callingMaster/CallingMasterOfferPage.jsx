@@ -23,7 +23,7 @@ import {
   TinyInput,
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
-import { CALLING_MASTER_RECORDS_EVENT } from "./callingMasterConfig";
+import { CALLING_MASTER_RECORDS_EVENT, journeyStatusSeverity } from "./callingMasterConfig";
 import OfferDetailsFields, {
   emptyOfferDetailValues,
   offerDetailsFromCandidate,
@@ -34,10 +34,17 @@ import {
   saveOfferAndAllocateCodes,
   saveSelectedOfferDetails,
 } from "./callingMasterStorage";
-import { isValidOfferEmployeeCode } from "./callingMasterApi";
+import { hasOfferLetterBeenGenerated, isValidOfferEmployeeCode, offerResponseLabel } from "./callingMasterApi";
 
 function offerStatusLabel(row) {
-  return String(row?.offerStatus || "").trim() === "Generated" ? "Generated" : "Not Generated";
+  const status = String(row?.offerStatus || "").trim();
+  if (status === "Accepted" || status === "Declined" || status === "Expired") return status;
+  if (hasOfferLetterBeenGenerated(row) || status === "Generated") return "Generated";
+  return "Not Generated";
+}
+
+function canDownloadOfferLetter(row) {
+  return hasOfferLetterBeenGenerated(row) && Boolean(String(row?.offerReferenceNo || "").trim());
 }
 
 function missingOfferFields(source) {
@@ -123,7 +130,14 @@ export default function CallingMasterOfferPage() {
     const q = search.trim().toLowerCase();
     return records.filter((row) => {
       const status = offerStatusLabel(row);
-      if (statusFilter !== "All" && status !== statusFilter) return false;
+      if (statusFilter !== "All") {
+        if (statusFilter === "Generated") {
+          if (status !== "Generated" && offerResponseLabel(row) !== "Awaiting response") return false;
+          if (["Accepted", "Declined", "Expired"].includes(status)) return false;
+        } else if (status !== statusFilter) {
+          return false;
+        }
+      }
       if (!q) return true;
       const hay = [
         row.candidateName,
@@ -165,7 +179,7 @@ export default function CallingMasterOfferPage() {
   const handleDownload = async (row) => {
     setError("");
     try {
-      if (offerStatusLabel(row) !== "Generated") {
+      if (!canDownloadOfferLetter(row)) {
         throw new Error("Generate the offer letter first.");
       }
       await downloadOfferLetter(toOfferLetterPayload(row));
@@ -178,7 +192,7 @@ export default function CallingMasterOfferPage() {
   const handlePreview = (row) => {
     setError("");
     try {
-      if (offerStatusLabel(row) !== "Generated") {
+      if (!canDownloadOfferLetter(row)) {
         throw new Error("Generate the offer letter first.");
       }
       openOfferLetterPrintPreview(toOfferLetterPayload(row));
@@ -338,12 +352,17 @@ export default function CallingMasterOfferPage() {
     {
       key: "offerStatus",
       label: "Offer Status",
-      widthClassName: "min-w-[120px]",
+      widthClassName: "min-w-[140px]",
       render: (row) => {
         const status = offerStatusLabel(row);
-        return (
-          <StatusChip label={status} severity={status === "Generated" ? "info" : "warning"} />
-        );
+        const response = offerResponseLabel(row);
+        const label =
+          status === "Accepted" || status === "Declined" || status === "Expired"
+            ? status
+            : status === "Generated"
+              ? response
+              : status;
+        return <StatusChip label={label} severity={journeyStatusSeverity(label)} />;
       },
     },
     {
@@ -351,7 +370,7 @@ export default function CallingMasterOfferPage() {
       label: "Actions",
       widthClassName: "min-w-[320px]",
       render: (row) => {
-        const generated = offerStatusLabel(row) === "Generated";
+        const generated = canDownloadOfferLetter(row);
         return (
           <div className="flex flex-wrap gap-1.5">
             <button
@@ -423,7 +442,7 @@ export default function CallingMasterOfferPage() {
   const generateAlreadyAssigned = Boolean(String(generateRow?.employeeCode || "").trim());
 
   return (
-    <div className="flex flex-col gap-4 p-4 md:p-6 max-w-[1600px] mx-auto w-full min-h-0 space-y-4">
+    <div className="space-y-4">
       <PageTaskHeader
         title="Offer Generation"
         subtitle="View or edit offer details for Selected candidates, then generate the Word letter. Enter new offer fields on Candidates → Selected."
@@ -458,6 +477,9 @@ export default function CallingMasterOfferPage() {
               <option value="All">All</option>
               <option value="Not Generated">Not Generated</option>
               <option value="Generated">Generated</option>
+              <option value="Accepted">Accepted</option>
+              <option value="Declined">Declined</option>
+              <option value="Expired">Expired</option>
             </TinySelect>
           </label>
         </FilterBar>
