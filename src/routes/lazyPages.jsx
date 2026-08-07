@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { lazyWithRetry as lazy } from "../lib/lazyWithRetry";
 
 /** Load a module re-export as default (named export pages). */
 function lazyNamed(importFn, exportName) {
