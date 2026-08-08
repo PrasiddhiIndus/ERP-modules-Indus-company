@@ -79,7 +79,7 @@ export async function exportManpowerInquiriesFormattedExcel(enquiries, formatDat
     columns.forEach((col, colIndex) => {
       const cell = excelRow.getCell(colIndex + 1);
       let raw = fields[col.id];
-      if (col.id === "resultRemark" && fields.enquiryResult !== "Not Alloted") {
+      if (col.id === "resultRemark" && fields.enquiryResult !== "Awarded to Other Party" && fields.enquiryResult !== "Not Alloted") {
         raw = "";
       }
       const valueType =

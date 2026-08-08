@@ -24,7 +24,8 @@ export const WEEKLY_OFF_RELIEVER_OPTIONS = [
   "In client scope",
   "Not applicable",
 ];
-export const ENQUIRY_SUBTYPE_OPTIONS = ["Regular", "Shutdown"];
+export const ENQUIRY_SUBTYPE_OPTIONS = ["Regular", "Shutdown", "Budgetary"];
+export const RESPONSE_STATUS_OPTIONS = ["Participated", "Regret"];
 export const SERVICE_CATEGORY_OPTIONS = [
   "Firefighting Manpower Only",
   "Safety Manpower Only",
@@ -38,8 +39,18 @@ export const TENDER_PORTAL_OPTIONS = ["Ariba", "GeM", "eProcurement", "Custom"];
 export const EMD_FEE_STATUS_OPTIONS = ["Not Applicable", "Applicable - Pay", "Exempted"];
 export const PAYMENT_MODE_OPTIONS = ["Demand Draft", "NEFT", "Online"];
 export const PAYMENT_STATUS_OPTIONS = ["Pending", "Paid", "Refunded"];
-export const INQUIRY_RESULT_OPTIONS = ["Alloted", "Not Alloted"];
+export const INQUIRY_RESULT_OPTIONS = [
+  "In Process",
+  "Awarded to IFSPL",
+  "Awarded to Other Party",
+  "Closed",
+];
 export const INQUIRY_TRACKING_STATUS_OPTIONS = ["New", "In Progress", "Follow Up", "Closed"];
+
+export function enquiryResultRequiresRemark(result) {
+  const r = String(result || "").trim();
+  return r === "Awarded to Other Party" || r === "Not Alloted";
+}
 
 export function isServiceCategoryOther(value) {
   const v = String(value || "").trim();
@@ -123,6 +134,8 @@ const INQUIRY_META_KEYS = [
   "serviceCategory",
   "serviceCategoryCustom",
   "enquirySubType",
+  "responseStatus",
+  "responseStatusReason",
   "scopeInputType",
   "contractDurationValue",
   "contractDurationUnit",
@@ -167,10 +180,15 @@ export function extractWorkflowMeta(meta = {}) {
 /** Enquiry Master List result (stored in authorization_to workflow meta). */
 export function getEnquiryResultFromRow(row) {
   const { meta } = parseAuthorizationMeta(row?.authorization_to);
-  if (meta.enquiryResult) return meta.enquiryResult;
+  if (meta.enquiryResult) {
+    const r = String(meta.enquiryResult || "").trim();
+    if (r === "Alloted") return "Awarded to IFSPL";
+    if (r === "Not Alloted") return "Awarded to Other Party";
+    return r;
+  }
   const status = String(row?.status || "").trim();
-  if (status === "Approved") return "Alloted";
-  if (status === "Rejected") return "Not Alloted";
+  if (status === "Approved") return "Awarded to IFSPL";
+  if (status === "Rejected") return "Awarded to Other Party";
   return "";
 }
 
@@ -224,7 +242,7 @@ export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supaba
     return { workflowMeta: next, status: undefined };
   }
 
-  if (enquiryResult === "Alloted") {
+  if (enquiryResult === "Awarded to IFSPL" || enquiryResult === "Alloted") {
     const ifslNumber = await resolveIfslNumber(supabase, next.ifslNumber || existingMeta.ifslNumber);
     const approvedAt = base.approvedAt || base.convertedAt || new Date().toISOString();
     delete next.rejectionRemark;
@@ -232,7 +250,7 @@ export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supaba
     return {
       workflowMeta: {
         ...next,
-        enquiryResult: "Alloted",
+        enquiryResult: "Awarded to IFSPL",
         resultAmount,
         ifslNumber,
         approvedAt,
@@ -242,11 +260,11 @@ export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supaba
     };
   }
 
-  if (enquiryResult === "Not Alloted") {
+  if (enquiryResult === "Awarded to Other Party" || enquiryResult === "Not Alloted") {
     return {
       workflowMeta: {
         ...next,
-        enquiryResult: "Not Alloted",
+        enquiryResult: "Awarded to Other Party",
         resultAmount,
         rejectionRemark: String(form.resultRemark || "").trim(),
         rejectedAt: base.rejectedAt || new Date().toISOString(),
@@ -258,6 +276,7 @@ export async function prepareEnquiryWorkflowMeta(form, existingMeta = {}, supaba
   return {
     workflowMeta: {
       ...next,
+      enquiryResult,
       resultAmount,
     },
     status: undefined,
@@ -446,6 +465,14 @@ export function inquiryRowToForm(row) {
         ? meta.serviceCategory
         : ""),
     enquirySubType: normalizedSubType,
+    responseStatus: (() => {
+      const raw = String(meta.responseStatus || "").trim();
+      if (/^regret/i.test(raw)) return "Regret";
+      if (/^participat/i.test(raw)) return "Participated";
+      // Legacy enquiries without this field behaved as Participated.
+      return raw || "Participated";
+    })(),
+    responseStatusReason: String(meta.responseStatusReason || "").trim(),
     scopeInputType: meta.scopeInputType || "Text",
     scopeOfWork: row?.manpower_required || meta.descriptionOfWork || "",
     scopeAttachmentPaths: normalizeScopeAttachmentPaths(row, meta),
@@ -579,6 +606,11 @@ export function buildInquiryDbPayload(form, existingMeta = {}) {
       ? String(form.serviceCategoryCustom || "").trim()
       : "",
     enquirySubType: form.enquirySubType || "Regular",
+    responseStatus: form.responseStatus || "Participated",
+    responseStatusReason:
+      String(form.responseStatus || "").trim() === "Regret"
+        ? String(form.responseStatusReason || "").trim()
+        : "",
     scopeInputType: form.scopeInputType || "Text",
     scopeAttachmentPaths: existingScopePaths,
     enquiryAttachmentPaths: existingEnquiryAttachmentPaths,
@@ -682,10 +714,18 @@ export function buildExcelMetaFromForm(form, existingMeta = {}) {
 }
 
 export async function getNextSrNo(supabase) {
-  const { data, error } = await supabase.from("manpower_enquiries").select("sr_no, authorization_to");
-  if (error) throw error;
+  const { data, error } = await supabase.rpc("allocate_manpower_enquiry_sr_no");
+  if (!error && data != null && Number.isFinite(Number(data))) {
+    return Number(data);
+  }
+
+  // Fallback when RPC is not deployed yet: max(existing) + 1
+  const { data: rows, error: selectError } = await supabase
+    .from("manpower_enquiries")
+    .select("sr_no, authorization_to");
+  if (selectError) throw selectError || error;
   let max = 0;
-  (data || []).forEach((row) => {
+  (rows || []).forEach((row) => {
     const fromColumn = Number(row.sr_no);
     if (Number.isFinite(fromColumn) && fromColumn > max) max = fromColumn;
     const { meta } = parseAuthorizationMeta(row.authorization_to);
@@ -736,7 +776,7 @@ export const INQUIRY_TABLE_COLUMNS = [
 /** Summary columns for Enquiry Master List UI (full detail in preview). */
 export const INQUIRY_LIST_DISPLAY_COLUMNS = [
   { id: "srNo", label: "Sr. No.", width: 64, align: "center", valueType: "number", sortable: true },
-  { id: "enquiryNumber", label: "Enquiry No", width: 118, valueType: "text", sortable: true },
+  { id: "enquiryNumber", label: "Enquiry No", width: 168, valueType: "text", sortable: true },
   { id: "receivedDate", label: "Received On", width: 108, valueType: "date", sortable: true },
   { id: "vertical", label: "Vertical", width: 110, valueType: "chip", sortable: true },
   { id: "modeOfSubmission", label: "Mode", width: 100, valueType: "text", sortable: true },
@@ -744,10 +784,9 @@ export const INQUIRY_LIST_DISPLAY_COLUMNS = [
   { id: "location", label: "Location", width: 132, valueType: "text", sortable: true },
   { id: "descriptionOfWork", label: "Description of Work", width: 200, valueType: "text", sortable: true },
   { id: "approxValue", label: "Approx. Value (₹)", width: 128, align: "right", valueType: "currency", sortable: true },
-  { id: "trackingStatus", label: "Status", width: 110, valueType: "trackingStatus", sortable: true },
   { id: "enquiryAssignedTo", label: "Assigned To", width: 140, valueType: "text", sortable: true },
   { id: "offerSubmittedOn", label: "Offer Submission", width: 118, valueType: "date", sortable: true },
-  { id: "enquiryResult", label: "Result", width: 100, valueType: "text", sortable: true },
+  { id: "enquiryResult", label: "Result", width: 168, valueType: "text", sortable: true },
   { id: "resultRemark", label: "Remarks", width: 160, valueType: "text", sortable: false },
 ];
 
