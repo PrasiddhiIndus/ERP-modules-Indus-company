@@ -53,7 +53,26 @@ import {
 } from "./callingMasterStorage";
 import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
 import OfferDetailsFields, { emptyOfferDetailValues } from "./OfferDetailsFields";
+import { CallingActionBar, CallingActionBtn, CallingActionHint } from "./CallingTableActions";
 import { deriveSiteCodeFromName } from "../../../lib/offerLetterDocuments";
+
+const ACTION_COLUMN_WIDTH = {
+  Calling: 120,
+  Shortlisted: 248,
+  Selected: 168,
+};
+
+const FROZEN_DATA_WIDTHS = [104, 118, 168]; // Date, Calling By, Candidate Name
+
+function TruncateText({ value, empty = "—" }) {
+  const text = value == null || value === "" ? "" : String(value);
+  if (!text) return <span className="text-slate-400">{empty}</span>;
+  return (
+    <span className="block max-w-full truncate" title={text}>
+      {text}
+    </span>
+  );
+}
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 
@@ -500,7 +519,7 @@ function validateCallingMasterForm(values, existingRows) {
 
 function FormField({ field, value, error, onChange, selectOptions }) {
   const options = selectOptions?.[field.optionsKey] || [];
-  const inputClassName = `w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 ${
+  const inputClassName = `box-border h-10 w-full min-w-0 rounded-lg border px-3 text-sm shadow-sm focus:outline-none focus:ring-2 ${
     error ? "border-rose-300 focus:ring-rose-100" : "border-slate-200 focus:ring-blue-100"
   }`;
 
@@ -535,7 +554,9 @@ function FormField({ field, value, error, onChange, selectOptions }) {
         onChange={(event) => onChange(field.key, event.target.value)}
         placeholder={field.placeholder}
         rows={4}
-        className={`${inputClassName} resize-y`}
+        className={`box-border w-full min-w-0 rounded-lg border px-3 py-2.5 text-sm shadow-sm resize-y focus:outline-none focus:ring-2 ${
+          error ? "border-rose-300 focus:ring-rose-100" : "border-slate-200 focus:ring-blue-100"
+        }`}
       />
     );
   } else {
@@ -559,8 +580,8 @@ function FormField({ field, value, error, onChange, selectOptions }) {
   }
 
   return (
-    <label className={field.fullWidth ? "sm:col-span-2 lg:col-span-4" : ""}>
-      <span className="mb-1.5 block text-xs font-medium text-slate-700">
+    <label className={`flex min-w-0 flex-col ${field.fullWidth ? "sm:col-span-2 lg:col-span-4" : ""}`}>
+      <span className="mb-1.5 block truncate text-xs font-medium text-slate-700" title={field.label}>
         {field.label}
         {field.required ? <span className="text-rose-500"> *</span> : null}
       </span>
@@ -860,50 +881,37 @@ export default function CallingMasterPage() {
   };
 
   const desktopColumns = useMemo(() => {
+    const actionWidthClass =
+      pipelineTab === "Shortlisted"
+        ? "w-[248px] min-w-[248px] max-w-[248px]"
+        : pipelineTab === "Selected"
+          ? "w-[168px] min-w-[168px] max-w-[168px]"
+          : "w-[120px] min-w-[120px] max-w-[120px]";
+
     const actionColumn = {
       key: "__rowActions",
       label: "Actions",
-      headerClassName:
-        pipelineTab === "Shortlisted"
-          ? "min-w-[200px]"
-          : pipelineTab === "Calling"
-            ? "min-w-[140px]"
-            : pipelineTab === "Selected"
-              ? "min-w-[180px]"
-              : "min-w-[100px]",
-      cellClassName:
-        pipelineTab === "Shortlisted"
-          ? "min-w-[200px]"
-          : pipelineTab === "Calling"
-            ? "min-w-[140px]"
-            : pipelineTab === "Selected"
-              ? "min-w-[180px]"
-              : "min-w-[100px]",
+      headerClassName: actionWidthClass,
+      cellClassName: actionWidthClass,
       render: (row) => {
         const busy = statusUpdatingId === row.id;
         const status = normalizePipelineStatus(row.hiringStatus);
 
         return (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              title="Edit"
-              onClick={(event) => {
-                event.stopPropagation();
-                openEdit(row);
-              }}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-accent hover:text-accent"
-            >
-              <Edit3 className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              title="Delete"
+          <CallingActionBar edge="start">
+            <CallingActionBtn
+              icon={Edit3}
+              label="Edit"
+              iconOnly
+              onClick={() => openEdit(row)}
+            />
+            <CallingActionBtn
+              icon={Trash2}
+              label="Delete"
+              iconOnly
+              tone="danger"
               onClick={(event) => openDelete(row, event)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            />
 
             {pipelineTab === "Selected" ? (
               (() => {
@@ -915,45 +923,38 @@ export default function CallingMasterPage() {
 
             {pipelineTab === "Calling" ? (
               status === "Calling" || status === "Rejected" ? (
-                <button
-                  type="button"
+                <CallingActionBtn
+                  icon={ListChecks}
+                  label="Shortlist"
+                  iconOnly
                   title="Mark Shortlisted"
                   disabled={busy}
                   onClick={(event) => void handlePipelineStatusChange(row, "Shortlisted", event)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
-                >
-                  <ListChecks className="h-4 w-4" />
-                </button>
+                />
               ) : (
-                <span className="text-[11px] font-medium text-slate-500">{status}</span>
+                <CallingActionHint>{status}</CallingActionHint>
               )
             ) : null}
 
             {pipelineTab === "Shortlisted" ? (
               <>
-                <button
-                  type="button"
-                  title="Selected"
+                <CallingActionBtn
+                  icon={UserCheck}
+                  label="Selected"
+                  tone="success"
                   disabled={busy}
                   onClick={(event) => void handlePipelineStatusChange(row, "Selected", event)}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 hover:border-emerald-300 disabled:opacity-50"
-                >
-                  <UserCheck className="h-3.5 w-3.5" />
-                  Selected
-                </button>
-                <button
-                  type="button"
-                  title="Rejected"
+                />
+                <CallingActionBtn
+                  icon={UserX}
+                  label="Rejected"
+                  tone="danger"
                   disabled={busy}
                   onClick={(event) => void handlePipelineStatusChange(row, "Rejected", event)}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-700 hover:border-rose-300 disabled:opacity-50"
-                >
-                  <UserX className="h-3.5 w-3.5" />
-                  Rejected
-                </button>
+                />
               </>
             ) : null}
-          </div>
+          </CallingActionBar>
         );
       },
     };
@@ -967,10 +968,11 @@ export default function CallingMasterPage() {
         <button
           type="button"
           onClick={() => toggleSort(column.key)}
-          className="inline-flex items-center gap-1 text-left"
+          className="inline-flex max-w-full items-center gap-1 text-left"
+          title={column.label}
         >
-          <span>{column.label}</span>
-          <span className="text-[10px] text-slate-400">
+          <span className="truncate">{column.label}</span>
+          <span className="shrink-0 text-[10px] text-slate-400">
             {sortConfig.key === column.key ? (sortConfig.direction === "asc" ? "▲" : "▼") : "↕"}
           </span>
         </button>
@@ -1009,17 +1011,18 @@ export default function CallingMasterPage() {
             <button
               type="button"
               onClick={(event) => openFilesPreview(row, event)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-accent hover:text-accent"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 hover:border-accent hover:text-accent"
+              title={`Preview ${count} file(s)`}
             >
-              <Eye className="h-3.5 w-3.5" />
-              Preview ({count})
+              <Eye className="h-3.5 w-3.5 shrink-0" />
+              <span className="whitespace-nowrap">{count}</span>
             </button>
           );
         }
         if (["salaryGross", "heightCm", "weightKg", "totalExperience"].includes(column.key)) {
           return formatNumberDisplay(row[column.key]);
         }
-        return row[column.key] || "—";
+        return <TruncateText value={row[column.key]} />;
       },
     }));
     return [actionColumn, ...dataColumns];
@@ -1221,7 +1224,7 @@ export default function CallingMasterPage() {
             key={tab.key}
             type="button"
             onClick={() => setPipelineTab(tab.key)}
-            className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex h-9 items-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors ${
               pipelineTab === tab.key
                 ? "border-accent bg-accent text-white"
                 : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100"
@@ -1267,17 +1270,17 @@ export default function CallingMasterPage() {
                         setPage(1);
                       }}
                       placeholder="Search mobile, candidate, company, designation"
-                      className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm"
+                      className="box-border h-8 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm"
                     />
                   </div>
                 </label>
 
-                <label>
+                <label className="min-w-0">
                   <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Date</span>
                   <FormDateInput
                     value={filters.callDate}
                     onChange={(event) => handleFilterChange("callDate", event.target.value)}
-                    className="h-10 min-w-[11rem] rounded-lg border border-slate-200 bg-white"
+                    className="box-border h-8 min-w-[11rem] rounded-lg border border-slate-200 bg-white"
                   />
                 </label>
 
@@ -1290,12 +1293,14 @@ export default function CallingMasterPage() {
                   ["siteSuitable", "Site Suitable"],
                   ["currentlyWorking", "Currently Working"],
                 ].map(([key, label]) => (
-                  <label key={key}>
-                    <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</span>
+                  <label key={key} className="min-w-0">
+                    <span className="mb-1 block truncate text-[11px] font-medium uppercase tracking-wide text-slate-500" title={label}>
+                      {label}
+                    </span>
                     <TinySelect
                       value={filters[key]}
                       onChange={(event) => handleFilterChange(key, event.target.value)}
-                      className="min-w-[10rem] rounded-lg border-slate-200 bg-white text-sm"
+                      className="box-border min-w-[10rem] rounded-lg border-slate-200 bg-white text-sm"
                     >
                       <option value="">All</option>
                       {(selectOptions[key] || []).map((option) => (
@@ -1307,8 +1312,8 @@ export default function CallingMasterPage() {
                   </label>
                 ))}
 
-                <div className="ml-auto flex flex-wrap gap-2">
-                  <button type="button" onClick={clearFilters} className="erp-btn-secondary rounded-control px-3 py-2 inline-flex items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-end gap-2">
+                  <button type="button" onClick={clearFilters} className="erp-btn-secondary inline-flex h-8 items-center gap-2 rounded-control px-3">
                     <Filter className="h-4 w-4" />
                     Clear
                   </button>
@@ -1339,21 +1344,16 @@ export default function CallingMasterPage() {
                 </div>
               ) : (
                 <>
-                  <div className="hidden lg:block">
+                  <div className="hidden min-w-0 lg:block">
                     <DenseTable
                       columns={desktopColumns}
                       rows={pagedRows}
                       rowKey="id"
                       frozenColumnCount={4}
-                      frozenColumnWidths={
-                        pipelineTab === "Shortlisted"
-                          ? [200, 110, 120, 180]
-                          : pipelineTab === "Calling"
-                            ? [140, 110, 120, 180]
-                            : pipelineTab === "Selected"
-                              ? [180, 110, 120, 180]
-                              : [100, 110, 120, 180]
-                      }
+                      frozenColumnWidths={[
+                        ACTION_COLUMN_WIDTH[pipelineTab] || ACTION_COLUMN_WIDTH.Calling,
+                        ...FROZEN_DATA_WIDTHS,
+                      ]}
                       stickyHeader
                       scrollMaxHeight="calc(100dvh - 26rem)"
                       serialOffset={(page - 1) * pageSize}
@@ -1372,27 +1372,24 @@ export default function CallingMasterPage() {
                           className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm"
                         >
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-base font-semibold text-slate-900">{row.candidateName || "Unnamed candidate"}</p>
-                              <p className="mt-1 text-sm text-slate-500">{row.designation || "Designation pending"} {row.company ? `· ${row.company}` : ""}</p>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-base font-semibold text-slate-900" title={row.candidateName || "Unnamed candidate"}>
+                                {row.candidateName || "Unnamed candidate"}
+                              </p>
+                              <p className="mt-1 truncate text-sm text-slate-500" title={`${row.designation || "Designation pending"}${row.company ? ` · ${row.company}` : ""}`}>
+                                {row.designation || "Designation pending"}
+                                {row.company ? ` · ${row.company}` : ""}
+                              </p>
                             </div>
-                            <div className="flex flex-wrap items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                title="Edit"
-                                onClick={() => openEdit(row)}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700"
-                              >
-                                <Edit3 className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                title="Delete"
+                            <CallingActionBar edge="start" className="max-w-[min(100%,18rem)] shrink-0 !flex-wrap justify-end">
+                              <CallingActionBtn icon={Edit3} label="Edit" iconOnly onClick={() => openEdit(row)} />
+                              <CallingActionBtn
+                                icon={Trash2}
+                                label="Delete"
+                                iconOnly
+                                tone="danger"
                                 onClick={(event) => openDelete(row, event)}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-700"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              />
                               {pipelineTab === "Selected" ? (
                                 (() => {
                                   const label = offerResponseLabel(row);
@@ -1401,60 +1398,68 @@ export default function CallingMasterPage() {
                                 })()
                               ) : null}
                               {canShortlist ? (
-                                <button
-                                  type="button"
+                                <CallingActionBtn
+                                  icon={ListChecks}
+                                  label="Shortlist"
+                                  iconOnly
                                   title="Mark Shortlisted"
                                   disabled={statusUpdatingId === row.id}
                                   onClick={(event) => void handlePipelineStatusChange(row, "Shortlisted", event)}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 disabled:opacity-50"
-                                >
-                                  <ListChecks className="h-4 w-4" />
-                                </button>
+                                />
                               ) : null}
                               {showShortlistActions ? (
                                 <>
-                                  <button
-                                    type="button"
-                                    title="Selected"
+                                  <CallingActionBtn
+                                    icon={UserCheck}
+                                    label="Selected"
+                                    tone="success"
                                     disabled={statusUpdatingId === row.id}
                                     onClick={(event) => void handlePipelineStatusChange(row, "Selected", event)}
-                                    className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-medium text-emerald-700 disabled:opacity-50"
-                                  >
-                                    <UserCheck className="h-3.5 w-3.5" />
-                                    Selected
-                                  </button>
-                                  <button
-                                    type="button"
-                                    title="Rejected"
+                                  />
+                                  <CallingActionBtn
+                                    icon={UserX}
+                                    label="Rejected"
+                                    tone="danger"
                                     disabled={statusUpdatingId === row.id}
                                     onClick={(event) => void handlePipelineStatusChange(row, "Rejected", event)}
-                                    className="inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-[11px] font-medium text-rose-700 disabled:opacity-50"
-                                  >
-                                    <UserX className="h-3.5 w-3.5" />
-                                    Rejected
-                                  </button>
+                                  />
                                 </>
                               ) : null}
                               {pipelineTab === "Calling" && !canShortlist ? (
-                                <span className="text-[11px] font-medium text-slate-500">{status}</span>
+                                <CallingActionHint>{status}</CallingActionHint>
                               ) : null}
-                              <StatusChip label={row.siteSuitable || "Review"} severity={row.siteSuitable === "Immediate" ? "info" : "warning"} />
-                            </div>
+                              <StatusChip
+                                label={row.siteSuitable || "Review"}
+                                severity={row.siteSuitable === "Immediate" ? "info" : "warning"}
+                              />
+                            </CallingActionBar>
                           </div>
-                          <div className="mt-4 grid gap-2 sm:grid-cols-2 text-sm text-slate-600">
-                            <div><span className="font-medium text-slate-800">Mobile:</span> {row.phoneNumber || "—"}</div>
-                            <div><span className="font-medium text-slate-800">Date:</span> {formatDateDisplay(row.callDate)}</div>
-                            <div><span className="font-medium text-slate-800">Calling By:</span> {row.callingBy || "—"}</div>
-                            <div><span className="font-medium text-slate-800">Current State:</span> {row.workingState || "—"}</div>
-                            <div><span className="font-medium text-slate-800">Home State:</span> {row.homeState || "—"}</div>
-                            <div><span className="font-medium text-slate-800">Experience:</span> {row.totalExperience || "—"}</div>
+                          <div className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                            <div className="min-w-0 truncate">
+                              <span className="font-medium text-slate-800">Mobile:</span> {row.phoneNumber || "—"}
+                            </div>
+                            <div className="min-w-0 truncate">
+                              <span className="font-medium text-slate-800">Date:</span> {formatDateDisplay(row.callDate)}
+                            </div>
+                            <div className="min-w-0 truncate" title={row.callingBy || undefined}>
+                              <span className="font-medium text-slate-800">Calling By:</span> {row.callingBy || "—"}
+                            </div>
+                            <div className="min-w-0 truncate" title={row.workingState || undefined}>
+                              <span className="font-medium text-slate-800">Current State:</span> {row.workingState || "—"}
+                            </div>
+                            <div className="min-w-0 truncate" title={row.homeState || undefined}>
+                              <span className="font-medium text-slate-800">Home State:</span> {row.homeState || "—"}
+                            </div>
+                            <div className="min-w-0 truncate">
+                              <span className="font-medium text-slate-800">Experience:</span> {row.totalExperience || "—"}
+                            </div>
                           </div>
                           {Array.isArray(row.attachments) && row.attachments.length ? (
                             <div className="mt-3">
                               <button
                                 type="button"
                                 onClick={(event) => openFilesPreview(row, event)}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700"
                               >
                                 <Eye className="h-3.5 w-3.5" />
                                 Preview files ({row.attachments.length})

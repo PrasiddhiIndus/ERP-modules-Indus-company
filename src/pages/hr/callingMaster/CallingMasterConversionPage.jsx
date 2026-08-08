@@ -85,30 +85,52 @@ export default function CallingMasterConversionPage() {
   };
 
   const columns = [
-    { key: "candidateName", label: "Candidate", widthClassName: "min-w-[160px]" },
-    { key: "designation", label: "Designation", widthClassName: "min-w-[130px]" },
+    {
+      key: "candidateName",
+      label: "Candidate",
+      widthClassName: "w-[168px] min-w-[168px] max-w-[168px]",
+      render: (row) => (
+        <span className="block truncate font-medium" title={row.candidateName || undefined}>
+          {row.candidateName || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "designation",
+      label: "Designation",
+      widthClassName: "w-[140px] min-w-[140px] max-w-[140px]",
+      render: (row) => (
+        <span className="block truncate" title={row.designation || undefined}>
+          {row.designation || "—"}
+        </span>
+      ),
+    },
     {
       key: "employeeCode",
       label: "Emp Code",
-      widthClassName: "min-w-[90px]",
+      widthClassName: "w-[96px] min-w-[96px] max-w-[96px]",
       render: (row) => row.employeeCode || "—",
     },
     {
       key: "iomReferenceNo",
       label: "IOM Ref",
-      widthClassName: "min-w-[180px]",
-      render: (row) => row.iomReferenceNo || "—",
+      widthClassName: "w-[180px] min-w-[180px] max-w-[180px]",
+      render: (row) => (
+        <span className="block truncate" title={row.iomReferenceNo || undefined}>
+          {row.iomReferenceNo || "—"}
+        </span>
+      ),
     },
     {
       key: "actualJoiningDate",
       label: "Joined on",
-      widthClassName: "min-w-[110px]",
+      widthClassName: "w-[110px] min-w-[110px] max-w-[110px]",
       render: (row) => row.actualJoiningDate || "—",
     },
     {
       key: "conversionStatus",
       label: "Conversion",
-      widthClassName: "min-w-[110px]",
+      widthClassName: "w-[110px] min-w-[110px] max-w-[110px]",
       render: (row) => {
         const label = row.conversionStatus === "Converted" ? "Converted" : "Pending";
         return (
@@ -122,7 +144,7 @@ export default function CallingMasterConversionPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[180px]",
+      widthClassName: "w-[168px] min-w-[168px] max-w-[168px]",
       cellClassName: "align-middle",
       render: (row) => {
         const converted = row.conversionStatus === "Converted";
