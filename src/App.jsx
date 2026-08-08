@@ -170,6 +170,7 @@ import {
   MaintenanceClientMaster,
   MaintenanceProductCatalog,
   MaintenancePurchaseOrders,
+  MaintenanceMmPoEntry,
   MaintenanceExpoSeminar,
   MaintenanceGSTUpload,
   MaintenanceReports,
@@ -499,7 +500,7 @@ function App() {
             <Route path="commercial/manpower-training/po-entry" element={<Commercial />} />
             <Route path="commercial/manpower-training/contact-log" element={<Commercial />} />
 
-            {/* Commercial — R&M / M&M / AMC / IEV */}
+            {/* Commercial — R&M / AMC / IEV */}
             <Route path="commercial/rm-mm-amc-iev" element={<CommercialRmMmAmcIev />} />
             <Route path="commercial/rm-mm-amc-iev/dashboard" element={<CommercialRmMmAmcIev />} />
             <Route path="commercial/rm-mm-amc-iev/po-entry" element={<CommercialRmMmAmcIev />} />
@@ -642,6 +643,7 @@ function App() {
             <Route path="maintenance/client-master" element={<MaintenanceClientMaster />} />
             <Route path="maintenance/product-catalog" element={<MaintenanceProductCatalog />} />
             <Route path="maintenance/purchase-orders" element={<MaintenancePurchaseOrders />} />
+            <Route path="maintenance/mm-po-entry" element={<MaintenanceMmPoEntry />} />
             <Route path="maintenance/expo-seminar" element={<MaintenanceExpoSeminar />} />
             <Route path="maintenance/gst-upload" element={<MaintenanceGSTUpload />} />
             <Route path="maintenance/reports-analytics" element={<MaintenanceReports />} />

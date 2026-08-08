@@ -303,6 +303,7 @@ export const MaintenanceFollowUpPlanner = lazy(() => import("../pages/maintenanc
 export const MaintenanceClientMaster = lazy(() => import("../pages/maintenance/ClientMaster"));
 export const MaintenanceProductCatalog = lazy(() => import("../pages/maintenance/ProductCatalog"));
 export const MaintenancePurchaseOrders = lazy(() => import("../pages/maintenance/PurchaseOrders"));
+export const MaintenanceMmPoEntry = lazy(() => import("../pages/maintenance/MaintenanceMmPoEntry"));
 export const MaintenanceExpoSeminar = lazy(() => import("../pages/maintenance/ExpoSeminar"));
 export const MaintenanceGSTUpload = lazy(() => import("../pages/maintenance/GSTUpload"));
 export const MaintenanceReports = lazy(() => import("../pages/maintenance/MaintenanceReports"));
