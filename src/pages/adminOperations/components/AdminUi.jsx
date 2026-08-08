@@ -131,6 +131,14 @@ function renderDenseCell(col, row, rowIndex) {
   return value == null || value === "" ? "" : value;
 }
 
+function denseHeaderClassName(col) {
+  return [col.headerClassName, col.widthClassName].filter(Boolean).join(" ");
+}
+
+function denseCellClassName(col) {
+  return [col.cellClassName, col.widthClassName].filter(Boolean).join(" ");
+}
+
 function resolveDenseTableColumns(columns, { showSerialNumber, serialLabel, serialOffset }) {
   const shouldShow =
     showSerialNumber === false
@@ -240,7 +248,7 @@ function FreezePaneDenseTable({
               <div
                 key={c.key}
                 title={c.headerTitle || undefined}
-                className={`box-border ${headPad} font-semibold text-left whitespace-nowrap shrink-0 ${c.headerClassName || ""}`}
+                className={`box-border ${headPad} font-semibold text-left whitespace-nowrap shrink-0 overflow-hidden text-ellipsis ${denseHeaderClassName(c)}`}
               >
                 {renderDenseHeader(c)}
               </div>
@@ -258,7 +266,7 @@ function FreezePaneDenseTable({
               {frozenCols.map((c, i) => (
                 <div
                   key={`filter-${c.key}`}
-                  className="box-border px-1 py-1 shrink-0"
+                  className="box-border px-1 py-1 shrink-0 overflow-hidden"
                   style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
                 >
                   {renderDenseFilter(c)}
@@ -267,7 +275,10 @@ function FreezePaneDenseTable({
             </div>
             <div className="flex shrink-0">
               {scrollCols.map((c) => (
-                <div key={`filter-${c.key}`} className={`box-border px-1 py-1 shrink-0 ${c.headerClassName || ""}`}>
+                <div
+                  key={`filter-${c.key}`}
+                  className={`box-border px-1 py-1 shrink-0 overflow-hidden ${denseHeaderClassName(c)}`}
+                >
                   {renderDenseFilter(c)}
                 </div>
               ))}
@@ -293,7 +304,7 @@ function FreezePaneDenseTable({
               {frozenCols.map((c, i) => (
                 <div
                   key={c.key}
-                  className={`box-border ${cellPad} text-gray-800 align-middle shrink-0 overflow-hidden ${c.cellClassName || ""}`}
+                  className={`box-border ${cellPad} text-gray-800 align-middle shrink-0 overflow-hidden ${denseCellClassName(c)}`}
                   style={{ width: widths[i], minWidth: widths[i], maxWidth: widths[i] }}
                 >
                   {renderDenseCell(c, row, rowIndex)}
@@ -304,7 +315,7 @@ function FreezePaneDenseTable({
               {scrollCols.map((c) => (
                 <div
                   key={c.key}
-                  className={`box-border ${cellPad} text-gray-800 align-middle shrink-0 ${c.cellClassName || ""}`}
+                  className={`box-border ${cellPad} text-gray-800 align-middle shrink-0 overflow-hidden whitespace-nowrap text-ellipsis ${denseCellClassName(c)}`}
                 >
                   {renderDenseCell(c, row, rowIndex)}
                 </div>
@@ -386,7 +397,7 @@ export const DenseTable = ({
               <th
                 key={c.key}
                 title={c.headerTitle || undefined}
-                className={`text-left font-semibold ${headPad} whitespace-nowrap bg-gray-50 ${c.headerClassName || ""}`}
+                className={`text-left font-semibold ${headPad} whitespace-nowrap bg-gray-50 ${denseHeaderClassName(c)}`}
               >
                 {renderDenseHeader(c)}
               </th>
@@ -421,9 +432,9 @@ export const DenseTable = ({
                 {tableColumns.map((c) => (
                   <td
                     key={c.key}
-                    className={`${cellPad} align-middle text-gray-800 whitespace-nowrap ${
+                    className={`${cellPad} align-middle text-gray-800 whitespace-nowrap overflow-hidden text-ellipsis ${
                       isActive ? "bg-blue-50/80" : "bg-white group-hover:bg-blue-50/40"
-                    } ${c.cellClassName || ""}`}
+                    } ${denseCellClassName(c)}`}
                   >
                     {renderDenseCell(c, row, rowIndex)}
                   </td>

@@ -540,11 +540,11 @@ export default function CallingMasterIomPage() {
     {
       key: "candidateName",
       label: "Candidate",
-      widthClassName: "min-w-[150px]",
+      widthClassName: "w-[168px] min-w-[168px] max-w-[168px]",
       render: (row) => (
         <button
           type="button"
-          className={`text-left font-medium truncate max-w-[140px] hover:underline ${
+          className={`block max-w-full truncate text-left font-medium hover:underline ${
             row.id === selectedId ? "text-accent" : "text-accent/90 hover:text-accent"
           }`}
           title={row.candidateName || "—"}
@@ -557,23 +557,36 @@ export default function CallingMasterIomPage() {
         </button>
       ),
     },
-    { key: "designation", label: "Designation", widthClassName: "min-w-[120px]" },
+    {
+      key: "designation",
+      label: "Designation",
+      widthClassName: "w-[140px] min-w-[140px] max-w-[140px]",
+      render: (row) => (
+        <span className="block truncate" title={row.designation || undefined}>
+          {row.designation || "—"}
+        </span>
+      ),
+    },
     {
       key: "employeeCode",
       label: "Emp Code",
-      widthClassName: "min-w-[90px]",
+      widthClassName: "w-[96px] min-w-[96px] max-w-[96px]",
       render: (row) => row.employeeCode || "—",
     },
     {
       key: "iomReferenceNo",
       label: "IOM Ref",
-      widthClassName: "min-w-[160px]",
-      render: (row) => row.iomReferenceNo || "—",
+      widthClassName: "w-[180px] min-w-[180px] max-w-[180px]",
+      render: (row) => (
+        <span className="block truncate" title={row.iomReferenceNo || undefined}>
+          {row.iomReferenceNo || "—"}
+        </span>
+      ),
     },
     {
       key: "iomStatus",
       label: "Status",
-      widthClassName: "min-w-[100px]",
+      widthClassName: "w-[100px] min-w-[100px] max-w-[100px]",
       render: (row) => {
         const label = iomEntryStatusLabel(row);
         return <StatusChip label={label} severity={journeyStatusSeverity(label)} />;
@@ -582,7 +595,7 @@ export default function CallingMasterIomPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[180px]",
+      widthClassName: "w-[180px] min-w-[180px] max-w-[180px]",
       cellClassName: "align-middle",
       render: (row) => {
         const locked = isIomConfirmed(row);

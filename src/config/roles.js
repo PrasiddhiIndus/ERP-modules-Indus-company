@@ -230,7 +230,7 @@ export const NAV_MODULE_TREE = [
   },
   {
     value: "commercialRm",
-    label: "Commercial — R&M / M&M / AMC / IEV",
+    label: "Commercial — R&M / AMC / IEV",
     subModules: [
       { value: "commercialRm.dashboard",          label: "Dashboard",              pathPrefix: "/app/commercial/rm-mm-amc-iev/dashboard" },
       { value: "commercialRm.enquiry",            label: "Enquiry",                pathPrefix: "/app/commercial/rm-mm-amc-iev/manpower-management" },
@@ -267,6 +267,7 @@ export const NAV_MODULE_TREE = [
       { value: "maintenance.client-master",   label: "Client Master",          pathPrefix: "/app/maintenance/client-master" },
       { value: "maintenance.product-catalog", label: "Product Catalog",        pathPrefix: "/app/maintenance/product-catalog" },
       { value: "maintenance.purchase-orders", label: "Purchase Orders",        pathPrefix: "/app/maintenance/purchase-orders" },
+      { value: "maintenance.mm-po-entry",     label: "M&M PO Entry",           pathPrefix: "/app/maintenance/mm-po-entry" },
       { value: "maintenance.expo-seminar",    label: "Expo & Seminar",         pathPrefix: "/app/maintenance/expo-seminar" },
       { value: "maintenance.gst",             label: "GST Documents",          pathPrefix: "/app/maintenance/gst-upload" },
       { value: "maintenance.mail-template",   label: "Mail Template",          pathPrefix: "/app/maintenance/mail-templates" },
@@ -373,7 +374,7 @@ export const MODULE_PATH_PREFIXES = {
   maintenance: ["/app/maintenance"],
   /** Commercial — Manpower / Training (includes legacy manpower module routes) */
   commercialMt: ["/app/commercial/manpower-training", "/app/commercial/manpower", "/app/manpower"],
-  /** Commercial — R&M / M&M / AMC / IEV */
+  /** Commercial — R&M / AMC / IEV */
   commercialRm: ["/app/commercial/rm-mm-amc-iev"],
   billing: ["/app/billing"],
   tracking: ["/app/billing/tracking"],
@@ -682,11 +683,14 @@ export function getLoginRedirectPath(userProfile, accessibleModules) {
 /** Manager needs one of these in `accessibleModules` to approve Commercial — Manpower/Training PO workflows. */
 export const COMMERCIAL_MT_APPROVER_MODULE_KEYS = ["commercialMt", "sales"];
 
-/** Manager needs one of these to approve Commercial — R&M / M&M / AMC / IEV PO workflows. */
+/** Manager needs one of these to approve Commercial — R&M / AMC / IEV PO workflows. */
 export const COMMERCIAL_RM_APPROVER_MODULE_KEYS = ["commercialRm", "sales"];
 
 /** PO/WO approval in Projects → PO Entry (same workflow as Commercial R&M). */
 export const PROJECTS_PO_APPROVER_MODULE_KEYS = ["projects", "sales"];
+
+/** M&M PO approval from Maintenance → M&M PO Entry (same Commercial R&M workflow). */
+export const MAINTENANCE_MM_PO_APPROVER_MODULE_KEYS = ["maintenance", "commercialRm", "sales"];
 
 /** Tender approve/reject and costing → quotation approval in Fire Tender. */
 export const FIRE_TENDER_APPROVER_MODULE_KEYS = ["fireTender"];

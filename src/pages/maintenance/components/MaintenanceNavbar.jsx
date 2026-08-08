@@ -24,6 +24,7 @@ const MaintenanceNavbar = () => {
     { path: '/app/maintenance/client-master', icon: Users, label: 'Client Master' },
     { path: '/app/maintenance/product-catalog', icon: Package, label: 'Product Catalog' },
     { path: '/app/maintenance/purchase-orders', icon: ShoppingCart, label: 'Purchase Orders' },
+    { path: '/app/maintenance/mm-po-entry', icon: FileText, label: 'M&M PO Entry' },
     { path: '/app/maintenance/expo-seminar', icon: MapPin, label: 'Expo & Seminar' },
     { path: '/app/maintenance/gst-upload', icon: Receipt, label: 'GST Documents' },
     { path: '/app/maintenance/reports-analytics', icon: BarChart3, label: 'Reports & Analytics' },

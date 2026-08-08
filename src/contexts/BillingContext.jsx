@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { isSupabaseRealtimeEnabled } from '../lib/supabaseConfig';
+import { useAuth } from './AuthContext';
 import {
   getCommercialPoModuleType,
   withCommercialModuleMarker,
@@ -42,6 +43,11 @@ import {
 } from '../services/billingApi';
 import { PO_BASIS_FILTER_ALL, resolveBillingPoBasis } from '../constants/poBasis';
 import { normalizeBillingVerticalKey, resolveBillingVerticalKey } from '../utils/billingPoListFilters';
+import {
+  BILLING_VERTICAL_CATALOG,
+  isBillingVerticalSuperRole,
+  resolveBillingVerticalOptionsForUser,
+} from '../lib/billingVerticalAccess';
 
 const BillingContext = createContext({
   __missingProvider: true,
@@ -68,6 +74,8 @@ const BillingContext = createContext({
   billingVerticalFilter: '',
   setBillingVerticalFilter: () => {},
   billingVerticalOptions: [],
+  billingVerticalAccessBlocked: false,
+  billingVerticalGrantsReady: false,
   billingPoBasisFilter: PO_BASIS_FILTER_ALL,
   setBillingPoBasisFilter: () => {},
   billingPoBasisOptions: [],
@@ -95,8 +103,8 @@ const toModuleContext = (moduleScope) =>
 
 const BILLING_PO_BASIS_STORAGE_KEY = 'billing_po_basis_filter';
 
-// Must match the vertical dropdown lists used in PO Entry screens.
-const BILLING_VERTICAL_LABELS = ['Manpower', 'Training', 'R&M', 'M&M', 'AMC', 'IEV', 'Projects'];
+// Must match billing.vertical lookup + PO Entry screens.
+const BILLING_VERTICAL_LABELS = BILLING_VERTICAL_CATALOG.map((v) => v.label);
 
 const BILLING_PO_BASIS_OPTIONS = [
   { id: PO_BASIS_FILTER_ALL, label: 'Everything — jobs with or without a PO paper' },
@@ -132,6 +140,7 @@ function labelVertical(key) {
 }
 
 export const BillingProvider = ({ children, commercialModuleScope = null, enableVerticalFilter = false }) => {
+  const { userProfile } = useAuth();
   /** Full PO list from DB/localStorage (all modules). */
   const [commercialPOsFull, setCommercialPOsFull] = useState([]);
   const [contactHistory, setContactHistoryState] = useState({});
@@ -215,24 +224,76 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
   }, []);
 
   const billingVerticalOptions = useMemo(() => {
-    return BILLING_VERTICAL_LABELS.map((label) => ({
-      id: normalizeVerticalKey(label),
-      label,
-    }));
-  }, []);
+    if (!enableVerticalFilter) {
+      return BILLING_VERTICAL_LABELS.map((label) => ({
+        id: normalizeVerticalKey(label),
+        label,
+      }));
+    }
+    return resolveBillingVerticalOptionsForUser({
+      role: userProfile?.role,
+      grantCodes: userProfile?.billing_vertical_codes || [],
+      grantsReady: userProfile?.billing_vertical_grants_ready !== false,
+    });
+  }, [
+    enableVerticalFilter,
+    userProfile?.role,
+    userProfile?.billing_vertical_codes,
+    userProfile?.billing_vertical_grants_ready,
+  ]);
+
+  const billingVerticalAccessBlocked = useMemo(() => {
+    if (!enableVerticalFilter) return false;
+    if (!userProfile) return false;
+    if (isBillingVerticalSuperRole(userProfile?.role)) return false;
+    if (userProfile?.billing_vertical_grants_ready === false) return false;
+    return (billingVerticalOptions || []).length === 0;
+  }, [
+    enableVerticalFilter,
+    userProfile,
+    userProfile?.role,
+    userProfile?.billing_vertical_grants_ready,
+    billingVerticalOptions,
+  ]);
+
+  // Keep selected vertical inside granted set; auto-select when only one grant.
+  useEffect(() => {
+    if (!enableVerticalFilter) return;
+    const opts = billingVerticalOptions || [];
+    if (!opts.length) {
+      if (billingVerticalFilter) setBillingVerticalFilter('');
+      return;
+    }
+    const allowed = new Set(opts.map((o) => o.id));
+    if (opts.length === 1) {
+      if (billingVerticalFilter !== opts[0].id) setBillingVerticalFilter(opts[0].id);
+      return;
+    }
+    if (billingVerticalFilter && !allowed.has(billingVerticalFilter)) {
+      setBillingVerticalFilter('');
+    }
+  }, [enableVerticalFilter, billingVerticalOptions, billingVerticalFilter, setBillingVerticalFilter]);
 
   const commercialPOsVisible = useMemo(() => {
     if (!enableVerticalFilter) return commercialPOs;
+    if (billingVerticalAccessBlocked) return [];
     if (!billingVerticalFilter) return [];
     let rows = commercialPOs.filter((p) => resolvePoVerticalKey(p) === billingVerticalFilter);
     if (billingPoBasisFilter) {
       rows = rows.filter((p) => resolveBillingPoBasis(p) === billingPoBasisFilter);
     }
     return rows;
-  }, [commercialPOs, billingVerticalFilter, billingPoBasisFilter, enableVerticalFilter]);
+  }, [
+    commercialPOs,
+    billingVerticalFilter,
+    billingPoBasisFilter,
+    enableVerticalFilter,
+    billingVerticalAccessBlocked,
+  ]);
 
   const invoicesVisible = useMemo(() => {
     if (!enableVerticalFilter) return invoicesFull;
+    if (billingVerticalAccessBlocked) return [];
     if (!billingVerticalFilter) return [];
     const visibleParents = new Set(commercialPOsVisible.map((p) => String(p.id)));
     const supplementaryChildIdsForVisibleParents = new Set();
@@ -251,6 +312,40 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     commercialPOsFull,
     billingVerticalFilter,
     enableVerticalFilter,
+    billingVerticalAccessBlocked,
+  ]);
+
+  const creditDebitNotesVisible = useMemo(() => {
+    if (!enableVerticalFilter) return creditDebitNotes;
+    if (billingVerticalAccessBlocked || !billingVerticalFilter) return [];
+    const visibleInvoiceIds = new Set(invoicesVisible.map((inv) => String(inv.id)));
+    return (creditDebitNotes || []).filter((n) => {
+      const parentId = String(n.parentInvoiceId || n.parent_invoice_id || '');
+      return parentId && visibleInvoiceIds.has(parentId);
+    });
+  }, [
+    creditDebitNotes,
+    invoicesVisible,
+    enableVerticalFilter,
+    billingVerticalAccessBlocked,
+    billingVerticalFilter,
+  ]);
+
+  const paymentAdviceVisible = useMemo(() => {
+    if (!enableVerticalFilter) return paymentAdvice;
+    if (billingVerticalAccessBlocked || !billingVerticalFilter) return {};
+    const visibleInvoiceIds = new Set(invoicesVisible.map((inv) => String(inv.id)));
+    const next = {};
+    Object.entries(paymentAdvice || {}).forEach(([key, val]) => {
+      if (visibleInvoiceIds.has(String(key))) next[key] = val;
+    });
+    return next;
+  }, [
+    paymentAdvice,
+    invoicesVisible,
+    enableVerticalFilter,
+    billingVerticalAccessBlocked,
+    billingVerticalFilter,
   ]);
 
   const loadFromDb = useCallback(async () => {
@@ -577,9 +672,9 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     invoices: invoicesVisible,
     invoicesAll: invoicesFull,
     setInvoices,
-    creditDebitNotes,
+    creditDebitNotes: creditDebitNotesVisible,
     setCreditDebitNotes,
-    paymentAdvice,
+    paymentAdvice: paymentAdviceVisible,
     setPaymentAdvice,
     invoiceDraft,
     setInvoiceDraft,
@@ -592,6 +687,8 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     billingVerticalFilter,
     setBillingVerticalFilter,
     billingVerticalOptions,
+    billingVerticalAccessBlocked,
+    billingVerticalGrantsReady: userProfile?.billing_vertical_grants_ready !== false,
     billingPoBasisFilter,
     setBillingPoBasisFilter,
     billingPoBasisOptions: BILLING_PO_BASIS_OPTIONS,

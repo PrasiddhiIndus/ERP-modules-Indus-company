@@ -223,20 +223,38 @@ export default function CallingMasterJoiningPage() {
   };
 
   const columns = [
-    { key: "candidateName", label: "Candidate", widthClassName: "min-w-[160px]" },
-    { key: "designation", label: "Designation", widthClassName: "min-w-[130px]" },
+    {
+      key: "candidateName",
+      label: "Candidate",
+      widthClassName: "w-[168px] min-w-[168px] max-w-[168px]",
+      render: (row) => (
+        <span className="block truncate font-medium" title={row.candidateName || undefined}>
+          {row.candidateName || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "designation",
+      label: "Designation",
+      widthClassName: "w-[140px] min-w-[140px] max-w-[140px]",
+      render: (row) => (
+        <span className="block truncate" title={row.designation || undefined}>
+          {row.designation || "—"}
+        </span>
+      ),
+    },
     {
       key: "employeeCode",
       label: "Emp Code",
-      widthClassName: "min-w-[90px]",
+      widthClassName: "w-[96px] min-w-[96px] max-w-[96px]",
       render: (row) => row.employeeCode || "—",
     },
     {
       key: "joiningDate",
       label: "Planned joining",
-      widthClassName: "min-w-[120px]",
+      widthClassName: "w-[140px] min-w-[140px] max-w-[140px]",
       render: (row) => (
-        <span className={isOverdueForJoining(row) ? "text-red-700 font-medium" : ""}>
+        <span className={isOverdueForJoining(row) ? "font-medium text-red-700" : ""}>
           {row.joiningDate || "—"}
           {isOverdueForJoining(row) ? " (overdue)" : ""}
         </span>
@@ -245,7 +263,7 @@ export default function CallingMasterJoiningPage() {
     {
       key: "checklist",
       label: "Checklist",
-      widthClassName: "min-w-[110px]",
+      widthClassName: "w-[100px] min-w-[100px] max-w-[100px]",
       render: (row) => {
         const done = countJoiningChecklistDone(row.joiningChecklist);
         const total = JOINING_CHECKLIST_ITEMS.length;
@@ -255,7 +273,7 @@ export default function CallingMasterJoiningPage() {
     {
       key: "joiningStatus",
       label: "Joining status",
-      widthClassName: "min-w-[120px]",
+      widthClassName: "w-[120px] min-w-[120px] max-w-[120px]",
       render: (row) => {
         const label = row.joiningStatus || "Pending";
         return <StatusChip label={label} severity={journeyStatusSeverity(label)} />;
@@ -264,7 +282,7 @@ export default function CallingMasterJoiningPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[240px]",
+      widthClassName: "w-[280px] min-w-[280px] max-w-[280px]",
       cellClassName: "align-middle",
       render: (row) => {
         const complete = isJoiningChecklistComplete(row.joiningChecklist);

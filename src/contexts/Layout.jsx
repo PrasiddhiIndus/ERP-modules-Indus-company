@@ -86,7 +86,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/hr|\/app\/attendance|\/app\/salary|\/app\/people-management/, "People", "HR & workforce"],
     [/\/app\/ifsp-employee-compliance|\/app\/general-compliance/, "Compliance", "Statutory & registers"],
     [/\/app\/admin|\/app\/ifsp-employee|\/app\/store-inventory|\/app\/gate-pass/, "Admin", "Assets & stores"],
-    [/\/app\/commercial\/rm-mm-amc-iev/, "Commercial", "R&M / M&M / AMC / IEV"],
+    [/\/app\/commercial\/rm-mm-amc-iev/, "Commercial", "R&M / AMC / IEV"],
     [/\/app\/commercial|\/app\/manpower/, "Commercial", "Manpower & training"],
     [/\/app\/marketing/, "Go-to-market", "Marketing"],
     [/\/app\/maintenance/, "Service", "Maintenance"],
@@ -772,7 +772,7 @@ const Layout = () => {
             </div>
             )}
 
-            {/* Commercial — R&M / M&M / AMC / IEV */}
+            {/* Commercial — R&M / AMC / IEV */}
             {(can("commercialRm") || can("sales")) && (
             <div>
               <button
@@ -786,7 +786,7 @@ const Layout = () => {
                   <Briefcase className="w-4 h-4 shrink-0" />
                   <span className="min-w-0 text-left leading-tight">
                     <span className="block text-sm font-medium">Commercial</span>
-                    <span className="block text-xs">R&amp;M / M&amp;M / AMC / IEV</span>
+                    <span className="block text-xs">R&amp;M / AMC / IEV</span>
                   </span>
                 </span>
                 <ChevronDown
@@ -937,6 +937,10 @@ const Layout = () => {
                   <NavLink to="/app/maintenance/purchase-orders" className={subNavClass}>
                     <ShoppingCart className="w-4 h-4 shrink-0 text-pink-600" />
                     <span className="type-meta type-truncate">Purchase Orders</span>
+                  </NavLink>
+                  <NavLink to="/app/maintenance/mm-po-entry" className={subNavClass}>
+                    <FileText className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span className="type-meta type-truncate">PO Entry</span>
                   </NavLink>
                   <NavLink to="/app/maintenance/expo-seminar" className={subNavClass}>
                     <MapPin className="w-4 h-4 shrink-0 text-accent" />

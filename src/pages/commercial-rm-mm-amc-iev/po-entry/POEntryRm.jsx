@@ -35,7 +35,7 @@ import {
   isPoWithoutPoBilling,
 } from '../../../constants/poBasis';
 
-const VERTICALS = ['R&M', 'M&M','AMC','IEV'];
+const VERTICALS = ['R&M', 'AMC', 'IEV'];
 const BILLING_TYPES = ['Supply', 'Service'];
 const ALLOWED_RM_PO_TYPES = new Set(BILLING_TYPES);
 const BILLING_CYCLES = ['30', '45', '60'];
@@ -311,8 +311,8 @@ const POEntry = ({
   const { user, userProfile, accessibleModules } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'modified', direction: 'desc' });
-  /** OC segment / vertical — R&M, M&M, AMC, IEV */
-  const [departmentFilter, setDepartmentFilter] = useState('');
+  /** OC segment / vertical — R&M, AMC, IEV (locked when fixedVertical is set, e.g. M&M from Maintenance) */
+  const [departmentFilter, setDepartmentFilter] = useState(() => fixedVertical || '');
   const [listPoBasisFilter, setListPoBasisFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -477,8 +477,11 @@ const POEntry = ({
 
   const filteredList = useMemo(() => {
     // Hide supplementary/mock POs from PO Entry UI — only manage the parent PO here.
-    const base = commercialPOs.filter((p) => !p.isSupplementary);
-    let list = base;
+    let list = commercialPOs.filter((p) => !p.isSupplementary);
+    // Commercial R&M / AMC / IEV: M&M POs live under Maintenance → M&M PO Entry.
+    if (!fixedVertical) {
+      list = list.filter((p) => poDepartmentLabel(p) !== 'M&M');
+    }
     if (departmentFilter) {
       list = list.filter((p) => poDepartmentLabel(p) === departmentFilter);
     }
@@ -496,7 +499,7 @@ const POEntry = ({
         p.legalName?.toLowerCase().includes(s) ||
         p.siteId?.toLowerCase().includes(s)
     );
-  }, [commercialPOs, searchTerm, departmentFilter, listPoBasisFilter]);
+  }, [commercialPOs, searchTerm, departmentFilter, listPoBasisFilter, fixedVertical]);
 
   const sortedFilteredList = useMemo(() => {
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
@@ -1050,7 +1053,7 @@ const POEntry = ({
           {fixedVertical ? (
             <> (<strong>{fixedVertical}</strong>)</>
           ) : (
-            <> (R&amp;M / M&amp;M / AMC / IEV)</>
+            <> (R&amp;M / AMC / IEV)</>
           )}
           , then <strong>Create Invoice</strong>.
         </p>
