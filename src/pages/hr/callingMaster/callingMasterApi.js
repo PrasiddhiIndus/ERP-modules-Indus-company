@@ -676,7 +676,7 @@ export async function setOfferExpiryDays(days) {
   return value;
 }
 
-/** Run server-side auto-expire for Generated offers past the configured window. */
+/** Run server-side auto-expire for Generated offers whose joining date has arrived. */
 export async function autoExpireOffers() {
   const { data, error } = await supabase.rpc("hr_calling_auto_expire_offers");
   if (error) throw new Error(friendlyError(error, "Unable to auto-expire offers."));

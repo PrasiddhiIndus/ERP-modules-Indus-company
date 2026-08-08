@@ -12,11 +12,14 @@ const TONE = {
 
 /**
  * Action strip for Calling Master tables — separates actions from data columns.
+ * @param {"start"|"end"} [edge="end"] — "end" adds a left rule; "start" is plain (actions frozen on the left).
  */
-export function CallingActionBar({ children, className = "" }) {
+export function CallingActionBar({ children, className = "", edge = "end" }) {
   return (
     <div
-      className={`inline-flex flex-wrap items-center gap-1.5 pl-3 ml-0.5 border-l border-slate-200/90 ${className}`.trim()}
+      className={`inline-flex flex-nowrap items-center gap-1.5 ${
+        edge === "end" ? "pl-3 ml-0.5 border-l border-slate-200/90" : ""
+      } ${className}`.trim()}
       onClick={(e) => e.stopPropagation()}
     >
       {children}

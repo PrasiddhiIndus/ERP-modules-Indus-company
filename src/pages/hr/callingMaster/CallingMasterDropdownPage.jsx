@@ -294,29 +294,33 @@ export default function CallingMasterDropdownPage() {
                 ) : null}
               </div>
             ) : (
-              <div className="overflow-hidden rounded-lg border border-slate-200">
-                <table className="min-w-full text-sm">
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="min-w-full table-fixed text-sm">
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="px-3 py-2 text-left font-semibold">#</th>
+                      <th className="w-14 px-3 py-2 text-left font-semibold">#</th>
                       <th className="px-3 py-2 text-left font-semibold">Option</th>
-                      {!linkedMaster ? <th className="px-3 py-2 text-right font-semibold">Actions</th> : null}
+                      {!linkedMaster ? <th className="w-40 px-3 py-2 text-right font-semibold">Actions</th> : null}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {options.map((option, index) => (
                       <tr key={option.id} className="hover:bg-slate-50/80">
-                        <td className="px-3 py-2.5 text-slate-500">{index + 1}</td>
-                        <td className="px-3 py-2.5 font-medium text-slate-900">{option.label}</td>
+                        <td className="px-3 py-2.5 align-middle text-slate-500">{index + 1}</td>
+                        <td className="max-w-0 px-3 py-2.5 align-middle font-medium text-slate-900">
+                          <span className="block truncate" title={option.label}>
+                            {option.label}
+                          </span>
+                        </td>
                         {!linkedMaster ? (
-                          <td className="px-3 py-2.5">
-                            <div className="flex justify-end gap-2">
+                          <td className="px-3 py-2.5 align-middle">
+                            <div className="flex flex-nowrap justify-end gap-2">
                               <button
                                 type="button"
                                 onClick={() => openEdit(option)}
-                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-white"
+                                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 px-2.5 text-xs font-medium text-slate-700 hover:bg-white"
                               >
-                                <Edit3 className="h-3.5 w-3.5" />
+                                <Edit3 className="h-3.5 w-3.5 shrink-0" />
                                 Edit
                               </button>
                               <button
@@ -325,9 +329,9 @@ export default function CallingMasterDropdownPage() {
                                   setPendingDelete(option);
                                   setDeleteOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700"
+                                className="inline-flex h-8 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs font-medium text-rose-700"
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <Trash2 className="h-3.5 w-3.5 shrink-0" />
                                 Delete
                               </button>
                             </div>

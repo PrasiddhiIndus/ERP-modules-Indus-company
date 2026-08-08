@@ -324,36 +324,65 @@ export default function CallingMasterOfferPage() {
   };
 
   const columns = [
-    { key: "candidateName", label: "Candidate", widthClassName: "min-w-[160px]" },
-    { key: "designation", label: "Designation", widthClassName: "min-w-[130px]" },
+    {
+      key: "candidateName",
+      label: "Candidate",
+      widthClassName: "w-[168px] min-w-[168px] max-w-[168px]",
+      render: (row) => (
+        <span className="block truncate font-medium" title={row.candidateName || undefined}>
+          {row.candidateName || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "designation",
+      label: "Designation",
+      widthClassName: "w-[140px] min-w-[140px] max-w-[140px]",
+      render: (row) => (
+        <span className="block truncate" title={row.designation || undefined}>
+          {row.designation || "—"}
+        </span>
+      ),
+    },
     {
       key: "siteSuitable",
       label: "Site",
-      widthClassName: "min-w-[140px]",
-      render: (row) => row.siteFullName || row.siteSuitable || "—",
+      widthClassName: "w-[156px] min-w-[156px] max-w-[156px]",
+      render: (row) => {
+        const text = row.siteFullName || row.siteSuitable || "—";
+        return (
+          <span className="block truncate" title={text === "—" ? undefined : text}>
+            {text}
+          </span>
+        );
+      },
     },
     {
       key: "salaryGross",
       label: "Gross Salary",
-      widthClassName: "min-w-[110px]",
+      widthClassName: "w-[110px] min-w-[110px] max-w-[110px]",
       render: (row) => (row.salaryGross === "" || row.salaryGross == null ? "—" : row.salaryGross),
     },
     {
       key: "employeeCode",
       label: "Emp Code",
-      widthClassName: "min-w-[90px]",
+      widthClassName: "w-[96px] min-w-[96px] max-w-[96px]",
       render: (row) => row.employeeCode || "—",
     },
     {
       key: "offerReferenceNo",
       label: "Reference No",
-      widthClassName: "min-w-[180px]",
-      render: (row) => row.offerReferenceNo || "—",
+      widthClassName: "w-[180px] min-w-[180px] max-w-[180px]",
+      render: (row) => (
+        <span className="block truncate" title={row.offerReferenceNo || undefined}>
+          {row.offerReferenceNo || "—"}
+        </span>
+      ),
     },
     {
       key: "offerStatus",
       label: "Offer Status",
-      widthClassName: "min-w-[140px]",
+      widthClassName: "w-[140px] min-w-[140px] max-w-[140px]",
       render: (row) => {
         const status = offerStatusLabel(row);
         const response = offerResponseLabel(row);
@@ -369,7 +398,7 @@ export default function CallingMasterOfferPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "min-w-[220px]",
+      widthClassName: "w-[248px] min-w-[248px] max-w-[248px]",
       cellClassName: "align-middle",
       render: (row) => {
         const generated = canDownloadOfferLetter(row);

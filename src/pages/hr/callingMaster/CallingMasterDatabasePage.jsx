@@ -242,13 +242,46 @@ export default function CallingMasterDatabasePage() {
   }, [filtered]);
 
   const recentColumns = [
-    { key: "callDate", label: "Date", render: (row) => formatDateDisplay(row.callDate) },
-    { key: "callingBy", label: "Calling By" },
-    { key: "candidateName", label: "Candidate" },
-    { key: "phoneNumber", label: "Mobile" },
+    {
+      key: "callDate",
+      label: "Date",
+      headerClassName: "w-[104px] min-w-[104px] max-w-[104px]",
+      cellClassName: "w-[104px] min-w-[104px] max-w-[104px]",
+      render: (row) => formatDateDisplay(row.callDate),
+    },
+    {
+      key: "callingBy",
+      label: "Calling By",
+      headerClassName: "w-[118px] min-w-[118px] max-w-[118px]",
+      cellClassName: "w-[118px] min-w-[118px] max-w-[118px]",
+      render: (row) => (
+        <span className="block truncate" title={row.callingBy || undefined}>
+          {row.callingBy || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "candidateName",
+      label: "Candidate",
+      headerClassName: "w-[168px] min-w-[168px] max-w-[168px]",
+      cellClassName: "w-[168px] min-w-[168px] max-w-[168px]",
+      render: (row) => (
+        <span className="block truncate font-medium" title={row.candidateName || undefined}>
+          {row.candidateName || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "phoneNumber",
+      label: "Mobile",
+      headerClassName: "w-[118px] min-w-[118px] max-w-[118px]",
+      cellClassName: "w-[118px] min-w-[118px] max-w-[118px]",
+    },
     {
       key: "siteSuitable",
       label: "Site Suitable",
+      headerClassName: "w-[128px] min-w-[128px] max-w-[128px]",
+      cellClassName: "w-[128px] min-w-[128px] max-w-[128px]",
       render: (row) => (
         <StatusChip
           label={row.siteSuitable || "Review"}
@@ -256,7 +289,17 @@ export default function CallingMasterDatabasePage() {
         />
       ),
     },
-    { key: "industryWorked", label: "Industry" },
+    {
+      key: "industryWorked",
+      label: "Industry",
+      headerClassName: "w-[140px] min-w-[140px] max-w-[140px]",
+      cellClassName: "w-[140px] min-w-[140px] max-w-[140px]",
+      render: (row) => (
+        <span className="block truncate" title={row.industryWorked || undefined}>
+          {row.industryWorked || "—"}
+        </span>
+      ),
+    },
   ];
 
   const clearFilters = () => {
@@ -281,7 +324,7 @@ export default function CallingMasterDatabasePage() {
       </PageTaskHeader>
 
       <FilterBar>
-        <label>
+        <label className="min-w-0">
           <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Month</span>
           <TinySelect
             value={monthFilter}
@@ -297,7 +340,7 @@ export default function CallingMasterDatabasePage() {
           </TinySelect>
         </label>
 
-        <label>
+        <label className="min-w-0">
           <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Calling By</span>
           <TinySelect
             value={callerFilter}
@@ -313,26 +356,26 @@ export default function CallingMasterDatabasePage() {
           </TinySelect>
         </label>
 
-        <label>
+        <label className="min-w-0">
           <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">From date</span>
           <FormDateInput
             value={fromDate}
             onChange={(event) => setFromDate(event.target.value)}
-            className="h-8 min-w-[11rem] rounded-lg border border-slate-200 bg-white"
+            className="box-border h-8 min-w-[11rem] rounded-lg border border-slate-200 bg-white"
           />
         </label>
 
-        <label>
+        <label className="min-w-0">
           <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">To date</span>
           <FormDateInput
             value={toDate}
             onChange={(event) => setToDate(event.target.value)}
-            className="h-8 min-w-[11rem] rounded-lg border border-slate-200 bg-white"
+            className="box-border h-8 min-w-[11rem] rounded-lg border border-slate-200 bg-white"
           />
         </label>
 
         <div className="ml-auto flex items-end">
-          <button type="button" onClick={clearFilters} className="erp-btn-secondary rounded-control px-3 py-2">
+          <button type="button" onClick={clearFilters} className="erp-btn-secondary inline-flex h-8 items-center rounded-control px-3">
             Clear filters
           </button>
         </div>
