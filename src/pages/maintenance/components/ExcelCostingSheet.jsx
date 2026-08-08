@@ -13,7 +13,8 @@ const COSTING_SHEET_COLUMNS = [
   { id: 'hsn_sac_code', label: 'HSN/SAC Code', inputType: 'text', isEditable: true, isCalculated: false },
   { id: 'gst_pct', label: 'GST (%)', inputType: 'number', isEditable: true, isCalculated: false },
   { id: 'qty', label: 'Quantity', inputType: 'number', isEditable: true, isCalculated: false },
-  { id: 'uom', label: 'UOM (Unit of Measure)', inputType: 'text', isEditable: true, isCalculated: false },
+  { id: 'uom', label: 'UOM (Unit of Measure)', inputType: 'uom', isEditable: true, isCalculated: false },
+
   { id: 'unit_rate', label: 'Unit Rate', inputType: 'number', isEditable: false, isCalculated: true },
   { id: 'total_amount', label: 'Total Amount', inputType: 'number', isEditable: false, isCalculated: true },
   { id: 'vendor_name', label: 'Vendor Name', inputType: 'text', isEditable: true, isCalculated: false },
@@ -36,6 +37,14 @@ const TRANSPORT_PCT = 5;
 const MISC_PCT = 1;
 const BD_OVERHEAD_PCT = 10;
 const MARGIN_PCT = 25;
+
+/** UOM presets for costing sheet; anything else is treated as manual/custom entry. */
+const UOM_OPTIONS = ['no.', 'mtr', 'litre', 'each', 'set', 'job', 'man day'];
+const UOM_MANUAL_VALUE = '__manual__';
+
+function isUomPreset(value) {
+  return UOM_OPTIONS.includes(String(value || '').trim());
+}
 
 /**
  * Compute derived cells for one row from Vendor Rate (N) and Quantity (I).
@@ -178,6 +187,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   const [costHeads] = useState(COSTING_SHEET_COLUMNS);
   const [costingData, setCostingData] = useState({});
   const [editingCell, setEditingCell] = useState(null);
+  const [uomForceManual, setUomForceManual] = useState({});
   const [loading, setLoading] = useState(true);
   const isCalculatingRef = useRef(false);
   const previousInputDataRef = useRef({});
@@ -538,6 +548,14 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
   const handleCellChange = (itemId, costHeadId, value) => {
     setCellValue(itemId, costHeadId, value);
     setEditingCell(null);
+    if (costHeadId === 'uom') {
+      setUomForceManual((prev) => {
+        if (!prev[itemId]) return prev;
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+    }
   };
 
   const saveCostingSheet = useCallback(async ({ silent = false, quotationId: providedQuotationId = null } = {}) => {
@@ -809,9 +827,9 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
             <col style={{ width: '160px', minWidth: '160px' }} />
             {costHeads.map((head) => {
               const isPct = head.id.includes('_pct') || head.id === 'gst_pct' || head.id === 'total_difference_pct';
-              const isText = head.inputType === 'text';
-              const isAmount = !isText && (head.isCalculated || head.id.includes('amount') || head.id.includes('rate') || head.id.includes('cost') || head.id.includes('total'));
-              const w = isText ? '110px' : isPct ? '72px' : isAmount ? '100px' : '90px';
+              const isTextLike = head.inputType === 'text' || head.inputType === 'uom';
+              const isAmount = !isTextLike && (head.isCalculated || head.id.includes('amount') || head.id.includes('rate') || head.id.includes('cost') || head.id.includes('total'));
+              const w = head.inputType === 'uom' ? '100px' : isTextLike ? '110px' : isPct ? '72px' : isAmount ? '100px' : '90px';
               return <col key={head.id} style={{ width: w, minWidth: w }} />;
             })}
             <col style={{ width: '32px', minWidth: '32px' }} />
@@ -827,9 +845,9 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
               {costHeads.map((head) => (
                 <th
                   key={head.id}
-                  className={`px-1.5 py-2 text-[10px] font-bold text-gray-800 border-r border-gray-400 bg-gradient-to-r from-gray-100 to-gray-200 align-middle ${head.isCalculated && head.inputType !== 'text' ? 'text-right' : 'text-center'}`}
+                  className={`px-1.5 py-2 text-[10px] font-bold text-gray-800 border-r border-gray-400 bg-gradient-to-r from-gray-100 to-gray-200 align-middle ${head.isCalculated && head.inputType !== 'text' && head.inputType !== 'uom' ? 'text-right' : 'text-center'}`}
                   title={head.label}
-                  style={{ minWidth: head.inputType === 'text' ? '100px' : head.id.includes('_pct') || head.id === 'gst_pct' ? '72px' : '96px', maxWidth: '140px', whiteSpace: 'normal', lineHeight: 1.2 }}
+                  style={{ minWidth: head.inputType === 'text' || head.inputType === 'uom' ? '100px' : head.id.includes('_pct') || head.id === 'gst_pct' ? '72px' : '96px', maxWidth: '140px', whiteSpace: 'normal', lineHeight: 1.2 }}
                 >
                   <span className={head.isCalculated ? 'font-bold' : ''}>{head.label}</span>
                 </th>
@@ -961,6 +979,8 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                   const cellValue = getCellValue(item.id, head.id);
                   const isEditing = editingCell === `${item.id}_${head.id}`;
                   const isText = head.inputType === 'text';
+                  const isUom = head.inputType === 'uom';
+                  const isTextLike = isText || isUom;
                   const numericValue = parseFloat(cellValue) || 0;
                   const isPctCol =
                     head.id.includes('_pct') ||
@@ -969,6 +989,13 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                   const isManualEntry = !head.isCalculated;
                   const highlightTotal =
                     head.id === 'total_amount' || head.id === 'final_rate_submission';
+                  const uomForce = Boolean(uomForceManual[item.id]);
+                  const uomSelectValue = isUomPreset(cellValue)
+                    ? String(cellValue).trim()
+                    : cellValue || uomForce
+                      ? UOM_MANUAL_VALUE
+                      : '';
+                  const showUomManualInput = isUom && uomSelectValue === UOM_MANUAL_VALUE;
 
                   return (
                     <td
@@ -986,7 +1013,76 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                             : `₹${formatNumber(numericValue, 2)}`}
                         </div>
                       ) : isEditing && !isViewMode ? (
-                        isText ? (
+                        isUom ? (
+                          <div className="flex flex-col gap-0.5">
+                            <select
+                              value={uomSelectValue}
+                              onChange={(e) => {
+                                const next = e.target.value;
+                                if (next === UOM_MANUAL_VALUE) {
+                                  setUomForceManual((prev) => ({ ...prev, [item.id]: true }));
+                                  if (isUomPreset(cellValue)) {
+                                    setCellValue(item.id, head.id, '');
+                                  }
+                                  return;
+                                }
+                                setUomForceManual((prev) => {
+                                  if (!prev[item.id]) return prev;
+                                  const copy = { ...prev };
+                                  delete copy[item.id];
+                                  return copy;
+                                });
+                                handleCellChange(item.id, head.id, next);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  setUomForceManual((prev) => {
+                                    if (!prev[item.id]) return prev;
+                                    const copy = { ...prev };
+                                    delete copy[item.id];
+                                    return copy;
+                                  });
+                                  setEditingCell(null);
+                                }
+                              }}
+                              className="w-full px-1 py-0.5 border border-red-500 text-xs focus:outline-none rounded bg-white"
+                              autoFocus={!showUomManualInput}
+                              title="Unit of Measure"
+                            >
+                              <option value="">Select UOM</option>
+                              {UOM_OPTIONS.map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                              <option value={UOM_MANUAL_VALUE}>Manual entry</option>
+                            </select>
+                            {showUomManualInput && (
+                              <input
+                                type="text"
+                                value={isUomPreset(cellValue) ? '' : cellValue}
+                                onChange={(e) => setCellValue(item.id, head.id, e.target.value)}
+                                onBlur={(e) => handleCellChange(item.id, head.id, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleCellChange(item.id, head.id, e.target.value);
+                                  if (e.key === 'Escape') {
+                                    setUomForceManual((prev) => {
+                                      if (!prev[item.id]) return prev;
+                                      const copy = { ...prev };
+                                      delete copy[item.id];
+                                      return copy;
+                                    });
+                                    setEditingCell(null);
+                                  }
+                                }}
+                                className="w-full px-1 py-0.5 border border-red-500 text-xs focus:outline-none rounded bg-white"
+                                autoFocus
+                                placeholder="Type UOM"
+                                title="Enter any unit of measure"
+                              />
+                            )}
+                          </div>
+                        ) : isText ? (
                           <input
                             type="text"
                             value={cellValue}
@@ -1022,16 +1118,16 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
                       ) : (
                         <div
                           className={`text-xs text-gray-700 px-1 py-0.5 min-h-[20px] flex items-center ${
-                            isText ? 'justify-start text-left truncate' : 'justify-end text-right'
+                            isTextLike ? 'justify-start text-left truncate' : 'justify-end text-right'
                           } ${isViewMode ? '' : 'cursor-pointer hover:bg-red-100 rounded'}`}
                           onClick={() => !isViewMode && setEditingCell(`${item.id}_${head.id}`)}
-                          title={isViewMode ? 'Read only' : isText ? String(cellValue || head.label) : 'Manual entry - click to edit'}
+                          title={isViewMode ? 'Read only' : isUom ? 'Select or enter UOM' : isText ? String(cellValue || head.label) : 'Manual entry - click to edit'}
                         >
-                          {isText ? (
+                          {isTextLike ? (
                             cellValue ? (
                               <span className="truncate">{cellValue}</span>
                             ) : (
-                              <span className="text-gray-400 text-[10px]">Enter</span>
+                              <span className="text-gray-400 text-[10px]">{isUom ? 'Select' : 'Enter'}</span>
                             )
                           ) : numericValue > 0 || (head.id === 'qty' && cellValue !== '') || (head.id === 'gst_pct' && cellValue !== '') ? (
                             <span>{isPctCol ? `${formatNumber(numericValue)}%` : formatNumber(numericValue)}</span>
