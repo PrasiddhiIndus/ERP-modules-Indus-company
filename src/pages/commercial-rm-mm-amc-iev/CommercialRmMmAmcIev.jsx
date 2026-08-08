@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BillingProvider, useBilling } from "../../contexts/BillingContext";
 import { COMMERCIAL_MODULE_RM_MM_AMC_IEV } from "../../constants/commercialModuleType";
@@ -8,6 +8,15 @@ import CommercialDashboardRmMmAmcIev from "./dashboard/CommercialDashboardRmMmAm
 
 const TAB_IDS = ["po-entry", "contact-log"];
 const RM_BASE = "/app/commercial/rm-mm-amc-iev";
+
+function isMmCommercialPo(p) {
+  const oc = String(p?.ocNumber || "").trim();
+  if (oc.startsWith("IFSPL-")) {
+    const seg = oc.split("-")[1];
+    if (seg) return seg === "M&M";
+  }
+  return String(p?.vertical || "").trim() === "M&M";
+}
 
 const CommercialInnerRm = () => {
   const location = useLocation();
@@ -32,6 +41,13 @@ const CommercialInnerRm = () => {
     if (TAB_IDS.includes(rest)) setActiveTab(rest);
   }, [location.pathname]);
 
+  // M&M POs are managed under Maintenance; keep them out of Commercial list UIs.
+  // PO Entry still receives the full module slice so save/approve merges stay correct.
+  const commercialPOsWithoutMm = useMemo(
+    () => commercialPOs.filter((p) => !isMmCommercialPo(p)),
+    [commercialPOs]
+  );
+
   const tabs = [
     { id: "po-entry", label: "PO Entry", component: POEntry },
     { id: "contact-log", label: "Contact Log", component: ContactLog },
@@ -46,6 +62,8 @@ const CommercialInnerRm = () => {
     navigate(`${RM_BASE}/${tabId}`);
   };
 
+  const posForUi = ActiveComponent === POEntry ? commercialPOs : commercialPOsWithoutMm;
+
   return (
     <div className="min-h-screen bg-gray-50">
       {billingError && (
@@ -58,7 +76,7 @@ const CommercialInnerRm = () => {
       )}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="px-6 py-4">
-          <h1 className="text-2xl font-bold text-gray-900">Commercial - R&M / M&M / AMC / IEV</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Commercial - R&amp;M / AMC / IEV</h1>
           <p className="text-gray-600 mt-1">PO/WO Management - Contract details (same source as Manpower/Training)</p>
         </div>
         {!isDashboardRoute && (
@@ -81,7 +99,7 @@ const CommercialInnerRm = () => {
       <div className="flex-1">
         <ActiveComponent
           onNavigateTab={handleTabChange}
-          commercialPOs={commercialPOs}
+          commercialPOs={posForUi}
           setCommercialPOs={setCommercialPOs}
           setInvoices={setInvoices}
         />

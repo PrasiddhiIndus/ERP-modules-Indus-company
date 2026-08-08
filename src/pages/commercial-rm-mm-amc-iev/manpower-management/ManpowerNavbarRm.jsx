@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 const BASE = "/app/commercial/rm-mm-amc-iev/manpower-management";
 const IQ = "/app/commercial/rm-mm-amc-iev/internal-quotation";
 
-/** Independent nav for R&M / M&M / AMC / IEV manpower enquiries (same UI pattern as legacy Manpower navbar). */
+/** Independent nav for R&M / AMC / IEV manpower enquiries (same UI pattern as legacy Manpower navbar). */
 const ManpowerNavbarRm = () => {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const location = useLocation();

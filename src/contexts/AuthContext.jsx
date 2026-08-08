@@ -30,6 +30,11 @@ import {
 } from "../lib/authSessionUtils";
 import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules, ROLES } from "../config/roles";
 import { logLoginStage } from "../lib/loginFlow";
+import {
+  isBillingVerticalSuperRole,
+  listMyBillingVerticalGrants,
+  profileHasBillingModuleAccess,
+} from "../lib/billingVerticalAccess";
 
 /** Build role/profile from auth user metadata — used for immediate post-login navigation. */
 function buildAuthProfile(authUser) {
@@ -84,6 +89,8 @@ function readInitialProfileRow() {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => readInitialAuthUser());
   const [profileRow, setProfileRow] = useState(() => readInitialProfileRow());
+  const [billingVerticalCodes, setBillingVerticalCodes] = useState([]);
+  const [billingVerticalGrantsReady, setBillingVerticalGrantsReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profileLoading, setProfileLoading] = useState(() => {
     const authUser = readInitialAuthUser();
@@ -680,6 +687,8 @@ export const AuthProvider = ({ children }) => {
       userRef.current = null;
       setUser(null);
       setProfileRow(null);
+      setBillingVerticalCodes([]);
+      setBillingVerticalGrantsReady(false);
       return { error: null };
     } catch (err) {
       clearSupabaseAuthStorage();
@@ -687,6 +696,8 @@ export const AuthProvider = ({ children }) => {
       userRef.current = null;
       setUser(null);
       setProfileRow(null);
+      setBillingVerticalCodes([]);
+      setBillingVerticalGrantsReady(false);
       return { error: err };
     }
   };
@@ -778,8 +789,66 @@ export const AuthProvider = ({ children }) => {
         return parseAllowedSubModules(user?.user_metadata?.allowed_sub_modules);
       })(),
       module_access_pending: user?.user_metadata?.module_access_pending === true,
+      billing_vertical_codes: billingVerticalCodes,
+      billing_vertical_grants_ready: billingVerticalGrantsReady,
     };
-  }, [user, profileRow, permissionsReady]);
+  }, [user, profileRow, permissionsReady, billingVerticalCodes, billingVerticalGrantsReady]);
+
+  // Load billing vertical grants for the signed-in user (same table RLS/RPC uses).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.id || !permissionsReady || !profileRow) {
+        setBillingVerticalCodes([]);
+        setBillingVerticalGrantsReady(false);
+        return;
+      }
+      const role = normalizeAppRole(profileRow.role);
+      if (isBillingVerticalSuperRole(role)) {
+        if (!cancelled) {
+          setBillingVerticalCodes([]);
+          setBillingVerticalGrantsReady(true);
+        }
+        return;
+      }
+      const profileForBilling = {
+        team: profileRow.team,
+        allowed_modules: profileRow.allowed_modules,
+        allowed_sub_modules: profileRow.allowed_sub_modules,
+      };
+      if (!profileHasBillingModuleAccess(profileForBilling)) {
+        if (!cancelled) {
+          setBillingVerticalCodes([]);
+          setBillingVerticalGrantsReady(true);
+        }
+        return;
+      }
+      try {
+        const grants = await listMyBillingVerticalGrants();
+        if (!cancelled) {
+          setBillingVerticalCodes((grants || []).map((g) => g.code).filter(Boolean));
+          setBillingVerticalGrantsReady(true);
+        }
+      } catch (err) {
+        console.warn('Failed to load billing vertical grants', err);
+        if (!cancelled) {
+          setBillingVerticalCodes([]);
+          setBillingVerticalGrantsReady(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    user?.id,
+    permissionsReady,
+    profileRow?.id,
+    profileRow?.role,
+    profileRow?.team,
+    profileRow?.allowed_modules,
+    profileRow?.allowed_sub_modules,
+  ]);
 
   const accessibleModules = useMemo(
     () => (userProfile ? getAccessibleModules(userProfile) : new Set()),
@@ -843,7 +912,7 @@ export const AuthProvider = ({ children }) => {
   }, [profileLoading, permissionsReady, user, profileRow?.id]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, profileLoading, permissionsReady, userProfile, accessibleModules, subModulePaths, navVisibleModules, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile, applyLoginProfile }}>
+    <AuthContext.Provider value={{ user, loading, profileLoading, permissionsReady, userProfile, accessibleModules, subModulePaths, navVisibleModules, billingVerticalCodes, billingVerticalGrantsReady, signIn, signOut, signUpWithProfile, resendConfirmation, requestPasswordReset, completePasswordReset, clearInvalidSession, verifyEmailOtp, applyCachedProfile, applyLoginProfile }}>
       {children}
     </AuthContext.Provider>
   );

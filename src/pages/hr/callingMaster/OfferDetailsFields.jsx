@@ -17,12 +17,16 @@ export default function OfferDetailsFields({
 
   if (readOnly) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+      <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
         {showRegisterSummary ? (
           <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-2">
             <p className="text-[10px] uppercase tracking-wide text-slate-500">Candidate</p>
-            <p className="mt-1 font-medium text-slate-900">{candidateName || "—"}</p>
-            <p className="text-slate-600">Site (register): {siteSuitable || "—"}</p>
+            <p className="mt-1 truncate font-medium text-slate-900" title={candidateName || undefined}>
+              {candidateName || "—"}
+            </p>
+            <p className="truncate text-slate-600" title={siteSuitable || undefined}>
+              Site (register): {siteSuitable || "—"}
+            </p>
           </div>
         ) : null}
         <ReadOnlyField label="Salutation" value={values.offerSalutation} />
@@ -49,13 +53,17 @@ export default function OfferDetailsFields({
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+    <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
       {showRegisterSummary ? (
         <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 sm:col-span-2">
           <p className="text-[10px] uppercase tracking-wide text-slate-500">From Calling Register</p>
-          <p className="mt-1 font-medium text-slate-900">{candidateName || "—"}</p>
-          <p className="text-slate-600">Site: {siteSuitable || values.siteSuitable || "—"}</p>
-          <p className="text-slate-600">
+          <p className="mt-1 truncate font-medium text-slate-900" title={candidateName || undefined}>
+            {candidateName || "—"}
+          </p>
+          <p className="truncate text-slate-600" title={siteSuitable || values.siteSuitable || undefined}>
+            Site: {siteSuitable || values.siteSuitable || "—"}
+          </p>
+          <p className="truncate text-slate-600">
             Gross:{" "}
             {values.salaryGross === "" || values.salaryGross == null
               ? "—"
@@ -64,7 +72,7 @@ export default function OfferDetailsFields({
         </div>
       ) : null}
 
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         Salutation
         <TinySelect
           value={values.offerSalutation || "Mr."}
@@ -76,7 +84,7 @@ export default function OfferDetailsFields({
         </TinySelect>
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600 sm:col-span-2">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600 sm:col-span-2">
         Father&apos;s Name
         <TinyInput
           value={values.fatherName || ""}
@@ -85,7 +93,7 @@ export default function OfferDetailsFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600 sm:col-span-2">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600 sm:col-span-2">
         Address line
         <TinyInput
           value={values.addressLine || ""}
@@ -94,21 +102,21 @@ export default function OfferDetailsFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         District
         <TinyInput
           value={values.addressDistrict || ""}
           onChange={(e) => set("addressDistrict", e.target.value)}
         />
       </label>
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         State
         <TinyInput
           value={values.addressState || ""}
           onChange={(e) => set("addressState", e.target.value)}
         />
       </label>
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         Pincode
         <TinyInput
           value={values.addressPincode || ""}
@@ -117,7 +125,7 @@ export default function OfferDetailsFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         Date of Joining
         <FormDateInput
           value={values.joiningDate || ""}
@@ -127,7 +135,7 @@ export default function OfferDetailsFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         Duty Pattern
         <TinySelect
           value={values.dutyPattern || "26"}
@@ -138,7 +146,7 @@ export default function OfferDetailsFields({
         </TinySelect>
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         Site Code (for reference no.)
         <TinyInput
           value={values.siteCode || ""}
@@ -147,7 +155,7 @@ export default function OfferDetailsFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600 sm:col-span-2">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600 sm:col-span-2">
         Full Site Name &amp; Location
         <TinyInput
           value={values.siteFullName || ""}
@@ -156,14 +164,14 @@ export default function OfferDetailsFields({
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         Designation (editable)
         <TinyInput
           value={values.designation || ""}
           onChange={(e) => set("designation", e.target.value)}
         />
       </label>
-      <label className="flex flex-col gap-1 text-slate-600">
+      <label className="flex min-w-0 flex-col gap-1 text-slate-600">
         Gross Salary (editable)
         <TinyInput
           type="number"
@@ -176,10 +184,13 @@ export default function OfferDetailsFields({
 }
 
 function ReadOnlyField({ label, value, className = "" }) {
+  const display = value == null || value === "" ? "—" : String(value);
   return (
-    <div className={`flex flex-col gap-0.5 ${className}`.trim()}>
+    <div className={`flex min-w-0 flex-col gap-0.5 ${className}`.trim()}>
       <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
-      <span className="text-slate-900">{value == null || value === "" ? "—" : value}</span>
+      <span className="truncate text-slate-900" title={display === "—" ? undefined : display}>
+        {display}
+      </span>
     </div>
   );
 }
