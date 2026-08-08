@@ -45,65 +45,83 @@ const BillingVerticalSelector = ({
   billingPoBasisFilter,
   setBillingPoBasisFilter,
   billingPoBasisOptions,
+  billingVerticalAccessBlocked,
+  lockedToSingleVertical,
 }) => (
   <div className="px-4 sm:px-6 pt-5">
-    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-gray-900">Who and what are we billing?</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          These two choices filter <strong>every</strong> tab in Billing so you only see the right jobs and bills.
+    {billingVerticalAccessBlocked ? (
+      <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm p-4">
+        <p className="text-sm font-semibold text-amber-900">No billing business lines assigned</p>
+        <p className="text-xs text-amber-800 mt-1">
+          You have Billing access, but no business lines (Manpower, M&amp;M, R&amp;M, …) are assigned to your
+          account. Ask an administrator to grant the right lines in User Management.
         </p>
       </div>
-      <div className="flex flex-col lg:flex-row lg:items-end gap-4">
-        <div className="flex-1 min-w-0">
-          <label className="block text-xs font-medium text-gray-700 mb-1">1 · Business line (team)</label>
-          <select
-            value={billingVerticalFilter || ''}
-            onChange={(e) => setBillingVerticalFilter(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-0"
-            aria-label="Business line or team"
-          >
-            <option value="">Choose team…</option>
-            {(billingVerticalOptions || []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] text-gray-500 mt-1">Same line you use in Commercial when you create the order.</p>
+    ) : (
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900">Who and what are we billing?</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            These two choices filter <strong>every</strong> tab in Billing so you only see the right jobs and bills.
+          </p>
         </div>
-        <div className="flex-1 min-w-0">
-          <label className="block text-xs font-medium text-gray-700 mb-1">2 · How the job was set up</label>
-          <select
-            value={billingPoBasisFilter || PO_BASIS_FILTER_ALL}
-            onChange={(e) => setBillingPoBasisFilter(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-0"
-            title="Filter jobs that have a real PO paper vs jobs billed without one"
-            aria-label="PO or without PO"
-          >
-            {(billingPoBasisOptions || []).map((o) => (
-              <option key={o.id || 'all'} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] text-gray-500 mt-1">Pick “without PO” only when Commercial saved the job that way.</p>
+        <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs font-medium text-gray-700 mb-1">1 · Business line (team)</label>
+            <select
+              value={billingVerticalFilter || ''}
+              onChange={(e) => setBillingVerticalFilter(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-0 disabled:bg-gray-50 disabled:text-gray-600"
+              aria-label="Business line or team"
+              disabled={lockedToSingleVertical}
+            >
+              {!lockedToSingleVertical ? <option value="">Choose team…</option> : null}
+              {(billingVerticalOptions || []).map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-500 mt-1">
+              {lockedToSingleVertical
+                ? 'Only this business line is assigned to your account.'
+                : 'Same line you use in Commercial when you create the order.'}
+            </p>
+          </div>
+          <div className="flex-1 min-w-0">
+            <label className="block text-xs font-medium text-gray-700 mb-1">2 · How the job was set up</label>
+            <select
+              value={billingPoBasisFilter || PO_BASIS_FILTER_ALL}
+              onChange={(e) => setBillingPoBasisFilter(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-0"
+              title="Filter jobs that have a real PO paper vs jobs billed without one"
+              aria-label="PO or without PO"
+            >
+              {(billingPoBasisOptions || []).map((o) => (
+                <option key={o.id || 'all'} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-500 mt-1">Pick “without PO” only when Commercial saved the job that way.</p>
+          </div>
+          {!lockedToSingleVertical &&
+          (billingVerticalFilter || billingPoBasisFilter !== PO_BASIS_FILTER_ALL) ? (
+            <button
+              type="button"
+              onClick={() => {
+                setBillingVerticalFilter('');
+                setBillingPoBasisFilter(PO_BASIS_FILTER_ALL);
+              }}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 self-start lg:self-end shrink-0"
+              title="Reset team and job-type filters"
+            >
+              Clear both
+            </button>
+          ) : null}
         </div>
-        {billingVerticalFilter || billingPoBasisFilter !== PO_BASIS_FILTER_ALL ? (
-          <button
-            type="button"
-            onClick={() => {
-              setBillingVerticalFilter('');
-              setBillingPoBasisFilter(PO_BASIS_FILTER_ALL);
-            }}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 self-start lg:self-end shrink-0"
-            title="Reset team and job-type filters"
-          >
-            Clear both
-          </button>
-        ) : null}
       </div>
-    </div>
+    )}
   </div>
 );
 
@@ -268,11 +286,13 @@ const BillingInner = () => {
     billingPoBasisFilter,
     setBillingPoBasisFilter,
     billingPoBasisOptions,
+    billingVerticalAccessBlocked,
     refreshBilling,
   } = useBilling();
   const location = useLocation();
   const navigate = useNavigate();
   const activeTab = getBillingPathTab(location.pathname);
+  const lockedToSingleVertical = (billingVerticalOptions || []).length === 1;
 
   useEffect(() => {
     if (activeTab === 'create-invoice' || activeTab === 'add-on-invoices') {
@@ -316,17 +336,23 @@ const BillingInner = () => {
           billingPoBasisFilter={billingPoBasisFilter}
           setBillingPoBasisFilter={setBillingPoBasisFilter}
           billingPoBasisOptions={billingPoBasisOptions}
+          billingVerticalAccessBlocked={billingVerticalAccessBlocked}
+          lockedToSingleVertical={lockedToSingleVertical}
         />
-        <BillingPlainEnglishGuide />
-        <BillingPoNotificationBar />
-        <BillingErrorBoundary>
-          <BillingKeepAlivePanels
-            tabs={tabs}
-            activeId={activeTab}
-            panelProps={{ onNavigateTab: handleTabChange }}
-            wrapPanel={(panel) => <BillingErrorBoundary>{panel}</BillingErrorBoundary>}
-          />
-        </BillingErrorBoundary>
+        {!billingVerticalAccessBlocked ? (
+          <>
+            <BillingPlainEnglishGuide />
+            <BillingPoNotificationBar />
+            <BillingErrorBoundary>
+              <BillingKeepAlivePanels
+                tabs={tabs}
+                activeId={activeTab}
+                panelProps={{ onNavigateTab: handleTabChange }}
+                wrapPanel={(panel) => <BillingErrorBoundary>{panel}</BillingErrorBoundary>}
+              />
+            </BillingErrorBoundary>
+          </>
+        ) : null}
         <BillingPoApprovalPopup />
       </div>
     </div>

@@ -57,6 +57,14 @@ import {
 } from "lucide-react";
 import { UserManagementBulkImportModal } from "./userManagement/UserManagementBulkImportModal";
 import { canCreateUsers as userCanCreateUsers } from "./userManagement/userManagementLabels";
+import {
+  BILLING_VERTICAL_CATALOG,
+  adminListUserBillingVerticalGrants,
+  applyBillingVerticalGrantChanges,
+  defaultBillingVerticalCodesForTeam,
+  profileHasBillingModuleAccess,
+} from "../lib/billingVerticalAccess";
+import { normalizeBillingVerticalKey } from "../utils/billingPoListFilters";
 
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -196,6 +204,84 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
   );
 }
 
+/** Multi-select billing business lines — incremental grants, independent of HR team. */
+function BillingVerticalGrantsEditor({
+  selectedCodes = [],
+  sourcesByCode = {},
+  loading = false,
+  team = "",
+  onToggleCode,
+  onApplyTeamDefaults,
+}) {
+  const selected = new Set((selectedCodes || []).map((c) => normalizeBillingVerticalKey(c)));
+  return (
+    <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Billing business lines</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            Choose which lines this user can bill. Add or remove individually — other lines stay
+            unchanged.
+          </p>
+        </div>
+        {typeof onApplyTeamDefaults === "function" ? (
+          <button
+            type="button"
+            onClick={onApplyTeamDefaults}
+            className="shrink-0 text-[11px] text-indigo-700 hover:underline"
+          >
+            Use team defaults
+          </button>
+        ) : null}
+      </div>
+      {loading ? (
+        <p className="text-xs text-gray-500">Loading assigned lines…</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+          {BILLING_VERTICAL_CATALOG.map((v) => {
+            const checked = selected.has(v.code);
+            const source = sourcesByCode[v.code];
+            return (
+              <label
+                key={v.code}
+                className="flex items-center gap-2 rounded-md bg-white border border-gray-200 px-2 py-1.5 cursor-pointer hover:bg-gray-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggleCode(v.code)}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                />
+                <span className="text-xs text-gray-800">
+                  {v.label}
+                  {checked && source === "default" ? (
+                    <span className="ml-1 text-[10px] text-gray-400">(team default)</span>
+                  ) : null}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      {!loading && selected.size === 0 ? (
+        <p className="text-[11px] text-amber-700 mt-2">
+          No business lines selected. If you save Billing access like this, the user cannot open any
+          billing data until lines are assigned
+          {team ? ` (team “${team}” defaults can be applied above)` : ""}.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+const emptyBillingVerticalState = () => ({
+  loading: false,
+  baselineCodes: [],
+  selectedCodes: [],
+  sourcesByCode: {},
+  hadBillingAccess: false,
+});
+
 const UserManagement = () => {
   const { userProfile } = useAuth();
   const [list, setList] = useState([]);
@@ -209,6 +295,11 @@ const UserManagement = () => {
   const loadSeqRef = useRef(0);
   const [error, setError] = useState("");
   const [editId, setEditId] = useState(null);
+  const [editBillingVerticals, setEditBillingVerticals] = useState(emptyBillingVerticalState);
+  const [createBillingVerticals, setCreateBillingVerticals] = useState({
+    selectedCodes: [],
+    sourcesByCode: {},
+  });
   const [editForm, setEditForm] = useState({
     username: "",
     employee_code: "",
@@ -586,7 +677,7 @@ const UserManagement = () => {
       name: row.linked_employee_code ? "" : "",
     });
     setEditId(row.id);
-    setEditForm({
+    const form = {
       username: row.username ?? "",
       employee_code: row.employee_code ?? "",
       team: row.team ?? "",
@@ -601,39 +692,113 @@ const UserManagement = () => {
       l1_manager_name: row.l1_manager_name ?? "",
       l2_manager_code: row.l2_manager_code ?? "",
       l2_manager_name: row.l2_manager_name ?? "",
+    };
+    setEditForm(form);
+    const hadBilling = profileHasBillingModuleAccess(form);
+    setEditBillingVerticals({
+      ...emptyBillingVerticalState(),
+      loading: true,
+      hadBillingAccess: hadBilling,
     });
+    (async () => {
+      try {
+        const grants = await adminListUserBillingVerticalGrants(row.id);
+        const codes = (grants || []).map((g) => g.code).filter(Boolean);
+        const sourcesByCode = {};
+        (grants || []).forEach((g) => {
+          if (g.code) sourcesByCode[g.code] = g.source;
+        });
+        setEditBillingVerticals({
+          loading: false,
+          baselineCodes: codes,
+          selectedCodes: codes,
+          sourcesByCode,
+          hadBillingAccess: hadBilling,
+        });
+      } catch (err) {
+        console.warn("Could not load billing vertical grants", err);
+        setEditBillingVerticals({
+          ...emptyBillingVerticalState(),
+          loading: false,
+          hadBillingAccess: hadBilling,
+        });
+      }
+    })();
   };
 
   const closeEdit = () => {
     setEditId(null);
     setEditMasterLookup({ loading: false, name: "" });
+    setEditBillingVerticals(emptyBillingVerticalState());
     setSaving(false);
+  };
+
+  const editHasBillingAccess = profileHasBillingModuleAccess(editForm);
+  const createHasBillingAccess = profileHasBillingModuleAccess(createForm);
+
+  const toggleEditBillingVertical = (code) => {
+    const key = normalizeBillingVerticalKey(code);
+    setEditBillingVerticals((prev) => {
+      const selected = new Set(prev.selectedCodes);
+      if (selected.has(key)) selected.delete(key);
+      else selected.add(key);
+      return { ...prev, selectedCodes: [...selected] };
+    });
+  };
+
+  const toggleCreateBillingVertical = (code) => {
+    const key = normalizeBillingVerticalKey(code);
+    setCreateBillingVerticals((prev) => {
+      const selected = new Set(prev.selectedCodes);
+      if (selected.has(key)) selected.delete(key);
+      else selected.add(key);
+      return { ...prev, selectedCodes: [...selected] };
+    });
   };
 
   const toggleModule = (value) => {
     setEditForm((prev) => {
       const willAdd = !prev.allowed_modules.includes(value);
-      // When adding full module access, clear any sub-module selections for it
       const newSubModules = willAdd
         ? prev.allowed_sub_modules.filter((s) => !s.startsWith(`${value}.`))
         : prev.allowed_sub_modules;
-      return {
+      const next = {
         ...prev,
         allowed_modules: willAdd
           ? [...prev.allowed_modules, value]
           : prev.allowed_modules.filter((m) => m !== value),
         allowed_sub_modules: newSubModules,
       };
+      if (value === "billing" && willAdd) {
+        setEditBillingVerticals((bv) => {
+          if (bv.baselineCodes.length > 0 || bv.selectedCodes.length > 0) return bv;
+          // Preview team defaults; leaving them as-is (no further edits) seeds on save.
+          const defaults = defaultBillingVerticalCodesForTeam(next.team);
+          return { ...bv, selectedCodes: defaults };
+        });
+      }
+      return next;
     });
   };
 
   const toggleSubModule = (subValue) => {
-    setEditForm((prev) => ({
-      ...prev,
-      allowed_sub_modules: prev.allowed_sub_modules.includes(subValue)
-        ? prev.allowed_sub_modules.filter((s) => s !== subValue)
-        : [...prev.allowed_sub_modules, subValue],
-    }));
+    setEditForm((prev) => {
+      const willAdd = !prev.allowed_sub_modules.includes(subValue);
+      const next = {
+        ...prev,
+        allowed_sub_modules: willAdd
+          ? [...prev.allowed_sub_modules, subValue]
+          : prev.allowed_sub_modules.filter((s) => s !== subValue),
+      };
+      if (willAdd && String(subValue).startsWith("billing.")) {
+        setEditBillingVerticals((bv) => {
+          if (bv.baselineCodes.length > 0 || bv.selectedCodes.length > 0) return bv;
+          const defaults = defaultBillingVerticalCodesForTeam(next.team);
+          return { ...bv, selectedCodes: defaults };
+        });
+      }
+      return next;
+    });
   };
 
   const reloadProfilesPage = async (pageNum = page) => {
@@ -676,6 +841,40 @@ const UserManagement = () => {
       if (!profileResult.ok) {
         setError(profileResult.message || "Could not save user profile.");
         return;
+      }
+
+      const baseline = new Set(
+        (editBillingVerticals.baselineCodes || []).map((c) => normalizeBillingVerticalKey(c))
+      );
+      const selected = new Set(
+        (editBillingVerticals.selectedCodes || []).map((c) => normalizeBillingVerticalKey(c))
+      );
+      const pendingAddCodes = [...selected].filter((c) => !baseline.has(c));
+      const pendingRemoveCodes = [...baseline].filter((c) => !selected.has(c));
+      // Unchanged team-default preview on first enable → empty ops → server seeds defaults.
+      const defaults = new Set(defaultBillingVerticalCodesForTeam(editForm.team));
+      const enablingBilling =
+        editHasBillingAccess && !editBillingVerticals.hadBillingAccess;
+      const selectedEqualsDefaults =
+        selected.size === defaults.size && [...selected].every((c) => defaults.has(c));
+      const useSeedPath =
+        enablingBilling &&
+        baseline.size === 0 &&
+        selectedEqualsDefaults &&
+        pendingRemoveCodes.length === 0;
+
+      const grantResult = await applyBillingVerticalGrantChanges({
+        userId: editId,
+        team: editForm.team || null,
+        hadBillingAccessBefore: editBillingVerticals.hadBillingAccess,
+        hasBillingAccessAfter: editHasBillingAccess,
+        grantCodesBefore: editBillingVerticals.baselineCodes,
+        pendingAddCodes: useSeedPath ? [] : pendingAddCodes,
+        pendingRemoveCodes: useSeedPath ? [] : pendingRemoveCodes,
+        seedIfEmpty: useSeedPath,
+      });
+      if (!grantResult.ok) {
+        warnings.push(grantResult.message || "Billing business-line access could not be updated.");
       }
 
       if (hierarchySupported !== false) {
@@ -1395,6 +1594,21 @@ const UserManagement = () => {
                       onToggleSubModule={toggleSubModule}
                     />
                   </div>
+                  {editHasBillingAccess ? (
+                    <BillingVerticalGrantsEditor
+                      selectedCodes={editBillingVerticals.selectedCodes}
+                      sourcesByCode={editBillingVerticals.sourcesByCode}
+                      loading={editBillingVerticals.loading}
+                      team={editForm.team}
+                      onToggleCode={toggleEditBillingVertical}
+                      onApplyTeamDefaults={() =>
+                        setEditBillingVerticals((prev) => ({
+                          ...prev,
+                          selectedCodes: defaultBillingVerticalCodesForTeam(editForm.team),
+                        }))
+                      }
+                    />
+                  ) : null}
                 </div>
               )}
             </div>
@@ -1532,7 +1746,7 @@ const UserManagement = () => {
                       onToggleModule={(value) =>
                         setCreateForm((prev) => {
                           const willAdd = !prev.allowed_modules.includes(value);
-                          return {
+                          const next = {
                             ...prev,
                             allowed_modules: willAdd
                               ? [...prev.allowed_modules, value]
@@ -1541,18 +1755,57 @@ const UserManagement = () => {
                               ? prev.allowed_sub_modules.filter((s) => !s.startsWith(`${value}.`))
                               : prev.allowed_sub_modules,
                           };
+                          if (value === "billing" && willAdd) {
+                            setCreateBillingVerticals((bv) =>
+                              bv.selectedCodes.length
+                                ? bv
+                                : {
+                                    selectedCodes: defaultBillingVerticalCodesForTeam(next.team),
+                                    sourcesByCode: {},
+                                  }
+                            );
+                          }
+                          return next;
                         })
                       }
                       onToggleSubModule={(subValue) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          allowed_sub_modules: prev.allowed_sub_modules.includes(subValue)
-                            ? prev.allowed_sub_modules.filter((s) => s !== subValue)
-                            : [...prev.allowed_sub_modules, subValue],
-                        }))
+                        setCreateForm((prev) => {
+                          const willAdd = !prev.allowed_sub_modules.includes(subValue);
+                          const next = {
+                            ...prev,
+                            allowed_sub_modules: willAdd
+                              ? [...prev.allowed_sub_modules, subValue]
+                              : prev.allowed_sub_modules.filter((s) => s !== subValue),
+                          };
+                          if (willAdd && String(subValue).startsWith("billing.")) {
+                            setCreateBillingVerticals((bv) =>
+                              bv.selectedCodes.length
+                                ? bv
+                                : {
+                                    selectedCodes: defaultBillingVerticalCodesForTeam(next.team),
+                                    sourcesByCode: {},
+                                  }
+                            );
+                          }
+                          return next;
+                        })
                       }
                     />
                   </div>
+                  {createHasBillingAccess ? (
+                    <BillingVerticalGrantsEditor
+                      selectedCodes={createBillingVerticals.selectedCodes}
+                      sourcesByCode={createBillingVerticals.sourcesByCode}
+                      team={createForm.team}
+                      onToggleCode={toggleCreateBillingVertical}
+                      onApplyTeamDefaults={() =>
+                        setCreateBillingVerticals({
+                          selectedCodes: defaultBillingVerticalCodesForTeam(createForm.team),
+                          sourcesByCode: {},
+                        })
+                      }
+                    />
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1571,6 +1824,7 @@ const UserManagement = () => {
                 onClick={async () => {
                   setCreateBusy(true);
                   setError("");
+                  setSaveNotice("");
                   try {
                     const email = String(createForm.email || "").trim().toLowerCase();
                     const password = String(createForm.password || "").trim();
@@ -1616,6 +1870,40 @@ const UserManagement = () => {
                       setError(createResult.message || "Could not create user.");
                       return;
                     }
+                    const newUserId =
+                      createResult.data?.id ||
+                      createResult.data?.user_id ||
+                      createResult.data?.profile?.id ||
+                      createResult.userId ||
+                      createResult.id;
+                    if (newUserId && createHasBillingAccess) {
+                      const defaults = new Set(
+                        defaultBillingVerticalCodesForTeam(createForm.team)
+                      );
+                      const selected = new Set(
+                        (createBillingVerticals.selectedCodes || []).map((c) =>
+                          normalizeBillingVerticalKey(c)
+                        )
+                      );
+                      const selectedEqualsDefaults =
+                        selected.size === defaults.size &&
+                        [...selected].every((c) => defaults.has(c));
+                      const grantResult = await applyBillingVerticalGrantChanges({
+                        userId: newUserId,
+                        team: createForm.team || null,
+                        hadBillingAccessBefore: false,
+                        hasBillingAccessAfter: true,
+                        grantCodesBefore: [],
+                        pendingAddCodes: selectedEqualsDefaults ? [] : [...selected],
+                        pendingRemoveCodes: [],
+                        seedIfEmpty: selectedEqualsDefaults,
+                      });
+                      if (!grantResult.ok) {
+                        setSaveNotice(
+                          `User created, but billing lines were not saved: ${grantResult.message}`
+                        );
+                      }
+                    }
                     setCreateOpen(false);
                     setCreateForm({
                       email: "",
@@ -1627,9 +1915,10 @@ const UserManagement = () => {
                       allowed_modules: [],
                       allowed_sub_modules: [],
                     });
+                    setCreateBillingVerticals({ selectedCodes: [], sourcesByCode: {} });
                     setPage(1);
                     await reloadProfilesPage(1);
-                    setSaveNotice("User created successfully.");
+                    setSaveNotice((prev) => prev || "User created successfully.");
                   } catch (e) {
                     setError(e?.message || "Could not create user.");
                   } finally {
