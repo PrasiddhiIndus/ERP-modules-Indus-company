@@ -204,6 +204,7 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
   const isEmdFeePayable = form.emdFeeStatus === "Applicable - Pay";
   const isPaymentRequired = isTenderFeeApplicable || isEmdFeePayable;
   const isCustomHours = isCustomWorkingHours(form.workingHoursShift);
+  const isParticipated = String(form.responseStatus || "").trim() === "Participated";
   const showScopeText = form.scopeInputType === "Text" || form.scopeInputType === "Both" || !form.scopeInputType;
   const showScopeAttach =
     form.scopeInputType === "Attachment" ||
@@ -386,11 +387,23 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
 
           <FormSection
             title="Client & Contact Person"
-            hint="Enter client name, then add contact rows like an Excel sheet — one person per line."
+            hint="Client name, site details, and contact persons."
           >
             <div className="mb-5 max-w-xl">
               <Field label="Client Name">
                 <ValueBox value={displayValue(form.clientName)} />
+              </Field>
+            </div>
+
+            <div className={`${gridThreeClass} mb-5`}>
+              <Field label="State">
+                <ValueBox value={displayValue(form.siteState)} />
+              </Field>
+              <Field label="City">
+                <ValueBox value={displayValue(form.siteCity)} />
+              </Field>
+              <Field label="Site Name">
+                <ValueBox value={displayValue(form.siteName)} />
               </Field>
             </div>
 
@@ -439,20 +452,6 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
             </div>
           </FormSection>
 
-          <FormSection title="Site / Project Location" hint="State, city, and site name.">
-            <div className={gridThreeClass}>
-              <Field label="State">
-                <ValueBox value={displayValue(form.siteState)} />
-              </Field>
-              <Field label="City">
-                <ValueBox value={displayValue(form.siteCity)} />
-              </Field>
-              <Field label="Site Name">
-                <ValueBox value={displayValue(form.siteName)} />
-              </Field>
-            </div>
-          </FormSection>
-
           <FormSection title="Service & Category">
             <div className={gridClass}>
               <Field label="Industry / Sector">
@@ -469,6 +468,23 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
             </div>
           </FormSection>
 
+          <FormSection title="Response Status">
+            <div className="max-w-xl space-y-4">
+              <div className="max-w-sm">
+                <Field label="Response Status">
+                  <SelectedPill label={displayValue(form.responseStatus)} />
+                </Field>
+              </div>
+              {String(form.responseStatus || "").trim() === "Regret" ? (
+                <Field label="Reason">
+                  <ValueBox value={displayValue(form.responseStatusReason)} tall />
+                </Field>
+              ) : null}
+            </div>
+          </FormSection>
+
+          {isParticipated ? (
+            <>
           <FormSection title="Scope of Work" hint="SOP document upload or text entry.">
             <div className="mb-4">
               <Field label="Input Type">
@@ -529,19 +545,18 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
               </Field>
             </div>
           </FormSection>
+            </>
+          ) : null}
 
-          <FormSection title="Status & Result" hint="Tracking status and final result for this enquiry.">
+          <FormSection title="Result" hint="Final enquiry result for this enquiry.">
             <div className={gridClass}>
-              <Field label="Status">
-                <ValueBox value={displayValue(form.trackingStatus)} />
-              </Field>
               <Field label="Result">
                 <ValueBox value={displayValue(form.enquiryResult)} />
               </Field>
               <Field label="Amount">
                 <ValueBox value={formatCurrency(form.resultAmount)} />
               </Field>
-              {form.enquiryResult === "Not Alloted" ? (
+              {form.enquiryResult === "Awarded to Other Party" || form.enquiryResult === "Not Alloted" ? (
                 <Field label="Remarks" className="sm:col-span-2">
                   <ValueBox value={displayValue(form.resultRemark)} tall />
                 </Field>
@@ -549,7 +564,7 @@ export default function ManpowerEnquiryPreviewModal({ row, onClose, onEdit }) {
             </div>
           </FormSection>
 
-          {(form.enquiryAttachmentPaths || []).length > 0 ? (
+          {isParticipated && (form.enquiryAttachmentPaths || []).length > 0 ? (
             <FormSection
               title="Additional Attachments"
               hint="Supporting files attached with this enquiry."

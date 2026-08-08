@@ -69,8 +69,8 @@ export function isTenderEnquiry(row) {
  */
 export function getAnalyticsStatus(row) {
   const result = String(getEnquiryResultFromRow(row) || "").trim();
-  if (result === "Alloted") return "Awarded to IFSPL";
-  if (result === "Not Alloted") return "Not Awarded";
+  if (result === "Alloted" || result === "Awarded to IFSPL") return "Awarded to IFSPL";
+  if (result === "Not Alloted" || result === "Awarded to Other Party") return "Not Awarded";
   const status = String(row?.status || "").trim();
   if (status === "Quoted") return "Budgetary";
   return "In Progress";
