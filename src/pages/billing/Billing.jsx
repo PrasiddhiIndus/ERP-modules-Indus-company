@@ -12,7 +12,6 @@ import CreditNotes from './CreditNotes';
 import BillingReports from './BillingReports';
 import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
-import BillingPlainEnglishGuide from './components/BillingPlainEnglishGuide';
 import BillingPoNotificationBar from './components/BillingPoNotificationBar';
 import BillingKeepAlivePanels from './components/BillingKeepAlivePanels';
 import { PO_BASIS_FILTER_ALL } from '../../constants/poBasis';
@@ -48,7 +47,7 @@ const BillingVerticalSelector = ({
   billingVerticalAccessBlocked,
   lockedToSingleVertical,
 }) => (
-  <div className="px-4 sm:px-6 pt-5">
+  <div className="px-4 sm:px-6 pt-4 pb-1">
     {billingVerticalAccessBlocked ? (
       <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm p-4">
         <p className="text-sm font-semibold text-amber-900">No billing business lines assigned</p>
@@ -58,20 +57,14 @@ const BillingVerticalSelector = ({
         </p>
       </div>
     ) : (
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">Who and what are we billing?</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            These two choices filter <strong>every</strong> tab in Billing so you only see the right jobs and bills.
-          </p>
-        </div>
-        <div className="flex flex-col lg:flex-row lg:items-end gap-4">
-          <div className="flex-1 min-w-0">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3 w-fit max-w-full">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="w-full sm:w-52 shrink-0">
             <label className="block text-xs font-medium text-gray-700 mb-1">1 · Business line (team)</label>
             <select
               value={billingVerticalFilter || ''}
               onChange={(e) => setBillingVerticalFilter(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-0 disabled:bg-gray-50 disabled:text-gray-600"
+              className="w-full h-9 border border-gray-300 rounded-lg px-2.5 text-sm bg-white min-w-0 disabled:bg-gray-50 disabled:text-gray-600"
               aria-label="Business line or team"
               disabled={lockedToSingleVertical}
             >
@@ -82,18 +75,18 @@ const BillingVerticalSelector = ({
                 </option>
               ))}
             </select>
-            <p className="text-[11px] text-gray-500 mt-1">
+            <p className="text-[11px] text-gray-500 mt-1 leading-snug">
               {lockedToSingleVertical
                 ? 'Only this business line is assigned to your account.'
-                : 'Same line you use in Commercial when you create the order.'}
+                : 'Same line as Commercial → PO Entry.'}
             </p>
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="w-full sm:w-52 shrink-0">
             <label className="block text-xs font-medium text-gray-700 mb-1">2 · How the job was set up</label>
             <select
               value={billingPoBasisFilter || PO_BASIS_FILTER_ALL}
               onChange={(e) => setBillingPoBasisFilter(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-0"
+              className="w-full h-9 border border-gray-300 rounded-lg px-2.5 text-sm bg-white min-w-0"
               title="Filter jobs that have a real PO paper vs jobs billed without one"
               aria-label="PO or without PO"
             >
@@ -103,7 +96,9 @@ const BillingVerticalSelector = ({
                 </option>
               ))}
             </select>
-            <p className="text-[11px] text-gray-500 mt-1">Pick “without PO” only when Commercial saved the job that way.</p>
+            <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+              Use “without PO” only when Commercial saved it that way.
+            </p>
           </div>
           {!lockedToSingleVertical &&
           (billingVerticalFilter || billingPoBasisFilter !== PO_BASIS_FILTER_ALL) ? (
@@ -113,7 +108,7 @@ const BillingVerticalSelector = ({
                 setBillingVerticalFilter('');
                 setBillingPoBasisFilter(PO_BASIS_FILTER_ALL);
               }}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 self-start lg:self-end shrink-0"
+              className="h-9 px-3 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 shrink-0 self-start sm:mt-[1.375rem]"
               title="Reset team and job-type filters"
             >
               Clear both
@@ -341,7 +336,6 @@ const BillingInner = () => {
         />
         {!billingVerticalAccessBlocked ? (
           <>
-            <BillingPlainEnglishGuide />
             <BillingPoNotificationBar />
             <BillingErrorBoundary>
               <BillingKeepAlivePanels

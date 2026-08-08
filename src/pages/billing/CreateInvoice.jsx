@@ -2690,7 +2690,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   };
 
   return (
-    <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+    <div className="w-full overflow-y-auto p-4 sm:p-5 space-y-4">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
           <p className="text-lg font-semibold text-gray-900">Select a vertical to start</p>
@@ -2699,43 +2699,45 @@ const CreateInvoice = ({ onNavigateTab }) => {
           </p>
         </div>
       ) : null}
-      <div className="flex items-center space-x-3">
-        <div className="bg-emerald-100 p-3 rounded-lg shrink-0">
-          <FileText className="w-6 h-6 text-emerald-600" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center space-x-3 min-w-0">
+          <div className="bg-emerald-100 p-2.5 rounded-lg shrink-0">
+            <FileText className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-gray-900">Make a bill</h2>
+            {!verticalNotSelected ? (
+              <p className="text-xs text-slate-600 mt-0.5">
+                Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
+              </p>
+            ) : null}
+          </div>
         </div>
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Make a bill</h2>
-          {!verticalNotSelected ? (
-            <p className="text-xs text-slate-600 mt-1">
-              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      {!verticalNotSelected ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50/95 px-4 py-3 text-sm text-slate-700 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <p className="min-w-0 leading-snug">
-            <span className="font-semibold text-slate-800">Easy path:</span>{' '}
-            <strong>Commercial → PO Entry → Create Bill → Download PDF, Generate IRN &amp; Upload Payment Proof.</strong>
-          </p>
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+        {!verticalNotSelected ? (
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={() => onNavigateTab && onNavigateTab('manage-invoices')}
-              className="inline-flex items-center rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+              className="inline-flex items-center rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
             >
               Open all bills
             </button>
             <button
               type="button"
               onClick={() => onNavigateTab && onNavigateTab('dashboard')}
-              className="text-sm font-medium text-slate-600 underline-offset-2 hover:underline"
+              className="text-sm font-medium text-slate-600 underline-offset-2 hover:underline px-1"
             >
               Billing home
             </button>
           </div>
-        </div>
+        ) : null}
+      </div>
+
+      {!verticalNotSelected ? (
+        <p className="text-xs text-slate-600 leading-snug">
+          <span className="font-semibold text-slate-800">Easy path:</span>{' '}
+          Commercial → PO Entry → Create Bill → Download PDF, Generate IRN &amp; Upload Payment Proof.
+        </p>
       ) : null}
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -3102,9 +3104,9 @@ const CreateInvoice = ({ onNavigateTab }) => {
       )}
 
       {displayPO && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2 rounded-t-xl z-10">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-1.5 sm:p-2">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl lg:max-w-[calc(100vw-1rem)] xl:max-w-[calc(100vw-1.5rem)] 2xl:max-w-[calc(100vw-2rem)] max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="shrink-0 bg-white border-b border-gray-200 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 rounded-t-xl z-10">
               <div className="min-w-0">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
                   {invoiceDraft?.mode === 'edit' ? 'Edit' : 'Create'} invoice — {displayPO.siteId || '–'}
@@ -3231,21 +3233,25 @@ const CreateInvoice = ({ onNavigateTab }) => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 sm:p-6 bg-slate-100/90 space-y-5">
-              {/* EXACT same invoice UI as Manage Invoices preview (live while editing) */}
-              <div className="mx-auto max-w-5xl">
-                <InvoiceHtmlPreview
-                  inv={livePreviewInv}
-                  po={displayPO}
-                  showEInvoiceMeta={false}
-                  hideQtyRateColumns={isLumpSumBilling && lumpSumShowPenaltyGeometryUi}
-                />
+            {/* <1024px: stacked single-scroll body (original). ≥1024px: split panes with independent scroll. */}
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col space-y-2 lg:space-y-0 lg:gap-0 lg:overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+              {/* LEFT: live tax-invoice preview */}
+              <div className="p-2 sm:p-2.5 bg-slate-100/90 lg:overflow-y-auto lg:overflow-x-auto lg:border-r lg:border-gray-200">
+                <div className="mx-auto max-w-5xl">
+                  <InvoiceHtmlPreview
+                    inv={livePreviewInv}
+                    po={displayPO}
+                    showEInvoiceMeta={false}
+                    hideQtyRateColumns={isLumpSumBilling && lumpSumShowPenaltyGeometryUi}
+                  />
+                </div>
               </div>
 
-              {/* Editing controls (kept as form UI below the preview) */}
+              {/* RIGHT: editable form (sections A–H) */}
+              <div className="p-2 sm:p-2.5 bg-slate-100/90 lg:overflow-y-auto">
               <div className="mx-auto max-w-[920px] border-2 border-neutral-800 bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
           <div className="border-x-0 border-b border-neutral-800 overflow-hidden bg-surface-sunken">
-            <div className="p-2">
+            <div className="p-1">
               <div className="bg-white rounded-lg overflow-hidden">
                 {isLumpSumBilling ? (
                   <div className="px-3 py-2.5 border-b border-amber-200/90 bg-amber-50/60">
@@ -4728,8 +4734,10 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   />
                 </div>
               </div>
+              </div>
+            </div>
 
-          <div className="flex flex-wrap gap-2">
+            <div className="shrink-0 border-t border-gray-200 bg-white px-3 sm:px-4 py-2 flex flex-wrap gap-2 rounded-b-xl">
             <button
               type="button"
               onClick={() => {
@@ -4771,7 +4779,6 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   : 'Save Invoice'}
             </button>
           </div>
-            </div>
           </div>
         </div>
       )}

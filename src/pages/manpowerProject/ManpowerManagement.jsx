@@ -63,14 +63,14 @@ import {
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_SORT = { key: "receivedDate", dir: "desc" };
 const MANPOWER_BASE = "/app/commercial/manpower-training/manpower-management";
-const ACTION_COL_WIDTH = 120;
+const ACTION_COL_WIDTH = 128;
 const tableMinWidth =
   INQUIRY_LIST_DISPLAY_COLUMNS.reduce((sum, col) => sum + col.width, 0) + ACTION_COL_WIDTH;
 const INQUIRY_MULTILINE_COLUMNS = new Set(["descriptionOfWork", "remarks", "furtherAction", "resultRemark"]);
 const STICKY_ACTION_CELL =
-  "manpower-inquiry-action-cell sticky right-0 border-l border-slate-200 bg-white shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.12)] group-hover:bg-purple-50/80";
+  "manpower-inquiry-action-cell sticky right-0 border-l border-slate-200 bg-white shadow-[-6px_0_10px_-4px_rgba(15,23,42,0.14)] group-hover:bg-purple-50/80";
 const STICKY_ACTION_HEAD =
-  "manpower-inquiry-action-head sticky right-0 top-0 border-l border-purple-100 shadow-[-5px_0_8px_-4px_rgba(15,23,42,0.1)]";
+  "manpower-inquiry-action-head sticky right-0 top-0 z-[30] border-l border-purple-100 bg-[var(--accent-soft)] shadow-[-6px_0_10px_-4px_rgba(15,23,42,0.14)]";
 
 function getListRowFields(row) {
   const excel = getExcelInquiryFields(row);
@@ -789,7 +789,7 @@ const ManpowerManagement = () => {
                   position: sticky;
                   top: 0;
                   z-index: 10;
-                  overflow: visible;
+                  overflow: hidden;
                   vertical-align: middle;
                   box-sizing: border-box;
                   background-color: var(--accent-soft) !important;
@@ -797,17 +797,19 @@ const ManpowerManagement = () => {
                   box-shadow: 0 1px 0 0 var(--accent-border);
                 }
                 .manpower-inquiry-table thead th.manpower-inquiry-action-head {
-                  z-index: 20;
+                  z-index: 30;
+                  overflow: hidden;
                   background-color: var(--accent-soft) !important;
                   background-image: none !important;
-                  box-shadow: -5px 0 8px -4px rgba(15, 23, 42, 0.1), 0 1px 0 0 var(--accent-border);
+                  box-shadow: -6px 0 10px -4px rgba(15, 23, 42, 0.14), 0 1px 0 0 var(--accent-border);
                 }
                 .manpower-inquiry-table tbody td {
                   position: relative;
                   z-index: 0;
                 }
                 .manpower-inquiry-table tbody td.manpower-inquiry-action-cell {
-                  z-index: 1;
+                  z-index: 2;
+                  background-color: #fff;
                 }
               `}</style>
                 <table className="manpower-inquiry-table w-full text-xs" style={{ minWidth: tableMinWidth, tableLayout: "fixed" }}>
@@ -825,15 +827,17 @@ const ManpowerManagement = () => {
                         return (
                           <th
                             key={col.id}
-                            className={`max-w-0 px-3 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-700 align-middle ${
+                            className={`px-3 py-3 text-[11px] font-bold uppercase tracking-wider text-slate-700 align-middle ${
+                              col.id === "enquiryResult" || col.id === "resultRemark" ? "min-w-0" : "max-w-0"
+                            } ${
                               col.align === "center" ? "text-center" : col.align === "right" ? "text-right" : "text-left"
                             }`}
                           >
                             <button
                               type="button"
                               onClick={() => toggleSort(col.id)}
-                              className={`max-w-full inline-flex items-center gap-1 hover:text-purple-700 ${
-                                col.align === "center" ? "justify-center w-full" : col.align === "right" ? "justify-end w-full" : ""
+                              className={`w-full min-w-0 inline-flex items-center gap-1 hover:text-purple-700 ${
+                                col.align === "center" ? "justify-center" : col.align === "right" ? "justify-end" : "justify-start"
                               }`}
                               title={`Sort by ${col.label}`}
                             >
@@ -849,13 +853,18 @@ const ManpowerManagement = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {paginated.map((e) => {
+                    {paginated.map((e, rowIndex) => {
                       const fields = getListRowFields(e);
                       const enquiryResult = fields.enquiryResult;
+                      const position = (currentPage - 1) * pageSize + rowIndex;
+                      const totalVisible = sorted.length;
+                      // UI-only index for current visible order (after sort/search/filter/pagination).
+                      const displaySrNo =
+                        sortConfig.dir === "desc" ? totalVisible - position : position + 1;
                       return (
                         <tr key={e.id} className="group transition-colors hover:bg-purple-50/40">
                           {INQUIRY_LIST_DISPLAY_COLUMNS.map((col) => {
-                            if (col.id === "resultRemark" && enquiryResult !== "Not Alloted") {
+                            if (col.id === "resultRemark" && enquiryResult !== "Awarded to Other Party" && enquiryResult !== "Not Alloted") {
                               return (
                                 <td key={col.id} className="max-w-0 px-3 py-3 align-middle text-xs text-slate-400">
                                   —
@@ -863,7 +872,7 @@ const ManpowerManagement = () => {
                               );
                             }
 
-                            const raw = fields[col.id];
+                            const raw = col.id === "srNo" ? displaySrNo : fields[col.id];
                             const display = formatInquiryCellValue(raw, col.valueType === "chip" || col.valueType === "trackingStatus" ? "text" : col.valueType, formatDateDdMmYyyy);
                             const alignClass =
                               col.align === "center"
@@ -878,7 +887,7 @@ const ManpowerManagement = () => {
                             return (
                               <td
                                 key={col.id}
-                                className={`max-w-0 px-3 py-3 align-middle text-xs text-slate-700 ${alignClass} ${typeClass}`}
+                                className={`${col.id === "enquiryNumber" ? "whitespace-nowrap" : "max-w-0"} px-3 py-3 align-middle text-xs text-slate-700 ${alignClass} ${typeClass}`}
                               >
                                 {col.valueType === "chip" ? (
                                   display === "—" ? (
@@ -893,7 +902,7 @@ const ManpowerManagement = () => {
                                     {display}
                                   </span>
                                 ) : col.id === "enquiryNumber" ? (
-                                  <span className="block truncate font-medium text-purple-700 leading-snug" title={cellTitle}>
+                                  <span className="block whitespace-nowrap font-medium text-purple-700 leading-snug" title={cellTitle}>
                                     {display}
                                   </span>
                                 ) : isMultiline ? (

@@ -10,6 +10,7 @@ import {
   WORKING_HOURS_OPTIONS,
   WEEKLY_OFF_RELIEVER_OPTIONS,
   ENQUIRY_SUBTYPE_OPTIONS,
+  RESPONSE_STATUS_OPTIONS,
   SERVICE_CATEGORY_OPTIONS,
   CONTRACT_DURATION_UNITS,
   INDIA_STATES_UT,
@@ -18,7 +19,7 @@ import {
   PAYMENT_MODE_OPTIONS,
   VERTICAL_OPTIONS,
   INQUIRY_RESULT_OPTIONS,
-  INQUIRY_TRACKING_STATUS_OPTIONS,
+  enquiryResultRequiresRemark,
   parseAuthorizationMeta,
   buildInquiryDbPayload,
   inquiryRowToForm,
@@ -52,6 +53,8 @@ const emptyForm = {
   serviceCategory: "",
   serviceCategoryCustom: "",
   enquirySubType: "Regular",
+  responseStatus: "",
+  responseStatusReason: "",
   scopeInputType: "Text",
   scopeOfWork: "",
   scopeAttachments: [],
@@ -353,6 +356,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   const isIndustryOther = formData.industrySector === "Other";
   const isServiceCategoryManual = isServiceCategoryOther(formData.serviceCategory);
   const isCustomHours = isCustomWorkingHours(formData.workingHoursShift);
+  const isParticipated = String(formData.responseStatus || "").trim() === "Participated";
+  const isRegret = String(formData.responseStatus || "").trim() === "Regret";
 
   const initNewForm = useCallback(async () => {
     setSrNoLoading(true);
@@ -556,28 +561,41 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
   };
 
   const validateForm = () => {
+    const isParticipated = String(formData.responseStatus || "").trim() === "Participated";
+    const isRegret = String(formData.responseStatus || "").trim() === "Regret";
     const required = [
       ["enquiryDate", "Enquiry Date"],
       ["vertical", "Vertical"],
       ["sourceType", "Source Type"],
       ["clientName", "Client Name"],
-      ["siteName", "Site / Project Location (Site Name)"],
-      ["siteState", "Site / Project Location (State)"],
-      ["siteCity", "Site / Project Location (City)"],
+      ["siteName", "Site Name"],
+      ["siteState", "State"],
+      ["siteCity", "City"],
       ["industrySector", "Industry / Sector"],
       ["serviceCategory", "Service Category"],
       ["enquirySubType", "Enquiry Sub-type"],
-      ["contractDurationValue", "Contract Duration"],
-      ["workingHoursShift", "Working Hours / Shift"],
-      ["applicableStateMw", "Applicable State (for MW)"],
-      ["submissionBidDeadline", "Submission / Bid Deadline"],
+      ["responseStatus", "Response Status"],
     ];
+
+    if (isParticipated) {
+      required.push(
+        ["contractDurationValue", "Contract Duration"],
+        ["workingHoursShift", "Working Hours / Shift"],
+        ["applicableStateMw", "Applicable State (for MW)"],
+        ["submissionBidDeadline", "Submission / Bid Deadline"]
+      );
+    }
 
     for (const [field, label] of required) {
       if (!String(formData[field] || "").trim()) {
         alert(`Please enter ${label}.`);
         return false;
       }
+    }
+
+    if (isRegret && !String(formData.responseStatusReason || "").trim()) {
+      alert("Please enter the reason for Regret.");
+      return false;
     }
 
     const assignedToList = getResolvedAssignedToList();
@@ -611,25 +629,27 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       return false;
     }
 
-    if (isCustomHours && !String(formData.customWorkingHours || "").trim()) {
+    if (isParticipated && isCustomHours && !String(formData.customWorkingHours || "").trim()) {
       alert("Please enter working hours / shift details for Custom.");
       return false;
     }
 
-    if (
-      (formData.scopeInputType === "Text" || formData.scopeInputType === "Both") &&
-      !String(formData.scopeOfWork || "").trim()
-    ) {
-      alert("Please enter Scope of Work.");
-      return false;
-    }
-    if (
-      (formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") &&
-      !(formData.scopeAttachments || []).length &&
-      !existingScopeAttachmentPathsRef.current.length
-    ) {
-      alert("Please upload at least one SOP document for Scope of Work.");
-      return false;
+    if (isParticipated) {
+      if (
+        (formData.scopeInputType === "Text" || formData.scopeInputType === "Both") &&
+        !String(formData.scopeOfWork || "").trim()
+      ) {
+        alert("Please enter Scope of Work.");
+        return false;
+      }
+      if (
+        (formData.scopeInputType === "Attachment" || formData.scopeInputType === "Both") &&
+        !(formData.scopeAttachments || []).length &&
+        !existingScopeAttachmentPathsRef.current.length
+      ) {
+        alert("Please upload at least one SOP document for Scope of Work.");
+        return false;
+      }
     }
 
     if (isOnlineTender) {
@@ -743,8 +763,8 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       const assignedToList = getResolvedAssignedToList();
       const submitForm = { ...formData, ...syncAssignedToFields(assignedToList) };
 
-      if (enquiryId && submitForm.enquiryResult === "Not Alloted" && !String(submitForm.resultRemark || "").trim()) {
-        alert("Please enter remarks when result is Not Alloted.");
+      if (enquiryId && enquiryResultRequiresRemark(submitForm.enquiryResult) && !String(submitForm.resultRemark || "").trim()) {
+        alert("Please enter remarks when result is Awarded to Other Party.");
         setSubmitting(false);
         return;
       }
@@ -1048,11 +1068,33 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
       <FormSection
         title="Client &amp; Contact Person"
-        hint="Enter client name, then add contact rows like an Excel sheet — one person per line."
+        hint="Enter client name and site details, then add contact rows like an Excel sheet — one person per line."
       >
         <div className="mb-5 max-w-xl">
           <label className={labelClass}>Client Name {req}</label>
           <input name="clientName" value={formData.clientName} onChange={handleChange} className={inputClass} />
+        </div>
+
+        <div className={`${gridThreeClass} mb-5`}>
+          <div>
+            <label className={labelClass}>State {req}</label>
+            <select name="siteState" value={formData.siteState} onChange={handleChange} className={inputClass}>
+              <option value="">Select state</option>
+              {INDIA_STATES_UT.map((state) => (
+                <option key={state} value={state}>
+                  {state}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>City {req}</label>
+            <input name="siteCity" value={formData.siteCity} onChange={handleChange} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Site Name {req}</label>
+            <input name="siteName" value={formData.siteName} onChange={handleChange} className={inputClass} />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -1159,30 +1201,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
       </FormSection>
 
-      <FormSection title="Site / Project Location" hint="State, city, and site name.">
-        <div className={gridThreeClass}>
-          <div>
-            <label className={labelClass}>State {req}</label>
-            <select name="siteState" value={formData.siteState} onChange={handleChange} className={inputClass}>
-              <option value="">Select state</option>
-              {INDIA_STATES_UT.map((state) => (
-                <option key={state} value={state}>
-                  {state}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelClass}>City {req}</label>
-            <input name="siteCity" value={formData.siteCity} onChange={handleChange} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>Site Name {req}</label>
-            <input name="siteName" value={formData.siteName} onChange={handleChange} className={inputClass} />
-          </div>
-        </div>
-      </FormSection>
-
       <FormSection title="Service &amp; Category">
         <div className={gridClass}>
           <div>
@@ -1237,6 +1255,45 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </div>
       </FormSection>
 
+      <FormSection
+        title="Response Status"
+        hint="Choose Participated to fill scope, contract, and attachments. Choose Regret to skip those sections and enter a reason."
+      >
+        <div className="max-w-xl space-y-4">
+          <div className="max-w-sm">
+            <label className={labelClass}>Response Status {req}</label>
+            <select
+              name="responseStatus"
+              value={formData.responseStatus}
+              onChange={handleChange}
+              className={inputClass}
+            >
+              <option value="">Select status</option>
+              {RESPONSE_STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          </div>
+          {isRegret ? (
+            <div>
+              <label className={labelClass}>Reason {req}</label>
+              <textarea
+                name="responseStatusReason"
+                value={formData.responseStatusReason || ""}
+                onChange={handleChange}
+                rows={3}
+                className={textareaClass}
+                placeholder="Enter reason for regret..."
+              />
+            </div>
+          ) : null}
+        </div>
+      </FormSection>
+
+      {isParticipated ? (
+        <>
       <FormSection title="Scope of Work" hint="SOP document upload or text entry.">
         <div className="mb-4">
           <label className={labelClass}>Input Type</label>
@@ -1437,27 +1494,15 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           </Field>
         </div>
       </FormSection>
+        </>
+      ) : null}
 
       {enquiryId ? (
         <FormSection
-          title="Status &amp; Result"
-          hint="Update enquiry tracking status and final result from here."
+          title="Result"
+          hint="Update the final enquiry result from here."
         >
           <div className={gridClass}>
-            <Field label="Status">
-              <select
-                name="trackingStatus"
-                value={formData.trackingStatus || "New"}
-                onChange={handleChange}
-                className={selectClass}
-              >
-                {INQUIRY_TRACKING_STATUS_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            </Field>
             <Field label="Result">
               <select name="enquiryResult" value={formData.enquiryResult || ""} onChange={handleChange} className={selectClass}>
                 <option value="">Select result</option>
@@ -1477,7 +1522,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                 placeholder="0"
               />
             </Field>
-            {formData.enquiryResult === "Not Alloted" ? (
+            {enquiryResultRequiresRemark(formData.enquiryResult) ? (
               <Field label="Remarks" className="sm:col-span-2">
                 <textarea
                   name="resultRemark"
@@ -1485,7 +1530,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                   onChange={handleChange}
                   rows={3}
                   className={textareaClass}
-                  placeholder="Enter remarks for not alloted result..."
+                  placeholder="Enter remarks for awarded to other party..."
                 />
               </Field>
             ) : null}
@@ -1493,6 +1538,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         </FormSection>
       ) : null}
 
+      {isParticipated ? (
       <FormSection
         title="Additional Attachments"
         hint="Optional — add any supporting files (images, PDFs, documents, etc.). You can attach multiple files."
@@ -1571,6 +1617,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           ) : null}
         </div>
       </FormSection>
+      ) : null}
       </div>
 
       <div className="shrink-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-6">

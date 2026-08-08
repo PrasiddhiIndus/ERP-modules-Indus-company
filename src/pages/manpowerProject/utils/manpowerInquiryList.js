@@ -9,7 +9,7 @@ import {
 } from "./manpowerEnquiryExcelFields";
 
 export const INQUIRY_STATUS_OPTIONS = ["Pending", "Approved", "Rejected", "Quoted"];
-export const INQUIRY_RESULT_OPTIONS = ["Alloted", "Not Alloted"];
+export { INQUIRY_RESULT_OPTIONS } from "./manpowerEnquiryExcelFields";
 export const INQUIRY_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 export const EMPTY_INQUIRY_FILTERS = {
