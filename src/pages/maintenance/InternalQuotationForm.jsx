@@ -4,6 +4,7 @@ import { supabase } from './lib/maintenanceClient';
 import { Save, ArrowLeft, X } from 'lucide-react';
 import QuotationTrackerNavbar from './QuotationTrackerNavbar';
 
+import { toast } from "../../lib/toast";
 const InternalQuotationForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -189,11 +190,11 @@ const InternalQuotationForm = () => {
 
       if (error) throw error;
 
-      alert('Internal quotation saved successfully!');
+      toast.success('Internal quotation saved successfully!');
       navigate('/app/maintenance/quotation-tracker/internal-quotation');
     } catch (error) {
       console.error('Error saving internal quotation:', error);
-      alert('Error saving internal quotation: ' + error.message);
+      toast.warning('Error saving internal quotation: ' + error.message);
     }
   };
 

@@ -42,6 +42,7 @@ import {
   ChevronRight,
   ArrowLeft,
 } from 'lucide-react';
+import { toast } from '../../lib/toast';
 
 const TRIPS_PAGE_SIZE = 20;
 const REPORT_PAGE_SIZE = 20;
@@ -482,19 +483,19 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
     e.preventDefault();
     const maxFiles = 10;
     if ((formData.expense_attachments || []).length + pendingAttachmentFiles.length > maxFiles) {
-      alert(`Too many attachments (max ${maxFiles}).`);
+      toast.warning("Validation", `Too many attachments (max ${maxFiles}).`);
       return;
     }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert('Please sign in again to assign a vehicle.');
+        toast.warning("Validation", "Please sign in again to assign a vehicle.");
         return;
       }
 
       const selectedVehicleId = toNumberOrNull(formData.vehicle_id);
       if (!selectedVehicleId) {
-        alert('Please select a vehicle.');
+        toast.warning("Validation", "Please select a vehicle.");
         return;
       }
 
@@ -506,15 +507,15 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         : String(formData.responsible_person || '').trim();
 
       if (!issuedToName) {
-        alert(isFireTender ? 'Please select a driver.' : 'Please enter the driver / responsible person.');
+        toast.warning("Validation", isFireTender ? 'Please select a driver.' : 'Please enter the driver / responsible person.');
         return;
       }
       if (isFireTender && !mobilisationDate) {
-        alert('Please enter a valid Date of Mobilisation (dd/mm/yyyy).');
+        toast.warning("Validation", "Please enter a valid Date of Mobilisation (dd/mm/yyyy).");
         return;
       }
       if (!isFireTender && !visitDate) {
-        alert('Please enter a valid Visit Date (dd/mm/yyyy).');
+        toast.warning("Validation", "Please enter a valid Visit Date (dd/mm/yyyy).");
         return;
       }
 
@@ -525,23 +526,23 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
 
       if (!isFireTender) {
         if (!outDate) {
-          alert('Please enter a valid Out Date (dd/mm/yyyy).');
+          toast.warning("Validation", "Please enter a valid Out Date (dd/mm/yyyy).");
           return;
         }
         if (!/^\d{2}:\d{2}$/.test(outTime)) {
-          alert('Please enter Out Time.');
+          toast.warning("Validation", "Please enter Out Time.");
           return;
         }
         if (formData.passenger_entries.some((entry) => !String(entry.name || '').trim())) {
-          alert('Please enter a name for each passenger, or remove empty passenger rows.');
+          toast.warning("Validation", "Please enter a name for each passenger, or remove empty passenger rows.");
           return;
         }
         if (!formData.departments_allotted.length) {
-          alert('Please select at least one Department allotted.');
+          toast.warning("Validation", "Please select at least one Department allotted.");
           return;
         }
         if (toNumberOrNull(formData.km_out) == null) {
-          alert('Please enter Odometer Out (Km).');
+          toast.warning("Validation", "Please enter Odometer Out (Km).");
           return;
         }
       }
@@ -558,7 +559,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
           : combineInHouseEndDateTime(outDate, outTime, inTime);
 
       if (!startDateTime) {
-        alert('Start date/time is required.');
+        toast.warning("Validation", "Start date/time is required.");
         return;
       }
 
@@ -638,14 +639,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
             await setVehicleStatus(selectedVehicleId, tripData.trip_status === 'Active' ? 'On Duty' : 'Available');
           } catch (statusErr) {
             console.error('Trip saved but vehicle status update failed:', statusErr);
-            alert(`Trip updated, but vehicle status could not be updated. ${formatTripSaveError(statusErr)}`);
+            toast.warning("Partial success", `Trip updated, but vehicle status could not be updated. ${formatTripSaveError(statusErr)}`);
             resetForm();
             fetchTrips();
             fetchVehicles();
             return;
           }
         }
-        alert('Trip updated successfully!');
+        toast.success("Updated", "Trip updated successfully");
       } else {
         const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_trips')
@@ -670,14 +671,14 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
             await setVehicleStatus(selectedVehicleId, tripDataBase.trip_status === 'Active' ? 'On Duty' : 'Available');
           } catch (statusErr) {
             console.error('Trip saved but vehicle status update failed:', statusErr);
-            alert(`Trip created, but vehicle status could not be updated. ${formatTripSaveError(statusErr)}`);
+            toast.warning("Partial success", `Trip created, but vehicle status could not be updated. ${formatTripSaveError(statusErr)}`);
             resetForm();
             fetchTrips();
             fetchVehicles();
             return;
           }
         }
-        alert('Trip created successfully!');
+        toast.success("Saved", "Trip created successfully");
       }
 
       resetForm();
@@ -685,7 +686,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       fetchVehicles();
     } catch (error) {
       console.error('Error saving trip:', error);
-      alert(`Failed to save trip. ${formatTripSaveError(error)}`);
+      toast.error("Save failed", `Failed to save trip. ${formatTripSaveError(error)}`);
     }
   };
 
@@ -760,12 +761,12 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         if (trip?.vehicle_id) {
           await setVehicleStatus(trip.vehicle_id, 'Available');
         }
-        alert('Trip completed successfully!');
+        toast.success("Completed", "Trip completed successfully");
         fetchTrips();
         fetchVehicles();
       } catch (error) {
         console.error('Error completing trip:', error);
-        alert('Failed to complete trip. Please try again.');
+        toast.error("Complete failed", "Failed to complete trip. Please try again.");
       }
     }
   };
@@ -783,12 +784,12 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         if (trip?.vehicle_id) {
           await setVehicleStatus(trip.vehicle_id, 'Available');
         }
-        alert('Trip cancelled successfully!');
+        toast.success("Cancelled", "Trip cancelled successfully");
         fetchTrips();
         fetchVehicles();
       } catch (error) {
         console.error('Error cancelling trip:', error);
-        alert('Failed to cancel trip. Please try again.');
+        toast.error("Cancel failed", "Failed to cancel trip. Please try again.");
       }
     }
   };
@@ -806,12 +807,12 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
         if (trip?.vehicle_id) {
           await setVehicleStatus(trip.vehicle_id, 'Available');
         }
-        alert('Trip deleted successfully!');
+        toast.success("Deleted", "Trip deleted successfully");
         fetchTrips();
         fetchVehicles();
       } catch (error) {
         console.error('Error deleting trip:', error);
-        alert('Failed to delete trip. Please try again.');
+        toast.error("Delete failed", "Failed to delete trip. Please try again.");
       }
     }
   };
@@ -897,7 +898,7 @@ const VehicleTrips = ({ vehicleCategory = 'in-house' }) => {
       const url = await presignFleetR2Get(objectKey);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      alert(err?.message || 'Could not open file.');
+      toast.error("File error", err?.message || "Could not open file.");
     }
   };
 

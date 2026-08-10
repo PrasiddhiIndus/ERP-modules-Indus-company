@@ -22,6 +22,7 @@ import {
 import { formatCurrency } from "../../data/mockOperationsData";
 import { formatMonthYearLabel } from "../../../../utils/dateDisplay";
 
+import { toast } from "../../../../lib/toast";
 function monthOptions() {
   const opts = [];
   const now = new Date();
@@ -78,9 +79,9 @@ export default function DahejExpenseRegister() {
     try {
       const rows = await importDahejExcel(file, selectedMonth);
       importEntries(rows);
-      window.alert(`Imported ${rows.length} rows into ${selectedMonth}`);
+      toast.success(`Imported ${rows.length} rows into ${selectedMonth}`);
     } catch (err) {
-      window.alert(err.message || "Import failed");
+      toast.warning(err.message || "Import failed");
     }
     e.target.value = "";
   };

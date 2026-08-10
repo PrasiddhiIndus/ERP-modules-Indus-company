@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
+import { toast } from '../../lib/toast';
 
 const TEMPLATE_TYPES = ["Subject", "Terms & Condition", "Annexure"];
 
@@ -36,7 +37,7 @@ const QuotationTemplatePage = () => {
 
       if (userError) {
         console.error("User error:", userError);
-        alert("Authentication error. Please login again.");
+        toast.warning("Authentication error. Please login again.");
         setLoading(false);
         return;
       }
@@ -52,11 +53,9 @@ const QuotationTemplatePage = () => {
           error.message.includes("marketing_mail_templates") &&
           error.message.includes("schema cache")
         ) {
-          alert(
-            "⚠️ Table 'marketing_mail_templates' not found!\n\nPlease run the SQL migration file:\n'marketing_mail_templates_schema.sql'\n\nin your Supabase SQL Editor to create the table."
-          );
+          toast.warning("⚠️ Table 'marketing_mail_templates' not found!\n\nPlease run the SQL migration file:\n'marketing_mail_templates_schema.sql'\n\nin your Supabase SQL Editor to create the table.");
         } else {
-          alert("Error loading templates: " + error.message);
+          toast.error("Error loading templates: " + error.message);
         }
         throw error;
       }
@@ -64,7 +63,7 @@ const QuotationTemplatePage = () => {
       setTemplates(data || []);
     } catch (err) {
       console.error("Error loading templates:", err);
-      alert("Failed to load templates: " + (err.message || err));
+      toast.error("Failed to load templates: " + (err.message || err));
     } finally {
       setLoading(false);
     }
@@ -101,11 +100,11 @@ const QuotationTemplatePage = () => {
       if (error) throw error;
 
       setTemplates(templates.filter((t) => t.id !== id));
-      alert("✅ Template deleted successfully!");
+      toast.success("✅ Template deleted successfully!");
       await loadTemplates();
     } catch (err) {
       console.error("Error deleting template:", err);
-      alert("Failed to delete template: " + (err.message || err));
+      toast.error("Failed to delete template: " + (err.message || err));
     }
   };
 
@@ -133,16 +132,16 @@ const QuotationTemplatePage = () => {
   };
 
   const handleSave = async () => {
-    if (!formData.name) return alert("Name is required");
+    if (!formData.name) return toast.warning("Name is required");
 
     if (formData.template_type === "Subject") {
-      if (!formData.subject_title) return alert("Subject Title is required for Subject Template");
-      if (!formData.subject_content) return alert("Subject Content is required for Subject Template");
+      if (!formData.subject_title) return toast.warning("Subject Title is required for Subject Template");
+      if (!formData.subject_content) return toast.warning("Subject Content is required for Subject Template");
     } else if (formData.template_type === "Terms & Condition") {
-      if (!formData.terms_and_conditions) return alert("Terms and Conditions content is required");
+      if (!formData.terms_and_conditions) return toast.warning("Terms and Conditions content is required");
     } else if (formData.template_type === "Annexure") {
       if (!formData.annexure_description?.trim()) {
-        return alert("Description is required for Annexure Template");
+        return toast.warning("Description is required for Annexure Template");
       }
     }
 
@@ -153,7 +152,7 @@ const QuotationTemplatePage = () => {
       } = await supabase.auth.getUser();
 
       if (userErr || !user) {
-        alert("User not authenticated. Please login.");
+        toast.warning("User not authenticated. Please login.");
         return;
       }
 
@@ -198,13 +197,13 @@ const QuotationTemplatePage = () => {
         setTemplates([data, ...templates]);
       }
 
-      alert("✅ Template saved successfully!");
+      toast.success("✅ Template saved successfully!");
       resetForm();
       setIsFormOpen(false);
       await loadTemplates();
     } catch (err) {
       console.error("Error saving template:", err);
-      alert("Failed to save template: " + (err.message || err));
+      toast.error("Failed to save template: " + (err.message || err));
     }
   };
 

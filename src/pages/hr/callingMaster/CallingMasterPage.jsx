@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import {
-  Check,
   Edit3,
   Eye,
   FileSpreadsheet,
   Filter,
   ListChecks,
   Paperclip,
-  PhoneCall,
   Plus,
   Printer,
   RefreshCw,
@@ -16,7 +14,6 @@ import {
   Trash2,
   UserCheck,
   UserX,
-  X,
 } from "lucide-react";
 import FormDateInput from "../../../components/FormDateInput";
 import {
@@ -55,6 +52,7 @@ import { useCallingMasterDropdowns } from "./useCallingMasterDropdowns";
 import OfferDetailsFields, { emptyOfferDetailValues } from "./OfferDetailsFields";
 import { CallingActionBar, CallingActionBtn, CallingActionHint } from "./CallingTableActions";
 import { deriveSiteCodeFromName } from "../../../lib/offerLetterDocuments";
+import { pushToast } from "../../../lib/toast";
 
 const ACTION_COLUMN_WIDTH = {
   Calling: 120,
@@ -611,39 +609,6 @@ function LoadingSkeleton() {
   );
 }
 
-function ToastStack({ items, onDismiss }) {
-  if (!items.length) return null;
-  return (
-    <div className="fixed right-4 top-20 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
-      {items.map((toast) => (
-        <div
-          key={toast.id}
-          className={`rounded-xl border px-4 py-3 shadow-lg ${
-            toast.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : toast.tone === "warning"
-                ? "border-amber-200 bg-amber-50 text-amber-900"
-                : "border-slate-200 bg-white text-slate-900"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 shrink-0">
-              {toast.tone === "success" ? <Check className="h-4 w-4" /> : <PhoneCall className="h-4 w-4" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{toast.title}</p>
-              {toast.message ? <p className="mt-1 text-xs opacity-90">{toast.message}</p> : null}
-            </div>
-            <button type="button" onClick={() => onDismiss(toast.id)} className="shrink-0 opacity-60 hover:opacity-100">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function CallingMasterPage() {
   const { options: selectOptions } = useCallingMasterDropdowns();
   const [records, setRecords] = useState([]);
@@ -659,23 +624,10 @@ export default function CallingMasterPage() {
   const [formMode, setFormMode] = useState("create");
   const [formValues, setFormValues] = useState(createEmptyFormValues());
   const [formErrors, setFormErrors] = useState({});
-  const [toastItems, setToastItems] = useState([]);
   const [pendingFiles, setPendingFiles] = useState([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [pipelineTab, setPipelineTab] = useState("Calling");
   const [statusUpdatingId, setStatusUpdatingId] = useState("");
-
-  const pushToast = (title, message = "", tone = "default") => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setToastItems((current) => [...current, { id, title, message, tone }]);
-    window.setTimeout(() => {
-      setToastItems((current) => current.filter((item) => item.id !== id));
-    }, 3200);
-  };
-
-  const dismissToast = (id) => {
-    setToastItems((current) => current.filter((item) => item.id !== id));
-  };
 
   const loadRecords = (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -1195,8 +1147,6 @@ export default function CallingMasterPage() {
 
   return (
     <div className="space-y-4">
-      <ToastStack items={toastItems} onDismiss={dismissToast} />
-
       <PageTaskHeader title={pageTitle} subtitle={pageSubtitle}>
         {pipelineTab === "Calling" ? (
           <button type="button" onClick={openCreate} className="erp-btn-primary rounded-control px-3.5 py-2 inline-flex items-center gap-2">

@@ -31,6 +31,8 @@ import {
   isServiceCategoryOther,
   isCustomWorkingHours,
 } from "../utils/manpowerEnquiryExcelFields";
+import { toast } from "../../../lib/toast";
+
 const emptyForm = {
   enquiryNumber: "",
   enquiryDate: new Date().toISOString().split("T")[0],
@@ -588,19 +590,19 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
 
     for (const [field, label] of required) {
       if (!String(formData[field] || "").trim()) {
-        alert(`Please enter ${label}.`);
+        toast.warning("Validation", `Please enter ${label}.`);
         return false;
       }
     }
 
     if (isRegret && !String(formData.responseStatusReason || "").trim()) {
-      alert("Please enter the reason for Regret.");
+      toast.warning("Validation", "Please enter the reason for Regret.");
       return false;
     }
 
     const assignedToList = getResolvedAssignedToList();
     if (!assignedToList.length) {
-      alert("Please add at least one person in Assigned To.");
+      toast.warning("Validation", "Please add at least one person in Assigned To.");
       return false;
     }
 
@@ -608,29 +610,29 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       (c) => String(c?.name || "").trim() || String(c?.email || "").trim() || String(c?.phone || "").trim()
     );
     if (!filledContacts.length) {
-      alert("Please add at least one contact person with Name, Email, or Phone.");
+      toast.warning("Validation", "Please add at least one contact person with Name, Email, or Phone.");
       return false;
     }
     const invalidContact = filledContacts.find(
       (c) => !String(c?.name || "").trim() || !String(c?.email || "").trim() || !String(c?.phone || "").trim()
     );
     if (invalidContact) {
-      alert("Each contact person must have Name, Email, and Phone Number.");
+      toast.warning("Validation", "Each contact person must have Name, Email, and Phone Number.");
       return false;
     }
 
     if (isIndustryOther && !String(formData.industrySectorCustom || "").trim()) {
-      alert("Please enter Industry / Sector (Other).");
+      toast.warning("Validation", "Please enter Industry / Sector (Other).");
       return false;
     }
 
     if (isServiceCategoryManual && !String(formData.serviceCategoryCustom || "").trim()) {
-      alert("Please enter Service Category (Other).");
+      toast.warning("Validation", "Please enter Service Category (Other).");
       return false;
     }
 
     if (isParticipated && isCustomHours && !String(formData.customWorkingHours || "").trim()) {
-      alert("Please enter working hours / shift details for Custom.");
+      toast.warning("Validation", "Please enter working hours / shift details for Custom.");
       return false;
     }
 
@@ -639,7 +641,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         (formData.scopeInputType === "Text" || formData.scopeInputType === "Both") &&
         !String(formData.scopeOfWork || "").trim()
       ) {
-        alert("Please enter Scope of Work.");
+        toast.warning("Validation", "Please enter Scope of Work.");
         return false;
       }
       if (
@@ -647,7 +649,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         !(formData.scopeAttachments || []).length &&
         !existingScopeAttachmentPathsRef.current.length
       ) {
-        alert("Please upload at least one SOP document for Scope of Work.");
+        toast.warning("Validation", "Please upload at least one SOP document for Scope of Work.");
         return false;
       }
     }
@@ -658,7 +660,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           ? formData.portalNameCustom
           : formData.portalNameOption;
       if (!String(portalName || "").trim()) {
-        alert("Please select or enter Portal Name.");
+        toast.warning("Validation", "Please select or enter Portal Name.");
         return false;
       }
       const tenderRequired = [
@@ -668,33 +670,33 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       ];
       for (const [field, label] of tenderRequired) {
         if (!String(formData[field] || "").trim()) {
-          alert(`Please enter ${label} (Online Tender section).`);
+          toast.warning("Validation", `Please enter ${label} (Online Tender section).`);
           return false;
         }
       }
       if (!formData.portalProofAttachment && !existingPortalProofPathRef.current) {
-        alert("Please upload Portal Screenshot / Proof.");
+        toast.warning("Validation", "Please upload Portal Screenshot / Proof.");
         return false;
       }
       if (isTenderFeeApplicable && !String(formData.tenderFeeAmount || "").trim()) {
-        alert("Please enter Tender Fee Amount.");
+        toast.warning("Validation", "Please enter Tender Fee Amount.");
         return false;
       }
       if (isEmdFeePayable && !String(formData.emdFeeAmount || "").trim()) {
-        alert("Please enter EMD Fee Amount.");
+        toast.warning("Validation", "Please enter EMD Fee Amount.");
         return false;
       }
       if (isPaymentRequired) {
         if (!formData.paymentMode) {
-          alert("Please select Payment Mode.");
+          toast.warning("Validation", "Please select Payment Mode.");
           return false;
         }
         if (!String(formData.paymentReferenceNo || "").trim()) {
-          alert("Please enter DD / NEFT Reference No.");
+          toast.warning("Validation", "Please enter DD / NEFT Reference No.");
           return false;
         }
         if (!formData.paymentDate) {
-          alert("Please enter Payment Date.");
+          toast.warning("Validation", "Please enter Payment Date.");
           return false;
         }
       }
@@ -764,7 +766,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       const submitForm = { ...formData, ...syncAssignedToFields(assignedToList) };
 
       if (enquiryId && enquiryResultRequiresRemark(submitForm.enquiryResult) && !String(submitForm.resultRemark || "").trim()) {
-        alert("Please enter remarks when result is Awarded to Other Party.");
+        toast.warning("Validation", "Please enter remarks when result is Awarded to Other Party.");
         setSubmitting(false);
         return;
       }
@@ -797,7 +799,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       if (enquiryId) {
         const { error } = await supabase.from("manpower_enquiries").update(payload).eq("id", enquiryId);
         if (error) throw error;
-        alert("Inquiry updated successfully.");
+        toast.success("Updated", "Inquiry updated successfully.");
       } else {
         const enquiryNumber = await getNextEnquiryNumber(supabase);
         const insertPayload = {
@@ -808,14 +810,14 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
         if (user?.id) insertPayload.user_id = user.id;
         const { error } = await supabase.from("manpower_enquiries").insert([insertPayload]);
         if (error) throw error;
-        alert(`Inquiry saved successfully! Enquiry ID: ${enquiryNumber}`);
+        toast.success("Saved", `Inquiry saved successfully! Enquiry ID: ${enquiryNumber}`);
       }
 
       onSaved();
     } catch (err) {
       console.error(err);
       const msg = err?.message || err?.error_description || (typeof err === "string" ? err : null);
-      alert(msg ? `Failed to save inquiry: ${msg}` : "Failed to save inquiry. Check console for details.");
+      toast.error("Save failed", msg ? `Failed to save inquiry: ${msg}` : "Failed to save inquiry. Check console for details.");
     } finally {
       setSubmitting(false);
     }
@@ -1330,7 +1332,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                         await openManpowerStorageFile(path, { download: false });
                       } catch (err) {
                         console.error(err);
-                        alert("Could not open file preview.");
+                        toast.error("File error", "Could not open file preview.");
                       }
                     }}
                     onDownload={async () => {
@@ -1338,7 +1340,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                         await openManpowerStorageFile(path, { download: true });
                       } catch (err) {
                         console.error(err);
-                        alert("Could not download file.");
+                        toast.error("File error", "Could not download file.");
                       }
                     }}
                     onRemove={() => removeExistingScopeAttachment(index)}
@@ -1556,7 +1558,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                       await openManpowerStorageFile(path, { download: false });
                     } catch (err) {
                       console.error(err);
-                      alert("Could not open file preview.");
+                      toast.error("File error", "Could not open file preview.");
                     }
                   }}
                   onDownload={async () => {
@@ -1564,7 +1566,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                       await openManpowerStorageFile(path, { download: true });
                     } catch (err) {
                       console.error(err);
-                      alert("Could not download file.");
+                      toast.error("File error", "Could not download file.");
                     }
                   }}
                   onRemove={() => removeExistingEnquiryAttachment(index)}

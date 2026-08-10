@@ -6,6 +6,7 @@ import { X, Plus, Edit2, Trash2, MoreVertical, Download, Eye, Calendar, RefreshC
 import { exportToExcel } from './utils/excelExport';
 import ExcelCostingSheet from './components/ExcelCostingSheet';;
 import FormDateInput from "../../components/FormDateInput";
+import { toast } from '../../lib/toast';
 
 
 const FollowUpPlanner = () => {
@@ -316,7 +317,7 @@ const FollowUpPlanner = () => {
       fetchFollowUps();
     } catch (error) {
       console.error('Error saving follow-up:', error);
-      alert('Error saving follow-up: ' + error.message);
+      toast.error("Error saving follow-up", error.message);
     }
   };
 
@@ -336,7 +337,7 @@ const FollowUpPlanner = () => {
 
   const handleRevision = async (followUp) => {
     if (!followUp.quotation_id) {
-      alert('Revisions can only be added for quotations');
+      toast.warning("Validation", "Revisions can only be added for quotations");
       return;
     }
 
@@ -397,7 +398,7 @@ const FollowUpPlanner = () => {
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!selectedFollowUpForRevision.quotation_id) {
-        alert('Revisions can only be added for quotations');
+        toast.warning("Validation", "Revisions can only be added for quotations");
         return;
       }
 
@@ -518,10 +519,10 @@ const FollowUpPlanner = () => {
         status: 'Pending',
       });
       await fetchFollowUps();
-      alert(`Revision ${nextRevisionNumber} created successfully and synced with follow-up planner!`);
+      toast.success("Saved", `Revision ${nextRevisionNumber} created successfully and synced with follow-up planner!`);
     } catch (error) {
       console.error('Error saving revision:', error);
-      alert('Error saving revision: ' + error.message);
+      toast.error("Error saving revision", error.message);
     }
   };
 
@@ -626,7 +627,7 @@ const FollowUpPlanner = () => {
       setMenuOpen(null);
     } catch (error) {
       console.error('Error deleting follow-up:', error);
-      alert('Error deleting follow-up: ' + error.message);
+      toast.error("Error deleting follow-up", error.message);
     }
   };
 

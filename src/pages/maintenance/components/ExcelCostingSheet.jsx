@@ -4,6 +4,7 @@ import { supabase } from '../../../lib/supabase';
 import { filterEmptyCostingItems, dedupeCostingItemsById, pruneCostingCellData, pickCanonicalCostingSheet } from '../utils/maintenanceQuotationUtils';
 import { sanitizePdfText } from '../utils/pdfTextSanitize';
 
+import { toast } from "../../../lib/toast";
 // Sheet1 columns A–Y (Sr. No. + Item Description are sticky; rest are cost heads)
 const COSTING_SHEET_COLUMNS = [
   { id: 'specifications', label: 'Specifications', inputType: 'text', isEditable: true, isCalculated: false },
@@ -516,7 +517,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
 
   const deleteItem = (itemId) => {
     if (items.length <= 1) {
-      alert('At least one item is required');
+      toast.warning('At least one item is required');
       return;
     }
     const newItems = items.filter((item) => item.id !== itemId);
@@ -567,7 +568,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       if (isViewMode) return { ok: true, skipped: true };
       const targetQuotationId = providedQuotationId || quotationId;
       if (!targetQuotationId) {
-        if (!silent) alert('Please save quotation first before saving costing sheet.');
+        if (!silent) toast.warning('Please save quotation first before saving costing sheet.');
         return { ok: false, error: new Error('Missing quotationId') };
       }
       const { data: { user } } = await supabase.auth.getUser();
@@ -678,7 +679,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         // Don't throw, just log - costing sheet is saved
       }
 
-      if (!silent) alert('Costing sheet saved successfully! Quotation amounts updated.');
+      if (!silent) toast.success('Costing sheet saved successfully! Quotation amounts updated.');
       
       // Call success callback if provided
       if (onSaveSuccess) {
@@ -687,7 +688,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
       return { ok: true, grandTotal, netTotal, gstAmount };
     } catch (error) {
       console.error('Error saving costing sheet:', error);
-      if (!silent) alert('Error saving costing sheet: ' + error.message);
+      if (!silent) toast.warning('Error saving costing sheet: ' + error.message);
       return { ok: false, error };
     } finally {
       isSavingRef.current = false;

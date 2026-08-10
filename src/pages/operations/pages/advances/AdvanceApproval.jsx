@@ -18,6 +18,7 @@ import {
   useThemeClasses,
 } from "../../components/OperationsUi";
 
+import { toast } from "../../../../lib/toast";
 export default function AdvanceApproval() {
   const { data, refresh, theme, getSite, getEmployee } = useOperations();
   const t = useThemeClasses(theme);
@@ -30,7 +31,7 @@ export default function AdvanceApproval() {
   );
 
   const handleAction = (action) => {
-    window.alert(`Advance ${selected?.request_no} ${action} (UI preview)${remarks ? `: ${remarks}` : ""}`);
+    toast.success(`Advance ${selected?.request_no} ${action} (UI preview)${remarks ? `: ${remarks}` : ""}`);
     setSelected(null);
     setRemarks("");
   };

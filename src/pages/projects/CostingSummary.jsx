@@ -19,6 +19,7 @@ import {
   saveLocalNetTotalRemarks,
 } from "./fireTenderCostingConfig";
 
+import { toast } from "../../lib/toast";
 /** NET TOTAL row labels: A, B, … Z, then AA, AB, … (Excel-style). */
 function indexToNetTotalLetters(i) {
   let n = i + 1;
@@ -529,7 +530,7 @@ const CostingSummary = ({
 
   const persistSummaryData = async ({ silent = false } = {}) => {
     if (!tenderId) {
-      if (!silent) alert("No tender selected. Please open a tender before saving.");
+      if (!silent) toast.warning("No tender selected. Please open a tender before saving.");
       return;
     }
 
@@ -540,7 +541,7 @@ const CostingSummary = ({
 
     if (userErr || !user) {
       console.error("Auth error:", userErr);
-      if (!silent) alert("User not authenticated. Please login.");
+      if (!silent) toast.warning("User not authenticated. Please login.");
       else setSummaryAutoHint("NET TOTAL: could not save — not signed in.");
       return;
     }
@@ -604,7 +605,7 @@ const CostingSummary = ({
     }
 
     if (!silent) {
-      alert("✅ Costing summary saved successfully!");
+      toast.success("✅ Costing summary saved successfully!");
     } else {
       const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
       setSummaryAutoHint(`NET TOTAL saved · ${t}`);
@@ -618,7 +619,7 @@ const CostingSummary = ({
       await persistSummaryData({ silent: false });
     } catch (err) {
       console.error("Save error:", err);
-      alert("❌ Failed to save costing summary: " + (err.message || err));
+      toast.warning("❌ Failed to save costing summary: " + (err.message || err));
     } finally {
       setSaving(false);
     }
@@ -647,11 +648,11 @@ const CostingSummary = ({
 
   const approveForQuotation = async () => {
     if (!canApproveQuotation) {
-      alert("Only managers and admins with Fire Tender access can approve into quotation.");
+      toast.success("Only managers and admins with Fire Tender access can approve into quotation.");
       return;
     }
     if (!tenderId) {
-      alert("No tender selected. Please open a tender before approving.");
+      toast.warning("No tender selected. Please open a tender before approving.");
       return;
     }
 
@@ -660,7 +661,7 @@ const CostingSummary = ({
     );
 
     if (checkedItems.length === 0) {
-      alert("Please select at least one item to approve for quotation.");
+      toast.warning("Please select at least one item to approve for quotation.");
       return;
     }
 
@@ -673,7 +674,7 @@ const CostingSummary = ({
 
       if (userErr || !user) {
         console.error("Auth error:", userErr);
-        alert("User not authenticated. Please login.");
+        toast.warning("User not authenticated. Please login.");
         return;
       }
 
@@ -728,15 +729,15 @@ const CostingSummary = ({
 
         if (quotationInsertError) throw quotationInsertError;
 
-        alert(`✅ Quotation created: ${quotationNumber}`);
+        toast.success(`✅ Quotation created: ${quotationNumber}`);
       } else {
-        alert(`✅ Quotation already exists: ${existingQuotation.quotation_number}`);
+        toast.success(`✅ Quotation already exists: ${existingQuotation.quotation_number}`);
       }
 
-      alert(`✅ ${checkedItems.length} items approved for quotation successfully!`);
+      toast.success(`✅ ${checkedItems.length} items approved for quotation successfully!`);
     } catch (err) {
       console.error("Approve error:", err);
-      alert("❌ Failed to approve items for quotation: " + (err.message || err));
+      toast.warning("❌ Failed to approve items for quotation: " + (err.message || err));
     } finally {
       setSaving(false);
     }
@@ -1136,7 +1137,7 @@ const CostingSummary = ({
                 await onExportExcel(netRows, accessoriesRows, mocData || []);
               } catch (err) {
                 console.error(err);
-                alert("Export failed: " + (err.message || err));
+                toast.warning("Export failed: " + (err.message || err));
               }
             }}
             className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-800"

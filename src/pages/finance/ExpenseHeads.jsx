@@ -10,6 +10,7 @@ import {
 } from "../../services/financeApi";
 import { CHART_SERIES } from "../../theme/tokens";
 
+import { toast } from "../../lib/toast";
 const PARENT_PALETTE = [...CHART_SERIES];
 
 export default function ExpenseHeads() {
@@ -36,7 +37,7 @@ export default function ExpenseHeads() {
       setParentForm({ label: "", color: PARENT_PALETTE[0] });
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save");
+      toast.warning(e?.message || "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -51,7 +52,7 @@ export default function ExpenseHeads() {
       setChildForm({ label: "", parent_head_id: parents[0]?.id || "" });
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save");
+      toast.warning(e?.message || "Failed to save");
     } finally {
       setSaving(false);
     }

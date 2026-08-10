@@ -8,6 +8,7 @@ import { formatDateDdMmYyyy } from '../../utils/dateDisplay';;
 import FormDateInput from "../../components/FormDateInput";
 
 
+import { toast } from "../../lib/toast";
 const PurchaseOrders = () => {
   const [contracts, setContracts] = useState([]);
   const [quotations, setQuotations] = useState([]);
@@ -217,7 +218,7 @@ const PurchaseOrders = () => {
       fetchContracts();
     } catch (error) {
       console.error('Error saving contract:', error);
-      alert('Error saving contract: ' + error.message);
+      toast.warning('Error saving contract: ' + error.message);
     }
   };
 
@@ -255,7 +256,7 @@ const PurchaseOrders = () => {
       setMenuOpen(null);
     } catch (error) {
       console.error('Error deleting contract:', error);
-      alert('Error deleting contract: ' + error.message);
+      toast.warning('Error deleting contract: ' + error.message);
     }
   };
 

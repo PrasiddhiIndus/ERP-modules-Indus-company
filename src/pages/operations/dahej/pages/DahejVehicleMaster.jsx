@@ -15,6 +15,7 @@ import { useOperations } from "../../contexts/OperationsContext";;
 import { formatDateDdMmYyyy } from "../../../../utils/dateDisplay";
 
 
+import { toast } from "../../../../lib/toast";
 const VEHICLE_TYPE_OPTIONS = ["Tata Yodha", "Mahindra Bolero Ambulance", "Hero Glamour", "Maruti Eco", "Fire Tender", "Other"];
 
 export default function DahejVehicleMaster() {
@@ -25,7 +26,7 @@ export default function DahejVehicleMaster() {
 
   const handleSave = () => {
     if (!form.name.trim()) {
-      window.alert("Vehicle name is required");
+      toast.warning("Vehicle name is required");
       return;
     }
     saveVehicle(form);

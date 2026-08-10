@@ -35,6 +35,7 @@ import {
   isPoWithoutPoBilling,
 } from '../../../constants/poBasis';
 
+import { toast } from "../../../lib/toast";
 const VERTICALS = ['R&M', 'AMC', 'IEV'];
 const BILLING_TYPES = ['Supply', 'Service'];
 const ALLOWED_RM_PO_TYPES = new Set(BILLING_TYPES);
@@ -367,7 +368,7 @@ const POEntry = ({
   const requestSupplementaryBill = (po) => {
     if (!po) return;
     if (!isAfterContractEnd(po.endDate || po.end_date)) {
-      window.alert('Post-contract billing can be requested only after the contract end date.');
+      toast.success('Post-contract billing can be requested only after the contract end date.');
       return;
     }
     const reason = window.prompt('Reason for post-contract billing (optional):', po.supplementaryReason || '') ?? '';
@@ -1519,7 +1520,7 @@ const POEntry = ({
                         });
                         const msg = validateGstSupplyTypeForState(nextState, formData.billingAddress, formData.gstSupplyType);
                         setGstTypeError(msg);
-                        if (msg) window.alert(msg);
+                        if (msg) toast.success(msg);
                       }}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white"
                     >
@@ -1886,7 +1887,7 @@ const POEntry = ({
                         setFormData((p) => ({ ...p, gstSupplyType: nextType }));
                         const msg = validateGstSupplyTypeForState(formData.placeOfSupply, formData.billingAddress, nextType);
                         setGstTypeError(msg);
-                        if (msg) window.alert(msg);
+                        if (msg) toast.success(msg);
                       }}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     >

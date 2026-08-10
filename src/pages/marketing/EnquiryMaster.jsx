@@ -14,6 +14,7 @@ import {
   parseCommaSeparatedEmails,
   parseEnquirySecondaryEmails,
 } from './utils/marketingQuotationUtils';
+import { toast } from '../../lib/toast';
 
 const DOCUMENTS_BUCKET = 'marketing-documents';
 const ENQUIRY_DOCUMENTS_TABLE = 'marketing_enquiry_documents';
@@ -422,7 +423,7 @@ const EnquiryMaster = () => {
           console.error('Duplicate enquiry check failed:', dupError);
         }
         if (existingDup && existingDup.length > 0) {
-          alert('An enquiry already exists with the same details');
+          toast.warning("Validation", "An enquiry already exists with the same details");
           return;
         }
 
@@ -468,7 +469,7 @@ const EnquiryMaster = () => {
           }
         }
         if (uploadFailed > 0) {
-          alert(`Could not save ${uploadFailed} file(s). Error: ${uploadFailed === uploadedFiles.length ? 'Check that table "' + ENQUIRY_DOCUMENTS_TABLE + '" exists (run marketing_enquiry_documents_schema.sql) and storage bucket "' + DOCUMENTS_BUCKET + '" exists.' : 'See console.'}`);
+          toast.error("Save failed", `Could not save ${uploadFailed} file(s). Error: ${uploadFailed === uploadedFiles.length ? 'Check that table "' + ENQUIRY_DOCUMENTS_TABLE + '" exists (run marketing_enquiry_documents_schema.sql) and storage bucket "' + DOCUMENTS_BUCKET + '" exists.' : 'See console.'}`);
         }
       }
 
@@ -517,7 +518,7 @@ const EnquiryMaster = () => {
       fetchAssignedCustomNames();
     } catch (error) {
       console.error('Error saving enquiry:', error);
-      alert('Error saving enquiry: ' + error.message);
+      toast.error("Error saving enquiry", error.message);
     } finally {
       setSubmitting(false);
     }
@@ -525,7 +526,7 @@ const EnquiryMaster = () => {
 
   const handleEdit = async (enquiry) => {
     if (enquiry.is_converted_to_quotation) {
-      alert('Cannot edit enquiry that has been converted to quotation');
+      toast.warning("Cannot edit", "Cannot edit enquiry that has been converted to quotation");
       return;
     }
     setDocumentsToRemove([]);
@@ -658,7 +659,7 @@ const EnquiryMaster = () => {
       fetchEnquiries();
     } catch (error) {
       console.error('Error deleting enquiry:', error);
-      alert('Error deleting enquiry: ' + error.message);
+      toast.error("Error deleting enquiry", error.message);
     }
   };
 
@@ -666,7 +667,7 @@ const EnquiryMaster = () => {
     try {
       // Check if enquiry is already converted
       if (enquiry.is_converted_to_quotation) {
-        alert('This enquiry has already been converted to a quotation.');
+        toast.warning("Validation", "This enquiry has already been converted to a quotation.");
         return;
       }
 
@@ -674,7 +675,7 @@ const EnquiryMaster = () => {
       navigate(`/app/marketing/quotation-tracker?enquiry_id=${enquiry.id}`);
     } catch (error) {
       console.error('Error converting enquiry:', error);
-      alert('Error converting enquiry: ' + error.message);
+      toast.error("Error converting enquiry", error.message);
     }
   };
 
