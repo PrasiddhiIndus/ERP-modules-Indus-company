@@ -100,7 +100,7 @@ export function MonitoringHeader({
           />
         </div>
         <p className={`text-sm max-w-2xl ${t.muted}`}>
-          Real-time monitoring for internal and external APIs — status, latency, uptime, and check history.
+          API status, latency, and uptime — plus a daily Supabase Realtime quota early-warning from DB write trends.
         </p>
         {lastRefreshAt ? (
           <p className={`text-[11px] flex items-center gap-1 ${t.muted}`} aria-live="polite">
@@ -161,6 +161,11 @@ export function MonitoringHelp({ t }) {
         Monitored APIs are defined in a central registry — add new endpoints there without changing this screen.
         History is kept for the current browser session. Internal APIs are checked against your ERP backend;
         external APIs are probed directly where allowed.
+      </p>
+      <p className="mt-2">
+        The Supabase quota early-warning panel tracks daily database writes as a proxy for Realtime message
+        pressure (up/down vs yesterday). It is not the Supabase invoice — use the weekly checklist to confirm
+        Upcoming Invoice on the Supabase Usage page.
       </p>
     </CollapsibleHelp>
     </div>

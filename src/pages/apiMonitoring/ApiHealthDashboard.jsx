@@ -35,6 +35,7 @@ import {
 } from "./components/ApiMonitoringUi";
 import { formatMs } from "./components/apiMonitoringUtils";
 import { ApiHealthTableSection } from "./components/ApiHealthTable";
+import DbUsageQuotaPanel from "./components/DbUsageQuotaPanel";
 
 const REFRESH_OPTIONS = [
   { value: "0", label: "Off" },
@@ -315,6 +316,8 @@ export default function ApiHealthDashboard() {
       <MonitoringHelp t={t} />
 
       <ErrorBanner message={error} t={t} />
+
+      <DbUsageQuotaPanel t={t} reducedMotion={reducedMotion} />
 
       <SummaryCardsGrid
         summary={summary}
