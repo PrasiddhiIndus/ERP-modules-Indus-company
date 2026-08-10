@@ -358,6 +358,8 @@ async function upsertProfileViaRpc(db, row) {
 
     p_set_employee_code: true,
 
+    p_module_access_pending: row.module_access_pending === true,
+
   });
 
   if (error) return { profile: null, error };
@@ -389,6 +391,8 @@ async function upsertProfileViaRest(db, row) {
     allowed_modules: row.allowed_modules,
 
     employee_code: row.employee_code,
+
+    module_access_pending: row.module_access_pending === true,
 
   };
 
@@ -712,6 +716,8 @@ export async function adminCreateUser(body, jwt, supabaseUrl, serviceRoleKey, an
     allowed_modules: allowed,
 
     employee_code: employeeCode,
+
+    module_access_pending: noModuleAccess,
 
   };
 

@@ -19,6 +19,7 @@ import {
 import { getAccessibleModules, MODULES } from '../config/roles';
 import { checkSupabaseConnection } from '../lib/supabase';
 import { INDUS_LOGO_SRC } from '../constants/branding.js';
+import { isAuthBannedError, ACCOUNT_INACTIVE_MESSAGE } from '../lib/accountInactive';
 import './Login.css';
 
 const REMEMBER_KEY = 'erp_trust_device_until';
@@ -145,6 +146,7 @@ const Login = () => {
     userProfile,
     permissionsReady,
     applyLoginProfile,
+    clearInvalidSession,
   } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -235,7 +237,16 @@ const Login = () => {
   const finishLoginNavigation = async (session, quickProfile) => {
     const result = await planPostLoginNavigation(session, quickProfile);
     if (!result.ok) {
-      logLoginStage('redirect-failed', { error: result.error });
+      logLoginStage('redirect-failed', { error: result.error, inactive: result.inactive });
+      if (result.inactive || result.code === 'account_inactive') {
+        try {
+          await clearInvalidSession();
+        } catch {
+          /* ignore */
+        }
+        setError(result.error || 'Your account is inactive. Contact your administrator.');
+        return false;
+      }
       setError(result.error);
       return false;
     }
@@ -265,7 +276,9 @@ const Login = () => {
     try {
       const { data, error: signInError, profile: quickProfile } = await signIn(trimmed, password);
       if (signInError) {
-        if (isEmailNotConfirmedError(signInError)) {
+        if (isAuthBannedError(signInError)) {
+          setError(ACCOUNT_INACTIVE_MESSAGE);
+        } else if (isEmailNotConfirmedError(signInError)) {
           setShowVerifyCode(true);
           setOtpSendStatus('idle');
           setError(

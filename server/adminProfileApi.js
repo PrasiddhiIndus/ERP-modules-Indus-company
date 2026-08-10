@@ -142,7 +142,7 @@ async function readProfileViaRest(db, id, selectCols = PROFILE_SELECT) {
   return { data: row?.id ? row : null, error: null };
 }
 
-async function saveProfileViaRpc(db, { id, team, role, allowed, allowedSub, employeeCode, setEmployeeCode }) {
+async function saveProfileViaRpc(db, { id, team, role, allowed, allowedSub, employeeCode, setEmployeeCode, isActive }) {
   const rpcArgs = {
     p_id: id,
     p_team: team,
@@ -153,6 +153,9 @@ async function saveProfileViaRpc(db, { id, team, role, allowed, allowedSub, empl
   };
   if (Array.isArray(allowedSub)) {
     rpcArgs.p_allowed_sub_modules = allowedSub;
+  }
+  if (typeof isActive === 'boolean') {
+    rpcArgs.p_is_active = isActive;
   }
   const { data, error } = await db.client.rpc('admin_save_profile', rpcArgs);
   if (error) {
@@ -322,7 +325,16 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
       )
     : undefined;
 
-  const patch = { team, role, allowed_modules: allowed, allowed_sub_modules: allowedSub };
+  const patch = {
+    team,
+    role,
+    allowed_modules: allowed,
+    allowed_sub_modules: allowedSub,
+    module_access_pending: false,
+  };
+  if (typeof body.is_active === 'boolean') {
+    patch.is_active = body.is_active;
+  }
   if (setEmployeeCode) patch.employee_code = employeeCode;
 
   let profile = null;
@@ -337,12 +349,15 @@ export async function adminUpdateProfile(body, jwt, supabaseUrl, serviceRoleKey,
     allowedSub,
     employeeCode,
     setEmployeeCode,
+    isActive: typeof body.is_active === 'boolean' ? body.is_active : undefined,
   });
   if (rpcSave.profile?.id) {
     profile = rpcSave.profile;
     logStep('RPC save ok', { id });
     // Ensure sub-modules persisted even if RPC signature on DB is not yet migrated.
-    const subPatch = await patchProfileViaRest(db, id, { allowed_sub_modules: allowedSub });
+    const restPatch = { allowed_sub_modules: allowedSub };
+    if (typeof body.is_active === 'boolean') restPatch.is_active = body.is_active;
+    const subPatch = await patchProfileViaRest(db, id, restPatch);
     if (subPatch.data?.id) {
       profile = { ...profile, ...subPatch.data };
     } else if (subPatch.error) {
