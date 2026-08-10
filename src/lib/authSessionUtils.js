@@ -439,6 +439,8 @@ export function writeCachedProfileRow(profile) {
         allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
         allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
         employee_code: profile.employee_code ?? null,
+        module_access_pending: profile.module_access_pending === true,
+        is_active: profile.is_active !== false,
       })
     );
   } catch {

@@ -1,9 +1,23 @@
 import {
   isMissingProfileEmpCodeError,
   isMissingProfileAllowedSubModulesError,
+  isMissingProfileModuleAccessPendingError,
+  isMissingProfileIsActiveError,
   PROFILE_LIST_SELECT,
   PROFILE_LIST_SELECT_WITH_EMP,
 } from "./profileSelect";
+
+const PROFILE_LIST_SELECT_NO_ACTIVE =
+  "id, email, username, team, role, allowed_modules, allowed_sub_modules, module_access_pending, created_at";
+
+const PROFILE_LIST_SELECT_WITH_EMP_NO_ACTIVE =
+  "id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, module_access_pending, created_at";
+
+const PROFILE_LIST_SELECT_NO_PENDING =
+  "id, email, username, team, role, allowed_modules, allowed_sub_modules, created_at";
+
+const PROFILE_LIST_SELECT_WITH_EMP_NO_PENDING =
+  "id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, created_at";
 
 const PROFILE_LIST_SELECT_NO_SUB =
   "id, email, username, team, role, allowed_modules, created_at";
@@ -15,6 +29,8 @@ function normalizeProfileListRows(rows) {
   return (rows ?? []).map((row) => ({
     ...row,
     allowed_sub_modules: Array.isArray(row?.allowed_sub_modules) ? row.allowed_sub_modules : [],
+    module_access_pending: row?.module_access_pending === true,
+    is_active: row?.is_active !== false,
   }));
 }
 
@@ -126,6 +142,12 @@ export async function fetchUserManagementProfiles(
 
   if (preferEmpCode) {
     let result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP, true);
+    if (result.error && isMissingProfileIsActiveError(result.error)) {
+      result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_ACTIVE, true);
+    }
+    if (result.error && isMissingProfileModuleAccessPendingError(result.error)) {
+      result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_PENDING, true);
+    }
     if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
       result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_SUB, true);
       if (result.data) result.data = normalizeProfileListRows(result.data);
@@ -134,6 +156,9 @@ export async function fetchUserManagementProfiles(
     }
     if (result.error && isMissingProfileEmpCodeError(result.error)) {
       result = await buildQuery(PROFILE_LIST_SELECT, false);
+      if (result.error && isMissingProfileModuleAccessPendingError(result.error)) {
+        result = await buildQuery(PROFILE_LIST_SELECT_NO_PENDING, false);
+      }
       if (result.data) result.data = normalizeProfileListRows(result.data);
       return { ...result, empCodeSupported: false };
     }
@@ -141,6 +166,12 @@ export async function fetchUserManagementProfiles(
   }
 
   let result = await buildQuery(PROFILE_LIST_SELECT, false);
+  if (result.error && isMissingProfileIsActiveError(result.error)) {
+    result = await buildQuery(PROFILE_LIST_SELECT_NO_ACTIVE, false);
+  }
+  if (result.error && isMissingProfileModuleAccessPendingError(result.error)) {
+    result = await buildQuery(PROFILE_LIST_SELECT_NO_PENDING, false);
+  }
   if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
     result = await buildQuery(PROFILE_LIST_SELECT_NO_SUB, false);
   }
@@ -170,12 +201,21 @@ export async function fetchAllUserManagementProfiles(
     let result;
     if (preferEmpCode && empCodeSupported !== false) {
       result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP, true);
+      if (result.error && isMissingProfileIsActiveError(result.error)) {
+        result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_ACTIVE, true);
+      }
+      if (result.error && isMissingProfileModuleAccessPendingError(result.error)) {
+        result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_PENDING, true);
+      }
       if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
         result = await buildQuery(PROFILE_LIST_SELECT_WITH_EMP_NO_SUB, true);
       }
       if (result.error && isMissingProfileEmpCodeError(result.error)) {
         empCodeSupported = false;
         result = await buildQuery(PROFILE_LIST_SELECT, false);
+        if (result.error && isMissingProfileModuleAccessPendingError(result.error)) {
+          result = await buildQuery(PROFILE_LIST_SELECT_NO_PENDING, false);
+        }
         if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
           result = await buildQuery(PROFILE_LIST_SELECT_NO_SUB, false);
         }
@@ -183,6 +223,12 @@ export async function fetchAllUserManagementProfiles(
     } else {
       empCodeSupported = false;
       result = await buildQuery(PROFILE_LIST_SELECT, false);
+      if (result.error && isMissingProfileIsActiveError(result.error)) {
+        result = await buildQuery(PROFILE_LIST_SELECT_NO_ACTIVE, false);
+      }
+      if (result.error && isMissingProfileModuleAccessPendingError(result.error)) {
+        result = await buildQuery(PROFILE_LIST_SELECT_NO_PENDING, false);
+      }
       if (result.error && isMissingProfileAllowedSubModulesError(result.error)) {
         result = await buildQuery(PROFILE_LIST_SELECT_NO_SUB, false);
       }

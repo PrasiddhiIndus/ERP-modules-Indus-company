@@ -120,8 +120,10 @@ async function upsertProfile(
     role: string
     allowed_modules: string[]
     employee_code: string
+    module_access_pending?: boolean
   },
 ): Promise<{ error: string | null; profile: ProfileRow | null }> {
+  const pending = row.module_access_pending === true
   const { data, error } = await db.rpc('admin_upsert_profile', {
     p_id: row.id,
     p_email: row.email,
@@ -131,6 +133,7 @@ async function upsertProfile(
     p_allowed_modules: row.allowed_modules,
     p_employee_code: row.employee_code,
     p_set_employee_code: true,
+    p_module_access_pending: pending,
   })
 
   if (error) {
@@ -141,8 +144,20 @@ async function upsertProfile(
   if (!profile) {
     const fallback = await db
       .from('profiles')
-      .upsert(row, { onConflict: 'id' })
-      .select('id, email, username, employee_code, team, role, allowed_modules')
+      .upsert(
+        {
+          id: row.id,
+          email: row.email,
+          username: row.username,
+          team: row.team,
+          role: row.role,
+          allowed_modules: row.allowed_modules,
+          employee_code: row.employee_code,
+          module_access_pending: pending,
+        },
+        { onConflict: 'id' },
+      )
+      .select('id, email, username, employee_code, team, role, allowed_modules, module_access_pending')
       .maybeSingle()
     if (fallback.error) return { error: fallback.error.message, profile: null }
     if (fallback.data?.id) {
@@ -223,6 +238,7 @@ export async function createOneAdminUser(
     role,
     allowed_modules: allowed,
     employee_code: employeeCode,
+    module_access_pending: noModuleAccess,
   }
 
   const authMetadata = {

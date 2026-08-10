@@ -7,6 +7,8 @@ import {
   PROFILE_AUTH_SELECT,
   PROFILE_AUTH_SELECT_WITH_EMP,
   isMissingProfileAllowedSubModulesError,
+  isMissingProfileModuleAccessPendingError,
+  isMissingProfileIsActiveError,
 } from "../lib/profileSelect";
 import {
   clearSupabaseAuthStorage,
@@ -31,6 +33,10 @@ import {
 import { getAccessibleModules, getAccessibleSubModulePaths, getNavVisibleModuleKeys, normalizeAppRole, parseAllowedSubModules, ROLES } from "../config/roles";
 import { logLoginStage } from "../lib/loginFlow";
 import {
+  ACCOUNT_INACTIVE_MESSAGE,
+  isAuthBannedError,
+} from "../lib/accountInactive";
+import {
   isBillingVerticalSuperRole,
   listMyBillingVerticalGrants,
   profileHasBillingModuleAccess,
@@ -48,6 +54,7 @@ function buildAuthProfile(authUser) {
     allowed_modules: Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [],
     allowed_sub_modules: Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [],
     module_access_pending: meta.module_access_pending === true,
+    is_active: true,
   };
 }
 
@@ -312,6 +319,28 @@ export const AuthProvider = ({ children }) => {
       .select(selectCols)
       .eq("id", userId)
       .maybeSingle();
+    if (error && isMissingProfileIsActiveError(error)) {
+      const withoutActive = preferEmpCode
+        ? "id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, module_access_pending"
+        : "id, email, username, team, role, allowed_modules, allowed_sub_modules, module_access_pending";
+      ({ data, error } = await supabase
+        .from("profiles")
+        .select(withoutActive)
+        .eq("id", userId)
+        .maybeSingle());
+      if (data) data.is_active = true;
+    }
+    if (error && isMissingProfileModuleAccessPendingError(error)) {
+      const withoutPending = preferEmpCode
+        ? "id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules"
+        : "id, email, username, team, role, allowed_modules, allowed_sub_modules";
+      ({ data, error } = await supabase
+        .from("profiles")
+        .select(withoutPending)
+        .eq("id", userId)
+        .maybeSingle());
+      if (data) data.module_access_pending = false;
+    }
     if (error && isMissingProfileAllowedSubModulesError(error)) {
       const legacyCols = preferEmpCode
         ? "id, email, username, employee_code, team, role, allowed_modules"
@@ -321,7 +350,10 @@ export const AuthProvider = ({ children }) => {
         .select(legacyCols)
         .eq("id", userId)
         .maybeSingle());
-      if (data) data.allowed_sub_modules = [];
+      if (data) {
+        data.allowed_sub_modules = [];
+        data.module_access_pending = false;
+      }
     }
     if (error && preferEmpCode && isMissingProfileEmpCodeError(error)) {
       setEmpCodeColumnSupported(false);
@@ -420,6 +452,16 @@ export const AuthProvider = ({ children }) => {
       }
       if (error) {
         const msg = await parseEdgeFunctionError(error, data);
+        if (
+          data?.code === "account_inactive" ||
+          /inactive/i.test(String(data?.error || msg || ""))
+        ) {
+          setProfileRow((prev) => ({
+            ...(prev?.id === uid ? prev : { id: uid }),
+            is_active: false,
+          }));
+          return { ok: false, inactive: true, message: ACCOUNT_INACTIVE_MESSAGE };
+        }
         const retryable =
           msg === "Invalid token" ||
           msg.includes("Missing Authorization") ||
@@ -601,6 +643,12 @@ export const AuthProvider = ({ children }) => {
 
       if (result?.error) {
         const msg = result.error.message || '';
+        if (isAuthBannedError(result.error)) {
+          return {
+            data: { session: null, user: null },
+            error: { message: ACCOUNT_INACTIVE_MESSAGE, code: 'account_inactive' },
+          };
+        }
         if (isTransientAuthError(msg) || msg.toLowerCase().includes('abort')) {
           return {
             data: { session: null, user: null },
@@ -745,6 +793,11 @@ export const AuthProvider = ({ children }) => {
           : Array.isArray(meta.allowed_sub_modules)
             ? meta.allowed_sub_modules
             : [],
+      module_access_pending:
+        profile.module_access_pending === true ||
+        cached?.module_access_pending === true ||
+        meta.module_access_pending === true,
+      is_active: profile.is_active === false || cached?.is_active === false ? false : true,
     };
     writeCachedProfileRow(row);
     setProfileRow(row);
@@ -788,11 +841,33 @@ export const AuthProvider = ({ children }) => {
         if (fromRow.length) return fromRow;
         return parseAllowedSubModules(user?.user_metadata?.allowed_sub_modules);
       })(),
-      module_access_pending: user?.user_metadata?.module_access_pending === true,
+      module_access_pending:
+        profileRow.module_access_pending === true ||
+        user?.user_metadata?.module_access_pending === true,
+      is_active: profileRow.is_active !== false,
       billing_vertical_codes: billingVerticalCodes,
       billing_vertical_grants_ready: billingVerticalGrantsReady,
     };
   }, [user, profileRow, permissionsReady, billingVerticalCodes, billingVerticalGrantsReady]);
+
+  // Mid-session cut-off: profile refresh with is_active=false forces sign-out.
+  useEffect(() => {
+    if (!user?.id || !profileRow?.id) return;
+    if (profileRow.is_active !== false) return;
+    logLoginStage('session-inactive-signout', { userId: user.id });
+    void (async () => {
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        /* ignore */
+      }
+      clearSupabaseAuthStorage();
+      clearCachedProfileRow();
+      userRef.current = null;
+      setUser(null);
+      setProfileRow(null);
+    })();
+  }, [user?.id, profileRow?.id, profileRow?.is_active]);
 
   // Load billing vertical grants for the signed-in user (same table RLS/RPC uses).
   useEffect(() => {
