@@ -307,6 +307,7 @@ const UserManagement = () => {
     role: ROLES.EXECUTIVE,
     allowed_modules: [],
     allowed_sub_modules: [],
+    is_active: true,
     employee_master_id: null,
     employee_master_employee_id: null,
     linked_employee_code: null,
@@ -481,7 +482,7 @@ const UserManagement = () => {
   );
 
   const tableColSpan =
-    7 +
+    8 +
     (empCodeSupported !== false ? 1 : 0) +
     (hierarchySupported !== false ? 2 : 0) +
     (canBulkManageUsers ? 1 : 0);
@@ -684,6 +685,7 @@ const UserManagement = () => {
       role: row.role ?? ROLES.EXECUTIVE,
       allowed_modules: Array.isArray(row.allowed_modules) ? [...row.allowed_modules] : [],
       allowed_sub_modules: parseAllowedSubModules(row.allowed_sub_modules),
+      is_active: row.is_active !== false,
       employee_master_id: row.employee_master_id ?? null,
       employee_master_employee_id: row.employee_master_employee_id ?? null,
       linked_employee_code: row.linked_employee_code ?? null,
@@ -835,6 +837,7 @@ const UserManagement = () => {
         allowed_sub_modules: editForm.allowed_sub_modules,
         employee_code: newEmpCode,
         includeEmployeeCode: empCodeSupported !== false,
+        is_active: editForm.is_active !== false,
       };
 
       const profileResult = await persistUserProfile(supabase, profilePayload);
@@ -1266,6 +1269,7 @@ const UserManagement = () => {
                 ) : null}
                 <th className="text-center py-3 px-4 font-semibold text-gray-700">S.No</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Username</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
                 {empCodeSupported !== false && (
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Emp code</th>
                 )}
@@ -1315,6 +1319,17 @@ const UserManagement = () => {
                       {rangeStart + idx}
                     </td>
                     <td className="py-3 px-4 font-medium text-gray-900">{row.username || "—"}</td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          row.is_active === false
+                            ? "bg-red-50 text-red-700"
+                            : "bg-emerald-50 text-emerald-700"
+                        }`}
+                      >
+                        {row.is_active === false ? "Inactive" : "Active"}
+                      </span>
+                    </td>
                     {empCodeSupported !== false && (
                       <td className="py-3 px-4 font-mono text-gray-700">
                         {row.employee_code || row.linked_employee_code || "—"}
@@ -1482,6 +1497,23 @@ const UserManagement = () => {
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Defaults from Employee Master full name when emp code is set.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Account status</label>
+                <select
+                  value={editForm.is_active === false ? "inactive" : "active"}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, is_active: e.target.value !== "inactive" }))
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                >
+                  <option value="active">Active (can sign in)</option>
+                  <option value="inactive">Inactive (blocked from ERP)</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Also syncs from Employee Master when that employee is marked Inactive. Does not change team or modules.
                 </p>
               </div>
 
@@ -1856,15 +1888,23 @@ const UserManagement = () => {
                       );
                       return;
                     }
+                    const createTeam = createForm.team || null;
+                    const createModules = createForm.allowed_modules || [];
+                    const createSubModules = createForm.allowed_sub_modules || [];
+                    const noModuleAccess =
+                      !String(createTeam || "").trim() &&
+                      createModules.length === 0 &&
+                      createSubModules.length === 0;
                     const createResult = await createUserAccount(supabase, {
                       email,
                       password,
                       username,
                       employee_code: empCode || undefined,
-                      team: createForm.team || null,
+                      team: createTeam,
                       role: createForm.role || ROLES.EXECUTIVE,
-                      allowed_modules: createForm.allowed_modules || [],
-                      allowed_sub_modules: createForm.allowed_sub_modules || [],
+                      allowed_modules: createModules,
+                      allowed_sub_modules: createSubModules,
+                      ...(noModuleAccess ? { no_module_access: true } : {}),
                     });
                     if (!createResult.ok) {
                       setError(createResult.message || "Could not create user.");

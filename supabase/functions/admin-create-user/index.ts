@@ -29,6 +29,7 @@ type CreateUserBody = {
   team?: string | null
   role?: string | null
   allowed_modules?: string[]
+  no_module_access?: boolean
 }
 
 type ProfileRow = {
@@ -175,8 +176,10 @@ async function upsertProfile(
     role: string
     allowed_modules: string[]
     employee_code: string
+    module_access_pending?: boolean
   },
 ): Promise<{ error: string | null; profile: ProfileRow | null }> {
+  const pending = row.module_access_pending === true
   const { data, error } = await db.rpc('admin_upsert_profile', {
     p_id: row.id,
     p_email: row.email,
@@ -186,6 +189,7 @@ async function upsertProfile(
     p_allowed_modules: row.allowed_modules,
     p_employee_code: row.employee_code,
     p_set_employee_code: true,
+    p_module_access_pending: pending,
   })
 
   if (error) {
@@ -197,8 +201,20 @@ async function upsertProfile(
   if (!profile) {
     const fallback = await db
       .from('profiles')
-      .upsert(row, { onConflict: 'id' })
-      .select('id, email, username, employee_code, team, role, allowed_modules')
+      .upsert(
+        {
+          id: row.id,
+          email: row.email,
+          username: row.username,
+          team: row.team,
+          role: row.role,
+          allowed_modules: row.allowed_modules,
+          employee_code: row.employee_code,
+          module_access_pending: pending,
+        },
+        { onConflict: 'id' },
+      )
+      .select('id, email, username, employee_code, team, role, allowed_modules, module_access_pending')
       .maybeSingle()
     if (fallback.error) return { error: fallback.error.message, profile: null }
     if (fallback.data?.id) {
@@ -299,9 +315,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     const username = String(body.username ?? '').trim() || email.split('@')[0]
-    const team = body.team ?? null
+    const noModuleAccess = body.no_module_access === true
+    const team = body.team === '' || body.team === undefined ? null : (body.team ?? null)
     const role = body.role ?? 'executive'
-    const allowed = Array.isArray(body.allowed_modules) ? body.allowed_modules : []
+    const allowed = noModuleAccess
+      ? []
+      : Array.isArray(body.allowed_modules)
+        ? body.allowed_modules
+        : []
 
     if (
       creatorRole === 'admin' &&
@@ -327,7 +348,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       })
     }
 
-    logError('create request', { email, employeeCode, role, team })
+    logError('create request', { email, employeeCode, role, team, noModuleAccess })
 
     const profilePayload = {
       email,
@@ -336,6 +357,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       role,
       allowed_modules: allowed,
       employee_code: employeeCode,
+      module_access_pending: noModuleAccess,
     }
 
     const { data: created, error: createErr } = await db.auth.admin.createUser({
@@ -349,6 +371,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         team,
         role,
         allowed_modules: allowed,
+        module_access_pending: noModuleAccess,
       },
     })
 
@@ -383,7 +406,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const { error: updateErr } = await db.auth.admin.updateUserById(userId, {
         password,
         email_confirm: true,
-        user_metadata: profilePayload,
+        user_metadata: {
+          ...profilePayload,
+          module_access_pending: noModuleAccess,
+        },
       })
       if (updateErr) {
         return json(400, {

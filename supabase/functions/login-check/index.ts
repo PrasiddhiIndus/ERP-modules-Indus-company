@@ -58,22 +58,59 @@ Deno.serve(async (req) => {
   const readProfile = async () => {
     let res = await admin
       .from('profiles')
-      .select('id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules')
+      .select(
+        'id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, module_access_pending, is_active',
+      )
       .eq('id', userId)
       .maybeSingle()
     const msg = String(res.error?.message || '').toLowerCase()
-    if (
-      res.error &&
-      (msg.includes('employee_code') || msg.includes('emp_code') || msg.includes('allowed_sub_modules')) &&
-      msg.includes('does not exist')
-    ) {
+    if (res.error && msg.includes('is_active') && msg.includes('does not exist')) {
       res = await admin
         .from('profiles')
-        .select('id, email, username, team, role, allowed_modules')
+        .select(
+          'id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules, module_access_pending',
+        )
         .eq('id', userId)
         .maybeSingle()
-      if (res.data) {
-        res.data.allowed_sub_modules = []
+      if (res.data) res.data.is_active = true
+    }
+    const msgPending = String(res.error?.message || '').toLowerCase()
+    if (
+      res.error &&
+      (msgPending.includes('module_access_pending') ||
+        msgPending.includes('employee_code') ||
+        msgPending.includes('emp_code') ||
+        msgPending.includes('allowed_sub_modules')) &&
+      msgPending.includes('does not exist')
+    ) {
+      // Progressive fallback for DBs that have not applied newer profile columns yet.
+      if (msgPending.includes('module_access_pending')) {
+        res = await admin
+          .from('profiles')
+          .select('id, email, username, employee_code, team, role, allowed_modules, allowed_sub_modules')
+          .eq('id', userId)
+          .maybeSingle()
+        if (res.data) {
+          res.data.module_access_pending = false
+          if (res.data.is_active === undefined) res.data.is_active = true
+        }
+      }
+      const msg2 = String(res.error?.message || '').toLowerCase()
+      if (
+        res.error &&
+        (msg2.includes('employee_code') || msg2.includes('emp_code') || msg2.includes('allowed_sub_modules')) &&
+        msg2.includes('does not exist')
+      ) {
+        res = await admin
+          .from('profiles')
+          .select('id, email, username, team, role, allowed_modules')
+          .eq('id', userId)
+          .maybeSingle()
+        if (res.data) {
+          res.data.allowed_sub_modules = []
+          res.data.module_access_pending = false
+          res.data.is_active = true
+        }
       }
     }
     return res
@@ -84,6 +121,13 @@ Deno.serve(async (req) => {
     return json(500, { ok: false, error: `Could not read profiles: ${readErr.message}` })
   }
   if (existing?.id) {
+    if (existing.is_active === false) {
+      return json(403, {
+        ok: false,
+        error: 'Your account is inactive. Contact your administrator.',
+        code: 'account_inactive',
+      })
+    }
     await syncAppUsers(admin, {
       id: existing.id,
       email: existing.email ?? email,
@@ -115,6 +159,7 @@ Deno.serve(async (req) => {
     team,
     role,
     allowed_modules: allowed,
+    module_access_pending: meta.module_access_pending === true,
     ...(employeeCode ? { employee_code: employeeCode } : {}),
   }
 
