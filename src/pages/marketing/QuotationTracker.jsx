@@ -16,6 +16,7 @@ import {
 import jsPDF from 'jspdf';
 import { INDUS_LOGO_SRC } from '../../constants/branding.js';;
 import FormDateInput from "../../components/FormDateInput";
+import { toast } from '../../lib/toast';
 
 
 const DropdownMenu = ({ buttonId, quotation, onView, onEdit, onDownloadPDF, onDelete, onRevision, hasRevisions }) => {
@@ -779,7 +780,7 @@ const QuotationTracker = () => {
 
         if (error) {
           if (error.message.includes('duplicate key') || error.message.includes('unique constraint')) {
-            alert('Error: This quotation number already exists. Please refresh and try again.');
+            toast.warning('Error: This quotation number already exists. Please refresh and try again.');
             return;
           }
           throw error;
@@ -920,7 +921,7 @@ const QuotationTracker = () => {
     } catch (error) {
       console.error('Error saving quotation:', error);
       const errorMessage = error.message || 'An unknown error occurred';
-      alert(`Error saving quotation: ${errorMessage}`);
+      toast.error(`Error saving quotation: ${errorMessage}`);
     }
   };
 
@@ -1011,7 +1012,7 @@ const QuotationTracker = () => {
       setMenuOpen(null);
     } catch (error) {
       console.error('Error deleting quotation:', error);
-      alert('Error deleting quotation: ' + error.message);
+      toast.error('Error deleting quotation: ' + error.message);
     }
   };
 
@@ -1130,7 +1131,7 @@ const QuotationTracker = () => {
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert('Error generating PDF: ' + error.message);
+      toast.error('Error generating PDF: ' + error.message);
     }
   };
 
@@ -1183,7 +1184,7 @@ const QuotationTracker = () => {
 
   const handleCreateCosting = async (quotationId) => {
     if (!quotationId) {
-      alert('Please select a quotation first');
+      toast.warning('Please select a quotation first');
       return;
     }
 
@@ -1193,7 +1194,7 @@ const QuotationTracker = () => {
       setShowCostingSheetEditor(true);
     } catch (error) {
       console.error('Error creating/finding quotation:', error);
-      alert('Error: ' + error.message);
+      toast.error('Error: ' + error.message);
     }
   };
 
@@ -1222,11 +1223,11 @@ const QuotationTracker = () => {
 
       if (error) throw error;
 
-      alert('Costing sheet deleted successfully!');
+      toast.success('Costing sheet deleted successfully!');
       fetchCostingSheets();
     } catch (error) {
       console.error('Error deleting costing sheet:', error);
-      alert('Error deleting costing sheet: ' + error.message);
+      toast.error('Error deleting costing sheet: ' + error.message);
     }
   };
 
@@ -1276,11 +1277,11 @@ const QuotationTracker = () => {
 
       if (error) throw error;
 
-      alert('Internal quotation data deleted successfully!');
+      toast.success('Internal quotation data deleted successfully!');
       fetchQuotationsWithCosting();
     } catch (error) {
       console.error('Error deleting internal quotation:', error);
-      alert('Error deleting internal quotation: ' + error.message);
+      toast.error('Error deleting internal quotation: ' + error.message);
     }
   };
 
@@ -1456,12 +1457,12 @@ const QuotationTracker = () => {
       // Show alert only once
       const alertShown = sessionStorage.getItem(`revision_alert_${selectedQuotationForRevision.id}_${nextRevisionNumber}`);
       if (!alertShown) {
-        alert(`Revision ${nextRevisionNumber} created successfully and synced with follow-up planner!`);
+        toast.success(`Revision ${nextRevisionNumber} created successfully and synced with follow-up planner!`);
         sessionStorage.setItem(`revision_alert_${selectedQuotationForRevision.id}_${nextRevisionNumber}`, 'true');
       }
     } catch (error) {
       console.error('Error saving revision:', error);
-      alert('Error saving revision: ' + error.message);
+      toast.error('Error saving revision: ' + error.message);
     }
   };
 
@@ -1587,7 +1588,7 @@ Marketing Team`;
       setShowRevisionHistory(true);
     } catch (error) {
       console.error('Error fetching revision history:', error);
-      alert('Error fetching revision history: ' + error.message);
+      toast.error('Error fetching revision history: ' + error.message);
     }
   };
 
@@ -1899,7 +1900,7 @@ Marketing Team`;
                     <button
                       onClick={() => {
                         if (!selectedQuotationId) {
-                          alert('Please select a quotation first');
+                          toast.warning('Please select a quotation first');
                           return;
                         }
                         handleCreateCosting(selectedQuotationId);

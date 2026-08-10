@@ -41,6 +41,7 @@ import {
   Home, Eye, MoreVertical, CheckCircle, XCircle, FileCheck, Clock, Check,
 } from "lucide-react";
 
+import { toast } from "../../lib/toast";
 function contractPeriodFromDateInput(dateStr) {
   return dateToPeriodKey(dateStr) || null;
 }
@@ -1031,7 +1032,7 @@ export default function SiteLedgerApp({ embedded = true }) {
   const removeParent = useCallback((key) => {
     const usedInLib = library.some((h) => h.parent === key);
     const usedInSite = sites.some((s) => (s.structure || []).some((g) => g.parent === key && g.children.length));
-    if (usedInLib || usedInSite) { alert("This parent head still has cost lines (here or on another site). Move or delete them first, then delete the head."); return; }
+    if (usedInLib || usedInSite) { toast.success("This parent head still has cost lines (here or on another site). Move or delete them first, then delete the head."); return; }
     applySiteSetupChange(({ parents: ps, sites: allSites }) => ({
       parents: ps.filter((p) => p.key !== key),
       sites: allSites.map((s) => ({ ...s, structure: (s.structure || []).filter((g) => g.parent !== key) })),

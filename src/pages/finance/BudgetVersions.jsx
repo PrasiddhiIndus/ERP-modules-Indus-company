@@ -8,6 +8,7 @@ import { inr, pct } from "./lib/formatters";
 import { estTotals } from "./lib/calculations";
 import { buildMonthOptions } from "./lib/periods";
 
+import { toast } from "../../lib/toast";
 export default function BudgetVersions() {
   const { data, loading, error, refresh, permissions } = useFinance();
   const [searchParams] = useSearchParams();
@@ -50,7 +51,7 @@ export default function BudgetVersions() {
       setOpen(false);
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save budget");
+      toast.warning(e?.message || "Failed to save budget");
     } finally {
       setSaving(false);
     }

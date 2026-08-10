@@ -10,6 +10,7 @@ import {
   rowMatchesTemplate,
 } from "../fireTenderTemplates";
 
+import { toast } from "../../../lib/toast";
 const chunkArray = (arr, size) => {
   const result = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -76,7 +77,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
     const file = e.target.files[0];
     if (!file) return;
     if (!userId) {
-      alert("Please login first.");
+      toast.warning("Please login first.");
       return;
     }
 
@@ -95,7 +96,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
         const rows = XLSX.utils.sheet_to_json(sheet);
 
         if (!rows || rows.length === 0) {
-          alert("No rows found in sheet.");
+          toast.success("No rows found in sheet.");
           setUploading(false);
           setUploadDisabled(false);
           return;
@@ -116,7 +117,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
           .filter((row) => !isRetiredFireTenderMainComponentLabel(row.main_component));
 
         if (parsedRows.length === 0) {
-          alert("No valid rows to upload after removing retired catalog entries.");
+          toast.success("No valid rows to upload after removing retired catalog entries.");
           setUploading(false);
           setUploadDisabled(false);
           return;
@@ -162,15 +163,13 @@ const MainComponentPage = ({ onDataLoaded }) => {
         if (onDataLoaded) onDataLoaded(allInserted);
         setErrors(batchErrors);
         if (batchErrors.length > 0) {
-          alert(
-            `Upload finished with ${batchErrors.length} failed batch(es). Check console or the errors array.`
-          );
+          toast.warning(`Upload finished with ${batchErrors.length} failed batch(es). Check console or the errors array.`);
         } else {
-          alert(`Upload finished. ${allInserted.length} rows saved.`);
+          toast.success(`Upload finished. ${allInserted.length} rows saved.`);
         }
       } catch (err) {
         console.error("Upload error:", err);
-        alert("Upload failed: " + (err.message || err));
+        toast.warning("Upload failed: " + (err.message || err));
       } finally {
         setUploading(false);
         setUploadDisabled(false);
@@ -223,7 +222,7 @@ const MainComponentPage = ({ onDataLoaded }) => {
 
   const handleEdit = async (id, field, value) => {
     if (field === "main_component" && isRetiredFireTenderMainComponentLabel(value)) {
-      alert("This main-component name is retired and cannot be used.");
+      toast.warning("This main-component name is retired and cannot be used.");
       return;
     }
     setComponents((prev) =>

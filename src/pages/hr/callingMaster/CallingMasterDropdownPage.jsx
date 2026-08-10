@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Check, Edit3, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { Edit3, Plus, RotateCcw, Trash2 } from "lucide-react";
 import {
   Modal,
   PageTaskHeader,
   SectionCard,
   TinySelect,
 } from "../../adminOperations/components/AdminUi";
+import { pushToast } from "../../../lib/toast";
 import { CALLING_DROPDOWN_MASTERS, CALLING_MASTER_DROPDOWNS_EVENT, isLinkedDropdownMaster } from "./callingMasterConfig";
 import {
   addDropdownOption,
@@ -15,39 +16,6 @@ import {
   resetDropdownMaster,
   updateDropdownOption,
 } from "./callingMasterStorage";
-
-function ToastStack({ items, onDismiss }) {
-  if (!items.length) return null;
-  return (
-    <div className="fixed right-4 top-20 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
-      {items.map((toast) => (
-        <div
-          key={toast.id}
-          className={`rounded-xl border px-4 py-3 shadow-lg ${
-            toast.tone === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : toast.tone === "warning"
-                ? "border-amber-200 bg-amber-50 text-amber-900"
-                : "border-slate-200 bg-white text-slate-900"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 shrink-0">
-              {toast.tone === "success" ? <Check className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{toast.title}</p>
-              {toast.message ? <p className="mt-1 text-xs opacity-90">{toast.message}</p> : null}
-            </div>
-            <button type="button" onClick={() => onDismiss(toast.id)} className="shrink-0 opacity-60 hover:opacity-100">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export default function CallingMasterDropdownPage() {
   const [catalog, setCatalog] = useState({});
@@ -59,16 +27,7 @@ export default function CallingMasterDropdownPage() {
   const [label, setLabel] = useState("");
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState(null);
-  const [toasts, setToasts] = useState([]);
   const [busy, setBusy] = useState(false);
-
-  const pushToast = (title, message = "", tone = "default") => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setToasts((current) => [...current, { id, title, message, tone }]);
-    window.setTimeout(() => {
-      setToasts((current) => current.filter((item) => item.id !== id));
-    }, 2800);
-  };
 
   const refresh = async () => {
     try {
@@ -147,8 +106,6 @@ export default function CallingMasterDropdownPage() {
 
   return (
     <div className="space-y-4">
-      <ToastStack items={toasts} onDismiss={(id) => setToasts((current) => current.filter((item) => item.id !== id))} />
-
       <PageTaskHeader
         title="Dropdown Master"
         subtitle="Manage every select list used in Calling Master. Changes apply instantly to forms and filters."

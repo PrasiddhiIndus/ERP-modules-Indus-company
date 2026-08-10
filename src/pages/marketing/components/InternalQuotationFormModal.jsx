@@ -11,6 +11,7 @@ import {
   buildMarketingInternalQuotationPdf,
   loadImageAsDataUrl,
 } from '../utils/marketingInternalQuotationPdf';
+import { toast } from '../../../lib/toast';
 
 const InternalQuotationFormModal = ({ 
   isOpen, 
@@ -330,7 +331,7 @@ const InternalQuotationFormModal = ({
   const handleSave = async () => {
     try {
       if (!quotationId) {
-        alert('Please select a quotation');
+        toast.warning('Please select a quotation');
         return;
       }
 
@@ -381,9 +382,9 @@ const InternalQuotationFormModal = ({
           if (uploadError) {
             console.error('Signature upload error:', uploadError);
             if (uploadError.message.includes('Bucket not found') || uploadError.message.includes('not found')) {
-              alert('Storage bucket "quotation-signatures" not found. Please create it in Supabase Dashboard > Storage.');
+              toast.warning('Storage bucket "quotation-signatures" not found. Please create it in Supabase Dashboard > Storage.');
             } else {
-              alert('Error uploading signature: ' + uploadError.message);
+              toast.error('Error uploading signature: ' + uploadError.message);
             }
             throw uploadError;
           } else {
@@ -392,7 +393,7 @@ const InternalQuotationFormModal = ({
           }
         } catch (e) {
           console.error('Signature upload failed:', e);
-          alert('Failed to upload signature image. Please try again or check storage bucket configuration.');
+          toast.warning('Failed to upload signature image. Please try again or check storage bucket configuration.');
           // Don't throw - allow save to continue without signature
         }
       }
@@ -513,7 +514,7 @@ const InternalQuotationFormModal = ({
           
           if (signaturePathError) {
             console.error('Error saving signature_path:', signaturePathError);
-            alert('Warning: Could not save signature path to database. Image uploaded but path not saved.');
+            toast.warning('Warning: Could not save signature path to database. Image uploaded but path not saved.');
           } else {
             console.log('Signature path saved successfully:', signaturePath);
             // Update local quotation state
@@ -522,7 +523,7 @@ const InternalQuotationFormModal = ({
           }
         } catch (e) {
           console.error('signature_path update error:', e);
-          alert('Error saving signature path: ' + e.message);
+          toast.error('Error saving signature path: ' + e.message);
         }
       }
 
@@ -534,11 +535,11 @@ const InternalQuotationFormModal = ({
         onSave();
       }
       
-      alert('Internal quotation saved successfully!');
+      toast.success('Internal quotation saved successfully!');
       // Modal stays open so user can continue editing or close manually
     } catch (error) {
       console.error('Error saving internal quotation:', error);
-      alert('Error saving internal quotation: ' + error.message);
+      toast.error('Error saving internal quotation: ' + error.message);
     }
   };
 
@@ -645,7 +646,7 @@ const InternalQuotationFormModal = ({
   const handleDownloadPDF = async () => {
     try {
       if (!quotation || !client) {
-        alert('Quotation data not available');
+        toast.warning('Quotation data not available');
         return;
       }
 
@@ -669,7 +670,7 @@ const InternalQuotationFormModal = ({
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert('Error generating PDF: ' + error.message);
+      toast.error('Error generating PDF: ' + error.message);
     }
   };
 
@@ -686,12 +687,12 @@ const InternalQuotationFormModal = ({
   const handleSendEmail = async () => {
     try {
       if (!quotation || !client) {
-        alert('Quotation data not available');
+        toast.warning('Quotation data not available');
         return;
       }
 
       if (!getQuotationRecipientEmail()) {
-        alert('Primary email not available on enquiry or client');
+        toast.warning('Primary email not available on enquiry or client');
         return;
       }
 
@@ -779,11 +780,11 @@ const InternalQuotationFormModal = ({
         const mailto = `mailto:${encodeURIComponent(getQuotationRecipientEmail())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
         window.open(mailto);
 
-        alert(`Email client opened!\n\nPDF "${fileName}" has been downloaded.\n\nPlease attach it to your email from your Downloads folder.`);
+        toast.success(`Email client opened!\n\nPDF "${fileName}" has been downloaded.\n\nPlease attach it to your email from your Downloads folder.`);
       }, 500);
     } catch (error) {
       console.error('Error sending email:', error);
-      alert('Error sending email: ' + error.message);
+      toast.error('Error sending email: ' + error.message);
     }
   };
 

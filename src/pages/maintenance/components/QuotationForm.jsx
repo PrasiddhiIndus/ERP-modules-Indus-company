@@ -6,6 +6,7 @@ import { pickCanonicalCostingSheet } from '../utils/maintenanceQuotationUtils';;
 import FormDateInput from "../../../components/FormDateInput";
 
 
+import { toast } from "../../../lib/toast";
 const QuotationForm = ({ 
   isOpen, 
   onClose, 
@@ -482,7 +483,7 @@ const QuotationForm = ({
 
   const deleteItem = (itemId) => {
     if (items.length <= 1) {
-      alert('At least one item is required');
+      toast.warning('At least one item is required');
       return;
     }
     const newItems = items.filter((item) => item.id !== itemId);
@@ -512,7 +513,7 @@ const QuotationForm = ({
   const deleteCostHead = (headId) => {
     const head = costHeads.find((h) => h.id === headId);
     if (head && head.isCalculated) {
-      alert('Cannot delete calculated rows');
+      toast.warning('Cannot delete calculated rows');
       return;
     }
     const newHeads = costHeads.filter((head) => head.id !== headId);
@@ -538,7 +539,7 @@ const QuotationForm = ({
     e.preventDefault();
     try {
       if (!formData.client_id) {
-        alert('Please select a client');
+        toast.warning('Please select a client');
         return;
       }
 
@@ -602,7 +603,7 @@ const QuotationForm = ({
 
         if (error) {
           if (error.message.includes('duplicate key') || error.message.includes('unique constraint')) {
-            alert('Error: This quotation number already exists. Please refresh and try again.');
+            toast.warning('Error: This quotation number already exists. Please refresh and try again.');
             return;
           }
           throw error;
@@ -800,12 +801,12 @@ const QuotationForm = ({
           ? `Quotation ${result.quotation_number} and Costing Sheet created successfully!`
           : `Quotation ${result.quotation_number} created successfully!`;
       
-      alert(message);
+      toast.success(message);
       onClose();
     } catch (error) {
       console.error('Error saving quotation:', error);
       const errorMessage = error.message || 'An unknown error occurred';
-      alert(`Error saving quotation: ${errorMessage}`);
+      toast.warning(`Error saving quotation: ${errorMessage}`);
     }
   };
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
 
+import { toast } from "../../lib/toast";
 const GSTUpload = () => {
   const [loading, setLoading] = useState(true);
   const [gstData, setGstData] = useState({
@@ -211,7 +212,7 @@ const GSTUpload = () => {
         return;
       } catch (error) {
         console.error('Error creating GST document:', error);
-        alert('Error saving GST data: ' + error.message);
+        toast.warning('Error saving GST data: ' + error.message);
         return;
       }
     }
@@ -228,7 +229,7 @@ const GSTUpload = () => {
       // Silent save - no alert to avoid interruption
     } catch (error) {
       console.error('Error saving GST data:', error);
-      alert('Error saving GST data: ' + error.message);
+      toast.warning('Error saving GST data: ' + error.message);
     } finally {
       setSaving(false);
     }

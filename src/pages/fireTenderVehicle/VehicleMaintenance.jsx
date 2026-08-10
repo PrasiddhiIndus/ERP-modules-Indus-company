@@ -23,6 +23,7 @@ import {
   FileText,
   Eye
 } from 'lucide-react';
+import { toast } from '../../lib/toast';
 
 const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
   const [maintenance, setMaintenance] = useState([]);
@@ -108,7 +109,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
     e.preventDefault();
     const maxFiles = 10;
     if ((formData.r2_attachment_keys || []).length + pendingAttachmentFiles.length > maxFiles) {
-      alert(`Too many attachments (max ${maxFiles}).`);
+      toast.warning("Validation", `Too many attachments (max ${maxFiles}).`);
       return;
     }
     try {
@@ -142,7 +143,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
           .eq('id', editingMaintenance.id);
 
         if (error) throw error;
-        alert('Maintenance record updated successfully!');
+        toast.success("Updated", "Maintenance record updated successfully");
       } else {
         const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_maintenance')
@@ -162,14 +163,14 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
             .eq('id', row.id);
           if (upErr) throw upErr;
         }
-        alert('Maintenance record added successfully!');
+        toast.success("Saved", "Maintenance record added successfully");
       }
 
       resetForm();
       fetchMaintenance();
     } catch (error) {
       console.error('Error saving maintenance:', error);
-      alert('Failed to save maintenance record. Please try again.');
+      toast.error("Save failed", "Failed to save maintenance record. Please try again.");
     }
   };
 
@@ -201,11 +202,11 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
           .eq('id', id);
 
         if (error) throw error;
-        alert('Maintenance record deleted successfully!');
+        toast.success("Deleted", "Maintenance record deleted successfully");
         fetchMaintenance();
       } catch (error) {
         console.error('Error deleting maintenance:', error);
-        alert('Failed to delete maintenance record. Please try again.');
+        toast.error("Delete failed", "Failed to delete maintenance record. Please try again.");
       }
     }
   };
@@ -234,7 +235,7 @@ const VehicleMaintenance = ({ vehicleCategory = 'in-house' }) => {
       const url = await presignFleetR2Get(objectKey);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      alert(err?.message || 'Could not open file.');
+      toast.error("File error", err?.message || "Could not open file.");
     }
   };
 

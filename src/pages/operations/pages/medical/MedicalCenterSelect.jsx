@@ -14,6 +14,7 @@ import {
   useThemeClasses,
 } from "../../components/OperationsUi";
 
+import { toast } from "../../../../lib/toast";
 export default function MedicalCenterSelect() {
   const { data, refresh, theme } = useOperations();
   const t = useThemeClasses(theme);
@@ -21,7 +22,7 @@ export default function MedicalCenterSelect() {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleConfirm = () => {
-    window.alert(`Medical center "${selected?.name}" selected (UI preview)`);
+    toast.success(`Medical center "${selected?.name}" selected (UI preview)`);
     setConfirmOpen(false);
     setSelected(null);
   };

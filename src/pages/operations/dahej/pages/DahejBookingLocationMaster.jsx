@@ -15,6 +15,7 @@ import {
 import { useOperations } from "../../contexts/OperationsContext";
 import { DAHEJ_BOOKING_LOCATION_TYPES } from "../constants/columns";
 
+import { toast } from "../../../../lib/toast";
 export default function DahejBookingLocationMaster() {
   const { theme } = useOperations();
   const { bookingLocations, sites, saveBookingLocation, refresh } = useDahejExpenses();
@@ -25,7 +26,7 @@ export default function DahejBookingLocationMaster() {
 
   const handleSave = () => {
     if (!form.name.trim()) {
-      window.alert("Location name is required");
+      toast.warning("Location name is required");
       return;
     }
     saveBookingLocation(form);

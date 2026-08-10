@@ -22,6 +22,7 @@ import {
   CHART_SERIES,
 } from "../../components/charts/DashboardCharts";
 
+import { toast } from "../../lib/toast";
 export default function Dashboard() {
   const { data, loading, refresh, navigateTo, openRecord } = useAmc();
 
@@ -84,7 +85,7 @@ export default function Dashboard() {
         title="AMC Command Center"
         subtitle="Live KPIs from connected contracts, PM, complaints & visits"
         onRefresh={refresh}
-        onExport={() => window.alert("Dashboard export — connect to reporting service")}
+        onExport={() => toast.success("Dashboard export — connect to reporting service")}
       />
 
       <FilterBar>

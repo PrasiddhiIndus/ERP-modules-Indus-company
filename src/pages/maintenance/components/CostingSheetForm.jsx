@@ -4,6 +4,7 @@ import { supabase } from '../../../lib/supabase';
 import ExcelCostingSheet from './ExcelCostingSheet';
 import { formatDateDdMmYyyy } from '../../../utils/dateDisplay';
 
+import { toast } from "../../../lib/toast";
 const CostingSheetForm = ({ 
   isOpen, 
   onClose, 
@@ -126,7 +127,7 @@ const CostingSheetForm = ({
     } catch (error) {
       console.error('Error fetching costing sheet details:', error);
       setLoading(false);
-      alert('Error loading costing sheet: ' + error.message);
+      toast.warning('Error loading costing sheet: ' + error.message);
     }
   };
 
@@ -141,7 +142,7 @@ const CostingSheetForm = ({
 
   const handleCreateNew = async () => {
     if (!selectedQuotationId) {
-      alert('Please select a quotation first');
+      toast.warning('Please select a quotation first');
       return;
     }
 
@@ -152,7 +153,7 @@ const CostingSheetForm = ({
       setShowCostingSheet(true);
     } catch (error) {
       console.error('Error opening costing sheet:', error);
-      alert('Error: ' + error.message);
+      toast.warning('Error: ' + error.message);
     }
   };
 
@@ -185,11 +186,11 @@ const CostingSheetForm = ({
 
       if (error) throw error;
 
-      alert('Costing sheet deleted successfully!');
+      toast.success('Costing sheet deleted successfully!');
       fetchCostingSheets(); // Refresh the list
     } catch (error) {
       console.error('Error deleting costing sheet:', error);
-      alert('Error deleting costing sheet: ' + error.message);
+      toast.warning('Error deleting costing sheet: ' + error.message);
     }
   };
 

@@ -6,6 +6,7 @@ import { upsertCostAllocation, deleteCostAllocation } from "../../services/finan
 import { inr } from "./lib/formatters";
 import { monthLabelOf, currentPeriodKey } from "./lib/periods";
 
+import { toast } from "../../lib/toast";
 const EMPTY = {
   site_id: "",
   child_head_id: "",
@@ -49,7 +50,7 @@ export default function CostAllocation() {
       setForm(EMPTY);
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save");
+      toast.warning(e?.message || "Failed to save");
     } finally {
       setSaving(false);
     }

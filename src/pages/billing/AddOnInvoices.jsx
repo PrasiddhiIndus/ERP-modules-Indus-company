@@ -16,6 +16,7 @@ import {
 } from '../../utils/billingFormAutosave';
 import { useBillingFormAutosave } from '../../hooks/useBillingFormAutosave';
 
+import { toast } from "../../lib/toast";
 const APPROVAL_STATUS_APPROVED = 'approved';
 
 const ADD_ON_TYPES = [
@@ -258,7 +259,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
       onNavigateTab && onNavigateTab('manage-invoices');
     } catch (e) {
       console.error('Save add-on invoice failed:', e);
-      window.alert(e?.message || 'Could not save add-on invoice. Check your connection and try again.');
+      toast.warning(e?.message || 'Could not save add-on invoice. Check your connection and try again.');
     }
   };
 

@@ -4,6 +4,7 @@ import { X, Edit2, Trash2, Download, Upload, Plus, ChevronLeft, ChevronRight, Se
 import { exportToExcel } from './utils/excelExport';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import * as XLSX from 'xlsx';
+import { toast } from '../../lib/toast';
 
 const ProductCatalog = () => {
   const [products, setProducts] = useState([]);
@@ -157,7 +158,7 @@ const ProductCatalog = () => {
       setLoading(false);
     } catch (error) {
       console.error('Error fetching products:', error);
-      alert('Error loading products: ' + (error.message || 'Unknown error'));
+      toast.error('Error loading products: ' + (error.message || 'Unknown error'));
       setProducts([]);
       setTotalCount(0);
       setLoading(false);
@@ -178,7 +179,7 @@ const ProductCatalog = () => {
       fetchProducts();
     } catch (error) {
       console.error('Error deleting product:', error);
-      alert('Error deleting product: ' + error.message);
+      toast.error('Error deleting product: ' + error.message);
     }
   };
 
@@ -300,7 +301,7 @@ const ProductCatalog = () => {
       fetchProducts();
     } catch (error) {
       console.error('Error updating cell:', error);
-      alert('Error updating: ' + error.message);
+      toast.error('Error updating: ' + error.message);
     }
   };
 
@@ -343,7 +344,7 @@ const ProductCatalog = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert('Please login first to add a new product.');
+        toast.warning('Please login first to add a new product.');
         return;
       }
       
@@ -364,7 +365,7 @@ const ProductCatalog = () => {
       fetchProducts();
     } catch (error) {
       console.error('Error adding new row:', error);
-      alert('Error adding new product: ' + error.message);
+      toast.error('Error adding new product: ' + error.message);
     }
   };
 
@@ -478,7 +479,7 @@ const ProductCatalog = () => {
       fetchProducts();
     } catch (error) {
       console.error('Error saving product:', error);
-      alert('Error saving product: ' + error.message);
+      toast.error('Error saving product: ' + error.message);
     }
   };
 
@@ -520,7 +521,7 @@ const ProductCatalog = () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert('Please login first.');
+        toast.warning('Please login first.');
         setUploading(false);
         return;
       }
@@ -580,7 +581,7 @@ const ProductCatalog = () => {
           console.log('All column names in first row:', rows[0] ? Object.keys(rows[0]) : 'No rows');
 
           if (!rows || rows.length === 0) {
-            alert('No rows found in Excel file. Please check that your Excel file has data rows.');
+            toast.warning('No rows found in Excel file. Please check that your Excel file has data rows.');
             setUploading(false);
             return;
           }
@@ -902,7 +903,7 @@ const ProductCatalog = () => {
               errorMsg += `\n\nRow errors:\n${errors.slice(0, 5).join('\n')}`;
             }
             
-            alert(errorMsg);
+            toast.error(errorMsg);
             setUploading(false);
             return;
           }
@@ -953,7 +954,8 @@ const ProductCatalog = () => {
             message += `\n\nRow errors (showing first 10):\n${errors.slice(0, 10).join('\n')}\n... and ${errors.length - 10} more`;
           }
           
-          alert(message);
+          if (errorCount > 0) toast.warning(message);
+          else toast.success(message);
           e.target.value = ''; // Reset file input
           
           // Refresh products list
@@ -965,7 +967,7 @@ const ProductCatalog = () => {
           }
     } catch (error) {
           console.error('Error processing Excel:', error);
-          alert('Error processing Excel file: ' + error.message + '\n\nDetails: ' + JSON.stringify(error, null, 2));
+          toast.error('Error processing Excel file: ' + error.message + '\n\nDetails: ' + JSON.stringify(error, null, 2));
           setUploading(false);
           setUploadProgress('');
           e.target.value = ''; // Reset file input
@@ -975,7 +977,7 @@ const ProductCatalog = () => {
       reader.readAsArrayBuffer(file);
     } catch (error) {
       console.error('Error reading file:', error);
-      alert('Error reading file: ' + error.message);
+      toast.error('Error reading file: ' + error.message);
       setUploading(false);
       setUploadProgress('');
       e.target.value = ''; // Reset file input

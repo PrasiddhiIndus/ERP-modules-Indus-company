@@ -15,6 +15,7 @@ import { formatDateDdMmYyyy } from "../../utils/dateDisplay";
 import QuotationDocument from "./QuotationDocument";
 import { exportNodeToPdfBlob, downloadBlob } from "../../lib/exportNodeToPdf";
 
+import { toast } from "../../lib/toast";
 const generateQuotationNumber = (index) => {
   const padded = String(index + 1).padStart(4, "0");
   return `QN/IFSPL/FT/${padded}`;
@@ -356,10 +357,10 @@ const QuotationDetail = () => {
     setSaving(true);
     try {
       await persistQuotation({ revise: false });
-      alert("Quotation saved successfully!");
+      toast.success("Quotation saved successfully!");
     } catch (e) {
       console.error(e);
-      alert(`Save error: ${e.message}`);
+      toast.warning(`Save error: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -384,10 +385,10 @@ const QuotationDetail = () => {
     setSaving(true);
     try {
       const snap = await persistQuotation({ revise: true });
-      alert(`Revision saved: ${snap.quotation_number}`);
+      toast.success(`Revision saved: ${snap.quotation_number}`);
     } catch (e) {
       console.error(e);
-      alert(`Revise error: ${e.message}`);
+      toast.warning(`Revise error: ${e.message}`);
     } finally {
       setSaving(false);
     }
@@ -419,24 +420,24 @@ const QuotationDetail = () => {
 
   const handleCreateTemplate = async () => {
     if (!newTemplate.name.trim()) {
-      alert("Template name is required");
+      toast.warning("Template name is required");
       return;
     }
 
     if (newTemplate.type === "Quotation Template" && !newTemplate.subject.trim()) {
-      alert("Subject is required for Quotation Template");
+      toast.warning("Subject is required for Quotation Template");
       return;
     }
 
     if (!newTemplate.content.trim()) {
-      alert("Content is required");
+      toast.warning("Content is required");
       return;
     }
 
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
-        alert("User not authenticated");
+        toast.warning("User not authenticated");
         return;
       }
 
@@ -452,7 +453,7 @@ const QuotationDetail = () => {
 
       if (error) throw error;
 
-      alert("✅ Template created successfully!");
+      toast.success("✅ Template created successfully!");
       setShowCreateTemplate(false);
       const createdType = newTemplate.type;
       setNewTemplate({ name: "", type: "Quotation Template", subject: "", content: "" });
@@ -479,7 +480,7 @@ const QuotationDetail = () => {
       }
     } catch (err) {
       console.error("Error creating template:", err);
-      alert("Failed to create template: " + (err.message || err));
+      toast.warning("Failed to create template: " + (err.message || err));
     }
   };
 
@@ -774,7 +775,7 @@ const QuotationDetail = () => {
           window.open(mailto);
           
           // Show helpful message
-          alert(`📧 Email client opened!\n\n📎 PDF "${pdfFileName}" has been automatically downloaded.\n\nPlease attach it to your email from your Downloads folder.`);
+          toast.warning(`📧 Email client opened!\n\n📎 PDF "${pdfFileName}" has been automatically downloaded.\n\nPlease attach it to your email from your Downloads folder.`);
         }, 500);
       } catch (pdfError) {
         console.error("Error generating/downloading PDF:", pdfError);
@@ -783,15 +784,15 @@ const QuotationDetail = () => {
         window.open(mailto);
         
         if (emailQ.pdf_url) {
-          alert(`📧 Email client opened!\n\n📎 Note: PDF download failed. Please manually download and attach the PDF from:\n${emailQ.pdf_url}`);
+          toast.warning(`📧 Email client opened!\n\n📎 Note: PDF download failed. Please manually download and attach the PDF from:\n${emailQ.pdf_url}`);
         } else {
-          alert(`📧 Email client opened!\n\n⚠️ Note: Please generate and attach the PDF manually.`);
+          toast.warning(`📧 Email client opened!\n\n⚠️ Note: Please generate and attach the PDF manually.`);
         }
       }
       
     } catch (e) {
       console.error("Email error:", e);
-      alert("Failed to prepare email: " + e.message);
+      toast.warning("Failed to prepare email: " + e.message);
     }
   };
 
@@ -827,7 +828,7 @@ const QuotationDetail = () => {
       downloadBlob(blob, pdfFileNameFor(currentDisplayNumber()));
     } catch (err) {
       console.error("Error generating PDF:", err);
-      alert("Failed to generate PDF. Please check console.");
+      toast.warning("Failed to generate PDF. Please check console.");
     }
   };
 

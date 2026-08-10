@@ -52,6 +52,7 @@ import {
   poEntryAclDepartmentLabel,
 } from '../../utils/poEntryFieldPermissions';
 
+import { toast } from "../../lib/toast";
 function formatPoCurrency(value) {
   if (value === '' || value == null || Number.isNaN(Number(value))) return '–';
   return `₹${Number(value).toLocaleString('en-IN')}`;
@@ -90,7 +91,7 @@ function PoViewDocumentList({ title, files }) {
       const url = await presignCommercialPoR2Get(file.path);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      window.alert(err?.message || 'Could not open file.');
+      toast.warning(err?.message || 'Could not open file.');
     } finally {
       setBusyKey('');
     }
@@ -114,7 +115,7 @@ function PoViewDocumentList({ title, files }) {
       setCopiedKey(key);
       window.setTimeout(() => setCopiedKey((prev) => (prev === key ? '' : prev)), 2000);
     } catch (err) {
-      window.alert(err?.message || 'Could not copy link.');
+      toast.warning(err?.message || 'Could not copy link.');
     } finally {
       setBusyKey('');
     }
@@ -137,7 +138,7 @@ function PoViewDocumentList({ title, files }) {
       }
     } catch (err) {
       if (err?.name === 'AbortError') return;
-      window.alert(err?.message || 'Could not share link.');
+      toast.warning(err?.message || 'Could not share link.');
     } finally {
       setBusyKey('');
     }
@@ -1098,7 +1099,7 @@ const POEntry = () => {
   const requestSupplementaryBill = (po) => {
     if (!po) return;
     if (!isAfterContractEnd(po.endDate || po.end_date)) {
-      window.alert('Post-contract billing can be requested only after the contract end date.');
+      toast.success('Post-contract billing can be requested only after the contract end date.');
       return;
     }
     const reason = window.prompt('Reason for post-contract billing (optional):', po.supplementaryReason || '') ?? '';
@@ -2589,7 +2590,7 @@ const POEntry = () => {
                         if (canTaxService) {
                           const msg = validateGstSupplyTypeForState(nextState, formData.billingAddress, formData.gstSupplyType);
                           setGstTypeError(msg);
-                          if (msg) window.alert(msg);
+                          if (msg) toast.success(msg);
                         }
                       }}
                     />
@@ -3182,7 +3183,7 @@ const POEntry = () => {
                         setFormData((p) => ({ ...p, gstSupplyType: nextType }));
                         const msg = validateGstSupplyTypeForState(formData.placeOfSupply, formData.billingAddress, nextType);
                         setGstTypeError(msg);
-                        if (msg) window.alert(msg);
+                        if (msg) toast.success(msg);
                       }}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     >

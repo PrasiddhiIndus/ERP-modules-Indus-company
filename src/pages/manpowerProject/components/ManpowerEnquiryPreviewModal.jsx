@@ -9,6 +9,7 @@ import {
   isCustomWorkingHours,
 } from "../utils/manpowerEnquiryExcelFields";
 
+import { toast } from "../../../lib/toast";
 function displayValue(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (Array.isArray(value)) {
@@ -49,7 +50,7 @@ function AttachmentPreviewRow({ path }) {
               await openManpowerStorageFile(path, { download: false });
             } catch (err) {
               console.error(err);
-              alert("Could not open file preview.");
+              toast.warning("Could not open file preview.");
             }
           }}
           className="inline-flex items-center gap-1 text-xs font-medium text-purple-700 hover:text-purple-800"
@@ -64,7 +65,7 @@ function AttachmentPreviewRow({ path }) {
               await openManpowerStorageFile(path, { download: true });
             } catch (err) {
               console.error(err);
-              alert("Could not download file.");
+              toast.warning("Could not download file.");
             }
           }}
           className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-900"

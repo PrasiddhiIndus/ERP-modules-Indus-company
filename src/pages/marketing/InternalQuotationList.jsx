@@ -9,6 +9,7 @@ import {
   buildLatestCostingMap,
 } from './utils/marketingQuotationUtils';
 
+import { toast } from "../../lib/toast";
 const InternalQuotationList = () => {
   const navigate = useNavigate();
   const [quotations, setQuotations] = useState([]);
@@ -108,11 +109,11 @@ const InternalQuotationList = () => {
         .eq('id', quotationId);
 
       if (error) throw error;
-      alert('Internal quotation data deleted successfully!');
+      toast.success('Internal quotation data deleted successfully!');
       fetchQuotationsWithCosting();
     } catch (error) {
       console.error('Error deleting internal quotation:', error);
-      alert('Error deleting internal quotation: ' + error.message);
+      toast.warning('Error deleting internal quotation: ' + error.message);
     }
   };
 
