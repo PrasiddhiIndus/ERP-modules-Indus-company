@@ -28,6 +28,7 @@ import {
   CHART_SERIES,
 } from "../../../components/charts/DashboardCharts";
 
+import { toast } from "../../../lib/toast";
 export default function Dashboard() {
   const { data, loading, error, refresh, theme, navigateTo } = useOperations();
   const t = useThemeClasses(theme);
@@ -54,7 +55,7 @@ export default function Dashboard() {
         title="Operations Command Center"
         subtitle="Site expenses, advances, medical compliance & accommodation overview"
         onRefresh={refresh}
-        onExport={() => window.alert("Dashboard export — connect to reporting service")}
+        onExport={() => toast.success("Dashboard export — connect to reporting service")}
         theme={theme}
       />
 

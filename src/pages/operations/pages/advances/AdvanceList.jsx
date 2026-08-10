@@ -23,6 +23,7 @@ import {
   TinySelect,
 } from "../../components/OperationsUi";
 
+import { toast } from "../../../../lib/toast";
 const emptyForm = { site_id: "", employee_id: "", purpose: "", amount: "", requested_date: "" };
 
 export default function AdvanceList() {
@@ -62,7 +63,7 @@ export default function AdvanceList() {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!validate()) return;
-    window.alert("Advance request submitted (UI preview)");
+    toast.success("Advance request submitted (UI preview)");
     setFormOpen(false);
     setForm(emptyForm);
   };
@@ -86,7 +87,7 @@ export default function AdvanceList() {
         title="Site Advance Requests"
         subtitle="Request and track site-level cash advances"
         onRefresh={refresh}
-        onExport={() => window.alert("Export advances")}
+        onExport={() => toast.success("Export advances")}
         primaryAction={<PrimaryButton icon={Plus} onClick={() => setFormOpen(true)}>New Request</PrimaryButton>}
         theme={theme}
       />
@@ -105,7 +106,7 @@ export default function AdvanceList() {
         </label>
       </FilterBar>
 
-      <EnterpriseDataTable theme={theme} columns={columns} rows={rows} enableBulk onExport={() => window.alert("Exported")} />
+      <EnterpriseDataTable theme={theme} columns={columns} rows={rows} enableBulk onExport={() => toast.success("Exported")} />
 
       <Modal
         open={formOpen}

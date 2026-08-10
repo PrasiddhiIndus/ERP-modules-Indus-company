@@ -4,6 +4,7 @@ import { useAmc } from "./contexts/AmcContext";
 import LinkedRecord from "./components/LinkedRecord";
 import { AmcStatusBadge } from "./components/AmcUi";
 
+import { toast } from "../../lib/toast";
 const REPORT_CATALOG = [
   { id: "active", label: "Active Contracts", collection: "contracts" },
   { id: "expiry", label: "Expiry Report", collection: "contracts" },
@@ -60,7 +61,7 @@ export default function Reports() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="AMC Reports" subtitle="Live data from connected module store" onRefresh={refresh} onExport={() => window.alert("Export")} />
+      <PageHeader title="AMC Reports" subtitle="Live data from connected module store" onRefresh={refresh} onExport={() => toast.success("Export")} />
       <FilterBar>
         <label className="text-[11px] text-gray-600">
           Report

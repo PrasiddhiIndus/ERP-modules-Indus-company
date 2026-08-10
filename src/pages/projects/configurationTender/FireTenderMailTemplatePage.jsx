@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import FireTenderNavbar from "../FireTenderNavbar";
 
+import { toast } from "../../../lib/toast";
 const FireTenderMailTemplatePage = () => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,7 +31,7 @@ const FireTenderMailTemplatePage = () => {
       
       if (userError) {
         console.error("User error:", userError);
-        alert("Authentication error. Please login again.");
+        toast.warning("Authentication error. Please login again.");
         setLoading(false);
         return;
       }
@@ -46,7 +47,7 @@ const FireTenderMailTemplatePage = () => {
       if (error) {
         console.error("Query error:", error);
         console.error("Error details:", JSON.stringify(error, null, 2));
-        alert("Error loading templates: " + error.message);
+        toast.warning("Error loading templates: " + error.message);
         throw error;
       }
 
@@ -60,7 +61,7 @@ const FireTenderMailTemplatePage = () => {
       setTemplates(data || []);
     } catch (err) {
       console.error("Error loading templates:", err);
-      alert("Failed to load templates: " + (err.message || err));
+      toast.warning("Failed to load templates: " + (err.message || err));
     } finally {
       setLoading(false);
     }
@@ -89,24 +90,24 @@ const FireTenderMailTemplatePage = () => {
       if (error) throw error;
 
       setTemplates(templates.filter((t) => t.id !== id));
-      alert("✅ Template deleted successfully!");
+      toast.success("✅ Template deleted successfully!");
       // Reload templates to ensure we have the latest data
       await loadTemplates();
     } catch (err) {
       console.error("Error deleting template:", err);
-      alert("Failed to delete template: " + (err.message || err));
+      toast.warning("Failed to delete template: " + (err.message || err));
     }
   };
 
   const handleSave = async () => {
-    if (!formData.name) return alert("Name is required");
+    if (!formData.name) return toast.warning("Name is required");
     
     // Validate based on template type
     if (formData.type === "Quotation Template") {
-      if (!formData.subject) return alert("Subject Header is required for Quotation Template");
-      if (!formData.content) return alert("Quotation Body Text is required for Quotation Template");
+      if (!formData.subject) return toast.warning("Subject Header is required for Quotation Template");
+      if (!formData.content) return toast.warning("Quotation Body Text is required for Quotation Template");
     } else if (formData.type === "Terms & Condition") {
-      if (!formData.content) return alert("Terms and Conditions content is required");
+      if (!formData.content) return toast.warning("Terms and Conditions content is required");
     }
 
     try {
@@ -116,7 +117,7 @@ const FireTenderMailTemplatePage = () => {
       } = await supabase.auth.getUser();
 
       if (userErr || !user) {
-        alert("User not authenticated. Please login.");
+        toast.warning("User not authenticated. Please login.");
         return;
       }
 
@@ -161,14 +162,14 @@ const FireTenderMailTemplatePage = () => {
         setTemplates([data, ...templates]);
       }
 
-      alert("✅ Template saved successfully!");
+      toast.success("✅ Template saved successfully!");
       resetForm();
       setIsFormOpen(false);
       // Reload templates to ensure we have the latest data
       await loadTemplates();
     } catch (err) {
       console.error("Error saving template:", err);
-      alert("Failed to save template: " + (err.message || err));
+      toast.warning("Failed to save template: " + (err.message || err));
     }
   };
 

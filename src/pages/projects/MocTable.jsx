@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 import { NumericInput } from "../../components/NumericInput";
 
+import { toast } from "../../lib/toast";
 const MocTable = ({ tenderId }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +89,7 @@ const MocTable = ({ tenderId }) => {
     if (error) throw error;
 
     if (!silent) {
-      alert("✅ MOC Prices saved successfully!");
+      toast.success("✅ MOC Prices saved successfully!");
     } else {
       const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
       setMocAutoHint(`MOC prices saved · ${t}`);
@@ -104,7 +105,7 @@ const MocTable = ({ tenderId }) => {
       await persistMoc(rows, { silent: false });
     } catch (err) {
       console.error("❌ Save error:", err.message);
-      alert("❌ Failed to save. Check console for details.");
+      toast.warning("❌ Failed to save. Check console for details.");
     } finally {
       setSaving(false);
     }

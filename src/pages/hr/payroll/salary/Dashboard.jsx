@@ -24,6 +24,7 @@ import {
   CHART_SERIES,
 } from '../../../../components/charts/DashboardCharts';
 
+import { toast } from "../../../../lib/toast";
 function monthInputDefault() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -87,10 +88,10 @@ export default function SalaryDashboard() {
     setSyncing(true);
     try {
       const r = await ensurePayrollProfilesForActiveEmployees();
-      alert(`Synced ${r.createdProfiles} profiles, ${r.createdSites} new sites.`);
+      toast.success(`Synced ${r.createdProfiles} profiles, ${r.createdSites} new sites.`);
       window.location.reload();
     } catch (e) {
-      alert(e.message || 'Sync failed');
+      toast.warning(e.message || 'Sync failed');
     } finally {
       setSyncing(false);
     }

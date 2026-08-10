@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SectionCard, Badge } from '../../../adminOperations/components/AdminUi';
 import { runPayrollPreview, finalizePayrollRun } from '../../../../services/payrollApi';
 
+import { toast } from "../../../../lib/toast";
 const STEPS = [
   'Select month',
   'Fetch employees',
@@ -46,7 +47,7 @@ export default function PayrollRun() {
     try {
       await finalizePayrollRun(preview.run.id);
       setError('');
-      alert('Payroll finalized.');
+      toast.success('Payroll finalized.');
     } catch (e) {
       setError(e.message);
     } finally {

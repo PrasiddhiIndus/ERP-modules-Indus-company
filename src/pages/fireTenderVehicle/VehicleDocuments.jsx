@@ -18,6 +18,7 @@ import {
   Clock,
   Eye
 } from 'lucide-react';
+import { toast } from '../../lib/toast';
 
 const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
   const [documents, setDocuments] = useState([]);
@@ -203,7 +204,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
     const docCfg = getDocumentFieldConfig(formData.document_type);
     const existingCount = (formData.r2_attachment_keys || []).length;
     if (existingCount + pendingAttachmentFiles.length > docCfg.attachmentMax) {
-      alert(`Too many attachments for this document type (max ${docCfg.attachmentMax}).`);
+      toast.warning("Validation", `Too many attachments for this document type (max ${docCfg.attachmentMax}).`);
       return;
     }
     try {
@@ -243,7 +244,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
           .eq('id', editingDocument.id);
 
         if (error) throw error;
-        alert('Document updated successfully!');
+        toast.success("Updated", "Document updated successfully");
       } else {
         const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_documents')
@@ -263,14 +264,14 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
             .eq('id', row.id);
           if (upErr) throw upErr;
         }
-        alert('Document added successfully!');
+        toast.success("Saved", "Document added successfully");
       }
 
       resetForm();
       fetchDocuments();
     } catch (error) {
       console.error('Error saving document:', error);
-      alert(error?.message || 'Failed to save document. Please try again.');
+      toast.error("Save failed", error?.message || "Failed to save document. Please try again.");
     }
   };
 
@@ -311,11 +312,11 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
           .eq('id', id);
 
         if (error) throw error;
-        alert('Document deleted successfully!');
+        toast.success("Deleted", "Document deleted successfully");
         fetchDocuments();
       } catch (error) {
         console.error('Error deleting document:', error);
-        alert('Failed to delete document. Please try again.');
+        toast.error("Delete failed", "Failed to delete document. Please try again.");
       }
     }
   };
@@ -368,7 +369,7 @@ const VehicleDocuments = ({ vehicleCategory = 'in-house' }) => {
       const url = await presignFleetR2Get(objectKey);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      alert(err?.message || 'Could not open file.');
+      toast.error("File error", err?.message || "Could not open file.");
     }
   };
 

@@ -7,6 +7,7 @@ import { inr } from "./lib/formatters";
 import { currentPeriodKey } from "./lib/periods";
 import { displayStructure } from "./lib/calculations";
 
+import { toast } from "../../lib/toast";
 export default function ExpenseEntries() {
   const { data, loading, error, refresh, permissions } = useFinance();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,7 +46,7 @@ export default function ExpenseEntries() {
       setTimeout(() => setSaved(false), 2000);
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save");
+      toast.warning(e?.message || "Failed to save");
     } finally {
       setSaving(false);
     }

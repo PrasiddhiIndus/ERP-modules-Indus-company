@@ -19,6 +19,7 @@ import {
   TinySelect,
 } from "../../components/OperationsUi";
 
+import { toast } from "../../../../lib/toast";
 export default function AdvanceSettlement() {
   const { data, refresh, theme, getEmployee } = useOperations();
   const [settleOpen, setSettleOpen] = useState(false);
@@ -41,7 +42,7 @@ export default function AdvanceSettlement() {
     if (selectedAdvance && Number(amount) > selectedAdvance.balance) next.amount = "Exceeds balance";
     setErrors(next);
     if (Object.keys(next).length) return;
-    window.alert("Settlement recorded (UI preview)");
+    toast.success("Settlement recorded (UI preview)");
     setSettleOpen(false);
     setAdvanceId("");
     setAmount("");

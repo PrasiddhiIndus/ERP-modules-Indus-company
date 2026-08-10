@@ -7,6 +7,7 @@ import { supabase } from "../../../lib/supabase";
 import minWageFlowConfig from "../../../config/manpowerMinWageFlow.json";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 
+import { toast } from "../../../lib/toast";
 const ROLE_COLUMNS = [
   { key: "sr_fire_supervisor", label: "Sr. Fire Supervisor (Highly skilled)" },
   { key: "fire_supervisor", label: "Fire Supervisor (Highly skilled)" },
@@ -762,7 +763,7 @@ const InternalQuotationForm = ({
       .eq("id", enquiry.id)
       .then(() => {});
 
-    alert("Quotation saved successfully!");
+    toast.success("Quotation saved successfully!");
     navigate(listPath); // go to quotation page
   };
 

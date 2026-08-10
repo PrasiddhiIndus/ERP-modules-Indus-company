@@ -34,6 +34,7 @@ import { FIRE_TENDER_TEMPLATES, DEFAULT_FIRE_TENDER_TEMPLATE, normalizeTemplate 
 import FormDateInput from "../../components/FormDateInput";
 
 
+import { toast } from "../../lib/toast";
 /** Form controls — slate borders, red focus ring (Fire Tender) */
 const ftInput =
   "w-full px-3.5 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 bg-white shadow-sm focus:ring-2 focus:ring-red-500/30 focus:border-red-400 transition-all";
@@ -494,7 +495,7 @@ const FireTender = ({ embeddedInHub = false }) => {
         setFormData(mapTenderRecordToForm(data));
       } catch (err) {
         console.error("Error loading tender:", err.message);
-        alert("Failed to load tender.");
+        toast.warning("Failed to load tender.");
       } finally {
         setLoading(false);
       }
@@ -577,11 +578,11 @@ const FireTender = ({ embeddedInHub = false }) => {
 
   const handleSaveTender = async () => {
     if (!canEditTenders) {
-      alert("You do not have permission to create or update tenders.");
+      toast.success("You do not have permission to create or update tenders.");
       return;
     }
     if (!formData.client || !formData.dueDate || !formData.authorizationTo) {
-      alert("Client, Due Date, and Authorization To are required!");
+      toast.warning("Client, Due Date, and Authorization To are required!");
       return;
     }
 
@@ -682,7 +683,7 @@ const FireTender = ({ embeddedInHub = false }) => {
         }
       }
 
-      alert(effectiveEditId ? "Tender updated successfully!" : "Tender saved successfully!");
+      toast.success(effectiveEditId ? "Tender updated successfully!" : "Tender saved successfully!");
       setFormData(initialFormData);
       setModalEditId(null);
       if (isNewTenderPage && !isEditMode) {
@@ -693,7 +694,7 @@ const FireTender = ({ embeddedInHub = false }) => {
       }
     } catch (err) {
       console.error("Error saving tender:", err.message);
-      alert("Failed to save tender!");
+      toast.warning("Failed to save tender!");
     } finally {
       setSaving(false);
     }
@@ -714,7 +715,7 @@ const FireTender = ({ embeddedInHub = false }) => {
 
   const openEditEntry = async (tender) => {
     if (!canEditTenders) {
-      alert("You do not have permission to edit tenders.");
+      toast.success("You do not have permission to edit tenders.");
       return;
     }
     setModalEditId(tender.id);
@@ -727,7 +728,7 @@ const FireTender = ({ embeddedInHub = false }) => {
       setFormData(mapTenderRecordToForm(data));
     } catch (err) {
       console.error(err);
-      alert("Failed to load tender for editing.");
+      toast.warning("Failed to load tender for editing.");
       setEntryModalOpen(false);
       setModalEditId(null);
       setFormData(initialFormData);
@@ -738,7 +739,7 @@ const FireTender = ({ embeddedInHub = false }) => {
 
   const handleApprove = async (tid) => {
     if (!canApproveTenders) {
-      alert("You do not have permission to approve tenders. Managers and admins can approve.");
+      toast.success("You do not have permission to approve tenders. Managers and admins can approve.");
       return;
     }
     const tender = tenders.find((t) => t.id === tid);
@@ -757,13 +758,13 @@ const FireTender = ({ embeddedInHub = false }) => {
       setTenders((prev) => prev.map((t) => (t.id === tid ? { ...t, status: "Approved", tender_number: tenderNumber } : t)));
     } else {
       console.error(error);
-      alert("Error approving tender!");
+      toast.warning("Error approving tender!");
     }
   };
 
   const handleReject = async (tid) => {
     if (!canApproveTenders) {
-      alert("You do not have permission to reject tenders. Managers and admins can approve.");
+      toast.success("You do not have permission to reject tenders. Managers and admins can approve.");
       return;
     }
     const tender = tenders.find((t) => t.id === tid);
@@ -782,13 +783,13 @@ const FireTender = ({ embeddedInHub = false }) => {
       setTenders((prev) => prev.map((t) => (t.id === tid ? { ...t, status: "Rejected", tender_number: tenderNumber } : t)));
     } else {
       console.error(error);
-      alert("Error rejecting tender!");
+      toast.warning("Error rejecting tender!");
     }
   };
 
   const handleDelete = async (tid) => {
     if (!canEditTenders) {
-      alert("You do not have permission to delete tenders.");
+      toast.success("You do not have permission to delete tenders.");
       return;
     }
     if (!window.confirm("Delete this tender? This cannot be undone.")) return;

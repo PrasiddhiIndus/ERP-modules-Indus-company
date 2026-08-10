@@ -6,6 +6,7 @@ import { exportToExcel } from './utils/excelExport';
 import * as XLSX from 'xlsx';
 import { fetchActiveEmployeesForDropdown } from '../../utils/employeeDirectory';;
 import FormDateInput from "../../components/FormDateInput";
+import { toast } from '../../lib/toast';
 
 
 const ExpoSeminar = () => {
@@ -211,7 +212,7 @@ const ExpoSeminar = () => {
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
     const invalidFiles = files.filter(file => !validTypes.includes(file.type));
     if (invalidFiles.length > 0) {
-      alert('Please upload only image files (JPEG, PNG, GIF, WebP)');
+      toast.warning('Please upload only image files (JPEG, PNG, GIF, WebP)');
       return;
     }
 
@@ -219,7 +220,7 @@ const ExpoSeminar = () => {
     const maxSize = 5 * 1024 * 1024; // 5MB
     const largeFiles = files.filter(file => file.size > maxSize);
     if (largeFiles.length > 0) {
-      alert('Some files are too large. Maximum file size is 5MB per image.');
+      toast.warning('Some files are too large. Maximum file size is 5MB per image.');
       return;
     }
 
@@ -272,18 +273,18 @@ const ExpoSeminar = () => {
       if (uploadedUrls.length > 0) {
         setUploadedImages([...uploadedImages, ...uploadedUrls]);
         if (errors.length > 0) {
-          alert(`Successfully uploaded ${uploadedUrls.length} image(s). Errors: ${errors.join(', ')}`);
+          toast.warning(`Successfully uploaded ${uploadedUrls.length} image(s). Errors: ${errors.join(', ')}`);
         } else {
-          alert(`Successfully uploaded ${uploadedUrls.length} image(s)!`);
+          toast.success(`Successfully uploaded ${uploadedUrls.length} image(s)!`);
         }
       } else if (errors.length > 0) {
-        alert('Failed to upload images:\n' + errors.join('\n'));
+        toast.error('Failed to upload images:\n' + errors.join('\n'));
       }
 
       setUploadingImages(false);
     } catch (error) {
       console.error('Error uploading images:', error);
-      alert('Error uploading images: ' + error.message);
+      toast.error('Error uploading images: ' + error.message);
       setUploadingImages(false);
     }
   };
@@ -358,7 +359,7 @@ const ExpoSeminar = () => {
       fetchExpos();
     } catch (error) {
       console.error('Error saving expo:', error);
-      alert('Error saving expo: ' + error.message);
+      toast.error('Error saving expo: ' + error.message);
     }
   };
 
@@ -378,14 +379,14 @@ const ExpoSeminar = () => {
           const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
 
           if (!rows || rows.length === 0) {
-            alert('No data found in Excel file.');
+            toast.warning('No data found in Excel file.');
             setUploadingExcel(false);
             return;
           }
 
           const { data: { user } } = await supabase.auth.getUser();
           if (!user) {
-            alert('User not authenticated');
+            toast.warning('User not authenticated');
             setUploadingExcel(false);
             return;
           }
@@ -481,7 +482,7 @@ const ExpoSeminar = () => {
           }
 
           if (siteVisitsToInsert.length === 0) {
-            alert('No valid data found in Excel file. Please ensure at least one row has Visitor Name, Company Name, or Client Name.\n\nNote: Missing columns will be saved as empty values.');
+            toast.warning('No valid data found in Excel file. Please ensure at least one row has Visitor Name, Company Name, or Client Name.\n\nNote: Missing columns will be saved as empty values.');
             setUploadingExcel(false);
             return;
           }
@@ -503,9 +504,9 @@ const ExpoSeminar = () => {
           }
 
           if (errors.length > 0) {
-            alert(`Uploaded ${inserted} records. Some errors occurred:\n${errors.join('\n')}`);
+            toast.warning(`Uploaded ${inserted} records. Some errors occurred:\n${errors.join('\n')}`);
           } else {
-            alert(`Successfully uploaded ${inserted} site visit record(s)!\n\nNote: Missing columns in your Excel file were saved as empty values.`);
+            toast.success(`Successfully uploaded ${inserted} site visit record(s)!\n\nNote: Missing columns in your Excel file were saved as empty values.`);
           }
 
           fetchSiteVisits();
@@ -513,14 +514,14 @@ const ExpoSeminar = () => {
           e.target.value = ''; // Reset file input
         } catch (error) {
           console.error('Error processing Excel:', error);
-          alert('Error processing Excel file: ' + error.message + '\n\nPlease ensure your Excel file follows the correct format. You can download the template for reference.');
+          toast.error('Error processing Excel file: ' + error.message + '\n\nPlease ensure your Excel file follows the correct format. You can download the template for reference.');
           setUploadingExcel(false);
         }
       };
       reader.readAsArrayBuffer(file);
     } catch (error) {
       console.error('Error reading file:', error);
-      alert('Error reading file: ' + error.message);
+      toast.error('Error reading file: ' + error.message);
       setUploadingExcel(false);
     }
   };
@@ -631,9 +632,9 @@ const ExpoSeminar = () => {
       console.error('Error saving site visit:', error);
       // If table doesn't exist, show helpful message
       if (error.message.includes('relation') || error.message.includes('does not exist')) {
-        alert('Site Visits table not found. Please create the marketing_site_visits table in your database.');
+        toast.warning('Site Visits table not found. Please create the marketing_site_visits table in your database.');
       } else {
-        alert('Error saving site visit: ' + error.message);
+        toast.error('Error saving site visit: ' + error.message);
       }
     }
   };
@@ -681,7 +682,7 @@ const ExpoSeminar = () => {
       fetchSiteVisits();
     } catch (error) {
       console.error('Error deleting site visit:', error);
-      alert('Error deleting site visit: ' + error.message);
+      toast.error('Error deleting site visit: ' + error.message);
     }
   };
 
@@ -741,7 +742,7 @@ const ExpoSeminar = () => {
       setMenuOpen(null);
     } catch (error) {
       console.error('Error deleting expo:', error);
-      alert('Error deleting expo: ' + error.message);
+      toast.error('Error deleting expo: ' + error.message);
     }
   };
 

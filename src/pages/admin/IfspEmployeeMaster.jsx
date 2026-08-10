@@ -53,6 +53,7 @@ import {
   Gift,
   Clock
 } from 'lucide-react';
+import { toast } from '../../lib/toast';
 
 /** Default list view — identify and act on employees without exposing the full master record. */
 const EMPLOYEE_LIST_SUMMARY_FIELDS = new Set([
@@ -192,7 +193,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert('Session expired. Please log in again.');
+        toast.warning('Session expired. Please log in again.');
         return;
       }
       const { error } = await supabase
@@ -202,10 +203,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       if (error) throw error;
       setEmployees([]);
       setCurrentPage(1);
-      alert('All employees deleted.');
+      toast.success('All employees deleted.');
     } catch (e) {
       console.error('Delete all failed:', e);
-      alert(e?.message || 'Failed to delete employees.');
+      toast.error(e?.message || 'Failed to delete employees.');
     }
   };
 
@@ -649,10 +650,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
       await fetchEmployees();
       setCurrentPage(1);
-      alert(`Imported ${rows.length} employees successfully.`);
+      toast.success(`Imported ${rows.length} employees successfully.`);
     } catch (e) {
       console.error('Import failed:', e);
-      alert(e?.message || 'Import failed. Please check the file and try again.');
+      toast.error(e?.message || 'Import failed. Please check the file and try again.');
     } finally {
       setImportBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -748,17 +749,17 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.designation === 'Other' && !String(formData.designation_other || '').trim()) {
-      alert('Please enter a designation when Other is selected.');
+      toast.warning('Please enter a designation when Other is selected.');
       return;
     }
     if (formData.status === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
-      alert('Date of Leaving is required when employee status is Inactive.');
+      toast.warning('Date of Leaving is required when employee status is Inactive.');
       return;
     }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        alert('Session expired. Please log in again.');
+        toast.warning('Session expired. Please log in again.');
         return;
       }
       const userEmail = user.email || '';
@@ -772,7 +773,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         hierarchy_sort_order: formData.hierarchy_sort_order,
       });
       if (!hierarchyCheck.ok) {
-        alert(hierarchyCheck.message);
+        toast.warning(hierarchyCheck.message);
         return;
       }
 
@@ -790,7 +791,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           excludeDbId,
         });
         if (!idCheck.ok) {
-          alert(idCheck.message);
+          toast.warning(idCheck.message);
           return;
         }
 
@@ -811,7 +812,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           }
           throw error;
         }
-        alert('Employee updated successfully!');
+        toast.success('Employee updated successfully!');
         await fetchEmployees();
       } else {
         const employment_type = normalizeEmploymentType(formData.employment_type);
@@ -825,7 +826,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           employee_code: formData.employee_code,
         });
         if (!idCheck.ok) {
-          alert(idCheck.message);
+          toast.warning(idCheck.message);
           return;
         }
 
@@ -851,14 +852,14 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
           }
           throw error;
         }
-        alert('Employee added successfully!');
+        toast.success('Employee added successfully!');
         await fetchEmployees();
       }
 
       resetForm();
     } catch (error) {
       console.error('Error saving employee:', error);
-      alert(error?.message || 'Failed to save employee. Please try again.');
+      toast.error(error?.message || 'Failed to save employee. Please try again.');
     }
   };
 
@@ -940,10 +941,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
       if (error) throw error;
       setEmployees(prev => prev.filter(emp => emp.id !== id));
-      alert('Employee deleted successfully!');
+      toast.success('Employee deleted successfully!');
     } catch (error) {
       console.error('Error deleting employee:', error);
-      alert(error?.message || 'Failed to delete employee. Please try again.');
+      toast.error(error?.message || 'Failed to delete employee. Please try again.');
     }
   };
 
@@ -959,11 +960,11 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             'Date of Leaving is required when deactivating an employee.\nEnter date (YYYY-MM-DD):'
           );
           if (!input?.trim()) {
-            alert('Date of Leaving is required to set employee as Inactive.');
+            toast.warning('Date of Leaving is required to set employee as Inactive.');
             return;
           }
           if (!/^\d{4}-\d{2}-\d{2}$/.test(input.trim())) {
-            alert('Please enter a valid date in YYYY-MM-DD format.');
+            toast.warning('Please enter a valid date in YYYY-MM-DD format.');
             return;
           }
           dateOfLeaving = input.trim();
@@ -1001,10 +1002,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             }
           : emp
       ));
-      alert(`Employee status changed to ${newStatus} successfully!`);
+      toast.success(`Employee status changed to ${newStatus} successfully!`);
     } catch (error) {
       console.error('Error updating status:', error);
-      alert(error?.message || 'Failed to update status. Please try again.');
+      toast.error(error?.message || 'Failed to update status. Please try again.');
     }
   };
 
@@ -1154,7 +1155,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
   const handleExportExcel = () => {
     if (!filteredEmployees.length) {
-      alert('No employees to export for the current filters.');
+      toast.warning('No employees to export for the current filters.');
       return;
     }
 
@@ -1179,7 +1180,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       XLSX.writeFile(wb, `ifspl-employee-master-${stamp}.xlsx`);
     } catch (e) {
       console.error('Export failed:', e);
-      alert(e?.message || 'Failed to export Excel file.');
+      toast.error(e?.message || 'Failed to export Excel file.');
     } finally {
       setExportBusy(false);
     }
@@ -2008,7 +2009,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                       onChange={(e) => {
                         const nextStatus = e.target.value;
                         if (nextStatus === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
-                          alert('Date of Leaving is required when employee status is Inactive.');
+                          toast.warning('Date of Leaving is required when employee status is Inactive.');
                           return;
                         }
                         setFormData({ ...formData, status: nextStatus });

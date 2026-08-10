@@ -23,6 +23,7 @@ import {
   TinySelect,
 } from "../../components/OperationsUi";
 
+import { toast } from "../../../../lib/toast";
 const emptyForm = {
   site_id: "",
   category: "",
@@ -98,7 +99,7 @@ export default function ExpenseList() {
   const handleSave = (e) => {
     e.preventDefault();
     if (!validate()) return;
-    window.alert(editRow ? "Expense updated (UI preview)" : "Expense created (UI preview)");
+    toast.success(editRow ? "Expense updated (UI preview)" : "Expense created (UI preview)");
     setFormOpen(false);
   };
 
@@ -139,7 +140,7 @@ export default function ExpenseList() {
         title="Site Expense Management"
         subtitle="Track and approve site-level operational expenses"
         onRefresh={refresh}
-        onExport={() => window.alert("Export expenses CSV")}
+        onExport={() => toast.success("Export expenses CSV")}
         primaryAction={<PrimaryButton icon={Plus} onClick={openCreate}>New Expense</PrimaryButton>}
         theme={theme}
       />
@@ -180,7 +181,7 @@ export default function ExpenseList() {
         rows={rows}
         enableBulk
         onRowClick={setDrawerRow}
-        onExport={() => window.alert("Exported filtered expenses")}
+        onExport={() => toast.success("Exported filtered expenses")}
         emptyTitle="No expenses found"
         emptyDescription="Create a new expense or adjust filters."
       />

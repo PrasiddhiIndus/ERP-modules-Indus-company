@@ -4,6 +4,7 @@ import { useFinance } from "./contexts/FinanceContext";
 import { PageHeader, PrimaryButton, SectionCard, Modal, TinyInput, TinySelect, LoadingState, ErrorState } from "./components/FinanceUi";
 import { upsertRevenueHead, deleteRevenueHead } from "../../services/financeApi";
 
+import { toast } from "../../lib/toast";
 const EMPTY = { label: "", sign: 1, sort_order: 0 };
 
 export default function RevenueHeads() {
@@ -21,7 +22,7 @@ export default function RevenueHeads() {
       setForm(EMPTY);
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save");
+      toast.warning(e?.message || "Failed to save");
     } finally {
       setSaving(false);
     }
