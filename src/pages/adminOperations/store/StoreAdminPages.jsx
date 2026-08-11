@@ -1,3 +1,4 @@
+/** NAV_HIDDEN (Aug 2026): Store & Issue Control — entire module hidden from admin navbar */
 import React, { useState } from "react";
 import {
   SectionCard,

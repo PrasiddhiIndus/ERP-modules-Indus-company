@@ -20,13 +20,13 @@ export default function AdminOperationsLayout() {
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const alertCount = useMemo(() => mockAlerts.filter((a) => a.severity === "critical" || a.severity === "high").length, []);
 
-  const navGroups = useMemo(
-    () =>
-      ADMIN_OPS_NAV.filter(
-        (g) => !g.salaryAdminOnly || canAccessSalaryAdmin(userProfile, user)
-      ),
-    [user, userProfile]
-  );
+  const navGroups = useMemo(() => {
+    const salaryOk = canAccessSalaryAdmin(userProfile, user);
+    return ADMIN_OPS_NAV.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.salaryAdminOnly || salaryOk),
+    })).filter((group) => group.items.length > 0);
+  }, [user, userProfile]);
 
   const openGroups = useMemo(() => {
     const rel = location.pathname.replace(base, "").replace(/^\//, "");
@@ -176,7 +176,7 @@ export default function AdminOperationsLayout() {
           <nav className="space-y-1 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
             {navGroups.map((group) => (
               <div key={group.title} className="mb-1">
-                {group.title === "Admin Operations" ? (
+                {group.flat || group.title === "Admin Operations" ? (
                   <div className="space-y-0.5">
                     {group.items.map((item) => (
                       <NavLink

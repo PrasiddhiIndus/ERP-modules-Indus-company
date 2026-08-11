@@ -89,6 +89,7 @@ export const IfspEmployeeAttendance = lazy(() => import("../pages/admin/IfspEmpl
 export const IfspEmployeePayroll = lazy(() => import("../pages/admin/IfspEmployeePayroll"));
 export const IfspEmployeeLeaves = lazy(() => import("../pages/admin/IfspEmployeeLeaves"));
 export const IfspEmployeeMaster = lazy(() => import("../pages/admin/IfspEmployeeMaster"));
+export const IfspEmployeeMasterDetail = lazy(() => import("../pages/admin/IfspEmployeeMasterDetail"));
 export const GatePass = lazy(() => import("../pages/admin/GatePass"));
 
 // Admin operations
@@ -140,18 +141,19 @@ export const HrSalaryRegister = lazy(() => import("../pages/hr/payroll/salary/Re
 export const HrSalaryOutputs = lazy(() => import("../pages/hr/payroll/salary/Outputs"));
 export const HrSalarySettings = lazy(() => import("../pages/hr/payroll/salary/Settings"));
 
-export const EmployeeOnboardingPage = lazyNamed(
-  () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
-  "EmployeeOnboardingPage"
-);
+// NAV_HIDDEN (Aug 2026): employee admin pages removed from navbar
+// export const EmployeeOnboardingPage = lazyNamed(
+//   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
+//   "EmployeeOnboardingPage"
+// );
 export const EmployeeAttendanceInputsPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
   "EmployeeAttendanceInputsPage"
 );
-export const EmployeeAttendanceSheetsPage = lazyNamed(
-  () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
-  "EmployeeAttendanceSheetsPage"
-);
+// export const EmployeeAttendanceSheetsPage = lazyNamed(
+//   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
+//   "EmployeeAttendanceSheetsPage"
+// );
 export const EmployeeLeavesPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeLeaveInboxPage"),
   "EmployeeLeavesPage"
@@ -160,18 +162,18 @@ export const EmployeeTourApprovalsPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeTourInboxPage"),
   "EmployeeTourApprovalsPage"
 );
-export const EmployeeCompliancePage = lazyNamed(
-  () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
-  "EmployeeCompliancePage"
-);
-export const EmployeeSalaryInputsPage = lazyNamed(
-  () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
-  "EmployeeSalaryInputsPage"
-);
-export const EmployeeExitPage = lazyNamed(
-  () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
-  "EmployeeExitPage"
-);
+// export const EmployeeCompliancePage = lazyNamed(
+//   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
+//   "EmployeeCompliancePage"
+// );
+// export const EmployeeSalaryInputsPage = lazyNamed(
+//   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
+//   "EmployeeSalaryInputsPage"
+// );
+// export const EmployeeExitPage = lazyNamed(
+//   () => import("../pages/adminOperations/employee/EmployeeAdminPages"),
+//   "EmployeeExitPage"
+// );
 export const EmployeeAttendanceDailyPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeAttendanceDailyPage"),
   "EmployeeAttendanceDailyPage"
@@ -180,90 +182,97 @@ export const EmployeeLeaveManagementPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeLeaveManagementPage"),
   "EmployeeLeaveManagementPage"
 );
-export const InactiveEmployeesPage = lazyNamed(
-  () => import("../pages/adminOperations/employee/InactiveEmployeesPage"),
-  "InactiveEmployeesPage"
-);
+// export const InactiveEmployeesPage = lazyNamed(
+//   () => import("../pages/adminOperations/employee/InactiveEmployeesPage"),
+//   "InactiveEmployeesPage"
+// );
 export const NationalPublicHolidaysPage = lazyNamed(
   () => import("../pages/adminOperations/employee/NationalPublicHolidaysPage"),
   "NationalPublicHolidaysPage"
 );
 
-export const StoreItemMasterPage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StoreItemMasterPage"
-);
-export const StoreMasterPage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StoreMasterPage"
-);
-export const StoreSiteStockPage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StoreSiteStockPage"
-);
-export const StoreIssuePage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StoreIssuePage"
-);
-export const StoreReturnPage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StoreReturnPage"
-);
-export const StoreTransferPage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StoreTransferPage"
-);
-export const StorePlannerPage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StorePlannerPage"
-);
-export const StoreReconciliationPage = lazyNamed(
-  () => import("../pages/adminOperations/store/StoreAdminPages"),
-  "StoreReconciliationPage"
-);
+// NAV_HIDDEN (Aug 2026): store module
+// export const StoreItemMasterPage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StoreItemMasterPage"
+// );
+// export const StoreMasterPage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StoreMasterPage"
+// );
+// export const StoreSiteStockPage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StoreSiteStockPage"
+// );
+// export const StoreIssuePage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StoreIssuePage"
+// );
+// export const StoreReturnPage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StoreReturnPage"
+// );
+// export const StoreTransferPage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StoreTransferPage"
+// );
+// export const StorePlannerPage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StorePlannerPage"
+// );
+// export const StoreReconciliationPage = lazyNamed(
+//   () => import("../pages/adminOperations/store/StoreAdminPages"),
+//   "StoreReconciliationPage"
+// );
 
-export const GateEmployeeMovementPage = lazyNamed(
-  () => import("../pages/adminOperations/gate/GateAdminPages"),
-  "GateEmployeeMovementPage"
-);
-export const GateGoodsPage = lazyNamed(
-  () => import("../pages/adminOperations/gate/GateAdminPages"),
-  "GateGoodsPage"
-);
-export const GateVisitorsPage = lazyNamed(
-  () => import("../pages/adminOperations/gate/GateAdminPages"),
-  "GateVisitorsPage"
-);
-export const GateVehiclesPage = lazyNamed(
-  () => import("../pages/adminOperations/gate/GateAdminPages"),
-  "GateVehiclesPage"
-);
-export const GateDeliveryPage = lazyNamed(
-  () => import("../pages/adminOperations/gate/GateAdminPages"),
-  "GateDeliveryPage"
-);
-export const GateSecurityConsolePage = lazyNamed(
-  () => import("../pages/adminOperations/gate/GateAdminPages"),
-  "GateSecurityConsolePage"
-);
+// NAV_HIDDEN (Aug 2026): gate module
+// export const GateEmployeeMovementPage = lazyNamed(
+//   () => import("../pages/adminOperations/gate/GateAdminPages"),
+//   "GateEmployeeMovementPage"
+// );
+// export const GateGoodsPage = lazyNamed(
+//   () => import("../pages/adminOperations/gate/GateAdminPages"),
+//   "GateGoodsPage"
+// );
+// export const GateVisitorsPage = lazyNamed(
+//   () => import("../pages/adminOperations/gate/GateAdminPages"),
+//   "GateVisitorsPage"
+// );
+// export const GateVehiclesPage = lazyNamed(
+//   () => import("../pages/adminOperations/gate/GateAdminPages"),
+//   "GateVehiclesPage"
+// );
+// export const GateDeliveryPage = lazyNamed(
+//   () => import("../pages/adminOperations/gate/GateAdminPages"),
+//   "GateDeliveryPage"
+// );
+// export const GateSecurityConsolePage = lazyNamed(
+//   () => import("../pages/adminOperations/gate/GateAdminPages"),
+//   "GateSecurityConsolePage"
+// );
 
 export const SalaryDashboardPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryDashboard"));
-export const SalaryMasterPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryMaster"));
+// NAV_HIDDEN — Salary Master list page; CTC lives on Employee Master
+// export const SalaryMasterPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryMaster"));
 export const SalaryEmployeeCtcPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryEmployeeCtc"));
 export const SalaryProcessingPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryProcessing"));
+export const SalaryComponentsMasterPage = lazy(
+  () => import("../pages/adminOperations/salaryAdmin/SalaryComponentsMaster.jsx")
+);
 
-export const MiscEventsPage = lazyNamed(
-  () => import("../pages/adminOperations/misc/MiscAdminPages"),
-  "MiscEventsPage"
-);
-export const MiscTravelPage = lazyNamed(
-  () => import("../pages/adminOperations/misc/MiscAdminPages"),
-  "MiscTravelPage"
-);
-export const MiscTasksPage = lazyNamed(
-  () => import("../pages/adminOperations/misc/MiscAdminPages"),
-  "MiscTasksPage"
-);
+// NAV_HIDDEN (Aug 2026): misc admin module
+// export const MiscEventsPage = lazyNamed(
+//   () => import("../pages/adminOperations/misc/MiscAdminPages"),
+//   "MiscEventsPage"
+// );
+// export const MiscTravelPage = lazyNamed(
+//   () => import("../pages/adminOperations/misc/MiscAdminPages"),
+//   "MiscTravelPage"
+// );
+// export const MiscTasksPage = lazyNamed(
+//   () => import("../pages/adminOperations/misc/MiscAdminPages"),
+//   "MiscTasksPage"
+// );
 
 export const FireTenderManufacturing = lazy(() => import("../pages/fireTenderManufacturing/FireTenderManufacturing"));
 export const AMC = lazy(() => import("../pages/amc/AMC"));

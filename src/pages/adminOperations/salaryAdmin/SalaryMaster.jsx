@@ -1,3 +1,4 @@
+/** NAV_HIDDEN (Aug 2026): Salary Master list — CTC is managed on Employee Master. Re-enable in Layout.jsx, navConfig.js, App.jsx */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { History, RefreshCw, Search } from "lucide-react";

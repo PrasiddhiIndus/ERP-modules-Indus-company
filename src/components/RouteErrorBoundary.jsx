@@ -28,10 +28,14 @@ export default class RouteErrorBoundary extends React.Component {
     const { error } = this.state;
     if (isChunkLoadError(error)) {
       this.setState({ refreshing: true });
+      try {
+        sessionStorage.removeItem("erp_chunk_reload_at");
+      } catch {
+        /* ignore */
+      }
       void forceAppRefreshOnce().then((didRefresh) => {
         if (!didRefresh) {
-          // Cooldown active — force a normal reload anyway
-          window.location.reload();
+          window.location.href = `${window.location.pathname}?_v=${Date.now()}`;
         }
       });
       return;

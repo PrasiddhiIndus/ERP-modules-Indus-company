@@ -428,6 +428,180 @@ export async function processLeaveBalancesYear(supabase, year) {
 }
 
 /**
+ * Fetch one employee's yearly leave balance row (or null).
+ */
+export async function fetchLeaveBalanceForEmployee(supabase, employeeCode, year) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const y = Number(year);
+  if (!code || !Number.isFinite(y) || y < 1900) return null;
+  const { data, error } = await supabase
+    .schema("indus_one")
+    .from("employee_leave_balances_yearly")
+    .select("*")
+    .eq("employee_code", code)
+    .eq("year", y)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+/**
+ * Year-end PL/SL rollover for a single employee (same rules as processLeaveBalancesYear).
+ * Writes carried / expired / encashed on `year`, and seeds next year's openings from carried.
+ */
+export async function processLeaveBalanceForEmployee(supabase, employeeCode, year) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const y = Number(year);
+  if (!code) throw new Error("Employee code is required for leave rollover.");
+  if (!Number.isFinite(y) || y < 1900) throw new Error("Valid year is required for leave rollover.");
+
+  const [rules, plPrefs] = await Promise.all([
+    getLeaveCarryForwardRules(supabase),
+    fetchPlEncashPrefs(supabase),
+  ]);
+
+  const prevYear = y - 1;
+  const { data: prevRow, error: prevErr } = await supabase
+    .schema("indus_one")
+    .from("employee_leave_balances_yearly")
+    .select("employee_code, carried_pl, carried_sl, carried_cl")
+    .eq("employee_code", code)
+    .eq("year", prevYear)
+    .maybeSingle();
+  if (prevErr) throw prevErr;
+
+  let current = await fetchLeaveBalanceForEmployee(supabase, code, y);
+  const usedMap = await fetchLeaveUsageFromDailyRegister(supabase, y);
+  const used = usedMap[code] || emptyUsedLeaveTotals();
+
+  const openingSeed = {
+    employee_code: code,
+    year: y,
+    opening_pl: valueFromCurrentOrFallback(current, "opening_pl", prevRow?.carried_pl),
+    opening_sl: valueFromCurrentOrFallback(current, "opening_sl", prevRow?.carried_sl),
+    opening_cl: valueFromCurrentOrFallback(current, "opening_cl", prevRow?.carried_cl),
+    opening_sbel: valueFromCurrentOrFallback(current, "opening_sbel", 0),
+    opening_spla: valueFromCurrentOrFallback(current, "opening_spla", 0),
+    opening_splb: valueFromCurrentOrFallback(current, "opening_splb", 0),
+    opening_splm: valueFromCurrentOrFallback(current, "opening_splm", 0),
+    opening_coff: valueFromCurrentOrFallback(current, "opening_coff", 0),
+    opening_paternity: valueFromCurrentOrFallback(current, "opening_paternity", 0),
+    used_pl: clampNonNegative(used.used_pl),
+    used_sl: clampNonNegative(used.used_sl),
+    used_cl: clampNonNegative(used.used_cl),
+    used_sbel: clampNonNegative(used.used_sbel),
+    used_spla: clampNonNegative(used.used_spla),
+    used_splb: clampNonNegative(used.used_splb),
+    used_splm: clampNonNegative(used.used_splm),
+    used_coff: clampNonNegative(used.used_coff),
+    used_paternity: clampNonNegative(used.used_paternity),
+    processed_at: new Date().toISOString(),
+  };
+
+  const { error: seedErr } = await supabase
+    .schema("indus_one")
+    .from("employee_leave_balances_yearly")
+    .upsert(openingSeed, { onConflict: "employee_code,year" });
+  if (seedErr) throw seedErr;
+
+  await recalculateEmployeeLeaveEntitlements(supabase, code, y);
+  current = await fetchLeaveBalanceForEmployee(supabase, code, y);
+
+  const unused_pl = openingMinusUsed(current?.opening_pl, current?.used_pl);
+  const unused_sl = openingMinusUsed(current?.opening_sl, current?.used_sl);
+  const unused_cl = openingMinusUsed(current?.opening_cl, current?.used_cl);
+
+  const plCarryCap = Number(rules.pl_carry_forward_max ?? 0);
+  const slCarryCap = Number(rules.sl_carry_forward_max ?? 0);
+  const clCarryCap = Number(rules.cl_carry_forward_max ?? 0);
+
+  const plCarryAmount = Math.min(unused_pl, plCarryCap);
+  const slCarryAmount = Math.min(unused_sl, slCarryCap);
+  const clCarryAmount = Math.min(unused_cl, clCarryCap);
+
+  const encash = !!plPrefs[code];
+  const carried_pl = encash ? 0 : plCarryAmount;
+  const encashed_pl = encash ? plCarryAmount : 0;
+
+  const closedRow = {
+    employee_code: code,
+    year: y,
+    opening_pl: Number(current?.opening_pl || 0),
+    opening_sl: Number(current?.opening_sl || 0),
+    opening_cl: Number(current?.opening_cl || 0),
+    pl_entitlement: Number(current?.pl_entitlement || 0),
+    sl_entitlement: Number(current?.sl_entitlement || 0),
+    cl_entitlement: Number(current?.cl_entitlement || 0),
+    sbel_entitlement: Number(current?.sbel_entitlement || 0),
+    spla_entitlement: Number(current?.spla_entitlement || 0),
+    splb_entitlement: Number(current?.splb_entitlement || 0),
+    splm_entitlement: Number(current?.splm_entitlement || 0),
+    paternity_entitlement: Number(current?.paternity_entitlement || 0),
+    used_pl: Number(current?.used_pl || 0),
+    used_sl: Number(current?.used_sl || 0),
+    used_cl: Number(current?.used_cl || 0),
+    used_sbel: Number(current?.used_sbel || 0),
+    used_spla: Number(current?.used_spla || 0),
+    used_splb: Number(current?.used_splb || 0),
+    used_splm: Number(current?.used_splm || 0),
+    used_coff: Number(current?.used_coff || 0),
+    used_paternity: Number(current?.used_paternity || 0),
+    unused_pl,
+    unused_sl,
+    unused_cl,
+    ...readExtendedLeaveBalanceFields(current || {}),
+    carried_pl,
+    carried_sl: slCarryAmount,
+    carried_cl: clCarryAmount,
+    expired_pl: Math.max(0, unused_pl - plCarryAmount),
+    expired_sl: Math.max(0, unused_sl - slCarryAmount),
+    expired_cl: Math.max(0, unused_cl - clCarryAmount),
+    encashed_pl,
+    processed_at: new Date().toISOString(),
+  };
+
+  const { error: closeErr } = await supabase
+    .schema("indus_one")
+    .from("employee_leave_balances_yearly")
+    .upsert(closedRow, { onConflict: "employee_code,year" });
+  if (closeErr) throw closeErr;
+
+  // Seed next year openings from carried (do not overwrite if next year already has openings set).
+  const nextYear = y + 1;
+  const nextExisting = await fetchLeaveBalanceForEmployee(supabase, code, nextYear);
+  const nextSeed = {
+    employee_code: code,
+    year: nextYear,
+    opening_pl: valueFromCurrentOrFallback(nextExisting, "opening_pl", carried_pl),
+    opening_sl: valueFromCurrentOrFallback(nextExisting, "opening_sl", slCarryAmount),
+    opening_cl: valueFromCurrentOrFallback(nextExisting, "opening_cl", clCarryAmount),
+    opening_sbel: valueFromCurrentOrFallback(nextExisting, "opening_sbel", 0),
+    opening_spla: valueFromCurrentOrFallback(nextExisting, "opening_spla", 0),
+    opening_splb: valueFromCurrentOrFallback(nextExisting, "opening_splb", 0),
+    opening_splm: valueFromCurrentOrFallback(nextExisting, "opening_splm", 0),
+    opening_coff: valueFromCurrentOrFallback(nextExisting, "opening_coff", 0),
+    opening_paternity: valueFromCurrentOrFallback(nextExisting, "opening_paternity", 0),
+    processed_at: new Date().toISOString(),
+  };
+  const { error: nextErr } = await supabase
+    .schema("indus_one")
+    .from("employee_leave_balances_yearly")
+    .upsert(nextSeed, { onConflict: "employee_code,year" });
+  if (nextErr) throw nextErr;
+
+  return {
+    year: y,
+    nextYear,
+    carried_pl,
+    carried_sl: slCarryAmount,
+    encashed_pl,
+    expired_pl: closedRow.expired_pl,
+    expired_sl: closedRow.expired_sl,
+    row: closedRow,
+  };
+}
+
+/**
  * Build a full yearly balance row for manual edit / bulk import.
  * Recomputes unused_* from opening − used.
  */
