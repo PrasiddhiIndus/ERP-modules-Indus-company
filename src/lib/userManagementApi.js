@@ -180,6 +180,10 @@ export async function persistUserProfile(
 
   }
 
+  if (typeof payload.is_active === "boolean") {
+    body.is_active = payload.is_active;
+  }
+
 
 
   async function getAccessToken() {

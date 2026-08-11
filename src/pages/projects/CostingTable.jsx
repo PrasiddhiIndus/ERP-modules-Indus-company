@@ -29,6 +29,7 @@ import {
 import { exportFireTenderCostingWorkbook } from "./fireTenderCostingExcelExport";
 import { rowMatchesTemplate } from "./fireTenderTemplates";
 
+import { toast } from "../../lib/toast";
 // 🔹 Convert rows into nested tree structure (unchanged)
 const buildTree = (rows) => {
   const tree = {};
@@ -398,7 +399,7 @@ const CostingTable = ({
         }, 2000);
       } catch (err) {
         console.error("Fetch error:", err);
-        alert("Error loading tender data: " + (err.message || err));
+        toast.warning("Error loading tender data: " + (err.message || err));
       }
     };
 
@@ -408,7 +409,7 @@ const CostingTable = ({
 
   const addRow = () => {
     if (fixedRows.length + extraRows.length >= MAX_COSTING_SHEET_LINES) {
-      alert(`The costing sheet is limited to ${MAX_COSTING_SHEET_LINES} lines (Sr. 1–${MAX_COSTING_SHEET_LINES}). Remove a line or shorten the main-component list to add more.`);
+      toast.success(`The costing sheet is limited to ${MAX_COSTING_SHEET_LINES} lines (Sr. 1–${MAX_COSTING_SHEET_LINES}). Remove a line or shorten the main-component list to add more.`);
       return;
     }
     setExtraRows([
@@ -609,7 +610,7 @@ const CostingTable = ({
   /** Persist costing_rows. Manual save uses alerts + DB refresh; auto-save is quiet and skips refresh. */
   const persistCostingTender = async ({ silent = false } = {}) => {
     if (!tenderId) {
-      if (!silent) alert("No tender selected. Please open a Tender before saving.");
+      if (!silent) toast.warning("No tender selected. Please open a Tender before saving.");
       return;
     }
 
@@ -620,7 +621,7 @@ const CostingTable = ({
 
     if (userErr || !user) {
       console.error("Auth error:", userErr);
-      if (!silent) alert("User not authenticated. Please login.");
+      if (!silent) toast.warning("User not authenticated. Please login.");
       else setAutoSaveHint("Could not save — not signed in.");
       return;
     }
@@ -644,7 +645,7 @@ const CostingTable = ({
 
     if (backupErr) {
       console.error("Backup read error:", backupErr);
-      if (!silent) alert("Could not read existing costing data before save.");
+      if (!silent) toast.warning("Could not read existing costing data before save.");
       throw backupErr;
     }
 
@@ -655,7 +656,7 @@ const CostingTable = ({
 
     if (deleteError) {
       console.error("Delete error:", deleteError);
-      if (!silent) alert("Error clearing old costing rows: " + deleteError.message);
+      if (!silent) toast.warning("Error clearing old costing rows: " + deleteError.message);
       throw deleteError;
     }
 
@@ -717,14 +718,14 @@ const CostingTable = ({
         });
         await supabase.from("costing_rows").insert(restorePayload);
       }
-      if (!silent) alert("Error saving tender ❌: " + error.message);
+      if (!silent) toast.warning("Error saving tender ❌: " + error.message);
       else setAutoSaveHint("Save failed — " + (error.message || "error"));
       throw error;
     }
 
     if (!silent) {
       console.log("Insert success");
-      alert("Costing rows saved successfully ✅");
+      toast.success("Costing rows saved successfully ✅");
     } else {
       const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
       setAutoSaveHint(`Costing sheet saved · ${t}`);
@@ -803,7 +804,7 @@ const CostingTable = ({
       await persistCostingTender({ silent: false });
     } catch (err) {
       console.error("Save error:", err);
-      alert("Error saving tender ❌: " + (err.message || err));
+      toast.warning("Error saving tender ❌: " + (err.message || err));
     }
   };
 
@@ -873,7 +874,7 @@ const CostingTable = ({
       });
     } catch (err) {
       console.error("Excel export failed:", err);
-      alert("Could not export costing sheet: " + (err.message || err));
+      toast.warning("Could not export costing sheet: " + (err.message || err));
     }
   };
 

@@ -3,6 +3,7 @@ import { FileWarning, ArrowRight, ClipboardList } from 'lucide-react';
 import { roundInvoiceAmount } from '../../../utils/invoiceRound';
 import { formatDateTimeDdMmYyyy } from '../../../utils/dateDisplay';
 
+import { toast } from "../../../lib/toast";
 const STATUS = {
   PENDING: 'pending',
   APPROVED: 'approved',
@@ -146,14 +147,12 @@ export default function RequestCnDnApprovalSection({ invoices, setInvoices, onNa
     if (!selected) return;
     const st = requestStatus(selected);
     if (st === STATUS.PENDING || st === STATUS.APPROVED) {
-      window.alert(
-        'This invoice already has a pending or approved CN/DN request. Open Credit / Debit Notes from the sidebar to approve or issue.'
-      );
+      toast.success('This invoice already has a pending or approved CN/DN request. Open Credit / Debit Notes from the sidebar to approve or issue.');
       return;
     }
     const r = reason.trim();
     if (!r) {
-      window.alert('Please enter a reason for the request.');
+      toast.warning('Please enter a reason for the request.');
       return;
     }
     const nowIso = new Date().toISOString();
@@ -172,9 +171,7 @@ export default function RequestCnDnApprovalSection({ invoices, setInvoices, onNa
       )
     );
     setReason('');
-    window.alert(
-      'Request saved. Open Billing → Credit / Debit Notes in the left menu (or use the button below) to approve it.'
-    );
+    toast.success('Request saved. Open Billing → Credit / Debit Notes in the left menu (or use the button below) to approve it.');
   };
 
   const sharedColumns = [

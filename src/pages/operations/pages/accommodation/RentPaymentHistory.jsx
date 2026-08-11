@@ -14,6 +14,7 @@ import {
   TinySelect,
 } from "../../components/OperationsUi";
 
+import { toast } from "../../../../lib/toast";
 export default function RentPaymentHistory() {
   const { data, refresh, theme, getProperty, getSite } = useOperations();
   const [search, setSearch] = useState("");
@@ -43,7 +44,7 @@ export default function RentPaymentHistory() {
     <div className="space-y-3">
       <DemoBanner />
       <Breadcrumbs items={getBreadcrumbs("rent-history")} theme={theme} />
-      <PageHeader title="Rent Payment History" subtitle="Complete payment ledger for all accommodation properties" onRefresh={refresh} onExport={() => window.alert("Export payment history")} theme={theme} />
+      <PageHeader title="Rent Payment History" subtitle="Complete payment ledger for all accommodation properties" onRefresh={refresh} onExport={() => toast.success("Export payment history")} theme={theme} />
 
       <FilterBar>
         <label className="text-[11px] text-gray-600 flex-1">
@@ -83,7 +84,7 @@ export default function RentPaymentHistory() {
         ]}
         rows={rows}
         enableBulk
-        onExport={() => window.alert("Exported payment history")}
+        onExport={() => toast.success("Exported payment history")}
       />
     </div>
   );

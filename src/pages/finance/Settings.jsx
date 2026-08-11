@@ -3,6 +3,7 @@ import { useFinance } from "./contexts/FinanceContext";
 import { PageHeader, SectionCard, TinyInput, LoadingState, ErrorState } from "./components/FinanceUi";
 import { updateSettings } from "../../services/financeApi";
 
+import { toast } from "../../lib/toast";
 export default function Settings() {
   const { data, loading, error, refresh, permissions, targetMargin, warnMargin } = useFinance();
   const [target, setTarget] = useState(String(targetMargin));
@@ -24,7 +25,7 @@ export default function Settings() {
       });
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save settings");
+      toast.warning(e?.message || "Failed to save settings");
     } finally {
       setSaving(false);
     }

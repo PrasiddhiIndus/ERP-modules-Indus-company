@@ -6,7 +6,8 @@
  * - Super Admin: full module access including User Management and software subscriptions.
  * - Fire Tender (`fireTender` routes): Super Admin tiers, or profile `team` / `allowed_modules` includes `fireTender`.
  * - IT/IS (`itIs` routes): Super Admin tiers, or profile `team` / `allowed_modules` includes `itIs`.
- * Legacy users with no `role` in profile still receive broad access except Super Admin-only modules.
+ * Users with a recognized role but no mapped team / modules / sub-modules get Settings only
+ * (no privilege-by-omission). Missing/unrecognized role also gets Settings only.
  */
 
 import { isStagingSupabaseProject } from '../lib/stagingProject';
@@ -50,7 +51,13 @@ export function normalizeAppRole(raw) {
 /** Role + team shape used by access helpers — normalizes role casing from profiles / metadata. */
 export function normalizeAccessProfile(profile) {
   if (!profile || typeof profile !== "object") {
-    return { role: null, team: profile?.team ?? null, allowed_modules: [], allowed_sub_modules: [] };
+    return {
+      role: null,
+      team: profile?.team ?? null,
+      allowed_modules: [],
+      allowed_sub_modules: [],
+      is_active: true,
+    };
   }
   const role = normalizeAppRole(profile.role);
   return {
@@ -59,6 +66,7 @@ export function normalizeAccessProfile(profile) {
     allowed_modules: Array.isArray(profile.allowed_modules) ? profile.allowed_modules : [],
     allowed_sub_modules: Array.isArray(profile.allowed_sub_modules) ? profile.allowed_sub_modules : [],
     ...(profile.module_access_pending === true ? { module_access_pending: true } : {}),
+    is_active: profile.is_active === false ? false : true,
   };
 }
 
@@ -555,10 +563,6 @@ function normalizedAllowedModuleKeys(profile) {
     .filter((key) => isRoutableModuleKey(key));
 }
 
-function profileHasTeamAssignment(profile) {
-  return Boolean(String(profile?.team || "").trim());
-}
-
 function hasAssignedScopedModules(profile, userMetadata = null) {
   const hasSubModules = getEffectiveAllowedSubModules(profile, userMetadata).length > 0;
   return Boolean(resolveTeamModuleKey(profile?.team) || normalizedAllowedModuleKeys(profile).length || hasSubModules);
@@ -608,7 +612,7 @@ export function getLandingPathForUser(userProfile, accessibleModules) {
     if (p) return p;
   }
 
-  // 3) Executive / Manager with no team + no allowed_modules: legacy broad access includes overview.
+  // 3) Executive / Manager with no team + no allowed_modules: Settings-only (or overview if somehow granted).
   if (
     (role === ROLES.EXECUTIVE || role === ROLES.MANAGER) &&
     !teamKey &&
@@ -768,6 +772,11 @@ export function userCanEditInModules(userProfile, accessibleModules, moduleKeysA
 export function getAccessibleModules(profile) {
   const normalized = normalizeAccessProfile(profile);
 
+  // Hard override: inactive accounts get no modules (including Super Admin).
+  if (profile?.is_active === false || normalized.is_active === false) {
+    return new Set();
+  }
+
   if (profile?.module_access_pending === true) {
     return new Set(['settings']);
   }
@@ -789,9 +798,6 @@ export function getAccessibleModules(profile) {
   // "overview" (main dashboard) is restricted to Admin + Super Admin only.
   // Everyone can still access Settings.
   const always = new Set(["settings"]);
-  // Lock down: these modules are only for Super Admin. Even legacy "no role" should not see them.
-  const allWithoutSuperAdminOnly = new Set([...allModules].filter((m) => !SUPER_ADMIN_ONLY_MODULES.has(m)));
-
   const accessProfile = { ...profile, ...normalized };
 
   if (!normalized.role) {
@@ -801,15 +807,10 @@ export function getAccessibleModules(profile) {
   if (normalized.role === ROLES.SUPER_ADMIN) return allModules;
 
   // Admin/HOD with configured modules is scoped to those modules, with dashboard access.
-  // Legacy Admin profiles without team/modules keep broad operational access.
+  // Unassigned Admin (no mapped team / modules / sub-modules) gets Settings only.
   if (normalized.role === ROLES.ADMIN) {
     if (!hasAssignedScopedModules(accessProfile)) {
-      if (profileHasTeamAssignment(accessProfile)) {
-        return new Set(["settings"]);
-      }
-      const adminSet = new Set(allWithoutSuperAdminOnly);
-      applyFireTenderModuleGate(accessProfile, adminSet);
-      return adminSet;
+      return new Set(["settings"]);
     }
     const adminSet = buildScopedModuleSet(accessProfile, { includeOverview: true });
     applyFireTenderModuleGate(accessProfile, adminSet);
@@ -817,13 +818,9 @@ export function getAccessibleModules(profile) {
   }
 
   if (SCOPED_ROLE_MODULES.has(normalized.role)) {
+    // Unassigned Executive/Manager: Settings only (no privilege-by-omission / legacy broad access).
     if (!hasAssignedScopedModules(accessProfile)) {
-      if (profileHasTeamAssignment(accessProfile)) {
-        return new Set(["settings"]);
-      }
-      const legacyExec = new Set(allWithoutSuperAdminOnly);
-      applyFireTenderModuleGate(accessProfile, legacyExec);
-      return legacyExec;
+      return new Set(["settings"]);
     }
     return buildScopedModuleSet(accessProfile);
   }

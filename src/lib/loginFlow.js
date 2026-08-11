@@ -18,6 +18,10 @@ import {
 } from '../config/roles';
 import { invokeAuthenticatedFunction } from './supabase';
 import { writeCachedProfileRow } from './authSessionUtils';
+import {
+  ACCOUNT_INACTIVE_CODE,
+  ACCOUNT_INACTIVE_MESSAGE,
+} from './accountInactive';
 
 export const LOGIN_LOG_PREFIX = '[login-flow]';
 
@@ -38,12 +42,17 @@ export function buildProfileFromSession(session, quickProfile) {
   const metaModules = Array.isArray(meta.allowed_modules) ? meta.allowed_modules : [];
   const rowSubModules = Array.isArray(row?.allowed_sub_modules) ? row.allowed_sub_modules : [];
   const metaSubModules = Array.isArray(meta.allowed_sub_modules) ? meta.allowed_sub_modules : [];
+  const pendingFromRow = row?.module_access_pending === true;
+  const pendingFromMeta = meta.module_access_pending === true;
+  const inactiveFromRow = row?.is_active === false;
   return normalizeAccessProfile({
     role: row?.role ?? meta.role ?? null,
     team: row?.team ?? meta.team ?? null,
     allowed_modules: rowModules.length ? rowModules : metaModules,
     allowed_sub_modules: rowSubModules.length ? rowSubModules : metaSubModules,
-    module_access_pending: meta.module_access_pending === true,
+    // Prefer profiles column so login-check (or any path without auth metadata) cannot drop the lock.
+    module_access_pending: pendingFromRow || pendingFromMeta,
+    is_active: inactiveFromRow ? false : true,
   });
 }
 
@@ -58,6 +67,8 @@ function cacheProfileSnapshot(session, profile) {
     role: profile.role,
     allowed_modules: profile.allowed_modules,
     allowed_sub_modules: profile.allowed_sub_modules,
+    module_access_pending: profile.module_access_pending === true,
+    is_active: profile.is_active !== false,
   });
 }
 
@@ -93,6 +104,23 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
     }
 
     const { data: chk, error } = result;
+
+    // login-check returns HTTP 403 + body for inactive — do not soft-fallback to metadata.
+    if (
+      chk?.ok === false &&
+      (chk.code === ACCOUNT_INACTIVE_CODE || /inactive/i.test(String(chk.error || '')))
+    ) {
+      logLoginStage('profile-inactive', { source: 'login-check-reject' });
+      return {
+        profile: normalizeAccessProfile({ ...fallback, is_active: false }),
+        source: 'login-check',
+        warning: null,
+        inactive: true,
+        error: ACCOUNT_INACTIVE_MESSAGE,
+        code: ACCOUNT_INACTIVE_CODE,
+      };
+    }
+
     if (error) {
       logLoginStage('profile-fetch-error', { message: error?.message || String(error) });
       cacheProfileSnapshot(session, fallback);
@@ -110,12 +138,26 @@ export async function fetchLoginProfile(session, quickProfile, { timeoutMs = 800
         team: chk.profile.team ?? null,
         allowed_modules: chk.profile.allowed_modules,
         allowed_sub_modules: chk.profile.allowed_sub_modules,
+        module_access_pending: chk.profile.module_access_pending === true,
+        is_active: chk.profile.is_active !== false,
       });
+      if (profile.is_active === false) {
+        logLoginStage('profile-inactive', { source: 'login-check' });
+        return {
+          profile,
+          source: 'login-check',
+          warning: null,
+          inactive: true,
+          error: ACCOUNT_INACTIVE_MESSAGE,
+          code: ACCOUNT_INACTIVE_CODE,
+        };
+      }
       logLoginStage('profile-loaded', {
         source: 'login-check',
         role: profile.role,
         team: profile.team,
         modules: profile.allowed_modules,
+        module_access_pending: profile.module_access_pending === true,
       });
       return { profile, source: 'login-check', warning: null };
     }
@@ -203,8 +245,34 @@ export async function planPostLoginNavigation(session, quickProfile, options = {
 
   logLoginStage('auth-success', { userId: session.user.id, email: session.user.email });
 
-  const { profile, source, warning } = await fetchLoginProfile(session, quickProfile, options);
+  const { profile, source, warning, inactive, error: inactiveError } = await fetchLoginProfile(
+    session,
+    quickProfile,
+    options
+  );
+  if (inactive || profile?.is_active === false) {
+    logLoginStage('auth-inactive', { userId: session.user.id });
+    return {
+      ok: false,
+      inactive: true,
+      error: inactiveError || ACCOUNT_INACTIVE_MESSAGE,
+      code: ACCOUNT_INACTIVE_CODE,
+      profile,
+    };
+  }
+
   const mods = getAccessibleModules(profile);
+  if (!mods.size) {
+    logLoginStage('auth-no-modules', { userId: session.user.id });
+    return {
+      ok: false,
+      inactive: true,
+      error: ACCOUNT_INACTIVE_MESSAGE,
+      code: ACCOUNT_INACTIVE_CODE,
+      profile,
+    };
+  }
+
   const path = resolveSafeLandingPath(profile, mods);
 
   logLoginStage('redirect-planned', {

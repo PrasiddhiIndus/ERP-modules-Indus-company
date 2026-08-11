@@ -506,3 +506,37 @@ export const Timeline = ({ items }) => (
     ))}
   </ul>
 );
+
+/**
+ * Persistent page/form notice (validation or load failure).
+ * For transient save/delete feedback, use the central toaster (`src/lib/toast.js`).
+ */
+export function InlineAlert({ tone = "error", children, className = "", onDismiss }) {
+  if (!children) return null;
+  const tones = {
+    error: "border-red-200 bg-red-50 text-red-800",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    warning: "border-amber-200 bg-amber-50 text-amber-900",
+    info: "border-slate-200 bg-slate-50 text-slate-800",
+  };
+  return (
+    <div
+      role={tone === "error" || tone === "warning" ? "alert" : "status"}
+      className={`rounded-lg border px-3 py-2 text-xs ${tones[tone] || tones.info} ${className}`.trim()}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 whitespace-pre-wrap">{children}</div>
+        {onDismiss ? (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="shrink-0 opacity-60 hover:opacity-100"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}

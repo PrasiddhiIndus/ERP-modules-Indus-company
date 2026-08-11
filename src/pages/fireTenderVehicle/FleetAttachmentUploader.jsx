@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Upload, Eye, Download, RefreshCw, X, FileText } from 'lucide-react';
 import { presignFleetR2Get, downloadFleetR2File, fileLabelFromR2Key, FLEET_ATTACHMENT_ACCEPT } from '../../lib/fleetR2';
 
+import { toast } from "../../lib/toast";
 /**
  * Multi-file picker + list of saved R2 keys + pending File objects (upload on save).
  */
@@ -47,7 +48,7 @@ export default function FleetAttachmentUploader({
       const url = await presignFleetR2Get(key);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      alert(err?.message || 'Could not open file.');
+      toast.warning(err?.message || 'Could not open file.');
     }
   };
 
@@ -55,7 +56,7 @@ export default function FleetAttachmentUploader({
     try {
       await downloadFleetR2File(key);
     } catch (err) {
-      alert(err?.message || 'Could not download file.');
+      toast.warning(err?.message || 'Could not download file.');
     }
   };
 

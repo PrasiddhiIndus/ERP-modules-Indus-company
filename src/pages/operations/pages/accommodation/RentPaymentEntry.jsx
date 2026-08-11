@@ -15,6 +15,7 @@ import {
   useThemeClasses,
 } from "../../components/OperationsUi";
 
+import { toast } from "../../../../lib/toast";
 export default function RentPaymentEntry() {
   const { data, refresh, theme, getProperty } = useOperations();
   const t = useThemeClasses(theme);
@@ -45,7 +46,7 @@ export default function RentPaymentEntry() {
     e.preventDefault();
     if (!validate()) return;
     setSaved(true);
-    window.alert("Rent payment recorded (UI preview)");
+    toast.success("Rent payment recorded (UI preview)");
   };
 
   return (

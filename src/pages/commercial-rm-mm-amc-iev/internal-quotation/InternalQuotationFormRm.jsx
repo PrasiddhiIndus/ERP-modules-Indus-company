@@ -5,6 +5,7 @@ import ManpowerNavbarRm from "../manpower-management/ManpowerNavbarRm";
 
 import { supabase } from "../../../lib/supabase";
 
+import { toast } from "../../../lib/toast";
 const IQ_LIST = "/app/commercial/rm-mm-amc-iev/internal-quotation";
 
 const InternalQuotationFormRm = () => {
@@ -68,7 +69,7 @@ const InternalQuotationFormRm = () => {
     saved.push(newQuotation);
     localStorage.setItem("manpower_internal_quotations_rm_mm_amc_iev", JSON.stringify(saved));
 
-    alert("Quotation saved successfully!");
+    toast.success("Quotation saved successfully!");
     navigate(IQ_LIST);
   };
 

@@ -60,6 +60,7 @@ import {
   mergeAssignedToOptions,
 } from "./utils/commercialInquiryAssignees";
 
+import { toast } from "../../lib/toast";
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_SORT = { key: "receivedDate", dir: "desc" };
 const MANPOWER_BASE = "/app/commercial/manpower-training/manpower-management";
@@ -392,7 +393,7 @@ const ManpowerManagement = () => {
 
   const handleExport = async () => {
     if (!sorted.length) {
-      alert("No inquiries to export for the current search and filters.");
+      toast.success("No inquiries to export for the current search and filters.");
       return;
     }
     setExportBusy(true);
@@ -402,7 +403,7 @@ const ManpowerManagement = () => {
       await exportManpowerInquiriesToExcel(sorted, formatDateDdMmYyyy, { updatedBy });
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Export failed.");
+      toast.warning(error?.message || "Export failed.");
     } finally {
       setExportBusy(false);
     }

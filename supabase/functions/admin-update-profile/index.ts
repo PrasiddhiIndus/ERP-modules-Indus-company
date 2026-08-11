@@ -53,6 +53,8 @@ type RequestBody = {
   employee_code?: string | null
   /** @deprecated use employee_code */
   emp_code?: string | null
+  /** When provided, updates profiles.is_active (omit = leave unchanged). */
+  is_active?: boolean
 }
 
 type ProfileRow = {
@@ -64,6 +66,7 @@ type ProfileRow = {
   role?: string | null
   allowed_modules?: string[]
   allowed_sub_modules?: string[]
+  is_active?: boolean
   created_at?: string
 }
 
@@ -378,6 +381,7 @@ async function saveProfileViaRpc(
     allowedSub: string[]
     employeeCode: string | undefined
     setEmployeeCode: boolean
+    isActive: boolean | undefined
   },
 ): Promise<{ profile: ProfileRow | null; error: ApiError | null }> {
   const { data, error } = await db.rpc('admin_save_profile', {
@@ -388,6 +392,7 @@ async function saveProfileViaRpc(
     ...(Array.isArray(args.allowedSub) ? { p_allowed_sub_modules: args.allowedSub } : {}),
     p_employee_code: args.employeeCode ?? null,
     p_set_employee_code: args.setEmployeeCode,
+    ...(args.isActive !== undefined ? { p_is_active: args.isActive } : {}),
   })
 
   if (error) {
@@ -417,13 +422,20 @@ async function saveProfile(
   allowed: string[],
   employeeCode: string | undefined,
   allowedSubModules: string[] | undefined,
+  isActive: boolean | undefined,
 ): Promise<{ profile: ProfileRow | null; error: ApiError | null }> {
   const setEmployeeCode = employeeCode !== undefined
-  const patch: Record<string, unknown> = { team, role, allowed_modules: allowed }
+  const patch: Record<string, unknown> = {
+    team,
+    role,
+    allowed_modules: allowed,
+    module_access_pending: false,
+  }
   if (Array.isArray(allowedSubModules)) {
     patch.allowed_sub_modules = allowedSubModules
   }
   if (setEmployeeCode) patch.employee_code = employeeCode
+  if (isActive !== undefined) patch.is_active = isActive
 
   // Primary path: RPC with SECURITY DEFINER + row_security off (avoids RLS recursion).
   const rpc = await saveProfileViaRpc(db, {
@@ -434,12 +446,14 @@ async function saveProfile(
     allowedSub: Array.isArray(allowedSubModules) ? allowedSubModules : [],
     employeeCode,
     setEmployeeCode,
+    isActive,
   })
   if (rpc.profile?.id) {
-    const subs = Array.isArray(allowedSubModules) ? allowedSubModules : []
-    const subPatch = await patchProfileViaRest(supabaseUrl, serviceRoleKey, userId, {
-      allowed_sub_modules: subs,
-    })
+    const restPatch: Record<string, unknown> = {
+      allowed_sub_modules: Array.isArray(allowedSubModules) ? allowedSubModules : [],
+    }
+    if (isActive !== undefined) restPatch.is_active = isActive
+    const subPatch = await patchProfileViaRest(supabaseUrl, serviceRoleKey, userId, restPatch)
     if (subPatch.data?.id) return { profile: { ...rpc.profile, ...subPatch.data }, error: null }
     if (subPatch.error) {
       logError('REST sub-modules patch failed after RPC', { userId, message: subPatch.error.message })
@@ -628,6 +642,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const allowed = Array.isArray(body.allowed_modules) ? body.allowed_modules : []
     const allowedSub = Array.isArray(body.allowed_sub_modules) ? body.allowed_sub_modules : []
     const employeeCode = readEmployeeCodeFromBody(body)
+    const isActive = typeof body.is_active === 'boolean' ? body.is_active : undefined
 
     const { profile, error: saveErr } = await saveProfile(
       db,
@@ -639,6 +654,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       allowed,
       employeeCode,
       allowedSub,
+      isActive,
     )
 
     if (saveErr) {

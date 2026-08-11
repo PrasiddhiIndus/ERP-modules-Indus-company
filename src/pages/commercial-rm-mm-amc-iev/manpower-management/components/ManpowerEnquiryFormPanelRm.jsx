@@ -3,6 +3,7 @@ import { supabase } from "../../../../lib/supabase";;
 import FormDateInput from "../../../../components/FormDateInput";
 
 
+import { toast } from "../../../../lib/toast";
 const META_PREFIX = "__META__:";
 const INDUSTRY_OPTIONS = ["Oil & Gas", "Refinery", "Chemical", "Power", "Construction", "Port", "Other"];
 const WORKING_HOURS_OPTIONS = ["8 hrs", "12 hrs", "As per client"];
@@ -387,7 +388,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
       if (enquiryId) {
         const { error } = await supabase.from("manpower_enquiries").update(payload).eq("id", enquiryId);
         if (error) throw error;
-        alert("Enquiry updated successfully.");
+        toast.success("Enquiry updated successfully.");
       } else {
         const enquiryNumber = await getNextEnquiryNumber();
         const insertPayload = {
@@ -398,7 +399,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
         if (user?.id) insertPayload.user_id = user.id;
         const { error } = await supabase.from("manpower_enquiries").insert([insertPayload]);
         if (error) throw error;
-        alert(`Enquiry saved successfully! Enquiry ID: ${enquiryNumber}`);
+        toast.success(`Enquiry saved successfully! Enquiry ID: ${enquiryNumber}`);
         resetForm();
       }
 
@@ -406,7 +407,7 @@ const ManpowerEnquiryFormPanelRm = ({ enquiryId, onSaved, onCancel }) => {
     } catch (err) {
       console.error(err);
       const msg = err?.message || err?.error_description || (typeof err === "string" ? err : null);
-      alert(msg ? `Failed to save enquiry: ${msg}` : "Failed to save enquiry. Check console for details.");
+      toast.warning(msg ? `Failed to save enquiry: ${msg}` : "Failed to save enquiry. Check console for details.");
     } finally {
       setSubmitting(false);
     }

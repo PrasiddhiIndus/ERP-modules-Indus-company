@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 
+import { toast } from "../../../lib/toast";
 const CostingSheet = ({ quotationId, onCostingChange }) => {
   const [costingItems, setCostingItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,7 +116,7 @@ const CostingSheet = ({ quotationId, onCostingChange }) => {
       fetchCostingItems();
     } catch (error) {
       console.error('Error saving costing items:', error);
-      alert('Error saving costing items: ' + error.message);
+      toast.warning('Error saving costing items: ' + error.message);
     }
   };
 

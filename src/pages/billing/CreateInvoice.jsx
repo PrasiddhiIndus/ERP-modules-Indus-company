@@ -57,6 +57,7 @@ import {
   classifyNewTaxInvoice,
 } from '../../utils/taxInvoiceNumber';
 
+import { toast } from "../../lib/toast";
 /** Proforma series FY start year (calendar year April–March), separate from IFSPL tax format. */
 function getProformaFinancialYearStart(invoiceDate) {
   const d = invoiceDate ? new Date(invoiceDate) : new Date();
@@ -2444,7 +2445,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     if (!existing && effectiveKind === 'tax') {
       const c = classifyNewTaxInvoice(taxInvoiceNumber, invoices, invoiceDate);
       if (c.kind !== 'ok') {
-        window.alert(c.message);
+        toast.success(c.message);
         return;
       }
     }
@@ -2604,7 +2605,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         e?.code === 'DUPLICATE_TAX_INVOICE_NUMBER'
           ? e.message
           : e?.message || 'Could not save invoice. Check your connection and try again.';
-      window.alert(msg);
+      toast.success(msg);
     } finally {
       setSavingInvoice(false);
     }

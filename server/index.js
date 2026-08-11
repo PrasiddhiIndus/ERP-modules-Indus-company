@@ -275,74 +275,14 @@ function ensureProductionServiceRoleFromExample() {
   const current = getRawSupabaseServiceRoleKey();
   if (diagnoseServiceRoleKey(probeUrl, current) === 'ok') return;
 
-  // Same production service_role JWT as .env.server.example (already in repo).
-  // Used when the example file is missing/unreadable on the API host.
-  const HARDCODED_PROD_SERVICE_ROLE =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndieXpoa25hcWNqcXF0d29wdXBsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzA1OTYzNiwiZXhwIjoyMDcyNjM1NjM2fQ.BUV6aHwQyceb5tX9-QdXYMzLl-ep4UuV7ubkm-TSA9M';
-
-  let fromExample = '';
-  let sourceLabel = '';
-  const examplePath = path.join(repoRoot, '.env.server.example');
-  try {
-    if (fs.existsSync(examplePath)) {
-      const parsed = dotenv.parse(fs.readFileSync(examplePath, 'utf8'));
-      fromExample = normalizeEnvValue(parsed.SUPABASE_SERVICE_ROLE_KEY || '');
-      if (diagnoseServiceRoleKey(probeUrl, fromExample) === 'ok') {
-        sourceLabel = '.env.server.example (auto-heal)';
-      } else {
-        fromExample = '';
-      }
-    }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[server] Could not read .env.server.example for service role auto-heal:', err?.message || err);
-  }
-
-  if (!fromExample) {
-    fromExample = HARDCODED_PROD_SERVICE_ROLE;
-    sourceLabel = 'built-in production fallback (auto-heal)';
-  }
-
-  if (diagnoseServiceRoleKey(probeUrl, fromExample) !== 'ok') {
-    // eslint-disable-next-line no-console
-    console.error('[server] Production service role auto-heal failed: fallback key invalid');
-    return;
-  }
-
-  process.env.SUPABASE_SERVICE_ROLE_KEY = fromExample;
-  if (!normalizeEnvValue(process.env.SUPABASE_URL)) {
-    process.env.SUPABASE_URL = probeUrl;
-  }
-  _envSourceMap.SUPABASE_SERVICE_ROLE_KEY = sourceLabel;
+  // Do not embed or auto-heal production JWTs from source/example files.
+  // Operators must set SUPABASE_SERVICE_ROLE_KEY (or PROD_SUPABASE_SERVICE_ROLE_KEY) in .env.server.
   // eslint-disable-next-line no-console
-  console.warn(
-    `[server] SUPABASE_SERVICE_ROLE_KEY was missing/invalid — loaded from ${sourceLabel}. ` +
-      'Set PROD_SUPABASE_SERVICE_ROLE_KEY / .env.server for a permanent fix.'
+  console.error(
+    '[server] SUPABASE_SERVICE_ROLE_KEY is missing or invalid for production. ' +
+      'Set it in .env.server (Dashboard → Project Settings → API → service_role). ' +
+      'Auto-heal from committed secrets is disabled.'
   );
-
-  try {
-    const serverEnvPath = path.join(repoRoot, '.env.server');
-    let body = '';
-    if (fs.existsSync(serverEnvPath)) {
-      body = fs
-        .readFileSync(serverEnvPath, 'utf8')
-        .split(/\r?\n/)
-        .filter((line) => !/^\s*SUPABASE_SERVICE_ROLE_KEY\s*=/.test(line))
-        .join('\n')
-        .replace(/\n{3,}/g, '\n\n');
-    }
-    if (body && !body.endsWith('\n')) body += '\n';
-    body += `SUPABASE_SERVICE_ROLE_KEY=${fromExample}\n`;
-    if (!/^\s*SUPABASE_URL\s*=/m.test(body)) {
-      body += `SUPABASE_URL=${probeUrl}\n`;
-    }
-    fs.writeFileSync(serverEnvPath, body, 'utf8');
-    // eslint-disable-next-line no-console
-    console.warn('[server] Wrote SUPABASE_SERVICE_ROLE_KEY into .env.server for future restarts.');
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[server] Could not persist service role into .env.server:', err?.message || err);
-  }
 }
 
 ensureProductionServiceRoleFromExample();

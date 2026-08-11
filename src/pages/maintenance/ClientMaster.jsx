@@ -4,6 +4,7 @@ import { X, Plus, Edit2, Trash2, MoreVertical, Download, Search, ChevronLeft, Ch
 import { exportToExcel } from './utils/excelExport';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 
+import { toast } from "../../lib/toast";
 const ClientMaster = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -138,7 +139,7 @@ const ClientMaster = () => {
       fetchClients(1);
     } catch (error) {
       console.error('Error saving client:', error);
-      alert('Error saving client: ' + error.message);
+      toast.warning('Error saving client: ' + error.message);
     }
   };
 
@@ -217,7 +218,7 @@ const ClientMaster = () => {
       setMenuOpen(null);
     } catch (error) {
       console.error('Error deleting client:', error);
-      alert('Error deleting client: ' + error.message);
+      toast.warning('Error deleting client: ' + error.message);
     }
   };
 

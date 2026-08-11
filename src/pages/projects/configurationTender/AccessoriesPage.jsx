@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "../../../lib/supabase"; // adjust path
 import FireTenderNavbar from "../FireTenderNavbar";
 
+import { toast } from "../../../lib/toast";
 const AccessoriesPage = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -51,7 +52,7 @@ const AccessoriesPage = () => {
     } catch (err) {
       console.error("Fetch error:", err);
       const errorMessage = err.message || err.toString() || "Unknown error";
-      alert("Failed to fetch accessories: " + errorMessage);
+      toast.warning("Failed to fetch accessories: " + errorMessage);
       setItems([]);
     } finally {
       setLoading(false);
@@ -74,7 +75,7 @@ const AccessoriesPage = () => {
 
         const rows = jsonData.slice(1).filter((r) => r && r.length > 0);
         if (!rows.length) {
-          alert("No data rows found.");
+          toast.success("No data rows found.");
           return;
         }
 
@@ -93,14 +94,14 @@ const AccessoriesPage = () => {
         const { data, error } = await supabase.from("accessories").insert(payload).select();
         if (error) throw error;
 
-        alert(`✅ Inserted ${data.length} rows`);
+        toast.success(`✅ Inserted ${data.length} rows`);
         
         // Refresh the list to show all items (old + new)
         // fetchItems will handle loading state
         await fetchItems();
       } catch (err) {
         console.error("Upload error:", err);
-        alert("Upload error: " + (err.message || err));
+        toast.warning("Upload error: " + (err.message || err));
         setLoading(false);
       }
     };
@@ -125,7 +126,7 @@ const AccessoriesPage = () => {
   const handleSave = async (id) => {
     const item = items.find((i) => i.id === id);
     if (!item || !item.name.trim()) {
-      alert("Title is required.");
+      toast.warning("Title is required.");
       return;
     }
 
@@ -178,7 +179,7 @@ const AccessoriesPage = () => {
       }
     } catch (err) {
       console.error("Save error:", err);
-      alert("Save failed: " + (err.message || err));
+      toast.warning("Save failed: " + (err.message || err));
     } finally {
       setLoading(false);
     }
@@ -217,7 +218,7 @@ const AccessoriesPage = () => {
       setItems((prev) => prev.filter((it) => it.id !== id));
     } catch (err) {
       console.error("Delete error:", err);
-      alert("Delete failed: " + (err.message || err));
+      toast.warning("Delete failed: " + (err.message || err));
     } finally {
       setLoading(false);
     }

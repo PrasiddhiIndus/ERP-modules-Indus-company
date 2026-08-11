@@ -29,6 +29,7 @@ import { enrichInvoiceWithPo, findPoForInvoice } from '../../utils/billingPoInvo
 import FormDateInput from "../../components/FormDateInput";
 
 
+import { toast } from "../../lib/toast";
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -398,7 +399,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const openCancelModal = (inv) => {
     if (!inv) return;
     if (getRealIrn(inv)) {
-      window.alert('This invoice has an IRN. Cancel the e-invoice first (IRN cancellation) before cancelling here.');
+      toast.success('This invoice has an IRN. Cancel the e-invoice first (IRN cancellation) before cancelling here.');
       return;
     }
     setCancelModalMode('cancel');
@@ -410,7 +411,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const openEditCancelRemarkModal = (inv) => {
     if (!inv) return;
     if (!inv.isCancelled) {
-      window.alert('This invoice is not cancelled yet.');
+      toast.success('This invoice is not cancelled yet.');
       return;
     }
     setCancelModalMode('edit-remark');

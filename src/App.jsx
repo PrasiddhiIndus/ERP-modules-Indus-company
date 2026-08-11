@@ -4,6 +4,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PageLoader from "./components/PageLoader";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
+import AppToaster from "./components/AppToaster";
 import { AuditConsoleProvider } from "./contexts/AuditConsoleContext";
 import { AppAccessConfigProvider } from "./contexts/AppAccessConfigContext";
 import SalaryAdminGuard from "./pages/adminOperations/salaryAdmin/SalaryAdminGuard";
@@ -308,6 +309,7 @@ function App() {
             }}
           >
             <RouteErrorBoundary>
+              <AppToaster />
               <Suspense fallback={<PageLoader fullScreen />}>
                 <Routes>
           {/* Public */}

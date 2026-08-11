@@ -25,6 +25,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { toast } from '../../lib/toast';
 
 const VEHICLES_PAGE_SIZE = 20;
 
@@ -180,16 +181,16 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
     e.preventDefault();
     const dm = (formData.date_of_manufacture || '').trim();
     if (dm && !/^\d{4}-(0[1-9]|1[0-2])$/.test(dm)) {
-      alert('Please choose a valid month and year for Month and year of manufacture.');
+      toast.warning("Validation", "Please choose a valid month and year for Month and year of manufacture.");
       return;
     }
     if (formData.vehicle_type === 'Other' && !String(formData.vehicle_type_other || '').trim()) {
-      alert('Please enter the vehicle type.');
+      toast.warning("Validation", "Please enter the vehicle type.");
       return;
     }
     const maxFiles = 10;
     if ((formData.r2_attachment_keys || []).length + pendingAttachmentFiles.length > maxFiles) {
-      alert(`Too many attachments (max ${maxFiles}).`);
+      toast.warning("Validation", `Too many attachments (max ${maxFiles}).`);
       return;
     }
     try {
@@ -265,7 +266,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
           .eq('id', editingVehicle.id);
 
         if (error) throw error;
-        alert('Vehicle updated successfully!');
+        toast.success("Updated", "Vehicle updated successfully");
       } else {
         const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_master')
@@ -285,14 +286,14 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
             .eq('id', row.id);
           if (upErr) throw upErr;
         }
-        alert('Vehicle added successfully!');
+        toast.success("Saved", "Vehicle added successfully");
       }
 
       resetForm();
       fetchVehicles();
     } catch (error) {
       console.error('Error saving vehicle:', error);
-      alert('Failed to save vehicle. Please try again.');
+      toast.error("Save failed", "Failed to save vehicle. Please try again.");
     }
   };
 
@@ -357,11 +358,11 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
           .eq('id', id);
 
         if (error) throw error;
-        alert('Vehicle deleted successfully!');
+        toast.success("Deleted", "Vehicle deleted successfully");
         fetchVehicles();
       } catch (error) {
         console.error('Error deleting vehicle:', error);
-        alert('Failed to delete vehicle. Please try again.');
+        toast.error("Delete failed", "Failed to delete vehicle. Please try again.");
       }
     }
   };
@@ -378,7 +379,7 @@ const VehicleMaster = ({ vehicleCategory = 'in-house' }) => {
       const url = await presignFleetR2Get(objectKey);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      alert(err?.message || 'Could not open file.');
+      toast.error("File error", err?.message || "Could not open file.");
     }
   };
 

@@ -9,6 +9,7 @@ import { upsertSite, deleteSite } from "../../services/financeApi";
 import { slug } from "./lib/formatters";
 import { inr } from "./lib/formatters";
 
+import { toast } from "../../lib/toast";
 const EMPTY = {
   name: "", code: "", service_type: "", work_order_no: "",
   contract_start: "", contract_end: "", status: "active",
@@ -50,7 +51,7 @@ export default function SitesMaster() {
       setForm(EMPTY);
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to save site");
+      toast.warning(e?.message || "Failed to save site");
     } finally {
       setSaving(false);
     }
@@ -63,7 +64,7 @@ export default function SitesMaster() {
       await deleteSite(row.id);
       await refresh();
     } catch (e) {
-      alert(e?.message || "Failed to delete");
+      toast.warning(e?.message || "Failed to delete");
     }
   };
 

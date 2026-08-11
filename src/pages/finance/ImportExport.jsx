@@ -5,6 +5,7 @@ import { PageHeader, SectionCard, LoadingState, ErrorState } from "./components/
 import { formatFinanceDateTime } from "./lib/formatters";
 import { exportFinanceBackup, logImportExport } from "../../services/financeApi";
 
+import { toast } from "../../lib/toast";
 export default function ImportExport() {
   const { data, loading, error, refresh, permissions } = useFinance();
   const [text, setText] = useState("");
@@ -30,7 +31,7 @@ export default function ImportExport() {
       });
       await refresh();
     } catch (e) {
-      alert(e?.message || "Export failed");
+      toast.warning(e?.message || "Export failed");
     } finally {
       setBusy(false);
     }
@@ -96,10 +97,10 @@ export default function ImportExport() {
           onClick={() => {
             try {
               JSON.parse(text);
-              alert("Import via UI is prepared — validate JSON structure. Use Supabase migration or admin scripts for bulk restore in production.");
+              toast.success("Import via UI is prepared — validate JSON structure. Use Supabase migration or admin scripts for bulk restore in production.");
               logImportExport({ operation: "import", status: "partial", metadata: { note: "validated only" } });
             } catch {
-              alert("Invalid JSON. Paste a valid finance backup file.");
+              toast.warning("Invalid JSON. Paste a valid finance backup file.");
             }
           }}
         >

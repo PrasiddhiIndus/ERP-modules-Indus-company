@@ -21,6 +21,7 @@ import {
   Eye,
   Paperclip
 } from 'lucide-react';
+import { toast } from '../../lib/toast';
 
 const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
   const [drivers, setDrivers] = useState([]);
@@ -82,7 +83,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
     e.preventDefault();
     const maxFiles = 15;
     if ((formData.r2_attachment_keys || []).length + pendingDriverFiles.length + pendingReplacements.length > maxFiles) {
-      alert(`Too many files (max ${maxFiles}).`);
+      toast.warning("Validation", `Too many files (max ${maxFiles}).`);
       return;
     }
     try {
@@ -138,7 +139,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
           .eq('id', editingDriver.id);
 
         if (error) throw error;
-        alert('Driver updated successfully!');
+        toast.success("Updated", "Driver updated successfully");
       } else {
         const { data: row, error: insertError } = await supabase
           .from('operations_fire_tender_vehicle_drivers')
@@ -156,14 +157,14 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
             .eq('id', row.id);
           if (upErr) throw upErr;
         }
-        alert('Driver added successfully!');
+        toast.success("Saved", "Driver added successfully");
       }
 
       resetForm();
       fetchDrivers();
     } catch (error) {
       console.error('Error saving driver:', error);
-      alert(error?.message || 'Failed to save driver. Please try again.');
+      toast.error("Save failed", error?.message || "Failed to save driver. Please try again.");
     }
   };
 
@@ -206,11 +207,11 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
           .eq('id', id);
 
         if (error) throw error;
-        alert('Driver deleted successfully!');
+        toast.success("Deleted", "Driver deleted successfully");
         fetchDrivers();
       } catch (error) {
         console.error('Error deleting driver:', error);
-        alert('Failed to delete driver. Please try again.');
+        toast.error("Delete failed", "Failed to delete driver. Please try again.");
       }
     }
   };
@@ -223,11 +224,11 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
         .eq('id', id);
 
       if (error) throw error;
-      alert(`Driver ${!currentStatus ? 'activated' : 'deactivated'} successfully!`);
+      toast.success("Updated", `Driver ${!currentStatus ? 'activated' : 'deactivated'} successfully!`);
       fetchDrivers();
     } catch (error) {
       console.error('Error updating driver status:', error);
-      alert('Failed to update driver status. Please try again.');
+      toast.error("Update failed", "Failed to update driver status. Please try again.");
     }
   };
 
@@ -280,7 +281,7 @@ const DriverManagement = ({ vehicleCategory: _fleetVehicleCategory } = {}) => {
       const url = await presignFleetR2Get(objectKey);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      alert(err?.message || 'Could not open file.');
+      toast.error("File error", err?.message || "Could not open file.");
     }
   };
 

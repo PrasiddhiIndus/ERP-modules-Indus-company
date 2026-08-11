@@ -24,7 +24,7 @@
 //   const saveAll = () => {
 //     // Later you can connect this with Supabase or backend API
 //     console.log("Saving accessories:", rows);
-//     alert("✅ Accessories saved successfully!");
+//     toast.success("✅ Accessories saved successfully!");
 //   };
 
 //   return (
@@ -144,7 +144,7 @@
 //       );
 //     } catch (err) {
 //       console.error("Fetch error:", err);
-//       alert("Failed to fetch accessories: " + (err.message || err));
+//       toast.warning("Failed to fetch accessories: " + (err.message || err));
 //     } finally {
 //       setLoading(false);
 //     }
@@ -169,7 +169,7 @@
 
 //   const saveAll = () => {
 //     console.log("Saving accessories (local + manual qty/price):", rows);
-//     alert("✅ Accessories saved successfully (title + description in DB, qty & price local)!");
+//     toast.success("✅ Accessories saved successfully (title + description in DB, qty & price local)!");
 //   };
 
 //   return (
@@ -275,6 +275,7 @@ import { supabase } from "../../lib/supabase";
 import { NumericInput, parseNumericInput } from "../../components/NumericInput";
 import { ALUMINIUM_EXTENSION_LADDER } from "./fireTenderCostingConfig";
 
+import { toast } from "../../lib/toast";
 const AccessoriesTable = ({ tenderId, onTotalChange }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -480,7 +481,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       console.error("Error stack:", err.stack);
       
       // Show error message similar to AccessoriesPage
-      alert("Failed to fetch accessories: " + errorMessage);
+      toast.warning("Failed to fetch accessories: " + errorMessage);
       setRows([]);
     } finally {
       skipAccessoriesAutosaveRef.current = true;
@@ -497,12 +498,12 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
 
   const persistAccessories = async (rowData, { silent = false } = {}) => {
     if (!tenderId) {
-      if (!silent) alert("❌ Tender ID is missing. Cannot save.");
+      if (!silent) toast.warning("❌ Tender ID is missing. Cannot save.");
       return;
     }
 
     if (!rowData || rowData.length === 0) {
-      if (!silent) alert("⚠️ No accessories to save. Please add accessories in the configuration page first.");
+      if (!silent) toast.warning("⚠️ No accessories to save. Please add accessories in the configuration page first.");
       return;
     }
 
@@ -529,7 +530,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     }));
 
     if (payload.length === 0) {
-      if (!silent) alert("⚠️ No valid accessories to save.");
+      if (!silent) toast.success("⚠️ No valid accessories to save.");
       return;
     }
 
@@ -552,7 +553,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     }
 
     if (!silent) {
-      alert(`✅ Accessories costing saved successfully! (${payload.length} items)`);
+      toast.success(`✅ Accessories costing saved successfully! (${payload.length} items)`);
       await fetchAccessoriesCosting();
     } else {
       const t = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -580,7 +581,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
       await fetchAccessoriesCosting();
     } catch (err) {
       console.error(err);
-      alert("Could not add accessory line: " + (err.message || err));
+      toast.warning("Could not add accessory line: " + (err.message || err));
     }
   };
 
@@ -591,7 +592,7 @@ const AccessoriesTable = ({ tenderId, onTotalChange }) => {
     } catch (err) {
       console.error("Save error:", err);
       const errorMessage = err.message || err.toString() || "Unknown error";
-      alert("❌ Failed to save accessories costing: " + errorMessage);
+      toast.warning("❌ Failed to save accessories costing: " + errorMessage);
     } finally {
       setSaving(false);
     }

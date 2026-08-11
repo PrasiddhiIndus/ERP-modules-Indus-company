@@ -212,8 +212,9 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
     }
 
     const profileSelectWithSubs =
-      'id, role, team, allowed_modules, allowed_sub_modules, employee_code, email';
-    const profileSelectBasic = 'id, role, team, allowed_modules, employee_code, email';
+      'id, role, team, allowed_modules, allowed_sub_modules, employee_code, email, is_active';
+    const profileSelectBasic = 'id, role, team, allowed_modules, employee_code, email, is_active';
+    const profileSelectLegacy = 'id, role, team, allowed_modules, employee_code, email';
 
     async function loadProfile(db) {
       const withSubs = await db
@@ -222,8 +223,16 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
         .eq('id', userData.user.id)
         .maybeSingle();
       if (withSubs.data) return withSubs.data;
-      // Older DBs may lack allowed_sub_modules; retry without it.
       if (withSubs.error) {
+        const msg = String(withSubs.error.message || '').toLowerCase();
+        if (msg.includes('is_active') && msg.includes('does not exist')) {
+          const legacy = await db
+            .from('profiles')
+            .select(profileSelectLegacy)
+            .eq('id', userData.user.id)
+            .maybeSingle();
+          if (legacy.data) return { ...legacy.data, is_active: true };
+        }
         const basic = await db
           .from('profiles')
           .select(profileSelectBasic)
@@ -258,7 +267,12 @@ export function createAuthMiddleware({ getSupabaseUrl, getServiceRoleKey, getAno
         allowed_modules: meta.allowed_modules || appMeta.allowed_modules || [],
         allowed_sub_modules: meta.allowed_sub_modules || appMeta.allowed_sub_modules || [],
         employee_code: meta.employee_code || null,
+        is_active: true,
       };
+    }
+
+    if (profile && profile.is_active === false) {
+      throw new HttpError(403, 'Your account is inactive. Contact your administrator.');
     }
 
     return { jwt, user: userData.user, profile };
