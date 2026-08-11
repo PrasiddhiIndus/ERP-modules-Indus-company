@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import {
   SectionCard,
@@ -132,7 +133,58 @@ function bulkMarkLabel(mark) {
   if (fromPrimary) return fromPrimary.label;
   const fromLeave = BULK_LEAVE_TYPE_MARKS.find((b) => b.mark === mark);
   if (fromLeave) return fromLeave.label;
-  return mark;
+  return `Mark ${mark}`;
+}
+
+/** Portal tooltip so POD comments are not clipped by register overflow cells. */
+function PodCommentHoverTooltip({ comment, markLabel, children }) {
+  const [tip, setTip] = useState(null);
+  const text = String(comment || "").trim();
+  if (!text) return children;
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={(e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const pad = 8;
+        const maxW = 280;
+        let left = r.left;
+        if (left + maxW > window.innerWidth - pad) {
+          left = Math.max(pad, window.innerWidth - maxW - pad);
+        }
+        const preferBelow = r.bottom + 8;
+        const placeAbove = preferBelow + 100 > window.innerHeight - pad;
+        setTip({
+          left,
+          top: placeAbove ? undefined : preferBelow,
+          bottom: placeAbove ? window.innerHeight - r.top + 8 : undefined,
+        });
+      }}
+      onMouseLeave={() => setTip(null)}
+    >
+      {children}
+      {tip
+        ? createPortal(
+            <div
+              role="tooltip"
+              className="pointer-events-none fixed z-[10050] max-w-[280px] rounded-md border border-gray-700 bg-gray-900 px-2.5 py-2 text-[11px] leading-snug text-white shadow-xl"
+              style={{
+                left: tip.left,
+                top: tip.top,
+                bottom: tip.bottom,
+              }}
+            >
+              {markLabel ? (
+                <div className="mb-0.5 text-[10px] font-semibold text-gray-300">{markLabel}</div>
+              ) : null}
+              <div className="whitespace-pre-wrap break-words">{text}</div>
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
+  );
 }
 
 /** Opens bulk employee picker for clear-range (not a register mark). */
@@ -1485,6 +1537,28 @@ export function EmployeeAttendanceDailyPage() {
                 .filter(Boolean)
                 .join(" · ") || "Unusual punch window"
             : undefined;
+          const cellHoverTitle = hasComment ? comment : skyBluePunchTitle;
+          const cellInner = (
+            <div
+              style={registerMarkCellInlineStyle(value, markStyleOpts)}
+              className={`${registerMarkCellWrapperClass(value, markStyleOpts)} relative ${isCommentMark ? "cursor-pointer" : ""}`}
+              title={cellHoverTitle}
+            >
+              <RegisterMarkPicker
+                value={value}
+                readOnly={leavingLocked}
+                purplePresent={purplePresent}
+                hoverTitle={cellHoverTitle}
+                onChange={(next) => handleMarkChange(row.empCode, day, next)}
+              />
+              {hasComment ? (
+                <span
+                  className="absolute top-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-t-[8px] border-t-red-500 pointer-events-none"
+                  aria-hidden
+                />
+              ) : null}
+            </div>
+          );
           return (
             <div
               onClick={(e) => {
@@ -1494,33 +1568,16 @@ export function EmployeeAttendanceDailyPage() {
                 openPodCommentEditor(row.empCode, day, commentMark);
               }}
             >
-              <div
-                style={registerMarkCellInlineStyle(value, markStyleOpts)}
-                className={`${registerMarkCellWrapperClass(value, markStyleOpts)} relative group/comment ${isCommentMark ? "cursor-pointer" : ""}`}
-                title={skyBluePunchTitle}
-              >
-                <RegisterMarkPicker
-                  value={value}
-                  readOnly={leavingLocked}
-                  purplePresent={purplePresent}
-                  hoverTitle={skyBluePunchTitle}
-                  onChange={(next) => handleMarkChange(row.empCode, day, next)}
-                />
-                {hasComment && (
-                  <>
-                    <span
-                      className="absolute top-0 right-0 w-0 h-0 border-l-[8px] border-l-transparent border-t-[8px] border-t-red-500 pointer-events-none"
-                      aria-hidden
-                    />
-                    <div className="pointer-events-none absolute z-30 right-0 top-full mt-1 hidden max-w-[260px] rounded-md bg-gray-900 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg group-hover/comment:block">
-                      <div className="font-semibold text-[9px] text-gray-200">
-                        {registerMarkDisplayValue(commentMark)} comment
-                      </div>
-                      <div>{comment}</div>
-                    </div>
-                  </>
-                )}
-              </div>
+              {hasComment ? (
+                <PodCommentHoverTooltip
+                  comment={comment}
+                  markLabel={`${registerMarkDisplayValue(commentMark)} comment`}
+                >
+                  {cellInner}
+                </PodCommentHoverTooltip>
+              ) : (
+                cellInner
+              )}
             </div>
           );
         },
