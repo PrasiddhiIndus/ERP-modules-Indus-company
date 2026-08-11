@@ -404,7 +404,7 @@ export function getExcelInquiryFields(row) {
     clientName: row?.client || "",
     location,
     descriptionOfWork: row?.manpower_required || meta.descriptionOfWork || "",
-    approxValue: row?.project_estimation ?? meta.approxValue ?? meta.estimatedValueClient ?? "",
+    approxValue: row?.project_estimation ?? meta.approxValue ?? meta.estimatedValueClient ?? meta.resultAmount ?? "",
     enquiryAssignedTo: (() => {
       const list = parseAssignedToList(row?.handled_by, meta);
       return list.length ? formatAssignedToList(list) : row?.handled_by || meta.enquiryAssignedTo || meta.receivedBy || "";
