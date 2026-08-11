@@ -6,8 +6,6 @@ import {
   Wallet,
   AlertTriangle,
   TrendingUp,
-  TrendingDown,
-  Minus,
   Clock,
   Target,
   CircleDollarSign,
@@ -205,31 +203,22 @@ function shiftMonthKey(ym, deltaMonths) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function formatSignedINR(n) {
-  const v = Number(n);
-  const amount = Number.isFinite(v) ? v : 0;
-  const abs = formatINR(Math.abs(amount));
-  if (amount > 0) return `+${abs}`;
-  if (amount < 0) return `-${abs}`;
-  return abs;
-}
-
-/** Difference = Current Month Billing − Previous Month Billing */
-function billingAmountDifference(currentMonthBilling, previousMonthBilling) {
-  return (Number(currentMonthBilling) || 0) - (Number(previousMonthBilling) || 0);
-}
-
-function formatPctChange(current, previous) {
-  const curr = Number(current) || 0;
-  const prev = Number(previous) || 0;
-  if (prev === 0) {
-    if (curr === 0) return '0%';
-    return 'New';
+/** Inclusive calendar months between fromYm and toYm (order-independent). */
+function monthKeysInRange(fromYm, toYm) {
+  const a = String(fromYm || '');
+  const b = String(toYm || '');
+  if (!a || !b) return a || b ? [a || b] : [];
+  const start = a <= b ? a : b;
+  const end = a <= b ? b : a;
+  const out = [];
+  let cur = start;
+  let guard = 0;
+  while (cur && cur <= end && guard < 240) {
+    out.push(cur);
+    cur = shiftMonthKey(cur, 1);
+    guard += 1;
   }
-  const pct = ((curr - prev) / prev) * 100;
-  const rounded = Math.round(pct * 10) / 10;
-  const sign = rounded > 0 ? '+' : '';
-  return `${sign}${rounded.toLocaleString('en-IN', { maximumFractionDigits: 1 })}%`;
+  return out;
 }
 
 function toggleTableSort(prev, key, defaultDirection = 'asc') {
@@ -435,11 +424,11 @@ const BillingDashboard = () => {
   const [invoiceKindFilter, setInvoiceKindFilter] = useState('all');
   const [previewInvoice, setPreviewInvoice] = useState(null);
   const [cancelledMonthFilter, setCancelledMonthFilter] = useState(currentMonthKey);
-  const [comparisonMonthA, setComparisonMonthA] = useState(currentMonthKey);
-  const [comparisonMonthB, setComparisonMonthB] = useState(() => shiftMonthKey(currentMonthKey(), -1));
+  const [comparisonMonthFrom, setComparisonMonthFrom] = useState(() => shiftMonthKey(currentMonthKey(), -1));
+  const [comparisonMonthTo, setComparisonMonthTo] = useState(currentMonthKey);
   const [cancelledSort, setCancelledSort] = useState({ key: 'amount', direction: 'desc' });
   const [updatedSort, setUpdatedSort] = useState({ key: 'updated', direction: 'desc' });
-  const [comparisonSort, setComparisonSort] = useState({ key: 'currentAmount', direction: 'desc' });
+  const [comparisonSort, setComparisonSort] = useState({ key: 'siteName', direction: 'asc' });
   const filterDropdownRef = useRef(null);
 
   const lockedToSingleVertical = (billingVerticalOptions || []).length === 1;
@@ -703,7 +692,7 @@ const BillingDashboard = () => {
     [getPoForInvoice]
   );
 
-  /** Display-only: site totals for two selectable months (independent of date-range KPIs). */
+  /** Display-only: site totals for each month in the selected from–to range. */
   const comparisonMonthOptions = useMemo(() => {
     const keys = new Set();
     (invoices || []).forEach((inv) => {
@@ -716,14 +705,23 @@ const BillingDashboard = () => {
     const cur = currentMonthKey();
     keys.add(cur);
     keys.add(shiftMonthKey(cur, -1));
-    if (comparisonMonthA) keys.add(comparisonMonthA);
-    if (comparisonMonthB) keys.add(comparisonMonthB);
+    if (comparisonMonthFrom) keys.add(comparisonMonthFrom);
+    if (comparisonMonthTo) keys.add(comparisonMonthTo);
     return Array.from(keys).sort((a, b) => b.localeCompare(a));
-  }, [invoices, comparisonMonthA, comparisonMonthB]);
+  }, [invoices, comparisonMonthFrom, comparisonMonthTo]);
+
+  const comparisonSelectedMonths = useMemo(
+    () =>
+      monthKeysInRange(
+        comparisonMonthFrom || currentMonthKey(),
+        comparisonMonthTo || comparisonMonthFrom || currentMonthKey()
+      ),
+    [comparisonMonthFrom, comparisonMonthTo]
+  );
 
   const siteMonthlyComparison = useMemo(() => {
-    const monthA = comparisonMonthA || currentMonthKey();
-    const monthB = comparisonMonthB || shiftMonthKey(monthA, -1);
+    const months = comparisonSelectedMonths;
+    const monthSet = new Set(months);
     const bySite = new Map();
 
     (invoices || []).forEach((inv) => {
@@ -731,45 +729,44 @@ const BillingDashboard = () => {
       if (inv.isAddOn || inv.is_add_on) return;
       if (getInvoiceKind(inv) === 'proforma') return;
       const ym = monthKeyFromDate(getInvoiceDate(inv));
-      if (ym !== monthA && ym !== monthB) return;
+      if (!ym || !monthSet.has(ym)) return;
 
       const po = getPoForInvoice(inv);
       const siteId = String(inv.siteId || inv.site_id || po?.siteId || po?.site_id || '').trim();
       const siteName = getComparisonSiteName(inv, po);
       const key = siteId || `name:${siteName}`;
       if (!bySite.has(key)) {
+        const amountsByMonth = {};
+        months.forEach((m) => {
+          amountsByMonth[m] = 0;
+        });
         bySite.set(key, {
           id: key,
           siteName,
-          currentAmount: 0,
-          previousAmount: 0,
+          amountsByMonth,
         });
       }
       const row = bySite.get(key);
       if (siteName && siteName !== '—' && (row.siteName === '—' || !row.siteName)) {
         row.siteName = siteName;
       }
-      const amount = getInvoiceAmount(inv);
-      if (ym === monthA) row.currentAmount += amount;
-      else row.previousAmount += amount;
+      row.amountsByMonth[ym] = (Number(row.amountsByMonth[ym]) || 0) + getInvoiceAmount(inv);
     });
 
-    return Array.from(bySite.values())
-      .map((row) => {
-        const currentMonthBilling = Number(row.currentAmount) || 0;
-        const previousMonthBilling = Number(row.previousAmount) || 0;
-        const delta = billingAmountDifference(currentMonthBilling, previousMonthBilling);
-        return {
-          ...row,
-          currentAmount: currentMonthBilling,
-          previousAmount: previousMonthBilling,
-          currentMonth: monthA,
-          previousMonth: monthB,
-          delta,
-          pctLabel: formatPctChange(currentMonthBilling, previousMonthBilling),
-        };
+    return Array.from(bySite.values()).map((row) => {
+      const amountsByMonth = { ...(row.amountsByMonth || {}) };
+      months.forEach((m) => {
+        amountsByMonth[m] = Number(amountsByMonth[m]) || 0;
       });
-  }, [invoices, getPoForInvoice, comparisonMonthA, comparisonMonthB]);
+      const totalAmount = months.reduce((sum, m) => sum + (Number(amountsByMonth[m]) || 0), 0);
+      return {
+        id: row.id,
+        siteName: row.siteName,
+        amountsByMonth,
+        totalAmount,
+      };
+    });
+  }, [invoices, getPoForInvoice, comparisonSelectedMonths]);
 
   const cancelledInvoicesSorted = useMemo(() => {
     const list = cancelledInvoicesList.slice();
@@ -830,34 +827,19 @@ const BillingDashboard = () => {
     list.sort((a, b) => {
       let left;
       let right;
-      switch (key) {
-        case 'siteName':
-          left = String(a.siteName || '');
-          right = String(b.siteName || '');
-          break;
-        case 'currentMonth':
-          left = Number(a.currentAmount) || 0;
-          right = Number(b.currentAmount) || 0;
-          break;
-        case 'previousMonth':
-          left = Number(a.previousAmount) || 0;
-          right = Number(b.previousAmount) || 0;
-          break;
-        case 'currentAmount':
-          left = Number(a.currentAmount) || 0;
-          right = Number(b.currentAmount) || 0;
-          break;
-        case 'previousAmount':
-          left = Number(a.previousAmount) || 0;
-          right = Number(b.previousAmount) || 0;
-          break;
-        case 'delta':
-          left = Number(a.delta) || 0;
-          right = Number(b.delta) || 0;
-          break;
-        default:
-          left = '';
-          right = '';
+      if (key === 'siteName') {
+        left = String(a.siteName || '');
+        right = String(b.siteName || '');
+      } else if (key === 'total') {
+        left = Number(a.totalAmount) || 0;
+        right = Number(b.totalAmount) || 0;
+      } else if (String(key).startsWith('month:')) {
+        const ym = String(key).slice('month:'.length);
+        left = Number(a.amountsByMonth?.[ym]) || 0;
+        right = Number(b.amountsByMonth?.[ym]) || 0;
+      } else {
+        left = '';
+        right = '';
       }
       const primary = compareSortValues(left, right, direction);
       if (primary !== 0) return primary;
@@ -1329,36 +1311,36 @@ const BillingDashboard = () => {
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-slate-900">Site-wise Monthly Billing Comparison</h2>
               <p className="text-[11px] text-slate-600">
-                Compare two months · tax bills only · updates with available billing data
+                Select a month range · one billing column per month · tax bills only
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
-              <span className="font-medium whitespace-nowrap">Month</span>
+              <span className="font-medium whitespace-nowrap">From</span>
               <select
-                value={comparisonMonthA}
-                onChange={(e) => setComparisonMonthA(e.target.value)}
+                value={comparisonMonthFrom}
+                onChange={(e) => setComparisonMonthFrom(e.target.value)}
                 className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                aria-label="Comparison primary month"
+                aria-label="Comparison from month"
               >
                 {comparisonMonthOptions.map((ym) => (
-                  <option key={`a-${ym}`} value={ym}>
+                  <option key={`from-${ym}`} value={ym}>
                     {formatMonthOptionLabel(ym)}
                   </option>
                 ))}
               </select>
             </label>
             <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
-              <span className="font-medium whitespace-nowrap">Compare with</span>
+              <span className="font-medium whitespace-nowrap">To</span>
               <select
-                value={comparisonMonthB}
-                onChange={(e) => setComparisonMonthB(e.target.value)}
+                value={comparisonMonthTo}
+                onChange={(e) => setComparisonMonthTo(e.target.value)}
                 className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
-                aria-label="Comparison secondary month"
+                aria-label="Comparison to month"
               >
                 {comparisonMonthOptions.map((ym) => (
-                  <option key={`b-${ym}`} value={ym}>
+                  <option key={`to-${ym}`} value={ym}>
                     {formatMonthOptionLabel(ym)}
                   </option>
                 ))}
@@ -1378,96 +1360,59 @@ const BillingDashboard = () => {
                     Site Name {renderDashboardSortIndicator(comparisonSort.key === 'siteName', comparisonSort.direction)}
                   </span>
                 </th>
-                <th
-                  className="text-left font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
-                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'currentMonth', 'desc'))}
-                >
-                  <span className="inline-flex items-center font-semibold">
-                    {formatMonthOptionLabel(comparisonMonthA)}{' '}
-                    {renderDashboardSortIndicator(comparisonSort.key === 'currentMonth', comparisonSort.direction)}
-                  </span>
-                </th>
-                <th
-                  className="text-left font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
-                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'previousMonth', 'desc'))}
-                >
-                  <span className="inline-flex items-center font-semibold">
-                    {formatMonthOptionLabel(comparisonMonthB)}{' '}
-                    {renderDashboardSortIndicator(comparisonSort.key === 'previousMonth', comparisonSort.direction)}
-                  </span>
-                </th>
-                <th
-                  className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
-                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'currentAmount', 'desc'))}
-                >
-                  <span className="inline-flex items-center justify-end w-full font-semibold">
-                    Billing ({formatMonthOptionLabel(comparisonMonthA)}){' '}
-                    {renderDashboardSortIndicator(comparisonSort.key === 'currentAmount', comparisonSort.direction)}
-                  </span>
-                </th>
-                <th
-                  className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
-                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'previousAmount', 'desc'))}
-                >
-                  <span className="inline-flex items-center justify-end w-full font-semibold">
-                    Billing ({formatMonthOptionLabel(comparisonMonthB)}){' '}
-                    {renderDashboardSortIndicator(comparisonSort.key === 'previousAmount', comparisonSort.direction)}
-                  </span>
-                </th>
-                <th
-                  className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
-                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'delta', 'desc'))}
-                >
-                  <span className="inline-flex items-center justify-end w-full font-semibold">
-                    Increase / Decrease {renderDashboardSortIndicator(comparisonSort.key === 'delta', comparisonSort.direction)}
-                  </span>
-                </th>
+                {comparisonSelectedMonths.map((ym) => (
+                  <th
+                    key={`h-${ym}`}
+                    className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                    onClick={() => setComparisonSort((p) => toggleTableSort(p, `month:${ym}`, 'desc'))}
+                  >
+                    <span className="inline-flex items-center justify-end w-full font-semibold">
+                      {formatMonthOptionLabel(ym)}{' '}
+                      {renderDashboardSortIndicator(comparisonSort.key === `month:${ym}`, comparisonSort.direction)}
+                    </span>
+                  </th>
+                ))}
+                {comparisonSelectedMonths.length > 1 ? (
+                  <th
+                    className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                    onClick={() => setComparisonSort((p) => toggleTableSort(p, 'total', 'desc'))}
+                  >
+                    <span className="inline-flex items-center justify-end w-full font-semibold">
+                      Total {renderDashboardSortIndicator(comparisonSort.key === 'total', comparisonSort.direction)}
+                    </span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {siteMonthlyComparisonSorted.map((row) => {
-                // Increase/Decrease = Current Month Billing − Previous Month Billing (same values as the two amount columns).
-                const amountDifference = billingAmountDifference(row.currentAmount, row.previousAmount);
-                const up = amountDifference > 0;
-                const down = amountDifference < 0;
-                const tone = up
-                  ? 'text-emerald-700'
-                  : down
-                    ? 'text-rose-700'
-                    : 'text-slate-600';
-                const DeltaIcon = up ? TrendingUp : down ? TrendingDown : Minus;
-                return (
-                  <tr key={row.id || `${row.siteName}-${row.currentAmount}-${row.previousAmount}`} className="hover:bg-slate-50/80">
-                    <td className="px-3 py-2 text-slate-800 max-w-[16rem] truncate" title={row.siteName}>
-                      {row.siteName}
+              {siteMonthlyComparisonSorted.map((row) => (
+                <tr key={row.id || row.siteName} className="hover:bg-slate-50/80">
+                  <td className="px-3 py-2 text-slate-800 max-w-[16rem] truncate" title={row.siteName}>
+                    {row.siteName}
+                  </td>
+                  {comparisonSelectedMonths.map((ym) => (
+                    <td
+                      key={`${row.id}-${ym}`}
+                      className="px-3 py-2 text-right tabular-nums font-medium text-slate-900 whitespace-nowrap"
+                    >
+                      {formatINR(row.amountsByMonth?.[ym] || 0)}
                     </td>
-                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
-                      {formatMonthOptionLabel(row.currentMonth)}
+                  ))}
+                  {comparisonSelectedMonths.length > 1 ? (
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900 whitespace-nowrap">
+                      {formatINR(row.totalAmount || 0)}
                     </td>
-                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
-                      {formatMonthOptionLabel(row.previousMonth)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900 whitespace-nowrap">
-                      {formatINR(row.currentAmount)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-700 whitespace-nowrap">
-                      {formatINR(row.previousAmount)}
-                    </td>
-                    <td className={`px-3 py-2 text-right whitespace-nowrap ${tone}`}>
-                      <span className="inline-flex items-center justify-end gap-1.5 tabular-nums font-medium">
-                        <DeltaIcon className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                        <span>
-                          {formatSignedINR(amountDifference)}
-                          <span className="text-[11px] opacity-80 ml-1">({row.pctLabel})</span>
-                        </span>
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+                  ) : null}
+                </tr>
+              ))}
               {siteMonthlyComparisonSorted.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                  <td
+                    colSpan={
+                      1 + comparisonSelectedMonths.length + (comparisonSelectedMonths.length > 1 ? 1 : 0)
+                    }
+                    className="px-3 py-8 text-center text-slate-500"
+                  >
                     No site billing in the selected months.
                   </td>
                 </tr>
