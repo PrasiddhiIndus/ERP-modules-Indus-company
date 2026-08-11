@@ -66,7 +66,7 @@ export const REGISTER_STATUS_OPTIONS = [
 /** Leave types under L in the register mark picker submenu. */
 export const REGISTER_LEAVE_SUBMENU_OPTIONS = [
   { value: "L", label: "L — Leave" },
-  { value: "PL", label: "PL — Privilege Leave" },
+  { value: "PL", label: "PL — Paid Leave" },
   { value: "CL", label: "CL — Casual Leave" },
   { value: "SL", label: "SL — Sick Leave" },
   { value: "SPLA", label: "SPLA" },
@@ -87,7 +87,7 @@ export const REGISTER_HALF_DAY_SUBMENU_OPTIONS = [
   { value: "HD", label: "HD — Half Day" },
   { value: "P/SL", label: "Present + Sick Leave" },
   { value: "P/CL", label: "Present + Casual Leave" },
-  { value: "P/PL", label: "Present + Privilege Leave" },
+  { value: "P/PL", label: "Present + Paid Leave" },
 ];
 
 /**
