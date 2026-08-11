@@ -1,3 +1,4 @@
+/** NAV_HIDDEN (Aug 2026): Miscellaneous Admin — Events, Tour, Tasks hidden; Alerts & Reports remain in navbar */
 import React, { useState } from "react";
 import { SectionCard, DenseTable, FilterBar, TinyInput, Badge, Drawer, StatusChip } from "../components/AdminUi";
 import { mockEvents, mockTravel, mockAdminTasks } from "../data/mockAdminData";

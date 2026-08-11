@@ -1,3 +1,4 @@
+/** NAV_HIDDEN (Aug 2026): Gate Pass & Movement — entire module hidden from admin navbar */
 import React, { useState } from "react";
 import {
   SectionCard,

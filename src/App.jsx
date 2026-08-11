@@ -1,5 +1,5 @@
 import { useState, useEffect, Suspense } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PageLoader from "./components/PageLoader";
@@ -74,11 +74,12 @@ import {
   IfspEmployeePayroll,
   IfspEmployeeLeaves,
   IfspEmployeeMaster,
+  IfspEmployeeMasterDetail,
   GatePass,
   AdminOpsDashboard,
   AdminOpsAlerts,
   AdminOpsReports,
-  AdminOpsSettings,
+  // AdminOpsSettings, // NAV_HIDDEN
   SalaryManagementLayout,
   SalaryManagementDashboard,
   EmployeePayrollList,
@@ -104,39 +105,44 @@ import {
   SalaryReportsExports,
   SalaryEmployeeExit,
   SalaryFullFinalSettlement,
-  EmployeeOnboardingPage,
+  // NAV_HIDDEN employee admin pages (Aug 2026)
+  // EmployeeOnboardingPage,
   EmployeeAttendanceInputsPage,
-  EmployeeAttendanceSheetsPage,
+  // EmployeeAttendanceSheetsPage,
   EmployeeLeavesPage,
   EmployeeTourApprovalsPage,
-  EmployeeCompliancePage,
-  EmployeeSalaryInputsPage,
-  EmployeeExitPage,
+  // EmployeeCompliancePage,
+  // EmployeeSalaryInputsPage,
+  // EmployeeExitPage,
   EmployeeAttendanceDailyPage,
   EmployeeLeaveManagementPage,
-  InactiveEmployeesPage,
+  // InactiveEmployeesPage,
   NationalPublicHolidaysPage,
-  StoreItemMasterPage,
-  StoreMasterPage,
-  StoreSiteStockPage,
-  StoreIssuePage,
-  StoreReturnPage,
-  StoreTransferPage,
-  StorePlannerPage,
-  StoreReconciliationPage,
-  GateEmployeeMovementPage,
-  GateGoodsPage,
-  GateVisitorsPage,
-  GateVehiclesPage,
-  GateDeliveryPage,
-  GateSecurityConsolePage,
+  // NAV_HIDDEN store pages
+  // StoreItemMasterPage,
+  // StoreMasterPage,
+  // StoreSiteStockPage,
+  // StoreIssuePage,
+  // StoreReturnPage,
+  // StoreTransferPage,
+  // StorePlannerPage,
+  // StoreReconciliationPage,
+  // NAV_HIDDEN gate pages
+  // GateEmployeeMovementPage,
+  // GateGoodsPage,
+  // GateVisitorsPage,
+  // GateVehiclesPage,
+  // GateDeliveryPage,
+  // GateSecurityConsolePage,
   SalaryDashboardPage,
-  SalaryMasterPage,
-  SalaryEmployeeCtcPage,
+  // SalaryMasterPage, // NAV_HIDDEN — CTC lives on Employee Master
+  // SalaryEmployeeCtcPage,
   SalaryProcessingPage,
-  MiscEventsPage,
-  MiscTravelPage,
-  MiscTasksPage,
+  SalaryComponentsMasterPage,
+  // NAV_HIDDEN misc admin pages
+  // MiscEventsPage,
+  // MiscTravelPage,
+  // MiscTasksPage,
   FireTenderManufacturing,
   AMC,
   Settings,
@@ -199,6 +205,15 @@ function ConnectionGuard({ children }) {
 function RedirectEmployeeMasterId() {
   const { id } = useParams();
   return <Navigate to={`/app/hr/payroll/salary/people-master/${id}`} replace />;
+}
+
+/** Legacy salary-master/:id URLs → Employee Master CTC tab */
+function SalaryMasterCtcRedirect() {
+  const { employeeId } = useParams();
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  params.set("tab", "ctc");
+  return <Navigate to={`/app/admin/employee/master/${employeeId}?${params.toString()}`} replace />;
 }
 
 function App() {
@@ -453,42 +468,34 @@ function App() {
             <Route path="admin/dashboard" element={<AdminOpsDashboard />} />
             <Route path="admin/payroll/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
-            <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
+            <Route path="admin/employee/master/:employeeId" element={<IfspEmployeeMasterDetail />} />
+            {/* NAV_HIDDEN (Aug 2026): hidden admin modules redirect to dashboard */}
+            <Route path="admin/employee/onboarding" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
             <Route path="admin/employee/attendance-daily" element={<EmployeeAttendanceDailyPage />} />
             <Route path="admin/employee/national-holidays" element={<NationalPublicHolidaysPage />} />
             <Route path="admin/employee/leave-management" element={<EmployeeLeaveManagementPage />} />
-            <Route path="admin/employee/attendance-sheets" element={<EmployeeAttendanceSheetsPage />} />
+            <Route path="admin/employee/attendance-sheets" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/leaves-permissions" element={<EmployeeLeavesPage />} />
             <Route path="admin/employee/tour-approvals" element={<EmployeeTourApprovalsPage />} />
-            <Route path="admin/employee/compliance-documents" element={<EmployeeCompliancePage />} />
-            <Route path="admin/employee/salary-inputs" element={<EmployeeSalaryInputsPage />} />
-            <Route path="admin/employee/exit-ff" element={<EmployeeExitPage />} />
-            <Route path="admin/employee/inactive" element={<InactiveEmployeesPage />} />
-            <Route path="admin/store/item-master" element={<StoreItemMasterPage />} />
-            <Route path="admin/store/store-master" element={<StoreMasterPage />} />
-            <Route path="admin/store/site-stock" element={<StoreSiteStockPage />} />
-            <Route path="admin/store/issue-entry" element={<StoreIssuePage />} />
-            <Route path="admin/store/return-entry" element={<StoreReturnPage />} />
-            <Route path="admin/store/transfer-transit" element={<StoreTransferPage />} />
-            <Route path="admin/store/requirement-planner" element={<StorePlannerPage />} />
-            <Route path="admin/store/reconciliation" element={<StoreReconciliationPage />} />
-            <Route path="admin/gate/employee-movement" element={<GateEmployeeMovementPage />} />
-            <Route path="admin/gate/goods-in-out" element={<GateGoodsPage />} />
-            <Route path="admin/gate/visitor-guest-passes" element={<GateVisitorsPage />} />
-            <Route path="admin/gate/vehicle-passes" element={<GateVehiclesPage />} />
-            <Route path="admin/gate/delivery-courier-post" element={<GateDeliveryPage />} />
-            <Route path="admin/gate/security-console" element={<GateSecurityConsolePage />} />
+            <Route path="admin/employee/compliance-documents" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/employee/salary-inputs" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/employee/exit-ff" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/employee/inactive" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/store/*" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/gate/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/salary-admin/dashboard" element={<SalaryAdminGuard><SalaryDashboardPage /></SalaryAdminGuard>} />
-            <Route path="admin/salary-admin/salary-master" element={<SalaryAdminGuard><SalaryMasterPage /></SalaryAdminGuard>} />
-            <Route path="admin/salary-admin/salary-master/:employeeId" element={<SalaryAdminGuard><SalaryEmployeeCtcPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-master" element={<Navigate to="/app/admin/salary-admin/dashboard" replace />} />
+            <Route
+              path="admin/salary-admin/salary-master/:employeeId"
+              element={<SalaryAdminGuard><SalaryMasterCtcRedirect /></SalaryAdminGuard>}
+            />
             <Route path="admin/salary-admin/salary-processing" element={<SalaryAdminGuard><SalaryProcessingPage /></SalaryAdminGuard>} />
-            <Route path="admin/misc/events-coordination" element={<MiscEventsPage />} />
-            <Route path="admin/misc/tour-travel-details" element={<MiscTravelPage />} />
-            <Route path="admin/misc/admin-tasks-other-requests" element={<MiscTasksPage />} />
+            <Route path="admin/salary-admin/salary-components" element={<SalaryAdminGuard><SalaryComponentsMasterPage /></SalaryAdminGuard>} />
+            <Route path="admin/misc/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/alerts-notifications" element={<AdminOpsAlerts />} />
             <Route path="admin/reports-analytics" element={<AdminOpsReports />} />
-            <Route path="admin/settings-masters" element={<AdminOpsSettings />} />
+            <Route path="admin/settings-masters" element={<Navigate to="/app/admin/dashboard" replace />} />
 
             {/* Legacy Admin Operations URL redirect */}
             <Route path="admin-operations/*" element={<Navigate to="/app/admin/dashboard" replace />} />

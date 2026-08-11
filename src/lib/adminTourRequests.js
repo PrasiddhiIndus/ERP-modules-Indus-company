@@ -512,3 +512,85 @@ export function subscribeTourWorkflowRealtime(onChange) {
     supabase.removeChannel(channel);
   };
 }
+
+/**
+ * Tours for one employee (Employee Master profile).
+ * Matches by employee_master_id, user_id, and/or employee_code.
+ */
+export async function fetchToursForEmployee({
+  employeeMasterId = null,
+  userId = null,
+  employeeCode = null,
+  year = null,
+} = {}) {
+  const code = normalizeAttendanceEmpCode(employeeCode);
+  const masterId =
+    employeeMasterId != null && employeeMasterId !== "" ? Number(employeeMasterId) : null;
+  const uid = userId || null;
+  if (!code && (masterId == null || !Number.isFinite(masterId)) && !uid) {
+    return { rows: [], totals: emptyTourTotals() };
+  }
+
+  const { lmsRows, adminRows } = await loadTourInboxSourceRows();
+  let merged = mergeLmsAndAdminTourRows(lmsRows, adminRows);
+
+  merged = merged.filter((row) => {
+    if (masterId != null && Number.isFinite(masterId) && Number(row.employee_master_id) === masterId) {
+      return true;
+    }
+    if (uid && row.user_id && String(row.user_id) === String(uid)) return true;
+    if (code) {
+      const rowCode = normalizeAttendanceEmpCode(row.employee_code || row.emp_code);
+      if (rowCode && rowCode === code) return true;
+    }
+    return false;
+  });
+
+  const y = year != null ? Number(year) : null;
+  if (Number.isFinite(y) && y >= 1900) {
+    const from = `${y}-01-01`;
+    const to = `${y}-12-31`;
+    merged = merged.filter((row) => rowMatchesDateRange(row, from, to));
+  }
+
+  merged.sort((a, b) => {
+    const ad = String(a.from_date || a.submitted_at || "");
+    const bd = String(b.from_date || b.submitted_at || "");
+    return bd.localeCompare(ad);
+  });
+
+  const totals = emptyTourTotals();
+  for (const row of merged) {
+    const days = tourDaysCount(row);
+    const s = String(row.status || "").toLowerCase();
+    totals.all += 1;
+    totals.allDays += days;
+    if (s === "approved") {
+      totals.approved += 1;
+      totals.approvedDays += days;
+    } else if (s === "rejected") {
+      totals.rejected += 1;
+    } else if (s === "cancelled" || s === "withdrawn") {
+      totals.cancelled += 1;
+    } else {
+      totals.pending += 1;
+      totals.pendingDays += days;
+    }
+  }
+
+  return { rows: merged, totals };
+}
+
+function emptyTourTotals() {
+  return {
+    all: 0,
+    approved: 0,
+    pending: 0,
+    rejected: 0,
+    cancelled: 0,
+    allDays: 0,
+    approvedDays: 0,
+    pendingDays: 0,
+  };
+}
+

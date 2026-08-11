@@ -55,6 +55,7 @@ import {
   UserX,
   ClipboardList,
   PhoneCall,
+  Layers,
 } from "lucide-react";
 
 // Rupee Icon Component – same visual size as w-4 h-4 lucide icons
@@ -179,11 +180,9 @@ const Layout = () => {
   const [financeOpen, setFinanceOpen] = useState(false);
   const [marketingOpen, setMarketingOpen] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
-  const [adminEmployeeOpen, setAdminEmployeeOpen] = useState(false);
   const [adminStoreOpen, setAdminStoreOpen] = useState(false);
   const [adminGateOpen, setAdminGateOpen] = useState(false);
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
-  const [adminSalaryOpen, setAdminSalaryOpen] = useState(false);
   const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
   const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
@@ -194,7 +193,6 @@ const Layout = () => {
     const partialAdmin = userProfile.allowed_sub_modules.some((k) => String(k).startsWith("admin."));
     if (partialAdmin && can("admin")) {
       setAdminOpen(true);
-      if (canSub("admin.salary-admin") && !hasFullAdmin) setAdminSalaryOpen(true);
     }
   }, [userProfile?.allowed_sub_modules, accessibleModules, navVisibleModules]);
 
@@ -204,7 +202,6 @@ const Layout = () => {
     if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
-    if (pathname.startsWith("/app/admin/salary-admin")) setAdminSalaryOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/maintenance")) setMaintenanceOpen(true);
     if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial/manpower-training")) setCommercialMtOpen(true);
@@ -233,11 +230,9 @@ const Layout = () => {
   };
 
   const collapseAdminSubmodules = () => {
-    setAdminEmployeeOpen(false);
     setAdminStoreOpen(false);
     setAdminGateOpen(false);
     setAdminMiscOpen(false);
-    setAdminSalaryOpen(false);
   };
 
   const [activityLogOpen, setActivityLogOpen] = useState(false);
@@ -482,26 +477,15 @@ const Layout = () => {
 
                   {canSub("admin.employee") && (
                   <>
-                  <button
-                    onClick={() => setAdminEmployeeOpen(!adminEmployeeOpen)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-surface text-ink-strong transition-colors"
-                  >
-                    <span className="flex items-start space-x-2">
-                      <Users className="w-4 h-4 shrink-0 text-accent" />
-                      <span className="text-xs font-medium text-left leading-tight">Employee Administration</span>
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminEmployeeOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {adminEmployeeOpen && (
-                    <div className="space-y-0.5">
                       <NavLink to="admin/employee/master" className={subNavClass}>
                         <Users className="h-4 w-4 shrink-0 text-accent" />
                         <span className="type-meta type-truncate">Employee Master</span>
                       </NavLink>
-                      <NavLink to="admin/employee/onboarding" className={subNavClass}>
+                      {/* NAV_HIDDEN: Onboarding */}
+                      {/* <NavLink to="admin/employee/onboarding" className={subNavClass}>
                         <UserPlus className="h-4 w-4 shrink-0 text-indigo-600" />
                         <span className="type-meta type-truncate">Onboarding</span>
-                      </NavLink>
+                      </NavLink> */}
                       <NavLink to="admin/employee/attendance-inputs" className={subNavClass}>
                         <Clock className="h-4 w-4 shrink-0 text-amber-600" />
                         <span className="type-meta type-truncate">Raw Attendance Data</span>
@@ -514,10 +498,11 @@ const Layout = () => {
                         <CalendarDays className="h-4 w-4 shrink-0 text-orange-600" />
                         <span className="type-meta type-truncate">National / Public Holidays</span>
                       </NavLink>
-                      <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
+                      {/* NAV_HIDDEN: Attendance Sheets */}
+                      {/* <NavLink to="admin/employee/attendance-sheets" className={subNavClass}>
                         <FileText className="h-4 w-4 shrink-0 text-blue-600" />
                         <span className="type-meta type-truncate">Attendance Sheets</span>
-                      </NavLink>
+                      </NavLink> */}
                       <NavLink to="admin/employee/leaves-permissions" className={subNavClass}>
                         <Calendar className="h-4 w-4 shrink-0 text-purple-600" />
                         <span className="type-meta type-truncate">Leave Approvals</span>
@@ -530,7 +515,8 @@ const Layout = () => {
                         <CalendarDays className="h-4 w-4 shrink-0 text-indigo-600" />
                         <span className="type-meta type-truncate">Leave Management</span>
                       </NavLink>
-                      <NavLink to="admin/employee/compliance-documents" className={subNavClass}>
+                      {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs, Exit & F&F, Inactive Employees */}
+                      {/* <NavLink to="admin/employee/compliance-documents" className={subNavClass}>
                         <ClipboardCheck className="h-4 w-4 shrink-0 text-green-600" />
                         <span className="type-meta type-truncate">Compliance & Documents</span>
                       </NavLink>
@@ -545,45 +531,29 @@ const Layout = () => {
                       <NavLink to="admin/employee/inactive" className={subNavClass}>
                         <UserX className="h-4 w-4 shrink-0 text-ink-muted" />
                         <span className="type-meta type-truncate">Inactive Employees</span>
-                      </NavLink>
-                    </div>
-                  )}
+                      </NavLink> */}
                   </>
                   )}
 
                   {canSub("admin.salary-admin") && (
                   <>
-                  <button
-                    type="button"
-                    onClick={() => setAdminSalaryOpen(!adminSalaryOpen)}
-                    className="flex items-start justify-between w-full p-1.5 rounded-md hover:bg-surface text-ink-strong transition-colors"
-                  >
-                    <span className="flex items-start space-x-2">
-                      <Wallet className="w-4 h-4 shrink-0 text-emerald-700" />
-                      <span className="text-xs font-medium text-left leading-tight">Salary Admin</span>
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminSalaryOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {adminSalaryOpen && (
-                    <div className="space-y-0.5">
                       <NavLink to="admin/salary-admin/dashboard" className={subNavClass}>
                         <LayoutDashboard className="h-4 w-4 shrink-0 text-emerald-700" />
-                        <span className="type-meta type-truncate">Dashboard</span>
+                        <span className="type-meta type-truncate">Salary Dashboard</span>
                       </NavLink>
-                      <NavLink to="admin/salary-admin/salary-master" className={subNavClass}>
-                        <RupeeIcon className="h-4 w-4 shrink-0 text-emerald-600" />
-                        <span className="type-meta type-truncate">Salary Master</span>
+                      <NavLink to="admin/salary-admin/salary-components" className={subNavClass}>
+                        <Layers className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="type-meta type-truncate">Salary Components</span>
                       </NavLink>
                       <NavLink to="admin/salary-admin/salary-processing" className={subNavClass}>
                         <Calculator className="h-4 w-4 shrink-0 text-teal-600" />
                         <span className="type-meta type-truncate">Salary Processing</span>
                       </NavLink>
-                    </div>
-                  )}
                   </>
                   )}
 
-                  {canSub("admin.store") && (
+                  {/* NAV_HIDDEN (Aug 2026): Store & Issue Control */}
+                  {false && canSub("admin.store") && (
                   <>
                   <button
                     type="button"
@@ -611,7 +581,8 @@ const Layout = () => {
                   </>
                   )}
 
-                  {canSub("admin.gate") && (
+                  {/* NAV_HIDDEN (Aug 2026): Gate Pass & Movement Control */}
+                  {false && canSub("admin.gate") && (
                   <>
                   <button
                     onClick={() => setAdminGateOpen(!adminGateOpen)}
@@ -636,7 +607,8 @@ const Layout = () => {
                   </>
                   )}
 
-                  {canSub("admin.misc") && (
+                  {/* NAV_HIDDEN (Aug 2026): Miscellaneous Admin */}
+                  {false && canSub("admin.misc") && (
                   <>
                   <button
                     onClick={() => setAdminMiscOpen(!adminMiscOpen)}
@@ -670,7 +642,8 @@ const Layout = () => {
                     <span className="type-meta type-truncate">Reports & Analytics</span>
                   </NavLink>
                   )}
-                  {canSub("admin.settings") && (
+                  {/* NAV_HIDDEN: Settings / Masters */}
+                  {false && canSub("admin.settings") && (
                   <NavLink to="admin/settings-masters" className={subNavClass}>
                     <Settings className="w-4 h-4 shrink-0 text-ink-strong" />
                     <span className="type-meta type-truncate">Settings / Masters</span>

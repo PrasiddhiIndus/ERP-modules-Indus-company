@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import {
   EMPLOYMENT_TYPE_OPTIONS,
@@ -19,7 +20,6 @@ import {
   suggestNextHierarchySortOrder,
   validateEmployeeHierarchy,
 } from '../../lib/employeeHierarchy';
-import { ManagerSearchSelect } from '../../components/employee/ManagerSearchSelect';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../lib/employeeMasterDepartments';
 import * as XLSX from 'xlsx';;
@@ -168,6 +168,7 @@ function computeAgeFromDob(dateOfBirth) {
 }
 
 const IfspEmployeeMaster = ({ embedded = false }) => {
+  const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -385,13 +386,12 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
   const openAddForm = () => {
     setEditingEmployee(null);
-    const employment_type = 'permanent';
-    setFormData({
-      ...emptyForm(),
-      employment_type,
-      employee_id: nextEmployeeSystemId(employees, employment_type),
-    });
     setShowForm(true);
+  };
+
+  const openEmployeeProfile = (employee) => {
+    if (!employee?.id) return;
+    navigate(`/app/admin/employee/master/${employee.id}`);
   };
 
   const handleEmploymentTypeChange = (type) => {
@@ -864,68 +864,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   };
 
   const handleEdit = (employee) => {
-    setEditingEmployee(employee);
-    setFormData({
-      employee_id: employee.employee_id || '',
-      employment_type: normalizeEmploymentType(
-        employee.employment_type || inferEmploymentTypeFromEmployeeId(employee.employee_id),
-      ),
-      employee_code: employee.employee_code || '',
-      timestamp: employee.timestamp || '',
-      full_name: employee.full_name || '',
-      gender: employee.gender || '',
-      date_of_joining: employee.date_of_joining || '',
-      ...designationFieldsFromStored(employee.designation),
-      date_of_birth: employee.date_of_birth || '',
-      date_of_anniversary: employee.date_of_anniversary || '',
-      blood_group: employee.blood_group || '',
-      aadhar_no: employee.aadhar_no || '',
-      pan_card_no: employee.pan_card_no || '',
-      religion: employee.religion || '',
-      father_name: employee.father_name || '',
-      mother_name: employee.mother_name || '',
-      spouse_name: employee.spouse_name || '',
-      son_name: employee.son_name || '',
-      son_dob: employee.son_dob || '',
-      daughter_name: employee.daughter_name || '',
-      daughter_dob: employee.daughter_dob || '',
-      son_details: employee.son_details || '',
-      daughter_details: employee.daughter_details || '',
-      address: employee.address || '',
-      full_address: employee.full_address || '',
-      personal_no: employee.personal_no || '',
-      emergency_no: employee.emergency_no || '',
-      identification_mark: employee.identification_mark || '',
-      years_of_experience: '',
-      qualification: employee.qualification || '',
-      educational_qualification: employee.educational_qualification || '',
-      attachments: employee.attachments || [],
-      birthday_reminder: employee.birthday_reminder !== false,
-      anniversary_reminder: employee.anniversary_reminder !== false,
-      department: employee.department || '',
-      other_experience: employee.other_experience || '',
-      ifspl_experience: computeIfsplExperienceYears(employee.date_of_joining) ?? '',
-      date_of_leaving: employee.date_of_leaving || '',
-      status: employee.status || 'Active',
-      status_reason: employee.status_reason || '',
-      location: employee.location || '',
-      uan_no: employee.uan_no || '',
-      esic_no: employee.esic_no || '',
-      bank_name: employee.bank_name || '',
-      bank_account_no: employee.bank_account_no || '',
-      ifsc_code: employee.ifsc_code || '',
-      email_id: employee.email_id || '',
-      marital_status: employee.marital_status || '',
-      l1_manager_code: employee.l1_manager_code || '',
-      l1_manager_name: employee.l1_manager_name || '',
-      l2_manager_code: employee.l2_manager_code || '',
-      l2_manager_name: employee.l2_manager_name || '',
-      hierarchy_sort_order:
-        employee.hierarchy_sort_order != null && employee.hierarchy_sort_order !== ''
-          ? String(employee.hierarchy_sort_order)
-          : '',
-    });
-    setShowForm(true);
+    openEmployeeProfile(employee);
   };
 
   const handleDelete = async (id) => {
@@ -1191,8 +1130,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const currentEmployees = sortedFilteredEmployees.slice(startIndex, endIndex);
-  const formIfsplExperiencePreview = computeIfsplExperienceYears(formData.date_of_joining);
-  const formTotalExperiencePreview = computeTotalExperienceYears(formData.date_of_joining, formData.other_experience);
 
   if (loading) {
     return (
@@ -1218,7 +1155,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             {embedded ? "Employee Master" : "IFSPL Employee Master"}
           </h1>
           <p className="text-sm text-gray-600 mt-1">
-            Find employees, open a record to edit full details, or import/export for bulk updates.
+            Find employees, open a record for the full profile, or import/export for bulk updates.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:flex-wrap xl:justify-end items-stretch sm:items-center gap-2 w-full xl:w-auto">
@@ -1451,7 +1388,11 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                 const age = computeAgeFromDob(employee.date_of_birth);
                 const rowNo = startIndex + idx + 1;
                 return (
-                  <tr key={employee.id} className="hover:bg-gray-50">
+                  <tr
+                    key={employee.id}
+                    className="hover:bg-gray-50 cursor-pointer"
+                    onClick={() => openEmployeeProfile(employee)}
+                  >
                     <td className={tdCenter} title={String(employee.id)}>{rowNo}</td>
                     <ListTd field="employee_id" title={employee.employee_id || ''} center>
                       {employee.employee_id || '–'}
@@ -1504,9 +1445,9 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
                       </span>
                     </td>
                     ) : null}
-                    <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-center align-middle">
+                    <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-center align-middle" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex items-center justify-center gap-2">
-                        <button type="button" onClick={() => handleEdit(employee)} className="text-blue-600 hover:text-blue-900" title="Edit">
+                        <button type="button" onClick={() => handleEdit(employee)} className="text-blue-600 hover:text-blue-900" title="Open profile">
                           <Edit className="h-4 w-4" />
                         </button>
                         <button
@@ -1538,598 +1479,29 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         </div>
       </div>
 
-      {/* Employee Form Modal - Complete Form with All Fields */}
+      {/* Add Employee modal — edit opens the employee profile page */}
       {showForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-7xl w-full mx-4 max-h-[90vh] overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">
-                {editingEmployee ? 'Edit Employee' : 'Add New Employee'}
-              </h2>
+              <h2 className="text-xl font-semibold text-gray-900">Add New Employee</h2>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Basic Information */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">Employee (master sheet fields)</h3>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Employment type *</label>
-                    <select
-                      value={formData.employment_type}
-                      onChange={(e) => handleEmploymentTypeChange(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    >
-                      {EMPLOYMENT_TYPE_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                    {editingEmployee && (
-                      <p className="text-xs text-amber-700 mt-1">
-                        Changing type keeps the same system ID. Existing employee code is unchanged.
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Machine ID</label>
-                    <input
-                      type="text"
-                      value={formData.employee_id}
-                      onChange={(e) => setFormData({ ...formData, employee_id: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      One continuous 5-digit IFSPL system series for Permanent, Consultant, and Voucher employees.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Employee code</label>
-                    <input
-                      type="text"
-                      value={formData.employee_code}
-                      onChange={(e) => setFormData({ ...formData, employee_code: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Legacy / HR code (optional)"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Existing employees keep their code here; not auto-generated.</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Employee_Name *</label>
-                    <input
-                      type="text"
-                      value={formData.full_name}
-                      onChange={(e) => setFormData({...formData, full_name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Father&apos;s_Name</label>
-                    <input
-                      type="text"
-                      value={formData.father_name}
-                      onChange={(e) => setFormData({...formData, father_name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
-                    <select
-                      value={formData.gender}
-                      onChange={(e) => setFormData({...formData, gender: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select Gender</option>
-                      {genders.map(gender => (
-                        <option key={gender} value={gender}>{gender}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date_of_Joining *</label>
-                    <FormDateInput value={formData.date_of_joining} onChange={(e) => setFormData({...formData, date_of_joining: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Designation *</label>
-                    <select
-                      value={formData.designation}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setFormData((prev) => ({
-                          ...prev,
-                          designation: value,
-                          designation_other: value === 'Other' ? prev.designation_other : '',
-                        }));
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    >
-                      <option value="">Select Designation</option>
-                      {designations.map(designation => (
-                        <option key={designation} value={designation}>{designation}</option>
-                      ))}
-                    </select>
-                    {formData.designation === 'Other' ? (
-                      <input
-                        type="text"
-                        value={formData.designation_other}
-                        onChange={(e) => setFormData({ ...formData, designation_other: e.target.value })}
-                        placeholder="Enter designation"
-                        className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        required
-                      />
-                    ) : null}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date_of_Birth</label>
-                    <FormDateInput value={formData.date_of_birth} onChange={(e) => setFormData({...formData, date_of_birth: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Birthday reminders appear in Admin → Alerts &amp; Notifications (all active employees).</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Wedding_Anniversary_Date</label>
-                    <FormDateInput value={formData.date_of_anniversary} onChange={(e) => setFormData({...formData, date_of_anniversary: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Anniversary reminders appear in Admin → Alerts &amp; Notifications.</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Blood_Group</label>
-                    <select
-                      value={formData.blood_group}
-                      onChange={(e) => setFormData({...formData, blood_group: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select Blood Group</option>
-                      {bloodGroups.map(group => (
-                        <option key={group} value={group}>{group}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Identity Documents */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">IDs &amp; bank</h3>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar_No</label>
-                    <input
-                      type="text"
-                      value={formData.aadhar_no}
-                      onChange={(e) => setFormData({...formData, aadhar_no: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">PAN_No</label>
-                    <input
-                      type="text"
-                      value={formData.pan_card_no}
-                      onChange={(e) => setFormData({...formData, pan_card_no: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">UAN_No</label>
-                    <input
-                      type="text"
-                      value={formData.uan_no}
-                      onChange={(e) => setFormData({...formData, uan_no: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">ESIC_No</label>
-                    <input
-                      type="text"
-                      value={formData.esic_no}
-                      onChange={(e) => setFormData({...formData, esic_no: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Bank_Name</label>
-                    <input
-                      type="text"
-                      value={formData.bank_name}
-                      onChange={(e) => setFormData({...formData, bank_name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Account_No</label>
-                    <input
-                      type="text"
-                      value={formData.bank_account_no}
-                      onChange={(e) => setFormData({...formData, bank_account_no: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">IFSC_Code</label>
-                    <input
-                      type="text"
-                      value={formData.ifsc_code}
-                      onChange={(e) => setFormData({...formData, ifsc_code: e.target.value.toUpperCase()})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Religion</label>
-                    <select
-                      value={formData.religion}
-                      onChange={(e) => setFormData({...formData, religion: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select Religion</option>
-                      {religions.map(religion => (
-                        <option key={religion} value={religion}>{religion}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Mother's Name</label>
-                    <input
-                      type="text"
-                      value={formData.mother_name}
-                      onChange={(e) => setFormData({...formData, mother_name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Spouse Name</label>
-                    <input
-                      type="text"
-                      value={formData.spouse_name}
-                      onChange={(e) => setFormData({...formData, spouse_name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Son's Name</label>
-                    <input
-                      type="text"
-                      value={formData.son_name}
-                      onChange={(e) => setFormData({...formData, son_name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Son's DOB (MM-DD-YYYY)</label>
-                    <FormDateInput value={formData.son_dob} onChange={(e) => setFormData({...formData, son_dob: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Daughter's Name</label>
-                    <input
-                      type="text"
-                      value={formData.daughter_name}
-                      onChange={(e) => setFormData({...formData, daughter_name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Daughter's DOB</label>
-                    <FormDateInput value={formData.daughter_dob} onChange={(e) => setFormData({...formData, daughter_dob: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-
-                {/* Contact & Professional */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">Contact, location &amp; experience</h3>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Current_Address</label>
-                    <textarea
-                      value={formData.address}
-                      onChange={(e) => setFormData({...formData, address: e.target.value})}
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Permanent_Address</label>
-                    <textarea
-                      value={formData.full_address}
-                      onChange={(e) => setFormData({...formData, full_address: e.target.value})}
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Mobile_No</label>
-                    <input
-                      type="tel"
-                      value={formData.personal_no}
-                      onChange={(e) => setFormData({...formData, personal_no: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email_ID</label>
-                    <input
-                      type="email"
-                      value={formData.email_id}
-                      onChange={(e) => setFormData({...formData, email_id: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Emergency_Contact_No</label>
-                    <input
-                      type="tel"
-                      value={formData.emergency_no}
-                      onChange={(e) => setFormData({...formData, emergency_no: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Marital_Status</label>
-                    <select
-                      value={formData.marital_status}
-                      onChange={(e) => setFormData({...formData, marital_status: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select</option>
-                      {maritalStatuses.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Identification Mark</label>
-                    <input
-                      type="text"
-                      value={formData.identification_mark}
-                      onChange={(e) => setFormData({...formData, identification_mark: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Previous_Experience (years, before IFSPL)</label>
-                    <input
-                      type="number"
-                      value={formData.other_experience}
-                      onChange={(e) => setFormData({...formData, other_experience: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      min="0"
-                      step="0.1"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Total_Experience (auto, as of today)</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={formTotalExperiencePreview != null ? `${formTotalExperiencePreview} years` : '—'}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Qualification</label>
-                    <textarea
-                      value={formData.qualification}
-                      onChange={(e) => setFormData({...formData, qualification: e.target.value})}
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Department *</label>
-                    <select
-                      value={formData.department}
-                      onChange={(e) => setFormData({...formData, department: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    >
-                      <option value="">Select Department</option>
-                      {departments.map(dept => (
-                        <option key={dept} value={dept}>{dept}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Location</label>
-                    <input
-                      type="text"
-                      value={formData.location}
-                      onChange={(e) => setFormData({...formData, location: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Site / city / branch"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">IFSPL Experience</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={formIfsplExperiencePreview != null ? `${formIfsplExperiencePreview} years` : '—'}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-800"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Date of Leaving (DOL)
-                      {formData.status === 'Inactive' ? <span className="text-red-600"> *</span> : null}
-                    </label>
-                    <FormDateInput required={formData.status === 'Inactive'} value={formData.date_of_leaving} onChange={(e) => setFormData({...formData, date_of_leaving: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => {
-                        const nextStatus = e.target.value;
-                        if (nextStatus === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
-                          toast.warning('Date of Leaving is required when employee status is Inactive.');
-                          return;
-                        }
-                        setFormData({ ...formData, status: nextStatus });
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      {statusOptions.map(status => (
-                        <option key={status} value={status}>{status}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center space-x-4">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={formData.birthday_reminder}
-                        onChange={(e) => setFormData({...formData, birthday_reminder: e.target.checked})}
-                        className="mr-2"
-                      />
-                      <span className="text-sm text-gray-700">Birthday Reminder</span>
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={formData.anniversary_reminder}
-                        onChange={(e) => setFormData({...formData, anniversary_reminder: e.target.checked})}
-                        className="mr-2"
-                      />
-                      <span className="text-sm text-gray-700">Anniversary Reminder</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="md:col-span-3 border-t border-gray-200 pt-6 space-y-4">
-                  <h3 className="text-lg font-medium text-gray-900">Org hierarchy (Indus One)</h3>
-                  <p className="text-xs text-gray-500">
-                    L1 is the direct manager (org tree parent). L2 is skip-level (leave L2 approval). Set Hierarchy
-                    Sr.No. to include this employee on the Indus One org chart; leave blank to hide until assigned.
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <ManagerSearchSelect
-                      label="L1 Manager (direct)"
-                      hint="Leave empty if not assigned. Uses employee code for routing."
-                      valueCode={formData.l1_manager_code}
-                      valueName={formData.l1_manager_name}
-                      candidates={managerCandidates}
-                      onChange={({ code, name }) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          l1_manager_code: code,
-                          l1_manager_name: name,
-                        }))
-                      }
-                    />
-                    <ManagerSearchSelect
-                      label="L2 Manager (skip-level)"
-                      hint="Used for L2 leave approval, not as org tree parent."
-                      valueCode={formData.l2_manager_code}
-                      valueName={formData.l2_manager_name}
-                      candidates={managerCandidates}
-                      onChange={({ code, name }) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          l2_manager_code: code,
-                          l2_manager_name: name,
-                        }))
-                      }
-                    />
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Hierarchy Sr.No. (org chart order)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={formData.hierarchy_sort_order}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, hierarchy_sort_order: e.target.value }))
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="Optional — e.g. 10"
-                      />
-                      <button
-                        type="button"
-                        className="mt-2 text-xs font-medium text-blue-700 hover:text-blue-900"
-                        onClick={() =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            hierarchy_sort_order: String(suggestNextHierarchySortOrder(employees)),
-                          }))
-                        }
-                      >
-                        Use next available Sr.No. ({suggestNextHierarchySortOrder(employees)})
-                      </button>
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        Indus One org chart only lists employees with a Sr.No. set.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  {editingEmployee ? 'Update Employee' : 'Add Employee'}
-                </button>
-              </div>
-            </form>
+            <div className="p-6">
+              <EmployeeMasterPersonalForm
+                employee={null}
+                employees={employees}
+                variant="modal"
+                onCancel={() => {
+                  setShowForm(false);
+                  setEditingEmployee(null);
+                }}
+                onSaved={async () => {
+                  setShowForm(false);
+                  setEditingEmployee(null);
+                  await fetchEmployees();
+                }}
+              />
+            </div>
           </div>
         </div>
       )}

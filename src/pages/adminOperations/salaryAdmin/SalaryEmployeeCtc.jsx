@@ -41,6 +41,13 @@ import {
   todayInputDate,
 } from "./salaryData";
 import SalaryRevisionHistory from "./SalaryRevisionHistory";
+import PersonSalaryComponentsPanel from "./PersonSalaryComponentsPanel";
+import {
+  evalComponentFormula,
+  getProfileCustomComponents,
+  loadCustomComponentAmounts,
+  saveCustomComponentAmounts,
+} from "./salaryComponentsCatalog";
 
 const amountInput =
   "w-[9rem] h-9 px-2.5 text-right text-[15px] tabular-nums border border-border-strong rounded bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
@@ -296,11 +303,16 @@ function rateOrEmpty(saved, fallback) {
  * Compensation structure — Gross-master CTC per Salary Admin BRD.
  * First save creates CTC; later changes use ?mode=revise (archives previous).
  */
-export default function SalaryEmployeeCtc() {
-  const { employeeId } = useParams();
-  const [searchParams] = useSearchParams();
+export default function SalaryEmployeeCtc({
+  employeeId: employeeIdProp = null,
+  embedded = false,
+  persist = true,
+} = {}) {
+  const { employeeId: employeeIdParam } = useParams();
+  const employeeId = employeeIdProp ?? employeeIdParam;
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const reviseRequested = searchParams.get("mode") === "revise";
+  const reviseRequested = persist && searchParams.get("mode") === "revise";
 
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -313,6 +325,8 @@ export default function SalaryEmployeeCtc() {
   const [revisionReason, setRevisionReason] = useState("");
   const [esicSettingsOpen, setEsicSettingsOpen] = useState(false);
   const [savedStructure, setSavedStructure] = useState(null);
+  const [customAmounts, setCustomAmounts] = useState({});
+  const [catalogRev, setCatalogRev] = useState(0);
 
   const [employeeLevel, setEmployeeLevel] = useState(EMP_LEVEL_OFFICE);
   const [gross, setGross] = useState("");
@@ -344,9 +358,10 @@ export default function SalaryEmployeeCtc() {
   const [specialPerfBonusEnabled, setSpecialPerfBonusEnabled] = useState(false);
   const [specialPerfBonus, setSpecialPerfBonus] = useState("");
 
-  const isRevisionMode = reviseRequested && hasExistingCtc;
-  const isViewOnly = hasExistingCtc && !reviseRequested;
-  const canEdit = !isViewOnly;
+  const isRevisionMode = persist && reviseRequested && hasExistingCtc;
+  // Shell mode (persist=false): always editable for live formulas; no DB save.
+  const isViewOnly = persist && hasExistingCtc && !reviseRequested;
+  const canEdit = !persist || !isViewOnly;
   const basicIsCustom = normalizeComponentMode(basicMode) === MODE_CUSTOM;
   const hraIsCustom = normalizeComponentMode(hraMode) === MODE_CUSTOM;
   const empEsicIsCustom = normalizeComponentMode(empEsicMode) === MODE_CUSTOM;
@@ -505,10 +520,16 @@ export default function SalaryEmployeeCtc() {
       }
       setEmployee(data);
 
-      const saved = await getSalaryStructure(data.id);
+      let saved = null;
+      try {
+        saved = await getSalaryStructure(data.id);
+      } catch (structErr) {
+        console.warn("Salary CTC: structure load skipped", structErr);
+        saved = null;
+      }
       const declared = Boolean(saved?.declared);
       setSavedStructure(saved);
-      setHasExistingCtc(declared);
+      setHasExistingCtc(persist ? declared : Boolean(saved));
       setRevisionCount(Number(saved?.revision_count) || 0);
       setRevisionReason(reviseRequested && declared ? "" : saved?.revision_reason || "");
 
@@ -610,6 +631,7 @@ export default function SalaryEmployeeCtc() {
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
       setSaveMsg("");
+      setCustomAmounts(loadCustomComponentAmounts(employeeId));
     } catch (err) {
       console.error("Salary CTC: failed to load employee", err);
       setError("Could not load employee profile. Please try again.");
@@ -617,11 +639,21 @@ export default function SalaryEmployeeCtc() {
     } finally {
       setLoading(false);
     }
-  }, [employeeId, reviseRequested]);
+  }, [employeeId, reviseRequested, persist]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const bump = () => setCatalogRev((n) => n + 1);
+    window.addEventListener("focus", bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener("focus", bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
 
   const parsed = useMemo(() => {
     if (gross === "" && basic === "" && !(hraIsCustom && hraCustom !== "")) {
@@ -629,6 +661,57 @@ export default function SalaryEmployeeCtc() {
     }
     return computeCtcStructure(buildArgs());
   }, [gross, basic, hraIsCustom, hraCustom, buildArgs]);
+
+  const profileCustoms = useMemo(() => {
+    const all = getProfileCustomComponents(employeeId);
+    const partB = all.filter((c) => c.parent_code === "PART_B");
+    const partA = all.filter((c) => c.parent_code !== "PART_B");
+    return { partA, partB };
+  }, [employeeId, catalogRev]);
+
+  const componentSampleVars = useMemo(
+    () => ({
+      gross_monthly: parsed.gross_monthly,
+      basic_monthly: parsed.basic_monthly,
+      hra_monthly: parsed.hra_monthly,
+      special_allowance_monthly: parsed.special_allowance_monthly,
+      emp_pf_monthly: parsed.emp_pf_monthly,
+      pt_monthly: parsed.pt_monthly,
+      emp_esic_monthly: parsed.emp_esic_monthly,
+      take_home_monthly: parsed.take_home_monthly,
+      er_pf_monthly: parsed.er_pf_monthly,
+      er_esic_monthly: parsed.er_esic_monthly,
+      gratuity_monthly: parsed.gratuity_monthly,
+      leave_encash_monthly: parsed.leave_encash_monthly,
+      mediclaim_monthly: parsed.mediclaim_monthly,
+      lic_monthly: parsed.lic_monthly,
+      special_perf_bonus_monthly: parsed.special_perf_bonus_monthly,
+      bonus_monthly: parsed.bonus_monthly,
+      total_b_monthly: parsed.total_b_monthly,
+      ctc_monthly: parsed.ctc_monthly,
+    }),
+    [parsed]
+  );
+
+  const customExtraVars = useMemo(() => {
+    const vars = {};
+    for (const [code, val] of Object.entries(customAmounts || {})) {
+      const n = Number(val);
+      if (Number.isFinite(n)) vars[code] = n;
+    }
+    return vars;
+  }, [customAmounts]);
+
+  const setCustomAmount = useCallback(
+    (code, value) => {
+      setCustomAmounts((prev) => {
+        const next = { ...prev, [code]: value };
+        saveCustomComponentAmounts(employeeId, next);
+        return next;
+      });
+    },
+    [employeeId]
+  );
 
   // Keep Auto Basic / HRA / ESIC display values aligned while editing
   useEffect(() => {
@@ -948,12 +1031,35 @@ export default function SalaryEmployeeCtc() {
   };
 
   const enterReviseMode = () => {
-    navigate(`/app/admin/salary-admin/salary-master/${employeeId}?mode=revise`, {
+    if (!persist) return;
+    if (embedded) {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", "ctc");
+      next.set("mode", "revise");
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    navigate(`/app/admin/employee/master/${employeeId}?tab=ctc&mode=revise`, {
       replace: true,
     });
   };
 
+  const exitReviseMode = () => {
+    if (embedded) {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", "ctc");
+      next.delete("mode");
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    navigate(`/app/admin/employee/master/${employeeId}?tab=ctc`, { replace: true });
+  };
+
   const handleSave = async () => {
+    if (!persist) {
+      setSaveError("Salary save is paused while salary admin is being rewired.");
+      return;
+    }
     if (!employee || !canEdit) return;
     setSaveError("");
     const structure = computeCtcStructure(buildArgs());
@@ -1098,14 +1204,18 @@ export default function SalaryEmployeeCtc() {
     setRevisionReason(savedRow?.revision_reason || revisionReason || "");
 
     if (isRevisionMode || reviseRequested) {
-      navigate(`/app/admin/salary-admin/salary-master/${employee.id}`, { replace: true });
+      exitReviseMode();
     }
     window.setTimeout(() => setSaveMsg(""), 2500);
   };
 
+  const shellClass = embedded
+    ? "min-h-[28rem] flex flex-col bg-canvas"
+    : "-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-canvas";
+
   if (loading) {
     return (
-      <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex items-center justify-center bg-canvas">
+      <div className={`${shellClass} items-center justify-center`}>
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent" />
       </div>
     );
@@ -1113,14 +1223,16 @@ export default function SalaryEmployeeCtc() {
 
   if (!employee) {
     return (
-      <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] bg-canvas p-6 space-y-3">
-        <Link
-          to="/app/admin/salary-admin/salary-master"
-          className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Salary Master
-        </Link>
+      <div className={`${embedded ? "p-6 space-y-3 bg-canvas" : "-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] bg-canvas p-6 space-y-3"}`}>
+        {!embedded ? (
+          <Link
+            to={`/app/admin/employee/master/${employeeId}?tab=ctc`}
+            className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Employee Master
+          </Link>
+        ) : null}
         <p className="text-sm text-red-600">{error || "Employee not found."}</p>
       </div>
     );
@@ -1139,23 +1251,28 @@ export default function SalaryEmployeeCtc() {
     : `Auto: ${HRA_PERCENT}% of Basic.`;
 
   return (
-    <div className="-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] flex flex-col bg-canvas">
+    <div className={shellClass}>
       <div className="shrink-0 border-b border-border bg-surface-raised">
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-4 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-2xl sm:text-[1.75rem] font-bold text-ink-strong tracking-tight">
-              {name}
+              {embedded ? "CTC structure" : name}
             </h1>
             <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-              {isRevisionMode
-                ? `Salary revision · ${code}`
-                : isViewOnly
-                  ? `Compensation structure · ${code}`
-                  : `New CTC setup · ${code}`}
+              {!persist
+                ? `Live formula preview · ${code}`
+                : isRevisionMode
+                  ? `Salary revision · ${code}`
+                  : isViewOnly
+                    ? `Compensation structure · ${code}`
+                    : `New CTC setup · ${code}`}
             </p>
+            {embedded ? (
+              <p className="mt-1 text-sm text-ink-secondary">{name} · {metaLine}</p>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2">
-            {hasExistingCtc ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {persist && hasExistingCtc ? (
               <button
                 type="button"
                 onClick={() => setHistoryOpen(true)}
@@ -1170,7 +1287,7 @@ export default function SalaryEmployeeCtc() {
                 ) : null}
               </button>
             ) : null}
-            {isViewOnly ? (
+            {persist && isViewOnly ? (
               <button
                 type="button"
                 onClick={enterReviseMode}
@@ -1180,17 +1297,28 @@ export default function SalaryEmployeeCtc() {
                 Revise CTC
               </button>
             ) : null}
+            {persist && isRevisionMode ? (
+              <button
+                type="button"
+                onClick={exitReviseMode}
+                className="h-9 px-3 rounded-md border border-border-strong bg-white text-xs font-medium text-ink hover:bg-row-hover"
+              >
+                Cancel revision
+              </button>
+            ) : null}
           </div>
         </div>
-        <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-2.5 border-t border-border bg-surface-sunken">
-          <Link
-            to="/app/admin/salary-admin/salary-master"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary hover:text-accent"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back to Salary Master
-          </Link>
-        </div>
+        {!embedded ? (
+          <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-2.5 border-t border-border bg-surface-sunken">
+            <Link
+              to={`/app/admin/employee/master/${employeeId}?tab=ctc`}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary hover:text-accent"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to Employee Master
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
@@ -1332,7 +1460,7 @@ export default function SalaryEmployeeCtc() {
               ) : null}
             </div>
 
-            <SheetSectionHead title="PART A — Gross & Take Home" right="w.e.f. rate · per annum" />
+            <SheetSectionHead title="PART A — Gross & Take Home" />
             <ColHeads />
 
             <SheetRow
@@ -1409,6 +1537,47 @@ export default function SalaryEmployeeCtc() {
               monthly={<MoneyCell value={parsed.declared ? parsed.special_allowance_monthly : null} />}
               pa={paFromMonthly(parsed.declared ? parsed.special_allowance_monthly : null)}
             />
+
+            {profileCustoms.partA.length || profileCustoms.partB.length ? (
+              <div className="mx-6 sm:mx-8 lg:mx-10 my-3 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3.5 py-2.5 text-[12px] text-emerald-950 leading-snug">
+                {profileCustoms.partA.length + profileCustoms.partB.length} person-specific component
+                {profileCustoms.partA.length + profileCustoms.partB.length === 1 ? "" : "s"} — included on
+                this CTC sheet and in salary processing. Manage below.
+              </div>
+            ) : null}
+
+            {profileCustoms.partA.map((comp) => {
+              const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
+              const computed = isManual
+                ? null
+                : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
+              const manualVal = customAmounts[comp.code] ?? "";
+              return (
+                <SheetRow
+                  key={comp.code}
+                  label={
+                    <span>
+                      <span className="font-mono text-[10px] text-ink-muted mr-1.5">{comp.code}</span>
+                      {comp.name}
+                    </span>
+                  }
+                  hint={comp.formula_label || comp.effective_formula || "Custom component"}
+                  monthly={
+                    isManual ? (
+                      <AmountInput
+                        value={manualVal}
+                        onChange={canEdit ? (v) => setCustomAmount(comp.code, v) : () => {}}
+                        label={`${comp.name} monthly`}
+                        readOnly={!canEdit}
+                      />
+                    ) : (
+                      <MoneyCell value={computed} />
+                    )
+                  }
+                  pa={paFromMonthly(isManual ? parseRupeeInput(manualVal) : computed)}
+                />
+              );
+            })}
 
             {parsed.structure_warn ? (
               <div className="mx-6 sm:mx-8 lg:mx-10 my-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-[12.5px] text-red-800 leading-snug">
@@ -1713,6 +1882,40 @@ export default function SalaryEmployeeCtc() {
               }
               pa={paFromMonthly(parsed.bonus_monthly)}
             />
+
+            {profileCustoms.partB.map((comp) => {
+              const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
+              const computed = isManual
+                ? null
+                : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
+              const manualVal = customAmounts[comp.code] ?? "";
+              return (
+                <SheetRow
+                  key={comp.code}
+                  label={
+                    <span>
+                      <span className="font-mono text-[10px] text-ink-muted mr-1.5">{comp.code}</span>
+                      {comp.name}
+                    </span>
+                  }
+                  hint={comp.formula_label || comp.effective_formula || "Custom component"}
+                  monthly={
+                    isManual ? (
+                      <AmountInput
+                        value={manualVal}
+                        onChange={canEdit ? (v) => setCustomAmount(comp.code, v) : () => {}}
+                        label={`${comp.name} monthly`}
+                        readOnly={!canEdit}
+                      />
+                    ) : (
+                      <MoneyCell value={computed} />
+                    )
+                  }
+                  pa={paFromMonthly(isManual ? parseRupeeInput(manualVal) : computed)}
+                />
+              );
+            })}
+
             <SheetRow
               label="Total (B)"
               tone="total"
@@ -1795,12 +1998,21 @@ export default function SalaryEmployeeCtc() {
               ) : null}
             </div>
           </div>
+
+          <div className="mt-4">
+            <PersonSalaryComponentsPanel
+              employeeId={employeeId}
+              employeeName={name}
+              sampleVars={componentSampleVars}
+              onChanged={() => setCatalogRev((n) => n + 1)}
+            />
+          </div>
         </div>
       </div>
 
       <footer className="shrink-0 sticky bottom-0 z-20 border-t border-border bg-surface-raised/95 backdrop-blur-sm">
         <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-3 flex flex-wrap items-center gap-2">
-          {canEdit ? (
+          {persist && canEdit ? (
             <button
               type="button"
               onClick={handleSave}
@@ -1815,7 +2027,8 @@ export default function SalaryEmployeeCtc() {
                   ? "Save revision"
                   : "Save CTC"}
             </button>
-          ) : (
+          ) : null}
+          {persist && !canEdit ? (
             <button
               type="button"
               onClick={enterReviseMode}
@@ -1824,7 +2037,12 @@ export default function SalaryEmployeeCtc() {
               <RefreshCw className="h-4 w-4" />
               Revise CTC
             </button>
-          )}
+          ) : null}
+          {!persist ? (
+            <span className="text-sm text-ink-muted font-medium">
+              Formula preview only — salary save is paused during rewire.
+            </span>
+          ) : null}
           {canEdit ? (
             <button
               type="button"
@@ -1836,31 +2054,35 @@ export default function SalaryEmployeeCtc() {
               Suggest PF (12% / 13%)
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => navigate("/app/admin/salary-admin/salary-processing")}
-            className="h-10 px-4 rounded-md border border-border-strong bg-white text-sm font-medium text-ink hover:bg-row-hover inline-flex items-center gap-1.5"
-          >
-            Go to Salary Processing
-            <ArrowRight className="h-4 w-4" />
-          </button>
+          {persist ? (
+            <button
+              type="button"
+              onClick={() => navigate("/app/admin/salary-admin/salary-processing")}
+              className="h-10 px-4 rounded-md border border-border-strong bg-white text-sm font-medium text-ink hover:bg-row-hover inline-flex items-center gap-1.5"
+            >
+              Go to Salary Processing
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          ) : null}
           {saveError ? (
             <span className="text-sm text-red-600 font-medium">{saveError}</span>
           ) : null}
         </div>
       </footer>
 
-      <Drawer
-        open={historyOpen}
-        title="CTC revision history"
-        onClose={() => setHistoryOpen(false)}
-        widthClass="max-w-md"
-      >
-        <SalaryRevisionHistory
-          employee={employee}
-          salary={savedStructure}
-        />
-      </Drawer>
+      {persist ? (
+        <Drawer
+          open={historyOpen}
+          title="CTC revision history"
+          onClose={() => setHistoryOpen(false)}
+          widthClass="max-w-md"
+        >
+          <SalaryRevisionHistory
+            employee={employee}
+            salary={savedStructure}
+          />
+        </Drawer>
+      ) : null}
     </div>
   );
 }
