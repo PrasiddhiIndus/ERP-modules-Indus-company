@@ -36,11 +36,12 @@ import {
 } from "../../../../shared/attendancePunchSync.mjs";
 import {
   mockEmployees,
-  mockOnboarding,
+  // NAV_HIDDEN pages — mocks kept for commented implementations below
+  // mockOnboarding,
   mockPermissions,
-  mockComplianceRows,
-  mockSalaryInputs,
-  mockExits,
+  // mockComplianceRows,
+  // mockSalaryInputs,
+  // mockExits,
 } from "../data/mockAdminData";
 import { fetchApiHealth, fetchApiWithAuth, fetchAttendanceApiStatus } from "../../../lib/apiBase";
 
@@ -217,6 +218,7 @@ export function EmployeeMasterPage() {
   );
 }
 
+/* NAV_HIDDEN (Aug 2026): Onboarding — re-enable in Layout.jsx, navConfig.js, App.jsx
 export function EmployeeOnboardingPage() {
   const cols = [
     { key: "name", label: "Joiner" },
@@ -245,6 +247,7 @@ export function EmployeeOnboardingPage() {
     </SectionCard>
   );
 }
+*/
 
 const ATTENDANCE_TABLE = ATTENDANCE_PUNCH_TABLE;
 const ATTENDANCE_PAGE_SIZES = [25, 50, 100, 200];
@@ -821,6 +824,7 @@ export function EmployeeAttendanceInputsPage() {
   );
 }
 
+/* NAV_HIDDEN (Aug 2026): Attendance Sheets
 export function EmployeeAttendanceSheetsPage() {
   return (
     <SectionCard title="Attendance sheets" right={<StatusChip label="Sheet prep" severity="info" />}>
@@ -866,6 +870,7 @@ export function EmployeeAttendanceSheetsPage() {
     </SectionCard>
   );
 }
+*/
 
 export { EmployeeLeavesPage } from "./EmployeeLeaveInboxPage";
 
@@ -904,6 +909,7 @@ export function EmployeePermissionsPage() {
   );
 }
 
+/* NAV_HIDDEN (Aug 2026): Compliance & Documents
 export function EmployeeCompliancePage() {
   return (
     <SectionCard title="Compliance & documents" right={<button className="h-8 px-2 rounded border text-xs">Missing docs filter</button>}>
@@ -937,7 +943,9 @@ export function EmployeeCompliancePage() {
     </SectionCard>
   );
 }
+*/
 
+/* NAV_HIDDEN (Aug 2026): Salary Inputs
 export function EmployeeSalaryInputsPage() {
   return (
     <div className="max-w-6xl">
@@ -974,7 +982,9 @@ export function EmployeeSalaryInputsPage() {
     </div>
   );
 }
+*/
 
+/* NAV_HIDDEN (Aug 2026): Exit & F&F
 export function EmployeeExitPage() {
   return (
     <SectionCard title="Exit & full & final" right={<StatusChip label="Cross-module" severity="high" />}>
@@ -1016,5 +1026,6 @@ export function EmployeeExitPage() {
     </SectionCard>
   );
 }
+*/
 
 

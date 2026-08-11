@@ -1,43 +1,182 @@
 /**
- * Birthday / wedding anniversary reminders for Admin Employee Master.
- * Uses date_of_birth and date_of_anniversary (calendar month/day vs today).
+ * Birthday / wedding anniversary / work anniversary reminders for Admin Employee Master.
+ * Uses date_of_birth, date_of_anniversary (wedding), and date_of_joining (work tenure).
  */
 
+import { normalizeToIsoDate } from "./dateDisplay";
+
 function parseMonthDay(dateStr) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return null;
-  return { month: d.getMonth(), day: d.getDate() };
+  const iso = normalizeToIsoDate(dateStr);
+  if (!iso) return null;
+  const parts = iso.split("-");
+  if (parts.length !== 3) return null;
+  const month = Number(parts[1]) - 1;
+  const day = Number(parts[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(day)) return null;
+  return { month, day };
+}
+
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+/** Anniversary date in a given year. A 29 Feb date falls back to 28 Feb in non-leap years. */
+function occurrenceInYear(md, year) {
+  return new Date(year, md.month, Math.min(md.day, daysInMonth(year, md.month)));
+}
+
+/** Parse an ISO/dd-mm-yyyy value as a local calendar date (avoids UTC day shifts). */
+function localCalendarDate(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const iso = normalizeToIsoDate(value);
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
 function isSameMonthDay(dateStr, ref = new Date()) {
   const md = parseMonthDay(dateStr);
   if (!md) return false;
-  return md.month === ref.getMonth() && md.day === ref.getDate();
+  const occurrence = occurrenceInYear(md, ref.getFullYear());
+  return occurrence.getMonth() === ref.getMonth() && occurrence.getDate() === ref.getDate();
 }
 
 /** @param {Array<object>} employees */
 function isActiveEmployee(e) {
-  return e.status !== 'Inactive';
+  return String(e?.status || "").trim().toLowerCase() !== "inactive";
+}
+
+function birthdayReminderEnabled(e) {
+  return e?.birthday_reminder !== false;
+}
+
+function weddingAnniversaryReminderEnabled(e) {
+  return e?.anniversary_reminder !== false;
 }
 
 export function employeesWithBirthdayToday(employees, refDate = new Date()) {
   return (employees || []).filter(
     (e) =>
       isActiveEmployee(e) &&
+      birthdayReminderEnabled(e) &&
       e.date_of_birth &&
       isSameMonthDay(e.date_of_birth, refDate)
   );
 }
 
-/** @param {Array<object>} employees */
+/** Wedding anniversary (date_of_anniversary). */
 export function employeesWithAnniversaryToday(employees, refDate = new Date()) {
   return (employees || []).filter(
     (e) =>
       isActiveEmployee(e) &&
+      weddingAnniversaryReminderEnabled(e) &&
       e.date_of_anniversary &&
       isSameMonthDay(e.date_of_anniversary, refDate)
   );
+}
+
+/** Work anniversary (date_of_joining). */
+export function employeesWithWorkAnniversaryToday(employees, refDate = new Date()) {
+  return (employees || []).filter(
+    (e) =>
+      isActiveEmployee(e) &&
+      e.date_of_joining &&
+      isSameMonthDay(e.date_of_joining, refDate)
+  );
+}
+
+/**
+ * ISO date of the celebration as it falls inside [fromDate, toDate], or "" when outside.
+ * @returns {string} YYYY-MM-DD
+ */
+export function celebrationOccurrenceIsoInRange(dateStr, fromDate, toDate) {
+  const md = parseMonthDay(dateStr);
+  if (!md) return "";
+  const start = localCalendarDate(fromDate);
+  const end = localCalendarDate(toDate);
+  if (!start || !end) return "";
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  for (let y = start.getFullYear(); y <= end.getFullYear(); y += 1) {
+    const d = occurrenceInYear(md, y);
+    if (d >= start && d <= end) {
+      return `${y}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+  }
+  return "";
+}
+
+function celebrationInRange(dateStr, fromDate, toDate) {
+  return celebrationOccurrenceIsoInRange(dateStr, fromDate, toDate) !== "";
+}
+
+export function employeesWithBirthdayInRange(employees, fromDate, toDate) {
+  return (employees || []).filter(
+    (e) =>
+      isActiveEmployee(e) &&
+      birthdayReminderEnabled(e) &&
+      e.date_of_birth &&
+      celebrationInRange(e.date_of_birth, fromDate, toDate)
+  );
+}
+
+export function employeesWithAnniversaryInRange(employees, fromDate, toDate) {
+  return (employees || []).filter(
+    (e) =>
+      isActiveEmployee(e) &&
+      weddingAnniversaryReminderEnabled(e) &&
+      e.date_of_anniversary &&
+      celebrationInRange(e.date_of_anniversary, fromDate, toDate)
+  );
+}
+
+export function employeesWithWorkAnniversaryInRange(employees, fromDate, toDate) {
+  return (employees || []).filter(
+    (e) =>
+      isActiveEmployee(e) &&
+      e.date_of_joining &&
+      celebrationInRange(e.date_of_joining, fromDate, toDate)
+  );
+}
+
+/**
+ * Why an active employee can be absent from reminders: no date on record, or reminder muted.
+ * Used to show data coverage next to the reminder lists.
+ */
+export function summarizeReminderCoverage(employees) {
+  const active = (employees || []).filter(isActiveEmployee);
+  const summary = {
+    activeEmployees: active.length,
+    missingBirthday: 0,
+    missingAnniversary: 0,
+    missingJoiningDate: 0,
+    mutedBirthday: 0,
+    mutedAnniversary: 0,
+  };
+  for (const e of active) {
+    if (!parseMonthDay(e.date_of_birth)) summary.missingBirthday += 1;
+    else if (!birthdayReminderEnabled(e)) summary.mutedBirthday += 1;
+
+    if (!parseMonthDay(e.date_of_anniversary)) summary.missingAnniversary += 1;
+    else if (!weddingAnniversaryReminderEnabled(e)) summary.mutedAnniversary += 1;
+
+    if (!parseMonthDay(e.date_of_joining)) summary.missingJoiningDate += 1;
+  }
+  return summary;
+}
+
+export function computeWorkAnniversaryYears(dateOfJoining, refDate = new Date()) {
+  const joinIso = normalizeToIsoDate(dateOfJoining);
+  const refIso = normalizeToIsoDate(refDate) || normalizeToIsoDate(new Date());
+  if (!joinIso || !refIso) return null;
+  const [jy, jm, jd] = joinIso.split("-").map(Number);
+  const [ry, rm, rd] = refIso.split("-").map(Number);
+  let years = ry - jy;
+  if (rm < jm || (rm === jm && rd < jd)) years -= 1;
+  return Math.max(0, years);
 }
 
 /**
