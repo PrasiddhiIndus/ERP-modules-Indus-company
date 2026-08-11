@@ -172,6 +172,14 @@ function mapPoWoRowToClient(po, ratesByPo, contactsByPo) {
     approvedByName: c.approvedByName ?? approvalActors.approvedByName ?? null,
     rejectedByName: c.rejectedByName ?? approvalActors.rejectedByName ?? null,
     billingType: billingTypeCanonical ?? c.billingType ?? null,
+    billingFrequency:
+      raw.billing_frequency === 'monthly' || raw.billing_frequency === 'quarterly'
+        ? raw.billing_frequency
+        : Number(raw.billing_cycle) >= 75
+          ? 'quarterly'
+          : Number(raw.billing_cycle) > 0
+            ? 'monthly'
+            : c.billingFrequency ?? null,
     remarks: raw.remarks ?? null,
     paymentTerms:
       inferredTerms ??
@@ -688,10 +696,25 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
   const totalContractValueVal = Number(po.totalContractValue) || 0;
 
   const billingCycleRaw = po.billingCycle ?? po.billing_cycle;
-  const billingCycleVal =
-    isMp && billingCycleRaw != null && billingCycleRaw !== ''
-      ? Number(billingCycleRaw) || null
+  const billingFrequencyRaw = String(po.billingFrequency ?? po.billing_frequency ?? '')
+    .trim()
+    .toLowerCase();
+  const billingFrequencyVal =
+    billingFrequencyRaw === 'monthly' || billingFrequencyRaw === 'quarterly'
+      ? billingFrequencyRaw
       : null;
+  // Persist day count when frequency is set (AMC/RM previously forced null and broke quarterly detection).
+  const billingCycleVal = (() => {
+    if (billingFrequencyVal === 'quarterly') return 90;
+    if (billingFrequencyVal === 'monthly') return 30;
+    if (isMp && billingCycleRaw != null && billingCycleRaw !== '') {
+      return Number(billingCycleRaw) || null;
+    }
+    if (!isMp && billingCycleRaw != null && billingCycleRaw !== '') {
+      return Number(billingCycleRaw) || null;
+    }
+    return null;
+  })();
   const paymentTermsVal = isMp ? String(po.paymentTerms ?? po.payment_terms ?? '').trim() || null : null;
   const monthlyDutyVal =
     isMp && po.monthlyDutyQtyMode && String(po.monthlyDutyQtyMode).trim()
@@ -776,6 +799,7 @@ function buildPoWoSavePayload(po, poIdInput, moduleContext, updateHistoryStamped
     po_type: poType,
     billing_type: poType,
     billing_cycle: billingCycleVal,
+    billing_frequency: billingFrequencyVal,
     payment_terms: paymentTermsVal,
     po_received_date: poReceivedVal,
     payment_term_mode: isRm ? rmTerms.payment_term_mode : null,

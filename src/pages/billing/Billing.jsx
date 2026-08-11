@@ -12,9 +12,10 @@ import CreditNotes from './CreditNotes';
 import BillingReports from './BillingReports';
 import BillingTracking from './BillingTracking';
 import BillingNotifications from './BillingNotifications';
+import BillingTracker from './BillingTracker';
 import BillingPoNotificationBar from './components/BillingPoNotificationBar';
 import BillingKeepAlivePanels from './components/BillingKeepAlivePanels';
-import { PO_BASIS_FILTER_ALL } from '../../constants/poBasis';
+import BillingScopeFilters from './components/BillingScopeFilters';
 import {
   COMMERCIAL_MODULE_PROJECTS,
   COMMERCIAL_MODULE_RM_MM_AMC_IEV,
@@ -28,7 +29,18 @@ import {
 } from '../../config/roles';
 
 // Order matches left sidebar: Generated E-Invoice last (after Manage Invoices workflow)
-const TAB_IDS = ['dashboard', 'create-invoice', 'add-on-invoices', 'manage-invoices', 'credit-notes', 'reports', 'tracking', 'notifications', 'generated-e-invoice'];
+const TAB_IDS = [
+  'dashboard',
+  'create-invoice',
+  'add-on-invoices',
+  'manage-invoices',
+  'credit-notes',
+  'reports',
+  'tracking',
+  'notifications',
+  'generated-e-invoice',
+  'tracker',
+];
 
 const getBillingPathTab = (pathname) => {
   const suffix = pathname.replace(/^\/app\/billing\/?/, '') || 'dashboard';
@@ -36,19 +48,10 @@ const getBillingPathTab = (pathname) => {
   return TAB_IDS.includes(firstSegment) ? firstSegment : 'dashboard';
 };
 
-/** Presentational only — `useBilling()` runs in BillingInner (inside BillingProvider) to avoid context edge cases. */
-const BillingVerticalSelector = ({
-  billingVerticalFilter,
-  setBillingVerticalFilter,
-  billingVerticalOptions,
-  billingPoBasisFilter,
-  setBillingPoBasisFilter,
-  billingPoBasisOptions,
-  billingVerticalAccessBlocked,
-  lockedToSingleVertical,
-}) => (
-  <div className="px-4 sm:px-6 pt-4 pb-1">
-    {billingVerticalAccessBlocked ? (
+/** Access gate only — scope filters live on Billing dashboard (and other tabs via BillingInner). */
+const BillingVerticalSelector = ({ billingVerticalAccessBlocked }) => (
+  billingVerticalAccessBlocked ? (
+    <div className="px-4 sm:px-6 pt-4 pb-3">
       <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm p-4">
         <p className="text-sm font-semibold text-amber-900">No billing business lines assigned</p>
         <p className="text-xs text-amber-800 mt-1">
@@ -56,68 +59,8 @@ const BillingVerticalSelector = ({
           account. Ask an administrator to grant the right lines in User Management.
         </p>
       </div>
-    ) : (
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3 w-fit max-w-full">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-          <div className="w-full sm:w-52 shrink-0">
-            <label className="block text-xs font-medium text-gray-700 mb-1">1 · Business line (team)</label>
-            <select
-              value={billingVerticalFilter || ''}
-              onChange={(e) => setBillingVerticalFilter(e.target.value)}
-              className="w-full h-9 border border-gray-300 rounded-lg px-2.5 text-sm bg-white min-w-0 disabled:bg-gray-50 disabled:text-gray-600"
-              aria-label="Business line or team"
-              disabled={lockedToSingleVertical}
-            >
-              {!lockedToSingleVertical ? <option value="">Choose team…</option> : null}
-              {(billingVerticalOptions || []).map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-gray-500 mt-1 leading-snug">
-              {lockedToSingleVertical
-                ? 'Only this business line is assigned to your account.'
-                : 'Same line as Commercial → PO Entry.'}
-            </p>
-          </div>
-          <div className="w-full sm:w-52 shrink-0">
-            <label className="block text-xs font-medium text-gray-700 mb-1">2 · How the job was set up</label>
-            <select
-              value={billingPoBasisFilter || PO_BASIS_FILTER_ALL}
-              onChange={(e) => setBillingPoBasisFilter(e.target.value)}
-              className="w-full h-9 border border-gray-300 rounded-lg px-2.5 text-sm bg-white min-w-0"
-              title="Filter jobs that have a real PO paper vs jobs billed without one"
-              aria-label="PO or without PO"
-            >
-              {(billingPoBasisOptions || []).map((o) => (
-                <option key={o.id || 'all'} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-gray-500 mt-1 leading-snug">
-              Use “without PO” only when Commercial saved it that way.
-            </p>
-          </div>
-          {!lockedToSingleVertical &&
-          (billingVerticalFilter || billingPoBasisFilter !== PO_BASIS_FILTER_ALL) ? (
-            <button
-              type="button"
-              onClick={() => {
-                setBillingVerticalFilter('');
-                setBillingPoBasisFilter(PO_BASIS_FILTER_ALL);
-              }}
-              className="h-9 px-3 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 shrink-0 self-start sm:mt-[1.375rem]"
-              title="Reset team and job-type filters"
-            >
-              Clear both
-            </button>
-          ) : null}
-        </div>
-      </div>
-    )}
-  </div>
+    </div>
+  ) : null
 );
 
 class BillingErrorBoundary extends React.Component {
@@ -313,6 +256,7 @@ const BillingInner = () => {
     { id: 'tracking', component: BillingTracking },
     { id: 'notifications', component: BillingNotifications },
     { id: 'generated-e-invoice', component: GeneratedEInvoice },
+    { id: 'tracker', component: BillingTracker },
   ];
 
   const handleTabChange = (tabId) => {
@@ -324,18 +268,22 @@ const BillingInner = () => {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto w-full max-w-[1920px] flex-1">
-        <BillingVerticalSelector
-          billingVerticalFilter={billingVerticalFilter}
-          setBillingVerticalFilter={setBillingVerticalFilter}
-          billingVerticalOptions={billingVerticalOptions}
-          billingPoBasisFilter={billingPoBasisFilter}
-          setBillingPoBasisFilter={setBillingPoBasisFilter}
-          billingPoBasisOptions={billingPoBasisOptions}
-          billingVerticalAccessBlocked={billingVerticalAccessBlocked}
-          lockedToSingleVertical={lockedToSingleVertical}
-        />
+        <BillingVerticalSelector billingVerticalAccessBlocked={billingVerticalAccessBlocked} />
         {!billingVerticalAccessBlocked ? (
           <>
+            {activeTab !== 'dashboard' && activeTab !== 'tracker' ? (
+              <div className="px-4 sm:px-6 pt-4 pb-2">
+                <BillingScopeFilters
+                  billingVerticalFilter={billingVerticalFilter}
+                  setBillingVerticalFilter={setBillingVerticalFilter}
+                  billingVerticalOptions={billingVerticalOptions}
+                  billingPoBasisFilter={billingPoBasisFilter}
+                  setBillingPoBasisFilter={setBillingPoBasisFilter}
+                  billingPoBasisOptions={billingPoBasisOptions}
+                  lockedToSingleVertical={lockedToSingleVertical}
+                />
+              </div>
+            ) : null}
             <BillingPoNotificationBar />
             <BillingErrorBoundary>
               <BillingKeepAlivePanels

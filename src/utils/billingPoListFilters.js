@@ -24,6 +24,10 @@ export function normalizeBillingVerticalKey(v) {
     iev: 'iev',
     projects: 'projects',
     project: 'projects',
+    fire_tender: 'fire_tender',
+    firetender: 'fire_tender',
+    ft: 'fire_tender',
+    maintenance: 'mm',
   };
   return aliases[raw] || raw;
 }
@@ -36,6 +40,7 @@ export function resolveBillingVerticalKey(po) {
   const vRaw = String(po?.vertical || po?.poVertical || '').trim();
   if (vRaw === 'MANP' || vRaw === 'BILL' || vRaw === 'Manpower') return 'manpower';
   if (vRaw === 'Training' || vRaw === 'TRAIN') return 'training';
+  if (vRaw === 'Fire Tender' || vRaw === 'FT') return 'fire_tender';
   if (vRaw) {
     const dk = normalizeBillingVerticalKey(vRaw);
     if (dk) return dk;

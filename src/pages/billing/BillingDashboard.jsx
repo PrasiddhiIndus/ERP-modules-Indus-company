@@ -1,58 +1,35 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import {
   CalendarDays,
-  FileText,
-  FileCheck,
-  Receipt,
   FileDigit,
-  Bell,
   LayoutDashboard,
   Wallet,
-  FilePlus2,
   AlertTriangle,
-  RefreshCw,
-  Sparkles,
-  Filter,
   TrendingUp,
+  TrendingDown,
+  Minus,
   Clock,
   Target,
   CircleDollarSign,
-  Users,
-  Percent,
-  ChevronDown,
+  X,
+  Ban,
+  PencilLine,
+  GitCompareArrows,
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { rollupMainPoBilling, resolveContractForBillingParentPo } from '../../utils/billingInvoiceRollup';
-import { formatDateDdMmYyyy } from '../../utils/dateDisplay';;
+import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import FormDateInput from "../../components/FormDateInput";
+import BillingScopeFilters from './components/BillingScopeFilters';
+import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import {
   ChartPanel,
   ComposedTrendChart,
-  DonutChart,
-  BarCompareChart,
-  RadialScoreChart,
-  bucketByDay,
   CHART_SERIES,
 } from '../../components/charts/DashboardCharts';
 
 
-const APPROVAL_SENT = 'sent_for_approval';
 const APPROVAL_APPROVED = 'approved';
-
-function isAfterContractEnd(endDate) {
-  if (!endDate) return false;
-  const end = new Date(String(endDate));
-  if (Number.isNaN(end.getTime())) return false;
-  const today = new Date();
-  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  return todayDay.getTime() > endDay.getTime();
-}
-
-function cnDnStatus(inv) {
-  return inv.cnDnRequestStatus || inv.cn_dn_request_status || null;
-}
 
 function formatDateInputValue(date) {
   const d = date instanceof Date ? new Date(date) : new Date(date);
@@ -127,10 +104,6 @@ function getInvoiceDate(inv) {
   return inv?.invoiceDate || inv?.invoice_date || inv?.created_at || inv?.createdAt || '';
 }
 
-function getNoteDate(note) {
-  return note?.created_at || note?.createdAt || note?.noteDate || '';
-}
-
 function isDateInRange(rawDate, range) {
   if (!isDashboardRangeActive(range)) return true;
   const d = startOfDay(rawDate);
@@ -178,6 +151,260 @@ function getInvoiceKind(inv) {
   return String(inv.invoiceKind || inv.invoice_kind || 'tax').toLowerCase();
 }
 
+function getInvoiceAmount(inv) {
+  return Number(inv?.totalAmount ?? inv?.calculatedInvoiceAmount ?? inv?.calculated_invoice_amount) || 0;
+}
+
+function getInvoiceSiteLabel(inv) {
+  const site = String(inv?.siteId || inv?.site_id || '').trim();
+  const loc = String(inv?.locationName || inv?.location_name || '').trim();
+  if (site && loc) return `${site} – ${loc}`;
+  if (site || loc) return site || loc;
+  return String(inv?.clientLegalName || inv?.client_legal_name || '—').trim() || '—';
+}
+
+/** Site display name for monthly comparison (legal/client name — not location or site code). */
+function getComparisonSiteName(inv, po) {
+  const name = String(
+    inv?.clientLegalName ||
+      inv?.client_legal_name ||
+      po?.legalName ||
+      po?.legal_name ||
+      ''
+  ).trim();
+  if (name) return name;
+  const site = String(inv?.siteId || inv?.site_id || po?.siteId || po?.site_id || '').trim();
+  return site || '—';
+}
+
+function getInvoiceUpdatedAt(inv) {
+  return inv?.updated_at || inv?.updatedAt || '';
+}
+
+function getInvoiceCreatedAt(inv) {
+  return inv?.created_at || inv?.createdAt || '';
+}
+
+/** True when Manage Invoice (or any save) updated the row after create. */
+function wasInvoiceUpdatedAfterCreate(inv) {
+  const u = new Date(getInvoiceUpdatedAt(inv) || 0).getTime() || 0;
+  const c = new Date(getInvoiceCreatedAt(inv) || getInvoiceDate(inv) || 0).getTime() || 0;
+  if (!u || !c) return false;
+  return u - c > 60 * 1000;
+}
+
+function currentMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function shiftMonthKey(ym, deltaMonths) {
+  const [y, m] = String(ym || '').split('-').map(Number);
+  if (!y || !m) return '';
+  const d = new Date(y, m - 1 + deltaMonths, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatSignedINR(n) {
+  const v = Number(n);
+  const amount = Number.isFinite(v) ? v : 0;
+  const abs = formatINR(Math.abs(amount));
+  if (amount > 0) return `+${abs}`;
+  if (amount < 0) return `-${abs}`;
+  return abs;
+}
+
+/** Difference = Current Month Billing − Previous Month Billing */
+function billingAmountDifference(currentMonthBilling, previousMonthBilling) {
+  return (Number(currentMonthBilling) || 0) - (Number(previousMonthBilling) || 0);
+}
+
+function formatPctChange(current, previous) {
+  const curr = Number(current) || 0;
+  const prev = Number(previous) || 0;
+  if (prev === 0) {
+    if (curr === 0) return '0%';
+    return 'New';
+  }
+  const pct = ((curr - prev) / prev) * 100;
+  const rounded = Math.round(pct * 10) / 10;
+  const sign = rounded > 0 ? '+' : '';
+  return `${sign}${rounded.toLocaleString('en-IN', { maximumFractionDigits: 1 })}%`;
+}
+
+function toggleTableSort(prev, key, defaultDirection = 'asc') {
+  if (prev?.key === key) {
+    return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+  }
+  return { key, direction: defaultDirection };
+}
+
+function compareSortValues(a, b, direction = 'asc') {
+  const mul = direction === 'desc' ? -1 : 1;
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === 'number' && typeof b === 'number') {
+    if (a === b) return 0;
+    return a < b ? -1 * mul : 1 * mul;
+  }
+  const as = String(a).toLowerCase();
+  const bs = String(b).toLowerCase();
+  if (as === bs) return 0;
+  return as < bs ? -1 * mul : 1 * mul;
+}
+
+function renderDashboardSortIndicator(active, direction) {
+  const ascActive = active && direction === 'asc';
+  const descActive = active && direction === 'desc';
+  return (
+    <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] align-middle">
+      <span className={ascActive ? 'text-emerald-500' : 'text-slate-300'}>▲</span>
+      <span className={descActive ? 'text-rose-400' : 'text-slate-300'}>▼</span>
+    </span>
+  );
+}
+
+function monthKeyFromDate(raw) {
+  if (!raw) return '';
+  if (typeof raw === 'string' && /^\d{4}-\d{2}/.test(raw)) return raw.slice(0, 7);
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthOptionLabel(ym) {
+  if (!ym || ym === 'all') return 'All months';
+  const [y, m] = String(ym).split('-');
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  if (Number.isNaN(d.getTime())) return ym;
+  return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+function cancelledInvoiceMonthKey(inv) {
+  return (
+    monthKeyFromDate(inv?.cancelledAt || inv?.cancelled_at) ||
+    monthKeyFromDate(getInvoiceDate(inv)) ||
+    ''
+  );
+}
+
+/** Display-only snapshot of last-seen amounts (not billing source of truth). */
+const UPDATED_AMOUNT_SNAPSHOT_KEY = 'billing_dashboard_updated_invoice_amounts';
+
+function readUpdatedAmountSnapshot() {
+  try {
+    const raw = window.localStorage.getItem(UPDATED_AMOUNT_SNAPSHOT_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeUpdatedAmountSnapshot(map) {
+  try {
+    window.localStorage.setItem(UPDATED_AMOUNT_SNAPSHOT_KEY, JSON.stringify(map || {}));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Previous amount from last dashboard snapshot when the current total differs.
+ * Does not change invoice data or billing logic.
+ * Snapshot shape: { [invoiceId]: { previous: number|null, current: number } }
+ */
+function getPreviousBillingAmount(inv, snapshot) {
+  const id = String(inv?.id || '');
+  if (!id) return null;
+  const entry = snapshot?.[id];
+  if (!entry || typeof entry !== 'object') return null;
+  const live = getInvoiceAmount(inv);
+  const storedCurrent = Number(entry.current);
+  // Same refresh as an amount change: last-seen current is the previous amount.
+  if (Number.isFinite(storedCurrent) && storedCurrent !== live) {
+    return storedCurrent;
+  }
+  if (entry.previous == null) return null;
+  const prev = Number(entry.previous);
+  return Number.isFinite(prev) ? prev : null;
+}
+
+function bumpUpdatedAmountSnapshot(snapshot, invoiceId, newAmount) {
+  const id = String(invoiceId || '');
+  if (!id) return snapshot;
+  const next = { ...(snapshot || {}) };
+  const amount = Number(newAmount) || 0;
+  const prevEntry = next[id];
+  if (!prevEntry || typeof prevEntry !== 'object') {
+    next[id] = { previous: null, current: amount };
+    return next;
+  }
+  const prevCurrent = Number(prevEntry.current);
+  if (Number.isFinite(prevCurrent) && prevCurrent !== amount) {
+    next[id] = { previous: prevCurrent, current: amount };
+  } else {
+    next[id] = {
+      previous: prevEntry.previous == null ? null : Number(prevEntry.previous),
+      current: amount,
+    };
+  }
+  return next;
+}
+
+/** Daily buckets for trend — uses filter end date, or anchors to latest bill date when "All dates". */
+function buildInvoiceTrendData(rows, dateRange, days = 14) {
+  const validRows = (rows || []).filter((r) => startOfDay(r.date));
+  const empty = Array.from({ length: days }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (days - 1 - i));
+    return { name: formatDateDdMmYyyy(d).slice(0, 5), value: 0, count: 0 };
+  });
+  if (!validRows.length) return { data: empty, anchored: false };
+
+  const today = startOfDay(new Date());
+  let windowEnd = isDashboardRangeActive(dateRange) ? startOfDay(dateRange.to) || today : today;
+  let windowStart = new Date(windowEnd);
+  windowStart.setDate(windowStart.getDate() - (days - 1));
+
+  const inWindow = (d) => d >= windowStart && d <= windowEnd;
+  let anchored = false;
+  if (!validRows.some((r) => inWindow(startOfDay(r.date)))) {
+    const latest = validRows.reduce((max, r) => {
+      const d = startOfDay(r.date);
+      return d && d > max ? d : max;
+    }, new Date(0));
+    if (latest.getTime() > 0) {
+      windowEnd = latest;
+      windowStart = new Date(latest);
+      windowStart.setDate(windowStart.getDate() - (days - 1));
+      anchored = true;
+    }
+  }
+
+  const buckets = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(windowStart);
+    d.setDate(windowStart.getDate() + i);
+    buckets.push({
+      key: formatDateInputValue(d),
+      name: formatDateDdMmYyyy(d).slice(0, 5),
+      value: 0,
+      count: 0,
+    });
+  }
+  const byKey = new Map(buckets.map((b) => [b.key, b]));
+  for (const row of validRows) {
+    const key = formatDateInputValue(startOfDay(row.date));
+    const cell = byKey.get(key);
+    if (!cell) continue;
+    cell.value += Number(row.amount) || 0;
+    cell.count += 1;
+  }
+  return { data: buckets.map(({ name, value, count }) => ({ name, value, count })), anchored };
+}
+
 const DATE_PRESETS = [
   { id: 'all', label: 'All time', getRange: () => getAllDashboardDateRange() },
   { id: 'this_month', label: 'This month', getRange: getThisMonthDateRange },
@@ -186,44 +413,43 @@ const DATE_PRESETS = [
   { id: 'this_fy', label: 'This financial year', getRange: getThisFinancialYearDateRange },
 ];
 
-const BillingDashboard = ({ onNavigateTab }) => {
+const BillingDashboard = () => {
   const {
     commercialPOs,
     commercialPOsAllModules,
     invoices,
     invoicesAll,
-    creditDebitNotes,
-    paymentAdvice,
     billingError,
     clearBillingError,
     refreshBilling,
     billingVerticalFilter,
+    setBillingVerticalFilter,
     billingPoBasisFilter,
+    setBillingPoBasisFilter,
     billingVerticalOptions,
+    billingPoBasisOptions,
   } = useBilling();
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRangeOpen, setIsRangeOpen] = useState(false);
   const [dateRange, setDateRange] = useState(getAllDashboardDateRange);
   const [datePresetId, setDatePresetId] = useState('all');
   const [invoiceKindFilter, setInvoiceKindFilter] = useState('all');
-  const [showFiltersPanel, setShowFiltersPanel] = useState(true);
+  const [previewInvoice, setPreviewInvoice] = useState(null);
+  const [cancelledMonthFilter, setCancelledMonthFilter] = useState(currentMonthKey);
+  const [comparisonMonthA, setComparisonMonthA] = useState(currentMonthKey);
+  const [comparisonMonthB, setComparisonMonthB] = useState(() => shiftMonthKey(currentMonthKey(), -1));
+  const [cancelledSort, setCancelledSort] = useState({ key: 'amount', direction: 'desc' });
+  const [updatedSort, setUpdatedSort] = useState({ key: 'updated', direction: 'desc' });
+  const [comparisonSort, setComparisonSort] = useState({ key: 'currentAmount', direction: 'desc' });
   const filterDropdownRef = useRef(null);
 
-  const verticalNotSelected = !billingVerticalFilter;
-  const billingPoBasisLabel =
-    billingPoBasisFilter === 'with_po'
-      ? 'With PO only'
-      : billingPoBasisFilter === 'without_po'
-        ? 'Without PO only'
-        : 'All — With PO & Without PO';
-
-  const verticalLabel = useMemo(() => {
-    const o = (billingVerticalOptions || []).find((x) => x.id === billingVerticalFilter);
-    return o?.label || billingVerticalFilter || '';
-  }, [billingVerticalOptions, billingVerticalFilter]);
+  const lockedToSingleVertical = (billingVerticalOptions || []).length === 1;
 
   const invoiceSource = invoicesAll?.length ? invoicesAll : invoices;
   const poSourceFull = commercialPOsAllModules?.length ? commercialPOsAllModules : commercialPOs;
+
+  useEffect(() => {
+    void refreshBilling?.();
+  }, [refreshBilling]);
 
   useEffect(() => {
     const onDocClick = (e) => {
@@ -261,11 +487,6 @@ const BillingDashboard = ({ onNavigateTab }) => {
     });
   }, [invoicesInRange, invoiceKindFilter]);
 
-  const creditDebitNotesInRange = useMemo(
-    () => (creditDebitNotes || []).filter((note) => isDateInRange(getNoteDate(note), dateRange)),
-    [creditDebitNotes, dateRange]
-  );
-
   const commercialPOsInRange = useMemo(
     () => (commercialPOs || []).filter((po) => poOverlapsRange(po, dateRange)),
     [commercialPOs, dateRange]
@@ -276,18 +497,7 @@ const BillingDashboard = ({ onNavigateTab }) => {
     [commercialPOsInRange]
   );
 
-  const paymentAdviceInRange = useMemo(() => {
-    const invoiceById = new Map((invoices || []).map((inv) => [String(inv.id), inv]));
-    return Object.fromEntries(
-      Object.entries(paymentAdvice || {}).filter(([invoiceId, pa]) => {
-        const inv = invoiceById.get(String(invoiceId));
-        return isDateInRange(pa?.paReceivedDate, dateRange) || isDateInRange(getInvoiceDate(inv), dateRange);
-      })
-    );
-  }, [invoices, paymentAdvice, dateRange]);
-
   const taxInvoices = useMemo(() => invoicesView.filter((inv) => !inv.isAddOn && getInvoiceKind(inv) !== 'proforma'), [invoicesView]);
-  const addOnInvoicesList = useMemo(() => invoicesView.filter((inv) => !!inv.isAddOn), [invoicesView]);
   const proformaInView = useMemo(
     () => invoicesView.filter((inv) => getInvoiceKind(inv) === 'proforma'),
     [invoicesView]
@@ -296,61 +506,8 @@ const BillingDashboard = ({ onNavigateTab }) => {
   const invoicingTaxStats = useMemo(() => {
     const total = taxInvoices.length;
     const totalValue = taxInvoices.reduce((sum, inv) => sum + (Number(inv.totalAmount ?? inv.calculatedInvoiceAmount) || 0), 0);
-    const byMonth = {};
-    taxInvoices.forEach((inv) => {
-      const date = inv.created_at || inv.createdAt || inv.invoiceDate;
-      if (date && String(date).length >= 7) {
-        byMonth[String(date).slice(0, 7)] = (byMonth[String(date).slice(0, 7)] || 0) + 1;
-      }
-    });
-    return { total, totalValue, monthsWithActivity: Object.keys(byMonth).length };
-  }, [taxInvoices]);
-
-  const addOnStats = useMemo(() => {
-    const total = addOnInvoicesList.length;
-    const totalValue = addOnInvoicesList.reduce(
-      (sum, inv) => sum + (Number(inv.totalAmount ?? inv.calculatedInvoiceAmount) || 0),
-      0
-    );
     return { total, totalValue };
-  }, [addOnInvoicesList]);
-
-  const poMonitorStats = useMemo(() => {
-    const active = commercialPOsInRange.filter((p) => p.status === 'active' && p.endDate && new Date(p.endDate) >= today);
-    const nearingExpiry = active.filter((p) => {
-      const end = new Date(p.endDate);
-      end.setHours(0, 0, 0, 0);
-      const daysLeft = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
-      return daysLeft <= 30 && daysLeft >= 0;
-    });
-    const pendingRenewal = commercialPOsInRange.filter((p) => p.renewalPending);
-    const postContractWindow = commercialPOsInRange.filter(
-      (p) =>
-        !p.isSupplementary &&
-        (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
-        isAfterContractEnd(p.endDate || p.end_date)
-    );
-    return {
-      activePOs: active.length,
-      nearingExpiry: nearingExpiry.length,
-      pendingRenewal: pendingRenewal.length,
-      postContractBillingOCs: postContractWindow.length,
-    };
-  }, [commercialPOsInRange, today]);
-
-  const approvalFunnel = useMemo(() => {
-    const buckets = { draft: 0, sent: 0, approved: 0, rejected: 0, other: 0 };
-    parentPOsInRange.forEach((po) => {
-      const st = String(po.approvalStatus || po.approval_status || 'draft').toLowerCase();
-      if (st === APPROVAL_APPROVED) buckets.approved++;
-      else if (st === APPROVAL_SENT) buckets.sent++;
-      else if (st === 'rejected') buckets.rejected++;
-      else if (st === 'draft') buckets.draft++;
-      else buckets.other++;
-    });
-    const total = parentPOsInRange.length || 1;
-    return { buckets, total };
-  }, [parentPOsInRange]);
+  }, [taxInvoices]);
 
   const rollupSummary = useMemo(() => {
     let contractSum = 0;
@@ -387,17 +544,6 @@ const BillingDashboard = ({ onNavigateTab }) => {
     };
   }, [parentPOsInRange, poSourceFull, invoiceSource, today]);
 
-  const billingTypeDistribution = useMemo(() => {
-    const map = {};
-    parentPOsInRange.forEach((po) => {
-      const bt = String(po.billingType || '—').trim() || '—';
-      map[bt] = (map[bt] || 0) + 1;
-    });
-    return Object.entries(map)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
-  }, [parentPOsInRange]);
-
   const paymentSnapshot = useMemo(() => {
     const mains = invoicesView.filter((inv) => !inv.isAddOn);
     let paid = 0;
@@ -425,241 +571,354 @@ const BillingDashboard = ({ onNavigateTab }) => {
     return { withRealIrn, mockOnly, noIrn, total: rows.length };
   }, [invoicesView]);
 
-  const cnDnStats = useMemo(() => {
-    const credit = creditDebitNotesInRange.filter((n) => n.type === 'credit').length;
-    const debit = creditDebitNotesInRange.filter((n) => n.type === 'debit').length;
-    const pendingApproval = invoicesInRange.filter((inv) => cnDnStatus(inv) === 'pending').length;
-    const approvedToIssue = invoicesInRange.filter((inv) => cnDnStatus(inv) === 'approved').length;
-    return { credit, debit, pendingApproval, approvedToIssue };
-  }, [creditDebitNotesInRange, invoicesInRange]);
-
-  const complianceStats = useMemo(() => {
-    const generated = invoicesInRange.filter((inv) => inv.e_invoice_irn || inv.eInvoiceIrn).length;
-    const pending = invoicesInRange.length - generated;
-    return { eInvoicesGenerated: generated, eInvoicesPending: Math.max(0, pending) };
-  }, [invoicesInRange]);
-
-  const leakageStats = useMemo(() => {
-    const totalPenalties = Object.values(paymentAdviceInRange || {}).reduce(
-      (s, pa) => s + (Number(pa.penaltyDeductionAmount) || 0),
-      0
-    );
-    const lessBilling = invoicesInRange.filter((inv) => (inv.lessMoreBilling || 0) < 0).length;
-    const moreBilling = invoicesInRange.filter((inv) => (inv.lessMoreBilling || 0) > 0).length;
-    return { totalPenalties, lessBilling, moreBilling };
-  }, [invoicesInRange, paymentAdviceInRange]);
-
-  const notificationCount = useMemo(() => {
-    return poMonitorStats.nearingExpiry + complianceStats.eInvoicesPending;
-  }, [poMonitorStats.nearingExpiry, complianceStats.eInvoicesPending]);
-
-  const hasAlerts =
-    notificationCount > 0 ||
-    poMonitorStats.pendingRenewal > 0 ||
-    cnDnStats.pendingApproval > 0 ||
-    cnDnStats.approvedToIssue > 0 ||
-    poMonitorStats.postContractBillingOCs > 0;
-
-  const cards = [
-    {
-      id: 'manage-invoices',
-      title: 'Main tax bills',
-      description: 'Main contract bills only (not extras)',
-      icon: FileText,
-      accent: 'red',
-      stats: [
-        { label: 'How many bills', value: invoicingTaxStats.total },
-        { label: 'Money on those bills', value: formatINR(invoicingTaxStats.totalValue || 0) },
-        { label: 'Different months touched', value: invoicingTaxStats.monthsWithActivity },
-      ],
-    },
-    {
-      id: 'add-on-invoices',
-      title: 'Extra bills',
-      description: 'Money outside the main contract',
-      icon: FilePlus2,
-      accent: 'violet',
-      stats: [
-        { label: 'How many', value: addOnStats.total },
-        { label: 'Money total', value: formatINR(addOnStats.totalValue || 0) },
-      ],
-    },
-    {
-      id: 'credit-notes',
-      title: 'Bill corrections',
-      description: 'Fixes to wrong bills — issued or waiting',
-      icon: Receipt,
-      accent: 'amber',
-      stats: [
-        { label: 'Issued (lower bill / raise bill)', value: `${cnDnStats.credit} / ${cnDnStats.debit}` },
-        { label: 'Waiting for OK', value: cnDnStats.pendingApproval },
-        { label: 'OK’d — still need paper', value: cnDnStats.approvedToIssue },
-      ],
-    },
-    {
-      id: 'generated-e-invoice',
-      title: 'GST filing',
-      description: 'How many bills got a government IRN',
-      icon: FileDigit,
-      accent: 'emerald',
-      stats: [
-        { label: 'Has IRN number', value: complianceStats.eInvoicesGenerated },
-        { label: 'No IRN yet', value: complianceStats.eInvoicesPending },
-      ],
-    },
-    {
-      id: 'create-invoice',
-      title: 'Job cards',
-      description: 'Jobs from Commercial in your date window',
-      icon: FileCheck,
-      accent: 'slate',
-      stats: [
-        { label: 'Jobs in this window', value: rollupSummary.parentPoCount },
-        { label: 'Still running', value: poMonitorStats.activePOs },
-        { label: 'Ends within 30 days', value: poMonitorStats.nearingExpiry },
-        { label: 'Renewal needed flag', value: poMonitorStats.pendingRenewal },
-        { label: 'Bill after contract end', value: poMonitorStats.postContractBillingOCs },
-      ],
-    },
-    {
-      id: 'reports',
-      title: 'Cuts & fixes',
-      description: 'Money cut by client & billing fixes',
-      icon: Wallet,
-      accent: 'rose',
-      stats: [
-        { label: 'Money cut as penalty', value: formatINR(leakageStats.totalPenalties || 0) },
-        { label: 'Bills lower than expected', value: leakageStats.lessBilling },
-        { label: 'Bills higher than expected', value: leakageStats.moreBilling },
-      ],
-    },
-  ];
-
-  const accentStyles = {
-    red: { cardBg: 'from-red-50/80 to-white', iconBg: 'bg-red-100', iconColor: 'text-red-700', keyColor: 'text-red-700' },
-    amber: { cardBg: 'from-amber-50/80 to-white', iconBg: 'bg-amber-100', iconColor: 'text-amber-700', keyColor: 'text-amber-700' },
-    violet: { cardBg: 'from-violet-50/80 to-white', iconBg: 'bg-violet-100', iconColor: 'text-violet-700', keyColor: 'text-violet-700' },
-    emerald: { cardBg: 'from-emerald-50/80 to-white', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-700', keyColor: 'text-emerald-700' },
-    rose: { cardBg: 'from-rose-50/80 to-white', iconBg: 'bg-rose-100', iconColor: 'text-rose-700', keyColor: 'text-rose-700' },
-    slate: { cardBg: 'from-slate-100/80 to-white', iconBg: 'bg-slate-200', iconColor: 'text-slate-700', keyColor: 'text-slate-700' },
-  };
-
-  const handleRefreshDashboard = async () => {
-    if (isRefreshing) return;
-    try {
-      setIsRefreshing(true);
-      await refreshBilling?.();
-    } catch (error) {
-      console.warn('Billing dashboard refresh failed:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   const handleDateRangeChange = (field, value) => {
     setDatePresetId('custom');
     setDateRange((prev) => ({ ...prev, [field]: value }));
   };
 
-  const funnelTotal = approvalFunnel.total;
-  const funnelBar = (n) => ({
-    width: `${Math.min(100, Math.round((n / funnelTotal) * 100))}%`,
-  });
-
   const invoiceTrendRows = useMemo(
     () =>
-      invoicesView.map((inv) => ({
+      taxInvoices.map((inv) => ({
         date: getInvoiceDate(inv),
         amount: Number(inv.totalAmount ?? inv.calculatedInvoiceAmount) || 0,
       })),
-    [invoicesView]
+    [taxInvoices]
   );
 
-  const invoiceTrendData = useMemo(() => {
-    const valueBuckets = bucketByDay(invoiceTrendRows, 'date', 14, (r) => r.amount);
-    const countBuckets = bucketByDay(invoiceTrendRows, 'date', 14, () => 1);
-    return valueBuckets.map((b, i) => ({ name: b.name, value: b.value, count: countBuckets[i]?.value || 0 }));
-  }, [invoiceTrendRows]);
-
-  const approvalFunnelDonutData = useMemo(
-    () => [
-      { name: 'Approved', value: approvalFunnel.buckets.approved },
-      { name: 'Sent for approval', value: approvalFunnel.buckets.sent },
-      { name: 'Draft', value: approvalFunnel.buckets.draft },
-      { name: 'Rejected', value: approvalFunnel.buckets.rejected },
-    ],
-    [approvalFunnel]
+  const { data: invoiceTrendData, anchored: trendAnchored } = useMemo(
+    () => buildInvoiceTrendData(invoiceTrendRows, dateRange, 14),
+    [invoiceTrendRows, dateRange]
   );
 
-  const moneyBreakdownData = useMemo(
-    () => [
-      { name: 'Tax bills', value: invoicingTaxStats.totalValue || 0 },
-      { name: 'Extra bills', value: addOnStats.totalValue || 0 },
-      { name: 'Penalty cuts', value: leakageStats.totalPenalties || 0 },
-    ],
-    [invoicingTaxStats.totalValue, addOnStats.totalValue, leakageStats.totalPenalties]
+  // Display-only lists (do not feed KPIs / rollups).
+  const cancelledInvoicesAllInView = useMemo(() => {
+    return (invoicesView || [])
+      .filter((inv) => !!inv.isCancelled || !!inv.is_cancelled)
+      .slice()
+      .sort((a, b) => {
+        const at = new Date(a.cancelledAt || a.cancelled_at || getInvoiceDate(a) || 0).getTime() || 0;
+        const bt = new Date(b.cancelledAt || b.cancelled_at || getInvoiceDate(b) || 0).getTime() || 0;
+        return bt - at;
+      });
+  }, [invoicesView]);
+
+  const cancelledMonthOptions = useMemo(() => {
+    const keys = new Set();
+    cancelledInvoicesAllInView.forEach((inv) => {
+      const mk = cancelledInvoiceMonthKey(inv);
+      if (mk) keys.add(mk);
+    });
+    const cur = currentMonthKey();
+    keys.add(cur);
+    return Array.from(keys).sort((a, b) => b.localeCompare(a));
+  }, [cancelledInvoicesAllInView]);
+
+  const cancelledInvoicesList = useMemo(() => {
+    if (cancelledMonthFilter === 'all') return cancelledInvoicesAllInView;
+    return cancelledInvoicesAllInView.filter(
+      (inv) => cancelledInvoiceMonthKey(inv) === cancelledMonthFilter
+    );
+  }, [cancelledInvoicesAllInView, cancelledMonthFilter]);
+
+  const cancelledInvoicesTotal = useMemo(
+    () => cancelledInvoicesList.reduce((sum, inv) => sum + getInvoiceAmount(inv), 0),
+    [cancelledInvoicesList]
   );
 
-  const collectedCount = paymentSnapshot.paid;
-  const totalPayable = paymentSnapshot.paid + paymentSnapshot.unpaid;
-  const irnFiledCount = eInvoiceBreakdown.withRealIrn;
-  const irnTotal = eInvoiceBreakdown.total;
+  const updatedAmountSnapshot = useMemo(() => readUpdatedAmountSnapshot(), [invoicesView]);
 
-  const heroMetrics = verticalNotSelected
-    ? []
-    : [
-        {
-          id: 'tax-value',
-          label: 'Money on tax bills (this filter)',
-          value: formatINR(invoicingTaxStats.totalValue),
-          sub: `${invoicingTaxStats.total} bill(s) in ${formatRangeLabel(dateRange)}`,
-          icon: CircleDollarSign,
-          tone: 'red',
-        },
-        {
-          id: 'contract-left',
-          label: 'Money still to bill on contracts',
-          value: formatINR(rollupSummary.remainingSum),
-          sub: `Agreed ${formatINR(rollupSummary.contractSum)} · already billed ${formatINR(rollupSummary.invoicedSum)}`,
-          icon: Target,
-          tone: 'slate',
-        },
-        {
-          id: 'pipeline',
-          label: 'Jobs ready but no tax bill yet',
-          value: rollupSummary.approvedNoTaxInvoice,
-          sub: 'Approved in Commercial — you can make the bill',
-          icon: TrendingUp,
-          tone: 'amber',
-        },
-        {
-          id: 'cycle-due',
-          label: 'Time to send the next bill (14 days)',
-          value: rollupSummary.dueCycleCount,
-          sub: 'From last bill date + days on the job card',
-          icon: Clock,
-          tone: 'sky',
-        },
-        {
-          id: 'collections',
-          label: 'Bills waiting for payment',
-          value: paymentSnapshot.unpaid,
-          sub: `${formatINR(paymentSnapshot.pendingAmt)} still owed · ${paymentSnapshot.paid} paid`,
-          icon: Wallet,
-          tone: 'emerald',
-        },
-        {
-          id: 'irn-gap',
-          label: 'Tax bills missing GST number',
-          value: eInvoiceBreakdown.noIrn,
-          sub:
-            eInvoiceBreakdown.total > 0
-              ? `${eInvoiceBreakdown.withRealIrn} live IRN · ${eInvoiceBreakdown.mockOnly} mock`
-              : 'No tax invoices in filter',
-          icon: FileDigit,
-          tone: 'violet',
-        },
-      ];
+  const updatedInvoicesList = useMemo(() => {
+    return (invoicesView || [])
+      .filter((inv) => !inv.isCancelled && !inv.is_cancelled && wasInvoiceUpdatedAfterCreate(inv))
+      .slice()
+      .sort((a, b) => {
+        const at = new Date(getInvoiceUpdatedAt(a) || 0).getTime() || 0;
+        const bt = new Date(getInvoiceUpdatedAt(b) || 0).getTime() || 0;
+        return bt - at;
+      })
+      .map((inv) => ({
+        inv,
+        previousAmount: getPreviousBillingAmount(inv, updatedAmountSnapshot),
+        updatedAmount: getInvoiceAmount(inv),
+      }));
+  }, [invoicesView, updatedAmountSnapshot]);
+
+  // Keep display-only previous-amount snapshots in sync after list is known.
+  useEffect(() => {
+    if (!updatedInvoicesList.length) return;
+    let next = readUpdatedAmountSnapshot();
+    let changed = false;
+    updatedInvoicesList.forEach(({ inv, updatedAmount }) => {
+      const id = String(inv.id || '');
+      if (!id) return;
+      const before = next[id];
+      next = bumpUpdatedAmountSnapshot(next, id, updatedAmount);
+      const after = next[id];
+      if (
+        !before ||
+        before.current !== after.current ||
+        before.previous !== after.previous
+      ) {
+        changed = true;
+      }
+    });
+    if (changed) writeUpdatedAmountSnapshot(next);
+  }, [updatedInvoicesList]);
+
+  const updatedInvoicesTotal = useMemo(
+    () => updatedInvoicesList.reduce((sum, row) => sum + (Number(row.updatedAmount) || 0), 0),
+    [updatedInvoicesList]
+  );
+
+  const updatedInvoicesPreviousTotal = useMemo(
+    () =>
+      updatedInvoicesList.reduce((sum, row) => {
+        if (row.previousAmount == null) return sum;
+        return sum + (Number(row.previousAmount) || 0);
+      }, 0),
+    [updatedInvoicesList]
+  );
+
+  const getPoForInvoice = useCallback(
+    (inv) => {
+      if (!inv) return null;
+      const pid = String(inv.poId || inv.po_id || '');
+      if (!pid) return null;
+      return (poSourceFull || []).find((p) => String(p.id) === pid) || null;
+    },
+    [poSourceFull]
+  );
+
+  const resolveInvoiceSiteLabel = useCallback(
+    (inv) => {
+      const fromInv = getInvoiceSiteLabel(inv);
+      if (fromInv && fromInv !== '—') return fromInv;
+      const po = getPoForInvoice(inv);
+      if (!po) return '—';
+      const site = String(po.siteId || po.site_id || '').trim();
+      const loc = String(po.locationName || po.location_name || '').trim();
+      if (site && loc) return `${site} – ${loc}`;
+      return site || loc || po.legalName || po.legal_name || '—';
+    },
+    [getPoForInvoice]
+  );
+
+  /** Display-only: site totals for two selectable months (independent of date-range KPIs). */
+  const comparisonMonthOptions = useMemo(() => {
+    const keys = new Set();
+    (invoices || []).forEach((inv) => {
+      if (inv.isCancelled || inv.is_cancelled) return;
+      if (inv.isAddOn || inv.is_add_on) return;
+      if (getInvoiceKind(inv) === 'proforma') return;
+      const ym = monthKeyFromDate(getInvoiceDate(inv));
+      if (ym) keys.add(ym);
+    });
+    const cur = currentMonthKey();
+    keys.add(cur);
+    keys.add(shiftMonthKey(cur, -1));
+    if (comparisonMonthA) keys.add(comparisonMonthA);
+    if (comparisonMonthB) keys.add(comparisonMonthB);
+    return Array.from(keys).sort((a, b) => b.localeCompare(a));
+  }, [invoices, comparisonMonthA, comparisonMonthB]);
+
+  const siteMonthlyComparison = useMemo(() => {
+    const monthA = comparisonMonthA || currentMonthKey();
+    const monthB = comparisonMonthB || shiftMonthKey(monthA, -1);
+    const bySite = new Map();
+
+    (invoices || []).forEach((inv) => {
+      if (inv.isCancelled || inv.is_cancelled) return;
+      if (inv.isAddOn || inv.is_add_on) return;
+      if (getInvoiceKind(inv) === 'proforma') return;
+      const ym = monthKeyFromDate(getInvoiceDate(inv));
+      if (ym !== monthA && ym !== monthB) return;
+
+      const po = getPoForInvoice(inv);
+      const siteId = String(inv.siteId || inv.site_id || po?.siteId || po?.site_id || '').trim();
+      const siteName = getComparisonSiteName(inv, po);
+      const key = siteId || `name:${siteName}`;
+      if (!bySite.has(key)) {
+        bySite.set(key, {
+          id: key,
+          siteName,
+          currentAmount: 0,
+          previousAmount: 0,
+        });
+      }
+      const row = bySite.get(key);
+      if (siteName && siteName !== '—' && (row.siteName === '—' || !row.siteName)) {
+        row.siteName = siteName;
+      }
+      const amount = getInvoiceAmount(inv);
+      if (ym === monthA) row.currentAmount += amount;
+      else row.previousAmount += amount;
+    });
+
+    return Array.from(bySite.values())
+      .map((row) => {
+        const currentMonthBilling = Number(row.currentAmount) || 0;
+        const previousMonthBilling = Number(row.previousAmount) || 0;
+        const delta = billingAmountDifference(currentMonthBilling, previousMonthBilling);
+        return {
+          ...row,
+          currentAmount: currentMonthBilling,
+          previousAmount: previousMonthBilling,
+          currentMonth: monthA,
+          previousMonth: monthB,
+          delta,
+          pctLabel: formatPctChange(currentMonthBilling, previousMonthBilling),
+        };
+      });
+  }, [invoices, getPoForInvoice, comparisonMonthA, comparisonMonthB]);
+
+  const cancelledInvoicesSorted = useMemo(() => {
+    const list = cancelledInvoicesList.slice();
+    const { key, direction } = cancelledSort || {};
+    if (!key) return list;
+    list.sort((a, b) => {
+      const valueOf = (inv) => {
+        switch (key) {
+          case 'invoice':
+            return String(inv.taxInvoiceNumber || inv.tax_invoice_number || '');
+          case 'site':
+            return resolveInvoiceSiteLabel(inv);
+          case 'month':
+            return cancelledInvoiceMonthKey(inv);
+          case 'reason':
+            return String(inv.cancelReason || inv.cancel_reason || '');
+          case 'amount':
+            return getInvoiceAmount(inv);
+          default:
+            return '';
+        }
+      };
+      return compareSortValues(valueOf(a), valueOf(b), direction);
+    });
+    return list;
+  }, [cancelledInvoicesList, cancelledSort, resolveInvoiceSiteLabel]);
+
+  const updatedInvoicesSorted = useMemo(() => {
+    const list = updatedInvoicesList.slice();
+    const { key, direction } = updatedSort || {};
+    if (!key) return list;
+    list.sort((a, b) => {
+      const valueOf = (row) => {
+        switch (key) {
+          case 'invoice':
+            return String(row.inv.taxInvoiceNumber || row.inv.tax_invoice_number || '');
+          case 'site':
+            return resolveInvoiceSiteLabel(row.inv);
+          case 'updated':
+            return new Date(getInvoiceUpdatedAt(row.inv) || 0).getTime() || 0;
+          case 'previousAmount':
+            return row.previousAmount == null ? null : Number(row.previousAmount) || 0;
+          case 'updatedAmount':
+            return Number(row.updatedAmount) || 0;
+          default:
+            return '';
+        }
+      };
+      return compareSortValues(valueOf(a), valueOf(b), direction);
+    });
+    return list;
+  }, [updatedInvoicesList, updatedSort, resolveInvoiceSiteLabel]);
+
+  const siteMonthlyComparisonSorted = useMemo(() => {
+    const { key, direction } = comparisonSort || {};
+    const list = siteMonthlyComparison.map((row) => row);
+    if (!key) return list;
+    list.sort((a, b) => {
+      let left;
+      let right;
+      switch (key) {
+        case 'siteName':
+          left = String(a.siteName || '');
+          right = String(b.siteName || '');
+          break;
+        case 'currentMonth':
+          left = Number(a.currentAmount) || 0;
+          right = Number(b.currentAmount) || 0;
+          break;
+        case 'previousMonth':
+          left = Number(a.previousAmount) || 0;
+          right = Number(b.previousAmount) || 0;
+          break;
+        case 'currentAmount':
+          left = Number(a.currentAmount) || 0;
+          right = Number(b.currentAmount) || 0;
+          break;
+        case 'previousAmount':
+          left = Number(a.previousAmount) || 0;
+          right = Number(b.previousAmount) || 0;
+          break;
+        case 'delta':
+          left = Number(a.delta) || 0;
+          right = Number(b.delta) || 0;
+          break;
+        default:
+          left = '';
+          right = '';
+      }
+      const primary = compareSortValues(left, right, direction);
+      if (primary !== 0) return primary;
+      return compareSortValues(String(a.id || a.siteName || ''), String(b.id || b.siteName || ''), 'asc');
+    });
+    return list;
+  }, [siteMonthlyComparison, comparisonSort.key, comparisonSort.direction]);
+
+  const heroMetrics = [
+    {
+      id: 'tax-value',
+      label: 'Money on tax bills (this filter)',
+      value: formatINR(invoicingTaxStats.totalValue),
+      sub: `${invoicingTaxStats.total} bill(s) in ${formatRangeLabel(dateRange)}`,
+      icon: CircleDollarSign,
+      tone: 'red',
+    },
+    {
+      id: 'contract-left',
+      label: 'Money still to bill on contracts',
+      value: formatINR(rollupSummary.remainingSum),
+      sub: `Agreed ${formatINR(rollupSummary.contractSum)} · already billed ${formatINR(rollupSummary.invoicedSum)}`,
+      icon: Target,
+      tone: 'slate',
+    },
+    {
+      id: 'pipeline',
+      label: 'Jobs ready but no tax bill yet',
+      value: rollupSummary.approvedNoTaxInvoice,
+      sub: 'Approved in Commercial — you can make the bill',
+      icon: TrendingUp,
+      tone: 'amber',
+    },
+    {
+      id: 'cycle-due',
+      label: 'Time to send the next bill (14 days)',
+      value: rollupSummary.dueCycleCount,
+      sub: 'From last bill date + days on the job card',
+      icon: Clock,
+      tone: 'sky',
+    },
+    {
+      id: 'collections',
+      label: 'Bills waiting for payment',
+      value: paymentSnapshot.unpaid,
+      sub: `${formatINR(paymentSnapshot.pendingAmt)} still owed · ${paymentSnapshot.paid} paid`,
+      icon: Wallet,
+      tone: 'emerald',
+    },
+    {
+      id: 'irn-gap',
+      label: 'Tax bills missing GST number',
+      value: eInvoiceBreakdown.noIrn,
+      sub:
+        eInvoiceBreakdown.total > 0
+          ? `${eInvoiceBreakdown.withRealIrn} live IRN · ${eInvoiceBreakdown.mockOnly} mock`
+          : 'No tax invoices in filter',
+      icon: FileDigit,
+      tone: 'violet',
+    },
+  ];
 
   const heroTone = {
     red: 'border-red-100 bg-gradient-to-br from-red-50/90 to-white ring-red-100/80',
@@ -671,159 +930,17 @@ const BillingDashboard = ({ onNavigateTab }) => {
   };
 
   return (
-    <div className="w-full overflow-y-auto min-h-[80vh] px-4 sm:px-6 py-6 bg-gradient-to-b from-slate-50/70 to-white">
-      {verticalNotSelected ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600 mb-6">
-          <p className="text-lg font-semibold text-gray-900">Start by picking a team</p>
-          <p className="text-sm mt-1 max-w-lg mx-auto">
-            Use the first dropdown at the top. Jobs and bills show up only after the same team is chosen. New job? Create it in{' '}
-            <strong>Commercial</strong> first, then come back here.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm">
-            <Link
-              to="/app/commercial/manpower-training/po-entry"
-              className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-red-700 hover:bg-slate-50"
-            >
-              Manpower / Training PO Entry
-            </Link>
-            <Link
-              to="/app/commercial/rm-mm-amc-iev/po-entry"
-              className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-red-700 hover:bg-slate-50"
-            >
-              R&amp;M · M&amp;M · AMC · IEV PO Entry
-            </Link>
-          </div>
-        </div>
-      ) : null}
-
-      {!verticalNotSelected ? (
-        <div className="mb-6 rounded-2xl border border-red-100 bg-gradient-to-br from-red-50/90 to-white shadow-sm p-4 sm:p-5">
-          <p className="text-xs font-semibold text-red-800 uppercase tracking-wide mb-3">The usual order</p>
-          <ol className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
-                1
-              </span>
-              <div className="min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">Create the job</p>
-                <p className="text-xs text-gray-600 mt-0.5">In Commercial — get it approved</p>
-                <div className="mt-2 flex flex-col gap-1">
-                  <Link to="/app/commercial/manpower-training/po-entry" className="text-xs font-medium text-red-700 hover:underline truncate">
-                    PO Entry (Manpower / Training) →
-                  </Link>
-                  <Link to="/app/commercial/rm-mm-amc-iev/po-entry" className="text-xs font-medium text-red-700 hover:underline truncate">
-                    PO Entry (R&amp;M · M&amp;M · AMC · IEV) →
-                  </Link>
-                </div>
-              </div>
-            </li>
-            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
-                2
-              </span>
-              <div className="min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">Match the team</p>
-                <p className="text-xs text-gray-600 mt-0.5">Use the same line you picked in Commercial (dropdown at top).</p>
-              </div>
-            </li>
-            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
-                3
-              </span>
-              <div className="min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">Make the bill</p>
-                <p className="text-xs text-gray-600 mt-0.5">Real tax bill or draft — from an approved job.</p>
-                <button
-                  type="button"
-                  onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
-                  className="mt-2 text-xs font-semibold text-red-700 hover:underline"
-                >
-                  Open Make bill →
-                </button>
-              </div>
-            </li>
-            <li className="flex gap-3 rounded-xl border border-white/80 bg-white/90 p-3 shadow-sm">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm font-bold text-red-800">
-                4
-              </span>
-              <div className="min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">Print &amp; file</p>
-                <p className="text-xs text-gray-600 mt-0.5">PDF, payment proof, GST number, fix wrong bill.</p>
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                  <button
-                    type="button"
-                    onClick={() => onNavigateTab && onNavigateTab('manage-invoices')}
-                    className="text-xs font-semibold text-red-700 hover:underline"
-                  >
-                    All bills →
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onNavigateTab && onNavigateTab('generated-e-invoice')}
-                    className="text-xs font-semibold text-emerald-700 hover:underline"
-                  >
-                    GST filed list →
-                  </button>
-                </div>
-              </div>
-            </li>
-          </ol>
-        </div>
-      ) : null}
-
+    <div className="w-full overflow-y-auto min-h-[80vh] px-4 sm:px-6 pt-2 pb-6 bg-gradient-to-b from-slate-50/70 to-white">
       <div className="mb-6 rounded-2xl border border-slate-200 bg-white/95 shadow-sm p-4 sm:p-5">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-          <div className="flex items-start gap-3 min-w-0">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="p-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 border border-red-100/80 shadow-sm shrink-0">
               <LayoutDashboard className="w-6 h-6 text-red-600" />
             </div>
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Billing home</h1>
-              <p className="text-sm text-gray-600 mt-0.5 max-w-3xl">
-                Everything about money for the team you picked: bills sent, money left on jobs, who paid, and what still needs
-                a GST number — change the date and bill type below anytime.
-              </p>
-              {!verticalNotSelected ? (
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-800">
-                    <Users className="w-3.5 h-3.5" />
-                    {verticalLabel}
-                  </span>
-                  <span>
-                    Job type filter: <strong>{billingPoBasisLabel}</strong>
-                  </span>
-                  <span className="text-slate-400">|</span>
-                  <span>
-                    Dates: <strong>{formatRangeLabel(dateRange)}</strong>
-                  </span>
-                  <span className="text-slate-400">|</span>
-                  <span>
-                    Bill kind:{' '}
-                    <strong>
-                      {invoiceKindFilter === 'all'
-                        ? 'All'
-                        : invoiceKindFilter === 'tax'
-                          ? 'Real tax bills only'
-                          : 'Draft (proforma) only'}
-                    </strong>
-                  </span>
-                </div>
-              ) : null}
-            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Billing</h1>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowFiltersPanel((o) => !o)}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <Filter className="w-4 h-4 text-red-600" />
-              Filters
-              <ChevronDown className={`w-4 h-4 transition-transform ${showFiltersPanel ? 'rotate-180' : ''}`} />
-            </button>
-
-            <div className="relative" ref={filterDropdownRef}>
+          <div className="relative shrink-0" ref={filterDropdownRef}>
               <button
                 type="button"
                 onClick={() => setIsRangeOpen((open) => !open)}
@@ -831,7 +948,7 @@ const BillingDashboard = ({ onNavigateTab }) => {
                 title="Custom date range"
               >
                 <CalendarDays className="w-4 h-4 text-red-600" />
-                <span className="hidden sm:inline max-w-[10rem] truncate">{formatRangeLabel(dateRange)}</span>
+                <span className="max-w-[10rem] truncate">{formatRangeLabel(dateRange)}</span>
               </button>
               {isRangeOpen ? (
                 <div className="absolute right-0 z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
@@ -890,71 +1007,25 @@ const BillingDashboard = ({ onNavigateTab }) => {
                   </div>
                 </div>
               ) : null}
-            </div>
-
-            <button
-              type="button"
-              onClick={handleRefreshDashboard}
-              disabled={isRefreshing}
-              className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-              title="Refresh billing data"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
           </div>
         </div>
 
-        {!verticalNotSelected && showFiltersPanel ? (
-          <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs font-semibold text-slate-700 mb-2">Date presets</p>
-              <div className="flex flex-wrap gap-2">
-                {DATE_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => applyDatePreset(p.id)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${
-                      datePresetId === p.id
-                        ? 'border-red-400 bg-red-50 text-red-900 shadow-sm'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[11px] text-slate-500 mt-2">
-                Jobs count if their dates touch this window. Bill numbers use the <strong>bill date</strong> inside the same
-                window.
-              </p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-700 mb-2">Which bills to count</p>
-              <select
-                value={invoiceKindFilter}
-                onChange={(e) => setInvoiceKindFilter(e.target.value)}
-                className="w-full max-w-xs border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
-              >
-                <option value="all">Everything — real and draft bills</option>
-                <option value="tax">Only real tax bills</option>
-                <option value="proforma">Only draft (proforma) bills</option>
-              </select>
-              <p className="text-[11px] text-slate-500 mt-2">
-                This changes money and payment tiles only. Job counts always come from Commercial.
-              </p>
-            </div>
-            <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
-              <p className="text-xs font-semibold text-slate-800 mb-1">Draft bills in period</p>
-              <p className="text-2xl font-bold text-slate-900 tabular-nums">{proformaInView.length}</p>
-              <p className="text-[11px] text-slate-600 mt-1">Not final GST bills — for quotes or drafts only</p>
-            </div>
-          </div>
-        ) : null}
+        <BillingScopeFilters
+          className="mt-3 pt-3 border-t border-slate-100"
+          billingVerticalFilter={billingVerticalFilter}
+          setBillingVerticalFilter={setBillingVerticalFilter}
+          billingVerticalOptions={billingVerticalOptions}
+          billingPoBasisFilter={billingPoBasisFilter}
+          setBillingPoBasisFilter={setBillingPoBasisFilter}
+          billingPoBasisOptions={billingPoBasisOptions}
+          lockedToSingleVertical={lockedToSingleVertical}
+          invoiceKindFilter={invoiceKindFilter}
+          onInvoiceKindChange={setInvoiceKindFilter}
+          draftBillCount={proformaInView.length}
+        />
       </div>
 
-      {!verticalNotSelected && heroMetrics.length > 0 ? (
+      {heroMetrics.length > 0 ? (
         <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3">
           {heroMetrics.map((m) => {
             const Icon = m.icon;
@@ -975,173 +1046,435 @@ const BillingDashboard = ({ onNavigateTab }) => {
         </div>
       ) : null}
 
-      {!verticalNotSelected ? (
-        <div className="mb-6 space-y-5 max-w-7xl mx-auto">
-          <ChartPanel
-            title="Invoice value trend"
-            subtitle={`Daily totals · last 14 days · ${formatRangeLabel(dateRange)}`}
+      <div className="mb-6 max-w-7xl mx-auto">
+        <ChartPanel
+          title="Invoice value trend"
+          subtitle={
+            trendAnchored
+              ? `Daily tax bill totals · 14 days ending on latest bill · ${formatRangeLabel(dateRange)}`
+              : `Daily tax bill totals · last 14 days · ${formatRangeLabel(dateRange)}`
+          }
+          height={240}
+        >
+          <ComposedTrendChart
+            data={invoiceTrendData}
+            xKey="name"
+            areas={[{ key: 'value', name: 'Invoice value', color: CHART_SERIES[0] }]}
+            lines={[{ key: 'count', name: 'Invoices raised', color: CHART_SERIES[1] }]}
             height={240}
-          >
-            <ComposedTrendChart
-              data={invoiceTrendData}
-              xKey="name"
-              areas={[{ key: 'value', name: 'Invoice value', color: CHART_SERIES[0] }]}
-              lines={[{ key: 'count', name: 'Invoices raised', color: CHART_SERIES[1] }]}
-              height={240}
-              formatter={(val, name) => (name === 'Invoice value' ? formatINR(val) : val)}
-            />
-          </ChartPanel>
+            formatter={(val, name) => (name === 'Invoice value' ? formatINR(val) : val)}
+          />
+        </ChartPanel>
+      </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            <ChartPanel title="Approval funnel mix" subtitle={`${parentPOsInRange.length} job(s) in window`} height={230}>
-              <DonutChart data={approvalFunnelDonutData} centerLabel="Jobs" centerValue={parentPOsInRange.length} height={230} />
-            </ChartPanel>
-            <ChartPanel title="Money breakdown" subtitle="Tax vs extra vs penalty cuts" height={230}>
-              <BarCompareChart
-                data={moneyBreakdownData}
-                layout="horizontal"
-                series={[{ key: 'value', name: 'Amount', color: CHART_SERIES[2] }]}
-                formatter={(val) => formatINR(val)}
-                height={230}
-              />
-            </ChartPanel>
-            <ChartPanel title="Completion rates" subtitle="Collections & GST filing" height={230}>
-              <div className="flex items-center justify-around h-full">
-                <RadialScoreChart
-                  value={collectedCount}
-                  max={Math.max(1, totalPayable)}
-                  label="Collected"
-                  color={CHART_SERIES[5]}
-                  height={190}
-                />
-                <RadialScoreChart
-                  value={irnFiledCount}
-                  max={Math.max(1, irnTotal)}
-                  label="IRN filed"
-                  color={CHART_SERIES[3]}
-                  height={190}
-                />
+      <div className="mb-6 grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-rose-200 bg-white shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-rose-100 bg-rose-50/70 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Ban className="w-4 h-4 text-rose-700 shrink-0" />
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-rose-950">Cancelled invoices</h2>
+                <p className="text-[11px] text-rose-800/80">Site and billing amount · click a row for details</p>
               </div>
-            </ChartPanel>
+            </div>
+            <label className="flex items-center gap-1.5 text-[11px] text-rose-900 shrink-0">
+              <span className="font-medium whitespace-nowrap">Month</span>
+              <select
+                value={cancelledMonthFilter}
+                onChange={(e) => setCancelledMonthFilter(e.target.value)}
+                className="h-8 rounded-lg border border-rose-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+                aria-label="Cancelled invoices month"
+              >
+                <option value="all">All months</option>
+                {cancelledMonthOptions.map((ym) => (
+                  <option key={ym} value={ym}>
+                    {formatMonthOptionLabel(ym)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
-        </div>
-      ) : null}
-
-      {!verticalNotSelected ? (
-        <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Percent className="w-5 h-5 text-red-600" />
-              <div>
-                <h2 className="text-sm font-bold text-gray-900">Where jobs sit in approval</h2>
-                <p className="text-xs text-gray-500">Main jobs in your date window ({parentPOsInRange.length})</p>
-              </div>
-            </div>
-            <div className="space-y-3">
-              {[
-                { key: 'approved', label: 'Approved', color: 'bg-emerald-500', n: approvalFunnel.buckets.approved },
-                { key: 'sent', label: 'Sent for approval', color: 'bg-amber-500', n: approvalFunnel.buckets.sent },
-                { key: 'draft', label: 'Draft', color: 'bg-slate-400', n: approvalFunnel.buckets.draft },
-                { key: 'rejected', label: 'Rejected', color: 'bg-rose-500', n: approvalFunnel.buckets.rejected },
-              ].map((row) => (
-                <div key={row.key}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-700 font-medium">{row.label}</span>
-                    <span className="tabular-nums text-slate-900 font-semibold">{row.n}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                    <div className={`h-full rounded-full ${row.color} transition-all`} style={funnelBar(row.n)} />
-                  </div>
-                </div>
-              ))}
-              {approvalFunnel.buckets.other > 0 ? (
-                <p className="text-xs text-amber-700">Other status: {approvalFunnel.buckets.other}</p>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles className="w-5 h-5 text-violet-600" />
-              <div>
-                <h2 className="text-sm font-bold text-gray-900">How jobs are billed</h2>
-                <p className="text-xs text-gray-500">Monthly, per day, lump sum, service…</p>
-              </div>
-            </div>
-            {billingTypeDistribution.length === 0 ? (
-              <p className="text-sm text-gray-500">No parent POs in this window.</p>
-            ) : (
-              <ul className="space-y-2">
-                {billingTypeDistribution.map(([label, count]) => {
-                  const pct = Math.round((count / parentPOsInRange.length) * 100);
+          <div className="overflow-x-auto max-h-[22rem]">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-50 text-slate-600 border-b border-slate-200">
+                <tr>
+                  <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setCancelledSort((p) => toggleTableSort(p, 'invoice'))}
+                      className="inline-flex items-center font-semibold"
+                    >
+                      Invoice {renderDashboardSortIndicator(cancelledSort.key === 'invoice', cancelledSort.direction)}
+                    </button>
+                  </th>
+                  <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setCancelledSort((p) => toggleTableSort(p, 'site'))}
+                      className="inline-flex items-center font-semibold"
+                    >
+                      Site {renderDashboardSortIndicator(cancelledSort.key === 'site', cancelledSort.direction)}
+                    </button>
+                  </th>
+                  {cancelledMonthFilter === 'all' ? (
+                    <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => setCancelledSort((p) => toggleTableSort(p, 'month', 'desc'))}
+                        className="inline-flex items-center font-semibold"
+                      >
+                        Month {renderDashboardSortIndicator(cancelledSort.key === 'month', cancelledSort.direction)}
+                      </button>
+                    </th>
+                  ) : null}
+                  <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setCancelledSort((p) => toggleTableSort(p, 'reason'))}
+                      className="inline-flex items-center font-semibold"
+                    >
+                      Reason {renderDashboardSortIndicator(cancelledSort.key === 'reason', cancelledSort.direction)}
+                    </button>
+                  </th>
+                  <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setCancelledSort((p) => toggleTableSort(p, 'amount', 'desc'))}
+                      className="inline-flex items-center justify-end w-full font-semibold"
+                    >
+                      Billing amount {renderDashboardSortIndicator(cancelledSort.key === 'amount', cancelledSort.direction)}
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {cancelledInvoicesSorted.map((inv) => {
+                  const cancelReason = String(inv.cancelReason || inv.cancel_reason || '').trim();
                   return (
-                    <li key={label}>
-                      <div className="flex justify-between text-xs mb-0.5">
-                        <span className="text-slate-700 truncate pr-2">{label}</span>
-                        <span className="tabular-nums text-slate-900 shrink-0">
-                          {count} ({pct}%)
-                        </span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-violet-50 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-violet-400"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </li>
+                  <tr
+                    key={inv.id}
+                    onClick={() => setPreviewInvoice(inv)}
+                    className="cursor-pointer hover:bg-rose-50/50"
+                  >
+                    <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">
+                      {inv.taxInvoiceNumber || inv.tax_invoice_number || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700 max-w-[14rem] truncate" title={resolveInvoiceSiteLabel(inv)}>
+                      {resolveInvoiceSiteLabel(inv)}
+                    </td>
+                    {cancelledMonthFilter === 'all' ? (
+                      <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                        {formatMonthOptionLabel(cancelledInvoiceMonthKey(inv)) || '—'}
+                      </td>
+                    ) : null}
+                    <td
+                      className="px-3 py-2 text-slate-700 max-w-[14rem] truncate"
+                      title={cancelReason || '—'}
+                    >
+                      {cancelReason || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900 whitespace-nowrap">
+                      {formatINR(getInvoiceAmount(inv))}
+                    </td>
+                  </tr>
                   );
                 })}
-              </ul>
-            )}
+                {cancelledInvoicesSorted.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={cancelledMonthFilter === 'all' ? 5 : 4}
+                      className="px-3 py-8 text-center text-slate-500"
+                    >
+                      No cancelled invoices in this filter.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+              {cancelledInvoicesSorted.length > 0 ? (
+                <tfoot className="border-t border-rose-200 bg-rose-50/50">
+                  <tr>
+                    <td
+                      className="px-3 py-2.5 font-semibold text-rose-950"
+                      colSpan={cancelledMonthFilter === 'all' ? 4 : 3}
+                    >
+                      Total ({cancelledInvoicesSorted.length})
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-rose-950">
+                      {formatINR(cancelledInvoicesTotal)}
+                    </td>
+                  </tr>
+                </tfoot>
+              ) : null}
+            </table>
           </div>
         </div>
-      ) : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 mb-6 max-w-7xl mx-auto">
-        {cards.map((card) => {
-          const Icon = card.icon;
-          const style = accentStyles[card.accent];
-          const primaryStat = card.stats[0];
-          const secondaryStats = card.stats.slice(1);
-          return (
-            <div
-              key={card.title}
-              className={`h-full rounded-xl border border-slate-200 bg-gradient-to-br ${style.cardBg} shadow-sm p-4 text-left transition-all hover:shadow-md`}
-            >
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <div className={`p-2.5 rounded-lg ${style.iconBg} ${style.iconColor} ring-1 ring-black/5 shrink-0`}>
-                    <Icon className="w-[18px] h-[18px]" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-semibold text-gray-900 text-[14px] leading-5 truncate">{card.title}</h3>
-                    <p className="text-[11px] leading-4 text-gray-500 line-clamp-2">{card.description}</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold bg-white/80 text-slate-600 border border-slate-200 shrink-0">
-                  <Sparkles className="w-3 h-3" />
-                  KPI
-                </span>
-              </div>
-
-              <div className="rounded-lg border border-white/70 bg-white/85 px-3 py-2.5">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{primaryStat.label}</p>
-                <p className={`mt-1 text-xl leading-6 font-bold tabular-nums ${style.keyColor}`}>{primaryStat.value}</p>
-              </div>
-
-              {secondaryStats.length > 0 && (
-                <div className="mt-3 border-t border-slate-200/80 pt-2.5 space-y-1.5">
-                  {secondaryStats.map((s, i) => (
-                    <div key={i} className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-600 truncate">{s.label}</span>
-                      <span className="text-[12px] font-semibold text-slate-800 tabular-nums shrink-0">{s.value}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+        <div className="rounded-2xl border border-amber-200 bg-white shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-amber-100 bg-amber-50/70 flex items-center gap-2">
+            <PencilLine className="w-4 h-4 text-amber-700 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-amber-950">Updated in Manage Invoices</h2>
+              <p className="text-[11px] text-amber-800/80">Edited after create · site and amount · click for details</p>
             </div>
-          );
-        })}
+          </div>
+          <div className="overflow-x-auto max-h-[22rem]">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-50 text-slate-600 border-b border-slate-200">
+                <tr>
+                  <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setUpdatedSort((p) => toggleTableSort(p, 'invoice'))}
+                      className="inline-flex items-center font-semibold"
+                    >
+                      Invoice {renderDashboardSortIndicator(updatedSort.key === 'invoice', updatedSort.direction)}
+                    </button>
+                  </th>
+                  <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setUpdatedSort((p) => toggleTableSort(p, 'site'))}
+                      className="inline-flex items-center font-semibold"
+                    >
+                      Site {renderDashboardSortIndicator(updatedSort.key === 'site', updatedSort.direction)}
+                    </button>
+                  </th>
+                  <th className="text-left font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setUpdatedSort((p) => toggleTableSort(p, 'updated', 'desc'))}
+                      className="inline-flex items-center font-semibold"
+                    >
+                      Updated {renderDashboardSortIndicator(updatedSort.key === 'updated', updatedSort.direction)}
+                    </button>
+                  </th>
+                  <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setUpdatedSort((p) => toggleTableSort(p, 'previousAmount', 'desc'))}
+                      className="inline-flex items-center justify-end w-full font-semibold"
+                    >
+                      Previous billing amount {renderDashboardSortIndicator(updatedSort.key === 'previousAmount', updatedSort.direction)}
+                    </button>
+                  </th>
+                  <th className="text-right font-semibold px-3 py-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setUpdatedSort((p) => toggleTableSort(p, 'updatedAmount', 'desc'))}
+                      className="inline-flex items-center justify-end w-full font-semibold"
+                    >
+                      Updated billing amount {renderDashboardSortIndicator(updatedSort.key === 'updatedAmount', updatedSort.direction)}
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {updatedInvoicesSorted.map(({ inv, previousAmount, updatedAmount }) => (
+                  <tr
+                    key={inv.id}
+                    onClick={() => setPreviewInvoice(inv)}
+                    className="cursor-pointer hover:bg-amber-50/50"
+                  >
+                    <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">
+                      {inv.taxInvoiceNumber || inv.tax_invoice_number || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-slate-700 max-w-[12rem] truncate" title={resolveInvoiceSiteLabel(inv)}>
+                      {resolveInvoiceSiteLabel(inv)}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                      {formatDateDdMmYyyy(getInvoiceUpdatedAt(inv)) || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-700 whitespace-nowrap">
+                      {previousAmount == null ? '—' : formatINR(previousAmount)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900 whitespace-nowrap">
+                      {formatINR(updatedAmount)}
+                    </td>
+                  </tr>
+                ))}
+                {updatedInvoicesSorted.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                      No updated invoices in this filter.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+              {updatedInvoicesSorted.length > 0 ? (
+                <tfoot className="border-t border-amber-200 bg-amber-50/50">
+                  <tr>
+                    <td className="px-3 py-2.5 font-semibold text-amber-950" colSpan={3}>
+                      Total ({updatedInvoicesSorted.length})
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-amber-950">
+                      {updatedInvoicesSorted.some((r) => r.previousAmount != null)
+                        ? formatINR(updatedInvoicesPreviousTotal)
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-amber-950">
+                      {formatINR(updatedInvoicesTotal)}
+                    </td>
+                  </tr>
+                </tfoot>
+              ) : null}
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <GitCompareArrows className="w-4 h-4 text-slate-700 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-slate-900">Site-wise Monthly Billing Comparison</h2>
+              <p className="text-[11px] text-slate-600">
+                Compare two months · tax bills only · updates with available billing data
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+              <span className="font-medium whitespace-nowrap">Month</span>
+              <select
+                value={comparisonMonthA}
+                onChange={(e) => setComparisonMonthA(e.target.value)}
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                aria-label="Comparison primary month"
+              >
+                {comparisonMonthOptions.map((ym) => (
+                  <option key={`a-${ym}`} value={ym}>
+                    {formatMonthOptionLabel(ym)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+              <span className="font-medium whitespace-nowrap">Compare with</span>
+              <select
+                value={comparisonMonthB}
+                onChange={(e) => setComparisonMonthB(e.target.value)}
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+                aria-label="Comparison secondary month"
+              >
+                {comparisonMonthOptions.map((ym) => (
+                  <option key={`b-${ym}`} value={ym}>
+                    {formatMonthOptionLabel(ym)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-[28rem]">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600 border-b border-slate-200">
+              <tr>
+                <th
+                  className="text-left font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'siteName'))}
+                >
+                  <span className="inline-flex items-center font-semibold">
+                    Site Name {renderDashboardSortIndicator(comparisonSort.key === 'siteName', comparisonSort.direction)}
+                  </span>
+                </th>
+                <th
+                  className="text-left font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'currentMonth', 'desc'))}
+                >
+                  <span className="inline-flex items-center font-semibold">
+                    {formatMonthOptionLabel(comparisonMonthA)}{' '}
+                    {renderDashboardSortIndicator(comparisonSort.key === 'currentMonth', comparisonSort.direction)}
+                  </span>
+                </th>
+                <th
+                  className="text-left font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'previousMonth', 'desc'))}
+                >
+                  <span className="inline-flex items-center font-semibold">
+                    {formatMonthOptionLabel(comparisonMonthB)}{' '}
+                    {renderDashboardSortIndicator(comparisonSort.key === 'previousMonth', comparisonSort.direction)}
+                  </span>
+                </th>
+                <th
+                  className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'currentAmount', 'desc'))}
+                >
+                  <span className="inline-flex items-center justify-end w-full font-semibold">
+                    Billing ({formatMonthOptionLabel(comparisonMonthA)}){' '}
+                    {renderDashboardSortIndicator(comparisonSort.key === 'currentAmount', comparisonSort.direction)}
+                  </span>
+                </th>
+                <th
+                  className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'previousAmount', 'desc'))}
+                >
+                  <span className="inline-flex items-center justify-end w-full font-semibold">
+                    Billing ({formatMonthOptionLabel(comparisonMonthB)}){' '}
+                    {renderDashboardSortIndicator(comparisonSort.key === 'previousAmount', comparisonSort.direction)}
+                  </span>
+                </th>
+                <th
+                  className="text-right font-semibold px-3 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900"
+                  onClick={() => setComparisonSort((p) => toggleTableSort(p, 'delta', 'desc'))}
+                >
+                  <span className="inline-flex items-center justify-end w-full font-semibold">
+                    Increase / Decrease {renderDashboardSortIndicator(comparisonSort.key === 'delta', comparisonSort.direction)}
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {siteMonthlyComparisonSorted.map((row) => {
+                // Increase/Decrease = Current Month Billing − Previous Month Billing (same values as the two amount columns).
+                const amountDifference = billingAmountDifference(row.currentAmount, row.previousAmount);
+                const up = amountDifference > 0;
+                const down = amountDifference < 0;
+                const tone = up
+                  ? 'text-emerald-700'
+                  : down
+                    ? 'text-rose-700'
+                    : 'text-slate-600';
+                const DeltaIcon = up ? TrendingUp : down ? TrendingDown : Minus;
+                return (
+                  <tr key={row.id || `${row.siteName}-${row.currentAmount}-${row.previousAmount}`} className="hover:bg-slate-50/80">
+                    <td className="px-3 py-2 text-slate-800 max-w-[16rem] truncate" title={row.siteName}>
+                      {row.siteName}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                      {formatMonthOptionLabel(row.currentMonth)}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                      {formatMonthOptionLabel(row.previousMonth)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium text-slate-900 whitespace-nowrap">
+                      {formatINR(row.currentAmount)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate-700 whitespace-nowrap">
+                      {formatINR(row.previousAmount)}
+                    </td>
+                    <td className={`px-3 py-2 text-right whitespace-nowrap ${tone}`}>
+                      <span className="inline-flex items-center justify-end gap-1.5 tabular-nums font-medium">
+                        <DeltaIcon className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                        <span>
+                          {formatSignedINR(amountDifference)}
+                          <span className="text-[11px] opacity-80 ml-1">({row.pctLabel})</span>
+                        </span>
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {siteMonthlyComparisonSorted.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                    No site billing in the selected months.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {billingError ? (
@@ -1160,95 +1493,32 @@ const BillingDashboard = ({ onNavigateTab }) => {
         </div>
       ) : null}
 
-      {hasAlerts && !verticalNotSelected && (
-        <div className="max-w-7xl mx-auto mt-6 mb-6 space-y-3">
-          {(cnDnStats.pendingApproval > 0 || cnDnStats.approvedToIssue > 0) && (
-            <div className="w-full flex items-center gap-4 p-4 rounded-xl border border-amber-200 bg-amber-50/60 text-left shadow-sm">
-              <div className="p-2.5 rounded-lg bg-amber-100 text-amber-700 shrink-0">
-                <Receipt className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-gray-900">Credit / debit note workflow</h3>
-                <p className="text-sm text-gray-600 mt-0.5">
-                  {[
-                    cnDnStats.pendingApproval > 0 && `${cnDnStats.pendingApproval} request(s) awaiting approval`,
-                    cnDnStats.approvedToIssue > 0 && `${cnDnStats.approvedToIssue} approved — issue note`,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {poMonitorStats.postContractBillingOCs > 0 && (
-            <div className="w-full flex items-center gap-4 p-4 rounded-xl border border-indigo-200 bg-indigo-50/40 text-left shadow-sm">
-              <div className="p-2.5 rounded-lg bg-indigo-100 text-indigo-600 shrink-0">
-                <RefreshCw className="w-5 h-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-gray-900">Post-contract billing</h3>
-                <p className="text-sm text-gray-600 mt-0.5">
-                  {poMonitorStats.postContractBillingOCs} OC(s) have approved post-contract billing (buffer period). Bill from{' '}
-                  <strong>Create Invoice</strong>; renewals roll buffer invoices to the new PO in Commercial.
-                </p>
-              </div>
+      {previewInvoice ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
+              <h3 className="text-lg font-semibold text-gray-900 truncate">
+                Invoice details – {previewInvoice.taxInvoiceNumber || previewInvoice.tax_invoice_number || '—'}
+              </h3>
               <button
                 type="button"
-                onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
-                className="shrink-0 text-sm font-medium text-indigo-700 hover:underline"
+                onClick={() => setPreviewInvoice(null)}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Close"
               >
-                Open Create Invoice
+                <X className="w-5 h-5" />
               </button>
             </div>
-          )}
-
-          <div className="w-full flex items-center gap-4 p-4 rounded-xl border border-indigo-200 bg-indigo-50/50 text-left shadow-sm">
-            <div className="p-2.5 rounded-lg bg-indigo-100 text-indigo-600 shrink-0">
-              <Bell className="w-5 h-5" />
+            <div className="p-4 sm:p-6 bg-gray-100">
+              <InvoiceHtmlPreview
+                inv={previewInvoice}
+                po={getPoForInvoice(previewInvoice)}
+                showEInvoiceMeta={false}
+              />
             </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2 flex-wrap">
-                PO &amp; e-invoice alerts
-                {notificationCount > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-xs font-medium bg-indigo-600 text-white">
-                    {notificationCount}
-                  </span>
-                )}
-              </h3>
-              <p className="text-sm text-gray-600 mt-0.5">
-                {[
-                  poMonitorStats.nearingExpiry > 0 && `${poMonitorStats.nearingExpiry} PO(s) nearing expiry`,
-                  complianceStats.eInvoicesPending > 0 && `${complianceStats.eInvoicesPending} invoice(s) without IRN`,
-                  poMonitorStats.pendingRenewal > 0 && `${poMonitorStats.pendingRenewal} renewal(s) flagged`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') || 'Open notifications for details'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onNavigateTab && onNavigateTab('notifications')}
-              className="shrink-0 text-sm font-medium text-indigo-700 hover:underline"
-            >
-              Open alerts
-            </button>
           </div>
         </div>
-      )}
-
-      {!verticalNotSelected ? (
-        <p className="text-center text-xs text-slate-500 max-w-3xl mx-auto mt-4 mb-8 leading-relaxed">
-          <strong>Reading this screen:</strong> The two dropdowns at the top pick your team and job type. Here, dates slice{' '}
-          <em>bills</em> by bill date and <em>jobs</em> by contract dates. “Money left” uses the same math as Make bill.
-          Day-by-day reminders live under <strong>Reminders</strong>.
-        </p>
-      ) : (
-        <p className="text-center text-xs text-gray-400 mt-8 pb-4">
-          PO / WO master data is maintained in Commercial → PO Entry. Supplementary / post-contract billing is approved there
-          before billing runs here.
-        </p>
-      )}
+      ) : null}
     </div>
   );
 };

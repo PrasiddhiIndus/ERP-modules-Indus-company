@@ -719,7 +719,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
     Array.isArray(initDraft?.preGstSupplementaryRows) ? initDraft.preGstSupplementaryRows : []
   );
 
-  const verticalNotSelected = !billingVerticalFilter;
+  const verticalNotSelected = false;
   const billingPoBasisLabel =
     billingPoBasisFilter === 'with_po'
       ? 'With PO only'
@@ -877,12 +877,13 @@ const CreateInvoice = ({ onNavigateTab }) => {
   }, [commercialPOs]);
 
   const billablePOsByTab = useMemo(() => {
-    if (isTrainingVertical) {
+    // All verticals / Training: show every billable PO (no billing-type tab filter).
+    if (!billingVerticalFilter || isTrainingVertical) {
       return billablePOs;
     }
     const tab = String(poBillingTab || '').trim();
     return billablePOs.filter((p) => poMatchesBillingTab(p, tab));
-  }, [billablePOs, poBillingTab, isTrainingVertical]);
+  }, [billablePOs, poBillingTab, isTrainingVertical, billingVerticalFilter]);
 
   const poTableRows = useMemo(() => {
     return billablePOsByTab.map((po) => {
@@ -2786,11 +2787,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         <p className="text-xs text-gray-500 px-4 pb-2 -mt-1">
           After contract end, Commercial enables post-contract billing on the same OC — you still pick this row; buffer invoices are moved to the renewed PO/WO when renewal is approved.
         </p>
-        {!billingVerticalFilter ? (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg mx-4 mb-4 px-3 py-2">
-            Choose <strong>Business line (team)</strong> at the top of Billing (Manpower or Training) — the same line you used in Commercial → PO Entry.
-          </p>
-        ) : billablePOs.length === 0 ? (
+        {billablePOs.length === 0 ? (
           <p className="text-sm text-gray-500 px-4 pb-4">
             No PO/WO for this team in Billing. Add one in Commercial → Manpower / Training → PO Entry, save it, then use{' '}
             <span className="font-medium">Reload</span> on Billing or open this tab again. If you use a PO/without-PO filter above, try{' '}
@@ -2798,7 +2795,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
           </p>
         ) : billablePOsByTab.length === 0 ? (
           <div className="px-3 pb-3">
-            {!isRmVertical && !isTrainingVertical ? (
+            {!billingVerticalFilter || isRmVertical || isTrainingVertical ? null : (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
                 {billingTabs.map((t) => {
                   const count = billablePOs.filter((p) => poMatchesBillingTab(p, t.id)).length;
@@ -2818,14 +2815,14 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   );
                 })}
               </div>
-            ) : null}
+            )}
             <p className="text-sm text-gray-500 px-1 pb-2">
               {billablePOs.length} PO(s) exist for this team, but none are tagged <strong>{poBillingTab}</strong>. Pick another tab above, or create a PO with this billing type in Commercial → PO Entry.
             </p>
           </div>
         ) : (
           <div className="px-3 pb-3">
-            {!isRmVertical && !isTrainingVertical ? (
+            {!billingVerticalFilter || isRmVertical || isTrainingVertical ? null : (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
                 {billingTabs.map((t) => {
                   const count = billablePOs.filter((p) => poMatchesBillingTab(p, t.id)).length;
@@ -2853,7 +2850,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   );
                 })}
               </div>
-            ) : null}
+            )}
             <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />

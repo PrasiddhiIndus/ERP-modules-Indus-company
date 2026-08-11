@@ -22,7 +22,7 @@ const BillingNotifications = () => {
     billingPoBasisFilter,
   } = useBilling();
 
-  const verticalNotSelected = !billingVerticalFilter;
+  const verticalNotSelected = false;
   const billingPoBasisLabel =
     billingPoBasisFilter === 'with_po'
       ? 'With PO only'

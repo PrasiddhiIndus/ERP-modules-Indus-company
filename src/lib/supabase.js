@@ -13,6 +13,14 @@ import {
   isSupabaseEnvConfigured,
   supabaseUrlLooksValid,
 } from './supabaseConfig'
+import {
+  resolveModule,
+  humanEntityName,
+  getActivityFormatter,
+  methodToActionKey,
+  stripSensitiveForActivity,
+  ACTIVITY_SENSITIVE_KEYS,
+} from './activityDescriptors'
 
 assertBrowserSafeSupabaseKey()
 
@@ -52,40 +60,6 @@ let activityFlushTimer = null
 let lastEnqueuedSig = null
 let lastEnqueuedAt = 0
 
-/** Display names — avoid vague “something” wording in the UI. */
-const ENTITY_LABELS = {
-  po_wo: 'PO/WO',
-  invoice: 'Tax invoice',
-  add_on_invoice: 'Add-on invoice',
-  manpower_enquiries: 'Manpower enquiry',
-  profiles: 'User profile',
-  marketing_enquiries: 'Marketing enquiry',
-  marketing_quotations: 'Marketing quotation',
-  marketing_clients: 'Marketing client',
-  marketing_products: 'Product catalog (Marketing + Maintenance)',
-  maintenance_enquiries: 'Maintenance enquiry',
-  maintenance_quotations: 'Maintenance quotation',
-  maintenance_clients: 'Maintenance client',
-  maintenance_products: 'Legacy maintenance products (use marketing_products)',
-  credit_debit_note: 'Credit/debit note',
-  payment_advice: 'Payment advice',
-  tenders: 'Fire tender',
-  costing_rows: 'Costing sheet row',
-  software_subscriptions: 'Software subscription',
-  sites: 'Finance site',
-  revenue_heads: 'Revenue head',
-  expense_parent_heads: 'Expense parent head',
-  expense_child_heads: 'Expense child head',
-  budget_versions: 'Budget version',
-  revenue_entries: 'Revenue entry',
-  expense_entries: 'Expense entry',
-  budget_lines: 'Budget line',
-  cost_allocations: 'Cost allocation',
-  contract_periods: 'Contract period',
-  import_export_logs: 'Finance import/export',
-  data_backups: 'Finance backup',
-}
-
 const ACTIVITY_IGNORE_TABLES = new Set([
   'invoice_line_item',
   'invoice_attachment',
@@ -97,39 +71,9 @@ const ACTIVITY_IGNORE_TABLES = new Set([
   'po_contact_log',
 ])
 
-function humanEntityName(entity) {
-  const raw = String(entity || '').trim()
-  if (!raw) return 'Record'
-  if (raw.startsWith('rpc:')) {
-    const fn = raw.slice(4).replace(/_/g, ' ')
-    return fn ? `server fn «${fn}»` : 'RPC'
-  }
-  const key = raw.toLowerCase()
-  return ENTITY_LABELS[key] || raw.replace(/_/g, ' ')
-}
-
-/** Where in the ERP the user likely was when the mutation ran. */
+/** Where in the ERP the user likely was when the mutation ran (fallback when module map misses). */
 function screenHint(route) {
-  const r = String(route || '')
-  if (!r.startsWith('/app')) return r.slice(0, 72) || null
-  if (r.includes('/billing/create-invoice')) return 'Billing · Create invoice'
-  if (r.includes('/billing/manage-invoices')) return 'Billing · Manage invoices'
-  if (r.includes('/billing/add-on-invoices')) return 'Billing · Add-on invoices'
-  if (r.includes('/billing/credit-notes')) return 'Billing · Credit / debit notes'
-  if (r.includes('/billing/generated-e-invoice')) return 'Billing · E-invoice'
-  if (r.includes('/commercial/manpower-training/po-entry') || r.match(/commercial\/.*?po-entry/i)) {
-    return r.includes('rm-mm-amc') ? 'Commercial RM · PO entry' : 'Commercial MT · PO entry'
-  }
-  if (r.includes('/commercial/') && r.includes('manpower-management')) return 'Commercial · Manpower enquiries'
-  if (r.includes('/marketing/')) return 'Marketing'
-  if (r.includes('/maintenance/')) return 'Maintenance'
-  if (r.includes('/manpower')) return 'Manpower (Commercial MT)'
-  if (r.includes('/fire-tender')) return 'Fire tender'
-  if (r.includes('/indus-lms-trainings')) return 'Indus LMS / trainings'
-  if (r.includes('/user-management')) return 'User management'
-  if (r.includes('/software-subscriptions-reminders')) return 'Software subscriptions/reminders'
-  if (r.includes('/accounts-finance')) return 'Finance / P&L'
-  return `App · ${r.replace(/^\/app\/?/, '').slice(0, 52)}`.trim()
+  return resolveModule(route)
 }
 
 /** Parse `id=eq.<uuid>` from PostgREST query (PATCH/DELETE on one row). */
@@ -167,19 +111,8 @@ function tryParseJsonBody(rawBody) {
   }
 }
 
-/** Long text / credential-like keys → never ship values into the activity log */
-const PATCH_KEY_HIDE_VALUE = new Set([
-  'remarks',
-  'billing_address',
-  'shipping_address',
-  'gstin',
-  'password',
-  'token',
-  'authorization_to',
-  'service_description',
-  'invoice_terms_text',
-  'payload',
-])
+/** Alias — sensitive keys live in activityDescriptors. */
+const PATCH_KEY_HIDE_VALUE = ACTIVITY_SENSITIVE_KEYS
 
 function shortenVal(v, max = 72) {
   if (v == null || v === '') return ''
@@ -192,6 +125,7 @@ function shortenVal(v, max = 72) {
 
 /**
  * Describes approval / rejection / submission style changes from PATCH body (snake or camel keys).
+ * Used only for generic fallback when no ACTIVITY_DESCRIPTORS entry exists.
  */
 function describeWorkflowSignals(obj, entityLower) {
   if (!obj || typeof obj !== 'object') return null
@@ -287,68 +221,134 @@ function summarizePatchChanges(obj, maxParts = 4) {
   return parts.join('; ')
 }
 
-/** Build `{ action, badge, summary, … }` stored in erp_activity_log.details */
-function buildActivityDetails(method, entity, route, fullUrl, rawBody) {
+/**
+ * Build activity details for erp_activity_log.
+ * Prefers ACTIVITY_DESCRIPTORS; falls back to generic entity summaries.
+ *
+ * @param {string} method
+ * @param {string} entity
+ * @param {string|null} route
+ * @param {string} fullUrl
+ * @param {unknown} rawBody request body
+ * @param {unknown} [responseRow] parsed response row (first element if array)
+ */
+function buildActivityDetails(method, entity, route, fullUrl, rawBody, responseRow = null) {
   const m = String(method || '').toUpperCase()
   const e = String(entity || '').toLowerCase()
   const entityLabel = humanEntityName(entity)
-  const screen = screenHint(route)
+  const moduleLabel = resolveModule(route) || screenHint(route)
   const rowRef = parseRestRowId(fullUrl)
-  const payload = m === 'PATCH' || m === 'PUT' ? tryParseJsonBody(rawBody) : null
+  const actionKey = methodToActionKey(m, e)
+  const action =
+    e.startsWith('rpc:')
+      ? m === 'POST'
+        ? 'INSERT'
+        : 'CALL'
+      : m === 'POST'
+        ? 'INSERT'
+        : m === 'PATCH' || m === 'PUT'
+          ? 'UPDATE'
+          : m === 'DELETE'
+            ? 'DELETE'
+            : m
 
+  const rawReq =
+    m === 'GET' || m === 'HEAD' ? null : tryParseJsonBody(rawBody)
+  const safeReq = stripSensitiveForActivity(rawReq)
+  const safeRes = stripSensitiveForActivity(
+    responseRow && typeof responseRow === 'object' ? responseRow : tryParseJsonBody(responseRow)
+  )
+
+  const formatter = getActivityFormatter(e, actionKey)
+  if (formatter) {
+    try {
+      const formatted = formatter(safeReq, safeRes, route)
+      if (formatted?.summary) {
+        const detailLine =
+          actionKey === 'UPDATE' || actionKey === 'DELETE'
+            ? summarizePatchChanges(safeReq, 5)
+            : ''
+        let detail = detailLine || null
+        if (rowRef && (actionKey === 'UPDATE' || actionKey === 'DELETE') && !formatted.record_ref) {
+          detail = detail ? `${detail} · row ${rowRef.short}` : `Row ${rowRef.short}`
+        }
+        return {
+          action,
+          badge: formatted.badge || (actionKey === 'INSERT' ? 'CREATED' : actionKey),
+          summary: formatted.summary,
+          detail,
+          entity_label: entityLabel,
+          screen: moduleLabel,
+          module: moduleLabel,
+          record_ref: formatted.record_ref || rowRef?.short || null,
+          http_method: m,
+        }
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn('[Activity log] Descriptor failed; using generic summary.', err?.message || err)
+      }
+    }
+  }
+
+  // —— Generic fallback (unchanged behaviour for uncovered entities) ——
   let badge = 'CHANGED'
   let summaryCore = ''
   let detailLine = ''
+  const payload = actionKey === 'UPDATE' ? safeReq : null
+
+  if (e.startsWith('rpc:')) {
+    const fn = e.replace(/^rpc:/, '').replace(/_/g, ' ')
+    return {
+      action: m === 'POST' ? 'INSERT' : 'CALL',
+      badge: 'RPC',
+      summary: m === 'POST' ? `ran server function “${fn}”` : `called “${fn}”`,
+      detail: moduleLabel ? `Screen: ${moduleLabel}` : '',
+      entity_label: entityLabel,
+      screen: moduleLabel,
+      module: moduleLabel,
+      record_ref: null,
+      http_method: m,
+    }
+  }
 
   if (m === 'POST') {
     badge = 'CREATED'
-    summaryCore = `Created ${entityLabel}`
+    summaryCore = `created ${entityLabel}`
   } else if (m === 'DELETE') {
     badge = 'DELETED'
-    summaryCore = `Deleted ${entityLabel}`
+    summaryCore = `deleted ${entityLabel}`
   } else if (m === 'PATCH' || m === 'PUT') {
     badge = 'UPDATED'
     const wf = describeWorkflowSignals(payload, e)
     if (wf) {
       badge = wf.badge
-      summaryCore = `${wf.headline.charAt(0).toUpperCase() + wf.headline.slice(1)} — ${entityLabel}`
+      summaryCore = `${wf.headline} — ${entityLabel}`
     } else {
-      summaryCore = `Updated ${entityLabel}`
+      summaryCore = `updated ${entityLabel}`
     }
     detailLine = summarizePatchChanges(payload, 5)
   } else {
     badge = m
-    summaryCore = `Changed ${entityLabel}`
+    summaryCore = `changed ${entityLabel}`
   }
 
   const bits = [summaryCore]
-  if (screen) bits.push(`(${screen})`)
+  if (moduleLabel) bits.push(`(${moduleLabel})`)
   const summary = bits.join(' ')
 
   if (rowRef && (m === 'PATCH' || m === 'DELETE')) {
     detailLine = detailLine ? `${detailLine} · row ${rowRef.short}` : `Row ${rowRef.short}`
   }
 
-  if (e.startsWith('rpc:')) {
-    const fn = e.replace(/^rpc:/, '').replace(/_/g, ' ')
-    badge = m === 'POST' ? 'RPC' : 'RPC'
-    return {
-      action: m === 'POST' ? 'INSERT' : 'CALL',
-      badge,
-      summary: m === 'POST' ? `Ran server function “${fn}”` : `Called “${fn}”`,
-      detail: screen ? `Screen: ${screen}` : '',
-      entity_label: entityLabel,
-      screen,
-    }
-  }
-
   return {
-    action: m === 'POST' ? 'INSERT' : m === 'PATCH' ? 'UPDATE' : m === 'DELETE' ? 'DELETE' : m,
+    action,
     badge,
     summary,
     detail: detailLine,
     entity_label: entityLabel,
-    screen,
+    screen: moduleLabel,
+    module: moduleLabel,
     record_ref: rowRef?.short || null,
     http_method: m,
   }
@@ -414,6 +414,8 @@ async function flushActivityQueue() {
           ...r,
           user_id: r.user_id ?? user?.id ?? null,
           user_email: r.user_email ?? user?.email ?? null,
+          module: r.module ?? r.details?.module ?? r.details?.screen ?? null,
+          record_ref: r.record_ref ?? r.details?.record_ref ?? null,
         }))
       ),
     })
@@ -666,12 +668,29 @@ const customFetch = async (url, options = {}) => {
       const entity = parseRestEntity(url)
       const route = typeof window !== 'undefined' ? window.location.pathname : null
       const bodyCandidate = options.body
-      const details = buildActivityDetails(method, entity, route, url, bodyCandidate)
+
+      // Parse response only for logged mutations (generated fields like tax_invoice_number).
+      let responseRow = null
+      try {
+        const ct = res.headers.get('content-type') || ''
+        if (ct.includes('application/json')) {
+          const text = await res.clone().text()
+          if (text && text.length <= 96000) {
+            responseRow = tryParseJsonBody(text)
+          }
+        }
+      } catch {
+        /* ignore — Prefer: return=minimal yields empty body */
+      }
+
+      const details = buildActivityDetails(method, entity, route, url, bodyCandidate, responseRow)
       if (details.summary) {
         enqueueActivityLog({
           action: details.action,
           entity,
           route,
+          module: details.module || details.screen || null,
+          record_ref: details.record_ref || null,
           success: res.ok,
           status_code: res.status,
           details: {
@@ -681,6 +700,7 @@ const customFetch = async (url, options = {}) => {
             detail: details.detail || null,
             entity_label: details.entity_label || null,
             screen: details.screen || null,
+            module: details.module || details.screen || null,
             record_ref: details.record_ref || null,
             http_method: details.http_method || method,
           },

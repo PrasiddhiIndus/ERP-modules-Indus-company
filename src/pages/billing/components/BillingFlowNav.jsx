@@ -69,6 +69,13 @@ const NAV_ITEMS = [
     to: '/app/billing/generated-e-invoice',
     isActive: (p) => p.startsWith('/app/billing/generated-e-invoice'),
   },
+  {
+    id: 'tracker',
+    label: 'Cycle tracker',
+    title: 'Recurring monthly/quarterly billing status across all verticals',
+    to: '/app/billing/tracker',
+    isActive: (p) => p.startsWith('/app/billing/tracker'),
+  },
 ];
 
 export default function BillingFlowNav() {

@@ -288,7 +288,7 @@ const INITIAL_FORM_RM = {
   totalContractValue: '', sacCode: DEFAULT_SAC, hsnCode: '', serviceDescription: '',
   renewalCycles: [],
   newCyclePoWoNumber: '', newCycleTotalContractValue: '',
-  startDate: '', endDate: '', billingType: 'Service', billingCycle: '30', remarks: '',
+  startDate: '', endDate: '', billingType: 'Service', billingCycle: '30', billingFrequency: 'monthly', remarks: '',
   poReceivedDate: '',
   paymentTerms: 'Immediate', customPaymentTermsPercent: '',
   monthlyDutyQtyMode: '',
@@ -634,7 +634,10 @@ const POEntry = ({
       totalContractValue: po.totalContractValue ?? '', sacCode: po.sacCode || DEFAULT_SAC, hsnCode: po.hsnCode || '',
       serviceDescription: po.serviceDescription || '', startDate: po.startDate || '', endDate: po.endDate || '',
       poReceivedDate: po.poReceivedDate || '',
-      billingType: po.billingType || 'Service', billingCycle: String(po.billingCycle || '30'), remarks: po.remarks || po.paymentTerms || '',
+      billingType: po.billingType || 'Service',
+      billingCycle: String(po.billingCycle || (po.billingFrequency === 'quarterly' ? '90' : '30')),
+      billingFrequency: po.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly',
+      remarks: po.remarks || po.paymentTerms || '',
       paymentTerms: po.paymentTerms || 'Immediate',
       customPaymentTermsPercent: po.customPaymentTermsPercent || '',
       monthlyDutyQtyMode:
@@ -971,7 +974,9 @@ const POEntry = ({
       ratePerCategory: rates.length ? rates : [{ description: 'Other', hsnSac: '', qty: 0, rate: 0, penalty: 0 }], totalContractValue: totalVal,
       sacCode: '', hsnCode: '', serviceDescription: formData.serviceDescription.trim(),
       startDate: formData.startDate || '', endDate: formData.endDate || '', poReceivedDate: formData.poReceivedDate || '', billingType: poType,
-      billingCycle: null, remarks: formData.remarks.trim(),
+      billingFrequency: formData.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly',
+      billingCycle: formData.billingFrequency === 'quarterly' ? 90 : 30,
+      remarks: formData.remarks.trim(),
       paymentTerms: formData.paymentTerms || 'Immediate',
       customPaymentTermsPercent:
         formData.paymentTerms === CUSTOM_PAYMENT_TERM ? String(formData.customPaymentTermsPercent || '').trim() : '',
@@ -1934,6 +1939,31 @@ const POEntry = ({
                       ))}
                     </select>
                   </div>
+                  {formData.billingType === 'Service' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Billing frequency
+                      </label>
+                      <select
+                        value={formData.billingFrequency === 'quarterly' ? 'quarterly' : 'monthly'}
+                        onChange={(e) => {
+                          const freq = e.target.value === 'quarterly' ? 'quarterly' : 'monthly';
+                          setFormData((p) => ({
+                            ...p,
+                            billingFrequency: freq,
+                            billingCycle: freq === 'quarterly' ? '90' : '30',
+                          }));
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      >
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly (Indian FY)</option>
+                      </select>
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        Used by Billing Tracker for cycle due dates. Required for AMC — do not leave as monthly if the contract bills quarterly.
+                      </p>
+                    </div>
+                  ) : null}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">PO Received Date</label>
                     <FormDateInput value={formData.poReceivedDate} onChange={(e) => handleDateInputChange('poReceivedDate', e.target.value)}

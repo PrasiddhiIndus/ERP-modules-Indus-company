@@ -991,8 +991,10 @@ const Layout = () => {
                     <Bell className="w-4 h-4 shrink-0 text-teal-600" />
                     <span className="type-meta type-truncate">Notifications</span>
                   </NavLink>
-                  {/* After manage workflow: list of IRN-generated invoices */}
-                 
+                  <NavLink to="/app/billing/tracker" className={subNavClass}>
+                    <CalendarDays className="w-4 h-4 shrink-0 text-indigo-600" />
+                    <span className="type-meta type-truncate">Billing Tracker</span>
+                  </NavLink>
                 </div>
               )}
             </div>
