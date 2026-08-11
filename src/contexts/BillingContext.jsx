@@ -256,7 +256,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     billingVerticalOptions,
   ]);
 
-  // Keep selected vertical inside granted set; auto-select when only one grant.
+  // Keep selected vertical inside granted set; empty = all granted verticals.
   useEffect(() => {
     if (!enableVerticalFilter) return;
     const opts = billingVerticalOptions || [];
@@ -265,10 +265,6 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
       return;
     }
     const allowed = new Set(opts.map((o) => o.id));
-    if (opts.length === 1) {
-      if (billingVerticalFilter !== opts[0].id) setBillingVerticalFilter(opts[0].id);
-      return;
-    }
     if (billingVerticalFilter && !allowed.has(billingVerticalFilter)) {
       setBillingVerticalFilter('');
     }
@@ -277,8 +273,11 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
   const commercialPOsVisible = useMemo(() => {
     if (!enableVerticalFilter) return commercialPOs;
     if (billingVerticalAccessBlocked) return [];
-    if (!billingVerticalFilter) return [];
-    let rows = commercialPOs.filter((p) => resolvePoVerticalKey(p) === billingVerticalFilter);
+    const allowed = new Set((billingVerticalOptions || []).map((o) => o.id));
+    let rows = commercialPOs.filter((p) => allowed.has(resolvePoVerticalKey(p)));
+    if (billingVerticalFilter) {
+      rows = rows.filter((p) => resolvePoVerticalKey(p) === billingVerticalFilter);
+    }
     if (billingPoBasisFilter) {
       rows = rows.filter((p) => resolveBillingPoBasis(p) === billingPoBasisFilter);
     }
@@ -287,6 +286,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
     commercialPOs,
     billingVerticalFilter,
     billingPoBasisFilter,
+    billingVerticalOptions,
     enableVerticalFilter,
     billingVerticalAccessBlocked,
   ]);
@@ -294,7 +294,6 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
   const invoicesVisible = useMemo(() => {
     if (!enableVerticalFilter) return invoicesFull;
     if (billingVerticalAccessBlocked) return [];
-    if (!billingVerticalFilter) return [];
     const visibleParents = new Set(commercialPOsVisible.map((p) => String(p.id)));
     const supplementaryChildIdsForVisibleParents = new Set();
     commercialPOsFull.forEach((p) => {
@@ -317,7 +316,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
 
   const creditDebitNotesVisible = useMemo(() => {
     if (!enableVerticalFilter) return creditDebitNotes;
-    if (billingVerticalAccessBlocked || !billingVerticalFilter) return [];
+    if (billingVerticalAccessBlocked) return [];
     const visibleInvoiceIds = new Set(invoicesVisible.map((inv) => String(inv.id)));
     return (creditDebitNotes || []).filter((n) => {
       const parentId = String(n.parentInvoiceId || n.parent_invoice_id || '');
@@ -333,7 +332,7 @@ export const BillingProvider = ({ children, commercialModuleScope = null, enable
 
   const paymentAdviceVisible = useMemo(() => {
     if (!enableVerticalFilter) return paymentAdvice;
-    if (billingVerticalAccessBlocked || !billingVerticalFilter) return {};
+    if (billingVerticalAccessBlocked) return {};
     const visibleInvoiceIds = new Set(invoicesVisible.map((inv) => String(inv.id)));
     const next = {};
     Object.entries(paymentAdvice || {}).forEach(([key, val]) => {

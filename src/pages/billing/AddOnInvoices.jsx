@@ -124,7 +124,7 @@ const AddOnInvoices = ({ onNavigateTab }) => {
     setAddOnInvoiceFormDraft(addOnAutosaveSnapshot);
   }, [addOnAutosaveSnapshot, setAddOnInvoiceFormDraft, selectedPoId, addOnType, items]);
 
-  const verticalNotSelected = !billingVerticalFilter;
+  const verticalNotSelected = false;
   const billingPoBasisLabel =
     billingPoBasisFilter === 'with_po'
       ? 'With PO only'

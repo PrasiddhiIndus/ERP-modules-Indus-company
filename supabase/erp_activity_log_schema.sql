@@ -16,6 +16,8 @@ create table if not exists public.erp_activity_log (
   action text not null,          -- INSERT | UPDATE | DELETE | UPSERT | RPC | OTHER
   entity text null,              -- e.g. "marketing_enquiries"
   route text null,               -- window.location.pathname
+  module text null,              -- human module label (e.g. "Billing · Create invoice")
+  record_ref text null,          -- short business ref (invoice #, PO #, employee code)
   success boolean not null default true,
   status_code int null,
   details jsonb null             -- minimal payload metadata (no PII)
@@ -24,6 +26,9 @@ create table if not exists public.erp_activity_log (
 create index if not exists erp_activity_log_created_at_idx on public.erp_activity_log (created_at desc);
 create index if not exists erp_activity_log_entity_idx on public.erp_activity_log (entity);
 create index if not exists erp_activity_log_user_id_idx on public.erp_activity_log (user_id);
+create index if not exists erp_activity_log_module_idx on public.erp_activity_log (module);
+create index if not exists erp_activity_log_record_ref_idx on public.erp_activity_log (record_ref);
+create index if not exists erp_activity_log_module_created_at_idx on public.erp_activity_log (module, created_at desc);
 
 alter table public.erp_activity_log enable row level security;
 
@@ -49,4 +54,3 @@ end$$;
 
 -- Optional: live Activity drawer updates (Realtime). In Supabase SQL editor:
 -- ALTER PUBLICATION supabase_realtime ADD TABLE public.erp_activity_log;
-

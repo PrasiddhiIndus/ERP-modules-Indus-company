@@ -310,7 +310,7 @@ const CreditNotes = () => {
     setIssueContext(null);
   }, [issueContextAutosaveKey]);
 
-  const verticalNotSelected = !billingVerticalFilter;
+  const verticalNotSelected = false;
   const billingPoBasisLabel =
     billingPoBasisFilter === 'with_po'
       ? 'With PO only'

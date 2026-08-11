@@ -208,7 +208,7 @@ const BillingReports = () => {
   const [delayRemarkDrafts, setDelayRemarkDrafts] = useState(loadDelayRemarks);
   const [selectedDelayRow, setSelectedDelayRow] = useState(null);
 
-  const verticalNotSelected = !billingVerticalFilter;
+  const verticalNotSelected = false;
   const billingPoBasisLabel =
     billingPoBasisFilter === 'with_po'
       ? 'With PO only'
