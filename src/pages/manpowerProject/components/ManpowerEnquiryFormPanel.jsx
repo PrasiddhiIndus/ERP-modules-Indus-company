@@ -1524,6 +1524,14 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                 placeholder="0"
               />
             </Field>
+            <Field label="Offer Submission">
+              <FormDateInput
+                name="offerSubmittedOn"
+                value={formData.offerSubmittedOn || ""}
+                onChange={handleChange}
+                className={inputClass}
+              />
+            </Field>
             {enquiryResultRequiresRemark(formData.enquiryResult) ? (
               <Field label="Remarks" className="sm:col-span-2">
                 <textarea
