@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { formatDateTimeDdMmYyyy } from '../utils/dateDisplay';
 import { supabase } from '../lib/supabase';
 import { Clock, ChevronLeft, ChevronRight, X } from 'lucide-react';
@@ -46,20 +46,52 @@ function badgeToneClass(code) {
   return 'bg-slate-100 text-slate-800 ring-1 ring-slate-200/70';
 }
 
+function moduleOf(r) {
+  return String(r?.module || r?.details?.module || r?.details?.screen || '').trim() || null;
+}
+
+function recordRefOf(r) {
+  return String(r?.record_ref || r?.details?.record_ref || '').trim() || null;
+}
+
 export default function ActivityLogDrawer({ open, onClose }) {
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [moduleFilter, setModuleFilter] = useState('');
+  const [moduleOptions, setModuleOptions] = useState([]);
   /** Rolling window: “last 1 hour” is recomputed whenever we load while the drawer is open. */
   const sinceHourAgoRef = useRef(isoSinceHoursAgo(1));
   const pageRef = useRef(0);
+  const moduleFilterRef = useRef('');
   pageRef.current = page;
+  moduleFilterRef.current = moduleFilter;
 
   const canPrev = page > 0;
   const canNext = rows.length === PAGE_SIZE;
 
-  const fetchPage = async (p) => {
+  const fetchModuleOptions = async (since) => {
+    try {
+      const { data, error: qErr } = await supabase
+        .from('erp_activity_log')
+        .select('module, details')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (qErr) return;
+      const set = new Set();
+      for (const r of data || []) {
+        const m = moduleOf(r);
+        if (m) set.add(m);
+      }
+      setModuleOptions([...set].sort((a, b) => a.localeCompare(b)));
+    } catch {
+      /* optional */
+    }
+  };
+
+  const fetchPage = async (p, filter) => {
     try {
       setLoading(true);
       setError('');
@@ -67,14 +99,29 @@ export default function ActivityLogDrawer({ open, onClose }) {
       sinceHourAgoRef.current = since;
       const from = p * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-      const { data, error: qErr } = await supabase
-        .from('erp_activity_log')
-        .select('*')
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .range(from, to);
-      if (qErr) throw qErr;
-      setRows(data || []);
+
+      if (filter) {
+        // Wider fetch then client-filter so older rows (module only in details) still match.
+        const { data, error: qErr } = await supabase
+          .from('erp_activity_log')
+          .select('*')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(200);
+        if (qErr) throw qErr;
+        const filtered = (data || []).filter((r) => moduleOf(r) === filter);
+        setRows(filtered.slice(from, to + 1));
+      } else {
+        const { data, error: qErr } = await supabase
+          .from('erp_activity_log')
+          .select('*')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        if (qErr) throw qErr;
+        setRows(data || []);
+      }
+      void fetchModuleOptions(since);
     } catch (e) {
       setRows([]);
       const raw = e?.message || String(e || '');
@@ -89,14 +136,17 @@ export default function ActivityLogDrawer({ open, onClose }) {
   };
 
   useLayoutEffect(() => {
-    if (open) setPage(0);
+    if (open) {
+      setPage(0);
+      setModuleFilter('');
+    }
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    void fetchPage(page);
+    void fetchPage(page, moduleFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, page]);
+  }, [open, page, moduleFilter]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -112,6 +162,12 @@ export default function ActivityLogDrawer({ open, onClose }) {
             const r = payload?.new;
             if (!r?.created_at) return;
             if (new Date(r.created_at) < new Date(sinceHourAgoRef.current)) return;
+            const m = moduleOf(r);
+            if (m) {
+              setModuleOptions((prev) => (prev.includes(m) ? prev : [...prev, m].sort((a, b) => a.localeCompare(b))));
+            }
+            const filter = moduleFilterRef.current;
+            if (filter && moduleOf(r) !== filter) return;
             setRows((prev) =>
               pageRef.current === 0 ? [r, ...prev.filter((x) => x?.id !== r?.id)].slice(0, PAGE_SIZE) : prev
             );
@@ -137,6 +193,8 @@ export default function ActivityLogDrawer({ open, onClose }) {
     };
   }, [open]);
 
+  const filterChips = useMemo(() => moduleOptions, [moduleOptions]);
+
   if (!open) return null;
 
   return (
@@ -159,6 +217,43 @@ export default function ActivityLogDrawer({ open, onClose }) {
         </button>
       </div>
 
+      {filterChips.length > 0 ? (
+        <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setModuleFilter('');
+              setPage(0);
+            }}
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 transition-colors ${
+              !moduleFilter
+                ? 'bg-slate-900 text-white ring-slate-900'
+                : 'bg-slate-50 text-slate-700 ring-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            All
+          </button>
+          {filterChips.map((m) => (
+            <button
+              key={m}
+              type="button"
+              title={m}
+              onClick={() => {
+                setModuleFilter(m);
+                setPage(0);
+              }}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-medium ring-1 max-w-[9.5rem] truncate transition-colors ${
+                moduleFilter === m
+                  ? 'bg-slate-900 text-white ring-slate-900'
+                  : 'bg-slate-50 text-slate-700 ring-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="flex-1 overflow-y-auto">
         {error ? <div className="p-4 text-sm text-red-700">{error}</div> : null}
         {loading ? <div className="p-4 text-sm text-slate-600">Loading…</div> : null}
@@ -168,60 +263,76 @@ export default function ActivityLogDrawer({ open, onClose }) {
 
         <ul className="divide-y divide-slate-100">
           {rows.map((r) => {
-              const badge = badgeFromRow(r);
-              const who = r.user_email ? friendlyUserNameFromEmail(r.user_email) : r.user_id ? `User ${String(r.user_id).slice(0, 8)}…` : 'Someone';
-              const summary =
-                r.details?.summary ||
-                `${String(r.details?.verb || '').trim() || badge} · ${String(r.entity || 'record')}`.trim();
-              return (
+            const badge = badgeFromRow(r);
+            const email = r.user_email || '';
+            const whoLabel = email
+              ? friendlyUserNameFromEmail(email)
+              : r.user_id
+                ? `User ${String(r.user_id).slice(0, 8)}…`
+                : 'Someone';
+            const summary =
+              r.details?.summary ||
+              `${String(r.details?.verb || '').trim() || badge.toLowerCase()} · ${String(r.entity || 'record')}`.trim();
+            const ref = recordRefOf(r);
+            const mod = moduleOf(r);
+            return (
               <li key={r.id} className="px-4 py-3">
-              <div className="flex items-start justify-between gap-2">
-                <span
-                  className={`shrink-0 inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${badgeToneClass(badge)}`}
-                  title={`Action: ${badge}`}
-                >
-                  {badge.replace(/_/g, ' ')}
-                </span>
-                <span className="text-[11px] text-slate-500 shrink-0 tabular-nums">{fmtTime(r.created_at)}</span>
-              </div>
-              <p className="text-[11px] font-semibold text-slate-800 mt-1.5">
-                <span className="text-slate-950">{who}</span>
-                {r.user_email ? <span className="font-normal text-slate-500"> ({r.user_email})</span> : null}
-              </p>
-              <p className="text-xs text-slate-900 mt-1 leading-snug">{summary}</p>
-              {r.details?.detail ? (
-                <p className="text-[11px] text-slate-600 mt-1 leading-snug break-words" title={r.details.detail}>
-                  <span className="font-medium text-slate-700">Changes: </span>
-                  {r.details.detail}
-                </p>
-              ) : null}
-              <div className="text-[10px] text-slate-500 mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5">
-                {r.details?.entity_label ? <span>Type: {r.details.entity_label}</span> : null}
-                {r.details?.screen ? (
-                  <span className="text-slate-500">
-                    Screen: <span className="text-slate-600">{r.details.screen}</span>
+                <div className="flex items-start justify-between gap-2">
+                  <span
+                    className={`shrink-0 inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${badgeToneClass(badge)}`}
+                    title={`Action: ${badge}`}
+                  >
+                    {badge.replace(/_/g, ' ')}
                   </span>
+                  <span className="text-[11px] text-slate-500 shrink-0 tabular-nums">{fmtTime(r.created_at)}</span>
+                </div>
+                <p className="text-xs text-slate-900 mt-1.5 leading-snug">
+                  <span className="font-semibold text-slate-950" title={email || undefined}>
+                    {email || whoLabel}
+                  </span>{' '}
+                  <span className="text-slate-800">{summary}</span>
+                  {ref ? (
+                    <span className="ml-1.5 inline-flex align-middle px-1.5 py-0.5 rounded bg-slate-100 text-[9px] font-semibold text-slate-700 ring-1 ring-slate-200/80">
+                      {ref}
+                    </span>
+                  ) : null}
+                </p>
+                {r.details?.detail ? (
+                  <details className="mt-1.5 group">
+                    <summary className="text-[11px] text-slate-600 cursor-pointer list-none inline-flex items-center gap-1 hover:text-slate-800">
+                      <span className="font-medium text-slate-700">Changes</span>
+                      <span className="text-slate-400 group-open:hidden">show</span>
+                      <span className="text-slate-400 hidden group-open:inline">hide</span>
+                    </summary>
+                    <p className="text-[11px] text-slate-600 mt-1 leading-snug break-words" title={r.details.detail}>
+                      {r.details.detail}
+                    </p>
+                  </details>
                 ) : null}
-              </div>
-              {r.details?.record_ref ? (
-                <p className="text-[10px] text-slate-400 mt-1 font-mono">Ref: {r.details.record_ref}</p>
-              ) : null}
-              {r.route ? (
-                <p className="text-[10px] text-slate-500 mt-1 truncate" title={r.route}>
-                  Page path: <span className="font-mono text-slate-600">{r.route}</span>
-                </p>
-              ) : null}
-              {import.meta.env.DEV ? (
-                <p className="text-[9px] text-slate-400 mt-0.5 truncate font-mono" title={r.details?.path}>
-                  REST: {r.details?.path || '—'}
-                </p>
-              ) : null}
-              {r.success === false ? (
-                <p className="mt-1 text-[11px] text-red-700">Failed (HTTP {r.status_code || '—'})</p>
-              ) : null}
-            </li>
-              );
-            })}
+                <div className="text-[10px] text-slate-500 mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                  {r.details?.entity_label ? <span>Type: {r.details.entity_label}</span> : null}
+                  {mod ? (
+                    <span className="text-slate-500">
+                      Module: <span className="text-slate-600">{mod}</span>
+                    </span>
+                  ) : null}
+                </div>
+                {r.route ? (
+                  <p className="text-[10px] text-slate-500 mt-1 truncate" title={r.route}>
+                    Page path: <span className="font-mono text-slate-600">{r.route}</span>
+                  </p>
+                ) : null}
+                {import.meta.env.DEV ? (
+                  <p className="text-[9px] text-slate-400 mt-0.5 truncate font-mono" title={r.details?.path}>
+                    REST: {r.details?.path || '—'}
+                  </p>
+                ) : null}
+                {r.success === false ? (
+                  <p className="mt-1 text-[11px] text-red-700">Failed (HTTP {r.status_code || '—'})</p>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       </div>
 
@@ -247,4 +358,3 @@ export default function ActivityLogDrawer({ open, onClose }) {
     </div>
   );
 }
-
