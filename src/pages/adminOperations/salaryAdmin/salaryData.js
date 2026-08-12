@@ -180,6 +180,66 @@ function readLegacyStore() {
   }
 }
 
+function writeLegacyStore(store) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(store || {}));
+}
+
+/** True when PostgREST / Postgres reports salary CTC tables missing. */
+function isSalaryDbUnavailable(err) {
+  const msg = String(err?.message || err?.details || err?.hint || "");
+  const code = String(err?.code || "");
+  return /PGRST205|PGRST204|42P01|does not exist|Could not find the table|relation .* does not exist|schema cache/i.test(
+    `${code} ${msg}`
+  );
+}
+
+/**
+ * Persist CTC in browser when DB tables are not available yet.
+ * Same shape as DB UI rows so getSalaryStructure / revise still work.
+ */
+function saveLegacySalaryStructure(employeeMasterId, payload, { revise = false, meta = {} } = {}) {
+  const key = String(employeeMasterId);
+  const store = readLegacyStore();
+  const prev = store[key] && typeof store[key] === "object" ? store[key] : {};
+  const revisions = Array.isArray(prev.revisions) ? [...prev.revisions] : [];
+  let revision_count = Number(prev.revision_count) || revisions.length || 0;
+
+  if (revise && prev.declared) {
+    revision_count += 1;
+    const {
+      revisions: _r,
+      revision_count: _rc,
+      id: _id,
+      ...archived
+    } = prev;
+    revisions.unshift({
+      ...archived,
+      revision_no: revision_count,
+      revised_at: new Date().toISOString(),
+      wef_date: prev.wef_date || null,
+      revision_reason: prev.revision_reason || null,
+      superseded_wef: prev.wef_date || null,
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+  const next = {
+    ...payload,
+    employee_master_id: key,
+    declared: true,
+    wef_date: meta.wef_date ?? payload.wef_date ?? null,
+    revision_reason: (meta.reason && String(meta.reason).trim()) || payload.revision_reason || null,
+    revision_count,
+    revisions,
+    created_at: prev.created_at || prev.updated_at || nowIso,
+    updated_at: nowIso,
+    __local: true,
+  };
+  store[key] = next;
+  writeLegacyStore(store);
+  return next;
+}
+
 /**
  * One-time: copy localStorage CTC drafts into admin_salary when DB has no row yet.
  * Safe to call repeatedly; skips employees that already have a declared structure.
@@ -205,43 +265,92 @@ export async function migrateLegacySalaryStructuresToDb() {
   return { migrated };
 }
 
+function loadLegacyStructureMap() {
+  const store = readLegacyStore();
+  const map = new Map();
+  for (const [id, row] of Object.entries(store)) {
+    if (row && typeof row === "object" && row.declared) {
+      map.set(String(id), row);
+    }
+  }
+  return map;
+}
+
+/**
+ * Prefer DB CTC when present; always fill gaps from local CTC saves
+ * (Employee Master Save CTC → Salary Processing tables).
+ */
 export async function fetchSalaryStructureMap() {
+  const map = loadLegacyStructureMap();
+
   try {
     await migrateLegacySalaryStructuresToDb();
   } catch (err) {
     console.warn("Salary Admin: legacy migrate failed", err);
   }
+
   try {
-    return await dbFetchSalaryStructureMap();
-  } catch (err) {
-    console.warn("Salary Admin: DB map failed, using legacy store", err);
-    const store = readLegacyStore();
-    const map = new Map();
-    for (const [id, row] of Object.entries(store)) {
+    const dbMap = await dbFetchSalaryStructureMap();
+    for (const [id, row] of dbMap.entries()) {
       if (row && typeof row === "object") map.set(String(id), row);
     }
-    return map;
+  } catch (err) {
+    console.warn("Salary Admin: DB map failed, using local CTC store", err);
   }
+
+  return map;
 }
 
 export async function getSalaryStructure(employeeMasterId) {
   if (employeeMasterId == null) return null;
+  const legacy = readLegacyStore()[String(employeeMasterId)];
   try {
     const row = await dbGetSalaryStructure(employeeMasterId, { withRevisions: true });
-    if (row) return row;
+    if (row?.declared) {
+      // Prefer DB amounts; keep local revision trail if DB has none yet
+      const dbRevs = Array.isArray(row.revisions) ? row.revisions : [];
+      const localRevs = Array.isArray(legacy?.revisions) ? legacy.revisions : [];
+      if (dbRevs.length === 0 && localRevs.length > 0) {
+        return {
+          ...row,
+          revisions: localRevs,
+          revision_count: Math.max(
+            Number(row.revision_count) || 0,
+            Number(legacy?.revision_count) || localRevs.length
+          ),
+        };
+      }
+      return row;
+    }
+    if (legacy?.declared) return legacy;
+    return row || (legacy && typeof legacy === "object" ? legacy : null);
   } catch (err) {
-    console.warn("Salary Admin: DB get structure failed, trying legacy", err);
+    console.warn("Salary Admin: DB get structure failed, trying local CTC", err);
   }
-  const legacy = readLegacyStore()[String(employeeMasterId)];
   return legacy && typeof legacy === "object" ? legacy : null;
 }
 
 /**
  * First-time CTC save. Does not create a revision entry.
  * If a structure already exists, prefer reviseSalaryStructure.
+ * Always mirrors to local store so Salary Processing can read CTC even if DB is down.
+ * Falls back to local-only when salary CTC tables are not set up yet.
  */
 export async function saveSalaryStructure(employeeMasterId, payload) {
-  return dbSaveSalaryStructure(employeeMasterId, { ...payload, declared: true });
+  const body = { ...payload, declared: true };
+  try {
+    const saved = await dbSaveSalaryStructure(employeeMasterId, body);
+    try {
+      saveLegacySalaryStructure(employeeMasterId, { ...body, ...saved, declared: true }, { revise: false });
+    } catch (mirrorErr) {
+      console.warn("Salary Admin: local CTC mirror failed", mirrorErr);
+    }
+    return saved;
+  } catch (err) {
+    if (!isSalaryDbUnavailable(err)) throw err;
+    console.warn("Salary Admin: DB save unavailable, using local store", err);
+    return saveLegacySalaryStructure(employeeMasterId, body, { revise: false });
+  }
 }
 
 /**
@@ -251,17 +360,33 @@ export async function saveSalaryStructure(employeeMasterId, payload) {
  * @param {{ reason?: string, wef_date?: string }} [meta]
  */
 export async function reviseSalaryStructure(employeeMasterId, payload, meta = {}) {
-  return dbReviseSalaryStructure(employeeMasterId, { ...payload, declared: true }, meta);
+  const body = { ...payload, declared: true };
+  try {
+    const saved = await dbReviseSalaryStructure(employeeMasterId, body, meta);
+    try {
+      saveLegacySalaryStructure(employeeMasterId, { ...body, ...saved, declared: true }, { revise: true, meta });
+    } catch (mirrorErr) {
+      console.warn("Salary Admin: local CTC revise mirror failed", mirrorErr);
+    }
+    return saved;
+  } catch (err) {
+    if (!isSalaryDbUnavailable(err)) throw err;
+    console.warn("Salary Admin: DB revise unavailable, using local store", err);
+    return saveLegacySalaryStructure(employeeMasterId, body, { revise: true, meta });
+  }
 }
 
-/** Revision history newest-first (archived versions only). */
+/** Revision history newest-first (archived versions only). Prefer DB; fall back to local CTC store. */
 export async function getSalaryRevisions(employeeMasterId) {
+  const legacy = readLegacyStore()[String(employeeMasterId)];
+  const localRevs = Array.isArray(legacy?.revisions) ? legacy.revisions : [];
   try {
-    return await dbGetSalaryRevisions(employeeMasterId);
+    const rows = await dbGetSalaryRevisions(employeeMasterId);
+    if (Array.isArray(rows) && rows.length > 0) return rows;
+    return localRevs;
   } catch (err) {
     console.warn("Salary Admin: DB revisions failed", err);
-    const legacy = readLegacyStore()[String(employeeMasterId)];
-    return Array.isArray(legacy?.revisions) ? legacy.revisions : [];
+    return localRevs;
   }
 }
 

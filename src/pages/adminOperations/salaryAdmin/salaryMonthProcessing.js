@@ -470,10 +470,145 @@ function sumLines(lines) {
 }
 
 export const PROCESS_MODES = {
+  /** All eligible employees (UI label: All). */
   BULK: "bulk",
+  /** @deprecated Removed from UI — kept for older calls. */
   SELECT: "select",
   DEPT: "dept",
+  /** Salary hold management (not a process scope). */
+  HOLD: "hold",
 };
+
+const HOLD_STORAGE_KEY = "admin_salary_month_holds_v1";
+
+function readHoldStore() {
+  try {
+    const raw = localStorage.getItem(HOLD_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeHoldStore(store) {
+  localStorage.setItem(HOLD_STORAGE_KEY, JSON.stringify(store || {}));
+}
+
+/** Employee master ids on salary hold for a month key (`YYYY-MM`). */
+export function getMonthHoldIds(monthKeyValue) {
+  const key = String(monthKeyValue || "").trim();
+  if (!key) return [];
+  const raw = readHoldStore()[key];
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((id) => String(id)).filter(Boolean))];
+}
+
+export function setMonthHoldIds(monthKeyValue, ids) {
+  const key = String(monthKeyValue || "").trim();
+  if (!key) return [];
+  const next = [...new Set((ids || []).map((id) => String(id)).filter(Boolean))];
+  const store = readHoldStore();
+  if (!next.length) delete store[key];
+  else store[key] = next;
+  writeHoldStore(store);
+  return next;
+}
+
+export function toggleMonthHoldId(monthKeyValue, employeeId) {
+  const id = String(employeeId ?? "");
+  if (!id) return getMonthHoldIds(monthKeyValue);
+  const cur = new Set(getMonthHoldIds(monthKeyValue));
+  if (cur.has(id)) cur.delete(id);
+  else cur.add(id);
+  return setMonthHoldIds(monthKeyValue, [...cur]);
+}
+
+/** Editable fields persisted from employee salary detail page. */
+const SCOPE_DRAFT_STORAGE_KEY = "admin_salary_scope_line_drafts_v1";
+const SCOPE_DRAFT_FIELDS = [
+  "account_no",
+  "ifsc",
+  "confirmation_date",
+  "present_days",
+  "pf_basic",
+  "custom_earn_full",
+  "pt_amount",
+  "loan",
+  "sal_adv",
+  "unpaid_paid",
+  "tds",
+  "custom_ded_full",
+];
+
+function readScopeDraftStore() {
+  try {
+    const raw = localStorage.getItem(SCOPE_DRAFT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeScopeDraftStore(store) {
+  localStorage.setItem(SCOPE_DRAFT_STORAGE_KEY, JSON.stringify(store || {}));
+}
+
+export function getScopeLineDraft(monthKeyValue, employeeMasterId) {
+  const mk = String(monthKeyValue || "").trim();
+  const eid = String(employeeMasterId ?? "");
+  if (!mk || !eid) return null;
+  const row = readScopeDraftStore()?.[mk]?.[eid];
+  return row && typeof row === "object" ? row : null;
+}
+
+/** Persist detail-page edits for a month + employee (used by preview + process). */
+export function saveScopeLineDraft(monthKeyValue, employeeMasterId, line) {
+  const mk = String(monthKeyValue || "").trim();
+  const eid = String(employeeMasterId ?? "");
+  if (!mk || !eid || !line) return null;
+  const patch = {};
+  for (const key of SCOPE_DRAFT_FIELDS) {
+    if (line[key] !== undefined) patch[key] = line[key];
+  }
+  if (line.computed_json?.custom_earn_full != null && patch.custom_earn_full == null) {
+    patch.custom_earn_full = line.computed_json.custom_earn_full;
+  }
+  if (line.computed_json?.custom_ded_full != null && patch.custom_ded_full == null) {
+    patch.custom_ded_full = line.computed_json.custom_ded_full;
+  }
+  patch.saved_at = new Date().toISOString();
+  const store = readScopeDraftStore();
+  if (!store[mk] || typeof store[mk] !== "object") store[mk] = {};
+  store[mk][eid] = patch;
+  writeScopeDraftStore(store);
+  return patch;
+}
+
+export function applyScopeLineDraft(line, draft, monthDays) {
+  if (!line || !draft || typeof draft !== "object") return line;
+  const merged = { ...line };
+  for (const key of SCOPE_DRAFT_FIELDS) {
+    if (draft[key] !== undefined) merged[key] = draft[key];
+  }
+  if (draft.custom_earn_full != null || draft.custom_ded_full != null) {
+    merged.computed_json = {
+      ...(merged.computed_json || {}),
+      custom_earn_full:
+        draft.custom_earn_full != null
+          ? draft.custom_earn_full
+          : merged.computed_json?.custom_earn_full,
+      custom_ded_full:
+        draft.custom_ded_full != null
+          ? draft.custom_ded_full
+          : merged.computed_json?.custom_ded_full,
+    };
+  }
+  return recomputeLineFromEdits(merged, monthDays);
+}
 
 function normalizeDeptName(v) {
   return v == null ? "" : String(v).trim();
@@ -513,7 +648,7 @@ export function departmentStatsForEmployees(employees) {
   return stats;
 }
 
-export function filterEmployeesByMode(employees, { processMode, employeeIds, departments }) {
+export function filterEmployeesByMode(employees, { processMode, employeeIds, departments, holdIds }) {
   const mode = processMode || PROCESS_MODES.BULK;
   if (mode === PROCESS_MODES.BULK) return employees || [];
 
@@ -527,7 +662,19 @@ export function filterEmployeesByMode(employees, { processMode, employeeIds, dep
     return (employees || []).filter((emp) => deptSet.has(normalizeDeptName(emp.department)));
   }
 
+  if (mode === PROCESS_MODES.HOLD) {
+    const holdSet = new Set((holdIds || []).map(String));
+    return (employees || []).filter((emp) => holdSet.has(String(emp.id)));
+  }
+
   return employees || [];
+}
+
+/** Drop employees marked on salary hold (All / department processing). */
+export function excludeHeldEmployees(employees, holdIds) {
+  const holdSet = new Set((holdIds || []).map(String));
+  if (!holdSet.size) return employees || [];
+  return (employees || []).filter((emp) => !holdSet.has(String(emp.id)));
 }
 
 function buildLinesForEmployees(employees, { salaryMap, presentMap, monthDays }) {
@@ -577,11 +724,13 @@ export async function fetchSalaryProcessCandidates({
   ]);
   if (empErr) throw empErr;
 
+  const holdIdSet = new Set(getMonthHoldIds(key));
   const deptSet = new Set();
   const rows = (employees || []).map((emp) => {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
     const hasCtc = Boolean(structure?.declared);
-    const eligible = hasCtc || includeWithoutCtc;
+    // Default: only declared CTC. Toggle: only employees still without CTC.
+    const eligible = includeWithoutCtc ? !hasCtc : hasCtc;
     const dept = normalizeDeptName(emp.department);
     if (dept) deptSet.add(dept);
     return {
@@ -590,9 +739,16 @@ export async function fetchSalaryProcessCandidates({
       full_name: emp.full_name || "",
       designation: emp.designation || "",
       department: dept || "—",
+      date_of_joining: emp.date_of_joining || null,
+      confirmation_date: emp.confirmation_date || null,
+      bank_account_no: emp.bank_account_no || "",
+      ifsc_code: emp.ifsc_code || "",
+      employee_id: emp.employee_id || "",
       hasCtc,
       eligible,
       alreadyProcessed: employeeAlreadyProcessed(emp, processedIndex),
+      onHold: holdIdSet.has(String(emp.id)),
+      _structure: structure,
     };
   });
 
@@ -604,13 +760,78 @@ export async function fetchSalaryProcessCandidates({
     departments: [...deptSet].sort((a, b) => a.localeCompare(b)),
     departmentStats,
     employees: rows,
+    holdIds: [...holdIdSet],
+    salaryMap,
   };
 }
 
 /**
+ * Build editable salary-sheet preview lines for employees in the process scope.
+ * Uses CTC + attendance present days + same formulas as Process / editor.
+ */
+export async function buildSalaryScopePreviewLines({
+  employees = [],
+  year,
+  month,
+  monthDays = DEFAULT_MONTH_DAYS,
+  salaryMap = null,
+} = {}) {
+  const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
+  // Always refresh CTC map so Employee Master "Save CTC" is visible here.
+  // Do not trust an empty Map from a prior candidates load.
+  let map = salaryMap instanceof Map && salaryMap.size > 0 ? salaryMap : null;
+  if (!map) {
+    map = await fetchSalaryStructureMap();
+  }
+  const presentMap = await fetchPresentDaysByEmployeeCode(year, month);
+  const key = monthKey(year, month);
+  const lines = [];
+  for (const emp of employees || []) {
+    const structure =
+      map.get(String(emp.id)) ||
+      map.get(emp.id) ||
+      emp._structure ||
+      null;
+    const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id);
+    const present =
+      code && presentMap[code] != null && presentMap[code] > 0 ? presentMap[code] : days;
+    let line = buildSheetLineFromSources({
+      employee: {
+        id: emp.id,
+        employee_id: emp.employee_id || emp.employee_code,
+        employee_code: emp.employee_code,
+        full_name: emp.full_name,
+        designation: emp.designation,
+        date_of_joining: emp.date_of_joining,
+        confirmation_date: emp.confirmation_date,
+        bank_account_no: emp.bank_account_no,
+        ifsc_code: emp.ifsc_code,
+      },
+      structure,
+      presentDays: present,
+      monthDays: days,
+      deductions: seedDeductionsFromProfile(emp.id),
+    });
+    const draft = getScopeLineDraft(key, emp.id);
+    if (draft) {
+      line = applyScopeLineDraft(line, draft, days);
+    }
+    lines.push({
+      ...line,
+      id: `preview_${emp.id}`,
+      employee_master_id: emp.id,
+      department: emp.department || "—",
+      alreadyProcessed: Boolean(emp.alreadyProcessed),
+    });
+  }
+  return lines;
+}
+
+/**
  * Process a month from Employee Master + CTC + attendance.
- * Modes: bulk (all), select (employee ids), dept (departments).
- * Skips employees already on the month sheet unless forceFullReprocess (bulk only).
+ * Modes: all/bulk, dept. Hold is management-only (not processed here).
+ * Skips employees already on the month sheet unless forceFullReprocess (all only).
+ * Employees on salary hold are excluded from all / department runs.
  */
 export async function processSalaryMonth({
   year,
@@ -628,6 +849,9 @@ export async function processSalaryMonth({
     throw new Error("Select a valid month and year.");
   }
   const mode = processMode || PROCESS_MODES.BULK;
+  if (mode === PROCESS_MODES.HOLD) {
+    throw new Error("Hold is for marking salary holds only. Use All or By department to process.");
+  }
   if (mode === PROCESS_MODES.SELECT && !(employeeIds || []).length) {
     throw new Error("Select at least one employee to process.");
   }
@@ -638,6 +862,7 @@ export async function processSalaryMonth({
   const key = monthKey(y, m);
   const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
   const user = await currentUserMeta();
+  const holdIds = getMonthHoldIds(key);
 
   const [{ data: employees, error: empErr }, salaryMap, presentMap, existing] = await Promise.all([
     supabase
@@ -663,22 +888,29 @@ export async function processSalaryMonth({
     built.codes.forEach((v) => processedIndex.codes.add(v));
   }
 
-  const scoped = filterEmployeesByMode(employees, { processMode: mode, employeeIds, departments });
+  let scoped = filterEmployeesByMode(employees, { processMode: mode, employeeIds, departments, holdIds });
+  if (mode === PROCESS_MODES.BULK || mode === PROCESS_MODES.DEPT || mode === PROCESS_MODES.SELECT) {
+    scoped = excludeHeldEmployees(scoped, holdIds);
+  }
   const eligible = scoped.filter((emp) => {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
     const declared = Boolean(structure?.declared);
-    return declared || includeWithoutCtc;
+    return includeWithoutCtc ? !declared : declared;
   });
 
   if (!eligible.length) {
     const hint =
       mode === PROCESS_MODES.SELECT
-        ? "Selected employees have no declared CTC."
+        ? includeWithoutCtc
+          ? "Selected employees already have CTC (or none match Without CTC only)."
+          : "Selected employees have no declared CTC."
         : mode === PROCESS_MODES.DEPT
-          ? "No eligible employees in the selected department(s)."
+          ? includeWithoutCtc
+            ? "No employees without CTC in the selected department(s)."
+            : "No eligible employees in the selected department(s)."
           : includeWithoutCtc
-            ? "No active employees found."
-            : "No active employees with declared CTC.";
+            ? "No active employees without CTC (or all are on hold)."
+            : "No active employees with declared CTC (or all are on hold).";
     throw new Error(hint);
   }
 
@@ -697,15 +929,19 @@ export async function processSalaryMonth({
     const dupCount = skippedDuplicates.length;
     throw new Error(
       dupCount
-        ? `All ${dupCount} selected employee${dupCount === 1 ? "" : "s"} already processed for ${monthLabel(y, m)}. Open the existing sheet or use full reprocess (bulk).`
+        ? `All ${dupCount} selected employee${dupCount === 1 ? "" : "s"} already processed for ${monthLabel(y, m)}. Open the existing sheet or use full reprocess (All).`
         : "No employees to process."
     );
   }
 
-  const newLines = buildLinesForEmployees(toProcess, {
+  let newLines = buildLinesForEmployees(toProcess, {
     salaryMap,
     presentMap,
     monthDays: days,
+  });
+  newLines = newLines.map((line) => {
+    const draft = getScopeLineDraft(key, line.employee_master_id);
+    return draft ? applyScopeLineDraft(line, draft, days) : line;
   });
 
   let runId;

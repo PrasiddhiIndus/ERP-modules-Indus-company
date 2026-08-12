@@ -20,9 +20,13 @@ import {
   recomputeLineFromEdits,
   PROCESS_MODES,
   filterEmployeesByMode,
+  excludeHeldEmployees,
   buildProcessedEmployeeIndex,
   employeeAlreadyProcessed,
   departmentStatsForEmployees,
+  getMonthHoldIds,
+  getScopeLineDraft,
+  applyScopeLineDraft,
 } from "./salaryMonthProcessing";
 import { fetchSalaryStructureMap } from "./salaryData";
 import { applySalarySheetToEmployeeMasters } from "../../admin/employeeMaster/deductions/deductionsStore";
@@ -393,11 +397,12 @@ export async function mockFetchSalaryProcessCandidates({
     ]);
     if (empErr) throw empErr;
 
+    const holdIdSet = new Set(getMonthHoldIds(key));
     const deptSet = new Set();
     const rows = (employees || []).map((emp) => {
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
       const hasCtc = Boolean(structure?.declared);
-      const eligible = hasCtc || includeWithoutCtc;
+      const eligible = includeWithoutCtc ? !hasCtc : hasCtc;
       const dept = emp.department ? String(emp.department).trim() : "";
       if (dept) deptSet.add(dept);
       return {
@@ -406,9 +411,16 @@ export async function mockFetchSalaryProcessCandidates({
         full_name: emp.full_name || "",
         designation: emp.designation || "",
         department: dept || "—",
+        date_of_joining: emp.date_of_joining || null,
+        confirmation_date: emp.confirmation_date || null,
+        bank_account_no: emp.bank_account_no || "",
+        ifsc_code: emp.ifsc_code || "",
+        employee_id: emp.employee_id || "",
         hasCtc,
         eligible,
         alreadyProcessed: employeeAlreadyProcessed(emp, processedIndex),
+        onHold: holdIdSet.has(String(emp.id)),
+        _structure: structure,
       };
     });
 
@@ -420,12 +432,15 @@ export async function mockFetchSalaryProcessCandidates({
       departments: [...deptSet].sort((a, b) => a.localeCompare(b)),
       departmentStats,
       employees: rows,
+      holdIds: [...holdIdSet],
+      salaryMap,
     };
   } catch {
     const store = ensureStore();
     const runForMonth = store.runs.find((r) => r.month_key === key);
     const lines = runForMonth ? store.linesByRun[runForMonth.id] || [] : [];
     const processedFromMock = buildProcessedEmployeeIndex(lines);
+    const holdIdSet = new Set(getMonthHoldIds(key));
     const deptSet = new Set();
     const rows = MOCK_PEOPLE.map((p, i) => {
       const dept = p.designation?.includes("HR") ? "HR" : "Operations";
@@ -437,12 +452,18 @@ export async function mockFetchSalaryProcessCandidates({
         full_name: p.name,
         designation: p.designation,
         department: dept,
+        date_of_joining: p.doj || null,
+        confirmation_date: null,
+        bank_account_no: p.account || "",
+        ifsc_code: p.ifsc || "",
+        employee_id: p.code,
         hasCtc: true,
         eligible: true,
         alreadyProcessed: employeeAlreadyProcessed(
           { id, employee_code: p.code },
           processedFromMock
         ),
+        onHold: holdIdSet.has(String(id)),
       };
     });
     const departmentStats = departmentStatsForEmployees(rows);
@@ -452,6 +473,7 @@ export async function mockFetchSalaryProcessCandidates({
       departments: [...deptSet],
       departmentStats,
       employees: rows,
+      holdIds: [...holdIdSet],
     };
   }
 }
@@ -471,12 +493,17 @@ export async function mockProcessSalaryMonth({
   const existing = store.runs.find((r) => r.month_key === key);
   const mode = processMode || PROCESS_MODES.BULK;
 
+  if (mode === PROCESS_MODES.HOLD) {
+    throw new Error("Hold is for marking salary holds only. Use All or By department to process.");
+  }
   if (mode === PROCESS_MODES.SELECT && !(employeeIds || []).length) {
     throw new Error("Select at least one employee to process.");
   }
   if (mode === PROCESS_MODES.DEPT && !(departments || []).filter(Boolean).length) {
     throw new Error("Select at least one department to process.");
   }
+
+  const holdIds = getMonthHoldIds(key);
 
   const existingLines = existing ? [...(store.linesByRun[existing.id] || [])] : [];
   const processedIndex = buildProcessedEmployeeIndex(existingLines);
@@ -499,10 +526,21 @@ export async function mockProcessSalaryMonth({
     if (empErr) throw empErr;
     sourceEmployees = employees || [];
     const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
-    const scoped = filterEmployeesByMode(sourceEmployees, { processMode: mode, employeeIds, departments });
+    const scopedRaw = filterEmployeesByMode(sourceEmployees, {
+      processMode: mode,
+      employeeIds,
+      departments,
+      holdIds,
+    });
+    const scoped =
+      mode === PROCESS_MODES.BULK || mode === PROCESS_MODES.DEPT || mode === PROCESS_MODES.SELECT
+        ? excludeHeldEmployees(scopedRaw, holdIds)
+        : scopedRaw;
     const eligible = scoped.filter((emp) => {
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
-      return Boolean(structure?.declared) || includeWithoutCtc;
+      return includeWithoutCtc
+        ? !Boolean(structure?.declared)
+        : Boolean(structure?.declared);
     });
 
     const fullReprocess = mode === PROCESS_MODES.BULK && forceFullReprocess && Boolean(existing);
@@ -528,12 +566,14 @@ export async function mockProcessSalaryMonth({
       const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id);
       const present =
         code && presentMap[code] != null && presentMap[code] > 0 ? presentMap[code] : days;
-      const line = buildSheetLineFromSources({
+      let line = buildSheetLineFromSources({
         employee: emp,
         structure,
         presentDays: present,
         monthDays: days,
       });
+      const draft = getScopeLineDraft(key, emp.id);
+      if (draft) line = applyScopeLineDraft(line, draft, days);
       lines.push({
         ...line,
         id: rid("line"),

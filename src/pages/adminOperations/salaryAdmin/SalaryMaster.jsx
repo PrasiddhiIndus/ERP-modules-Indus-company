@@ -359,7 +359,7 @@ export default function SalaryMaster() {
         open={Boolean(historyEmployee)}
         title="CTC revision history"
         onClose={() => setHistoryEmployee(null)}
-        widthClass="max-w-md"
+        widthClass="max-w-xl"
       >
         <SalaryRevisionHistory employee={historyEmployee} salary={historySalary} />
       </Drawer>
