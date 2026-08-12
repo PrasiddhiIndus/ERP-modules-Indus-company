@@ -25,7 +25,9 @@ export default function AdminOperationsLayout() {
     return ADMIN_OPS_NAV.map((group) => ({
       ...group,
       items: group.items.filter((item) => !item.salaryAdminOnly || salaryOk),
-    })).filter((group) => group.items.length > 0);
+    }))
+      .filter((group) => group.items.length > 0)
+      .filter((group) => !group.salaryAdminOnly || salaryOk);
   }, [user, userProfile]);
 
   const openGroups = useMemo(() => {
