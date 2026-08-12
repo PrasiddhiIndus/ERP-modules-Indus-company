@@ -301,15 +301,7 @@ export default function PersonSalaryComponentsPanel({
           </div>
         ) : null}
 
-        {!personTree.length ? (
-          <div className="rounded border border-dashed border-slate-200 bg-slate-50/80 px-3 py-6 text-center">
-            <p className="text-xs text-slate-600 mb-2">No extra components for this employee yet.</p>
-            <button type="button" className={btnPrimary} onClick={() => openCreate("PART_A")}>
-              <Plus className="h-3.5 w-3.5" />
-              Add first component
-            </button>
-          </div>
-        ) : (
+        {!personTree.length ? null : (
           <div className="overflow-auto max-h-56 rounded border border-slate-200">
             <table className="w-full text-[11px] min-w-[560px]">
               <thead className="sticky top-0 bg-slate-50 text-slate-500 uppercase tracking-wide">

@@ -1134,17 +1134,17 @@ export default function SalaryEmployeeCtc({
     };
 
     let savedRow;
+    const wasRevision = isRevisionMode;
     try {
       if (isRevisionMode) {
         savedRow = await reviseSalaryStructure(employee.id, payload, {
           reason: revisionReason,
           wef_date: wefToSave,
         });
-        setRevisionCount(Number(savedRow?.revision_count) || 0);
-        setSaveMsg("Revision saved");
+        setSaveMsg(savedRow?.__local ? "Revision saved on this device" : "Revision saved");
       } else {
         savedRow = await saveSalaryStructure(employee.id, payload);
-        setSaveMsg("Saved");
+        setSaveMsg(savedRow?.__local ? "Saved on this device" : "Saved");
       }
     } catch (err) {
       console.error("Salary CTC: save failed", err);
@@ -1152,56 +1152,73 @@ export default function SalaryEmployeeCtc({
       const code = String(err?.code || "");
       if (/42501|row-level security|permission denied|RLS/i.test(`${code} ${msg}`)) {
         setSaveError("You do not have permission to save salary CTC. Sign in with an allowed Salary Admin account.");
-      } else if (/PGRST205|does not exist|Could not find the table|relation .* does not exist/i.test(`${code} ${msg}`)) {
-        setSaveError("Salary tables are not set up yet. Ask an admin to run the latest salary database migration, then try again.");
       } else if (/foreign key|employee_master|23503/i.test(`${code} ${msg}`)) {
         setSaveError("This employee is missing from Employee Master. Save the employee first, then save CTC.");
       } else {
-        setSaveError(msg ? `Could not save CTC: ${msg}` : "Could not save CTC to the database. Please try again.");
+        setSaveError(msg ? `Could not save CTC: ${msg}` : "Could not save CTC. Please try again.");
       }
       return;
     }
 
+    // Reload with revision trail so History + Salary Processing see the latest CTC
+    let fresh = null;
+    try {
+      fresh = await getSalaryStructure(employee.id);
+    } catch (reloadErr) {
+      console.warn("Salary CTC: reload after save failed", reloadErr);
+    }
+    const nextSaved = fresh?.declared
+      ? fresh
+      : savedRow || { ...structure, declared: true };
     setHasExistingCtc(true);
-    setSavedStructure(savedRow || { ...structure, declared: true });
-    setGross(numOrEmpty(savedRow?.gross_monthly ?? structure.gross_monthly));
-    setBasicMode(normalizeComponentMode(savedRow?.basic_mode ?? structure.basic_mode));
-    setBasic(numOrEmpty(savedRow?.basic_monthly ?? structure.basic_monthly));
-    setHraMode(normalizeHraMode(savedRow?.hra_mode ?? structure.hra_mode));
-    setHraCustom(numOrEmpty(savedRow?.hra_monthly ?? structure.hra_monthly));
-    setEmployeeLevel(normalizeEmployeeLevel(savedRow?.employee_level ?? structure.employee_level));
-    setEmpPf(String(structure.emp_pf_monthly ?? ""));
-    setErPf(String(structure.er_pf_monthly ?? ""));
-    setPt(String(structure.pt_monthly ?? ""));
-    setMediclaimEnabled(Boolean(savedRow?.mediclaim_enabled ?? structure.mediclaim_enabled));
-    setMediclaim(numOrEmpty(savedRow?.mediclaim_monthly ?? structure.mediclaim_monthly));
-    setLicEnabled(Boolean(savedRow?.lic_enabled ?? structure.lic_enabled));
-    setLic(numOrEmpty(savedRow?.lic_monthly ?? structure.lic_monthly));
+    setSavedStructure(nextSaved);
+    setRevisionCount(
+      Number(nextSaved?.revision_count) ||
+        (Array.isArray(nextSaved?.revisions) ? nextSaved.revisions.length : 0) ||
+        0
+    );
+    if (wasRevision) {
+      setHistoryOpen(true);
+    }
+    const apply = nextSaved || structure;
+    setGross(numOrEmpty(apply?.gross_monthly ?? structure.gross_monthly));
+    setBasicMode(normalizeComponentMode(apply?.basic_mode ?? structure.basic_mode));
+    setBasic(numOrEmpty(apply?.basic_monthly ?? structure.basic_monthly));
+    setHraMode(normalizeHraMode(apply?.hra_mode ?? structure.hra_mode));
+    setHraCustom(numOrEmpty(apply?.hra_monthly ?? structure.hra_monthly));
+    setEmployeeLevel(normalizeEmployeeLevel(apply?.employee_level ?? structure.employee_level));
+    setEmpPf(String(apply?.emp_pf_monthly ?? structure.emp_pf_monthly ?? ""));
+    setErPf(String(apply?.er_pf_monthly ?? structure.er_pf_monthly ?? ""));
+    setPt(String(apply?.pt_monthly ?? structure.pt_monthly ?? ""));
+    setMediclaimEnabled(Boolean(apply?.mediclaim_enabled ?? structure.mediclaim_enabled));
+    setMediclaim(numOrEmpty(apply?.mediclaim_monthly ?? structure.mediclaim_monthly));
+    setLicEnabled(Boolean(apply?.lic_enabled ?? structure.lic_enabled));
+    setLic(numOrEmpty(apply?.lic_monthly ?? structure.lic_monthly));
     setSpecialPerfBonusEnabled(
-      Boolean(savedRow?.special_perf_bonus_enabled ?? structure.special_perf_bonus_enabled)
+      Boolean(apply?.special_perf_bonus_enabled ?? structure.special_perf_bonus_enabled)
     );
     setSpecialPerfBonus(
-      numOrEmpty(savedRow?.special_perf_bonus_monthly ?? structure.special_perf_bonus_monthly)
+      numOrEmpty(apply?.special_perf_bonus_monthly ?? structure.special_perf_bonus_monthly)
     );
-    setBonus(String(structure.bonus_monthly ?? ""));
-    setEsicEnabled(savedRow?.esic_enabled !== false);
-    setEsicCeiling(String(savedRow?.esic_ceiling ?? structure.esic_ceiling));
-    setEsicEmpRate(String(savedRow?.esic_emp_rate_pct ?? structure.esic_emp_rate_pct));
-    setEsicErRate(String(savedRow?.esic_er_rate_pct ?? structure.esic_er_rate_pct));
-    setEmpEsicMode(normalizeComponentMode(savedRow?.emp_esic_mode ?? structure.emp_esic_mode));
-    setErEsicMode(normalizeComponentMode(savedRow?.er_esic_mode ?? structure.er_esic_mode));
-    setEmpEsicCustom(numOrEmpty(savedRow?.emp_esic_monthly ?? structure.emp_esic_monthly));
-    setErEsicCustom(numOrEmpty(savedRow?.er_esic_monthly ?? structure.er_esic_monthly));
+    setBonus(String(apply?.bonus_monthly ?? structure.bonus_monthly ?? ""));
+    setEsicEnabled(apply?.esic_enabled !== false);
+    setEsicCeiling(String(apply?.esic_ceiling ?? structure.esic_ceiling));
+    setEsicEmpRate(String(apply?.esic_emp_rate_pct ?? structure.esic_emp_rate_pct));
+    setEsicErRate(String(apply?.esic_er_rate_pct ?? structure.esic_er_rate_pct));
+    setEmpEsicMode(normalizeComponentMode(apply?.emp_esic_mode ?? structure.emp_esic_mode));
+    setErEsicMode(normalizeComponentMode(apply?.er_esic_mode ?? structure.er_esic_mode));
+    setEmpEsicCustom(numOrEmpty(apply?.emp_esic_monthly ?? structure.emp_esic_monthly));
+    setErEsicCustom(numOrEmpty(apply?.er_esic_monthly ?? structure.er_esic_monthly));
     setLeaveEncashMode(
-      normalizeComponentMode(savedRow?.leave_encash_mode ?? structure.leave_encash_mode)
+      normalizeComponentMode(apply?.leave_encash_mode ?? structure.leave_encash_mode)
     );
     setLeaveEncashCustom(
-      numOrEmpty(savedRow?.leave_encash_monthly ?? structure.leave_encash_monthly)
+      numOrEmpty(apply?.leave_encash_monthly ?? structure.leave_encash_monthly)
     );
-    setGratuityMode(normalizeComponentMode(savedRow?.gratuity_mode ?? structure.gratuity_mode));
-    setGratuityCustom(numOrEmpty(savedRow?.gratuity_monthly ?? structure.gratuity_monthly));
-    setWef(savedRow?.wef_date || wefToSave || "");
-    setRevisionReason(savedRow?.revision_reason || revisionReason || "");
+    setGratuityMode(normalizeComponentMode(apply?.gratuity_mode ?? structure.gratuity_mode));
+    setGratuityCustom(numOrEmpty(apply?.gratuity_monthly ?? structure.gratuity_monthly));
+    setWef(apply?.wef_date || wefToSave || "");
+    setRevisionReason(apply?.revision_reason || revisionReason || "");
 
     if (isRevisionMode || reviseRequested) {
       exitReviseMode();
@@ -1280,11 +1297,9 @@ export default function SalaryEmployeeCtc({
               >
                 <History className="h-3.5 w-3.5" />
                 History
-                {revisionCount > 0 ? (
-                  <span className="ml-0.5 inline-flex min-w-[1.1rem] h-4 px-1 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white">
-                    {revisionCount}
-                  </span>
-                ) : null}
+                <span className="ml-0.5 inline-flex min-w-[1.1rem] h-4 px-1 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white">
+                  {(revisionCount || 0) + 1}
+                </span>
               </button>
             ) : null}
             {persist && isViewOnly ? (
@@ -1344,13 +1359,23 @@ export default function SalaryEmployeeCtc({
                   Amounts are locked. Use Revise CTC to change compensation and keep a history trail.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={enterReviseMode}
-                className="h-8 px-3 rounded-md border border-slate-300 bg-white text-xs font-semibold text-accent hover:bg-white"
-              >
-                Revise CTC
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="h-8 px-3 rounded-md border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-white inline-flex items-center gap-1.5"
+                >
+                  <History className="h-3.5 w-3.5" />
+                  History ({(revisionCount || 0) + 1})
+                </button>
+                <button
+                  type="button"
+                  onClick={enterReviseMode}
+                  className="h-8 px-3 rounded-md border border-slate-300 bg-white text-xs font-semibold text-accent hover:bg-white"
+                >
+                  Revise CTC
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -2075,7 +2100,7 @@ export default function SalaryEmployeeCtc({
           open={historyOpen}
           title="CTC revision history"
           onClose={() => setHistoryOpen(false)}
-          widthClass="max-w-md"
+          widthClass="max-w-xl"
         >
           <SalaryRevisionHistory
             employee={employee}

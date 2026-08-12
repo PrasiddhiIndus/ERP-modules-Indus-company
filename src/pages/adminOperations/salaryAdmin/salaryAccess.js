@@ -7,6 +7,14 @@ export const SALARY_ADMIN_ALLOWED_EMAILS = Object.freeze([
   "rahul.ifspl@gmail.com",
   "bency@indusfire.com",
   "latha@indusfire.com",
+  "vaisakh@indusfire.com",
+]);
+
+/** Employee Master sections visible to non–Salary Admin users (Admin module). */
+export const EMPLOYEE_MASTER_BASIC_TAB_IDS = Object.freeze([
+  "personal",
+  "leaves",
+  "tours",
 ]);
 
 export const SALARY_ADMIN_PATH_PREFIX = "/app/admin/salary-admin";
