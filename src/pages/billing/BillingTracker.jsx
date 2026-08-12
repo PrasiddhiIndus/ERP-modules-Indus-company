@@ -1,11 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  CircleDashed,
-  Search,
-  XCircle,
-} from 'lucide-react';
+import { AlertTriangle, Check, Search, X } from 'lucide-react';
 import {
   PageTaskHeader,
   SectionCard,
@@ -46,41 +40,49 @@ function defaultPeriodRange() {
 
 const MONTH_COL_WIDTH = 'w-[4.75rem] min-w-[4.75rem] max-w-[4.75rem]';
 
-function StatusCellIcon({ status, title }) {
+function StatusCellIcon({ status, title, variant = 'status' }) {
   const common =
-    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md';
+    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px]';
+  if (variant === 'empty') {
+    return (
+      <span
+        className={`${common} bg-slate-200`}
+        title={title || 'No cycle for this month'}
+        aria-hidden
+      />
+    );
+  }
   if (status === CYCLE_STATUS.RAISED_ON_TIME) {
     return (
-      <span className={`${common} bg-emerald-50 text-emerald-700`} title={title || 'Raised on time'}>
-        <CheckCircle2 className="h-4 w-4" strokeWidth={2.25} />
+      <span className={`${common} bg-teal-700 text-white`} title={title || 'Raised on time'}>
+        <Check className="h-4 w-4" strokeWidth={2.75} />
       </span>
     );
   }
   if (status === CYCLE_STATUS.RAISED_LATE) {
     return (
-      <span className={`${common} bg-amber-50 text-amber-700`} title={title || 'Raised late'}>
-        <AlertTriangle className="h-4 w-4" strokeWidth={2.25} />
+      <span className={`${common} bg-amber-600 text-white`} title={title || 'Raised late'}>
+        <AlertTriangle className="h-4 w-4" strokeWidth={2.75} />
       </span>
     );
   }
   if (status === CYCLE_STATUS.NOT_RAISED) {
     return (
-      <span className={`${common} bg-rose-50 text-rose-700`} title={title || 'Not raised'}>
-        <XCircle className="h-4 w-4" strokeWidth={2.25} />
+      <span className={`${common} bg-red-800 text-white`} title={title || 'Not raised'}>
+        <X className="h-4 w-4" strokeWidth={2.75} />
       </span>
     );
   }
   if (status === CYCLE_STATUS.CYCLE_IN_PROGRESS) {
     return (
       <span
-        className={`${common} border border-dashed border-slate-300 bg-slate-50 text-slate-400`}
+        className={`${common} bg-slate-200`}
         title={title || 'Cycle in progress'}
-      >
-        <CircleDashed className="h-4 w-4" strokeWidth={2} />
-      </span>
+        aria-hidden
+      />
     );
   }
-  return <span className="inline-flex h-7 w-7 items-center justify-center text-slate-300">—</span>;
+  return <StatusCellIcon variant="empty" title={title} />;
 }
 
 function cellTitle(period) {
@@ -317,7 +319,7 @@ export default function BillingTracker() {
           if (!period) {
             return (
               <div className={`mx-auto flex ${MONTH_COL_WIDTH} items-center justify-center`}>
-                <span className="text-slate-300">—</span>
+                <StatusCellIcon variant="empty" />
               </div>
             );
           }
@@ -367,10 +369,10 @@ export default function BillingTracker() {
       />
       <CollapsibleHelp label="how status works">
         <ul className="list-disc pl-4 space-y-1">
-          <li>Green check — tax invoice raised on or before due date</li>
+          <li>Teal check — tax invoice raised on or before due date</li>
           <li>Amber ! — tax invoice raised after due date</li>
           <li>Red X — due date passed, no qualifying tax invoice for that month</li>
-          <li>Grey dashed — cycle still open (before due date)</li>
+          <li>Light grey — cycle still open or no data for that month</li>
           <li>Hover a cell for invoice details when raised</li>
           <li>Click an open cell to mark legacy/paper invoices manually</li>
         </ul>
