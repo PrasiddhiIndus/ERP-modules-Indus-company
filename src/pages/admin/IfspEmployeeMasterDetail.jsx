@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, User } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
 import { employmentTypeLabel } from "../../utils/employeeMasterReminders";
 import { PageTaskHeader, SectionCard, StatusChip } from "../adminOperations/components/AdminUi";
 import EmployeeMasterPersonalForm from "./employeeMaster/EmployeeMasterPersonalForm";
@@ -22,6 +23,10 @@ import EmployeeSalaryHistoryTab from "./employeeMaster/EmployeeSalaryHistoryTab"
 import EmployeePayslipsTab from "./employeeMaster/EmployeePayslipsTab";
 import EmployeeSalaryRevisionsTab from "./employeeMaster/EmployeeSalaryRevisionsTab";
 import { fetchOpenVariancesForEmployee } from "../adminOperations/salaryAdmin/salaryMonthProcessing";
+import {
+  canAccessSalaryAdmin,
+  EMPLOYEE_MASTER_BASIC_TAB_IDS,
+} from "../adminOperations/salaryAdmin/salaryAccess";
 
 const TABS = [
   { id: "personal", label: "Personal details" },
@@ -107,9 +112,19 @@ export default function IfspEmployeeMasterDetail() {
   const { employeeId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user, userProfile } = useAuth();
+
+  const salaryAdmin = canAccessSalaryAdmin(userProfile, user);
+  const visibleTabs = useMemo(
+    () =>
+      salaryAdmin
+        ? TABS
+        : TABS.filter((t) => EMPLOYEE_MASTER_BASIC_TAB_IDS.includes(t.id)),
+    [salaryAdmin]
+  );
 
   const tabParam = searchParams.get("tab") || "personal";
-  const activeTab = TABS.some((t) => t.id === tabParam) ? tabParam : "personal";
+  const activeTab = visibleTabs.some((t) => t.id === tabParam) ? tabParam : "personal";
 
   const [employee, setEmployee] = useState(null);
   const [employees, setEmployees] = useState([]);
@@ -263,7 +278,7 @@ export default function IfspEmployeeMasterDetail() {
             <StatusChip label={employee.status || "—"} severity={statusSeverity(employee.status)} />
           </PageTaskHeader>
 
-          {salaryVariances.length > 0 ? (
+          {salaryAdmin && salaryVariances.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
               <p className="font-medium text-amber-900">Salary sheet differs from master</p>
               <p className="mt-1 text-amber-800/90 text-xs leading-relaxed">
@@ -325,7 +340,7 @@ export default function IfspEmployeeMasterDetail() {
                 Sections
               </p>
               <ul className="flex-1 min-h-0 overflow-y-auto py-1 overscroll-contain">
-                {TABS.map((tab) => {
+                {visibleTabs.map((tab) => {
                   const active = activeTab === tab.id;
                   return (
                     <li key={tab.id}>
