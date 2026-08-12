@@ -499,12 +499,56 @@ function isBillingCycleDue(nextYmd) {
   return String(nextYmd).slice(0, 10) <= y;
 }
 
+/** Display-only ribbon label for billing schedule (does not affect billing logic). */
+function billingScheduleDueRibbon(nextYmd) {
+  if (!nextYmd) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const next = new Date(String(nextYmd).slice(0, 10) + 'T12:00:00');
+  if (Number.isNaN(next.getTime())) return null;
+  next.setHours(0, 0, 0, 0);
+  const days = Math.round((next - today) / (1000 * 60 * 60 * 24));
+  if (days < 0) {
+    const n = Math.abs(days);
+    return {
+      kind: 'overdue',
+      label: `Overdue ${n} day${n !== 1 ? 's' : ''}`,
+    };
+  }
+  if (days === 0) {
+    return { kind: 'due', label: 'Due today' };
+  }
+  return { kind: 'due', label: `Due in ${days} day${days !== 1 ? 's' : ''}` };
+}
+
 function formatBillingMonth(ymd) {
   if (!ymd) return null;
   const d = new Date(ymd);
   if (Number.isNaN(d.getTime())) return null;
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${months[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+function monthKeyFromYmd(raw) {
+  if (!raw) return '';
+  const s = String(raw);
+  if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatPoMonthOptionLabel(ym) {
+  if (!ym || ym === 'all') return 'All months';
+  const [y, m] = String(ym).split('-');
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  if (Number.isNaN(d.getTime())) return ym;
+  return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
 }
 
 /** YYYY-MM-DD in local timezone for `<FormDateInput >` (avoids UTC off-by-one). */
@@ -683,6 +727,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
   );
   const [poSortConfig, setPoSortConfig] = useState({ key: 'created', direction: 'desc' });
   const [poMasterSearch, setPoMasterSearch] = useState('');
+  const [poMonthFilter, setPoMonthFilter] = useState(() => currentMonthKey());
   const [activeGeometryRowIdx, setActiveGeometryRowIdx] = useState(null);
   const [invoiceMonthlyDutyQtyMode, setInvoiceMonthlyDutyQtyMode] = useState(
     () => initDraft?.invoiceMonthlyDutyQtyMode ?? 'po_geometry'
@@ -936,10 +981,55 @@ const CreateInvoice = ({ onNavigateTab }) => {
     });
   }, [billablePOsByTab, billablePOs, commercialPOs, invoices]);
 
+  const poMonthOptions = useMemo(() => {
+    const set = new Set();
+    poTableRows.forEach((row) => {
+      const next = monthKeyFromYmd(row?._calc?.nextBillingDate);
+      const last = monthKeyFromYmd(row?._calc?.lastInvoiceDate);
+      if (next) set.add(next);
+      if (last) set.add(last);
+    });
+    set.add(currentMonthKey());
+    if (poMonthFilter && poMonthFilter !== 'all') set.add(poMonthFilter);
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [poTableRows, poMonthFilter]);
+
+  /** Billing-type dropdown counts for the selected month (same month rule as the PO table). */
+  const billingTypeCountsByTab = useMemo(() => {
+    const meta = billablePOs.map((po) => {
+      const over = resolveSupplementaryOverrides(po, billablePOs);
+      const contract = Number(over.totalContractValue) || 0;
+      const poQtyTotal = getPoTotalQtyForRollup(po);
+      const roll = rollupMainPoBilling(po, commercialPOs, invoices, contract, poQtyTotal);
+      return {
+        po,
+        nextMonth: monthKeyFromYmd(roll.nextBillingDate),
+        lastMonth: monthKeyFromYmd(roll.lastInvoiceDate),
+      };
+    });
+    const counts = {};
+    billingTabs.forEach((t) => {
+      counts[t.id] = meta.filter(({ po, nextMonth, lastMonth }) => {
+        if (!poMatchesBillingTab(po, t.id)) return false;
+        if (!poMonthFilter || poMonthFilter === 'all') return true;
+        return nextMonth === poMonthFilter || lastMonth === poMonthFilter;
+      }).length;
+    });
+    return counts;
+  }, [billablePOs, billingTabs, commercialPOs, invoices, poMonthFilter]);
+
   const filteredPoTableRows = useMemo(() => {
+    let rows = poTableRows;
+    if (poMonthFilter && poMonthFilter !== 'all') {
+      rows = rows.filter((row) => {
+        const next = monthKeyFromYmd(row?._calc?.nextBillingDate);
+        const last = monthKeyFromYmd(row?._calc?.lastInvoiceDate);
+        return next === poMonthFilter || last === poMonthFilter;
+      });
+    }
     const q = poMasterSearch.trim().toLowerCase();
-    if (!q) return poTableRows;
-    return poTableRows.filter((row) => {
+    if (!q) return rows;
+    return rows.filter((row) => {
       const hay = [
         row.ocNumber,
         row.poWoNumber,
@@ -954,7 +1044,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [poMasterSearch, poTableRows]);
+  }, [poMasterSearch, poTableRows, poMonthFilter]);
 
   const sortedPoTableRows = useMemo(() => {
     const dir = poSortConfig.direction === 'asc' ? 1 : -1;
@@ -2797,60 +2887,36 @@ const CreateInvoice = ({ onNavigateTab }) => {
           <div className="px-3 pb-3">
             {!billingVerticalFilter || isRmVertical || isTrainingVertical ? null : (
               <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
-                {billingTabs.map((t) => {
-                  const count = billablePOs.filter((p) => poMatchesBillingTab(p, t.id)).length;
-                  const active = poBillingTab === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setPoBillingTab(t.id)}
-                      className={[
-                        'px-3 py-1.5 rounded-lg text-sm border',
-                        active ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
-                      ].join(' ')}
-                    >
-                      {t.label} <span className={active ? 'text-white/90' : 'text-gray-500'}>({count})</span>
-                    </button>
-                  );
-                })}
+                <label className="sr-only" htmlFor="create-invoice-billing-type">
+                  Billing type
+                </label>
+                <select
+                  id="create-invoice-billing-type"
+                  value={poBillingTab}
+                  onChange={(e) => {
+                    setPoBillingTab(e.target.value);
+                    setPoPage(1);
+                  }}
+                  className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+                  aria-label="Billing type"
+                >
+                  {billingTabs.map((t) => {
+                    const count = billingTypeCountsByTab[t.id] ?? 0;
+                    return (
+                      <option key={t.id} value={t.id}>
+                        {t.label} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
             )}
             <p className="text-sm text-gray-500 px-1 pb-2">
-              {billablePOs.length} PO(s) exist for this team, but none are tagged <strong>{poBillingTab}</strong>. Pick another tab above, or create a PO with this billing type in Commercial → PO Entry.
+              {billablePOs.length} PO(s) exist for this team, but none are tagged <strong>{poBillingTab}</strong>. Pick another billing type, or create a PO with this billing type in Commercial → PO Entry.
             </p>
           </div>
         ) : (
           <div className="px-3 pb-3">
-            {!billingVerticalFilter || isRmVertical || isTrainingVertical ? null : (
-              <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
-                {billingTabs.map((t) => {
-                  const count = billablePOs.filter((p) => poMatchesBillingTab(p, t.id)).length;
-                  const bufferOpen = billablePOs.filter(
-                    (p) =>
-                      poMatchesBillingTab(p, t.id) &&
-                      (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
-                      isAfterContractEndForInvoice(p.endDate || p.end_date)
-                  ).length;
-                  const active = poBillingTab === t.id;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => setPoBillingTab(t.id)}
-                      className={[
-                        'px-3 py-1.5 rounded-lg text-sm border',
-                        active ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50',
-                      ].join(' ')}
-                      title={bufferOpen ? `${bufferOpen} OC(s) with post-contract billing open in ${t.label}` : undefined}
-                    >
-                      {t.label} <span className={active ? 'text-white/90' : 'text-gray-500'}>({count})</span>
-                      {bufferOpen ? <span className={active ? 'ml-2 text-amber-100' : 'ml-2 text-amber-700'}>buffer {bufferOpen}</span> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
             <div className="px-1 pb-2 flex flex-wrap items-center gap-2">
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
@@ -2866,6 +2932,60 @@ const CreateInvoice = ({ onNavigateTab }) => {
                   aria-label="Search PO master"
                 />
               </div>
+              {!billingVerticalFilter || isRmVertical || isTrainingVertical ? null : (
+                <select
+                  value={poBillingTab}
+                  onChange={(e) => {
+                    setPoBillingTab(e.target.value);
+                    setPoPage(1);
+                  }}
+                  className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+                  aria-label="Billing type"
+                  title={(() => {
+                    const bufferOpen = billablePOs.filter(
+                      (p) =>
+                        poMatchesBillingTab(p, poBillingTab) &&
+                        (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
+                        isAfterContractEndForInvoice(p.endDate || p.end_date)
+                    ).length;
+                    return bufferOpen
+                      ? `${bufferOpen} OC(s) with post-contract billing open in ${poBillingTab}`
+                      : 'Billing type';
+                  })()}
+                >
+                  {billingTabs.map((t) => {
+                    const count = billingTypeCountsByTab[t.id] ?? 0;
+                    const bufferOpen = billablePOs.filter(
+                      (p) =>
+                        poMatchesBillingTab(p, t.id) &&
+                        (p.supplementaryRequestStatus || p.supplementary_request_status) === 'approved' &&
+                        isAfterContractEndForInvoice(p.endDate || p.end_date)
+                    ).length;
+                    return (
+                      <option key={t.id} value={t.id}>
+                        {t.label} ({count})
+                        {bufferOpen ? ` · buffer ${bufferOpen}` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+              <select
+                value={poMonthFilter}
+                onChange={(e) => {
+                  setPoMonthFilter(e.target.value);
+                  setPoPage(1);
+                }}
+                className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+                aria-label="Month"
+              >
+                <option value="all">All months</option>
+                {poMonthOptions.map((ym) => (
+                  <option key={ym} value={ym}>
+                    {formatPoMonthOptionLabel(ym)}
+                  </option>
+                ))}
+              </select>
               <select
                 value={poSortConfig.key}
                 onChange={(e) => setPoSortConfig((prev) => ({ ...prev, key: e.target.value }))}
@@ -2874,15 +2994,7 @@ const CreateInvoice = ({ onNavigateTab }) => {
               >
                 <option value="modified">Last modified</option>
                 <option value="created">Last created</option>
-                <option value="invoiceDate">Invoice date</option>
-                <option value="ocNumber">OC number</option>
-                <option value="client">Client name</option>
-                <option value="siteLocation">Site / Location</option>
-                <option value="poWo">PO/WO</option>
-                <option value="remaining">Contract left</option>
-                <option value="qtyRemaining">Quantity</option>
                 <option value="nextBilling">Next billing</option>
-                <option value="status">Status</option>
               </select>
               <select
                 value={poSortConfig.direction}
@@ -2987,6 +3099,22 @@ const CreateInvoice = ({ onNavigateTab }) => {
                         Next:{' '}
                         {row._calc.nextBillingDate ? formatDateDdMmYyyy(row._calc.nextBillingDate) : '–'}
                       </div>
+                      {(() => {
+                        const ribbon = billingScheduleDueRibbon(row._calc.nextBillingDate);
+                        if (!ribbon) return null;
+                        return (
+                          <span
+                            className={[
+                              'inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-semibold leading-tight',
+                              ribbon.kind === 'overdue'
+                                ? 'bg-rose-100 text-rose-800 ring-1 ring-rose-200'
+                                : 'bg-amber-100 text-amber-800 ring-1 ring-amber-200',
+                            ].join(' ')}
+                          >
+                            {ribbon.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                             <td className="px-1 py-2 text-center">
                       <span className={`inline-flex px-1.5 py-1 text-[10px] font-medium rounded-full ${row.hasInvoice ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'}`}>
