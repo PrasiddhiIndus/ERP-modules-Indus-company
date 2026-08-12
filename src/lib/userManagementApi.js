@@ -62,30 +62,38 @@ async function readSavedProfile(supabase, id, preferEmployeeCode = true) {
 
 
 
-function profileMatchesPayload(profile, payload) {
+function normalizeModulesList(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean).map(String);
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
+function modulesListSignature(list) {
+  return JSON.stringify([...normalizeModulesList(list)].sort());
+}
+
+function profileMatchesPayload(profile, payload) {
   if (!profile?.id) return false;
 
   if (payload.team !== undefined && (profile.team ?? null) !== (payload.team || null)) {
-
     return false;
-
   }
 
   if (payload.role !== undefined && profile.role !== payload.role) {
-
     return false;
-
   }
 
   if (payload.includeEmployeeCode) {
-
     const expected = normalizeCode(payload.employee_code);
-
     const actual = normalizeCode(profile.employee_code ?? profile.emp_code);
-
     if (expected !== actual) return false;
-
   }
 
   if (payload.username !== undefined) {
@@ -94,12 +102,18 @@ function profileMatchesPayload(profile, payload) {
     if (expected !== actual) return false;
   }
 
-  const savedMods = JSON.stringify([...(profile.allowed_modules || [])].sort());
-  const expectedMods = JSON.stringify([...(payload.allowed_modules || [])].sort());
-  if (savedMods !== expectedMods) return false;
+  if (modulesListSignature(profile.allowed_modules) !== modulesListSignature(payload.allowed_modules)) {
+    return false;
+  }
+
+  if (
+    modulesListSignature(profile.allowed_sub_modules) !==
+    modulesListSignature(payload.allowed_sub_modules)
+  ) {
+    return false;
+  }
 
   return true;
-
 }
 
 
@@ -111,45 +125,36 @@ function profileMatchesPayload(profile, payload) {
  */
 
 export async function persistUserProfile(
-
   supabase,
-
-  { id, team, role, allowed_modules, allowed_sub_modules, employee_code, username, includeEmployeeCode = true }
-
+  {
+    id,
+    team,
+    role,
+    allowed_modules,
+    allowed_sub_modules,
+    employee_code,
+    username,
+    includeEmployeeCode = true,
+    is_active,
+  }
 ) {
-
   if (!id) return { ok: false, message: "User id is required." };
 
-
-
   const payload = {
-
     id,
-
     team: team || null,
-
     role,
-
     allowed_modules: Array.isArray(allowed_modules) ? allowed_modules : [],
-
     allowed_sub_modules: Array.isArray(allowed_sub_modules) ? allowed_sub_modules : [],
-
     username: username !== undefined ? normalizeCode(username) : undefined,
-
     employee_code:
-
       includeEmployeeCode && employee_code !== undefined && employee_code !== null
-
         ? normalizeCode(employee_code)
-
         : includeEmployeeCode
-
           ? null
-
           : undefined,
-
     includeEmployeeCode,
-
+    ...(typeof is_active === "boolean" ? { is_active } : {}),
   };
 
 
@@ -296,63 +301,36 @@ export async function persistUserProfile(
 
 
   let profile = data?.profile ?? null;
+  const preferEmployeeCode = getEmployeeCodeColumnSupported() !== false;
 
-
-
-  if (!profile?.id) {
-
-    const preferEmployeeCode = getEmployeeCodeColumnSupported() !== false;
-
+  if (!profile?.id || !profileMatchesPayload(profile, payload)) {
     const { data: readBack, error: readErr } = await readSavedProfile(
-
       supabase,
-
       id,
-
       preferEmployeeCode
-
     );
 
     if (readErr) {
-
       return {
-
         ok: false,
-
         message:
-
           readErr.message ||
-
           "Save could not be verified. Deploy admin-update-profile and ensure profiles row exists.",
-
       };
-
     }
 
     profile = readBack;
-
   }
-
-
 
   if (!profileMatchesPayload(profile, payload)) {
-
     return {
-
       ok: false,
-
       message:
-
         "Save did not persist to profiles. Redeploy admin-update-profile edge function, then try again.",
-
     };
-
   }
 
-
-
   return { ok: true, profile };
-
 }
 
 

@@ -3,7 +3,7 @@ import PageLoader from "../components/PageLoader";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useAuditConsole } from "../contexts/AuditConsoleContext";
-import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule } from "../config/roles";
+import { ROLES, getLandingPathForUser, isPathAllowed, canSeeSubModule, isRecruitmentIndexPath, hasAnyRecruitmentTabAccess, getRecruitmentLandingPath } from "../config/roles";
 import { canAccessSalaryAdmin } from "../pages/adminOperations/salaryAdmin/salaryAccess";
 import { INDUS_LOGO_SRC } from "../constants/branding.js";
 import ActivityLogDrawer from "../components/ActivityLogDrawer";
@@ -161,6 +161,17 @@ const Layout = () => {
     if (!allowed && pathname === "/app/dashboard") {
       const landing = getLandingPathForUser(userProfile, accessibleModules);
       navigate(landing, { replace: true });
+      setIsAccessDenied(false);
+      return;
+    }
+    if (
+      !allowed &&
+      isRecruitmentIndexPath(pathname) &&
+      hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata)
+    ) {
+      navigate(getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata), {
+        replace: true,
+      });
       setIsAccessDenied(false);
       return;
     }
@@ -322,10 +333,13 @@ const Layout = () => {
 
               {hrAdminOpen && (
                 <div className="ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
+                  {canSub("hr.dashboard") && (
                   <NavLink to="hr/dashboard" className={subNavClass}>
                     <LayoutDashboard className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">Dashboard</span>
                   </NavLink>
+                  )}
+                  {canSub("hr.employee-master") && (
                   <NavLink
                     to="hr/employee-master"
                     className={() => {
@@ -339,8 +353,14 @@ const Layout = () => {
                     <User className="w-4 h-4 shrink-0 text-accent" />
                     <span className="type-meta type-truncate">HR Management</span>
                   </NavLink>
+                  )}
+                  {(canSub("hr.calling-master") ||
+                    hasAnyRecruitmentTabAccess(userProfile, accessibleModules, user?.user_metadata)) && (
                   <NavLink
-                    to="hr/calling-master"
+                    to={getRecruitmentLandingPath(userProfile, accessibleModules, user?.user_metadata).replace(
+                      /^\/app\//,
+                      ""
+                    )}
                     className={() =>
                       subNavClass({
                         isActive: pathname.startsWith("/app/hr/calling-master"),
@@ -350,10 +370,15 @@ const Layout = () => {
                     <PhoneCall className="w-4 h-4 shrink-0 text-sky-600" />
                     <span className="type-meta type-truncate">Recruitment</span>
                   </NavLink>
+                  )}
+                  {canSub("hr.attendance") && (
                   <NavLink to="attendance" className={subNavClass}>
                     <Clock className="w-4 h-4 shrink-0 text-amber-600" />
                     <span className="type-meta type-truncate">Attendance</span>
                   </NavLink>
+                  )}
+                  {canSub("hr.salary-management") && (
+                  <>
                   <div className="flex items-stretch w-full rounded-md hover:bg-surface transition-colors">
                     <NavLink
                       to={salaryNavPath(HR_SALARY_DASHBOARD)}
@@ -392,6 +417,9 @@ const Layout = () => {
                       ))}
                     </div>
                   )}
+                  </>
+                  )}
+                  {canSub("hr.site-iom") && (
                   <NavLink
                     to="hr/site-iom"
                     className={() =>
@@ -403,10 +431,13 @@ const Layout = () => {
                     <FileText className="w-4 h-4 shrink-0 text-violet-600" />
                     <span className="type-meta type-truncate">Site Employee IOM</span>
                   </NavLink>
+                  )}
+                  {canSub("hr.people-management") && (
                   <NavLink to="people-management" className={subNavClass}>
                     <UserPlus className="w-4 h-4 shrink-0 text-pink-600" />
                     <span className="type-meta type-truncate">People Management</span>
                   </NavLink>
+                  )}
                 </div>
               )}
             </div>

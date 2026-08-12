@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useMemo } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   ClipboardCheck,
@@ -11,17 +11,22 @@ import {
   UserPlus,
 } from "lucide-react";
 import PageLoader from "../../../components/PageLoader";
+import { useAuth } from "../../../contexts/AuthContext";
+import {
+  RECRUITMENT_TAB_KEYS,
+  getVisibleRecruitmentTabs,
+} from "../../../config/roles";
 
-const TABS = [
-  { to: ".", end: true, label: "Dashboard", icon: LayoutDashboard },
-  { to: "candidates", label: "Candidates", icon: PhoneCall },
-  { to: "offer-generation", label: "Offer Generation", icon: FileText },
-  { to: "offer-response", label: "Offer Response", icon: ClipboardCheck },
-  { to: "joining", label: "Joining", icon: UserPlus },
-  { to: "iom", label: "IOM", icon: Mail },
-  { to: "conversion", label: "Conversion", icon: UserCheck },
-  { to: "dropdown-master", label: "Dropdown Master", icon: ListChecks },
-];
+const TAB_ICONS = {
+  ".": LayoutDashboard,
+  candidates: PhoneCall,
+  "offer-generation": FileText,
+  "offer-response": ClipboardCheck,
+  joining: UserPlus,
+  iom: Mail,
+  conversion: UserCheck,
+  "dropdown-master": ListChecks,
+};
 
 const tabClass = ({ isActive }) =>
   `inline-flex h-9 items-center gap-2 px-3.5 rounded-md text-sm font-medium border transition-colors ${
@@ -31,6 +36,14 @@ const tabClass = ({ isActive }) =>
   }`;
 
 export default function CallingMasterLayout() {
+  const { userProfile, accessibleModules, user } = useAuth();
+  const userMetadata = user?.user_metadata ?? null;
+
+  const visibleTabs = useMemo(
+    () => getVisibleRecruitmentTabs(userProfile, accessibleModules, userMetadata),
+    [userProfile, accessibleModules, userMetadata]
+  );
+
   return (
     <div className="mx-auto flex w-full min-h-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6">
       <div className="shrink-0">
@@ -42,11 +55,11 @@ export default function CallingMasterLayout() {
 
       <div className="shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <nav className="flex flex-wrap gap-2 px-3 py-3 sm:px-4" aria-label="Calling database tabs">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
+          {visibleTabs.map((tab) => {
+            const Icon = TAB_ICONS[tab.tabTo];
             return (
-              <NavLink key={tab.to} to={tab.to} end={tab.end} className={tabClass}>
-                <Icon className="h-4 w-4 shrink-0" />
+              <NavLink key={tab.value} to={tab.tabTo} end={tab.end} className={tabClass}>
+                {Icon && <Icon className="h-4 w-4 shrink-0" />}
                 <span className="whitespace-nowrap">{tab.label}</span>
               </NavLink>
             );
