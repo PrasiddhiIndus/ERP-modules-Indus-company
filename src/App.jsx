@@ -57,7 +57,7 @@ import {
   HrCallingMasterIom,
   HrCallingMasterConversion,
   HrCallingMasterDropdowns,
-  HrCallingMasterDatabase,
+  HrCallingMasterEntry,
   HrSiteIom,
   Procurement,
   Operations,
@@ -385,7 +385,7 @@ function App() {
             {/* HR & Admin */}
             <Route path="hr/dashboard" element={<HrDashboard />} />
             <Route path="hr/calling-master" element={<HrCallingMaster />}>
-              <Route index element={<HrCallingMasterDatabase />} />
+              <Route index element={<HrCallingMasterEntry />} />
               <Route path="candidates" element={<HrCallingMasterCandidates />} />
               <Route path="offer-generation" element={<HrCallingMasterOffers />} />
               <Route path="offer-response" element={<HrCallingMasterOfferResponse />} />

@@ -73,23 +73,81 @@ export function normalizeAccessProfile(profile) {
 /**
  * Returns a Set of sub-module path prefixes that the user can access via allowed_sub_modules.
  * Only relevant when the full module is NOT in allowed_modules.
+ *
+ * Handles three cases:
+ *   1. Standard 2-segment key (e.g. "hr.attendance") → adds pathPrefix from NAV_MODULE_TREE.
+ *   2. Parent recruitment key "hr.calling-master" without full hr module →
+ *      adds all workflow tab paths (implies all non-admin tabs).
+ *   3. 3-segment tab key (e.g. "hr.recruitment.candidates") without full hr module AND
+ *      without the parent hr.calling-master key → adds only that tab's exact path.
+ *
+ * REGRESSION GUARD (#2 from review):
+ *   A user with team=hr OR "hr" in allowed_modules has the FULL hr module and does NOT
+ *   need sub-module path expansion — they already pass isPathAllowed via MODULE_PATH_PREFIXES.
+ *   We skip expansion for them. This means no double-granting and no skipping of tab-exact
+ *   checks in isPathAllowed, because they never reach the sub-module path branch at all.
  */
 export function getAccessibleSubModulePaths(profile, userMetadata = null) {
   const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
   if (!subMods.length) return new Set();
+
   const fullModuleKeys = new Set([
     resolveTeamModuleKey(profile?.team),
     ...normalizedAllowedModuleKeys(profile),
   ].filter(Boolean));
+
+  // If user has the full "hr" module, skip all hr.* expansion entirely — they're already
+  // covered by MODULE_PATH_PREFIXES["hr"] in isPathAllowed. This prevents the tricky
+  // split(".")[0] === "hr" guard from silently skipping or double-granting.
+  const hasFullHr = fullModuleKeys.has("hr");
+  const restrictRecruitment = hasRecruitmentTabRestrictions(profile, userMetadata);
+
+  // Full HR with no recruitment tab restrictions: all HR routes via MODULE_PATH_PREFIXES.
+  if (hasFullHr && !restrictRecruitment) {
+    return new Set();
+  }
+
   const paths = new Set();
-  for (const subKey of subMods) {
-    const [moduleKey] = subKey.split(".");
-    if (fullModuleKeys.has(moduleKey)) continue;
+
+  const keysToExpand =
+    hasFullHr && restrictRecruitment
+      ? getRecruitmentRestrictionKeys(profile, userMetadata)
+      : subMods;
+
+  for (const subKey of keysToExpand) {
+    const parts = subKey.split(".");
+    const moduleKey = parts[0];
+
+    // Skip if user has full top-level module access — already covered by MODULE_PATH_PREFIXES.
+    // Exception: HR team with recruitment tab restrictions (handled above).
+    if (!hasFullHr && fullModuleKeys.has(moduleKey)) continue;
+
+    // --- 3-segment tab key (hr.recruitment.<tab>) ---
+    if (parts.length === 3 && parts[0] === "hr" && parts[1] === "recruitment") {
+      if (hasFullHr && !restrictRecruitment) continue;
+      const tabPath = RECRUITMENT_TAB_PATHS[subKey];
+      if (tabPath) paths.add(tabPath);
+      continue;
+    }
+
+    // --- Parent recruitment key hr.calling-master (2-segment) ---
+    if (subKey === "hr.calling-master") {
+      if (hasFullHr && !restrictRecruitment) continue;
+      // Imply all workflow tab paths (not dropdown-master — that requires Admin role).
+      for (const tabKey of RECRUITMENT_WORKFLOW_KEYS) {
+        const tabPath = RECRUITMENT_TAB_PATHS[tabKey];
+        if (tabPath) paths.add(tabPath);
+      }
+      continue;
+    }
+
+    // --- Standard 2-segment key ---
     const moduleDef = NAV_MODULE_TREE.find((m) => m.value === moduleKey);
     if (!moduleDef) continue;
     const subDef = moduleDef.subModules?.find((s) => s.value === subKey);
     if (subDef?.pathPrefix) paths.add(subDef.pathPrefix);
   }
+
   return paths;
 }
 
@@ -185,7 +243,152 @@ export const TEAMS = [
  * Sub-module `value` format: "<moduleKey>.<subKey>" (e.g. "hr.attendance").
  * When a sub-module key is present in `allowed_sub_modules`, and the full module is NOT in
  * `allowed_modules`, only routes matching that sub-module's path prefix are accessible.
+ *
+ * Tab-level keys use a 3-segment format: "<moduleKey>.<subModuleKey>.<tabKey>".
+ * Example: "hr.recruitment.candidates" → /app/hr/calling-master/candidates
+ * A 3-segment key is stored in allowed_sub_modules exactly like 2-segment ones.
+ * The parent 2-segment key (hr.calling-master) implies all its tab children.
  */
+
+/**
+ * Canonical tab keys for the Calling Database (Recruitment) module.
+ * Used in CallingMasterLayout to filter visible tabs, and in access helpers below.
+ * "dropdown-master" is flagged adminOnly — it is hidden from Executive/Manager regardless
+ * of per-user grants, and is not included in the default parent-implies-children expansion.
+ */
+export const RECRUITMENT_TAB_KEYS = [
+  { value: "hr.recruitment.dashboard",        label: "Dashboard",        tabTo: ".",                 end: true  },
+  { value: "hr.recruitment.candidates",        label: "Candidates",       tabTo: "candidates"                   },
+  { value: "hr.recruitment.offer-generation",  label: "Offer Generation", tabTo: "offer-generation"             },
+  { value: "hr.recruitment.offer-response",    label: "Offer Response",   tabTo: "offer-response"               },
+  { value: "hr.recruitment.joining",           label: "Joining",          tabTo: "joining"                      },
+  { value: "hr.recruitment.iom",               label: "IOM",              tabTo: "iom"                          },
+  { value: "hr.recruitment.conversion",        label: "Conversion",       tabTo: "conversion"                   },
+  { value: "hr.recruitment.dropdown-master",   label: "Dropdown Master",  tabTo: "dropdown-master",  adminOnly: true },
+];
+
+/** All workflow tab keys (non-admin). These are granted when the parent hr.calling-master is set. */
+export const RECRUITMENT_WORKFLOW_KEYS = RECRUITMENT_TAB_KEYS
+  .filter((t) => !t.adminOnly)
+  .map((t) => t.value);
+
+/** All tab keys including the admin-only one. */
+export const ALL_RECRUITMENT_TAB_KEYS = RECRUITMENT_TAB_KEYS.map((t) => t.value);
+
+/**
+ * Path prefix for each recruitment tab key.
+ * The dashboard tab maps to the index route /app/hr/calling-master (no trailing segment).
+ * All other tabs map to /app/hr/calling-master/<segment>.
+ */
+const RECRUITMENT_TAB_PATHS = Object.fromEntries(
+  RECRUITMENT_TAB_KEYS.map((t) => [
+    t.value,
+    t.tabTo === "." ? "/app/hr/calling-master" : `/app/hr/calling-master/${t.tabTo}`,
+  ])
+);
+
+export const RECRUITMENT_INDEX_PATH = "/app/hr/calling-master";
+
+/** Normalize /app paths for stable comparisons (no trailing slash). */
+export function normalizeAppPath(pathname) {
+  if (!pathname) return "";
+  const trimmed = String(pathname).replace(/\/$/, "");
+  return trimmed || "/";
+}
+
+export function isRecruitmentIndexPath(pathname) {
+  return normalizeAppPath(pathname) === RECRUITMENT_INDEX_PATH;
+}
+
+/** Keys in allowed_sub_modules that scope Calling Database tab access. */
+export function getRecruitmentRestrictionKeys(profile, userMetadata = null) {
+  const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
+  return subMods.filter(
+    (k) =>
+      k === "hr.calling-master" ||
+      (String(k).startsWith("hr.recruitment.") && ALL_RECRUITMENT_TAB_KEYS.includes(k))
+  );
+}
+
+export function hasRecruitmentTabRestrictions(profile, userMetadata = null) {
+  return getRecruitmentRestrictionKeys(profile, userMetadata).length > 0;
+}
+
+function recruitmentPathMatches(pathname, prefixPath) {
+  const normalizedPath = normalizeAppPath(pathname);
+  const normalizedPrefix = normalizeAppPath(prefixPath);
+  if (normalizedPrefix === RECRUITMENT_INDEX_PATH) {
+    return normalizedPath === normalizedPrefix;
+  }
+  if (normalizedPath === normalizedPrefix) return true;
+  return normalizedPath.startsWith(`${normalizedPrefix}/`);
+}
+
+function subModulePathsIncludeRecruitment(subModulePaths) {
+  if (!subModulePaths?.size) return false;
+  return [...subModulePaths].some(
+    (p) => p === RECRUITMENT_INDEX_PATH || p.startsWith(`${RECRUITMENT_INDEX_PATH}/`)
+  );
+}
+
+function isCallingMasterPath(pathname) {
+  const normalized = normalizeAppPath(pathname);
+  return (
+    normalized === RECRUITMENT_INDEX_PATH ||
+    normalized.startsWith(`${RECRUITMENT_INDEX_PATH}/`)
+  );
+}
+
+/**
+ * Tab visibility for Calling Database — shared by layout, index redirect, and sidebar landing.
+ * Dropdown Master is Admin+ only regardless of per-user grants.
+ * HR team users with recruitment keys in allowed_sub_modules are restricted to those tabs.
+ */
+export function canSeeRecruitmentTab(tabDef, profile, accessibleModules, userMetadata = null) {
+  const role = normalizeAppRole(profile?.role);
+  if (role === ROLES.SUPER_ADMIN || role === ROLES.SUPER_ADMIN_PRO) return true;
+
+  if (tabDef?.adminOnly) {
+    return role === ROLES.ADMIN;
+  }
+
+  const subMods = getEffectiveAllowedSubModules(profile, userMetadata);
+  const restricted = hasRecruitmentTabRestrictions(profile, userMetadata);
+
+  if (accessibleModules?.has("hr") && !restricted) return true;
+
+  if (subMods.includes("hr.calling-master")) return true;
+  return subMods.includes(tabDef?.value);
+}
+
+export function getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata = null) {
+  return RECRUITMENT_TAB_KEYS.filter((tab) =>
+    canSeeRecruitmentTab(tab, profile, accessibleModules, userMetadata)
+  );
+}
+
+export function hasRecruitmentDashboardAccess(profile, accessibleModules, userMetadata = null) {
+  return canSeeRecruitmentTab(
+    RECRUITMENT_TAB_KEYS.find((t) => t.value === "hr.recruitment.dashboard"),
+    profile,
+    accessibleModules,
+    userMetadata
+  );
+}
+
+/** First allowed tab route — used for sidebar link and index redirect when Dashboard is not granted. */
+export function getRecruitmentLandingPath(profile, accessibleModules, userMetadata = null) {
+  const visible = getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata);
+  if (!visible.length) return RECRUITMENT_INDEX_PATH;
+  const first = visible[0];
+  if (first.tabTo === ".") return RECRUITMENT_INDEX_PATH;
+  return `${RECRUITMENT_INDEX_PATH}/${first.tabTo}`;
+}
+
+export function hasAnyRecruitmentTabAccess(profile, accessibleModules, userMetadata = null) {
+  return getVisibleRecruitmentTabs(profile, accessibleModules, userMetadata).length > 0;
+}
+
 export const NAV_MODULE_TREE = [
   {
     value: "hr",
@@ -193,7 +396,20 @@ export const NAV_MODULE_TREE = [
     subModules: [
       { value: "hr.dashboard",          label: "Dashboard",          pathPrefix: "/app/hr/dashboard" },
       { value: "hr.employee-master",     label: "HR Management",      pathPrefix: "/app/hr/employee-master" },
-      { value: "hr.calling-master",      label: "Recruitment",         pathPrefix: "/app/hr/calling-master" },
+      {
+        value: "hr.calling-master",
+        label: "Recruitment",
+        pathPrefix: "/app/hr/calling-master",
+        // tabModules lists the per-tab keys shown in the 3rd level of ModuleAccessTree.
+        // Checking the parent (hr.calling-master) implies all workflow tabs; unchecking it
+        // reveals individual tab checkboxes. adminOnly tabs are hidden from this picker
+        // because Dropdown Master is always controlled by role, not per-user grant.
+        tabModules: RECRUITMENT_TAB_KEYS.filter((t) => !t.adminOnly).map((t) => ({
+          value: t.value,
+          label: t.label,
+          pathPrefix: RECRUITMENT_TAB_PATHS[t.value],
+        })),
+      },
       { value: "hr.attendance",          label: "Attendance",         pathPrefix: "/app/attendance" },
       { value: "hr.salary-management",   label: "Salary Management",  pathPrefix: "/app/hr/payroll/salary" },
       { value: "hr.people-management",   label: "People Management",  pathPrefix: "/app/people-management" },
@@ -831,6 +1047,20 @@ export function getAccessibleModules(profile) {
 /**
  * Check if path is allowed for the given set of accessible module keys.
  * Also checks sub-module path prefixes from the profile's allowed_sub_modules.
+ *
+ * ORDER OF CHECKS — important for tab-level granularity (review point #1):
+ *   1. Hard gates (Salary Admin allowlist, /app/dashboard, /app/settings).
+ *   2. Sub-module / tab-exact paths FIRST — prevents the parent module's broad startsWith
+ *      prefix from short-circuiting past a more-restrictive tab-level block.
+ *      Example: if the user only has hr.recruitment.candidates, we must NOT let the broad
+ *      "hr" prefix (which might exist for another reason) silently open every tab.
+ *   3. Full module path-prefix check (MODULE_PATH_PREFIXES) AFTER sub-module paths.
+ *
+ * For callers that pass a user with full "hr" module access, accessibleModules.has("hr")
+ * is true and step 3 grants access to all /app/hr/* routes — tab-level checks are
+ * irrelevant because they never reach step 2. Super Admin / Super Admin Pro are fully
+ * covered via step 3 since getAccessibleModules() returns allModules for them.
+ *
  * @param {string} pathname
  * @param {Set<string>} accessibleModules
  * @param {Set<string>} [subModulePaths] - result of getAccessibleSubModulePaths()
@@ -846,6 +1076,35 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
 
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
   if (accessibleModules.has("settings") && pathname.startsWith("/app/settings")) return true;
+
+  const normalizedPath = normalizeAppPath(pathname);
+
+  // HR team + recruitment tab restrictions: calling-master routes use tab paths only,
+  // not the broad MODULE_PATH_PREFIXES["hr"] grant (prevents tab bypass).
+  if (
+    isCallingMasterPath(normalizedPath) &&
+    subModulePathsIncludeRecruitment(subModulePaths)
+  ) {
+    for (const p of subModulePaths) {
+      if (recruitmentPathMatches(normalizedPath, p)) return true;
+    }
+    return false;
+  }
+
+  // --- Step 2: sub-module / tab-exact paths checked BEFORE full-module prefixes ---
+  if (subModulePaths?.size) {
+    for (const p of subModulePaths) {
+      const normalizedPrefix = normalizeAppPath(p);
+      if (normalizedPrefix === RECRUITMENT_INDEX_PATH) {
+        if (normalizedPath === normalizedPrefix) return true;
+        continue;
+      }
+      if (normalizedPath === normalizedPrefix) return true;
+      if (normalizedPath.startsWith(`${normalizedPrefix}/`)) return true;
+    }
+  }
+
+  // --- Step 3: full module path-prefix check ---
   for (const mod of accessibleModules) {
     const prefixes = MODULE_PATH_PREFIXES[mod];
     if (!prefixes) continue;
@@ -853,11 +1112,6 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
       if (pathname.startsWith(p)) return true;
     }
   }
-  // Check individual sub-module path prefixes (partial module access)
-  if (subModulePaths?.size) {
-    for (const p of subModulePaths) {
-      if (pathname.startsWith(p)) return true;
-    }
-  }
+
   return false;
 }

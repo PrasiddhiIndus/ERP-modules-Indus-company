@@ -34,7 +34,14 @@ import {
   saveEmployeeHierarchyManagers,
 } from "../lib/userManagementHierarchy";
 import { ManagerSearchSelect } from "../components/employee/ManagerSearchSelect";
-import { ROLES, MODULES, NAV_MODULE_TREE, resolveTeamModuleKey } from "../config/roles";
+import {
+  ROLES,
+  MODULES,
+  NAV_MODULE_TREE,
+  resolveTeamModuleKey,
+  RECRUITMENT_WORKFLOW_KEYS,
+  ALL_RECRUITMENT_TAB_KEYS,
+} from "../config/roles";
 import { ChevronDown as ChevronDownIcon } from "lucide-react";
 import {
   fetchEmployeeMasterDepartments,
@@ -87,10 +94,15 @@ const selectableExtraModules = (team) => {
   );
 };
 
-/** Returns the visible NAV_MODULE_TREE entries, excluding the user's primary team module. */
+/** Returns NAV_MODULE_TREE for the access picker. Primary team module stays visible for sub-module/tab grants. */
 const selectableModuleTree = (team) => {
   const teamKey = resolveTeamModuleKey(team);
-  return NAV_MODULE_TREE.filter((m) => m.value !== "userManagement" && m.value !== teamKey);
+  return NAV_MODULE_TREE.filter((m) => m.value !== "userManagement").map((mod) => {
+    if (teamKey && mod.value === teamKey) {
+      return { ...mod, implicitViaTeam: true };
+    }
+    return mod;
+  });
 };
 
 const parseAllowedSubModules = (raw) => {
@@ -107,64 +119,107 @@ const parseAllowedSubModules = (raw) => {
 };
 
 /**
- * Tree-style module + sub-module access picker.
- * - Checking a full module grants access to the whole module (clears any sub-module selections for it).
- * - Un-checking a full module reveals sub-module checkboxes so you can grant partial access.
+ * Tree-style module + sub-module access picker — supports 3-level nesting.
+ *
+ * Level 1: Top-level module (e.g. "hr") — checkbox in allowed_modules.
+ * Level 2: Sub-module (e.g. "hr.calling-master") — checkbox in allowed_sub_modules.
+ *          If the sub-module has `tabModules`, it shows a chevron to expand level 3.
+ * Level 3: Tab key (e.g. "hr.recruitment.candidates") — checkbox in allowed_sub_modules.
+ *          Checking the level-2 parent ("hr.calling-master") implies all its tab children
+ *          via the onToggleSubModule handler (which expands/collapses them in state).
+ *
+ * Rules:
+ *   - Checking a full module clears all sub-module/tab selections for that module.
+ *   - Unchecking a full module reveals level-2 sub-module checkboxes.
+ *   - Checking a level-2 parent (hr.calling-master) grants all workflow tab keys.
+ *   - Unchecking hr.calling-master collapses back to no tab keys selected.
+ *   - Level-3 tab keys can be toggled individually when the parent is unchecked.
  */
 function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], onToggleModule, onToggleSubModule }) {
+  // Tracks expanded state for both level-1 modules and level-2 sub-modules with children.
   const [expanded, setExpanded] = useState({});
 
   const safeModules = Array.isArray(allowedModules) ? allowedModules : [];
   const safeSubModules = Array.isArray(allowedSubModules) ? allowedSubModules : [];
 
+  // Auto-expand nodes that have active sub-selections (level-2 or level-3).
   React.useEffect(() => {
     const autoExpand = {};
     tree.forEach((mod) => {
+      if (mod.implicitViaTeam) {
+        autoExpand[mod.value] = true;
+      }
       if (mod.subModules?.some((s) => safeSubModules.includes(s.value))) {
         autoExpand[mod.value] = true;
       }
+      mod.subModules?.forEach((sub) => {
+        if (sub.tabModules?.some((t) => safeSubModules.includes(t.value))) {
+          autoExpand[mod.value] = true;
+          autoExpand[sub.value] = true;
+        }
+      });
     });
     if (Object.keys(autoExpand).length) {
       setExpanded((prev) => ({ ...prev, ...autoExpand }));
     }
   }, [tree, safeSubModules.join("|")]);
 
-  const toggleExpand = (moduleValue) =>
-    setExpanded((prev) => ({ ...prev, [moduleValue]: !prev[moduleValue] }));
+  const toggleExpand = (key) =>
+    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
     <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
       {tree.map((mod) => {
-        const fullChecked = safeModules.includes(mod.value);
+        const implicitViaTeam = mod.implicitViaTeam === true;
+        const fullChecked = !implicitViaTeam && safeModules.includes(mod.value);
         const hasSubs = mod.subModules && mod.subModules.length > 0;
-        const isExpanded = expanded[mod.value] ?? false;
+        const isExpanded = implicitViaTeam ? true : (expanded[mod.value] ?? false);
         const activeSubCount = hasSubs
-          ? mod.subModules.filter((s) => safeSubModules.includes(s.value)).length
+          ? mod.subModules.filter((s) => {
+              if (safeSubModules.includes(s.value)) return true;
+              if (s.tabModules?.some((t) => safeSubModules.includes(t.value))) return true;
+              return false;
+            }).length
           : 0;
+        const showSubModules = hasSubs && (implicitViaTeam || (!fullChecked && isExpanded));
 
         return (
           <div key={mod.value}>
-            {/* Module row */}
+            {/* Level 1: Module row */}
             <div className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
-              <input
-                type="checkbox"
-                id={`mod-${mod.value}`}
-                checked={fullChecked}
-                onChange={() => onToggleModule(mod.value)}
-                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
-              />
+              {!implicitViaTeam ? (
+                <input
+                  type="checkbox"
+                  id={`mod-${mod.value}`}
+                  checked={fullChecked}
+                  onChange={() => onToggleModule(mod.value)}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                />
+              ) : (
+                <span className="w-4 shrink-0" aria-hidden />
+              )}
               <label
-                htmlFor={`mod-${mod.value}`}
+                htmlFor={implicitViaTeam ? undefined : `mod-${mod.value}`}
                 className="flex-1 text-sm font-medium text-gray-800 cursor-pointer select-none"
               >
                 {mod.label}
-                {!fullChecked && activeSubCount > 0 && (
+                {implicitViaTeam ? (
+                  <span className="ml-1.5 text-[11px] font-normal text-slate-600 bg-slate-100 rounded px-1.5 py-0.5">
+                    Primary team
+                  </span>
+                ) : null}
+                {!fullChecked && !implicitViaTeam && activeSubCount > 0 && (
                   <span className="ml-1.5 text-[11px] font-normal text-indigo-600 bg-indigo-50 rounded px-1.5 py-0.5">
                     {activeSubCount} sub-module{activeSubCount > 1 ? "s" : ""}
                   </span>
                 )}
+                {implicitViaTeam && activeSubCount > 0 ? (
+                  <span className="ml-1.5 text-[11px] font-normal text-indigo-600 bg-indigo-50 rounded px-1.5 py-0.5">
+                    {activeSubCount} restricted
+                  </span>
+                ) : null}
               </label>
-              {hasSubs && !fullChecked && (
+              {hasSubs && !fullChecked && !implicitViaTeam ? (
                 <button
                   type="button"
                   onClick={() => toggleExpand(mod.value)}
@@ -175,26 +230,78 @@ function ModuleAccessTree({ tree, allowedModules = [], allowedSubModules = [], o
                     className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                   />
                 </button>
-              )}
+              ) : null}
             </div>
 
-            {/* Sub-module rows — only shown when module is NOT fully checked */}
-            {hasSubs && !fullChecked && isExpanded && (
+            {/* Level 2: Sub-module rows */}
+            {showSubModules && (
               <div className="bg-slate-50 border-t border-gray-100 ml-6 mr-0 divide-y divide-gray-100/60">
-                {mod.subModules.map((sub) => (
-                  <label
-                    key={sub.value}
-                    className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-100"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={safeSubModules.includes(sub.value)}
-                      onChange={() => onToggleSubModule(sub.value)}
-                      className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
-                    />
-                    <span className="text-xs text-gray-700">{sub.label}</span>
-                  </label>
-                ))}
+                {mod.subModules.map((sub) => {
+                  const subChecked = safeSubModules.includes(sub.value);
+                  const hasTabChildren = sub.tabModules && sub.tabModules.length > 0;
+                  const isSubExpanded = expanded[sub.value] ?? false;
+                  const activeTabCount = hasTabChildren
+                    ? sub.tabModules.filter((t) => safeSubModules.includes(t.value)).length
+                    : 0;
+
+                  return (
+                    <div key={sub.value}>
+                      {/* Level 2 row */}
+                      <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100">
+                        <input
+                          type="checkbox"
+                          id={`sub-${sub.value}`}
+                          checked={subChecked}
+                          onChange={() => onToggleSubModule(sub.value)}
+                          className="rounded border-gray-300 text-indigo-500 focus:ring-indigo-400 shrink-0"
+                        />
+                        <label
+                          htmlFor={`sub-${sub.value}`}
+                          className="flex-1 text-xs text-gray-700 cursor-pointer select-none"
+                        >
+                          {sub.label}
+                          {hasTabChildren && !subChecked && activeTabCount > 0 && (
+                            <span className="ml-1.5 text-[10px] font-normal text-indigo-500 bg-indigo-50 rounded px-1 py-0.5">
+                              {activeTabCount} tab{activeTabCount > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </label>
+                        {hasTabChildren && !subChecked && (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(sub.value)}
+                            className="p-0.5 rounded hover:bg-slate-200 text-gray-400"
+                            title={isSubExpanded ? "Hide tabs" : "Show individual tabs"}
+                          >
+                            <ChevronDownIcon
+                              className={`w-3 h-3 transition-transform ${isSubExpanded ? "rotate-180" : ""}`}
+                            />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Level 3: Tab rows — shown when sub-module is NOT fully checked */}
+                      {hasTabChildren && !subChecked && isSubExpanded && (
+                        <div className="bg-white border-t border-gray-100 ml-5 mr-0 divide-y divide-gray-50">
+                          {sub.tabModules.map((tab) => (
+                            <label
+                              key={tab.value}
+                              className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={safeSubModules.includes(tab.value)}
+                                onChange={() => onToggleSubModule(tab.value)}
+                                className="rounded border-gray-200 text-indigo-400 focus:ring-indigo-300 shrink-0"
+                              />
+                              <span className="text-[11px] text-gray-600">{tab.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -761,8 +868,12 @@ const UserManagement = () => {
   const toggleModule = (value) => {
     setEditForm((prev) => {
       const willAdd = !prev.allowed_modules.includes(value);
+      // When granting a full module, remove ALL sub-module and tab keys that belong to it
+      // (including 3-segment hr.recruitment.* tab keys).
       const newSubModules = willAdd
-        ? prev.allowed_sub_modules.filter((s) => !s.startsWith(`${value}.`))
+        ? prev.allowed_sub_modules.filter(
+            (s) => !s.startsWith(`${value}.`) && !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+          )
         : prev.allowed_sub_modules;
       const next = {
         ...prev,
@@ -774,7 +885,6 @@ const UserManagement = () => {
       if (value === "billing" && willAdd) {
         setEditBillingVerticals((bv) => {
           if (bv.baselineCodes.length > 0 || bv.selectedCodes.length > 0) return bv;
-          // Preview team defaults; leaving them as-is (no further edits) seeds on save.
           const defaults = defaultBillingVerticalCodesForTeam(next.team);
           return { ...bv, selectedCodes: defaults };
         });
@@ -786,12 +896,43 @@ const UserManagement = () => {
   const toggleSubModule = (subValue) => {
     setEditForm((prev) => {
       const willAdd = !prev.allowed_sub_modules.includes(subValue);
-      const next = {
-        ...prev,
-        allowed_sub_modules: willAdd
+
+      let newSubModules;
+      if (subValue === "hr.calling-master") {
+        if (willAdd) {
+          // Parent key added — also add all workflow tab keys; remove individual tab keys
+          // that are already there to avoid duplicates (parent implies all of them).
+          const withoutTabs = prev.allowed_sub_modules.filter(
+            (s) => !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+          );
+          newSubModules = [...withoutTabs, "hr.calling-master", ...RECRUITMENT_WORKFLOW_KEYS];
+        } else {
+          // Parent key removed — also remove all tab keys so nothing is silently left.
+          newSubModules = prev.allowed_sub_modules.filter(
+            (s) => s !== "hr.calling-master" && !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+          );
+        }
+      } else if (ALL_RECRUITMENT_TAB_KEYS.includes(subValue)) {
+        // Individual tab key toggled — ensure the parent "hr.calling-master" is NOT
+        // also in the list (a tab-level grant is more restrictive than the parent).
+        // If all workflow tabs are explicitly selected, we leave the parent absent so the
+        // Admin can still fine-tune; it's cleaner than auto-promoting to parent.
+        if (willAdd) {
+          const withoutParent = prev.allowed_sub_modules.filter(
+            (s) => s !== "hr.calling-master"
+          );
+          newSubModules = [...withoutParent, subValue];
+        } else {
+          newSubModules = prev.allowed_sub_modules.filter((s) => s !== subValue);
+        }
+      } else {
+        newSubModules = willAdd
           ? [...prev.allowed_sub_modules, subValue]
-          : prev.allowed_sub_modules.filter((s) => s !== subValue),
-      };
+          : prev.allowed_sub_modules.filter((s) => s !== subValue);
+      }
+
+      const next = { ...prev, allowed_sub_modules: newSubModules };
+
       if (willAdd && String(subValue).startsWith("billing.")) {
         setEditBillingVerticals((bv) => {
           if (bv.baselineCodes.length > 0 || bv.selectedCodes.length > 0) return bv;
@@ -1783,8 +1924,13 @@ const UserManagement = () => {
                             allowed_modules: willAdd
                               ? [...prev.allowed_modules, value]
                               : prev.allowed_modules.filter((x) => x !== value),
+                            // When granting a full module, clear all sub/tab keys for it.
                             allowed_sub_modules: willAdd
-                              ? prev.allowed_sub_modules.filter((s) => !s.startsWith(`${value}.`))
+                              ? prev.allowed_sub_modules.filter(
+                                  (s) =>
+                                    !s.startsWith(`${value}.`) &&
+                                    !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+                                )
                               : prev.allowed_sub_modules,
                           };
                           if (value === "billing" && willAdd) {
@@ -1803,12 +1949,41 @@ const UserManagement = () => {
                       onToggleSubModule={(subValue) =>
                         setCreateForm((prev) => {
                           const willAdd = !prev.allowed_sub_modules.includes(subValue);
-                          const next = {
-                            ...prev,
-                            allowed_sub_modules: willAdd
+                          let newSubModules;
+                          if (subValue === "hr.calling-master") {
+                            if (willAdd) {
+                              const withoutTabs = prev.allowed_sub_modules.filter(
+                                (s) => !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+                              );
+                              newSubModules = [
+                                ...withoutTabs,
+                                "hr.calling-master",
+                                ...RECRUITMENT_WORKFLOW_KEYS,
+                              ];
+                            } else {
+                              newSubModules = prev.allowed_sub_modules.filter(
+                                (s) =>
+                                  s !== "hr.calling-master" &&
+                                  !ALL_RECRUITMENT_TAB_KEYS.includes(s)
+                              );
+                            }
+                          } else if (ALL_RECRUITMENT_TAB_KEYS.includes(subValue)) {
+                            if (willAdd) {
+                              const withoutParent = prev.allowed_sub_modules.filter(
+                                (s) => s !== "hr.calling-master"
+                              );
+                              newSubModules = [...withoutParent, subValue];
+                            } else {
+                              newSubModules = prev.allowed_sub_modules.filter(
+                                (s) => s !== subValue
+                              );
+                            }
+                          } else {
+                            newSubModules = willAdd
                               ? [...prev.allowed_sub_modules, subValue]
-                              : prev.allowed_sub_modules.filter((s) => s !== subValue),
-                          };
+                              : prev.allowed_sub_modules.filter((s) => s !== subValue);
+                          }
+                          const next = { ...prev, allowed_sub_modules: newSubModules };
                           if (willAdd && String(subValue).startsWith("billing.")) {
                             setCreateBillingVerticals((bv) =>
                               bv.selectedCodes.length
