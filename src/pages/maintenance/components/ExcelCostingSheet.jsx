@@ -21,23 +21,17 @@ const COSTING_SHEET_COLUMNS = [
   { id: 'vendor_name', label: 'Vendor Name', inputType: 'text', isEditable: true, isCalculated: false },
   { id: 'vendor_rate', label: 'Vendor Rate', inputType: 'number', isEditable: true, isCalculated: false },
   { id: 'vendor_rate_total', label: 'Total Amount of Vendor Rate', inputType: 'number', isEditable: false, isCalculated: true },
-  { id: 'transport_per_unit', label: 'Transportation Charge (per unit)', inputType: 'number', isEditable: false, isCalculated: true },
+  { id: 'transport_per_unit', label: 'Transportation Charge (per unit)', inputType: 'number', isEditable: true, isCalculated: false },
   { id: 'transport_total', label: 'Total Transportation Charge', inputType: 'number', isEditable: false, isCalculated: true },
-  { id: 'misc_per_unit', label: 'Miscellaneous Expenses (per unit)', inputType: 'number', isEditable: false, isCalculated: true },
+  { id: 'misc_per_unit', label: 'Miscellaneous Expenses (per unit)', inputType: 'number', isEditable: true, isCalculated: false },
   { id: 'misc_total', label: 'Total Miscellaneous Expenses', inputType: 'number', isEditable: false, isCalculated: true },
-  { id: 'bd_overhead_per_unit', label: 'Business Development / Overhead Cost (per unit)', inputType: 'number', isEditable: false, isCalculated: true },
+  { id: 'bd_overhead_per_unit', label: 'Business Development / Overhead Cost (per unit)', inputType: 'number', isEditable: true, isCalculated: false },
   { id: 'bd_overhead_total', label: 'Total Business Development / Overhead Cost', inputType: 'number', isEditable: false, isCalculated: true },
-  { id: 'margin_per_unit', label: 'Margin (per unit)', inputType: 'number', isEditable: false, isCalculated: true },
+  { id: 'margin_per_unit', label: 'Margin (per unit)', inputType: 'number', isEditable: true, isCalculated: false },
   { id: 'margin_total', label: 'Total Margin', inputType: 'number', isEditable: false, isCalculated: true },
   { id: 'final_rate_submission', label: 'Final Rate for Submission', inputType: 'number', isEditable: false, isCalculated: true },
   { id: 'total_difference_pct', label: 'Total Difference (%)', inputType: 'number', isEditable: false, isCalculated: true },
 ];
-
-/** Fixed markups on Vendor Rate (N): transport 5%, misc 1%, BD/overhead 10%, margin 25%. */
-const TRANSPORT_PCT = 5;
-const MISC_PCT = 1;
-const BD_OVERHEAD_PCT = 10;
-const MARGIN_PCT = 25;
 
 /** UOM presets for costing sheet; anything else is treated as manual/custom entry. */
 const UOM_OPTIONS = ['no.', 'mtr', 'litre', 'each', 'set', 'job', 'man day'];
@@ -48,7 +42,8 @@ function isUomPreset(value) {
 }
 
 /**
- * Compute derived cells for one row from Vendor Rate (N) and Quantity (I).
+ * Compute derived cells for one row from Vendor Rate (N), Quantity (I),
+ * and manually entered per-unit transport / misc / BD / margin.
  * Also writes legacy keys so Internal Quotation / PDF keep working.
  */
 function computeRowDerived(itemId, cellData) {
@@ -57,10 +52,10 @@ function computeRowDerived(itemId, cellData) {
   const vendorRate = Math.max(0, num('vendor_rate')); // N
   const gstPct = Math.max(0, num('gst_pct'));
 
-  const transportPerUnit = vendorRate * (TRANSPORT_PCT / 100); // P = N*5%
-  const miscPerUnit = vendorRate * (MISC_PCT / 100); // R = N*1%
-  const bdPerUnit = vendorRate * (BD_OVERHEAD_PCT / 100); // T = N*10%
-  const marginPerUnit = vendorRate * (MARGIN_PCT / 100); // V = N*25%
+  const transportPerUnit = Math.max(0, num('transport_per_unit')); // P
+  const miscPerUnit = Math.max(0, num('misc_per_unit')); // R
+  const bdPerUnit = Math.max(0, num('bd_overhead_per_unit')); // T
+  const marginPerUnit = Math.max(0, num('margin_per_unit')); // V
 
   // X = V + T + R + P + N
   const finalRate = marginPerUnit + bdPerUnit + miscPerUnit + transportPerUnit + vendorRate;
@@ -77,10 +72,6 @@ function computeRowDerived(itemId, cellData) {
   const grandWithGst = totalAmount + gstAmount;
 
   const out = {};
-  out[`${itemId}_transport_per_unit`] = transportPerUnit.toFixed(2);
-  out[`${itemId}_misc_per_unit`] = miscPerUnit.toFixed(2);
-  out[`${itemId}_bd_overhead_per_unit`] = bdPerUnit.toFixed(2);
-  out[`${itemId}_margin_per_unit`] = marginPerUnit.toFixed(2);
   out[`${itemId}_final_rate_submission`] = finalRate.toFixed(2);
   out[`${itemId}_unit_rate`] = unitRate.toFixed(2);
   out[`${itemId}_total_amount`] = totalAmount.toFixed(2);
@@ -118,10 +109,16 @@ function computeSheetSummary(itemsList, getVal) {
   const bdTotal = sum('bd_overhead_total'); // U23
   const marginTotal = sum('margin_total'); // W23
 
-  const avgTransport = avgVendorRate * (TRANSPORT_PCT / 100); // P23
-  const avgMisc = avgVendorRate * (MISC_PCT / 100); // R23
-  const avgBd = avgVendorRate * (BD_OVERHEAD_PCT / 100); // T23
-  const avgMargin = avgVendorRate * (MARGIN_PCT / 100); // V23
+  const avgOf = (field) => {
+    const vals = itemsList
+      .map((item) => parseFloat(getVal(item.id, field)) || 0)
+      .filter((n) => n > 0);
+    return vals.length > 0 ? vals.reduce((s, n) => s + n, 0) / vals.length : 0;
+  };
+  const avgTransport = avgOf('transport_per_unit'); // P23
+  const avgMisc = avgOf('misc_per_unit'); // R23
+  const avgBd = avgOf('bd_overhead_per_unit'); // T23
+  const avgMargin = avgOf('margin_per_unit'); // V23
   const avgFinalRate = avgMargin + avgBd + avgMisc + avgTransport + avgVendorRate; // X23
   const avgUnitRate = avgFinalRate; // K23 = X23
   const avgDiffPct =
@@ -766,7 +763,7 @@ const ExcelCostingSheet = forwardRef(({ quotationId, onCostingChange, onSaveSucc
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Costing Sheet</h3>
           <p className="text-[9px] text-gray-500 mt-0.5">
-            Enter Vendor Rate &amp; Quantity — transport 5%, misc 1%, BD/overhead 10%, margin 25% auto-calculate.
+            Enter Vendor Rate, Quantity, and per-unit transport, misc, BD/overhead, and margin. Totals auto-calculate.
             <span className="bg-red-50 text-red-900 px-1.5 py-0.5 rounded border border-red-200 font-medium ml-1">Tint = Manual entry</span>
           </p>
         </div>

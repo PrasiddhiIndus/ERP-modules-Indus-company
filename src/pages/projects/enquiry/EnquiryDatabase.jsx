@@ -229,7 +229,7 @@ export default function EnquiryDatabase() {
             onChange={(e) => setStatusFilter(e.target.value)}
             className={inputCls}
           >
-            <option value="">All statuses</option>
+            <option value="">All status</option>
             {STATUS_LEGEND.map((s) => (
               <option key={s.status} value={s.status}>{s.label}</option>
             ))}
