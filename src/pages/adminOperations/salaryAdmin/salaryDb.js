@@ -56,6 +56,7 @@ const STRUCTURE_COLUMNS = [
   "total_b_monthly",
   "ctc_monthly",
   "ctc_annual",
+  "pa_overrides_json",
   "declared",
   "wef_date",
   "revision_reason",
@@ -65,6 +66,20 @@ const STRUCTURE_COLUMNS = [
   "created_at",
   "updated_at",
 ].join(", ");
+
+/** Same columns without pa_overrides_json (pre-migration fallback). */
+const STRUCTURE_COLUMNS_LEGACY = STRUCTURE_COLUMNS.replace(/,\s*pa_overrides_json\b/, "");
+
+function isMissingPaOverridesColumn(err) {
+  const msg = `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""}`;
+  return /pa_overrides_json/i.test(msg);
+}
+
+function omitPaOverridesColumn(cols) {
+  if (!cols || typeof cols !== "object") return cols;
+  const { pa_overrides_json: _drop, ...rest } = cols;
+  return rest;
+}
 
 function salaryTable(name) {
   const table = SALARY_TABLES[name] || name;
@@ -107,6 +122,20 @@ function boolOr(v, fallback = false) {
   return Boolean(v);
 }
 
+function paOverridesOrEmpty(v) {
+  if (v == null || v === "") return {};
+  if (typeof v === "string") {
+    try {
+      const parsed = JSON.parse(v);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof v === "object" && !Array.isArray(v)) return v;
+  return {};
+}
+
 /** Map DB structure row → UI CTC shape (localStorage-compatible). */
 export function structureRowToUi(row, revisions = []) {
   if (!row) return null;
@@ -114,6 +143,7 @@ export function structureRowToUi(row, revisions = []) {
     ...row,
     employee_master_id: String(row.employee_master_id),
     declared: Boolean(row.declared),
+    pa_overrides_json: paOverridesOrEmpty(row.pa_overrides_json),
     revisions: Array.isArray(revisions) ? revisions : [],
     revision_count: Number(row.revision_count) || 0,
   };
@@ -165,6 +195,7 @@ export function uiPayloadToStructureColumns(payload, employeeMasterId) {
     total_b_monthly: numOrNull(payload.total_b_monthly),
     ctc_monthly: numOrNull(payload.ctc_monthly),
     ctc_annual: numOrNull(payload.ctc_annual),
+    pa_overrides_json: paOverridesOrEmpty(payload.pa_overrides_json),
     declared: payload.declared !== false,
     wef_date: payload.wef_date || null,
     revision_reason: payload.revision_reason?.trim?.() || payload.revision_reason || null,
@@ -177,15 +208,23 @@ function revisionRowToUi(row) {
   if (!row) return null;
   const snap =
     row.snapshot_json && typeof row.snapshot_json === "object" ? row.snapshot_json : {};
+  // Prefer archived snapshot for amounts (includes pa_overrides_json); keep revision metadata from row.
   return {
-    ...snap,
     ...row,
+    ...snap,
+    id: row.id,
+    structure_id: row.structure_id,
     employee_master_id: String(row.employee_master_id),
     revision_no: Number(row.revision_no) || 0,
     revised_at: row.revised_at,
     wef_date: row.wef_date || snap.wef_date || null,
     revision_reason: row.revision_reason || snap.revision_reason || null,
     superseded_wef: row.superseded_wef || row.wef_date || null,
+    snapshot_json: snap,
+    pa_overrides_json: paOverridesOrEmpty(
+      snap.pa_overrides_json ?? row.pa_overrides_json
+    ),
+    ctc_annual: snap.ctc_annual ?? row.ctc_annual,
   };
 }
 
@@ -199,15 +238,28 @@ function structureSnapshotForRevision(row) {
     created_by: _cb,
     updated_by: _ub,
     revision_count: _rc,
+    revisions: _revs,
     ...rest
   } = row;
-  return rest;
+  return {
+    ...rest,
+    pa_overrides_json: paOverridesOrEmpty(row.pa_overrides_json),
+    ctc_annual: row.ctc_annual,
+    ctc_monthly: row.ctc_monthly,
+    gross_monthly: row.gross_monthly,
+    declared: Boolean(row.declared),
+  };
 }
 
 export async function dbFetchSalaryStructureMap() {
-  const { data, error } = await salaryTable("structures")
+  let { data, error } = await salaryTable("structures")
     .select(STRUCTURE_COLUMNS)
     .eq("declared", true);
+  if (error && isMissingPaOverridesColumn(error)) {
+    ({ data, error } = await salaryTable("structures")
+      .select(STRUCTURE_COLUMNS_LEGACY)
+      .eq("declared", true));
+  }
   if (error) throw error;
   const map = new Map();
   for (const row of data || []) {
@@ -220,10 +272,16 @@ export async function dbGetSalaryStructure(employeeMasterId, { withRevisions = t
   const id = toMasterId(employeeMasterId);
   if (id == null) return null;
 
-  const { data, error } = await salaryTable("structures")
+  let { data, error } = await salaryTable("structures")
     .select(STRUCTURE_COLUMNS)
     .eq("employee_master_id", id)
     .maybeSingle();
+  if (error && isMissingPaOverridesColumn(error)) {
+    ({ data, error } = await salaryTable("structures")
+      .select(STRUCTURE_COLUMNS_LEGACY)
+      .eq("employee_master_id", id)
+      .maybeSingle());
+  }
   if (error) throw error;
   if (!data) return null;
 
@@ -266,28 +324,44 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
 
   const existing = await dbGetSalaryStructure(id, { withRevisions: false });
 
-  if (existing?.id) {
+  const runUpdate = async (body, selectCols) => {
     const { data, error } = await salaryTable("structures")
       .update({
-        ...cols,
+        ...body,
         revision_count: Number(existing.revision_count) || 0,
       })
       .eq("id", existing.id)
-      .select(STRUCTURE_COLUMNS)
+      .select(selectCols)
       .single();
+    return { data, error };
+  };
+
+  const runInsert = async (body, selectCols) => {
+    const { data, error } = await salaryTable("structures")
+      .insert({
+        ...body,
+        revision_count: 0,
+        created_by: userId,
+      })
+      .select(selectCols)
+      .single();
+    return { data, error };
+  };
+
+  if (existing?.id) {
+    let { data, error } = await runUpdate(cols, STRUCTURE_COLUMNS);
+    if (error && isMissingPaOverridesColumn(error)) {
+      ({ data, error } = await runUpdate(omitPaOverridesColumn(cols), STRUCTURE_COLUMNS_LEGACY));
+    }
     if (error) throw error;
     const revisions = await dbGetSalaryRevisions(id);
     return structureRowToUi(data, revisions);
   }
 
-  const { data, error } = await salaryTable("structures")
-    .insert({
-      ...cols,
-      revision_count: 0,
-      created_by: userId,
-    })
-    .select(STRUCTURE_COLUMNS)
-    .single();
+  let { data, error } = await runInsert(cols, STRUCTURE_COLUMNS);
+  if (error && isMissingPaOverridesColumn(error)) {
+    ({ data, error } = await runInsert(omitPaOverridesColumn(cols), STRUCTURE_COLUMNS_LEGACY));
+  }
   if (error) throw error;
   return structureRowToUi(data, []);
 }
@@ -384,7 +458,21 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
     .eq("id", prev.id)
     .select(STRUCTURE_COLUMNS)
     .single();
-  if (error) throw error;
+  if (error) {
+    if (!isMissingPaOverridesColumn(error)) throw error;
+    const { data: data2, error: error2 } = await salaryTable("structures")
+      .update({
+        ...omitPaOverridesColumn(cols),
+        revision_count: nextCount,
+        updated_by: userId,
+      })
+      .eq("id", prev.id)
+      .select(STRUCTURE_COLUMNS_LEGACY)
+      .single();
+    if (error2) throw error2;
+    const revisions = await dbGetSalaryRevisions(id);
+    return structureRowToUi(data2, revisions);
+  }
 
   const revisions = await dbGetSalaryRevisions(id);
   return structureRowToUi(data, revisions);

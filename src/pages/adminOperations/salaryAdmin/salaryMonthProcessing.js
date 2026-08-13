@@ -259,6 +259,8 @@ export function buildSheetLineFromSources({
     date_of_joining: employee.date_of_joining || null,
     account_no: employee.bank_account_no || "",
     ifsc: employee.ifsc_code || "",
+    uan_no: employee.uan_no || "",
+    esic_no: employee.esic_no || "",
     confirmation_date: employee.confirmation_date || null,
     salary_rate: computed.salary_rate,
     basic_full: basicFull,
@@ -284,6 +286,8 @@ export function buildSheetLineFromSources({
     date_of_joining: snapshot.date_of_joining,
     account_no: snapshot.account_no,
     ifsc: snapshot.ifsc,
+    uan_no: snapshot.uan_no || "",
+    esic_no: snapshot.esic_no || "",
     confirmation_date: snapshot.confirmation_date,
     declared: Boolean(computed.declared),
     salary_rate: computed.salary_rate,
@@ -592,7 +596,16 @@ export function applyScopeLineDraft(line, draft, monthDays) {
   if (!line || !draft || typeof draft !== "object") return line;
   const merged = { ...line };
   for (const key of SCOPE_DRAFT_FIELDS) {
-    if (draft[key] !== undefined) merged[key] = draft[key];
+    if (draft[key] === undefined) continue;
+    // Do not wipe Employee Master bank details with an empty draft value
+    if (
+      (key === "account_no" || key === "ifsc") &&
+      !String(draft[key] ?? "").trim() &&
+      String(line[key] ?? "").trim()
+    ) {
+      continue;
+    }
+    merged[key] = draft[key];
   }
   if (draft.custom_earn_full != null || draft.custom_ded_full != null) {
     merged.computed_json = {
@@ -608,6 +621,68 @@ export function applyScopeLineDraft(line, draft, monthDays) {
     };
   }
   return recomputeLineFromEdits(merged, monthDays);
+}
+
+/**
+ * After Employee Master salary-account import: push A/c + IFSC into any month drafts
+ * so Salary Processing preview updates immediately.
+ */
+export function syncScopeDraftBankFromMaster(employeeMasterId, { account_no, ifsc } = {}) {
+  const eid = String(employeeMasterId ?? "");
+  if (!eid) return;
+  const acct = account_no != null ? String(account_no).trim() : "";
+  const ifscCode = ifsc != null ? String(ifsc).trim().toUpperCase() : "";
+  if (!acct && !ifscCode) return;
+  const store = readScopeDraftStore();
+  let changed = false;
+  for (const mk of Object.keys(store || {})) {
+    const row = store[mk]?.[eid];
+    if (!row || typeof row !== "object") continue;
+    if (acct) {
+      row.account_no = acct;
+      changed = true;
+    }
+    if (ifscCode) {
+      row.ifsc = ifscCode;
+      changed = true;
+    }
+  }
+  if (changed) writeScopeDraftStore(store);
+}
+
+/** Prefer live Employee Master bank fields on a process/preview line. */
+export function overlayMasterBankOnLine(line, employee) {
+  if (!line) return line;
+  const acct = String(employee?.bank_account_no ?? "").trim();
+  const ifsc = String(employee?.ifsc_code ?? "").trim();
+  const uan = String(employee?.uan_no ?? "").trim();
+  const esic = String(employee?.esic_no ?? "").trim();
+  return {
+    ...line,
+    account_no: acct || line.account_no || "",
+    ifsc: ifsc || line.ifsc || "",
+    uan_no: uan || line.uan_no || "",
+    esic_no: esic || line.esic_no || "",
+  };
+}
+
+/** Fresh Account / IFSC / UAN / ESIC from Employee Master (chunked). */
+async function fetchMasterPayrollFieldsByIds(ids = []) {
+  const unique = [...new Set((ids || []).map(String).filter(Boolean))];
+  const map = new Map();
+  if (!unique.length) return map;
+  for (let i = 0; i < unique.length; i += 200) {
+    const chunk = unique.slice(i, i + 200);
+    const { data, error } = await supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select("id, bank_account_no, ifsc_code, uan_no, esic_no")
+      .in("id", chunk);
+    if (error) throw error;
+    for (const row of data || []) {
+      map.set(String(row.id), row);
+    }
+  }
+  return map;
 }
 
 function normalizeDeptName(v) {
@@ -716,7 +791,7 @@ export async function fetchSalaryProcessCandidates({
     supabase
       .from(EMPLOYEE_MASTER_TABLE)
       .select(
-        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, status"
+        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
       )
       .eq("status", "Active")
       .order("employee_code", { ascending: true }),
@@ -743,6 +818,8 @@ export async function fetchSalaryProcessCandidates({
       confirmation_date: emp.confirmation_date || null,
       bank_account_no: emp.bank_account_no || "",
       ifsc_code: emp.ifsc_code || "",
+      uan_no: emp.uan_no || "",
+      esic_no: emp.esic_no || "",
       employee_id: emp.employee_id || "",
       hasCtc,
       eligible,
@@ -785,6 +862,8 @@ export async function buildSalaryScopePreviewLines({
   }
   const presentMap = await fetchPresentDaysByEmployeeCode(year, month);
   const key = monthKey(year, month);
+  // Always re-read bank fields from DB so Excel import → Processing stays in sync
+  const bankMap = await fetchMasterPayrollFieldsByIds((employees || []).map((e) => e.id));
   const lines = [];
   for (const emp of employees || []) {
     const structure =
@@ -792,6 +871,14 @@ export async function buildSalaryScopePreviewLines({
       map.get(emp.id) ||
       emp._structure ||
       null;
+    const fresh = bankMap.get(String(emp.id)) || {};
+    const bankEmp = {
+      ...emp,
+      bank_account_no: fresh.bank_account_no ?? emp.bank_account_no,
+      ifsc_code: fresh.ifsc_code ?? emp.ifsc_code,
+      uan_no: fresh.uan_no ?? emp.uan_no,
+      esic_no: fresh.esic_no ?? emp.esic_no,
+    };
     const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id);
     const present =
       code && presentMap[code] != null && presentMap[code] > 0 ? presentMap[code] : days;
@@ -804,8 +891,10 @@ export async function buildSalaryScopePreviewLines({
         designation: emp.designation,
         date_of_joining: emp.date_of_joining,
         confirmation_date: emp.confirmation_date,
-        bank_account_no: emp.bank_account_no,
-        ifsc_code: emp.ifsc_code,
+        bank_account_no: bankEmp.bank_account_no,
+        ifsc_code: bankEmp.ifsc_code,
+        uan_no: bankEmp.uan_no,
+        esic_no: bankEmp.esic_no,
       },
       structure,
       presentDays: present,
@@ -816,6 +905,7 @@ export async function buildSalaryScopePreviewLines({
     if (draft) {
       line = applyScopeLineDraft(line, draft, days);
     }
+    line = overlayMasterBankOnLine(line, bankEmp);
     lines.push({
       ...line,
       id: `preview_${emp.id}`,
@@ -868,7 +958,7 @@ export async function processSalaryMonth({
     supabase
       .from(EMPLOYEE_MASTER_TABLE)
       .select(
-        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, status"
+        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
       )
       .eq("status", "Active")
       .order("employee_code", { ascending: true }),
@@ -939,9 +1029,19 @@ export async function processSalaryMonth({
     presentMap,
     monthDays: days,
   });
+  const bankMap = await fetchMasterPayrollFieldsByIds(toProcess.map((e) => e.id));
   newLines = newLines.map((line) => {
     const draft = getScopeLineDraft(key, line.employee_master_id);
-    return draft ? applyScopeLineDraft(line, draft, days) : line;
+    let next = draft ? applyScopeLineDraft(line, draft, days) : line;
+    const emp = toProcess.find((e) => String(e.id) === String(line.employee_master_id));
+    const fresh = bankMap.get(String(line.employee_master_id)) || {};
+    return overlayMasterBankOnLine(next, {
+      ...(emp || {}),
+      bank_account_no: fresh.bank_account_no ?? emp?.bank_account_no,
+      ifsc_code: fresh.ifsc_code ?? emp?.ifsc_code,
+      uan_no: fresh.uan_no ?? emp?.uan_no,
+      esic_no: fresh.esic_no ?? emp?.esic_no,
+    });
   });
 
   let runId;

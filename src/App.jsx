@@ -135,6 +135,7 @@ import {
   // GateDeliveryPage,
   // GateSecurityConsolePage,
   SalaryDashboardPage,
+  SalaryAdminLayoutPage,
   // SalaryMasterPage, // NAV_HIDDEN — CTC lives on Employee Master
   // SalaryEmployeeCtcPage,
   SalaryProcessingPage,
@@ -484,14 +485,24 @@ function App() {
             <Route path="admin/employee/inactive" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/store/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/gate/*" element={<Navigate to="/app/admin/dashboard" replace />} />
-            <Route path="admin/salary-admin/dashboard" element={<SalaryAdminGuard><SalaryDashboardPage /></SalaryAdminGuard>} />
+            <Route
+              path="admin/salary-admin"
+              element={
+                <SalaryAdminGuard>
+                  <SalaryAdminLayoutPage />
+                </SalaryAdminGuard>
+              }
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<SalaryDashboardPage />} />
+              <Route path="salary-components" element={<SalaryComponentsMasterPage />} />
+              <Route path="salary-processing" element={<SalaryProcessingPage />} />
+            </Route>
             <Route path="admin/salary-admin/salary-master" element={<Navigate to="/app/admin/salary-admin/dashboard" replace />} />
             <Route
               path="admin/salary-admin/salary-master/:employeeId"
               element={<SalaryAdminGuard><SalaryMasterCtcRedirect /></SalaryAdminGuard>}
             />
-            <Route path="admin/salary-admin/salary-processing" element={<SalaryAdminGuard><SalaryProcessingPage /></SalaryAdminGuard>} />
-            <Route path="admin/salary-admin/salary-components" element={<SalaryAdminGuard><SalaryComponentsMasterPage /></SalaryAdminGuard>} />
             <Route path="admin/misc/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/alerts-notifications" element={<AdminOpsAlerts />} />
             <Route path="admin/reports-analytics" element={<AdminOpsReports />} />

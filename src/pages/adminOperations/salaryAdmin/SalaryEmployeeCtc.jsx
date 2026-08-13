@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, History, RefreshCw } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
@@ -21,6 +21,7 @@ import {
   EMP_LEVEL_HELPER,
   EMP_LEVEL_OFFICE,
   formatINR,
+  formatPA,
   formatSalaryDate,
   getSalaryStructure,
   hraFromBasic,
@@ -33,9 +34,11 @@ import {
   normalizeEmployeeLevel,
   normalizeHraMode,
   paFromMonthly,
+  parsePaInput,
   parseRateInput,
   parseRupeeInput,
   reviseSalaryStructure,
+  roundPa,
   saveSalaryStructure,
   suggestedPfFromBasic,
   todayInputDate,
@@ -49,13 +52,44 @@ import {
   saveCustomComponentAmounts,
 } from "./salaryComponentsCatalog";
 
+/** Normalize saved P.A. overrides (DB JSON). Empty = use monthly × 12. */
+function normalizePaOverridesMap(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const n = parsePaInput(v);
+    if (n != null) out[String(k)] = n;
+  }
+  return out;
+}
+
+/** Load P.A. overrides from a saved CTC row (DB only — not auto-persisted while typing). */
+function paOverridesFromSaved(saved) {
+  const fromJson = normalizePaOverridesMap(saved?.pa_overrides_json);
+  if (Object.keys(fromJson).length) return fromJson;
+  const autoCtc = paFromMonthly(saved?.ctc_monthly);
+  const savedCtc = parsePaInput(saved?.ctc_annual);
+  if (
+    savedCtc != null &&
+    autoCtc != null &&
+    Math.abs(savedCtc - autoCtc) > 0.001
+  ) {
+    return { ctc: savedCtc };
+  }
+  return {};
+}
+
 const amountInput =
-  "w-[9rem] h-9 px-2.5 text-right text-[15px] tabular-nums border border-border-strong rounded bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
+  "w-[9rem] h-9 px-2.5 text-right text-[15px] font-normal tabular-nums text-ink border border-border-strong rounded bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
+const paAmountInput =
+  "w-[9rem] h-9 px-2.5 text-right text-[15px] font-normal tabular-nums text-ink border border-border-strong rounded bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
 const dateInput =
   "w-full max-w-[12rem] h-9 text-sm border border-border-strong rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
 const fieldLabel = "text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted";
 const selectInput =
   "w-full max-w-[12rem] h-9 text-sm border border-border-strong rounded px-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
+const sheetGridCols =
+  "grid grid-cols-[minmax(0,1.35fr)_minmax(9.5rem,0.65fr)_minmax(9.5rem,0.65fr)] gap-x-4 gap-y-0 items-center";
 
 function ModeToggle({ value, onChange, disabled = false, autoLabel = "Auto", customLabel = "Custom", ariaLabel }) {
   const isAuto = normalizeComponentMode(value) === MODE_AUTO;
@@ -111,6 +145,17 @@ function MoneyCell({ value, strong = false }) {
   );
 }
 
+function MoneyCellPa({ value }) {
+  if (value == null || value === "") {
+    return <span className="text-ink-disabled tabular-nums">—</span>;
+  }
+  return (
+    <span className="inline-flex w-[9rem] justify-end tabular-nums text-[15px] font-normal text-ink">
+      {formatPA(value)}
+    </span>
+  );
+}
+
 function ProfileField({ label, children }) {
   return (
     <div className="min-w-0">
@@ -137,18 +182,18 @@ function SheetRow({ label, monthly, pa, tone = "default", labelClass = "", hint 
       ? "font-semibold text-ink-strong"
       : "font-medium text-ink";
 
+  const paNode = React.isValidElement(pa) ? pa : <MoneyCellPa value={pa} />;
+
   return (
     <div
-      className={`grid grid-cols-[minmax(0,1.4fr)_minmax(10rem,0.7fr)_minmax(9rem,0.55fr)] gap-3 items-center px-6 sm:px-8 lg:px-10 py-3.5 border-b border-divider ${toneClass}`}
+      className={`${sheetGridCols} px-6 sm:px-8 lg:px-10 py-3 border-b border-divider ${toneClass}`}
     >
-      <div className={`text-[15px] ${labelWeight} ${labelClass}`}>
+      <div className={`text-[15px] min-w-0 pr-2 ${labelWeight} ${labelClass}`}>
         {label}
         {hint ? <p className="mt-0.5 text-[11px] font-normal text-ink-muted leading-snug">{hint}</p> : null}
       </div>
-      <div className="flex justify-end">{monthly}</div>
-      <div className="flex justify-end">
-        <MoneyCell value={pa} strong={tone !== "default"} />
-      </div>
+      <div className="flex justify-end min-w-0">{monthly}</div>
+      <div className="flex justify-end min-w-0">{paNode}</div>
     </div>
   );
 }
@@ -166,7 +211,7 @@ function SheetSectionHead({ title, right }) {
 
 function ColHeads() {
   return (
-    <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(10rem,0.7fr)_minmax(9rem,0.55fr)] gap-3 px-6 sm:px-8 lg:px-10 py-2.5 border-b border-divider bg-row-hover">
+    <div className={`${sheetGridCols} px-6 sm:px-8 lg:px-10 py-2.5 border-b border-divider bg-row-hover`}>
       <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
         Component
       </div>
@@ -205,6 +250,57 @@ function AmountInput({ value, onChange, label, readOnly = false }) {
       className={`${amountInput} ${readOnly ? "bg-surface-sunken text-ink-secondary cursor-default" : ""}`}
       placeholder=""
       aria-label={label}
+    />
+  );
+}
+
+/** Editable P.A. — decimals allowed; never writes back into monthly. */
+function PaAmountInput({ value, onChange, onCommit, onClear, label, readOnly = false }) {
+  const display =
+    value == null || value === ""
+      ? ""
+      : typeof value === "number"
+        ? String(value)
+        : String(value);
+
+  if (readOnly) {
+    return <MoneyCellPa value={value === "" ? null : value} />;
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      value={display}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d.]/g, "");
+        const parts = raw.split(".");
+        const cleaned =
+          parts.length <= 1
+            ? raw
+            : `${parts[0]}.${parts.slice(1).join("").slice(0, 2)}`;
+        onChange(cleaned);
+      }}
+      onBlur={() => {
+        if (display === "" || display === ".") {
+          onClear?.();
+          return;
+        }
+        const n = parsePaInput(display);
+        if (n == null) {
+          onClear?.();
+          return;
+        }
+        onCommit?.(String(n));
+      }}
+      onWheel={(e) => {
+        e.currentTarget.blur();
+      }}
+      className={paAmountInput}
+      placeholder=""
+      aria-label={label}
+      title="P.A. can be edited (e.g. 480030.50). Clearing the field restores monthly × 12. Monthly amounts are never changed."
     />
   );
 }
@@ -327,6 +423,11 @@ export default function SalaryEmployeeCtc({
   const [savedStructure, setSavedStructure] = useState(null);
   const [customAmounts, setCustomAmounts] = useState({});
   const [catalogRev, setCatalogRev] = useState(0);
+  /** Manual P.A. overrides (numbers). Empty key = use monthly × 12 / sum. Never feeds monthly. */
+  const [paOverrides, setPaOverrides] = useState({});
+  /** In-progress P.A. text while typing. */
+  const [paDrafts, setPaDrafts] = useState({});
+  const prevAutoPaRef = useRef({});
 
   const [employeeLevel, setEmployeeLevel] = useState(EMP_LEVEL_OFFICE);
   const [gross, setGross] = useState("");
@@ -632,6 +733,9 @@ export default function SalaryEmployeeCtc({
       setSaveError("");
       setSaveMsg("");
       setCustomAmounts(loadCustomComponentAmounts(employeeId));
+      setPaOverrides(paOverridesFromSaved(saved));
+      setPaDrafts({});
+      prevAutoPaRef.current = {};
     } catch (err) {
       console.error("Salary CTC: failed to load employee", err);
       setError("Could not load employee profile. Please try again.");
@@ -712,6 +816,365 @@ export default function SalaryEmployeeCtc({
     },
     [employeeId]
   );
+
+  const clearPaKeys = useCallback((keys) => {
+    if (!keys?.length) return;
+    setPaOverrides((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const k of keys) {
+        if (k in next) {
+          delete next[k];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setPaDrafts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const k of keys) {
+        if (k in next) {
+          delete next[k];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const setPaDraft = useCallback((key, raw) => {
+    const summaryKeys = ["gross_part_a", "take_home", "total_b", "ctc"];
+    setPaDrafts((prev) => {
+      const next = { ...prev, [key]: raw };
+      if (!summaryKeys.includes(key)) {
+        for (const s of summaryKeys) delete next[s];
+      }
+      return next;
+    });
+    if (!summaryKeys.includes(key)) {
+      setPaOverrides((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const s of summaryKeys) {
+          if (s in next) {
+            delete next[s];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }
+  }, []);
+
+  const commitPaOverride = useCallback(
+    (key, raw) => {
+      if (raw === "" || raw == null || raw === ".") {
+        clearPaKeys([key]);
+        return;
+      }
+      const n = parsePaInput(raw);
+      if (n == null) {
+        clearPaKeys([key]);
+        return;
+      }
+      setPaDrafts((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      const summaryKeys = ["gross_part_a", "take_home", "total_b", "ctc"];
+      setPaOverrides((prev) => {
+        const next = { ...prev, [key]: n };
+        // Line edit: drop summary overrides so totals re-sum from P.A. column
+        if (!summaryKeys.includes(key)) {
+          for (const s of summaryKeys) delete next[s];
+        }
+        return next;
+      });
+    },
+    [clearPaKeys]
+  );
+
+  const paDisplay = useCallback(
+    (key, resolved) => {
+      if (paDrafts[key] !== undefined) return paDrafts[key];
+      if (key in paOverrides) return String(paOverrides[key]);
+      return resolved == null || resolved === "" ? "" : String(resolved);
+    },
+    [paDrafts, paOverrides]
+  );
+
+  const renderPaField = useCallback(
+    (key, resolved, { label } = {}) => (
+      <PaAmountInput
+        value={paDisplay(key, resolved)}
+        onChange={(raw) => setPaDraft(key, raw)}
+        onCommit={(raw) => commitPaOverride(key, raw)}
+        onClear={() => clearPaKeys([key])}
+        label={label || `${key} P.A.`}
+        readOnly={!canEdit}
+      />
+    ),
+    [canEdit, clearPaKeys, commitPaOverride, paDisplay, setPaDraft]
+  );
+
+  const customPartAMonthly = useMemo(() => {
+    const map = {};
+    for (const comp of profileCustoms.partA) {
+      const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
+      const computed = isManual
+        ? parseRupeeInput(customAmounts[comp.code] ?? "")
+        : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
+      map[comp.code] = computed;
+    }
+    return map;
+  }, [profileCustoms.partA, customAmounts, parsed, customExtraVars]);
+
+  const customPartBMonthly = useMemo(() => {
+    const map = {};
+    for (const comp of profileCustoms.partB) {
+      const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
+      const computed = isManual
+        ? parseRupeeInput(customAmounts[comp.code] ?? "")
+        : evalComponentFormula(comp.effective_formula, parsed, customExtraVars);
+      map[comp.code] = computed;
+    }
+    return map;
+  }, [profileCustoms.partB, customAmounts, parsed, customExtraVars]);
+
+  const sheetPa = useMemo(() => {
+    const effectiveOv = (key) => {
+      if (paDrafts[key] !== undefined) {
+        const draft = paDrafts[key];
+        if (draft === "" || draft === ".") return undefined;
+        const n = parsePaInput(draft);
+        if (n != null) return n;
+      }
+      if (key in paOverrides) return paOverrides[key];
+      return undefined;
+    };
+    const line = (key, monthly) => {
+      const o = effectiveOv(key);
+      if (o !== undefined) return o;
+      return paFromMonthly(monthly);
+    };
+    const sum = (...vals) =>
+      roundPa(vals.reduce((acc, v) => acc + (v == null || v === "" ? 0 : Number(v) || 0), 0));
+
+    const basicPa = line("basic", parsed.basic_monthly);
+    const hraPa = line("hra", parsed.hra_monthly);
+    const specialPa = line(
+      "special",
+      parsed.declared ? parsed.special_allowance_monthly : null
+    );
+    const grossPa = line("gross", parsed.gross_monthly);
+
+    const partACustomPas = profileCustoms.partA.map((comp) =>
+      line(`custom:${comp.code}`, customPartAMonthly[comp.code])
+    );
+
+    const empPfPa = line("emp_pf", parsed.emp_pf_monthly);
+    const ptPa = line("pt", parsed.pt_monthly);
+    const empEsicPa = line(
+      "emp_esic",
+      parsed.declared ? parsed.emp_esic_monthly : null
+    );
+
+    const erPfPa = line("er_pf", parsed.er_pf_monthly);
+    const erEsicPa = line(
+      "er_esic",
+      parsed.declared ? parsed.er_esic_monthly : null
+    );
+    const gratuityPa = line(
+      "gratuity",
+      parsed.declared ? parsed.gratuity_monthly : null
+    );
+    const leaveEncashPa = line(
+      "leave_encash",
+      parsed.declared ? parsed.leave_encash_monthly : null
+    );
+    const mediclaimPa = line(
+      "mediclaim",
+      mediclaimEnabled ? parsed.mediclaim_monthly : null
+    );
+    const licPa = line("lic", licEnabled ? parsed.lic_monthly : null);
+    const specialPerfPa = line(
+      "special_perf",
+      specialPerfBonusEnabled ? parsed.special_perf_bonus_monthly : null
+    );
+    const bonusPa = line("bonus", parsed.bonus_monthly);
+
+    const partBCustomPas = profileCustoms.partB.map((comp) =>
+      line(`custom:${comp.code}`, customPartBMonthly[comp.code])
+    );
+
+    const anyCorePaOverride = ["basic", "hra", "special"].some(
+      (k) => effectiveOv(k) !== undefined
+    );
+
+    // Default GROSS P.A. stays monthly × 12. Re-sum only when a core line P.A. is manual.
+    const grossPartAPa =
+      effectiveOv("gross_part_a") !== undefined
+        ? effectiveOv("gross_part_a")
+        : effectiveOv("gross") !== undefined
+          ? effectiveOv("gross")
+          : anyCorePaOverride
+            ? sum(basicPa, hraPa, specialPa)
+            : paFromMonthly(parsed.gross_monthly);
+
+    const anyTakeHomeDeductionOv = ["emp_pf", "pt", "emp_esic"].some(
+      (k) => effectiveOv(k) !== undefined
+    );
+
+    const takeHomePa =
+      effectiveOv("take_home") !== undefined
+        ? effectiveOv("take_home")
+        : anyCorePaOverride ||
+            effectiveOv("gross") !== undefined ||
+            effectiveOv("gross_part_a") !== undefined ||
+            anyTakeHomeDeductionOv
+          ? roundPa(
+              (grossPartAPa || 0) - (empPfPa || 0) - (ptPa || 0) - (empEsicPa || 0)
+            )
+          : paFromMonthly(parsed.take_home_monthly);
+
+    const anyPartBOverride = [
+      "er_pf",
+      "er_esic",
+      "gratuity",
+      "leave_encash",
+      "mediclaim",
+      "lic",
+      "special_perf",
+      "bonus",
+      ...profileCustoms.partB.map((c) => `custom:${c.code}`),
+    ].some((k) => effectiveOv(k) !== undefined);
+
+    const totalBPa =
+      effectiveOv("total_b") !== undefined
+        ? effectiveOv("total_b")
+        : anyPartBOverride
+          ? sum(
+              erPfPa,
+              erEsicPa,
+              gratuityPa,
+              leaveEncashPa,
+              mediclaimPa,
+              licPa,
+              specialPerfPa,
+              bonusPa,
+              ...partBCustomPas
+            )
+          : paFromMonthly(parsed.total_b_monthly);
+
+    const ctcPa =
+      effectiveOv("ctc") !== undefined
+        ? effectiveOv("ctc")
+        : anyCorePaOverride ||
+            anyPartBOverride ||
+            effectiveOv("gross") !== undefined ||
+            effectiveOv("gross_part_a") !== undefined ||
+            effectiveOv("total_b") !== undefined
+          ? sum(grossPartAPa, totalBPa)
+          : paFromMonthly(parsed.ctc_monthly);
+
+    return {
+      gross: grossPa,
+      basic: basicPa,
+      hra: hraPa,
+      special: specialPa,
+      gross_part_a: grossPartAPa,
+      emp_pf: empPfPa,
+      pt: ptPa,
+      emp_esic: empEsicPa,
+      take_home: takeHomePa,
+      er_pf: erPfPa,
+      er_esic: erEsicPa,
+      gratuity: gratuityPa,
+      leave_encash: leaveEncashPa,
+      mediclaim: mediclaimPa,
+      lic: licPa,
+      special_perf: specialPerfPa,
+      bonus: bonusPa,
+      total_b: totalBPa,
+      ctc: ctcPa,
+      customPartA: Object.fromEntries(
+        profileCustoms.partA.map((comp, i) => [comp.code, partACustomPas[i]])
+      ),
+      customPartB: Object.fromEntries(
+        profileCustoms.partB.map((comp, i) => [comp.code, partBCustomPas[i]])
+      ),
+    };
+  }, [
+    paOverrides,
+    paDrafts,
+    parsed,
+    profileCustoms.partA,
+    profileCustoms.partB,
+    customPartAMonthly,
+    customPartBMonthly,
+    mediclaimEnabled,
+    licEnabled,
+    specialPerfBonusEnabled,
+  ]);
+
+  // When monthly (auto P.A.) changes, drop manual P.A. for that line so auto refreshes.
+  // Summary overrides also reset so totals follow the new monthly × 12 / sums.
+  useEffect(() => {
+    const autoMap = {
+      gross: paFromMonthly(parsed.gross_monthly),
+      basic: paFromMonthly(parsed.basic_monthly),
+      hra: paFromMonthly(parsed.hra_monthly),
+      special: paFromMonthly(parsed.declared ? parsed.special_allowance_monthly : null),
+      emp_pf: paFromMonthly(parsed.emp_pf_monthly),
+      pt: paFromMonthly(parsed.pt_monthly),
+      emp_esic: paFromMonthly(parsed.declared ? parsed.emp_esic_monthly : null),
+      er_pf: paFromMonthly(parsed.er_pf_monthly),
+      er_esic: paFromMonthly(parsed.declared ? parsed.er_esic_monthly : null),
+      gratuity: paFromMonthly(parsed.declared ? parsed.gratuity_monthly : null),
+      leave_encash: paFromMonthly(parsed.declared ? parsed.leave_encash_monthly : null),
+      mediclaim: paFromMonthly(mediclaimEnabled ? parsed.mediclaim_monthly : null),
+      lic: paFromMonthly(licEnabled ? parsed.lic_monthly : null),
+      special_perf: paFromMonthly(
+        specialPerfBonusEnabled ? parsed.special_perf_bonus_monthly : null
+      ),
+      bonus: paFromMonthly(parsed.bonus_monthly),
+    };
+    for (const [code, monthly] of Object.entries(customPartAMonthly)) {
+      autoMap[`custom:${code}`] = paFromMonthly(monthly);
+    }
+    for (const [code, monthly] of Object.entries(customPartBMonthly)) {
+      autoMap[`custom:${code}`] = paFromMonthly(monthly);
+    }
+
+    const prev = prevAutoPaRef.current;
+    const changed = [];
+    for (const [key, auto] of Object.entries(autoMap)) {
+      if (Object.prototype.hasOwnProperty.call(prev, key) && prev[key] !== auto) {
+        changed.push(key);
+      }
+    }
+    prevAutoPaRef.current = autoMap;
+    if (!changed.length) return;
+
+    clearPaKeys([
+      ...changed,
+      "gross_part_a",
+      "take_home",
+      "total_b",
+      "ctc",
+    ]);
+  }, [
+    parsed,
+    customPartAMonthly,
+    customPartBMonthly,
+    mediclaimEnabled,
+    licEnabled,
+    specialPerfBonusEnabled,
+    clearPaKeys,
+  ]);
 
   // Keep Auto Basic / HRA / ESIC display values aligned while editing
   useEffect(() => {
@@ -1097,6 +1560,34 @@ export default function SalaryEmployeeCtc({
       return;
     }
 
+    // Commit open P.A. drafts into the map that will be saved (only on Save CTC)
+    const paToSave = { ...paOverrides };
+    for (const [key, draft] of Object.entries(paDrafts)) {
+      if (draft === "" || draft == null || draft === ".") {
+        delete paToSave[key];
+        continue;
+      }
+      const n = parsePaInput(draft);
+      if (n == null) delete paToSave[key];
+      else paToSave[key] = n;
+    }
+    // Keep CTC annual override aligned with sheet total when it differs from monthly × 12
+    const autoCtcPa = paFromMonthly(structure.ctc_monthly);
+    const sheetCtcPa = sheetPa.ctc ?? structure.ctc_annual;
+    if (
+      sheetCtcPa != null &&
+      autoCtcPa != null &&
+      Math.abs(Number(sheetCtcPa) - Number(autoCtcPa)) > 0.001
+    ) {
+      paToSave.ctc = roundPa(sheetCtcPa);
+    } else if (
+      paToSave.ctc != null &&
+      autoCtcPa != null &&
+      Math.abs(Number(paToSave.ctc) - Number(autoCtcPa)) <= 0.001
+    ) {
+      delete paToSave.ctc;
+    }
+
     const payload = {
       ...structure,
       basic_monthly: structure.basic_monthly,
@@ -1128,6 +1619,9 @@ export default function SalaryEmployeeCtc({
       gratuity_monthly: structure.gratuity_monthly,
       special_perf_bonus_enabled: structure.special_perf_bonus_enabled,
       special_perf_bonus_monthly: structure.special_perf_bonus_monthly,
+      // Manual P.A. + annual CTC only persist when Save CTC is clicked
+      ctc_annual: sheetCtcPa ?? structure.ctc_annual,
+      pa_overrides_json: paToSave,
       date_of_birth: employee.date_of_birth || null,
       date_of_joining: employee.date_of_joining || null,
       wef_date: wefToSave,
@@ -1219,6 +1713,9 @@ export default function SalaryEmployeeCtc({
     setGratuityCustom(numOrEmpty(apply?.gratuity_monthly ?? structure.gratuity_monthly));
     setWef(apply?.wef_date || wefToSave || "");
     setRevisionReason(apply?.revision_reason || revisionReason || "");
+    setPaOverrides(paOverridesFromSaved({ ...apply, pa_overrides_json: apply?.pa_overrides_json ?? paToSave }));
+    setPaDrafts({});
+    prevAutoPaRef.current = {};
 
     if (isRevisionMode || reviseRequested) {
       exitReviseMode();
@@ -1500,7 +1997,7 @@ export default function SalaryEmployeeCtc({
                   readOnly={!canEdit}
                 />
               }
-              pa={paFromMonthly(parseRupeeInput(gross) ?? parsed.gross_monthly)}
+              pa={renderPaField("gross", sheetPa.gross, { label: "Gross P.A." })}
             />
             <SheetRow
               label={
@@ -1525,7 +2022,7 @@ export default function SalaryEmployeeCtc({
                   readOnly={!canEdit || !basicIsCustom}
                 />
               }
-              pa={paFromMonthly(parsed.basic_monthly)}
+              pa={renderPaField("basic", sheetPa.basic, { label: "Basic P.A." })}
             />
             <SheetRow
               label={
@@ -1554,13 +2051,13 @@ export default function SalaryEmployeeCtc({
                   <MoneyCell value={parsed.hra_monthly} />
                 )
               }
-              pa={paFromMonthly(parsed.hra_monthly)}
+              pa={renderPaField("hra", sheetPa.hra, { label: "HRA P.A." })}
             />
             <SheetRow
               label="Special Allowance"
               hint="Balancing figure: Gross − Basic − HRA. Always system-calculated."
               monthly={<MoneyCell value={parsed.declared ? parsed.special_allowance_monthly : null} />}
-              pa={paFromMonthly(parsed.declared ? parsed.special_allowance_monthly : null)}
+              pa={renderPaField("special", sheetPa.special, { label: "Special Allowance P.A." })}
             />
 
             {profileCustoms.partA.length || profileCustoms.partB.length ? (
@@ -1599,7 +2096,9 @@ export default function SalaryEmployeeCtc({
                       <MoneyCell value={computed} />
                     )
                   }
-                  pa={paFromMonthly(isManual ? parseRupeeInput(manualVal) : computed)}
+                  pa={renderPaField(`custom:${comp.code}`, sheetPa.customPartA[comp.code], {
+                    label: `${comp.name} P.A.`,
+                  })}
                 />
               );
             })}
@@ -1614,7 +2113,9 @@ export default function SalaryEmployeeCtc({
               label="GROSS (PART A)"
               tone="gross"
               monthly={<MoneyCell value={parsed.gross_monthly} strong />}
-              pa={paFromMonthly(parsed.gross_monthly)}
+              pa={renderPaField("gross_part_a", sheetPa.gross_part_a, {
+                label: "GROSS (PART A) P.A.",
+              })}
             />
             <SheetRow
               label="Less : Employee PF"
@@ -1626,7 +2127,7 @@ export default function SalaryEmployeeCtc({
                   readOnly={!canEdit}
                 />
               }
-              pa={paFromMonthly(parsed.emp_pf_monthly)}
+              pa={renderPaField("emp_pf", sheetPa.emp_pf, { label: "Employee PF P.A." })}
             />
             <SheetRow
               label="Less : P. Tax"
@@ -1638,7 +2139,7 @@ export default function SalaryEmployeeCtc({
                   readOnly={!canEdit}
                 />
               }
-              pa={paFromMonthly(parsed.pt_monthly)}
+              pa={renderPaField("pt", sheetPa.pt, { label: "P. Tax P.A." })}
             />
             <SheetRow
               label={
@@ -1679,13 +2180,15 @@ export default function SalaryEmployeeCtc({
                   <MoneyCell value={parsed.declared ? parsed.emp_esic_monthly : null} />
                 )
               }
-              pa={paFromMonthly(parsed.declared ? parsed.emp_esic_monthly : null)}
+              pa={renderPaField("emp_esic", sheetPa.emp_esic, { label: "Employee ESIC P.A." })}
             />
             <SheetRow
               label="TAKE HOME"
               tone="takehome"
               monthly={<MoneyCell value={parsed.take_home_monthly} strong />}
-              pa={paFromMonthly(parsed.take_home_monthly)}
+              pa={renderPaField("take_home", sheetPa.take_home, {
+                label: "Take home P.A.",
+              })}
             />
 
             <SheetSectionHead title="PART B — Employer Contributions" right="employer cost" />
@@ -1701,7 +2204,7 @@ export default function SalaryEmployeeCtc({
                   readOnly={!canEdit}
                 />
               }
-              pa={paFromMonthly(parsed.er_pf_monthly)}
+              pa={renderPaField("er_pf", sheetPa.er_pf, { label: "Employer PF P.A." })}
             />
             <SheetRow
               label={
@@ -1742,7 +2245,7 @@ export default function SalaryEmployeeCtc({
                   <MoneyCell value={parsed.declared ? parsed.er_esic_monthly : null} />
                 )
               }
-              pa={paFromMonthly(parsed.declared ? parsed.er_esic_monthly : null)}
+              pa={renderPaField("er_esic", sheetPa.er_esic, { label: "Employer ESIC P.A." })}
             />
             <SheetRow
               label={
@@ -1775,7 +2278,7 @@ export default function SalaryEmployeeCtc({
                   <MoneyCell value={parsed.declared ? parsed.gratuity_monthly : null} />
                 )
               }
-              pa={paFromMonthly(parsed.declared ? parsed.gratuity_monthly : null)}
+              pa={renderPaField("gratuity", sheetPa.gratuity, { label: "Gratuity P.A." })}
             />
             <SheetRow
               label={
@@ -1808,7 +2311,9 @@ export default function SalaryEmployeeCtc({
                   <MoneyCell value={parsed.declared ? parsed.leave_encash_monthly : null} />
                 )
               }
-              pa={paFromMonthly(parsed.declared ? parsed.leave_encash_monthly : null)}
+              pa={renderPaField("leave_encash", sheetPa.leave_encash, {
+                label: "Leave Encashment P.A.",
+              })}
             />
             <SheetRow
               label={
@@ -1834,7 +2339,7 @@ export default function SalaryEmployeeCtc({
                   <span className="text-[12px] text-ink-disabled">Not included</span>
                 )
               }
-              pa={paFromMonthly(mediclaimEnabled ? parsed.mediclaim_monthly : null)}
+              pa={renderPaField("mediclaim", sheetPa.mediclaim, { label: "Mediclaim P.A." })}
             />
             <SheetRow
               label={
@@ -1860,7 +2365,7 @@ export default function SalaryEmployeeCtc({
                   <span className="text-[12px] text-ink-disabled">Not included</span>
                 )
               }
-              pa={paFromMonthly(licEnabled ? parsed.lic_monthly : null)}
+              pa={renderPaField("lic", sheetPa.lic, { label: "LIC P.A." })}
             />
             <SheetRow
               label={
@@ -1891,9 +2396,9 @@ export default function SalaryEmployeeCtc({
                   <span className="text-[12px] text-ink-disabled">Not included</span>
                 )
               }
-              pa={paFromMonthly(
-                specialPerfBonusEnabled ? parsed.special_perf_bonus_monthly : null
-              )}
+              pa={renderPaField("special_perf", sheetPa.special_perf, {
+                label: "Special Performance bonus P.A.",
+              })}
             />
             <SheetRow
               label="Add : Bonus"
@@ -1905,7 +2410,7 @@ export default function SalaryEmployeeCtc({
                   readOnly={!canEdit}
                 />
               }
-              pa={paFromMonthly(parsed.bonus_monthly)}
+              pa={renderPaField("bonus", sheetPa.bonus, { label: "Bonus P.A." })}
             />
 
             {profileCustoms.partB.map((comp) => {
@@ -1936,7 +2441,9 @@ export default function SalaryEmployeeCtc({
                       <MoneyCell value={computed} />
                     )
                   }
-                  pa={paFromMonthly(isManual ? parseRupeeInput(manualVal) : computed)}
+                  pa={renderPaField(`custom:${comp.code}`, sheetPa.customPartB[comp.code], {
+                    label: `${comp.name} P.A.`,
+                  })}
                 />
               );
             })}
@@ -1945,13 +2452,17 @@ export default function SalaryEmployeeCtc({
               label="Total (B)"
               tone="total"
               monthly={<MoneyCell value={parsed.total_b_monthly} strong />}
-              pa={paFromMonthly(parsed.total_b_monthly)}
+              pa={renderPaField("total_b", sheetPa.total_b, {
+                label: "Total (B) P.A.",
+              })}
             />
             <SheetRow
               label="CTC (PART A + B)"
               tone="ctc"
               monthly={<MoneyCell value={parsed.ctc_monthly} strong />}
-              pa={parsed.ctc_annual}
+              pa={renderPaField("ctc", sheetPa.ctc, {
+                label: "CTC P.A.",
+              })}
             />
 
             {/* ESIC settings — progressive disclosure */}

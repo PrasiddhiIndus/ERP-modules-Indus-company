@@ -50,13 +50,13 @@ export default function PayslipPreviewModal({ payslip, onClose }) {
         </div>
       }
     >
-      <div className="max-h-[72vh] overflow-auto bg-[#e8ecf1] -mx-1 px-3 py-5 rounded-lg">
+      <div className="max-h-[72vh] overflow-auto bg-[#e8e8e8] -mx-1 px-3 py-5 rounded-lg">
         <div
           ref={ref}
           className="bg-white mx-auto"
           style={{
             maxWidth: "210mm",
-            boxShadow: "0 1px 2px rgba(15,23,42,0.06), 0 8px 24px rgba(15,23,42,0.08)",
+            boxShadow: "0 1px 3px rgba(26,58,108,0.08), 0 10px 28px rgba(26,58,108,0.12)",
           }}
         >
           <PayslipTemplate payslip={payslip} />

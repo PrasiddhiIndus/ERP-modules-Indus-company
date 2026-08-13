@@ -1,17 +1,14 @@
 import * as XLSX from "xlsx";
 import { normalizeAttendanceEmpCode } from "./attendanceDaily";
 
-/** Headers matching Indus monthly salary bank sheets. */
+/** Headers matching Indus monthly salary bank sheets (Account / IFSC / optional UAN·ESIC). */
 export const SALARY_BANK_SAMPLE_HEADERS = [
-  "Sr. No.",
-  "Emp. Code",
-  "Name",
-  "Account Number",
+  "Employee Code",
+  "Name of Employee",
+  "UAN Number",
+  "Esic number",
+  "A/c number",
   "IFSC Code",
-  "Dept",
-  "Designation",
-  "Date Of Joining",
-  "Date of confirmation",
 ];
 
 const HEADER_ALIASES = {
@@ -25,9 +22,46 @@ const HEADER_ALIASES = {
     "emp_code",
     "code",
   ],
-  employee_name: ["name", "employee name", "employee", "full name", "emp name"],
-  account_no: ["account number", "account no", "account no.", "a/c no", "a/c number", "bank account", "bank a/c"],
-  ifsc: ["ifsc code", "ifsc", "ifs code"],
+  employee_name: [
+    "name",
+    "employee name",
+    "name of employee",
+    "employee",
+    "full name",
+    "emp name",
+  ],
+  account_no: [
+    "account number",
+    "account no",
+    "account no.",
+    "a/c no",
+    "a/c no.",
+    "a/c number",
+    "a/c. number",
+    "ac number",
+    "ac no",
+    "ac no.",
+    "a c number",
+    "a c no",
+    "bank account",
+    "bank account number",
+    "bank a/c",
+    "bank a/c no",
+    "bank ac",
+    "account",
+  ],
+  ifsc: ["ifsc code", "ifsc", "ifs code", "ifsccode", "ifsc_code"],
+  uan_no: ["uan number", "uan no", "uan no.", "uan", "uan_no", "uan_number"],
+  esic_no: [
+    "esic number",
+    "esic no",
+    "esic no.",
+    "esic",
+    "esi number",
+    "esi no",
+    "esic_no",
+    "esic_number",
+  ],
   department: ["dept", "department"],
   designation: ["designation", "desig", "designation / role"],
   date_of_joining: ["date of joining", "date of joining.", "doj", "d.o.j", "joining date"],
@@ -44,6 +78,7 @@ function normalizeHeader(h) {
   return String(h || "")
     .trim()
     .toLowerCase()
+    .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .replace(/[()]/g, "");
 }
@@ -52,7 +87,10 @@ function buildHeaderFieldMap() {
   const map = {};
   for (const [field, keys] of Object.entries(HEADER_ALIASES)) {
     for (const alias of keys) {
-      map[normalizeHeader(alias)] = field;
+      const n = normalizeHeader(alias);
+      map[n] = field;
+      // also register slash-stripped form so "A/c number" ↔ "ac number"
+      map[n.replace(/\//g, "")] = field;
     }
   }
   return map;
@@ -61,11 +99,18 @@ function buildHeaderFieldMap() {
 const FIELD_MAP = buildHeaderFieldMap();
 
 function looksLikeHeaderRow(cells) {
-  const normalized = cells.map((c) => normalizeHeader(c));
-  const hasCode = normalized.some((h) => FIELD_MAP[h] === "emp_code");
-  const hasAccount = normalized.some((h) => FIELD_MAP[h] === "account_no");
-  const hasName = normalized.some((h) => FIELD_MAP[h] === "employee_name");
-  return hasCode && (hasAccount || hasName);
+  const normalized = cells.map((c) => {
+    const n = normalizeHeader(c);
+    return FIELD_MAP[n] || FIELD_MAP[n.replace(/\//g, "")] || null;
+  });
+  const hasCode = normalized.some((h) => h === "emp_code");
+  const hasAccount = normalized.some((h) => h === "account_no");
+  const hasName = normalized.some((h) => h === "employee_name");
+  const hasUanOrEsic =
+    normalized.some((h) => h === "uan_no") ||
+    normalized.some((h) => h === "esic_no") ||
+    normalized.some((h) => h === "ifsc");
+  return hasCode && (hasAccount || hasName || hasUanOrEsic);
 }
 
 /** Preserve account / code text; avoid scientific notation for numeric Excel cells. */
@@ -78,6 +123,73 @@ function cellToText(v) {
     return String(v);
   }
   return String(v).trim();
+}
+
+/** Read sheet as matrix preferring formatted text (leading zeros, long A/c numbers). */
+function sheetToMatrix(ws) {
+  if (!ws || !ws["!ref"]) return [];
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const matrix = [];
+  for (let R = range.s.r; R <= range.e.r; R += 1) {
+    const row = [];
+    for (let C = range.s.c; C <= range.e.c; C += 1) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      if (!cell) {
+        row.push("");
+        continue;
+      }
+      if (cell.w != null && String(cell.w).trim() !== "") {
+        row.push(String(cell.w).trim());
+      } else if (typeof cell.v === "string") {
+        row.push(String(cell.v).trim());
+      } else {
+        row.push(cellToText(cell.v));
+      }
+    }
+    matrix.push(row);
+  }
+  return matrix;
+}
+
+/** Blank / masked / N/A → empty. Keep "Exempted" as a real value for UAN/ESIC. */
+export function cleanBankImportValue(v, { keepExempted = true } = {}) {
+  const s = cellToText(v).replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  if (/^#+$/.test(s)) return "";
+  if (s === "-" || /^n\/?a$/i.test(s) || /^null$/i.test(s) || /^nil$/i.test(s)) return "";
+  if (/^exempted$/i.test(s)) return keepExempted ? "Exempted" : "";
+  return s;
+}
+
+function empCodeKey(code) {
+  const n = normalizeAttendanceEmpCode(code);
+  if (!n) return "";
+  if (/^\d+$/.test(n)) return n;
+  // FTC 41 / FTC-41 / ftc_41 / FTC41 → FTC-41
+  const compact = n
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return compact.replace(/^([A-Z]+)(\d+)$/, "$1-$2");
+}
+
+function nameKey(name) {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildEmployeeNameIndex(employees = []) {
+  const byName = new Map();
+  for (const emp of employees) {
+    const key = nameKey(emp.full_name);
+    if (!key) continue;
+    if (byName.has(key)) byName.set(key, null); // ambiguous duplicate names
+    else byName.set(key, emp);
+  }
+  return byName;
 }
 
 function parseFlexibleDate(v) {
@@ -149,7 +261,8 @@ export function parseConfirmationCell(value) {
 function mapCellsToFields(headerCells, dataCells) {
   const mapped = {};
   headerCells.forEach((h, i) => {
-    const field = FIELD_MAP[normalizeHeader(h)];
+    const n = normalizeHeader(h);
+    const field = FIELD_MAP[n] || FIELD_MAP[n.replace(/\//g, "")];
     if (!field) return;
     mapped[field] = dataCells[i];
   });
@@ -159,8 +272,11 @@ function mapCellsToFields(headerCells, dataCells) {
 function buildEmployeeCodeIndex(employees = []) {
   const byCode = new Map();
   for (const emp of employees) {
-    const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id || emp.empCode);
-    if (code && !byCode.has(code)) byCode.set(code, emp);
+    // Match bank sheet Emp. Code to employee_code only (never system / machine id)
+    const raw = emp.employee_code;
+    const key = empCodeKey(raw);
+    if (!key) continue;
+    if (!byCode.has(key)) byCode.set(key, emp);
   }
   return byCode;
 }
@@ -178,15 +294,15 @@ export async function parseSalaryBankImportFile(file, options = {}) {
   }
 
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array", cellDates: true });
+  const wb = XLSX.read(buf, { type: "array", cellDates: true, cellText: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   if (!ws) {
     return { rows: [], unmatched: [], errors: ["No worksheet found in file."], skipped: 0 };
   }
 
-  const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+  const matrix = sheetToMatrix(ws);
   let headerIdx = -1;
-  for (let i = 0; i < Math.min(matrix.length, 25); i += 1) {
+  for (let i = 0; i < Math.min(matrix.length, 40); i += 1) {
     const row = (matrix[i] || []).map((c) => cellToText(c));
     if (looksLikeHeaderRow(row)) {
       headerIdx = i;
@@ -199,7 +315,7 @@ export async function parseSalaryBankImportFile(file, options = {}) {
       rows: [],
       unmatched: [],
       errors: [
-        "Could not find a header row with Emp. Code (and Account Number or Name). Check the sheet layout.",
+        "Could not find a header row with Employee Code (and Account / Name / UAN / IFSC). Check the sheet layout.",
       ],
       skipped: 0,
     };
@@ -207,6 +323,7 @@ export async function parseSalaryBankImportFile(file, options = {}) {
 
   const headerCells = (matrix[headerIdx] || []).map((c) => cellToText(c));
   const byCode = buildEmployeeCodeIndex(employees);
+  const byName = buildEmployeeNameIndex(employees);
   const matched = [];
   const unmatched = [];
   let skipped = 0;
@@ -218,8 +335,8 @@ export async function parseSalaryBankImportFile(file, options = {}) {
     if (!hasAny) continue;
 
     const mapped = mapCellsToFields(headerCells, dataCells);
-    const empCodeRaw = cellToText(mapped.emp_code);
-    const empCode = normalizeAttendanceEmpCode(empCodeRaw);
+    const empCodeRaw = cleanBankImportValue(mapped.emp_code, { keepExempted: false });
+    const empCode = empCodeKey(empCodeRaw);
     const rowNum = r + 1;
 
     if (!empCode) {
@@ -238,16 +355,26 @@ export async function parseSalaryBankImportFile(file, options = {}) {
     seenCodes.add(empCode);
 
     const conf = parseConfirmationCell(mapped.confirmation_note);
-    const accountNo = cellToText(mapped.account_no).replace(/\s+/g, "");
-    const ifsc = cellToText(mapped.ifsc).toUpperCase().replace(/\s+/g, "");
+    const accountNo = cleanBankImportValue(mapped.account_no, { keepExempted: false }).replace(
+      /\s+/g,
+      ""
+    );
+    const ifsc = cleanBankImportValue(mapped.ifsc, { keepExempted: false })
+      .toUpperCase()
+      .replace(/\s+/g, "");
+    const uanNo = cleanBankImportValue(mapped.uan_no, { keepExempted: true }).replace(/\s+/g, "");
+    const esicNo = cleanBankImportValue(mapped.esic_no, { keepExempted: true });
+    const employeeName = cleanBankImportValue(mapped.employee_name, { keepExempted: false });
     const payload = {
       empCode,
-      empCodeRaw,
-      employeeName: cellToText(mapped.employee_name),
+      empCodeRaw: empCodeRaw || empCode,
+      employeeName,
       accountNo: accountNo || null,
       ifsc: ifsc || null,
-      department: cellToText(mapped.department) || null,
-      designation: cellToText(mapped.designation) || null,
+      uanNo: uanNo || null,
+      esicNo: esicNo || null,
+      department: cleanBankImportValue(mapped.department, { keepExempted: false }) || null,
+      designation: cleanBankImportValue(mapped.designation, { keepExempted: false }) || null,
       dateOfJoining: parseFlexibleDate(mapped.date_of_joining),
       confirmationDate: conf.confirmationDate,
       leftDate: conf.leftDate,
@@ -256,7 +383,15 @@ export async function parseSalaryBankImportFile(file, options = {}) {
       sheetRow: rowNum,
     };
 
-    const master = byCode.get(empCode);
+    let master = byCode.get(empCode) || null;
+    let matchStatus = "matched";
+    if (!master && employeeName) {
+      const byNm = byName.get(nameKey(employeeName));
+      if (byNm) {
+        master = byNm;
+        matchStatus = "matched_by_name";
+      }
+    }
     if (!master) {
       unmatched.push({ ...payload, matchStatus: "unmatched" });
       continue;
@@ -264,7 +399,11 @@ export async function parseSalaryBankImportFile(file, options = {}) {
 
     matched.push({
       ...payload,
-      matchStatus: conf.isNew ? "new_flag" : conf.leftDate || /left/i.test(conf.note || "") ? "left" : "matched",
+      matchStatus: conf.isNew
+        ? "new_flag"
+        : conf.leftDate || /left/i.test(conf.note || "")
+          ? "left"
+          : matchStatus,
       employeeMasterId: master.id,
       masterName: master.full_name || master.employeeName || null,
     });
@@ -283,42 +422,33 @@ export async function parseSalaryBankImportFile(file, options = {}) {
 export function downloadSalaryBankSampleSheet(employees = []) {
   const rows =
     employees.length > 0
-      ? employees.map((e, i) => ({
-          "Sr. No.": i + 1,
-          "Emp. Code": e.employee_code || e.employee_id || "",
-          Name: e.full_name || "",
-          "Account Number": e.bank_account_no || "",
+      ? employees.map((e) => ({
+          "Employee Code": e.employee_code || e.employee_id || "",
+          "Name of Employee": e.full_name || "",
+          "UAN Number": e.uan_no || "",
+          "Esic number": e.esic_no || "",
+          "A/c number": e.bank_account_no || "",
           "IFSC Code": e.ifsc_code || "",
-          Dept: e.department || "",
-          Designation: e.designation || "",
-          "Date Of Joining": e.date_of_joining || "",
-          "Date of confirmation": e.confirmation_date || "",
         }))
       : [
           {
-            "Sr. No.": 1,
-            "Emp. Code": "10051",
-            Name: "Sample Employee",
-            "Account Number": "00301140002234",
-            "IFSC Code": "HDFC0000030",
-            Dept: "Project",
-            Designation: "Manager Project",
-            "Date Of Joining": "01.10.2015",
-            "Date of confirmation": "",
+            "Employee Code": "8998",
+            "Name of Employee": "Sample Employee",
+            "UAN Number": "100512345678",
+            "Esic number": "31-00-123456-000-0000",
+            "A/c number": "9250100191",
+            "IFSC Code": "UTIB000149",
           },
         ];
 
   const ws = XLSX.utils.json_to_sheet(rows, { header: SALARY_BANK_SAMPLE_HEADERS });
   ws["!cols"] = [
-    { wch: 8 },
-    { wch: 12 },
-    { wch: 28 },
-    { wch: 20 },
     { wch: 14 },
-    { wch: 12 },
     { wch: 28 },
-    { wch: 14 },
+    { wch: 16 },
+    { wch: 22 },
     { wch: 18 },
+    { wch: 14 },
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Bank Details");
@@ -334,6 +464,8 @@ export function buildMasterPatchFromBankRow(row) {
   };
   if (row.accountNo) patch.bank_account_no = row.accountNo;
   if (row.ifsc) patch.ifsc_code = row.ifsc;
+  if (row.uanNo) patch.uan_no = row.uanNo;
+  if (row.esicNo) patch.esic_no = row.esicNo;
   if (row.designation) patch.designation = row.designation;
   if (row.department) patch.department = row.department;
   if (row.dateOfJoining) patch.date_of_joining = row.dateOfJoining;
