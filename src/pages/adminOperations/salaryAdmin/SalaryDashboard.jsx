@@ -5,7 +5,6 @@ import {
   KpiTile,
   PageTaskHeader,
   SectionCard,
-  StatusChip,
   FilterBar,
 } from "../components/AdminUi";
 import {
@@ -241,7 +240,6 @@ export default function SalaryDashboard() {
         title="Salary Dashboard"
         subtitle="Spends, component splits, and employee search across processed salary months."
       >
-        {USE_MOCK_SALARY_PROCESSING ? <StatusChip label="Mock data" severity="warning" /> : null}
         <Link
           to="/app/admin/salary-admin/salary-processing"
           className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-accent text-white text-[11px] font-medium"

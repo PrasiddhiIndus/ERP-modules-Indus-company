@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../lib/supabase';
 import {
   EMPLOYMENT_TYPE_OPTIONS,
@@ -30,6 +30,9 @@ import {
   employeeToFormData,
   buildEmployeeMasterPayload,
 } from './employeeMasterFormShared';
+import { syncScopeDraftBankFromMaster } from '../../adminOperations/salaryAdmin/salaryMonthProcessing';
+
+const BANK_FIELD_KEYS = ['uan_no', 'esic_no', 'bank_name', 'bank_account_no', 'ifsc_code'];
 
 function initFormData(employee, employees) {
   if (employee) return employeeToFormData(employee);
@@ -62,12 +65,52 @@ export default function EmployeeMasterPersonalForm({
 }) {
   const [formData, setFormData] = useState(() => initFormData(employee, employees));
   const [saving, setSaving] = useState(false);
+  const bankDirtyRef = useRef({});
 
   useEffect(() => {
     setFormData(initFormData(employee, employees));
-    // Re-sync when switching add ↔ edit or changing which employee is edited.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-sync on employee id
+    bankDirtyRef.current = {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    employee?.id,
+    employee?.updated_at,
+    employee?.uan_no,
+    employee?.esic_no,
+    employee?.bank_account_no,
+    employee?.ifsc_code,
+    employee?.bank_name,
+  ]);
+
+  // Always re-pull bank fields from DB when opening a profile (after Excel import)
+  useEffect(() => {
+    let cancelled = false;
+    async function pullBankFromDb() {
+      if (!employee?.id) return;
+      const { data, error } = await supabase
+        .from('admin_ifsp_employee_master')
+        .select('uan_no, esic_no, bank_name, bank_account_no, ifsc_code')
+        .eq('id', employee.id)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      setFormData((prev) => ({
+        ...prev,
+        uan_no: data.uan_no || '',
+        esic_no: data.esic_no || '',
+        bank_name: data.bank_name || '',
+        bank_account_no: data.bank_account_no || '',
+        ifsc_code: data.ifsc_code || '',
+      }));
+    }
+    void pullBankFromDb();
+    return () => {
+      cancelled = true;
+    };
   }, [employee?.id]);
+
+  const setBankField = (key, value) => {
+    bankDirtyRef.current[key] = true;
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
 
   const managerCandidates = useMemo(() => {
     const excludeId = employee?.id;
@@ -211,6 +254,14 @@ export default function EmployeeMasterPersonalForm({
           employee_id,
           ...hierarchyCheck.fields,
         };
+        // Never wipe existing bank fields with blanks unless the user edited that field
+        for (const key of BANK_FIELD_KEYS) {
+          const formVal = String(formData[key] ?? '').trim();
+          const prevVal = String(employee[key] ?? '').trim();
+          if (!formVal && prevVal && !bankDirtyRef.current[key]) {
+            payload[key] = employee[key];
+          }
+        }
         const { data: updatedRow, error } = await supabase
           .from('admin_ifsp_employee_master')
           .update(payload)
@@ -226,9 +277,14 @@ export default function EmployeeMasterPersonalForm({
           }
           throw error;
         }
+        const saved = updatedRow || { ...employee, ...payload };
+        syncScopeDraftBankFromMaster(saved.id || employee.id, {
+          account_no: saved.bank_account_no,
+          ifsc: saved.ifsc_code,
+        });
         alert('Employee updated successfully!');
         if (typeof onSaved === 'function') {
-          onSaved(updatedRow || { ...employee, ...payload });
+          onSaved(saved);
         }
       } else {
         const employment_type = normalizeEmploymentType(formData.employment_type);
@@ -271,6 +327,12 @@ export default function EmployeeMasterPersonalForm({
           throw error;
         }
         alert('Employee added successfully!');
+        if (insertedRow?.id) {
+          syncScopeDraftBankFromMaster(insertedRow.id, {
+            account_no: insertedRow.bank_account_no,
+            ifsc: insertedRow.ifsc_code,
+          });
+        }
         if (typeof onSaved === 'function') {
           onSaved(insertedRow || null);
         }
@@ -474,9 +536,26 @@ export default function EmployeeMasterPersonalForm({
         {/* Identity Documents */}
         <div className="space-y-4">
           <h3 className="text-lg font-medium text-gray-900">IDs &amp; bank</h3>
+          <p className="text-xs text-gray-500 -mt-2">
+            UAN, ESIC, account number and IFSC are saved on this profile. Salary Processing uses the same
+            values automatically after import or save.
+          </p>
+          {!String(formData.bank_account_no || "").trim() &&
+          !String(formData.ifsc_code || "").trim() ? (
+            <p className="text-xs text-amber-800 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+              No account / IFSC on file yet. Use Employee Master → Import bank details (Employee Code must
+              match), or type the values here and Save.
+            </p>
+          ) : (
+            <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
+              Account details loaded from the employee record
+              {formData.bank_account_no ? ` · A/c ${formData.bank_account_no}` : ""}
+              {formData.ifsc_code ? ` · ${formData.ifsc_code}` : ""}.
+            </p>
+          )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar_No</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Aadhaar number</label>
             <input
               type="text"
               value={formData.aadhar_no}
@@ -486,7 +565,7 @@ export default function EmployeeMasterPersonalForm({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">PAN_No</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">PAN</label>
             <input
               type="text"
               value={formData.pan_card_no}
@@ -496,54 +575,56 @@ export default function EmployeeMasterPersonalForm({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">UAN_No</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">UAN number</label>
             <input
               type="text"
               value={formData.uan_no}
-              onChange={(e) => setFormData({ ...formData, uan_no: e.target.value })}
+              onChange={(e) => setBankField('uan_no', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              autoComplete="off"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">ESIC_No</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">ESIC number</label>
             <input
               type="text"
               value={formData.esic_no}
-              onChange={(e) => setFormData({ ...formData, esic_no: e.target.value })}
+              onChange={(e) => setBankField('esic_no', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              autoComplete="off"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Bank_Name</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Bank name</label>
             <input
               type="text"
               value={formData.bank_name}
-              onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+              onChange={(e) => setBankField('bank_name', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Account_No</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Account number</label>
             <input
               type="text"
               value={formData.bank_account_no}
-              onChange={(e) => setFormData({ ...formData, bank_account_no: e.target.value })}
+              onChange={(e) => setBankField('bank_account_no', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              autoComplete="off"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">IFSC_Code</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">IFSC code</label>
             <input
               type="text"
               value={formData.ifsc_code}
-              onChange={(e) =>
-                setFormData({ ...formData, ifsc_code: e.target.value.toUpperCase() })
-              }
+              onChange={(e) => setBankField('ifsc_code', e.target.value.toUpperCase())}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              autoComplete="off"
             />
           </div>
 

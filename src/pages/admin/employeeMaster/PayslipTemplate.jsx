@@ -1,19 +1,25 @@
 import React from "react";
 import { INDUS_LOGO_SRC } from "../../../constants/branding";
-import { formatPayslipMoney } from "../../../lib/salaryPayslips";
+import { rupeesInWords } from "../../../lib/amountInWords";
 
-const COMPANY_NAME = "INDUS FIRE SAFETY PVT LTD";
+const COMPANY_NAME = "Indus Fire Safety Pvt Ltd";
 const COMPANY_ADDRESS =
   "Block No 501, Indus House, Opposite GSFC Main Gate, Dashrath, Vadodara, Gujarat. Pin 391740.";
+const HR_EMAIL = "hr@indusfiresafety.com";
 
-const INK = "#0c1222";
-const MUTED = "#64748b";
-const LINE = "#cbd5e1";
-const LINE_SOFT = "#e2e8f0";
-const WASH = "#f8fafc";
+/** Same palette as tax invoice / billing receipts */
+const BLUE = "#1a3a6c";
+const BLUE_DEEP = "#123d7c";
+const BLUE_SOFT = "#f0f4fa";
+const BLUE_ROW = "#f8f9fc";
+const BLUE_FOOT = "#d9e4f5";
+const INK = "#1f2937";
+const MUTED = "#4b5563";
+const LINE = "#bbbbbb";
+const RULE = "#1a3a6c";
 
 /**
- * Printable / PDF-ready salary slip — corporate document layout.
+ * Printable / PDF-ready salary slip — billing-invoice design language (navy tables, bordered panels).
  */
 export default function PayslipTemplate({
   payslip,
@@ -23,26 +29,26 @@ export default function PayslipTemplate({
   if (!payslip) return null;
 
   const earnRows = [
-    { label: "Earned Basic", amount: payslip.basic_earned },
+    { label: "Earned basic", amount: payslip.basic_earned },
     { label: "HRA", amount: payslip.hra_earned },
-    { label: "Other Allowances", amount: payslip.special_allowance },
+    { label: "Other allowances", amount: payslip.special_allowance },
     ...(payslip.custom_components || [])
       .filter((c) => c.kind === "earning" && Number(c.amount) > 0)
       .map((c) => ({ label: c.name || c.code || "Earning", amount: c.amount })),
   ];
 
   const dedRows = [
-    { label: "EPF", amount: payslip.emp_pf },
+    { label: "Employee PF", amount: payslip.emp_pf },
     { label: "ESIC", amount: payslip.emp_esic },
-    { label: "Professional Tax", amount: payslip.pt_amount },
+    { label: "Professional tax", amount: payslip.pt_amount },
     { label: "Loan", amount: payslip.loan },
-    { label: "Salary Advance", amount: payslip.sal_adv },
+    { label: "Salary advance", amount: payslip.sal_adv },
     { label: "Unpaid / Paid", amount: payslip.unpaid_paid },
     { label: "TDS", amount: payslip.tds },
     ...(payslip.custom_components || [])
       .filter((c) => c.kind === "deduction" && Number(c.amount) > 0)
       .map((c) => ({ label: c.name || c.code || "Deduction", amount: c.amount })),
-  ].filter((r) => Number(r.amount) > 0 || ["EPF", "Professional Tax"].includes(r.label));
+  ].filter((r) => Number(r.amount) > 0 || ["Employee PF", "Professional tax"].includes(r.label));
 
   const monthDays = Number(payslip.month_days) || 0;
   const presentDays = Number(payslip.present_days) || 0;
@@ -55,13 +61,35 @@ export default function PayslipTemplate({
             monthDays - presentDays - Number(payslip.leave_days || 0) - Number(payslip.lop_days || 0)
           )
         : 0;
+  const leaveDays = Number(payslip.leave_days || 0);
+  const lopDays = Number(payslip.lop_days || 0);
 
   const workLocation = payslip.work_location || "Head Office";
-  const uan = payslip.uan_number || payslip.uan || "—";
-  const esicNo = payslip.esic_number || (Number(payslip.emp_esic) > 0 ? "—" : "Not Applicable");
-  const pan = payslip.pan_card || payslip.pan || "—";
-  const grossMonthly = payslip.salary_rate || payslip.gross_wages;
-  const tableRows = Math.max(earnRows.length, dedRows.length, 4);
+  const uan = displayOrFallback(payslip.uan_number || payslip.uan, "Not linked");
+  const esicNo = displayOrFallback(
+    payslip.esic_number,
+    Number(payslip.emp_esic) > 0 ? "Not linked" : "Not applicable"
+  );
+  const pan = displayOrFallback(payslip.pan_card || payslip.pan, "Not linked");
+  const bankAc = displayOrFallback(payslip.account_no, "Not linked");
+
+  const net = Number(payslip.net_salary) || 0;
+  const words = rupeesInWords(net);
+
+  const metaLine = [
+    payslip.employee_code ? `Employee code ${payslip.employee_code}` : null,
+    payslip.designation || null,
+    workLocation,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const tableRows = Math.max(earnRows.length, dedRows.length, 3);
+  const whiteHeader = {
+    color: "#ffffff",
+    WebkitTextFillColor: "#ffffff",
+    opacity: 1,
+  };
 
   return (
     <div
@@ -69,142 +97,311 @@ export default function PayslipTemplate({
         width: "210mm",
         maxWidth: "100%",
         margin: "0 auto",
-        padding: "12mm 11mm 10mm",
         boxSizing: "border-box",
         background: "#fff",
         color: INK,
         fontFamily: '"Segoe UI", Calibri, "Helvetica Neue", Arial, sans-serif',
         fontSize: 11,
-        lineHeight: 1.45,
+        lineHeight: 1.4,
+        border: `1px solid ${LINE}`,
       }}
     >
-      {/* Brand header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+      {/* Letterhead */}
+      <div style={{ padding: "16px 22px 12px", display: "flex", alignItems: "flex-start", gap: 14 }}>
         <img
           src={INDUS_LOGO_SRC}
           alt=""
-          style={{ width: 58, height: 58, objectFit: "contain", flexShrink: 0 }}
+          style={{ width: 56, height: 56, objectFit: "contain", flexShrink: 0 }}
         />
-        <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
-              fontSize: 18,
+              fontSize: 15,
               fontWeight: 700,
-              letterSpacing: "0.04em",
+              color: BLUE,
+              letterSpacing: "0.3px",
               textTransform: "uppercase",
-              color: INK,
             }}
           >
             {companyName}
           </div>
-          <div style={{ marginTop: 4, fontSize: 10, color: MUTED }}>{companyAddress}</div>
+          <div style={{ marginTop: 3, fontSize: 9.5, color: MUTED, maxWidth: 420, lineHeight: 1.45 }}>
+            {companyAddress}
+          </div>
+          <div style={{ marginTop: 3, fontSize: 9, color: BLUE }}>
+            For queries — {HR_EMAIL}
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0, paddingTop: 2 }}>
+          <div
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: BLUE,
+            }}
+          >
+            Salary Slip
+          </div>
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 16,
+              fontWeight: 600,
+              color: INK,
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {payslip.month_label || "—"}
+          </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 14, borderTop: `2px solid ${INK}`, borderBottom: `1px solid ${LINE}`, padding: "8px 0" }}>
-        <div style={{ textAlign: "center", fontSize: 13, fontWeight: 600, color: INK }}>
-          Salary Slip for the month of {payslip.month_label || "—"}
+      {/* Title band — invoice style */}
+      <div style={{ padding: "0 22px" }}>
+        <div
+          style={{
+            borderTop: `2px solid ${RULE}`,
+            borderBottom: `2px solid ${RULE}`,
+            padding: "7px 0",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.8px",
+              textTransform: "uppercase",
+              color: BLUE,
+            }}
+          >
+            Salary Slip · {payslip.month_label || "—"}
+          </div>
+          <div
+            style={{
+              marginTop: 2,
+              fontSize: 8,
+              fontWeight: 600,
+              letterSpacing: "0.35px",
+              textTransform: "uppercase",
+              color: BLUE,
+            }}
+          >
+            Original for employee
+          </div>
         </div>
       </div>
 
-      {/* Identity grid */}
+      {/* Employee identity strip */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 0.85fr",
-          marginTop: 12,
+          margin: "10px 22px 0",
+          background: BLUE_SOFT,
           border: `1px solid ${LINE}`,
+          padding: "10px 12px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
         }}
       >
-        <Section title="Employee information" borderRight>
-          <Field label="Employee Code" value={payslip.employee_code} />
-          <Field label="Employee Name" value={payslip.employee_name} />
-          <Field label="Designation" value={payslip.designation || "—"} />
-          <Field label="Department" value={payslip.department || "—"} />
-          <Field label="Work Location" value={workLocation} />
-          <Field label="Date of Joining" value={formatDate(payslip.date_of_joining)} />
-        </Section>
-        <Section title="Other details" borderRight>
-          <Field label="UAN Number" value={uan} />
-          <Field label="ESIC Number" value={esicNo} />
-          <Field label="Bank A/c Number" value={payslip.account_no || "—"} />
-          <Field label="IFSC Code" value={payslip.ifsc || "—"} />
-          <Field label="PAN Card" value={pan} />
-          <Field label="Gross Salary (monthly)" value={`${formatPayslipMoney(grossMonthly)} /-`} />
-        </Section>
-        <Section title="Days summary">
-          <Field label="Working Days" value={monthDays || "—"} />
-          <Field label="Present Days" value={presentDays || "—"} />
-          <Field label="Weekly Off" value={weeklyOff} />
-          <Field label="Leave Days" value={Number(payslip.leave_days || 0)} />
-          <Field label="LOP Days" value={Number(payslip.lop_days || 0)} />
-        </Section>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: INK }}>{payslip.employee_name || "—"}</div>
+          <div style={{ marginTop: 2, fontSize: 10, color: MUTED }}>{metaLine || "—"}</div>
+        </div>
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 9,
+            fontWeight: 600,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "#fff",
+            background: BLUE,
+            borderRadius: 3,
+            padding: "4px 10px",
+          }}
+        >
+          Processed
+        </span>
       </div>
 
-      {/* Earnings / Deductions */}
+      {/* Meta panels — 3 columns like invoice buyer blocks */}
+      <div style={{ padding: "10px 22px 0" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            border: `1px solid ${LINE}`,
+          }}
+        >
+          <MetaPanel title="Employee details" borderRight>
+            <MetaRow label="Department" value={payslip.department || "—"} />
+            <MetaRow label="Date of joining" value={formatLongDate(payslip.date_of_joining)} />
+            <MetaRow label="Work location" value={workLocation} />
+          </MetaPanel>
+          <MetaPanel title="Statutory & bank" borderRight>
+            <MetaRow label="UAN number" value={uan} mutedFallback />
+            <MetaRow label="ESIC number" value={esicNo} mutedFallback />
+            <MetaRow label="Bank account" value={bankAc} mutedFallback />
+            <MetaRow label="PAN" value={pan} mutedFallback />
+          </MetaPanel>
+          <MetaPanel title="Days summary">
+            <MetaRow label="Working days" value={monthDays || "—"} />
+            <MetaRow label="Present days" value={presentDays || "—"} />
+            <MetaRow label="Weekly off" value={weeklyOff} />
+            <MetaRow label="Leave / LOP" value={`${leaveDays} / ${lopDays}`} />
+          </MetaPanel>
+        </div>
+      </div>
+
+      {/* Earnings / Deductions tables */}
       <div
         style={{
+          padding: "12px 22px 0",
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
-          marginTop: 12,
-          border: `1px solid ${LINE}`,
+          gap: 12,
         }}
       >
-        <MoneyColumn
+        <MoneyTable
           title="Earnings"
           rows={padRows(earnRows, tableRows)}
-          footerLabel="Total Gross Earnings"
+          footerLabel="Total gross earnings"
           footerValue={payslip.gross_wages}
-          borderRight
+          whiteHeader={whiteHeader}
         />
-        <MoneyColumn
+        <MoneyTable
           title="Deductions"
           rows={padRows(dedRows, tableRows)}
-          footerLabel="Total Deduction"
+          footerLabel="Total deductions"
           footerValue={payslip.total_ded}
+          whiteHeader={whiteHeader}
         />
       </div>
 
-      {/* Net */}
-      <div
-        style={{
-          marginTop: 0,
-          display: "grid",
-          gridTemplateColumns: "1fr auto",
-          alignItems: "center",
-          gap: 16,
-          padding: "12px 14px",
-          border: `1px solid ${LINE}`,
-          borderTop: `2px solid ${INK}`,
-          background: WASH,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED }}>
-            Net Payment
+      {/* Amount in words + Net pay — invoice total style */}
+      <div style={{ padding: "12px 22px 0" }}>
+        <div
+          style={{
+            border: `1px solid ${LINE}`,
+            background: BLUE_SOFT,
+            padding: "8px 12px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 8,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: BLUE,
+            }}
+          >
+            Amount payable (in words)
           </div>
-          <div style={{ marginTop: 3, fontSize: 10, color: MUTED }}>
-            Amount credited to employee bank account
-            {payslip.account_no ? ` (${maskAccount(payslip.account_no)})` : ""}
-          </div>
-        </div>
-        <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>
-          ₹ {formatPayslipMoney(payslip.net_salary)}
+          <div style={{ marginTop: 3, fontSize: 11, color: INK, fontWeight: 500 }}>{words}</div>
         </div>
       </div>
 
+      <div style={{ padding: "0 22px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            border: `1px solid ${LINE}`,
+            borderTop: "none",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              padding: "12px 14px",
+              background: "#fff",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: BLUE,
+              }}
+            >
+              Net Pay
+            </div>
+            <div style={{ marginTop: 3, fontSize: 10, color: MUTED }}>
+              Credit to salary account after deductions
+            </div>
+          </div>
+          <div
+            style={{
+              minWidth: 168,
+              padding: "12px 16px",
+              background: BLUE_DEEP,
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              fontSize: 22,
+              fontWeight: 600,
+              fontVariantNumeric: "tabular-nums",
+              letterSpacing: "-0.02em",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ₹ {money2(payslip.net_salary)}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer bar — invoice footer */}
       <div
         style={{
           marginTop: 14,
+          background: BLUE,
+          color: BLUE_FOOT,
+          padding: "8px 22px",
           display: "flex",
+          alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
           fontSize: 9,
-          color: "#94a3b8",
+          borderTop: `1px solid #16335d`,
         }}
       >
-        <span>System-generated salary slip · No signature required</span>
-        <span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              width: 16,
+              height: 16,
+              borderRadius: "50%",
+              background: "rgba(255,255,255,0.18)",
+              color: "#fff",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 10,
+              fontWeight: 700,
+              flexShrink: 0,
+              lineHeight: 1,
+            }}
+            aria-hidden
+          >
+            ✓
+          </span>
+          <span>
+            System-generated slip · No signature required · Verified by Indus ERP
+          </span>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
           Generated{" "}
           {payslip.generated_at
             ? new Date(payslip.generated_at).toLocaleString("en-IN", {
@@ -213,45 +410,67 @@ export default function PayslipTemplate({
                 year: "numeric",
                 hour: "2-digit",
                 minute: "2-digit",
+                hour12: true,
               })
             : "—"}
-        </span>
+        </div>
       </div>
     </div>
   );
 }
 
-function Section({ title, children, borderRight = false }) {
+function MetaPanel({ title, children, borderRight = false }) {
   return (
-    <div style={{ borderRight: borderRight ? `1px solid ${LINE}` : "none", minWidth: 0 }}>
+    <div
+      style={{
+        padding: "10px 12px",
+        borderRight: borderRight ? `1px solid ${LINE}` : "none",
+        minWidth: 0,
+        background: "#fff",
+      }}
+    >
       <div
         style={{
-          padding: "7px 11px",
           fontSize: 9,
           fontWeight: 700,
-          letterSpacing: "0.08em",
+          letterSpacing: "0.06em",
           textTransform: "uppercase",
-          color: MUTED,
-          background: WASH,
+          color: BLUE,
           borderBottom: `1px solid ${LINE}`,
+          paddingBottom: 6,
+          marginBottom: 8,
         }}
       >
         {title}
       </div>
-      <div style={{ padding: "9px 11px", display: "flex", flexDirection: "column", gap: 6 }}>{children}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{children}</div>
     </div>
   );
 }
 
-function Field({ label, value }) {
+function MetaRow({ label, value, mutedFallback = false }) {
+  const isFallback =
+    mutedFallback &&
+    (value === "Not linked" ||
+      value === "Not applicable" ||
+      value === "—" ||
+      value == null ||
+      value === "");
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "42% 1fr", gap: 8, alignItems: "start" }}>
-      <span style={{ fontSize: 10, color: MUTED }}>{label}</span>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "42% 1fr",
+        gap: 8,
+        alignItems: "baseline",
+      }}
+    >
+      <span style={{ fontSize: 9.5, color: MUTED, fontWeight: 500 }}>{label}</span>
       <span
         style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: INK,
+          fontSize: 10.5,
+          fontWeight: 400,
+          color: isFallback ? "#9ca3af" : INK,
           textAlign: "right",
           wordBreak: "break-word",
           fontVariantNumeric: "tabular-nums",
@@ -263,70 +482,104 @@ function Field({ label, value }) {
   );
 }
 
-function MoneyColumn({ title, rows, footerLabel, footerValue, borderRight = false }) {
+function MoneyTable({ title, rows, footerLabel, footerValue, whiteHeader }) {
   return (
-    <div style={{ borderRight: borderRight ? `1px solid ${LINE}` : "none", display: "flex", flexDirection: "column" }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 88px",
-          padding: "7px 11px",
-          background: WASH,
-          borderBottom: `1px solid ${LINE}`,
-          fontSize: 9,
-          fontWeight: 700,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: MUTED,
-        }}
-      >
-        <span>{title}</span>
-        <span style={{ textAlign: "right" }}>Amount (₹)</span>
-      </div>
-      <div style={{ flex: 1 }}>
-        {rows.map((r, i) => (
-          <div
-            key={`${r.label || "blank"}-${i}`}
+    <table
+      style={{
+        width: "100%",
+        borderCollapse: "collapse",
+        border: `1px solid ${LINE}`,
+        fontSize: 10.5,
+      }}
+    >
+      <thead>
+        <tr style={{ background: BLUE, ...whiteHeader }}>
+          <th
             style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 88px",
-              padding: "7px 11px",
-              borderBottom: `1px solid ${LINE_SOFT}`,
-              minHeight: 30,
-              alignItems: "center",
+              ...whiteHeader,
+              textAlign: "left",
+              padding: "7px 10px",
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              fontSize: 9,
+              border: `1px solid ${LINE}`,
             }}
           >
-            <span style={{ color: r.label ? "#1e293b" : "transparent" }}>{r.label || "—"}</span>
-            <span
+            {title}
+          </th>
+          <th
+            style={{
+              ...whiteHeader,
+              textAlign: "right",
+              padding: "7px 10px",
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              fontSize: 9,
+              border: `1px solid ${LINE}`,
+              width: "34%",
+            }}
+          >
+            Amount (₹)
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={`${r.label || "blank"}-${i}`} style={{ background: i % 2 === 0 ? "#fff" : BLUE_ROW }}>
+            <td
               style={{
+                border: `1px solid ${LINE}`,
+                padding: "7px 10px",
+                color: r.label ? MUTED : "transparent",
+                fontWeight: 400,
+              }}
+            >
+              {r.label || "—"}
+            </td>
+            <td
+              style={{
+                border: `1px solid ${LINE}`,
+                padding: "7px 10px",
                 textAlign: "right",
                 fontVariantNumeric: "tabular-nums",
                 color: r.label ? INK : "transparent",
-                fontWeight: 500,
+                fontWeight: 400,
               }}
             >
-              {r.label ? formatPayslipMoney(r.amount) : "0"}
-            </span>
-          </div>
+              {r.label ? money2(r.amount) : "0.00"}
+            </td>
+          </tr>
         ))}
-      </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 88px",
-          padding: "8px 11px",
-          background: WASH,
-          borderTop: `1px solid ${LINE}`,
-          fontWeight: 700,
-          alignItems: "center",
-        }}
-      >
-        <span>{footerLabel}</span>
-        <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-          {formatPayslipMoney(footerValue)}
-        </span>
-      </div>
-    </div>
+        <tr style={{ background: BLUE_SOFT }}>
+          <td
+            style={{
+              border: `1px solid ${LINE}`,
+              padding: "8px 10px",
+              fontWeight: 600,
+              color: BLUE,
+              fontSize: 10.5,
+            }}
+          >
+            {footerLabel}
+          </td>
+          <td
+            style={{
+              border: `1px solid ${LINE}`,
+              padding: "8px 10px",
+              textAlign: "right",
+              fontVariantNumeric: "tabular-nums",
+              fontWeight: 600,
+              color: INK,
+              fontSize: 10.5,
+            }}
+          >
+            {money2(footerValue)}
+          </td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 
@@ -336,18 +589,26 @@ function padRows(rows, minLen) {
   return out;
 }
 
-function maskAccount(account) {
-  const s = String(account).replace(/\s/g, "");
-  if (s.length <= 4) return s;
-  return `XXXX${s.slice(-4)}`;
+function money2(v) {
+  if (v == null || v === "" || Number.isNaN(Number(v))) return "—";
+  return Number(v).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
-function formatDate(isoOrDate) {
+function displayOrFallback(value, fallback) {
+  if (value == null || String(value).trim() === "" || String(value).trim() === "—") return fallback;
+  return String(value).trim();
+}
+
+function formatLongDate(isoOrDate) {
   if (!isoOrDate) return "—";
   const s = String(isoOrDate).trim();
   const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (ymd) return `${ymd[3]}-${ymd[2]}-${ymd[1]}`;
-  const d = new Date(s);
+  let d;
+  if (ymd) d = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  else d = new Date(s);
   if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleDateString("en-IN");
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }

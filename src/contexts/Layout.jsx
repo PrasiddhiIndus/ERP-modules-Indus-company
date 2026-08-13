@@ -194,7 +194,6 @@ const Layout = () => {
   const [adminStoreOpen, setAdminStoreOpen] = useState(false);
   const [adminGateOpen, setAdminGateOpen] = useState(false);
   const [adminMiscOpen, setAdminMiscOpen] = useState(false);
-  const [adminSalaryOpen, setAdminSalaryOpen] = useState(false);
   const [hrSalaryOpen, setHrSalaryOpen] = useState(false);
   const [manpowerOperationsOpen, setManpowerOperationsOpen] = useState(false);
   const [manpowerConfigOpen, setManpowerConfigOpen] = useState(false);
@@ -214,7 +213,6 @@ const Layout = () => {
     if (pathname.startsWith("/app/hr/payroll/salary")) setHrSalaryOpen(true);
     if (pathname.startsWith("/app/ifsp-employee-compliance") || pathname.startsWith("/app/general-compliance")) setComplianceOpen(true);
     if (pathname.startsWith("/app/ifsp-employee") || pathname.startsWith("/app/store-inventory") || pathname.startsWith("/app/gate-pass") || pathname.startsWith("/app/admin")) setAdminOpen(true);
-    if (pathname.startsWith("/app/admin/salary-admin")) setAdminSalaryOpen(true);
     if (pathname.startsWith("/app/marketing")) setMarketingOpen(true);
     if (pathname.startsWith("/app/maintenance")) setMaintenanceOpen(true);
     if (pathname.startsWith("/app/manpower") || pathname.startsWith("/app/commercial/manpower-training")) setCommercialMtOpen(true);
@@ -246,7 +244,6 @@ const Layout = () => {
     setAdminStoreOpen(false);
     setAdminGateOpen(false);
     setAdminMiscOpen(false);
-    setAdminSalaryOpen(false);
   };
 
   const [activityLogOpen, setActivityLogOpen] = useState(false);
@@ -570,43 +567,19 @@ const Layout = () => {
                   )}
 
                   {canSub("admin.salary-admin") && (
-                  <>
-                  <button
-                    type="button"
-                    onClick={() => setAdminSalaryOpen(!adminSalaryOpen)}
-                    className={`flex items-center justify-between w-full px-2.5 py-1.5 rounded-control hover:bg-surface text-ink-strong transition-colors border border-transparent ${
-                      pathname.startsWith("/app/admin/salary-admin")
-                        ? "bg-surface border-accent-border border-l-[3px] border-l-accent shadow-nav-active"
-                        : ""
-                    }`}
+                  <NavLink
+                    to="admin/salary-admin/dashboard"
+                    className={() =>
+                      `${subLinkBase} ${
+                        pathname.startsWith("/app/admin/salary-admin")
+                          ? activeClass
+                          : "text-ink-strong"
+                      }`
+                    }
                   >
-                    <span className="flex items-center gap-2.5 min-w-0">
-                      <Wallet className="h-4 w-4 shrink-0 text-ink-muted" />
-                      <span className="type-meta type-truncate">Salary Admin</span>
-                    </span>
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 shrink-0 text-ink-muted transform transition-transform ${
-                        adminSalaryOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  </button>
-                  {adminSalaryOpen && (
-                    <div className="ml-5 mt-0.5 space-y-0.5 border-l border-border pl-2">
-                      <NavLink to="admin/salary-admin/dashboard" className={subNavClass}>
-                        <LayoutDashboard className="h-4 w-4 shrink-0 text-ink-muted" />
-                        <span className="type-meta type-truncate">Salary Dashboard</span>
-                      </NavLink>
-                      <NavLink to="admin/salary-admin/salary-components" className={subNavClass}>
-                        <Layers className="h-4 w-4 shrink-0 text-ink-muted" />
-                        <span className="type-meta type-truncate">Salary Components</span>
-                      </NavLink>
-                      <NavLink to="admin/salary-admin/salary-processing" className={subNavClass}>
-                        <Calculator className="h-4 w-4 shrink-0 text-ink-muted" />
-                        <span className="type-meta type-truncate">Salary Processing</span>
-                      </NavLink>
-                    </div>
-                  )}
-                  </>
+                    <Wallet className="h-4 w-4 shrink-0 text-ink-muted" />
+                    <span className="type-meta type-truncate">Salary Admin</span>
+                  </NavLink>
                   )}
 
                   {/* NAV_HIDDEN (Aug 2026): Store & Issue Control */}

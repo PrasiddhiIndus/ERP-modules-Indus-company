@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, RefreshCw, Search } from "lucide-react";
+import { Download, RefreshCw, Search, Upload } from "lucide-react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import FormDateInput from "../../../components/FormDateInput";
 import {
@@ -28,6 +28,7 @@ import {
   getMonthHoldIds,
   setMonthHoldIds,
   saveScopeLineDraft,
+  syncScopeDraftBankFromMaster,
 } from "./salaryMonthProcessing";
 import {
   USE_MOCK_SALARY_PROCESSING,
@@ -39,6 +40,7 @@ import {
   mockFetchSalaryProcessCandidates,
 } from "./salaryProcessingMock";
 import { exportSalaryProcessingWorkbook } from "../../../lib/salaryProcessingExcel";
+import { SalaryBankImportModal } from "./SalaryBankImportModal";
 
 const numIn =
   "w-[4.25rem] h-7 px-1 text-right text-[11px] tabular-nums border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
@@ -217,6 +219,16 @@ function EmployeeSalaryDetailPage({
               title={line.ifsc || undefined}
               onChange={(e) => patch({ ifsc: e.target.value })}
             />
+          </DetailField>
+          <DetailField label="UAN">
+            <span className="font-mono text-[11px]" title={line.uan_no || undefined}>
+              {line.uan_no || "—"}
+            </span>
+          </DetailField>
+          <DetailField label="ESIC no.">
+            <span className="text-[11px]" title={line.esic_no || undefined}>
+              {line.esic_no || "—"}
+            </span>
           </DetailField>
           <DetailField label="DOJ">
             {line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
@@ -725,6 +737,7 @@ export default function SalaryProcessing() {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [existingRun, setExistingRun] = useState(null);
+  const [bankImportOpen, setBankImportOpen] = useState(false);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [run, setRun] = useState(null);
@@ -780,6 +793,22 @@ export default function SalaryProcessing() {
   useEffect(() => {
     loadCandidates();
   }, [loadCandidates]);
+
+  const handleBankImported = useCallback(
+    async ({ message, rows } = {}) => {
+      for (const row of rows || []) {
+        if (!row?.employeeMasterId) continue;
+        syncScopeDraftBankFromMaster(row.employeeMasterId, {
+          account_no: row.accountNo,
+          ifsc: row.ifsc,
+        });
+      }
+      setNotice(message || "Bank details saved to Employee Master.");
+      setError("");
+      await loadCandidates();
+    },
+    [loadCandidates]
+  );
 
   // Re-read CTC when returning from Employee Master Save CTC
   useEffect(() => {
@@ -1378,7 +1407,6 @@ export default function SalaryProcessing() {
               <span className="font-mono text-[11px] text-slate-600">{getRunSheetNo(run)}</span>
               <span className="mx-1.5 text-slate-300">·</span>
               {run.employee_count} emps · {run.month_days} days · Net {formatINRPlain(run.total_net)}
-              {USE_MOCK_SALARY_PROCESSING ? " · mock data" : ""}
             </>
           }
         >
@@ -1654,20 +1682,34 @@ export default function SalaryProcessing() {
       <PageTaskHeader
         className="mb-0"
         title="Salary Processing"
-        subtitle={
-          USE_MOCK_SALARY_PROCESSING
-            ? "Mock preview — process, open, edit, export without CTC or live DB."
-            : "Build monthly salary sheets from Employee Master."
-        }
+        subtitle="Build monthly salary sheets from Employee Master."
       >
-        {USE_MOCK_SALARY_PROCESSING ? <StatusChip label="Mock data" severity="warning" /> : null}
+        <button
+          type="button"
+          className={btnGhost}
+          onClick={() => setBankImportOpen(true)}
+          title="Import Account / IFSC / UAN / ESIC from Excel into Employee Master"
+        >
+          <Upload className="w-3.5 h-3.5 inline-block mr-1 -mt-0.5" />
+          Import bank details
+        </button>
+        <button
+          type="button"
+          className={btnGhost}
+          onClick={() => loadCandidates()}
+          disabled={candidatesLoading}
+          title="Reload employees and CTC from Employee Master"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 inline-block mr-1 -mt-0.5 ${candidatesLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </PageTaskHeader>
 
       <CollapsibleHelp label="how this works">
-        Tick employees on All or By department, then Hold selected (they move to the Hold tab and are
-        skipped from processing) or Process salary (selected only; if none ticked, all in the current
-        tab). Hold tab lists held staff — release them to process later. Manual cells recompute with
-        the same sheet formulas.
+        Import bank details (or use Employee Master Excel) to save Account / IFSC / UAN / ESIC by employee
+        code. Tick employees on All or By department, then Hold selected or Process salary. CTC from
+        Employee Master drives Gross / PF / ESIC; imported account details fill Account and IFSC on the
+        sheet. Manual cells recompute with the same sheet formulas.
       </CollapsibleHelp>
 
       {error ? (
@@ -2031,6 +2073,13 @@ export default function SalaryProcessing() {
           department for remaining staff, or run a full reprocess from All.
         </p>
       </Modal>
+
+      <SalaryBankImportModal
+        open={bankImportOpen}
+        employees={candidates.employees || []}
+        onClose={() => setBankImportOpen(false)}
+        onImported={handleBankImported}
+      />
     </div>
   );
 }

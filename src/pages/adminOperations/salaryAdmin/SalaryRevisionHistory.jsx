@@ -1,48 +1,94 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { formatINR, formatSalaryDate, getSalaryRevisions } from "./salaryData";
+import {
+  formatINR,
+  formatPA,
+  formatSalaryDate,
+  getSalaryRevisions,
+  paFromMonthly,
+} from "./salaryData";
 
-/** Lines shown when a history version is expanded. */
-const AMOUNT_GROUPS = [
+/**
+ * History rows: monthly field + optional P.A. override key.
+ * P.A. = override from pa_overrides_json, else monthly × 12 (or ctc_annual for CTC).
+ */
+const HISTORY_ROWS = [
+  { monthlyKey: "gross_monthly", paKey: "gross", label: "Gross", group: "Part A — earnings" },
+  { monthlyKey: "basic_monthly", paKey: "basic", label: "Basic", group: "Part A — earnings" },
+  { monthlyKey: "hra_monthly", paKey: "hra", label: "HRA", group: "Part A — earnings" },
   {
-    title: "Part A — earnings",
-    rows: [
-      { key: "gross_monthly", label: "Gross" },
-      { key: "basic_monthly", label: "Basic" },
-      { key: "hra_monthly", label: "HRA" },
-      { key: "special_allowance_monthly", label: "Special allowance" },
-    ],
+    monthlyKey: "special_allowance_monthly",
+    paKey: "special",
+    label: "Special allowance",
+    group: "Part A — earnings",
+  },
+  { monthlyKey: "emp_pf_monthly", paKey: "emp_pf", label: "PF (employee)", group: "Employee deductions" },
+  { monthlyKey: "pt_monthly", paKey: "pt", label: "Professional tax", group: "Employee deductions" },
+  {
+    monthlyKey: "emp_esic_monthly",
+    paKey: "emp_esic",
+    label: "ESIC (employee)",
+    group: "Employee deductions",
   },
   {
-    title: "Employee deductions",
-    rows: [
-      { key: "emp_pf_monthly", label: "PF (employee)" },
-      { key: "pt_monthly", label: "Professional tax" },
-      { key: "emp_esic_monthly", label: "ESIC (employee)" },
-      { key: "take_home_monthly", label: "Take home", emphasize: true },
-    ],
+    monthlyKey: "take_home_monthly",
+    paKey: "take_home",
+    label: "Take home",
+    group: "Employee deductions",
+    emphasize: true,
+  },
+  { monthlyKey: "er_pf_monthly", paKey: "er_pf", label: "PF (employer)", group: "Part B — employer" },
+  {
+    monthlyKey: "er_esic_monthly",
+    paKey: "er_esic",
+    label: "ESIC (employer)",
+    group: "Part B — employer",
+  },
+  { monthlyKey: "gratuity_monthly", paKey: "gratuity", label: "Gratuity", group: "Part B — employer" },
+  {
+    monthlyKey: "leave_encash_monthly",
+    paKey: "leave_encash",
+    label: "Leave encashment",
+    group: "Part B — employer",
   },
   {
-    title: "Part B — employer",
-    rows: [
-      { key: "er_pf_monthly", label: "PF (employer)" },
-      { key: "er_esic_monthly", label: "ESIC (employer)" },
-      { key: "gratuity_monthly", label: "Gratuity" },
-      { key: "leave_encash_monthly", label: "Leave encashment" },
-      { key: "mediclaim_monthly", label: "Mediclaim" },
-      { key: "lic_monthly", label: "LIC" },
-      { key: "special_perf_bonus_monthly", label: "Special / perf. bonus" },
-      { key: "bonus_monthly", label: "Bonus" },
-      { key: "total_b_monthly", label: "Total Part B", emphasize: true },
-    ],
+    monthlyKey: "mediclaim_monthly",
+    paKey: "mediclaim",
+    label: "Mediclaim",
+    group: "Part B — employer",
+  },
+  { monthlyKey: "lic_monthly", paKey: "lic", label: "LIC", group: "Part B — employer" },
+  {
+    monthlyKey: "special_perf_bonus_monthly",
+    paKey: "special_perf",
+    label: "Special / perf. bonus",
+    group: "Part B — employer",
+  },
+  { monthlyKey: "bonus_monthly", paKey: "bonus", label: "Bonus", group: "Part B — employer" },
+  {
+    monthlyKey: "total_b_monthly",
+    paKey: "total_b",
+    label: "Total Part B",
+    group: "Part B — employer",
+    emphasize: true,
   },
   {
-    title: "CTC totals",
-    rows: [
-      { key: "ctc_monthly", label: "CTC monthly", emphasize: true },
-      { key: "ctc_annual", label: "CTC annual", emphasize: true },
-    ],
+    monthlyKey: "ctc_monthly",
+    paKey: "ctc",
+    label: "CTC",
+    group: "CTC totals",
+    emphasize: true,
   },
+];
+
+const MODE_FIELDS = [
+  { key: "basic_mode", label: "Basic mode" },
+  { key: "hra_mode", label: "HRA mode" },
+  { key: "emp_esic_mode", label: "Employee ESIC mode" },
+  { key: "er_esic_mode", label: "Employer ESIC mode" },
+  { key: "gratuity_mode", label: "Gratuity mode" },
+  { key: "leave_encash_mode", label: "Leave encashment mode" },
+  { key: "employee_level", label: "Employee level" },
 ];
 
 function num(v) {
@@ -51,16 +97,86 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function nearlyEqual(a, b) {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  return Math.abs(Number(a) - Number(b)) < 0.001;
+}
+
+function paOverridesOf(snapshot) {
+  const raw = snapshot?.pa_overrides_json;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw;
+}
+
+/** Resolve P.A. for a history snapshot: manual override, else monthly × 12 / saved CTC annual. */
+function resolvePa(snapshot, paKey, monthlyKey) {
+  if (!snapshot) return null;
+  const ov = paOverridesOf(snapshot);
+  if (ov[paKey] != null && ov[paKey] !== "") {
+    const n = num(ov[paKey]);
+    if (n != null) return n;
+  }
+  if (paKey === "ctc") {
+    const annual = num(snapshot.ctc_annual);
+    if (annual != null) return annual;
+  }
+  return paFromMonthly(snapshot[monthlyKey]);
+}
+
 function deltaClass(d) {
-  if (d == null || d === 0) return "text-slate-400";
+  if (d == null || nearlyEqual(d, 0)) return "text-slate-400";
   return d > 0 ? "text-emerald-700" : "text-amber-700";
 }
 
-function formatDelta(d) {
+function formatDelta(d, { annual = false } = {}) {
   if (d == null) return "—";
-  if (d === 0) return "No change";
-  const sign = d > 0 ? "+" : "";
-  return `${sign}${formatINR(d)}`;
+  if (nearlyEqual(d, 0)) return "No change";
+  const sign = d > 0 ? "+" : "−";
+  const abs = Math.abs(d);
+  const body = (annual ? formatPA(abs) : formatINR(abs)).replace(/^₹/, "");
+  return `${sign}₹${body}`;
+}
+
+function collectChanges(snapshot, compareTo) {
+  if (!compareTo) return [];
+  const changes = [];
+
+  for (const field of MODE_FIELDS) {
+    const now = snapshot?.[field.key];
+    const prev = compareTo?.[field.key];
+    if (now != null && prev != null && String(now) !== String(prev)) {
+      changes.push({
+        id: `mode:${field.key}`,
+        label: field.label,
+        detail: `${prev} → ${now}`,
+      });
+    }
+  }
+
+  for (const row of HISTORY_ROWS) {
+    const mNow = num(snapshot?.[row.monthlyKey]);
+    const mPrev = num(compareTo?.[row.monthlyKey]);
+    if (mNow != null && mPrev != null && !nearlyEqual(mNow, mPrev)) {
+      changes.push({
+        id: `m:${row.monthlyKey}`,
+        label: `${row.label} (monthly)`,
+        detail: formatDelta(mNow - mPrev),
+      });
+    }
+
+    const paNow = resolvePa(snapshot, row.paKey, row.monthlyKey);
+    const paPrev = resolvePa(compareTo, row.paKey, row.monthlyKey);
+    if (paNow != null && paPrev != null && !nearlyEqual(paNow, paPrev)) {
+      changes.push({
+        id: `pa:${row.paKey}`,
+        label: `${row.label} (P.A.)`,
+        detail: formatDelta(paNow - paPrev, { annual: true }),
+      });
+    }
+  }
+
+  return changes;
 }
 
 /**
@@ -119,26 +235,45 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
 
   useEffect(() => {
     let cancelled = false;
-    if (Array.isArray(salary?.revisions) && salary.revisions.length > 0) {
-      setRevisions(salary.revisions);
-      return undefined;
-    }
     if (!employee?.id) {
       setRevisions([]);
       return undefined;
     }
+
+    // Prefer attached revisions when present; always refresh from DB so latest save shows.
+    if (Array.isArray(salary?.revisions) && salary.revisions.length > 0) {
+      setRevisions(salary.revisions);
+    }
+
     getSalaryRevisions(employee.id)
       .then((rows) => {
-        if (!cancelled) setRevisions(rows || []);
+        if (cancelled) return;
+        if (Array.isArray(rows) && rows.length > 0) {
+          setRevisions(rows);
+        } else if (Array.isArray(salary?.revisions)) {
+          setRevisions(salary.revisions);
+        } else {
+          setRevisions([]);
+        }
       })
       .catch((err) => {
         console.error("Salary revision history load failed", err);
-        if (!cancelled) setRevisions([]);
+        if (!cancelled) {
+          setRevisions(Array.isArray(salary?.revisions) ? salary.revisions : []);
+        }
       });
+
     return () => {
       cancelled = true;
     };
-  }, [employee?.id, salary?.id, salary?.revision_count, salary?.revisions]);
+  }, [
+    employee?.id,
+    salary?.id,
+    salary?.revision_count,
+    salary?.updated_at,
+    salary?.ctc_annual,
+    salary?.revisions,
+  ]);
 
   useEffect(() => {
     setExpandedId(null);
@@ -166,6 +301,7 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
         {timeline.length ? (
           <p className="mt-2 text-[11px] text-gray-600">
             {timeline.length} version{timeline.length === 1 ? "" : "s"} · click a row for full amounts
+            and what changed
           </p>
         ) : null}
       </div>
@@ -184,11 +320,12 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
         <ul className="space-y-0 border-l-2 border-gray-200 ml-1.5">
           {timeline.map((entry, i) => {
             const older = timeline[i + 1]?.snapshot || null;
-            const ctcNow = num(entry.snapshot?.ctc_annual);
-            const ctcPrev = num(older?.ctc_annual);
+            const ctcNow = resolvePa(entry.snapshot, "ctc", "ctc_monthly");
+            const ctcPrev = resolvePa(older, "ctc", "ctc_monthly");
             const ctcDelta =
               ctcNow != null && ctcPrev != null ? ctcNow - ctcPrev : null;
             const open = expandedId === entry.id;
+            const changeCount = older ? collectChanges(entry.snapshot, older).length : 0;
 
             return (
               <li key={entry.id} className="relative pl-5 pb-3 last:pb-0">
@@ -233,7 +370,7 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
                         CTC annual
                       </p>
                       <p className="text-[13px] font-semibold tabular-nums text-gray-900">
-                        {formatINR(entry.snapshot?.ctc_annual)}
+                        {formatPA(ctcNow)}
                       </p>
                     </div>
                     <div>
@@ -244,9 +381,14 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
                         {formatINR(entry.snapshot?.gross_monthly)}
                       </p>
                     </div>
-                    {ctcDelta != null && ctcDelta !== 0 ? (
+                    {ctcDelta != null && !nearlyEqual(ctcDelta, 0) ? (
                       <p className={`text-[11px] font-medium ${deltaClass(ctcDelta)}`}>
-                        {formatDelta(ctcDelta)} vs prior
+                        {formatDelta(ctcDelta, { annual: true })} vs prior
+                      </p>
+                    ) : null}
+                    {changeCount > 0 ? (
+                      <p className="text-[11px] text-slate-600">
+                        {changeCount} change{changeCount === 1 ? "" : "s"}
                       </p>
                     ) : null}
                   </div>
@@ -259,6 +401,7 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
 
                 {open ? (
                   <div className="mt-2 ml-0 rounded-lg border border-slate-200 bg-white px-3 py-3 space-y-4">
+                    <ChangesSummary snapshot={entry.snapshot} compareTo={older} />
                     <AmountBreakdown snapshot={entry.snapshot} compareTo={older} />
                   </div>
                 ) : null}
@@ -271,74 +414,163 @@ export default function SalaryRevisionHistory({ employee, salary, currentPreview
   );
 }
 
+function ChangesSummary({ snapshot, compareTo }) {
+  const changes = useMemo(() => collectChanges(snapshot, compareTo), [snapshot, compareTo]);
+  if (!compareTo) {
+    return (
+      <p className="text-[12px] text-slate-500">
+        Initial saved CTC — no prior version to compare.
+      </p>
+    );
+  }
+  if (!changes.length) {
+    return (
+      <p className="text-[12px] text-slate-500">No amount or mode changes vs prior version.</p>
+    );
+  }
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1.5">
+        What changed
+      </p>
+      <ul className="rounded border border-slate-100 divide-y divide-slate-100">
+        {changes.map((c) => (
+          <li
+            key={c.id}
+            className="flex items-center justify-between gap-3 px-2.5 py-1.5 text-[12px]"
+          >
+            <span className="text-slate-700">{c.label}</span>
+            <span className="tabular-nums font-medium text-slate-900 shrink-0">{c.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function AmountBreakdown({ snapshot, compareTo }) {
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const row of HISTORY_ROWS) {
+      const monthly = num(snapshot?.[row.monthlyKey]);
+      const priorMonthly = num(compareTo?.[row.monthlyKey]);
+      const pa = resolvePa(snapshot, row.paKey, row.monthlyKey);
+      const priorPa = resolvePa(compareTo, row.paKey, row.monthlyKey);
+      const monthlyChanged =
+        compareTo && monthly != null && priorMonthly != null && !nearlyEqual(monthly, priorMonthly);
+      const paChanged =
+        compareTo && pa != null && priorPa != null && !nearlyEqual(pa, priorPa);
+      const show =
+        row.emphasize ||
+        (monthly != null && monthly !== 0) ||
+        (pa != null && pa !== 0) ||
+        (priorMonthly != null && priorMonthly !== 0) ||
+        (priorPa != null && priorPa !== 0) ||
+        monthlyChanged ||
+        paChanged;
+      if (!show) continue;
+      if (!map.has(row.group)) map.set(row.group, []);
+      map.get(row.group).push({
+        ...row,
+        monthly,
+        priorMonthly,
+        pa,
+        priorPa,
+        monthlyChanged,
+        paChanged,
+      });
+    }
+    return [...map.entries()];
+  }, [snapshot, compareTo]);
+
   return (
     <div className="space-y-4">
-      {AMOUNT_GROUPS.map((group) => {
-        const visibleRows = group.rows.filter((row) => {
-          const v = num(snapshot?.[row.key]);
-          const p = num(compareTo?.[row.key]);
-          if (row.emphasize) return true;
-          if (v != null && v !== 0) return true;
-          if (p != null && p !== 0) return true;
-          return false;
-        });
-        if (!visibleRows.length) return null;
-
-        return (
-          <div key={group.title}>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1.5">
-              {group.title}
-            </p>
-            <div className="overflow-x-auto rounded border border-slate-100">
-              <table className="w-full text-[12px]">
-                <thead>
-                  <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-                    <th className="text-left font-semibold px-2.5 py-1.5">Component</th>
-                    <th className="text-right font-semibold px-2.5 py-1.5">Amount</th>
-                    <th className="text-right font-semibold px-2.5 py-1.5">Change</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleRows.map((row) => {
-                    const value = num(snapshot?.[row.key]);
-                    const prior = num(compareTo?.[row.key]);
-                    const d = value != null && prior != null ? value - prior : null;
-                    return (
-                      <tr
-                        key={row.key}
-                        className={`border-t border-slate-100 ${
-                          row.emphasize ? "bg-slate-50/80" : ""
+      {groups.map(([title, rows]) => (
+        <div key={title}>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1.5">
+            {title}
+          </p>
+          <div className="overflow-x-auto rounded border border-slate-100">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                  <th className="text-left font-semibold px-2.5 py-1.5">Component</th>
+                  <th className="text-right font-semibold px-2.5 py-1.5">Monthly</th>
+                  <th className="text-right font-semibold px-2.5 py-1.5">P.A.</th>
+                  <th className="text-right font-semibold px-2.5 py-1.5">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const dMonthly =
+                    row.monthly != null && row.priorMonthly != null
+                      ? row.monthly - row.priorMonthly
+                      : null;
+                  const dPa =
+                    row.pa != null && row.priorPa != null ? row.pa - row.priorPa : null;
+                  const changeBits = [];
+                  if (compareTo && dMonthly != null && !nearlyEqual(dMonthly, 0)) {
+                    changeBits.push(`Mo ${formatDelta(dMonthly)}`);
+                  }
+                  if (compareTo && dPa != null && !nearlyEqual(dPa, 0)) {
+                    changeBits.push(`P.A. ${formatDelta(dPa, { annual: true })}`);
+                  }
+                  return (
+                    <tr
+                      key={row.monthlyKey}
+                      className={`border-t border-slate-100 ${
+                        row.emphasize || row.monthlyChanged || row.paChanged
+                          ? "bg-slate-50/80"
+                          : ""
+                      }`}
+                    >
+                      <td
+                        className={`px-2.5 py-1.5 text-slate-700 ${
+                          row.emphasize ? "font-semibold text-slate-900" : ""
                         }`}
                       >
-                        <td
-                          className={`px-2.5 py-1.5 text-slate-700 ${
-                            row.emphasize ? "font-semibold text-slate-900" : ""
-                          }`}
-                        >
-                          {row.label}
-                        </td>
-                        <td
-                          className={`px-2.5 py-1.5 text-right tabular-nums ${
-                            row.emphasize ? "font-semibold text-slate-900" : "text-slate-800"
-                          }`}
-                        >
-                          {formatINR(value)}
-                        </td>
-                        <td
-                          className={`px-2.5 py-1.5 text-right tabular-nums font-medium ${deltaClass(d)}`}
-                        >
-                          {compareTo ? formatDelta(d) : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        {row.label}
+                        {row.paChanged && !row.monthlyChanged ? (
+                          <span className="ml-1.5 text-[10px] font-medium text-amber-700">
+                            P.A. edited
+                          </span>
+                        ) : null}
+                      </td>
+                      <td
+                        className={`px-2.5 py-1.5 text-right tabular-nums ${
+                          row.monthlyChanged || row.emphasize
+                            ? "font-semibold text-slate-900"
+                            : "text-slate-800"
+                        }`}
+                      >
+                        {formatINR(row.monthly)}
+                      </td>
+                      <td
+                        className={`px-2.5 py-1.5 text-right tabular-nums ${
+                          row.paChanged || row.emphasize
+                            ? "font-semibold text-slate-900"
+                            : "text-slate-800"
+                        }`}
+                      >
+                        {formatPA(row.pa)}
+                      </td>
+                      <td
+                        className={`px-2.5 py-1.5 text-right tabular-nums font-medium ${
+                          changeBits.length
+                            ? deltaClass(dPa ?? dMonthly)
+                            : "text-slate-400"
+                        }`}
+                      >
+                        {compareTo ? (changeBits.length ? changeBits.join(" · ") : "No change") : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }

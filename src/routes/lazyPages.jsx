@@ -252,6 +252,7 @@ export const NationalPublicHolidaysPage = lazyNamed(
 // );
 
 export const SalaryDashboardPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryDashboard"));
+export const SalaryAdminLayoutPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryAdminLayout"));
 // NAV_HIDDEN — Salary Master list page; CTC lives on Employee Master
 // export const SalaryMasterPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryMaster"));
 export const SalaryEmployeeCtcPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryEmployeeCtc"));

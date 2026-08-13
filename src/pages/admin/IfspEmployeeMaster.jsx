@@ -22,7 +22,11 @@ import {
 } from '../../lib/employeeHierarchy';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../lib/employeeMasterDepartments';
-import * as XLSX from 'xlsx';;
+import { syncScopeDraftBankFromMaster } from '../adminOperations/salaryAdmin/salaryMonthProcessing';
+import { normalizeAttendanceEmpCode } from '../../lib/attendanceDaily';
+import { parseSalaryBankImportFile } from '../../lib/salaryBankExcel';
+import { applySalaryBankImportToMaster } from '../../lib/salaryBankImportApply';
+import * as XLSX from 'xlsx';
 import FormDateInput from "../../components/FormDateInput";
 import { 
   Users, 
@@ -189,6 +193,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [exportBusy, setExportBusy] = useState(false);
   const [showAllTableColumns, setShowAllTableColumns] = useState(false);
   const fileInputRef = useRef(null);
+  const bankFileInputRef = useRef(null);
 
   const deleteAllEmployees = async () => {
     if (!window.confirm('Delete ALL employee rows? This cannot be undone.')) return;
@@ -431,6 +436,336 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       .replace(/\s+/g, '_')
       .replace(/[^\w]/g, '');
 
+  const blankImportVal = (v) => {
+    const s = String(v ?? '').trim();
+    return (
+      !s ||
+      s === '-' ||
+      /^n\/?a$/i.test(s) ||
+      s.toLowerCase() === 'null' ||
+      /^#+$/.test(s)
+    );
+  };
+
+  const cellText = (v) => {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      // Keep long bank/UAN numbers intact (avoid scientific notation)
+      if (Math.abs(v) >= 1e11) return String(Math.round(v));
+      if (Number.isInteger(v)) return String(v);
+      return String(v);
+    }
+    return String(v).trim();
+  };
+
+  const normAccountField = (v, { upper = false } = {}) => {
+    if (blankImportVal(v)) return '';
+    const s = cellText(v).replace(/\s+/g, ' ');
+    return upper ? s.toUpperCase() : s;
+  };
+
+  const findEmployeeByCode = (list, code) => {
+    const raw = cellText(code);
+    if (!raw) return null;
+    const norm = normalizeAttendanceEmpCode(raw);
+    const normKey = /^\d+$/.test(norm)
+      ? norm
+      : norm.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^([A-Z]+)(\d+)$/, '$1-$2');
+    const hits = (list || []).filter((e) => {
+      const cRaw = String(e.employee_code || '').trim();
+      if (!cRaw) return false;
+      const c = normalizeAttendanceEmpCode(cRaw);
+      const cKey = /^\d+$/.test(c)
+        ? c
+        : c.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^([A-Z]+)(\d+)$/, '$1-$2');
+      return cKey === normKey;
+    });
+    if (!hits.length) return null;
+    // Prefer FTC-41 (hyphen) over FTC 41 (space)
+    hits.sort((a, b) => {
+      const aH = String(a.employee_code || '').includes('-') ? 1 : 0;
+      const bH = String(b.employee_code || '').includes('-') ? 1 : 0;
+      return bH - aH;
+    });
+    return hits[0];
+  };
+
+  const mapImportHeaderToField = (key) => {
+    const k = normalizeHeader(key);
+    const dict = {
+      ifspl_employee_system_id: 'employee_id',
+      employment_type: 'employment_type',
+      employee_type: 'employment_type',
+      employee_code: 'employee_code',
+      emp_code: 'employee_code',
+      code: 'employee_code',
+      timestamp: 'timestamp',
+      full_name: 'full_name',
+      name_of_employee: 'full_name',
+      employee_name: 'full_name',
+      name: 'full_name',
+      gender: 'gender',
+      date_of_joining: 'date_of_joining',
+      designation: 'designation',
+      department: 'department',
+      date_of_birth: 'date_of_birth',
+      date_of_anniversary: 'date_of_anniversary',
+      blood_group: 'blood_group',
+      aadhar_no: 'aadhar_no',
+      pan_card_no: 'pan_card_no',
+      religion: 'religion',
+      father_name: 'father_name',
+      mother_name: 'mother_name',
+      spouse_name: 'spouse_name',
+      son_details: 'son_details',
+      daughter_details: 'daughter_details',
+      present_address: 'address',
+      permanent_address: 'full_address',
+      personal_no: 'personal_no',
+      emergency_no: 'emergency_no',
+      identification_mark: 'identification_mark',
+      years_of_experience: 'years_of_experience',
+      educational_qualification: 'educational_qualification',
+      attachments: 'attachments',
+      other_experience: 'other_experience',
+      ifspl_experience: 'ifspl_experience',
+      date_of_leaving: 'date_of_leaving',
+      activeinactive: 'status',
+      active_inactive: 'status',
+      status: 'status',
+      // Salary account sheet columns
+      uan_number: 'uan_no',
+      uan_no: 'uan_no',
+      uan: 'uan_no',
+      esic_number: 'esic_no',
+      esic_no: 'esic_no',
+      esic: 'esic_no',
+      ac_number: 'bank_account_no',
+      a_c_number: 'bank_account_no',
+      a_c_no: 'bank_account_no',
+      ac_no: 'bank_account_no',
+      account_number: 'bank_account_no',
+      account_no: 'bank_account_no',
+      bank_account_no: 'bank_account_no',
+      bank_account_number: 'bank_account_no',
+      bank_ac: 'bank_account_no',
+      bank_a_c: 'bank_account_no',
+      ifsc_code: 'ifsc_code',
+      ifsc: 'ifsc_code',
+      ifsccode: 'ifsc_code',
+      bank_name: 'bank_name',
+      empcode: 'employee_code',
+      empee_code: 'employee_code',
+      emp_ee_code: 'employee_code',
+    };
+    return dict[k] || null;
+  };
+
+  /** Sheet like: Employee Code | Name | UAN | ESIC | A/c number | IFSC (Dept/Desig OK). */
+  const isSalaryAccountsSheet = (headerFields) => {
+    const hasCode = headerFields.has('employee_code');
+    const hasAccountBits =
+      headerFields.has('uan_no') ||
+      headerFields.has('esic_no') ||
+      headerFields.has('bank_account_no') ||
+      headerFields.has('ifsc_code');
+    // Full personal master sheets usually include these — keep them on the full-import path
+    const looksLikeFullMaster =
+      headerFields.has('father_name') ||
+      headerFields.has('aadhar_no') ||
+      headerFields.has('pan_card_no') ||
+      headerFields.has('date_of_birth') ||
+      headerFields.has('personal_no') ||
+      headerFields.has('address');
+    return hasCode && hasAccountBits && !looksLikeFullMaster;
+  };
+
+  const importSalaryAccountDetails = async (rawRows, user) => {
+    const existing = [...(employees || [])];
+    let updated = 0;
+    let created = 0;
+    let unchanged = 0;
+    let skipped = 0;
+    let failed = 0;
+    const createdCodes = [];
+    const failedCodes = [];
+
+    const ACCOUNT_KEYS = ['uan_no', 'esic_no', 'bank_account_no', 'ifsc_code'];
+    const todayYmd = new Date().toISOString().slice(0, 10);
+
+    const inferTypeFromCode = (code) => {
+      const c = String(code || '').trim();
+      if (/^ftc[-_]?\d+/i.test(c) || /^c-\d+/i.test(c)) return 'contract';
+      if (/^v-\d+/i.test(c)) return 'voucher';
+      return 'permanent';
+    };
+
+    for (let idx = 0; idx < rawRows.length; idx += 1) {
+      const r = rawRows[idx] || {};
+      const out = {};
+      Object.entries(r).forEach(([k, v]) => {
+        const field = mapImportHeaderToField(k);
+        if (!field) return;
+        out[field] = v;
+      });
+
+      const empCodeRaw = cellText(out.employee_code);
+      if (!empCodeRaw) {
+        skipped += 1;
+        continue;
+      }
+
+      const incoming = {
+        uan_no: normAccountField(out.uan_no),
+        esic_no: normAccountField(out.esic_no),
+        bank_account_no: normAccountField(out.bank_account_no).replace(/\s+/g, ''),
+        ifsc_code: normAccountField(out.ifsc_code, { upper: true }).replace(/\s+/g, ''),
+      };
+      const sheetName = cellText(out.full_name);
+      const hasAnyAccount = ACCOUNT_KEYS.some((k) => Boolean(incoming[k]));
+      if (!hasAnyAccount && !sheetName) {
+        skipped += 1;
+        continue;
+      }
+
+      let emp = findEmployeeByCode(existing, empCodeRaw);
+
+      // No profile yet → create a basic Employee Master row so Personal details + Salary Processing can use it
+      if (!emp?.id) {
+        try {
+          const employment_type = normalizeEmploymentType(inferTypeFromCode(empCodeRaw));
+          const employee_id = nextEmployeeSystemId(existing, employment_type);
+          const insertPayload = {
+            employee_code: empCodeRaw,
+            employee_id,
+            employment_type,
+            full_name: sheetName || `Employee ${empCodeRaw}`,
+            designation: 'Other',
+            department: 'Other',
+            date_of_joining: todayYmd,
+            status: 'Active',
+            uan_no: incoming.uan_no || null,
+            esic_no: incoming.esic_no || null,
+            bank_account_no: incoming.bank_account_no || null,
+            ifsc_code: incoming.ifsc_code || null,
+            user_id: user.id,
+            created_by: user.email || '',
+            updated_by: user.email || '',
+            updated_at: new Date().toISOString(),
+          };
+          const { data: inserted, error } = await supabase
+            .from('admin_ifsp_employee_master')
+            .insert(insertPayload)
+            .select('*')
+            .single();
+          if (error) throw error;
+          emp = inserted;
+          existing.push(inserted);
+          syncScopeDraftBankFromMaster(inserted.id, {
+            account_no: inserted.bank_account_no,
+            ifsc: inserted.ifsc_code,
+          });
+          created += 1;
+          if (createdCodes.length < 8) createdCodes.push(empCodeRaw);
+        } catch (createErr) {
+          console.error('Salary account import: create failed', empCodeRaw, createErr);
+          failed += 1;
+          if (failedCodes.length < 8) failedCodes.push(empCodeRaw);
+        }
+        continue;
+      }
+
+      const patch = {};
+      for (const key of ACCOUNT_KEYS) {
+        const nextVal = incoming[key];
+        if (!nextVal) continue; // sheet blank → leave master as-is
+        const curVal =
+          key === 'ifsc_code'
+            ? normAccountField(emp[key], { upper: true }).replace(/\s+/g, '')
+            : key === 'bank_account_no'
+              ? normAccountField(emp[key]).replace(/\s+/g, '')
+              : normAccountField(emp[key]);
+        if (!curVal || curVal !== nextVal) {
+          patch[key] = nextVal;
+        }
+      }
+      // Fill empty name from sheet when profile has no name
+      if (sheetName && !String(emp.full_name || '').trim()) {
+        patch.full_name = sheetName;
+      }
+
+      if (!Object.keys(patch).length) {
+        unchanged += 1;
+        continue;
+      }
+
+      const payload = {
+        ...patch,
+        updated_by: user.email || '',
+        updated_at: new Date().toISOString(),
+      };
+      const { data: updatedRow, error } = await supabase
+        .from('admin_ifsp_employee_master')
+        .update(payload)
+        .eq('id', emp.id)
+        .select('id, bank_account_no, ifsc_code, uan_no, esic_no, full_name')
+        .single();
+      if (error) {
+        console.error('Salary account import: update failed', empCodeRaw, error);
+        failed += 1;
+        if (failedCodes.length < 8) failedCodes.push(empCodeRaw);
+        continue;
+      }
+
+      Object.assign(emp, updatedRow || patch);
+      syncScopeDraftBankFromMaster(emp.id, {
+        account_no: emp.bank_account_no,
+        ifsc: emp.ifsc_code,
+      });
+      updated += 1;
+    }
+
+    await fetchEmployees();
+    setCurrentPage(1);
+
+    const parts = [];
+    if (updated) parts.push(`${updated} profile(s) updated`);
+    if (created) {
+      parts.push(
+        `${created} new profile(s) created${
+          createdCodes.length
+            ? ` (${createdCodes.join(', ')}${created > createdCodes.length ? '…' : ''})`
+            : ''
+        }`
+      );
+    }
+    if (unchanged) parts.push(`${unchanged} already up to date`);
+    if (failed) {
+      parts.push(
+        `${failed} failed${
+          failedCodes.length
+            ? ` (${failedCodes.join(', ')}${failed > failedCodes.length ? '…' : ''})`
+            : ''
+        }`
+      );
+    }
+    if (skipped) parts.push(`${skipped} blank row(s) skipped`);
+
+    if (!updated && !created && !unchanged) {
+      toast.error(parts.join(' · ') || 'No salary account rows could be saved.');
+      return;
+    }
+    if (failed && (updated || created)) {
+      toast.success(parts.join(' · '));
+      return;
+    }
+    if (failed && !updated && !created) {
+      toast.error(parts.join(' · ') || 'Could not save salary account details.');
+      return;
+    }
+    toast.success(parts.join(' · ') || 'Salary account details saved to Employee Master.');
+  };
+
   const parseExcelDate = (v) => {
     if (!v) return null;
     if (typeof v === 'string') {
@@ -486,6 +821,51 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     return null;
   };
 
+  const handleImportBankExcel = async (file) => {
+    if (!file) return;
+    setImportBusy(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error('Session expired. Please log in again.');
+
+      const bankParsed = await parseSalaryBankImportFile(file, {
+        employees: employees || [],
+      });
+      const bankRowCount =
+        (bankParsed.rows?.length || 0) + (bankParsed.unmatched?.length || 0);
+      if (!bankRowCount) {
+        toast.error(
+          (bankParsed.errors || []).join(' ') ||
+            'No bank rows found. Use columns: Employee Code, Name, UAN, ESIC, A/c number, IFSC.'
+        );
+        return;
+      }
+
+      const result = await applySalaryBankImportToMaster(bankParsed, {
+        employees: employees || [],
+        user,
+      });
+      await fetchEmployees();
+      setCurrentPage(1);
+
+      if (!result.updated && !result.created) {
+        toast.error(result.message || 'No account details were saved.');
+        return;
+      }
+      toast.success(
+        `${result.message}. Open the employee → Personal details to see Account / IFSC / UAN / ESIC.`
+      );
+    } catch (e) {
+      console.error('Bank import failed:', e);
+      toast.error(e?.message || 'Bank import failed. Please check the file and try again.');
+    } finally {
+      setImportBusy(false);
+      if (bankFileInputRef.current) bankFileInputRef.current.value = '';
+    }
+  };
+
   const handleImportExcel = async (file) => {
     if (!file) return;
     setImportBusy(true);
@@ -493,57 +873,60 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Session expired. Please log in again.');
 
+      // 1) Bank / UAN / ESIC sheet — scan for header row (title rows above OK)
+      const bankParsed = await parseSalaryBankImportFile(file, {
+        employees: employees || [],
+      });
+      const bankRowCount =
+        (bankParsed.rows?.length || 0) + (bankParsed.unmatched?.length || 0);
+      const headerMissing = (bankParsed.errors || []).some((e) =>
+        /could not find a header/i.test(String(e))
+      );
+      const anyAccountValue = [...(bankParsed.rows || []), ...(bankParsed.unmatched || [])].some(
+        (r) => r.accountNo || r.ifsc || r.uanNo || r.esicNo
+      );
+
+      if (!headerMissing && bankRowCount > 0 && anyAccountValue) {
+        const result = await applySalaryBankImportToMaster(bankParsed, {
+          employees: employees || [],
+          user,
+        });
+        await fetchEmployees();
+        setCurrentPage(1);
+        if (!result.updated && !result.created && result.failures?.length) {
+          toast.error(result.message);
+        } else if (!result.updated && !result.created && !result.unchanged) {
+          toast.error(result.message || 'No account details were saved.');
+        } else {
+          toast.success(
+            `${result.message}. Open any employee → Personal details to see Account / IFSC / UAN / ESIC.`
+          );
+        }
+        return;
+      }
+
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       if (!ws) throw new Error('No sheet found in file.');
 
-      const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: true });
+      // raw:false keeps long account / UAN numbers as text
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
       if (!Array.isArray(raw) || raw.length === 0) throw new Error('Excel is empty.');
 
-      // Map headers -> fields (replicates your sheet column names)
-      const mapKeyToField = (key) => {
-        const k = normalizeHeader(key);
-        const dict = {
-          ifspl_employee_system_id: 'employee_id',
-          employment_type: 'employment_type',
-          employee_type: 'employment_type',
-          employee_code: 'employee_code',
-          emp_code: 'employee_code',
-          timestamp: 'timestamp',
-          full_name: 'full_name',
-          gender: 'gender',
-          date_of_joining: 'date_of_joining',
-          designation: 'designation',
-          department: 'department',
-          date_of_birth: 'date_of_birth',
-          date_of_anniversary: 'date_of_anniversary',
-          blood_group: 'blood_group',
-          aadhar_no: 'aadhar_no',
-          pan_card_no: 'pan_card_no',
-          religion: 'religion',
-          father_name: 'father_name',
-          mother_name: 'mother_name',
-          spouse_name: 'spouse_name',
-          son_details: 'son_details',
-          daughter_details: 'daughter_details',
-          present_address: 'address',
-          permanent_address: 'full_address',
-          personal_no: 'personal_no',
-          emergency_no: 'emergency_no',
-          identification_mark: 'identification_mark',
-          years_of_experience: 'years_of_experience',
-          educational_qualification: 'educational_qualification',
-          attachments: 'attachments',
-          other_experience: 'other_experience',
-          ifspl_experience: 'ifspl_experience',
-          date_of_leaving: 'date_of_leaving',
-          activeinactive: 'status',
-          active_inactive: 'status',
-          status: 'status',
-        };
-        return dict[k] || null;
-      };
+      const headerFields = new Set();
+      Object.keys(raw[0] || {}).forEach((k) => {
+        const field = mapImportHeaderToField(k);
+        if (field) headerFields.add(field);
+      });
+
+      if (isSalaryAccountsSheet(headerFields)) {
+        await importSalaryAccountDetails(raw, user);
+        return;
+      }
+
+      // Map headers -> fields (full employee master import)
+      const mapKeyToField = mapImportHeaderToField;
 
       const todayYmd = new Date().toISOString().slice(0, 10);
       const importRows = [...(employees || [])];
@@ -571,11 +954,38 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         const empCode = out.employee_code ? String(out.employee_code).trim() : '';
         const rawSysId = String(out.employee_id || '').trim();
         let sysId = rawSysId && rawSysId !== empCode ? rawSysId : '';
+
+        // Existing code → update account / identity fields instead of failing
+        const existingEmp = empCode ? findEmployeeByCode(importRows, empCode) : null;
+        if (existingEmp) {
+          const accountPatch = {};
+          const maybeSet = (key, nextRaw, { upper = false } = {}) => {
+            const nextVal = normAccountField(nextRaw, { upper });
+            if (!nextVal) return;
+            const curVal =
+              key === 'bank_account_no' || key === 'ifsc_code'
+                ? normAccountField(existingEmp[key], { upper }).replace(/\s+/g, '')
+                : normAccountField(existingEmp[key], { upper });
+            const cmpNext =
+              key === 'bank_account_no' || key === 'ifsc_code'
+                ? nextVal.replace(/\s+/g, '')
+                : nextVal;
+            if (!curVal || curVal !== cmpNext) accountPatch[key] = nextVal;
+          };
+          maybeSet('uan_no', out.uan_no);
+          maybeSet('esic_no', out.esic_no);
+          maybeSet('bank_account_no', out.bank_account_no);
+          maybeSet('ifsc_code', out.ifsc_code, { upper: true });
+          return {
+            __updateExistingId: existingEmp.id,
+            ...accountPatch,
+            updated_by: user.email || '',
+            updated_at: new Date().toISOString(),
+          };
+        }
+
         if (sysId && isEmployeeIdTaken(sysId, importRows)) {
           throw new Error(`Row ${idx + 2}: employee_id "${sysId}" is already in use.`);
-        }
-        if (empCode && isEmpCodeTaken(empCode, importRows)) {
-          throw new Error(`Row ${idx + 2}: employee code "${empCode}" is already in use.`);
         }
         if (!sysId) {
           sysId = nextEmployeeSystemId(importRows, employment_type);
@@ -639,10 +1049,35 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
         };
       });
 
-      // Insert rows (skip duplicates by employee_id per tenant by using upsert)
+      const toInsert = rows.filter((r) => !r.__updateExistingId);
+      const toUpdate = rows.filter((r) => r.__updateExistingId);
+
+      for (const row of toUpdate) {
+        const { __updateExistingId: id, ...payload } = row;
+        const hasAccountChange = ['uan_no', 'esic_no', 'bank_account_no', 'ifsc_code'].some(
+          (k) => payload[k] != null && String(payload[k]).trim() !== ''
+        );
+        if (!id || !hasAccountChange) continue;
+        const { data: saved, error } = await supabase
+          .from('admin_ifsp_employee_master')
+          .update(payload)
+          .eq('id', id)
+          .select('id, bank_account_no, ifsc_code')
+          .maybeSingle();
+        if (error) throw error;
+        if (!saved) {
+          console.warn('Import account update returned no row (check access)', id);
+          continue;
+        }
+        syncScopeDraftBankFromMaster(id, {
+          account_no: payload.bank_account_no ?? saved.bank_account_no,
+          ifsc: payload.ifsc_code ?? saved.ifsc_code,
+        });
+      }
+
       const chunkSize = 200;
-      for (let i = 0; i < rows.length; i += chunkSize) {
-        const chunk = rows.slice(i, i + chunkSize);
+      for (let i = 0; i < toInsert.length; i += chunkSize) {
+        const chunk = toInsert.slice(i, i + chunkSize);
         const { error } = await supabase
           .from('admin_ifsp_employee_master')
           .upsert(chunk, { onConflict: 'user_id,employee_id' });
@@ -651,7 +1086,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
 
       await fetchEmployees();
       setCurrentPage(1);
-      toast.success(`Imported ${rows.length} employees successfully.`);
+      const bits = [];
+      if (toInsert.length) bits.push(`${toInsert.length} added`);
+      if (toUpdate.length) bits.push(`${toUpdate.length} account row(s) merged`);
+      toast.success(bits.join(' · ') || 'Import finished.');
     } catch (e) {
       console.error('Import failed:', e);
       toast.error(e?.message || 'Import failed. Please check the file and try again.');
@@ -1226,12 +1664,29 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             <button
               type="button"
               disabled={importBusy}
+              onClick={() => bankFileInputRef.current?.click()}
+              className="h-9 bg-indigo-600 text-white px-3 rounded-lg hover:bg-indigo-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+              title="Import Employee Code, UAN, ESIC, A/c number, IFSC onto Personal details"
+            >
+              <CreditCard className="h-4 w-4" />
+              <span>{importBusy ? 'Importing…' : 'Import bank details'}</span>
+            </button>
+            <button
+              type="button"
+              disabled={importBusy}
               onClick={() => fileInputRef.current?.click()}
               className="h-9 bg-purple-600 text-white px-3 rounded-lg hover:bg-purple-700 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
             >
               <Upload className="h-4 w-4" />
               <span>{importBusy ? 'Importing…' : 'Import Excel'}</span>
             </button>
+            <input
+              ref={bankFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => void handleImportBankExcel(e.target.files?.[0])}
+            />
             <input
               ref={fileInputRef}
               type="file"
@@ -1296,7 +1751,9 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
             </select>
           </div>
           <p className="text-[11px] text-gray-500 mt-3">
-            Excel import uses the standard employee template columns (employee code, name, dates, department, etc.).
+            Excel bank sheet columns: Employee Code, Name of Employee, UAN Number, Esic number, A/c
+            number, IFSC Code. Use <span className="font-medium">Import bank details</span> — values
+            save on each profile and appear in Salary Processing. Edit anytime under Personal details.
           </p>
         </div>
       </div>

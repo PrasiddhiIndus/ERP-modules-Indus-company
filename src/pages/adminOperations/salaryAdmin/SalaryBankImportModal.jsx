@@ -2,36 +2,13 @@ import React, { useCallback, useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import { Modal } from "../components/AdminUi";
 import { supabase } from "../../../lib/supabase";
-import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import {
-  buildMasterPatchFromBankRow,
   downloadSalaryBankSampleSheet,
   parseSalaryBankImportFile,
 } from "../../../lib/salaryBankExcel";
+import { applySalaryBankImportToMaster } from "../../../lib/salaryBankImportApply";
 
 const PREVIEW_ROWS = 12;
-
-async function applyBankRowsToMaster(rows) {
-  let updated = 0;
-  const failures = [];
-  for (const row of rows) {
-    if (!row.employeeMasterId) continue;
-    const patch = buildMasterPatchFromBankRow(row);
-    const keys = Object.keys(patch).filter((k) => k !== "updated_at");
-    if (!keys.length) continue;
-    const { error } = await supabase
-      .from(EMPLOYEE_MASTER_TABLE)
-      .update(patch)
-      .eq("id", row.employeeMasterId);
-    if (error) {
-      console.error("Salary bank import: master update failed", row.empCode, error);
-      failures.push(row.empCode);
-    } else {
-      updated += 1;
-    }
-  }
-  return { updated, failures };
-}
 
 /**
  * Upload Indus salary bank Excel sheets → match Emp. Code → save onto employee master
@@ -98,28 +75,35 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
   );
 
   const handleImport = useCallback(async () => {
-    if (!matched.length || busy) return;
+    if ((!matched.length && !unmatched.length) || busy) return;
     setBusy(true);
     setError("");
     try {
-      const { updated, failures } = await applyBankRowsToMaster(matched);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Session expired. Please log in again.");
+
+      const result = await applySalaryBankImportToMaster(
+        { rows: matched, unmatched },
+        { employees, user }
+      );
+
       const warnParts = [];
       if (parseErrors.length) warnParts.push(parseErrors.slice(0, 2).join(" "));
-      if (failures.length) {
-        warnParts.push(`Could not save ${failures.length} employee profile(s).`);
+      if (result.failures?.length) {
+        warnParts.push(`Could not save ${result.failures.length} employee profile(s).`);
       }
-      if (unmatched.length) {
-        warnParts.push(`${unmatched.length} code(s) not in Employee Master — add them first.`);
-      }
-      const message = `Saved bank details for ${updated} employee(s)${
-        skipped ? ` · skipped ${skipped}` : ""
-      }${fileName ? ` from ${fileName}` : ""}.${warnParts.length ? ` ${warnParts.join(" ")}` : ""}`;
+      const fullMessage = `${result.message}${skipped ? ` · skipped ${skipped}` : ""}${
+        fileName ? ` from ${fileName}` : ""
+      }.${warnParts.length ? ` ${warnParts.join(" ")}` : ""}`;
 
       onImported?.({
-        message,
-        rows: matched,
-        unmatched,
-        updated,
+        message: fullMessage,
+        rows: [...matched, ...(result.createdRows || [])],
+        unmatched: [],
+        updated: result.updated,
+        created: result.created,
       });
       resetState();
       onClose?.();
@@ -131,6 +115,7 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
     }
   }, [
     busy,
+    employees,
     fileName,
     matched,
     onClose,
@@ -153,8 +138,8 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
       footer={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-gray-500">
-            {matched.length
-              ? `${matched.length} matched · ${unmatched.length} not in master`
+            {matched.length || unmatched.length
+              ? `${matched.length} matched · ${unmatched.length} will create new profiles if missing`
               : "Upload a salary bank Excel sheet to continue"}
           </p>
           <div className="flex gap-2">
@@ -169,7 +154,7 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
             <button
               type="button"
               onClick={handleImport}
-              disabled={busy || !matched.length}
+              disabled={busy || (!matched.length && !unmatched.length)}
               className="h-8 px-3 rounded-lg bg-accent text-white text-xs font-semibold disabled:opacity-60"
             >
               {busy ? "Saving…" : "Save details"}
@@ -239,6 +224,7 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
                     <th className="px-2 py-1.5 font-semibold">Name</th>
                     <th className="px-2 py-1.5 font-semibold">Account</th>
                     <th className="px-2 py-1.5 font-semibold">IFSC</th>
+                    <th className="px-2 py-1.5 font-semibold">UAN</th>
                     <th className="px-2 py-1.5 font-semibold">Note</th>
                   </tr>
                 </thead>
@@ -249,6 +235,7 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
                       <td className="px-2 py-1.5">{r.employeeName || r.masterName || "—"}</td>
                       <td className="px-2 py-1.5 tabular-nums">{r.accountNo || "—"}</td>
                       <td className="px-2 py-1.5">{r.ifsc || "—"}</td>
+                      <td className="px-2 py-1.5 tabular-nums">{r.uanNo || "—"}</td>
                       <td className="px-2 py-1.5 text-amber-800">
                         {r.matchStatus === "left"
                           ? r.confirmationNote || "Left"
@@ -267,7 +254,8 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
         {previewUnmatched.length > 0 ? (
           <div className="rounded-lg border border-amber-200 overflow-hidden">
             <div className="bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
-              Not in Employee Master ({unmatched.length}) — create the profile, then upload again
+              Not in Employee Master yet ({unmatched.length}) — Save will create basic profiles with these
+              account details
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-[11px]">
@@ -276,7 +264,6 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
                     <th className="px-2 py-1.5 font-semibold">Code</th>
                     <th className="px-2 py-1.5 font-semibold">Name</th>
                     <th className="px-2 py-1.5 font-semibold">Account</th>
-                    <th className="px-2 py-1.5 font-semibold">Note</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -285,19 +272,18 @@ export function SalaryBankImportModal({ open, employees = [], onClose, onImporte
                       <td className="px-2 py-1.5 tabular-nums">{r.empCode}</td>
                       <td className="px-2 py-1.5">{r.employeeName || "—"}</td>
                       <td className="px-2 py-1.5 tabular-nums">{r.accountNo || "—"}</td>
-                      <td className="px-2 py-1.5">{r.confirmationNote || (r.isNew ? "New" : "—")}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {unmatched.length > previewUnmatched.length ? (
-              <p className="px-3 py-2 text-[11px] text-amber-800">
-                …and {unmatched.length - previewUnmatched.length} more
-              </p>
-            ) : null}
           </div>
         ) : null}
+
+        <p className="text-[11px] text-gray-500">
+          Columns: Employee Code, Name, UAN, ESIC, A/c number, IFSC. Values save on the employee profile
+          and appear in Salary Processing automatically.
+        </p>
       </div>
     </Modal>
   );
