@@ -52,10 +52,28 @@ const btnGhost =
 const btnPrimary =
   "h-7 px-2.5 text-[11px] font-medium rounded bg-accent text-white disabled:opacity-50 inline-flex items-center gap-1";
 
+/** Employee salary line — worksheet controls */
+const sheetNumIn =
+  "w-[7.5rem] h-9 px-2.5 text-right text-[14px] font-normal tabular-nums text-ink border border-border-strong rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-info/20 focus:border-info";
+const sheetTextIn =
+  "w-full max-w-[14rem] h-9 px-2.5 text-[14px] font-normal text-ink border border-border-strong rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-info/20 focus:border-info";
+
 function Money({ value, strong = false }) {
-  if (value == null || value === "") return <span className="text-slate-300">—</span>;
+  if (value == null || value === "") return <span className="text-ink-disabled">—</span>;
   return (
-    <span className={`tabular-nums ${strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>
+    <span className={`tabular-nums font-normal ${strong ? "text-ink-strong" : "text-ink"}`}>
+      {formatINRPlain(value)}
+    </span>
+  );
+}
+
+function SheetAmt({ value, size = "md" }) {
+  if (value == null || value === "") {
+    return <span className="text-ink-disabled tabular-nums">—</span>;
+  }
+  const sizeCls = size === "lg" ? "text-2xl tracking-tight" : "text-[14px]";
+  return (
+    <span className={`tabular-nums font-normal text-ink-strong ${sizeCls}`}>
       {formatINRPlain(value)}
     </span>
   );
@@ -95,21 +113,48 @@ const SCOPE_HEADERS = [
   "Bank",
 ];
 
-const DETAIL_FIELD_CLASS =
-  "rounded border border-slate-200 bg-white px-2.5 py-2 min-h-[3.25rem] flex flex-col justify-center gap-0.5";
-const DETAIL_LABEL_CLASS = "text-[9px] font-semibold uppercase tracking-wide text-slate-500";
-
-function DetailField({ label, children, className = "" }) {
+function SheetRow({ label, hint, children, tone = "default" }) {
+  const rowBg =
+    tone === "total"
+      ? "bg-info-soft/70"
+      : tone === "edit"
+        ? "bg-white"
+        : "bg-transparent";
   return (
-    <div className={`${DETAIL_FIELD_CLASS} ${className}`}>
-      <span className={DETAIL_LABEL_CLASS}>{label}</span>
-      <div className="text-[12px] text-slate-800 min-w-0">{children}</div>
+    <div
+      className={`grid grid-cols-[minmax(0,1fr)_auto] gap-4 items-center px-4 sm:px-5 py-2.5 border-b border-divider last:border-b-0 ${rowBg}`}
+    >
+      <div className="min-w-0">
+        <p
+          className={`text-[13px] ${
+            tone === "total" ? "font-semibold text-ink-strong" : "font-medium text-ink"
+          }`}
+        >
+          {label}
+        </p>
+        {hint ? <p className="text-[11px] text-ink-muted mt-0.5">{hint}</p> : null}
+      </div>
+      <div className="justify-self-end text-right">{children}</div>
+    </div>
+  );
+}
+
+function Fact({ label, value, mono = false }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">{label}</p>
+      <p
+        className={`mt-1 text-[13px] text-ink-strong truncate ${mono ? "font-mono" : ""}`}
+        title={value == null || value === "" ? undefined : String(value)}
+      >
+        {value == null || value === "" ? "—" : value}
+      </p>
     </div>
   );
 }
 
 /**
- * Full employee salary detail page — all sheet columns, same manual + formula fields.
+ * Employee salary line — worksheet layout (summary rail + earn/deduct sheets).
  */
 function EmployeeSalaryDetailPage({
   line,
@@ -139,253 +184,343 @@ function EmployeeSalaryDetailPage({
     : "Person components (deduct)";
 
   return (
-    <div className="space-y-3 max-w-[1100px] w-full mx-auto">
-      <PageTaskHeader
-        className="mb-0"
-        title={line.employee_name || "Employee"}
-        subtitle={
-          <>
-            <span className="font-mono text-[11px] text-slate-600">{line.employee_code || "—"}</span>
-            <span className="mx-1.5 text-slate-300">·</span>
-            {line.designation || "—"}
-            <span className="mx-1.5 text-slate-300">·</span>
-            {monthLabelText}
-            <span className="mx-1.5 text-slate-300">·</span>
-            {monthDays} days
-          </>
-        }
-      >
-        {line.alreadyProcessed ? <StatusChip label="On sheet" severity="info" /> : null}
-        {dirty ? <StatusChip label="Unsaved" severity="warning" /> : null}
+    <div className="max-w-[1200px] w-full mx-auto pb-24">
+      {/* Top bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <button
           type="button"
-          className={btnGhost}
+          className="h-9 px-3 text-sm font-medium rounded-lg border border-border bg-white text-ink hover:bg-surface-sunken"
           onClick={() => {
             if (dirty && !window.confirm("Discard unsaved changes?")) return;
             onBack();
           }}
         >
-          Back
+          ← Back to sheet
         </button>
-        <button
-          type="button"
-          className={btnPrimary}
-          disabled={saving || !dirty}
-          onClick={() => onSave?.(line)}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </PageTaskHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          {line.alreadyProcessed ? <StatusChip label="On sheet" severity="info" /> : null}
+          {dirty ? <StatusChip label="Unsaved" severity="warning" /> : null}
+          <button
+            type="button"
+            disabled={saving || !dirty}
+            className="h-9 px-4 text-sm font-medium rounded-lg bg-info text-white disabled:opacity-45 hover:opacity-95"
+            onClick={() => onSave?.(line)}
+          >
+            {saving ? "Saving…" : "Save line"}
+          </button>
+        </div>
+      </div>
 
       {saveError ? (
-        <p className="text-xs text-red-600 rounded border border-red-100 bg-red-50 px-2.5 py-1.5">{saveError}</p>
+        <p className="mb-4 text-sm text-critical rounded-lg border border-critical-border bg-critical-soft px-4 py-2.5">
+          {saveError}
+        </p>
       ) : null}
       {saveMsg ? (
-        <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
+        <p className="mb-4 text-sm text-success rounded-lg border border-success-border bg-success-soft px-4 py-2.5">
           {saveMsg}
         </p>
       ) : null}
 
-      <SectionCard
-        title="Employee & bank"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          <DetailField label="Code">
-            <span className="font-mono font-medium" title={line.employee_code || undefined}>
-              {line.employee_code || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="Name" className="sm:col-span-2">
-            <span className="font-medium" title={line.employee_name || undefined}>
-              {line.employee_name || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="Desig.">
-            <span title={line.designation || undefined}>{line.designation || "—"}</span>
-          </DetailField>
-          <DetailField label="Account">
-            <input
-              className={`${textIn} w-full`}
-              value={line.account_no || ""}
-              title={line.account_no || undefined}
-              onChange={(e) => patch({ account_no: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="IFSC">
-            <input
-              className={`${textIn} w-full`}
-              value={line.ifsc || ""}
-              title={line.ifsc || undefined}
-              onChange={(e) => patch({ ifsc: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="UAN">
-            <span className="font-mono text-[11px]" title={line.uan_no || undefined}>
-              {line.uan_no || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="ESIC no.">
-            <span className="text-[11px]" title={line.esic_no || undefined}>
-              {line.esic_no || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="DOJ">
-            {line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
-          </DetailField>
-          <DetailField label="Conf.">
-            <FormDateInput
-              compact
-              className="h-7 text-[11px] w-full"
-              value={line.confirmation_date ? String(line.confirmation_date).slice(0, 10) : ""}
-              onChange={(e) => patch({ confirmation_date: e?.target?.value || null })}
-            />
-          </DetailField>
-        </div>
-      </SectionCard>
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 items-start">
+        {/* Left rail — identity + totals */}
+        <aside className="lg:sticky lg:top-3 space-y-4">
+          <div className="rounded-2xl border border-info-border bg-info overflow-hidden text-white shadow-card">
+            <div className="px-5 pt-5 pb-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">
+                {monthLabelText}
+              </p>
+              <h1 className="mt-2 text-xl font-semibold leading-snug tracking-tight">
+                {line.employee_name || "Employee"}
+              </h1>
+              <p className="mt-1.5 text-[12px] text-white/80 font-mono">{line.employee_code || "—"}</p>
+              <p className="mt-1 text-[12px] text-white/75">{line.designation || "—"}</p>
+            </div>
+            <div className="grid grid-cols-2 border-t border-white/15">
+              <div className="px-4 py-3 border-r border-white/15">
+                <p className="text-[9px] uppercase tracking-[0.1em] text-white/65">Days</p>
+                <p className="mt-1 text-lg tabular-nums font-normal">{monthDays}</p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-[9px] uppercase tracking-[0.1em] text-white/65">Present</p>
+                <p className="mt-1 text-lg tabular-nums font-normal">{line.present_days ?? "—"}</p>
+              </div>
+            </div>
+          </div>
 
-      <SectionCard
-        title="Earnings"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <DetailField label="Gross">
-            <Money value={line.salary_rate} strong />
-          </DetailField>
-          <DetailField label="P.Days">
-            <input
-              type="number"
-              step="0.5"
-              className={`${numIn} w-full`}
-              value={line.present_days ?? ""}
-              onChange={(e) => patch({ present_days: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="PF Basic">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.pf_basic ?? ""}
-              onChange={(e) => patch({ pf_basic: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="PF earn">
-            <Money value={line.pf_earned_basic} />
-          </DetailField>
-          <DetailField label="Basic">
-            <Money value={line.basic_full} />
-          </DetailField>
-          <DetailField label="B.earn">
-            <Money value={line.basic_earned} />
-          </DetailField>
-          <DetailField label="HRA">
-            <Money value={line.hra_earned} />
-          </DetailField>
-          <DetailField label="Special">
-            <Money value={line.special_allowance} />
-          </DetailField>
-          <DetailField label="Custom+">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              title={customEarnTitle}
-              value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
-              onChange={(e) =>
-                patch({
-                  custom_earn_full: e.target.value,
-                  computed_json: {
-                    ...(line.computed_json || {}),
-                    custom_earn_full: e.target.value,
-                  },
-                })
-              }
-            />
-          </DetailField>
-          <DetailField label="Gross W">
-            <Money value={line.gross_wages} strong />
-          </DetailField>
-        </div>
-      </SectionCard>
+          <div className="rounded-2xl border border-border bg-white shadow-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-divider bg-surface-raised">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                This month
+              </p>
+            </div>
+            <div className="px-4 py-4 space-y-4">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  Gross wages
+                </p>
+                <div className="mt-1">
+                  <SheetAmt value={line.gross_wages} size="lg" />
+                </div>
+              </div>
+              <div className="h-px bg-divider" />
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  Total deductions
+                </p>
+                <div className="mt-1 text-[18px]">
+                  <SheetAmt value={line.total_ded} />
+                </div>
+              </div>
+              <div className="rounded-xl bg-info-soft border border-info-border px-3.5 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-info">
+                  Net salary
+                </p>
+                <div className="mt-1 text-info">
+                  <SheetAmt value={line.net_salary} size="lg" />
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  Bank amount
+                </p>
+                <div className="mt-1 text-[18px]">
+                  <SheetAmt value={line.bank_amount} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
 
-      <SectionCard
-        title="Deductions & net"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <DetailField label="PF 12%">
-            <Money value={line.emp_pf} />
-          </DetailField>
-          <DetailField label="ESIC">
-            <Money value={line.emp_esic} />
-          </DetailField>
-          <DetailField label="PT">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.pt_amount ?? ""}
-              onChange={(e) => patch({ pt_amount: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Loan">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.loan ?? 0}
-              onChange={(e) => patch({ loan: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Sal Adv">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.sal_adv ?? 0}
-              onChange={(e) => patch({ sal_adv: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="U/P">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.unpaid_paid ?? 0}
-              onChange={(e) => patch({ unpaid_paid: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="TDS">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.tds ?? 0}
-              onChange={(e) => patch({ tds: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Custom−">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              title={customDedTitle}
-              value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
-              onChange={(e) =>
-                patch({
-                  custom_ded_full: e.target.value,
-                  computed_json: {
-                    ...(line.computed_json || {}),
-                    custom_ded_full: e.target.value,
-                  },
-                })
-              }
-            />
-          </DetailField>
-          <DetailField label="Tot Ded">
-            <Money value={line.total_ded} />
-          </DetailField>
-          <DetailField label="Net">
-            <Money value={line.net_salary} strong />
-          </DetailField>
-          <DetailField label="Bank">
-            <Money value={line.bank_amount} strong />
-          </DetailField>
+        {/* Right — worksheets */}
+        <div className="space-y-4 min-w-0">
+          {/* Profile / bank strip */}
+          <section className="rounded-2xl border border-border bg-white shadow-card overflow-hidden">
+            <div className="px-5 py-3 border-b border-divider flex items-center justify-between gap-3 bg-surface-raised">
+              <h2 className="text-[14px] font-semibold text-ink-strong">Employee & bank</h2>
+              <span className="text-[11px] text-ink-muted">Edit account / IFSC if needed</span>
+            </div>
+            <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-x-5 gap-y-4">
+              <Fact label="UAN" value={line.uan_no} mono />
+              <Fact label="ESIC no." value={line.esic_no} />
+              <Fact
+                label="Date of joining"
+                value={line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
+              />
+              <div className="min-w-0 sm:col-span-1">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  Account number
+                </p>
+                <input
+                  className={`${sheetTextIn} mt-1.5`}
+                  value={line.account_no || ""}
+                  onChange={(e) => patch({ account_no: e.target.value })}
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  IFSC
+                </p>
+                <input
+                  className={`${sheetTextIn} mt-1.5`}
+                  value={line.ifsc || ""}
+                  onChange={(e) => patch({ ifsc: e.target.value })}
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  Confirmation
+                </p>
+                <FormDateInput
+                  className="mt-1.5 h-9 text-[14px] w-full max-w-[14rem]"
+                  value={line.confirmation_date ? String(line.confirmation_date).slice(0, 10) : ""}
+                  onChange={(e) => patch({ confirmation_date: e?.target?.value || null })}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Earnings sheet */}
+          <section className="rounded-2xl border border-border bg-white shadow-card overflow-hidden">
+            <div className="px-5 py-3 border-b border-info-border bg-info-soft/60 flex items-baseline justify-between gap-3">
+              <h2 className="text-[14px] font-semibold text-ink-strong">Earnings</h2>
+              <p className="text-[11px] text-ink-muted">White rows are editable</p>
+            </div>
+            <div>
+              <SheetRow label="Gross (CTC rate)">
+                <SheetAmt value={line.salary_rate} />
+              </SheetRow>
+              <SheetRow label="Present days" hint="Drives earned amounts" tone="edit">
+                <input
+                  type="number"
+                  step="0.5"
+                  className={sheetNumIn}
+                  value={line.present_days ?? ""}
+                  onChange={(e) => patch({ present_days: e.target.value })}
+                />
+              </SheetRow>
+              <SheetRow label="PF basic" tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  value={line.pf_basic ?? ""}
+                  onChange={(e) => patch({ pf_basic: e.target.value })}
+                />
+              </SheetRow>
+              <SheetRow label="PF earn">
+                <SheetAmt value={line.pf_earned_basic} />
+              </SheetRow>
+              <SheetRow label="Basic">
+                <SheetAmt value={line.basic_full} />
+              </SheetRow>
+              <SheetRow label="Basic earned">
+                <SheetAmt value={line.basic_earned} />
+              </SheetRow>
+              <SheetRow label="HRA">
+                <SheetAmt value={line.hra_earned} />
+              </SheetRow>
+              <SheetRow label="Special allowance">
+                <SheetAmt value={line.special_allowance} />
+              </SheetRow>
+              <SheetRow label="Custom +" hint={customEarnTitle} tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  title={customEarnTitle}
+                  value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
+                  onChange={(e) =>
+                    patch({
+                      custom_earn_full: e.target.value,
+                      computed_json: {
+                        ...(line.computed_json || {}),
+                        custom_earn_full: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </SheetRow>
+              <SheetRow label="Gross wages" tone="total">
+                <SheetAmt value={line.gross_wages} />
+              </SheetRow>
+            </div>
+          </section>
+
+          {/* Deductions sheet */}
+          <section className="rounded-2xl border border-border bg-white shadow-card overflow-hidden">
+            <div className="px-5 py-3 border-b border-divider bg-surface-raised flex items-baseline justify-between gap-3">
+              <h2 className="text-[14px] font-semibold text-ink-strong">Deductions</h2>
+              <p className="text-[11px] text-ink-muted">Loan, advance, TDS — edit as needed</p>
+            </div>
+            <div>
+              <SheetRow label="Employee PF (12%)">
+                <SheetAmt value={line.emp_pf} />
+              </SheetRow>
+              <SheetRow label="ESIC">
+                <SheetAmt value={line.emp_esic} />
+              </SheetRow>
+              <SheetRow label="Professional tax" tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  value={line.pt_amount ?? ""}
+                  onChange={(e) => patch({ pt_amount: e.target.value })}
+                />
+              </SheetRow>
+              <SheetRow label="Loan" tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  value={line.loan ?? 0}
+                  onChange={(e) => patch({ loan: e.target.value })}
+                />
+              </SheetRow>
+              <SheetRow label="Salary advance" tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  value={line.sal_adv ?? 0}
+                  onChange={(e) => patch({ sal_adv: e.target.value })}
+                />
+              </SheetRow>
+              <SheetRow label="Unpaid / Paid" tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  value={line.unpaid_paid ?? 0}
+                  onChange={(e) => patch({ unpaid_paid: e.target.value })}
+                />
+              </SheetRow>
+              <SheetRow label="TDS" tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  value={line.tds ?? 0}
+                  onChange={(e) => patch({ tds: e.target.value })}
+                />
+              </SheetRow>
+              <SheetRow label="Custom −" hint={customDedTitle} tone="edit">
+                <input
+                  type="number"
+                  className={sheetNumIn}
+                  title={customDedTitle}
+                  value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
+                  onChange={(e) =>
+                    patch({
+                      custom_ded_full: e.target.value,
+                      computed_json: {
+                        ...(line.computed_json || {}),
+                        custom_ded_full: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </SheetRow>
+              <SheetRow label="Total deductions" tone="total">
+                <SheetAmt value={line.total_ded} />
+              </SheetRow>
+            </div>
+          </section>
         </div>
-      </SectionCard>
+      </div>
+
+      {/* Sticky save bar */}
+      <div className="fixed bottom-0 inset-x-0 z-20 pointer-events-none">
+        <div className="max-w-[1200px] mx-auto px-4 pb-4 pointer-events-auto">
+          <div className="rounded-xl border border-border bg-white/95 backdrop-blur shadow-lg px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[12px] text-ink-muted truncate">
+                {line.employee_name} · Net{" "}
+                <span className="text-ink-strong tabular-nums">
+                  {formatINRPlain(line.net_salary)}
+                </span>
+              </p>
+              <p className="text-[11px] text-ink-muted">
+                {dirty ? "Unsaved edits on this line" : "All changes saved"}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="h-9 px-3 text-sm font-medium rounded-lg border border-border bg-white hover:bg-surface-sunken"
+                onClick={() => {
+                  if (dirty && !window.confirm("Discard unsaved changes?")) return;
+                  onBack();
+                }}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                disabled={saving || !dirty}
+                className="h-9 px-4 text-sm font-medium rounded-lg bg-info text-white disabled:opacity-45"
+                onClick={() => onSave?.(line)}
+              >
+                {saving ? "Saving…" : "Save line"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
