@@ -666,7 +666,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
       const tenderRequired = [
         ["tenderNumber", "Tender Number"],
         ["estimatedValueClient", "Estimated Value (Client)"],
-        ["ourQuotedRate", "Our Quoted Rate"],
       ];
       for (const [field, label] of tenderRequired) {
         if (!String(formData[field] || "").trim()) {
@@ -674,31 +673,9 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           return false;
         }
       }
-      if (!formData.portalProofAttachment && !existingPortalProofPathRef.current) {
-        toast.warning("Validation", "Please upload Portal Screenshot / Proof.");
-        return false;
-      }
       if (isTenderFeeApplicable && !String(formData.tenderFeeAmount || "").trim()) {
         toast.warning("Validation", "Please enter Tender Fee Amount.");
         return false;
-      }
-      if (isEmdFeePayable && !String(formData.emdFeeAmount || "").trim()) {
-        toast.warning("Validation", "Please enter EMD Fee Amount.");
-        return false;
-      }
-      if (isPaymentRequired) {
-        if (!formData.paymentMode) {
-          toast.warning("Validation", "Please select Payment Mode.");
-          return false;
-        }
-        if (!String(formData.paymentReferenceNo || "").trim()) {
-          toast.warning("Validation", "Please enter DD / NEFT Reference No.");
-          return false;
-        }
-        if (!formData.paymentDate) {
-          toast.warning("Validation", "Please enter Payment Date.");
-          return false;
-        }
       }
     }
 
@@ -888,27 +865,6 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             inputClass={inputClass}
           />
         </Field>
-        <Field label="Our Quoted Rate" required>
-          <CurrencyInput
-            name="ourQuotedRate"
-            value={formData.ourQuotedRate}
-            onChange={handleChange}
-            placeholder="Rate on portal"
-            inputClass={inputClass}
-          />
-        </Field>
-        <Field label="Portal Screenshot / Proof" required className="sm:col-span-2" hint="PNG or PDF of submission confirmation.">
-          <input
-            type="file"
-            name="portalProofAttachment"
-            accept=".png,.pdf,image/png,application/pdf"
-            onChange={handleChange}
-            className={fileClass}
-          />
-          {existingPortalProofPathRef.current && !formData.portalProofAttachment && (
-            <p className="mt-1.5 text-xs font-medium text-emerald-700">Existing proof on file.</p>
-          )}
-        </Field>
       </div>
 
       <div className="mt-6 pt-5 border-t border-blue-200/70">
@@ -954,7 +910,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
             </Field>
             {isEmdFeePayable && (
               <div className="mt-4 rounded-md border border-blue-100 bg-blue-50/50 p-3.5">
-                <Field label="EMD Fee Amount (Manual Entry)" required hint="Enter EMD amount payable as per tender document.">
+                <Field label="EMD Fee Amount (Manual Entry)" hint="Enter EMD amount payable as per tender document.">
                   <CurrencyInput
                     name="emdFeeAmount"
                     value={formData.emdFeeAmount}
@@ -975,7 +931,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
           <div className="mt-5 rounded-lg border border-amber-200/80 bg-amber-50/40 p-4 sm:p-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 mb-4">Payment Details</p>
             <div className={gridClass}>
-              <Field label="Payment Mode" required>
+              <Field label="Payment Mode">
                 <select name="paymentMode" value={formData.paymentMode} onChange={handleChange} className={selectClass}>
                   <option value="">Select mode</option>
                   {PAYMENT_MODE_OPTIONS.map((opt) => (
@@ -985,7 +941,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                   ))}
                 </select>
               </Field>
-              <Field label="DD / NEFT Reference No." required hint="DD number or UTR number.">
+              <Field label="DD / NEFT Reference No." hint="DD number or UTR number.">
                 <input
                   name="paymentReferenceNo"
                   value={formData.paymentReferenceNo}
@@ -994,7 +950,7 @@ const ManpowerEnquiryFormPanel = ({ enquiryId, onSaved, onCancel }) => {
                   placeholder="Reference number"
                 />
               </Field>
-              <Field label="Payment Date" required>
+              <Field label="Payment Date">
                 <FormDateInput name="paymentDate" value={formData.paymentDate} onChange={handleChange} className={inputClass} />
               </Field>
             </div>

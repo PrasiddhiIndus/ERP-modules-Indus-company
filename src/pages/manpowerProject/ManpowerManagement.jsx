@@ -531,7 +531,7 @@ const ManpowerManagement = () => {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                  Manpower — Enquiry Master
+                 Enquiry Master
                 </h1>
                 <p className="mt-1 text-sm text-slate-600 sm:text-base">
                   {isDashboardView

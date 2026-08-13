@@ -743,7 +743,7 @@ const Layout = () => {
                   </NavLink>
                   <NavLink to="/app/manpower" end className={subNavClass}>
                     <Users className="w-4 h-4 shrink-0 text-accent" />
-                    <span className="type-meta type-truncate">Manpower Management Enquiry</span>
+                    <span className="type-meta type-truncate">Enquiry</span>
                   </NavLink>
                   <NavLink to="/app/manpower/internal-quotation" className={subNavClass}>
                     <Calculator className="w-4 h-4 shrink-0 text-green-700" />
