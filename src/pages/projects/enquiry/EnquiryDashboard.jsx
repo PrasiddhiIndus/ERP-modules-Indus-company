@@ -527,7 +527,7 @@ export default function EnquiryDashboard() {
           <label className="block">
             <span className="text-xs font-medium text-gray-600 mb-1 block">Current status</span>
             <select value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className={selectCls}>
-              <option value="">All statuses</option>
+              <option value="">All status</option>
               {statusOptions.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}

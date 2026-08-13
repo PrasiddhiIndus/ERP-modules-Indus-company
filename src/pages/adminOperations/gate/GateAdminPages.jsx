@@ -46,7 +46,7 @@ export function GateEmployeeMovementPage() {
           <FilterBar>
             <TinyInput type="date" className="w-[130px]" />
             <TinySelect>
-              <option>All statuses</option>
+              <option>All status</option>
               <option>Outside</option>
               <option>Overdue</option>
             </TinySelect>

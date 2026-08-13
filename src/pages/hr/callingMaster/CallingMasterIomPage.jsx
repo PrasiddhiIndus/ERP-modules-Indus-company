@@ -5,7 +5,6 @@ import {
   Download,
   ExternalLink,
   Pencil,
-  Printer,
   RefreshCw,
   Search,
   X,
@@ -16,8 +15,8 @@ import {
   fileLabelFromCallingAttachment,
   presignCallingMasterR2Get,
 } from "../../../lib/callingMasterR2";
-import { downloadIomLetter, openIomLetterPrintPreview } from "../../../lib/iomLetterDocuments";
 import { listSites } from "../../../lib/peopleAttendanceApi";
+import { downloadRecruitmentIomExcel } from "../../../lib/siteIomExport";
 import { supabase } from "../../../lib/supabase";
 import {
   DenseTable,
@@ -42,25 +41,8 @@ import {
   normalizeJoiningChecklist,
   normalizeRecruitmentIomEntry,
 } from "./callingMasterConfig";
-import { CallingActionBar, CallingActionBtn, CallingActionMenu } from "./CallingTableActions";
+import { CallingActionBar, CallingActionBtn } from "./CallingTableActions";
 import { confirmIomEntry, loadIomCandidates, saveIomEntry } from "./callingMasterStorage";
-
-function toIomLetterPayload(row, entry) {
-  return {
-    iomReferenceNo: row.iomReferenceNo,
-    iomDate: entry?.eventDate || new Date().toISOString().slice(0, 10),
-    departments: row.iomDepartments,
-    salutation: row.offerSalutation || "Mr.",
-    candidateName: entry?.employeeName || row.candidateName,
-    fatherName: entry?.fatherName || row.fatherName,
-    employeeCode: entry?.employeeCode || row.employeeCode,
-    designation: entry?.designation || row.designation,
-    actualJoiningDate: entry?.dateOfJoining || row.actualJoiningDate,
-    joiningDate: row.joiningDate,
-    siteFullName: entry?.siteName || row.siteFullName || row.siteSuitable,
-    offerReferenceNo: row.offerReferenceNo,
-  };
-}
 
 function ChecklistDocLink({ file, onOpen }) {
   if (!file) return null;
@@ -498,7 +480,6 @@ export default function CallingMasterIomPage() {
       setEntryForm(buildRecruitmentIomEntryFromCandidate(saved, sites));
       setSelectedId(saved.id);
       setMessage("IOM confirmed. You can still edit and Save any details.");
-      await downloadIomLetter(toIomLetterPayload(saved, normalized));
     } catch (err) {
       console.error(err);
       setError(err?.message || "Unable to confirm IOM entry.");
@@ -507,27 +488,26 @@ export default function CallingMasterIomPage() {
     }
   };
 
-  const handleDownload = async (row) => {
+  const handleExportExcel = () => {
     setError("");
     try {
-      if (!isIomConfirmed(row)) throw new Error("Confirm the IOM entry first.");
-      const entry = buildRecruitmentIomEntryFromCandidate(row, sites);
-      await downloadIomLetter(toIomLetterPayload(row, entry));
+      if (!filtered.length) {
+        setError("No IOM entries to export.");
+        return;
+      }
+      const exportRows = filtered.map((row) => {
+        const entry = buildRecruitmentIomEntryFromCandidate(row, sites);
+        return {
+          ...entry,
+          iomReferenceNo: row.iomReferenceNo || "",
+          entryStatus: iomEntryStatusLabel(row),
+        };
+      });
+      downloadRecruitmentIomExcel(exportRows);
+      setMessage("Excel downloaded.");
     } catch (err) {
       console.error(err);
-      setError(err?.message || "Unable to download IOM.");
-    }
-  };
-
-  const handlePreview = (row) => {
-    setError("");
-    try {
-      if (!isIomConfirmed(row)) throw new Error("Confirm the IOM entry first.");
-      const entry = buildRecruitmentIomEntryFromCandidate(row, sites);
-      openIomLetterPrintPreview(toIomLetterPayload(row, entry));
-    } catch (err) {
-      console.error(err);
-      setError(err?.message || "Unable to preview IOM.");
+      setError(err?.message || "Unable to export Excel.");
     }
   };
 
@@ -595,46 +575,25 @@ export default function CallingMasterIomPage() {
     {
       key: "actions",
       label: "Actions",
-      widthClassName: "w-[180px] min-w-[180px] max-w-[180px]",
+      widthClassName: "w-[148px] min-w-[148px] max-w-[148px]",
       cellClassName: "align-middle",
-      render: (row) => {
-        const locked = isIomConfirmed(row);
-        return (
-          <CallingActionBar>
-            <CallingActionBtn
-              icon={Pencil}
-              label="Edit"
-              tone="accent"
-              onClick={() => openEntryForRow(row)}
-            />
-            <CallingActionBtn
-              icon={ClipboardList}
-              label="Docs"
-              iconOnly
-              title="Docs"
-              onClick={() => setDocsRow(row)}
-            />
-            <CallingActionMenu
-              items={[
-                {
-                  key: "print",
-                  label: "Print",
-                  icon: Printer,
-                  disabled: !locked,
-                  onClick: () => handlePreview(row),
-                },
-                {
-                  key: "download",
-                  label: "Download",
-                  icon: Download,
-                  disabled: !locked,
-                  onClick: () => void handleDownload(row),
-                },
-              ]}
-            />
-          </CallingActionBar>
-        );
-      },
+      render: (row) => (
+        <CallingActionBar>
+          <CallingActionBtn
+            icon={Pencil}
+            label="Edit"
+            tone="accent"
+            onClick={() => openEntryForRow(row)}
+          />
+          <CallingActionBtn
+            icon={ClipboardList}
+            label="Docs"
+            iconOnly
+            title="Docs"
+            onClick={() => setDocsRow(row)}
+          />
+        </CallingActionBar>
+      ),
     },
   ];
 
@@ -642,8 +601,16 @@ export default function CallingMasterIomPage() {
     <div className="space-y-4">
       <PageTaskHeader
         title="IOM"
-        subtitle="One entry per candidate after the joining checklist is complete. Edit Bank & KYC anytime — Confirm allocates the reference and adds the New row to Site Employee IOM."
+        subtitle="One entry per candidate after the joining checklist is complete. Confirm allocates the reference and adds the New row to Site Employee IOM. Export the list to Excel when needed."
       >
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          className="inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded border border-slate-300 bg-white hover:bg-slate-50"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export to Excel
+        </button>
         <button
           type="button"
           onClick={refresh}

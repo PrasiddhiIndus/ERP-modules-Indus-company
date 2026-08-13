@@ -435,7 +435,7 @@ export default function MaintenanceReports() {
             ) : null}
             {showStatusFilter ? (
               <TinySelect value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="min-w-[130px]">
-                <option value="ALL">All statuses</option>
+                <option value="ALL">All status</option>
                 {statusOptions.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}

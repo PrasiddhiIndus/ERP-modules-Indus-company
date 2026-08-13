@@ -363,7 +363,7 @@ export function FilterPanel({
             onChange={onStatusChange}
             className={`h-9 rounded-lg border px-2 text-xs min-w-[7rem] ${t.input} ${t.focusRing}`}
           >
-            <option value="all">All statuses</option>
+            <option value="all">All status</option>
             {Object.entries(statusLabels).map(([k, label]) => (
               <option key={k} value={k}>
                 {label}
