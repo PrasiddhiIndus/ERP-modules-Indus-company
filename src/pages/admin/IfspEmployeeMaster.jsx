@@ -54,6 +54,7 @@ import {
   Clock
 } from 'lucide-react';
 import { toast } from '../../lib/toast';
+import EmployeeMasterPersonalForm from './employeeMaster/EmployeeMasterPersonalForm';
 
 /** Default list view — identify and act on employees without exposing the full master record. */
 const EMPLOYEE_LIST_SUMMARY_FIELDS = new Set([
