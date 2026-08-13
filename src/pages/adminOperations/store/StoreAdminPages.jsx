@@ -202,7 +202,7 @@ export function StoreTransferPage() {
         <div>
           <FilterBar>
             <TinySelect>
-              <option>All statuses</option>
+              <option>All status</option>
               <option>In transit</option>
               <option>Received</option>
             </TinySelect>

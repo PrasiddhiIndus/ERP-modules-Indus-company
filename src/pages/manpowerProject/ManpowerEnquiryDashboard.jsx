@@ -286,7 +286,7 @@ export default function ManpowerEnquiryDashboard({ embedded = false }) {
                   onChange={(e) => setFilter("analyticsStatus", e.target.value)}
                   className="min-w-[160px]"
                 >
-                  <option value="">All statuses</option>
+                  <option value="">All status</option>
                   {ANALYTICS_STATUS_OPTIONS.map((s) => (
                     <option key={s} value={s}>
                       {s}
