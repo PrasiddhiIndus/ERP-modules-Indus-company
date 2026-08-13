@@ -141,9 +141,10 @@ export default function IfspEmployeeMasterDetail() {
     [employeeId]
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts = {}) => {
+    const soft = Boolean(opts.soft);
     try {
-      setLoading(true);
+      if (!soft) setLoading(true);
       setError("");
       const {
         data: { user },
@@ -157,7 +158,11 @@ export default function IfspEmployeeMasterDetail() {
       }
 
       const [oneRes, allRes] = await Promise.all([
-        supabase.from("admin_ifsp_employee_master").select("*").eq("id", employeeId).maybeSingle(),
+        supabase
+          .from("admin_ifsp_employee_master")
+          .select("*")
+          .eq("id", employeeId)
+          .maybeSingle(),
         supabase
           .from("admin_ifsp_employee_master")
           .select("*")
@@ -176,48 +181,66 @@ export default function IfspEmployeeMasterDetail() {
       setEmployee(oneRes.data);
       setEmployees(allRes.data || []);
 
-      const local = getEmployeeDeductions(employeeId);
-      let merged = local;
+      if (!soft) {
+        const local = getEmployeeDeductions(employeeId);
+        let merged = local;
 
-      if (!local.loans?.length) {
-        try {
-          const { data: hrLoans, error: hrErr } = await supabase
-            .from("hr_payroll_loans")
-            .select("*")
-            .eq("employee_master_id", employeeId)
-            .order("created_at", { ascending: false });
-          if (!hrErr && hrLoans?.length) {
-            merged = {
-              ...local,
-              loans: hrLoans.map(mapHrLoan),
-            };
-            saveEmployeeDeductions(employeeId, merged);
+        if (!local.loans?.length) {
+          try {
+            const { data: hrLoans, error: hrErr } = await supabase
+              .from("hr_payroll_loans")
+              .select("*")
+              .eq("employee_master_id", employeeId)
+              .order("created_at", { ascending: false });
+            if (!hrErr && hrLoans?.length) {
+              merged = {
+                ...local,
+                loans: hrLoans.map(mapHrLoan),
+              };
+              saveEmployeeDeductions(employeeId, merged);
+            }
+          } catch (hrLoadErr) {
+            console.warn("Employee Master: HR loans soft-load skipped", hrLoadErr);
           }
-        } catch (hrLoadErr) {
-          console.warn("Employee Master: HR loans soft-load skipped", hrLoadErr);
         }
-      }
-      setDeductions(merged);
+        setDeductions(merged);
 
-      try {
-        const vars = await fetchOpenVariancesForEmployee(oneRes.data.id);
-        setSalaryVariances(vars || []);
-      } catch (varErr) {
-        console.warn("Employee Master: salary variances soft-load skipped", varErr);
-        setSalaryVariances([]);
+        try {
+          const vars = await fetchOpenVariancesForEmployee(oneRes.data.id);
+          setSalaryVariances(vars || []);
+        } catch (varErr) {
+          console.warn("Employee Master: salary variances soft-load skipped", varErr);
+          setSalaryVariances([]);
+        }
       }
     } catch (err) {
       console.error("Employee Master detail: load failed", err);
-      setEmployee(null);
-      setSalaryVariances([]);
-      setError("Could not load employee. Please try again.");
+      if (!soft) {
+        setEmployee(null);
+        setSalaryVariances([]);
+        setError("Could not load employee. Please try again.");
+      }
     } finally {
-      setLoading(false);
+      if (!soft) setLoading(false);
     }
   }, [employeeId]);
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // After Excel import elsewhere, soft-refresh Personal details from DB (keep form mounted)
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "hidden") return;
+      load({ soft: true });
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [load]);
 
   const setTab = (id) => {
@@ -372,8 +395,16 @@ export default function IfspEmployeeMasterDetail() {
                   variant="page"
                   showCancel={false}
                   onSaved={(saved) => {
-                    if (saved) setEmployee((prev) => ({ ...prev, ...saved }));
-                    else load();
+                    if (saved) {
+                      setEmployee((prev) => ({ ...prev, ...saved }));
+                      setEmployees((list) =>
+                        (list || []).map((row) =>
+                          String(row.id) === String(saved.id) ? { ...row, ...saved } : row
+                        )
+                      );
+                    } else {
+                      load();
+                    }
                   }}
                 />
               </SectionCard>

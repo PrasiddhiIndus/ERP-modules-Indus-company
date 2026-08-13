@@ -33,7 +33,7 @@ import { applySalarySheetToEmployeeMasters } from "../../admin/employeeMaster/de
 import { resolvePersonComponentsForPayroll } from "./salaryComponentsCatalog";
 
 /** Set false to use live salary processing APIs. */
-export const USE_MOCK_SALARY_PROCESSING = true;
+export const USE_MOCK_SALARY_PROCESSING = false;
 
 function rid(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -389,7 +389,7 @@ export async function mockFetchSalaryProcessCandidates({
       supabase
         .from(EMPLOYEE_MASTER_TABLE)
         .select(
-          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, status"
+          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
         )
         .eq("status", "Active")
         .order("employee_code", { ascending: true }),
@@ -415,6 +415,8 @@ export async function mockFetchSalaryProcessCandidates({
         confirmation_date: emp.confirmation_date || null,
         bank_account_no: emp.bank_account_no || "",
         ifsc_code: emp.ifsc_code || "",
+        uan_no: emp.uan_no || "",
+        esic_no: emp.esic_no || "",
         employee_id: emp.employee_id || "",
         hasCtc,
         eligible,
@@ -516,7 +518,7 @@ export async function mockProcessSalaryMonth({
       supabase
         .from(EMPLOYEE_MASTER_TABLE)
         .select(
-          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, status"
+          "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
         )
         .eq("status", "Active")
         .order("employee_code", { ascending: true }),
@@ -574,6 +576,13 @@ export async function mockProcessSalaryMonth({
       });
       const draft = getScopeLineDraft(key, emp.id);
       if (draft) line = applyScopeLineDraft(line, draft, days);
+      line = {
+        ...line,
+        account_no: emp.bank_account_no || line.account_no || "",
+        ifsc: emp.ifsc_code || line.ifsc || "",
+        uan_no: emp.uan_no || line.uan_no || "",
+        esic_no: emp.esic_no || line.esic_no || "",
+      };
       lines.push({
         ...line,
         id: rid("line"),

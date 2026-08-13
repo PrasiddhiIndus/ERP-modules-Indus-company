@@ -24,17 +24,10 @@ export const ADMIN_OPS_NAV = [
       // { label: "Exit & F&F", path: "employee-exit" },
       { label: "Alerts & Notifications", path: "alerts" },
       { label: "Reports & Analytics", path: "reports" },
+      // Single entry — modules switch on the Salary Admin page itself
+      { label: "Salary Admin", path: "salary-admin/dashboard", salaryAdminOnly: true },
       // NAV_HIDDEN: Settings / Masters
       // { label: "Settings / Masters", path: "settings" },
-    ],
-  },
-  {
-    title: "Salary Admin",
-    salaryAdminOnly: true,
-    items: [
-      { label: "Salary Dashboard", path: "salary-admin/dashboard", salaryAdminOnly: true },
-      { label: "Salary Components", path: "salary-admin/salary-components", salaryAdminOnly: true },
-      { label: "Salary Processing", path: "salary-admin/salary-processing", salaryAdminOnly: true },
     ],
   },
 ];

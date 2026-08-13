@@ -124,6 +124,35 @@ export function formatINR(value) {
   })}`;
 }
 
+/** Round P.A. to 2 decimal places (paisa). */
+export function roundPa(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.round(x * 100) / 100;
+}
+
+/**
+ * Parse a P.A. input — allows decimals (e.g. 480030.50, .50, 30).
+ * Null if empty/invalid. Does not affect monthly amounts.
+ */
+export function parsePaInput(raw) {
+  if (raw == null || raw === "") return null;
+  const n = Number(String(raw).replace(/,/g, "").trim());
+  if (!Number.isFinite(n)) return null;
+  return roundPa(n);
+}
+
+/** Format P.A. amounts; shows decimals only when present. */
+export function formatPA(value) {
+  if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
+  const n = roundPa(value);
+  const hasDec = Math.abs(n % 1) > 1e-9;
+  return `₹${n.toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: hasDec ? 2 : 0,
+  })}`;
+}
+
 /**
  * Format dates for salary UI. Date-only (YYYY-MM-DD) uses local calendar day
  * so W.E.F. never shifts by one day in IST / other offsets.
@@ -150,6 +179,10 @@ export function formatSalaryDate(isoOrDate) {
   });
 }
 
+/**
+ * Auto P.A. from monthly (monthly × 12). Unchanged formula —
+ * manual P.A. overrides live only in the CTC sheet UI and never reverse into monthly.
+ */
 export function paFromMonthly(monthly) {
   if (monthly == null || monthly === "") return null;
   return round0(Number(monthly)) * 12;
