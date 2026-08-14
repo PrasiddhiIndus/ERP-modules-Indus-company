@@ -11,13 +11,15 @@ import {
   CollapsibleHelp,
 } from "../components/AdminUi";
 import {
+  collectPersonComponentsDirectory,
   evalComponentFormula,
   flattenComponentTree,
   getDefaultCtcComponents,
+  hydratePersonComponents,
   loadPersonComponents,
   normalizeComponentCode,
   newComponentId,
-  savePersonComponents,
+  persistPersonComponents,
   suggestComponentCode,
   validateComponentFormula,
 } from "./salaryComponentsCatalog";
@@ -78,12 +80,28 @@ export default function SalaryComponentsMaster() {
   const [personId, setPersonId] = useState(() => searchParams.get("employee") || searchParams.get("employeeId") || "");
   const [personComponents, setPersonComponents] = useState([]);
   const [defaultsOpen, setDefaultsOpen] = useState(false);
+  const [allPersonRows, setAllPersonRows] = useState([]);
+  const [allLoading, setAllLoading] = useState(false);
+  const [directoryQ, setDirectoryQ] = useState("");
 
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(() => blankForm());
   const [editingId, setEditingId] = useState(null);
+
+  const refreshAllPersonRows = useCallback(async (empList = employees) => {
+    setAllLoading(true);
+    try {
+      const rows = await collectPersonComponentsDirectory(empList || []);
+      setAllPersonRows(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      console.warn("Salary components: directory load failed", err);
+      setAllPersonRows([]);
+    } finally {
+      setAllLoading(false);
+    }
+  }, [employees]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +123,15 @@ export default function SalaryComponentsMaster() {
     };
   }, []);
 
+  // Once employees load (or change), build directory from DB + all CTC profile caches
+  useEffect(() => {
+    if (!employees.length) {
+      refreshAllPersonRows([]);
+      return;
+    }
+    refreshAllPersonRows(employees);
+  }, [employees, refreshAllPersonRows]);
+
   useEffect(() => {
     const fromUrl = searchParams.get("employee") || searchParams.get("employeeId") || "";
     if (fromUrl && String(fromUrl) !== String(personId)) {
@@ -113,13 +140,25 @@ export default function SalaryComponentsMaster() {
   }, [searchParams]);
 
   useEffect(() => {
+    let cancelled = false;
     if (!personId) {
       setPersonComponents([]);
-      return;
+      return undefined;
     }
     setPersonComponents(loadPersonComponents(personId));
     setNotice("");
     setError("");
+    (async () => {
+      try {
+        const rows = await hydratePersonComponents(personId);
+        if (!cancelled) setPersonComponents(rows);
+      } catch (err) {
+        console.warn("Salary components hydrate failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [personId]);
 
   const selectedEmp = useMemo(
@@ -139,11 +178,21 @@ export default function SalaryComponentsMaster() {
   }, [employees, empQ]);
 
   const persistPerson = useCallback(
-    (next) => {
+    async (next) => {
       if (!personId) return;
-      setPersonComponents(savePersonComponents(personId, next));
+      try {
+        const saved = await persistPersonComponents(personId, next);
+        setPersonComponents(saved);
+        setError("");
+        refreshAllPersonRows(employees);
+      } catch (err) {
+        console.error("Salary components save failed", err);
+        setError(err?.message || "Could not save components to the database.");
+        setPersonComponents(Array.isArray(next) ? next : []);
+        refreshAllPersonRows(employees);
+      }
     },
-    [personId]
+    [personId, refreshAllPersonRows, employees]
   );
 
   const knownCodes = useMemo(() => {
@@ -153,7 +202,6 @@ export default function SalaryComponentsMaster() {
   }, [defaults, personComponents]);
 
   const parentOptions = useMemo(() => {
-    // Nest under default groups / lines, or under this person's existing customs
     return [
       ...defaults.filter((c) => c.code === "PART_A" || c.code === "PART_B" || c.kind !== "group"),
       ...personComponents,
@@ -161,6 +209,37 @@ export default function SalaryComponentsMaster() {
   }, [defaults, personComponents]);
 
   const personTree = useMemo(() => flattenComponentTree(personComponents), [personComponents]);
+
+  const filteredDirectoryRows = useMemo(() => {
+    const needle = directoryQ.trim().toLowerCase();
+    if (!needle) return allPersonRows;
+    return allPersonRows.filter((r) => {
+      const hay = `${r.employee_code || ""} ${r.employee_name || ""} ${r.department || ""} ${r.code || ""} ${r.name || ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [allPersonRows, directoryQ]);
+
+  /** Group flat rows → { employee, components[] } for a clear directory. */
+  const directoryGroups = useMemo(() => {
+    const map = new Map();
+    for (const row of filteredDirectoryRows) {
+      const id = String(row.employee_master_id);
+      if (!map.has(id)) {
+        map.set(id, {
+          employee_master_id: row.employee_master_id,
+          employee_code: row.employee_code || "",
+          employee_name: row.employee_name || "Employee",
+          department: row.department || "",
+          designation: row.designation || "",
+          components: [],
+        });
+      }
+      map.get(id).components.push(row);
+    }
+    return [...map.values()].sort((a, b) =>
+      `${a.employee_name} ${a.employee_code}`.localeCompare(`${b.employee_name} ${b.employee_code}`)
+    );
+  }, [filteredDirectoryRows]);
 
   const openCreate = (parentCode = "PART_A") => {
     if (!personId) {
@@ -198,7 +277,7 @@ export default function SalaryComponentsMaster() {
     setError("");
   };
 
-  const handleSaveForm = (e) => {
+  const handleSaveForm = async (e) => {
     e.preventDefault();
     if (!personId) {
       setError("Select an employee first.");
@@ -234,7 +313,7 @@ export default function SalaryComponentsMaster() {
 
     const now = new Date().toISOString();
     if (editingId) {
-      persistPerson(
+      await persistPerson(
         personComponents.map((c) =>
           c.id === editingId
             ? {
@@ -255,7 +334,7 @@ export default function SalaryComponentsMaster() {
       );
       setNotice(`Updated ${code} for this employee.`);
     } else {
-      persistPerson([
+      await persistPerson([
         ...personComponents,
         {
           id: newComponentId(),
@@ -274,14 +353,14 @@ export default function SalaryComponentsMaster() {
           updated_at: now,
         },
       ]);
-      setNotice(`${code} added for this employee only — it will show on their CTC profile.`);
+      setNotice(`${code} added for this employee — saved to database and shown on their CTC.`);
     }
     setModalOpen(false);
   };
 
-  const handleDelete = (row) => {
+  const handleDelete = async (row) => {
     if (!window.confirm(`Remove ${row.code} from this employee’s CTC?`)) return;
-    persistPerson(personComponents.filter((c) => c.id !== row.id));
+    await persistPerson(personComponents.filter((c) => c.id !== row.id));
     setNotice(`Removed ${row.code} for this employee.`);
   };
 
@@ -292,8 +371,126 @@ export default function SalaryComponentsMaster() {
       <PageTaskHeader
         className="mb-0"
         title="Salary Components"
-        subtitle="Company CTC defaults are fixed. Extra components you add here apply only to the selected employee."
+        subtitle="Company CTC defaults are fixed. Extra components are saved per employee in the database and appear on their CTC."
       />
+
+      <SectionCard
+        title="Employees with extra CTC components"
+        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
+        right={
+          <button
+            type="button"
+            className="text-[11px] text-accent hover:underline"
+            onClick={() => refreshAllPersonRows(employees)}
+            disabled={allLoading}
+          >
+            {allLoading ? "Loading…" : "Refresh"}
+          </button>
+        }
+      >
+        <p className="text-[11px] text-slate-600 mb-2">
+          Shows every employee who has extras on their CTC profile (from the database and saved
+          profiles). Click a row to manage that person.
+        </p>
+        <div className="relative mb-2 max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+          <input
+            className={`${inputCls} pl-8`}
+            placeholder="Search employee or component…"
+            value={directoryQ}
+            onChange={(e) => setDirectoryQ(e.target.value)}
+          />
+        </div>
+        {allLoading && !directoryGroups.length ? (
+          <p className="text-[11px] text-slate-500 py-2">Loading from employee CTC profiles…</p>
+        ) : !directoryGroups.length ? (
+          <p className="text-[11px] text-slate-500 py-2">
+            No extras yet. Open an employee CTC profile, add components (or tick LTA / Food / VPI),
+            then Save CTC — they will appear here.
+          </p>
+        ) : (
+          <div className="overflow-auto max-h-80 rounded border border-slate-200">
+            <table className="w-full text-[11px] min-w-[720px]">
+              <thead className="sticky top-0 bg-slate-50 text-slate-500 uppercase tracking-wide">
+                <tr>
+                  <th className="text-left px-2.5 py-2">Employee</th>
+                  <th className="text-left px-2.5 py-2">Department</th>
+                  <th className="text-left px-2.5 py-2">Components added</th>
+                  <th className="text-right px-2.5 py-2 w-28">Open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {directoryGroups.map((g) => (
+                  <tr
+                    key={String(g.employee_master_id)}
+                    className="border-t border-slate-100 hover:bg-slate-50/80 align-top"
+                  >
+                    <td className="px-2.5 py-2">
+                      <button
+                        type="button"
+                        className="text-left"
+                        onClick={() => setPersonId(String(g.employee_master_id))}
+                      >
+                        <div className="font-semibold text-ink">
+                          <span className="font-mono text-slate-500 mr-1.5">
+                            {g.employee_code || "—"}
+                          </span>
+                          {g.employee_name}
+                        </div>
+                        {g.designation ? (
+                          <div className="text-[10px] text-slate-500 mt-0.5">{g.designation}</div>
+                        ) : null}
+                      </button>
+                    </td>
+                    <td className="px-2.5 py-2 text-slate-500">{g.department || "—"}</td>
+                    <td className="px-2.5 py-2">
+                      <ul className="space-y-1">
+                        {g.components.map((c) => (
+                          <li key={`${c.code}-${c.id}`} className="flex flex-wrap items-baseline gap-x-2">
+                            <span className="font-mono font-semibold text-ink">{c.code}</span>
+                            <span className="text-ink">{c.name}</span>
+                            <span className="text-[10px] text-slate-400">
+                              {c.parent_code === "PART_B" ? "Part B" : "Part A"}
+                            </span>
+                            {c.amount_monthly != null ? (
+                              <span className="tabular-nums text-slate-600">
+                                ₹{Number(c.amount_monthly).toLocaleString("en-IN")}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td className="px-2.5 py-2 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        className="text-accent hover:underline mr-2"
+                        onClick={() => setPersonId(String(g.employee_master_id))}
+                      >
+                        Manage
+                      </button>
+                      <Link
+                        to={`/app/admin/employee/master/${g.employee_master_id}?tab=ctc`}
+                        className="text-accent hover:underline inline-flex items-center gap-0.5"
+                      >
+                        CTC
+                        <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {directoryGroups.length ? (
+          <p className="text-[10px] text-slate-400 mt-2">
+            {directoryGroups.length} employee{directoryGroups.length === 1 ? "" : "s"} ·{" "}
+            {filteredDirectoryRows.length} component
+            {filteredDirectoryRows.length === 1 ? "" : "s"}
+          </p>
+        ) : null}
+      </SectionCard>
 
       {/* Flow steps */}
       <ol className="flex flex-wrap gap-2 text-[11px]">

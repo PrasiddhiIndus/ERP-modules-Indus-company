@@ -11,6 +11,7 @@ import {
   CollapsibleHelp,
 } from "../components/AdminUi";
 import { formatINRPlain } from "./salaryData";
+import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
 import {
   DEFAULT_MONTH_DAYS,
   getMonthRunByKey,
@@ -24,6 +25,7 @@ import {
   PROCESS_MODES,
   fetchSalaryProcessCandidates,
   buildSalaryScopePreviewLines,
+  buildSalaryProcessReport,
   getRunSheetNo,
   getMonthHoldIds,
   setMonthHoldIds,
@@ -735,6 +737,8 @@ export default function SalaryProcessing() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [scopeLines, setScopeLines] = useState([]);
   const [scopeLinesLoading, setScopeLinesLoading] = useState(false);
+  const [processReport, setProcessReport] = useState(null);
+  const [processReportLoading, setProcessReportLoading] = useState(false);
   const [detailLineId, setDetailLineId] = useState(null);
   const [detailDirty, setDetailDirty] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
@@ -798,7 +802,9 @@ export default function SalaryProcessing() {
         : getMonthHoldIds(monthKey(year, month));
       setHoldIds(holds);
       setSelectedDepartments((prev) =>
-        prev.filter((d) => (data.departments || []).includes(d))
+        prev.filter((d) =>
+          (data.departments || []).some((listed) => departmentInSelection(listed, [d]))
+        )
       );
     } catch (err) {
       console.warn("Salary process candidates load failed", err);
@@ -849,9 +855,8 @@ export default function SalaryProcessing() {
     const selectedSet = new Set(selectedIds.map(String));
     let pool = rows.filter((e) => e.eligible && !holdSet.has(String(e.id)));
     if (processMode === PROCESS_MODES.DEPT) {
-      const deptSet = new Set(selectedDepartments);
-      pool = pool.filter((e) => deptSet.has(e.department));
-    } else if (processMode === PROCESS_MODES.HOLD) {
+      pool = pool.filter((e) => departmentInSelection(e.department, selectedDepartments));
+    } else if (processMode === PROCESS_MODES.HOLD || processMode === PROCESS_MODES.REPORT) {
       pool = [];
     }
     // If user ticked employees, process only those (still not held)
@@ -866,7 +871,10 @@ export default function SalaryProcessing() {
     const inScope = rows.filter((e) => {
       if (processMode === PROCESS_MODES.HOLD) return holdSet.has(String(e.id));
       if (processMode === PROCESS_MODES.DEPT) {
-        return selectedDepartments.includes(e.department) && !holdSet.has(String(e.id));
+        return (
+          departmentInSelection(e.department, selectedDepartments) &&
+          !holdSet.has(String(e.id))
+        );
       }
       return !holdSet.has(String(e.id));
     });
@@ -876,9 +884,13 @@ export default function SalaryProcessing() {
   }, [candidates.employees, processMode, selectedDepartments, holdIds, selectedIds]);
 
   const toggleDepartment = useCallback((dept) => {
-    setSelectedDepartments((prev) =>
-      prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]
-    );
+    setSelectedDepartments((prev) => {
+      const already = prev.some((d) => departmentInSelection(dept, [d]));
+      if (already) {
+        return prev.filter((d) => !departmentInSelection(dept, [d]));
+      }
+      return [...prev, dept];
+    });
     setSelectedIds([]);
   }, []);
 
@@ -888,16 +900,56 @@ export default function SalaryProcessing() {
       // Hold tab: everyone marked hold for this month
       return (candidates.employees || []).filter((e) => holdSet.has(String(e.id)));
     }
+    if (processMode === PROCESS_MODES.REPORT) {
+      return [];
+    }
     let rows = (candidates.employees || []).filter(
       (e) => e.eligible && !holdSet.has(String(e.id))
     );
     if (processMode === PROCESS_MODES.DEPT) {
       if (!selectedDepartments.length) return [];
-      const deptSet = new Set(selectedDepartments);
-      rows = rows.filter((e) => deptSet.has(e.department));
+      rows = rows.filter((e) => departmentInSelection(e.department, selectedDepartments));
     }
     return rows;
   }, [candidates.employees, processMode, selectedDepartments, holdIds]);
+
+  const loadProcessReport = useCallback(async () => {
+    if (processMode !== PROCESS_MODES.REPORT) return;
+    setProcessReportLoading(true);
+    try {
+      const report = await buildSalaryProcessReport({ year, month });
+      setProcessReport(report);
+    } catch (err) {
+      console.warn("Salary process report failed", err);
+      setProcessReport(null);
+      setError(err?.message || "Could not load process report.");
+    } finally {
+      setProcessReportLoading(false);
+    }
+  }, [processMode, year, month]);
+
+  useEffect(() => {
+    loadProcessReport();
+  }, [loadProcessReport]);
+
+  const reportRows = useMemo(() => {
+    const groups = processReport?.groups || [];
+    const needle = tableSearch.trim().toLowerCase();
+    const out = [];
+    for (const g of groups) {
+      const employees = (g.employees || []).filter((e) => {
+        if (!needle) return true;
+        const hay = [e.employee_code, e.employee_name, e.designation, e.department]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(needle);
+      });
+      if (!employees.length) continue;
+      out.push({ ...g, employees, employee_count: employees.length });
+    }
+    return out;
+  }, [processReport, tableSearch]);
 
   const visibleScopeLines = useMemo(() => {
     const needle = tableSearch.trim().toLowerCase();
@@ -1143,6 +1195,10 @@ export default function SalaryProcessing() {
         );
         return;
       }
+      if (processMode === PROCESS_MODES.REPORT) {
+        setError("Open All or By department to process salary. Report only shows who was already processed.");
+        return;
+      }
       setBusy(true);
       setError("");
       setNotice("");
@@ -1231,6 +1287,12 @@ export default function SalaryProcessing() {
         setEditorOpen(true);
         setConfirmOpen(false);
         setExistingRun(null);
+        try {
+          const report = await buildSalaryProcessReport({ year, month });
+          setProcessReport(report);
+        } catch {
+          /* ignore */
+        }
       } catch (err) {
         console.error(err);
         setError(err?.message || "Salary processing failed.");
@@ -1849,6 +1911,7 @@ export default function SalaryProcessing() {
               { id: PROCESS_MODES.BULK, label: "All" },
               { id: PROCESS_MODES.DEPT, label: "By department" },
               { id: PROCESS_MODES.HOLD, label: "Hold" },
+              { id: PROCESS_MODES.REPORT, label: "Report" },
             ].map((opt) => {
               const active = processMode === opt.id;
               return (
@@ -1870,6 +1933,11 @@ export default function SalaryProcessing() {
                       ({holdIds.length})
                     </span>
                   ) : null}
+                  {opt.id === PROCESS_MODES.REPORT && processReport?.total_employees > 0 ? (
+                    <span className={`ml-1 tabular-nums ${active ? "text-accent/80" : "text-slate-400"}`}>
+                      ({processReport.total_employees})
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -1877,7 +1945,9 @@ export default function SalaryProcessing() {
 
           {processMode === PROCESS_MODES.DEPT ? (
             <div className="rounded border border-slate-200 bg-slate-50/80 p-2.5 space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Departments</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Departments from Employee Master
+              </p>
               {candidatesLoading ? (
                 <p className="text-xs text-slate-500">Loading…</p>
               ) : !(candidates.departments || []).length ? (
@@ -1891,7 +1961,9 @@ export default function SalaryProcessing() {
                       eligible: 0,
                       processed: 0,
                     };
-                    const selected = selectedDepartments.includes(dept);
+                    const selected = selectedDepartments.some((d) =>
+                      departmentInSelection(dept, [d])
+                    );
                     return (
                       <button
                         key={dept}
@@ -1902,7 +1974,7 @@ export default function SalaryProcessing() {
                             ? "bg-indigo-600 text-white border-indigo-600"
                             : "bg-white text-slate-700 border-slate-200"
                         }`}
-                        title={`${stats.pending} ready · ${stats.eligible} ${includeWithoutCtc ? "without CTC" : "with CTC"} · ${stats.total} active`}
+                        title={`${stats.pending} ready · ${stats.eligible} ${includeWithoutCtc ? "without CTC" : "with CTC"} · ${stats.total} active in this department`}
                       >
                         {dept}
                         <span className={`ml-1 ${selected ? "text-indigo-100" : "text-slate-400"}`}>
@@ -1912,6 +1984,18 @@ export default function SalaryProcessing() {
                     );
                   })}
                 </div>
+              )}
+              {selectedDepartments.length ? (
+                <p className="text-[11px] text-slate-600">
+                  Showing employees in:{" "}
+                  <span className="font-medium text-slate-800">
+                    {selectedDepartments.join(", ")}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-500">
+                  Click a department to list its employees from Employee Master.
+                </p>
               )}
             </div>
           ) : null}
@@ -1923,40 +2007,136 @@ export default function SalaryProcessing() {
                 value={tableSearch}
                 onChange={(e) => setTableSearch(e.target.value)}
                 className={`${textIn} pl-6 w-56`}
-                placeholder="Search code / name / dept"
+                placeholder={
+                  processMode === PROCESS_MODES.REPORT
+                    ? "Search processed employees…"
+                    : "Search code / name / dept"
+                }
                 aria-label="Search employees in table"
               />
             </div>
-            <span className="text-[11px] text-slate-500">
-              {visibleScopeLines.length}
-              {tableSearch.trim() ? ` of ${scopeLines.length}` : ""} row
-              {visibleScopeLines.length === 1 ? "" : "s"}
-            </span>
+            {processMode === PROCESS_MODES.REPORT ? (
+              <span className="text-[11px] text-slate-500">
+                {processReportLoading
+                  ? "Loading…"
+                  : `${processReport?.total_employees || 0} processed · ${reportRows.length} day group(s)`}
+              </span>
+            ) : (
+              <span className="text-[11px] text-slate-500">
+                {visibleScopeLines.length}
+                {tableSearch.trim() ? ` of ${scopeLines.length}` : ""} row
+                {visibleScopeLines.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
 
-          <ScopeSalarySheetTable
-            lines={visibleScopeLines}
-            loading={candidatesLoading || scopeLinesLoading}
-            emptyHint={
-              processMode === PROCESS_MODES.HOLD
-                ? "No employees on hold. Select staff on All / By department and click Hold selected."
-                : processMode === PROCESS_MODES.DEPT && !selectedDepartments.length
-                  ? "Select one or more departments to preview employees."
-                  : tableSearch.trim()
-                    ? "No employees match this search."
-                    : includeWithoutCtc
-                      ? "No employees without CTC in this scope."
-                      : "No employees with CTC in this scope."
-            }
-            onUpdateLine={updateScopeLine}
-            onOpenEmployee={openEmployeeDetail}
-            selectedIds={selectedIds}
-            onToggleSelect={toggleSelectEmployee}
-            onToggleSelectAll={toggleSelectAllVisible}
-            readOnly={false}
-            showSelect
-          />
+          {processMode === PROCESS_MODES.REPORT ? (
+            <div className="space-y-3">
+              <p className="text-[11px] text-slate-600">
+                Employees processed for{" "}
+                <span className="font-semibold text-slate-800">
+                  {processReport?.month_label || monthLabel(year, month)}
+                </span>
+                , grouped by the day Process salary was clicked.
+              </p>
+              {processReportLoading ? (
+                <p className="text-xs text-slate-500 py-6 text-center">Loading process report…</p>
+              ) : !processReport?.has_sheet || !processReport?.total_employees ? (
+                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
+                  <p className="text-sm font-medium text-slate-700">No salary processed yet</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Process salary from All or By department for this month — then the report lists
+                    who was passed and on which day.
+                  </p>
+                </div>
+              ) : !reportRows.length ? (
+                <p className="text-xs text-slate-500 py-6 text-center">No employees match this search.</p>
+              ) : (
+                reportRows.map((group) => (
+                  <div
+                    key={group.process_day}
+                    className="rounded border border-slate-200 overflow-hidden bg-white"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+                      <div>
+                        <p className="text-[11px] font-semibold text-slate-800">
+                          Processed on {group.process_day_label}
+                        </p>
+                        <p className="text-[10px] text-slate-500">{group.process_day}</p>
+                      </div>
+                      <span className="text-[11px] tabular-nums text-slate-600">
+                        {group.employee_count} employee
+                        {group.employee_count === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-[11px]">
+                        <thead className="bg-white text-slate-500">
+                          <tr className="border-b border-slate-100">
+                            <th className="px-2 py-1.5 text-left font-semibold">Sr</th>
+                            <th className="px-2 py-1.5 text-left font-semibold">Code</th>
+                            <th className="px-2 py-1.5 text-left font-semibold">Name</th>
+                            <th className="px-2 py-1.5 text-left font-semibold">Designation</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">P.Days</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">Gross</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">Ded</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">Net</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.employees.map((emp, idx) => (
+                            <tr key={`${group.process_day}_${emp.employee_master_id}`} className="border-b border-slate-50">
+                              <td className="px-2 py-1.5 tabular-nums text-slate-500">{idx + 1}</td>
+                              <td className="px-2 py-1.5 font-medium text-slate-800">{emp.employee_code || "—"}</td>
+                              <td className="px-2 py-1.5 text-slate-800">{emp.employee_name || "—"}</td>
+                              <td className="px-2 py-1.5 text-slate-600 truncate max-w-[10rem]" title={emp.designation || ""}>
+                                {emp.designation || "—"}
+                              </td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">{emp.present_days ?? "—"}</td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">
+                                <Money value={emp.gross_wages} />
+                              </td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">
+                                <Money value={emp.total_ded} />
+                              </td>
+                              <td className="px-2 py-1.5 text-right tabular-nums">
+                                <Money value={emp.net_salary} strong />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <ScopeSalarySheetTable
+              lines={visibleScopeLines}
+              loading={candidatesLoading || scopeLinesLoading}
+              emptyHint={
+                processMode === PROCESS_MODES.HOLD
+                  ? "No employees on hold. Select staff on All / By department and click Hold selected."
+                  : processMode === PROCESS_MODES.DEPT && !selectedDepartments.length
+                    ? "Select one or more departments to preview employees."
+                    : tableSearch.trim()
+                      ? "No employees match this search."
+                      : includeWithoutCtc
+                        ? "No employees without CTC in this scope."
+                        : "No employees with CTC in this scope."
+              }
+              onUpdateLine={updateScopeLine}
+              onOpenEmployee={openEmployeeDetail}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelectEmployee}
+              onToggleSelectAll={toggleSelectAllVisible}
+              readOnly={false}
+              showSelect
+            />
+          )}
 
+          {processMode !== PROCESS_MODES.REPORT ? (
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
             <p className="text-[11px] text-slate-600">
               {candidatesLoading || scopeLinesLoading ? (
@@ -2068,6 +2248,7 @@ export default function SalaryProcessing() {
               )}
             </div>
           </div>
+          ) : null}
         </div>
       </SectionCard>
 

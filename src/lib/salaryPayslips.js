@@ -159,6 +159,19 @@ export function listPayslipsForEmployee(employeeMasterId) {
     .sort((a, b) => String(b.month_key).localeCompare(String(a.month_key)));
 }
 
+/** Payslips for one pay month (YYYY-MM), newest process day first. */
+export function listPayslipsForMonth(monthKeyValue) {
+  const mk = String(monthKeyValue || "").slice(0, 7);
+  if (!mk) return [];
+  return readAll()
+    .filter((p) => String(p.month_key || "").slice(0, 7) === mk)
+    .sort((a, b) => {
+      const da = String(b.processed_on || b.generated_at || "");
+      const db = String(a.processed_on || a.generated_at || "");
+      return da.localeCompare(db);
+    });
+}
+
 export function getPayslipById(id) {
   return readAll().find((p) => p.id === id) || null;
 }
