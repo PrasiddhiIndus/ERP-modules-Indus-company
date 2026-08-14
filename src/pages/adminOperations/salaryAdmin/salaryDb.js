@@ -15,6 +15,12 @@ const SALARY_TABLES = Object.freeze({
   structure_revisions: "admin_salary_structure_revisions",
   processing_runs: "admin_salary_processing_runs",
   processing_lines: "admin_salary_processing_lines",
+  loans: "admin_salary_loans",
+  loan_recoveries: "admin_salary_loan_recoveries",
+  salary_advances: "admin_salary_salary_advances",
+  salary_advance_recoveries: "admin_salary_salary_advance_recoveries",
+  unpaid_paid: "admin_salary_unpaid_paid",
+  unpaid_paid_settlements: "admin_salary_unpaid_paid_settlements",
 });
 
 const STRUCTURE_COLUMNS = [

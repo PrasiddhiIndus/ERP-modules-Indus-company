@@ -108,9 +108,145 @@ export function currentYm() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** Active/hold feed salary processing; closed never does. */
+/** Compare YYYY-MM strings. Returns -1 / 0 / 1. Empty sorts as equal to empty only. */
+export function compareYm(a, b) {
+  const A = String(a || "").slice(0, 7);
+  const B = String(b || "").slice(0, 7);
+  if (!A && !B) return 0;
+  if (!A) return -1;
+  if (!B) return 1;
+  if (A < B) return -1;
+  if (A > B) return 1;
+  return 0;
+}
+
+/** Active / open feed salary; hold/closed never do. */
 export function feedsSalaryProcessing(status) {
-  return status === "active";
+  return status === "active" || status === "open";
+}
+
+/** Normalize unpaid/paid kind for UI + salary sign. */
+export function normalizeUnpaidKind(kind) {
+  const k = String(kind || "").toLowerCase();
+  if (k === "paid" || k === "employee_owes" || k === "excess") return "employee_owes";
+  // unpaid | company_owes | default
+  return "company_owes";
+}
+
+/** UI labels for the 2-value Type dropdown (match Employee Master form). */
+export function unpaidKindLabel(kind) {
+  return normalizeUnpaidKind(kind) === "employee_owes"
+    ? "Paid / excess (adjust or recover)"
+    : "Unpaid (company owes employee)";
+}
+
+/**
+ * Signed unpaid/paid hit for a pay month (0 when closed / outside tenure / months left 0).
+ * company_owes (Unpaid) → negative (credit — reduces total deductions / pays employee)
+ * employee_owes (Paid)  → positive (deduct from salary)
+ */
+export function unpaidSignedAmountForMonth(record, monthKey) {
+  if (!record) return 0;
+  if (!feedsSalaryProcessing(record.status)) return 0;
+  const monthly =
+    Number(record.monthly_amount) ||
+    Number(record.installment_amount) ||
+    0;
+  if (monthly <= 0) return 0;
+  const proxy = {
+    ...record,
+    status: "active",
+    monthly_amount: monthly,
+    installment_amount: monthly,
+    start_month: record.start_month || record.month || "",
+  };
+  const hit = deductionAmountForMonth(proxy, monthKey, { amountKey: "monthly_amount" });
+  if (!hit) return 0;
+  return normalizeUnpaidKind(record.kind) === "employee_owes" ? hit : -hit;
+}
+
+/**
+ * Whether a loan/advance EMI should hit this pay month.
+ * Rules: active, months left > 0, EMI > 0, pay month within start→end, balance > 0.
+ * Setting months remaining to 0 (early close) stops all future hits.
+ */
+export function deductionActiveForMonth(record, monthKey, { amountKey = "installment_amount" } = {}) {
+  if (!record || !feedsSalaryProcessing(record.status)) return false;
+  const mk = String(monthKey || "").slice(0, 7);
+  if (!mk) return false;
+
+  const monthsRem =
+    record.months_remaining != null
+      ? Number(record.months_remaining)
+      : record.months != null
+        ? Number(record.months)
+        : null;
+  if (monthsRem != null && Number.isFinite(monthsRem) && monthsRem <= 0) return false;
+
+  const emi = Number(record[amountKey]) || 0;
+  if (emi <= 0) return false;
+
+  const bal = Number(record.balance_outstanding);
+  if (Number.isFinite(bal) && bal <= 0) return false;
+
+  const start = String(record.start_month || "").slice(0, 7);
+  if (start && compareYm(mk, start) < 0) return false;
+
+  let end = String(record.end_month || "").slice(0, 7);
+  if (!end && start && monthsRem != null && monthsRem > 0) {
+    end = addMonthsYm(start, monthsRem - 1);
+  }
+  if (end && compareYm(mk, end) > 0) return false;
+
+  return true;
+}
+
+/** EMI / recovery amount for a pay month (0 if outside tenure). Caps at remaining balance. */
+export function deductionAmountForMonth(record, monthKey, { amountKey = "installment_amount" } = {}) {
+  if (!deductionActiveForMonth(record, monthKey, { amountKey })) return 0;
+  const emi = round2(record[amountKey]);
+  const bal = Number(record.balance_outstanding);
+  if (Number.isFinite(bal) && bal > 0) return round2(Math.min(emi, bal));
+  return emi;
+}
+
+/**
+ * Sum loan EMI + salary-advance recovery for one employee in a pay month.
+ * Used by Salary Processing when building / processing the sheet.
+ */
+export function seedSalaryDeductionsForMonth(employeeMasterId, monthKey) {
+  const d = getEmployeeDeductions(employeeMasterId);
+  const mk = String(monthKey || currentYm()).slice(0, 7);
+
+  let loan = 0;
+  for (const l of d.loans || []) {
+    loan += deductionAmountForMonth(l, mk, { amountKey: "installment_amount" });
+  }
+
+  let salAdv = 0;
+  for (const a of d.salaryAdvances || []) {
+    salAdv += deductionAmountForMonth(a, mk, { amountKey: "recovery_amount" });
+  }
+
+  let unpaidPaid = 0;
+  for (const u of d.unpaidPaid || []) {
+    unpaidPaid += unpaidSignedAmountForMonth(u, mk);
+  }
+
+  let tds = 0;
+  if (d.tds?.active && d.tds.mode === "manual") {
+    const wef = String(d.tds.wef_month || "").slice(0, 7);
+    if (!wef || compareYm(mk, wef) >= 0) {
+      tds = round2(d.tds.monthly_amount);
+    }
+  }
+
+  return {
+    loan: round2(loan),
+    salAdv: round2(salAdv),
+    unpaidPaid: round2(unpaidPaid),
+    tds: round2(tds),
+  };
 }
 
 /**
@@ -130,9 +266,11 @@ export function applySalarySheetLineToDeductions(employeeMasterId, line, monthKe
   const tdsAmt = round2(line?.tds);
 
   // —— Loan ——
+  // Only apply recovery / update EMI when this pay month actually deducted (> 0).
+  // Zero on the sheet (outside tenure or cleared) must NOT wipe planned EMI for future months.
   let loans = Array.isArray(d.loans) ? [...d.loans] : [];
   const activeLoanIdx = loans.findIndex((l) => l.status === "active");
-  if (activeLoanIdx >= 0) {
+  if (activeLoanIdx >= 0 && loanAmt > 0) {
     const l = loans[activeLoanIdx];
     const recoveries = Array.isArray(l.recoveries) ? [...l.recoveries] : [];
     const sheetRecIdx = recoveries.findIndex(
@@ -142,28 +280,26 @@ export function applySalarySheetLineToDeductions(employeeMasterId, line, monthKe
     let monthsRem =
       l.months_remaining != null ? Number(l.months_remaining) : l.months != null ? Number(l.months) : null;
 
-    if (loanAmt > 0) {
-      if (sheetRecIdx >= 0) {
-        const prevAmt = round2(recoveries[sheetRecIdx].amount);
-        const delta = round2(loanAmt - prevAmt);
-        balance = Math.max(0, round2(balance - delta));
-        recoveries[sheetRecIdx] = {
-          ...recoveries[sheetRecIdx],
-          amount: loanAmt,
-          at: now,
-        };
-      } else {
-        recoveries.push({
-          id: newId("rec"),
-          amount: loanAmt,
-          month: mk,
-          source: "salary_sheet",
-          at: now,
-        });
-        balance = Math.max(0, round2(balance - loanAmt));
-        if (monthsRem != null && Number.isFinite(monthsRem)) {
-          monthsRem = Math.max(0, monthsRem - 1);
-        }
+    if (sheetRecIdx >= 0) {
+      const prevAmt = round2(recoveries[sheetRecIdx].amount);
+      const delta = round2(loanAmt - prevAmt);
+      balance = Math.max(0, round2(balance - delta));
+      recoveries[sheetRecIdx] = {
+        ...recoveries[sheetRecIdx],
+        amount: loanAmt,
+        at: now,
+      };
+    } else {
+      recoveries.push({
+        id: newId("rec"),
+        amount: loanAmt,
+        month: mk,
+        source: "salary_sheet",
+        at: now,
+      });
+      balance = Math.max(0, round2(balance - loanAmt));
+      if (monthsRem != null && Number.isFinite(monthsRem)) {
+        monthsRem = Math.max(0, monthsRem - 1);
       }
     }
 
@@ -176,8 +312,11 @@ export function applySalarySheetLineToDeductions(employeeMasterId, line, monthKe
       last_salary_month: mk,
       synced_from_salary: true,
       updated_at: now,
+      ...(balance <= 0 || (monthsRem != null && monthsRem <= 0)
+        ? { status: balance <= 0 ? "closed" : l.status, closed_at: balance <= 0 ? now : l.closed_at || null }
+        : {}),
     };
-  } else if (loanAmt > 0) {
+  } else if (activeLoanIdx < 0 && loanAmt > 0) {
     loans = [
       {
         id: newId("loan"),
@@ -212,46 +351,58 @@ export function applySalarySheetLineToDeductions(employeeMasterId, line, monthKe
   // —— Salary advance ——
   let salaryAdvances = Array.isArray(d.salaryAdvances) ? [...d.salaryAdvances] : [];
   const activeAdvIdx = salaryAdvances.findIndex((a) => a.status === "active");
-  if (activeAdvIdx >= 0) {
+  if (activeAdvIdx >= 0 && salAdvAmt > 0) {
     const a = salaryAdvances[activeAdvIdx];
     const recoveries = Array.isArray(a.recoveries) ? [...a.recoveries] : [];
     const sheetRecIdx = recoveries.findIndex(
       (r) => r && r.source === "salary_sheet" && String(r.month || "").slice(0, 7) === mk
     );
     let balance = round2(a.balance_outstanding);
-    if (salAdvAmt > 0) {
-      if (sheetRecIdx >= 0) {
-        const prevAmt = round2(recoveries[sheetRecIdx].amount);
-        balance = Math.max(0, round2(balance - (salAdvAmt - prevAmt)));
-        recoveries[sheetRecIdx] = { ...recoveries[sheetRecIdx], amount: salAdvAmt, at: now };
-      } else {
-        recoveries.push({
-          id: newId("rec"),
-          amount: salAdvAmt,
-          month: mk,
-          source: "salary_sheet",
-          at: now,
-        });
-        balance = Math.max(0, round2(balance - salAdvAmt));
+    let monthsRem =
+      a.months_remaining != null ? Number(a.months_remaining) : a.months != null ? Number(a.months) : null;
+
+    if (sheetRecIdx >= 0) {
+      const prevAmt = round2(recoveries[sheetRecIdx].amount);
+      balance = Math.max(0, round2(balance - (salAdvAmt - prevAmt)));
+      recoveries[sheetRecIdx] = { ...recoveries[sheetRecIdx], amount: salAdvAmt, at: now };
+    } else {
+      recoveries.push({
+        id: newId("rec"),
+        amount: salAdvAmt,
+        month: mk,
+        source: "salary_sheet",
+        at: now,
+      });
+      balance = Math.max(0, round2(balance - salAdvAmt));
+      if (monthsRem != null && Number.isFinite(monthsRem)) {
+        monthsRem = Math.max(0, monthsRem - 1);
       }
     }
     salaryAdvances[activeAdvIdx] = {
       ...a,
       recovery_amount: salAdvAmt,
       balance_outstanding: balance,
+      months_remaining: monthsRem,
       recoveries,
       last_salary_month: mk,
       synced_from_salary: true,
       updated_at: now,
+      ...(balance <= 0
+        ? { status: "closed", closed_at: now }
+        : {}),
     };
-  } else if (salAdvAmt > 0) {
+  } else if (activeAdvIdx < 0 && salAdvAmt > 0) {
     salaryAdvances = [
       {
         id: newId("adv"),
+        amount: salAdvAmt,
         principal: salAdvAmt,
         balance_outstanding: 0,
+        months: 1,
+        months_remaining: 0,
         recovery_amount: salAdvAmt,
         start_month: mk,
+        end_month: mk,
         status: "active",
         remarks: "Created from salary sheet",
         recoveries: [

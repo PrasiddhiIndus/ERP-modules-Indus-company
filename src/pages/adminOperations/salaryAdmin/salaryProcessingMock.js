@@ -29,7 +29,8 @@ import {
   applyScopeLineDraft,
 } from "./salaryMonthProcessing";
 import { fetchSalaryStructureMap } from "./salaryData";
-import { applySalarySheetToEmployeeMasters } from "../../admin/employeeMaster/deductions/deductionsStore";
+import { applySalarySheetToEmployeeMasters, seedSalaryDeductionsForMonth } from "../../admin/employeeMaster/deductions/deductionsStore";
+import { applySalarySheetLinesToDb, seedSalaryDeductionsMapFromDb } from "../../admin/employeeMaster/deductions/deductionsDb";
 import { resolvePersonComponentsForPayroll } from "./salaryComponentsCatalog";
 
 /** Set false to use live salary processing APIs. */
@@ -341,6 +342,8 @@ function ensureStore() {
   for (const run of mockStore.runs) {
     try {
       applySalarySheetToEmployeeMasters(mockStore.linesByRun[run.id], run.month_key);
+      // Fire-and-forget DB sync (ensureStore is sync; cannot await here)
+      void applySalarySheetLinesToDb(mockStore.linesByRun[run.id], run.month_key);
     } catch {
       /* ignore */
     }
@@ -489,6 +492,7 @@ export async function mockProcessSalaryMonth({
   employeeIds = [],
   departments = [],
   forceFullReprocess = false,
+  processedOn = "",
 } = {}) {
   const store = ensureStore();
   const key = `${year}-${String(month).padStart(2, "0")}`;
@@ -563,6 +567,17 @@ export async function mockProcessSalaryMonth({
     }
 
     const lines = [];
+    let dedMap = new Map();
+    try {
+      dedMap = await seedSalaryDeductionsMapFromDb(
+        toProcess.map((e) => e.id),
+        key
+      );
+    } catch {
+      for (const emp of toProcess) {
+        dedMap.set(String(emp.id), seedSalaryDeductionsForMonth(emp.id, key));
+      }
+    }
     for (const emp of toProcess) {
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
       const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id);
@@ -573,6 +588,7 @@ export async function mockProcessSalaryMonth({
         structure,
         presentDays: present,
         monthDays: days,
+        deductions: dedMap.get(String(emp.id)) || seedSalaryDeductionsForMonth(emp.id, key),
       });
       const draft = getScopeLineDraft(key, emp.id);
       if (draft) line = applyScopeLineDraft(line, draft, days);
@@ -701,19 +717,49 @@ export async function mockProcessSalaryMonth({
   store.runs.unshift(built.run);
   store.linesByRun[built.run.id] = built.lines;
 
+  const processDay =
+    processedOn && /^\d{4}-\d{2}-\d{2}$/.test(String(processedOn))
+      ? String(processedOn).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+  const processAt = new Date().toISOString();
+
   const newLinesForSync = newLinesOnly || built.lines;
   try {
     applySalarySheetToEmployeeMasters(newLinesForSync, built.run.month_key);
+    await applySalarySheetLinesToDb(newLinesForSync, built.run.month_key);
   } catch (err) {
     console.warn("Mock process: master sync skipped", err);
   }
+  let payslipCount = 0;
   try {
     const { generatePayslipsForRun } = await import("../../../lib/salaryPayslips");
-    generatePayslipsForRun(built.run, newLinesForSync);
+    const slips = generatePayslipsForRun(
+      {
+        ...built.run,
+        processed_on: processDay,
+        summary_json: {
+          ...(built.run.summary_json || {}),
+          processed_on: processDay,
+          processed_at: processAt,
+        },
+      },
+      newLinesForSync,
+      { processedOn: processDay, generatedAt: processAt }
+    );
+    payslipCount = slips.length;
   } catch (psErr) {
     console.warn("Mock process: payslip generation skipped", psErr);
   }
-  return { run: built.run, lines: [...built.lines], processMeta: built.processMeta };
+  return {
+    run: built.run,
+    lines: [...built.lines],
+    processMeta: {
+      ...(built.processMeta || {}),
+      payslipCount,
+      processedOn: processDay,
+      processedAt: processAt,
+    },
+  };
 }
 
 export async function mockSaveMonthRunEdits(runId, editedLines) {
@@ -744,6 +790,7 @@ export async function mockSaveMonthRunEdits(runId, editedLines) {
   store.linesByRun[runId] = lines;
   try {
     applySalarySheetToEmployeeMasters(lines, run.month_key);
+    await applySalarySheetLinesToDb(lines, run.month_key);
   } catch (err) {
     console.warn("Mock save: master sync skipped", err);
   }

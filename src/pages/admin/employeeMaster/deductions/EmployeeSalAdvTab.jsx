@@ -1,11 +1,17 @@
 import React, { useMemo, useState } from "react";
 import { SectionCard } from "../../../adminOperations/components/AdminUi";
 import {
-  addMonthsYm,
+  addSalaryAdvanceRecovery,
+  createSalaryAdvance,
+  setSalaryAdvanceStatus,
+  updateSalaryAdvance,
+} from "./deductionsDb";
+import {
   currentYm,
+  deductionActiveForMonth,
+  deductionAmountForMonth,
   feedsSalaryProcessing,
   formatINR,
-  newId,
   parseMoney,
   round2,
   suggestEmi,
@@ -19,7 +25,6 @@ import {
   MonthInput,
   PrimaryButton,
   SecondaryButton,
-  ShellBanner,
   StatusBadge,
 } from "./deductionsUi";
 
@@ -30,15 +35,16 @@ function blankForm() {
     recovery: "",
     recoveryManual: false,
     start_month: currentYm(),
+    entry_date: new Date().toISOString().slice(0, 10),
     remarks: "",
   };
 }
 
 /**
- * Salary advance lifecycle:
- * disburse → set recovery EMI / months → recover via salary → close (stops all further recovery).
+ * Salary advance lifecycle (DB-backed):
+ * disburse → recovery plan → hold / close / recover complete.
  */
-export default function EmployeeSalAdvTab({ records, onChange }) {
+export default function EmployeeSalAdvTab({ employeeId, records, onReload }) {
   const rows = Array.isArray(records) ? records : [];
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -46,15 +52,23 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
   const [recoverId, setRecoverId] = useState(null);
   const [recoverAmount, setRecoverAmount] = useState("");
   const [recoverMonth, setRecoverMonth] = useState(currentYm());
+  const [recoverDate, setRecoverDate] = useState(new Date().toISOString().slice(0, 10));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const openActive = useMemo(
     () => rows.filter((r) => r.status === "active").length,
     [rows]
   );
 
+  const refresh = async () => {
+    if (typeof onReload === "function") await onReload();
+  };
+
   const openCreate = () => {
     setEditingId(null);
     setForm(blankForm());
+    setError("");
     setShowForm(true);
   };
 
@@ -70,8 +84,10 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
       recovery: String(row.recovery_amount ?? ""),
       recoveryManual: true,
       start_month: row.start_month || currentYm(),
+      entry_date: row.entry_date || new Date().toISOString().slice(0, 10),
       remarks: row.remarks || "",
     });
+    setError("");
     setShowForm(true);
   };
 
@@ -81,68 +97,64 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
     setForm((prev) => ({ ...prev, recovery: emi > 0 ? String(emi) : "" }));
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
+    if (!employeeId) return;
     const amount = parseMoney(form.amount);
-    const months = Math.max(1, Math.floor(Number(form.months) || 0));
-    const recovery = parseMoney(form.recovery);
-    if (amount == null || amount <= 0) {
+    const months = Math.max(0, Math.floor(Number(form.months) || 0));
+    const recovery = parseMoney(form.recovery) ?? 0;
+    if (!editingId && (amount == null || amount <= 0)) {
       alert("Enter the advance amount.");
       return;
     }
-    if (recovery == null || recovery <= 0) {
-      alert("Enter the monthly recovery amount.");
+    if (!editingId && months <= 0) {
+      alert("Enter recovery months (e.g. 3).");
+      return;
+    }
+    if (months > 0 && recovery <= 0) {
+      alert("Enter monthly recovery, or set months to 0 to stop salary recovery.");
       return;
     }
     if (!form.start_month) {
       alert("Set a start month for recovery.");
       return;
     }
-    const end_month = addMonthsYm(form.start_month, months - 1);
-    const now = new Date().toISOString();
 
-    if (editingId) {
-      onChange(
-        rows.map((r) =>
-          r.id === editingId
-            ? {
-                ...r,
-                months,
-                months_remaining: months,
-                recovery_amount: recovery,
-                start_month: form.start_month,
-                end_month,
-                remarks: form.remarks || "",
-                updated_at: now,
-              }
-            : r
-        )
-      );
-    } else {
-      onChange([
-        {
-          id: newId("sadv"),
-          amount: round2(amount),
-          balance_outstanding: round2(amount),
-          months,
+    setBusy(true);
+    setError("");
+    try {
+      if (editingId) {
+        await updateSalaryAdvance(editingId, {
           months_remaining: months,
+          months: months > 0 ? months : undefined,
+          recovery_amount: months > 0 ? recovery : 0,
+          start_month: form.start_month,
+          entry_date: form.entry_date,
+          remarks: form.remarks || "",
+        });
+      } else {
+        await createSalaryAdvance(employeeId, {
+          amount,
+          months,
           recovery_amount: recovery,
           start_month: form.start_month,
-          end_month,
-          status: "active",
+          entry_date: form.entry_date,
           remarks: form.remarks || "",
-          recoveries: [],
-          created_at: now,
-          updated_at: now,
-        },
-        ...rows,
-      ]);
+        });
+      }
+      setShowForm(false);
+      setEditingId(null);
+      setForm(blankForm());
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Could not save salary advance.");
+    } finally {
+      setBusy(false);
     }
-    setShowForm(false);
-    setEditingId(null);
   };
 
-  const setStatus = (id, status) => {
+  const setStatus = async (id, status) => {
     const row = rows.find((r) => r.id === id);
     if (!row || row.status === "closed") return;
     if (status === "closed") {
@@ -151,71 +163,67 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
       );
       if (!ok) return;
     }
-    onChange(
-      rows.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              status,
-              closed_at: status === "closed" ? new Date().toISOString() : r.closed_at || null,
-              updated_at: new Date().toISOString(),
-            }
-          : r
-      )
-    );
+    setBusy(true);
+    setError("");
+    try {
+      await setSalaryAdvanceStatus(id, status);
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Could not update status.");
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const applyRecovery = (row) => {
+  const applyRecovery = async (row) => {
     const amount = parseMoney(recoverAmount);
     if (amount == null || amount <= 0) {
       alert("Enter a recovery amount.");
       return;
     }
-    if (row.status === "closed") return;
-    const nextBalance = round2(Math.max(0, Number(row.balance_outstanding) - amount));
-    const monthsLeft =
-      nextBalance <= 0
-        ? 0
-        : Math.ceil(nextBalance / Math.max(Number(row.recovery_amount) || 1, 1));
-    const updated = {
-      ...row,
-      balance_outstanding: nextBalance,
-      months_remaining: monthsLeft,
-      recoveries: [
-        {
-          id: newId("srec"),
-          amount: round2(amount),
-          month: recoverMonth || currentYm(),
-          at: new Date().toISOString(),
-        },
-        ...(row.recoveries || []),
-      ],
-      status: nextBalance <= 0 ? "closed" : row.status,
-      closed_at: nextBalance <= 0 ? new Date().toISOString() : row.closed_at || null,
-      updated_at: new Date().toISOString(),
-    };
-    onChange(rows.map((r) => (r.id === row.id ? updated : r)));
-    if (nextBalance <= 0) {
-      alert("Advance fully recovered and closed — no further salary recovery.");
+    setBusy(true);
+    setError("");
+    try {
+      await addSalaryAdvanceRecovery(row.id, {
+        amount,
+        month_key: recoverMonth || currentYm(),
+        recovery_date: recoverDate || new Date().toISOString().slice(0, 10),
+      });
+      setRecoverId(null);
+      setRecoverAmount("");
+      await refresh();
+      const nextBal = Math.max(0, round2(Number(row.balance_outstanding) - amount));
+      if (nextBal <= 0) {
+        alert("Advance fully recovered and closed — no further salary recovery.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Could not save recovery.");
+    } finally {
+      setBusy(false);
     }
-    setRecoverId(null);
-    setRecoverAmount("");
   };
 
   return (
     <div className="space-y-4">
-      <ShellBanner>
-        Salary advances disburse cash now and recover through future salary. Update recovery EMI or
-        months while open. Closing (or clearing the balance) stops all further recovery in processing.
-      </ShellBanner>
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+          {error}
+        </div>
+      ) : null}
 
       <SectionCard
         title="Salary advances"
-        right={<PrimaryButton onClick={openCreate}>New advance</PrimaryButton>}
+        right={
+          <PrimaryButton onClick={openCreate} disabled={busy}>
+            New advance
+          </PrimaryButton>
+        }
       >
         <p className="text-xs text-gray-500 mb-3">
-          {openActive} open advance{openActive === 1 ? "" : "s"} recovering via salary when processing
-          is live.
+          {openActive} open advance{openActive === 1 ? "" : "s"} — recovery hits salary only inside
+          tenure.
         </p>
 
         {showForm ? (
@@ -226,29 +234,33 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
             <p className="text-sm font-semibold text-gray-900">
               {editingId ? "Update recovery plan" : "Enter salary advance"}
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
               <Field label="Advance amount (₹)">
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   value={form.amount}
-                  disabled={Boolean(editingId)}
+                  disabled={Boolean(editingId) || busy}
                   onChange={(e) => {
                     const amount = e.target.value;
                     setForm((prev) => ({ ...prev, amount }));
                     syncRecovery(amount, form.months, form.recoveryManual);
                   }}
                   className={inputClass}
-                  required
+                  required={!editingId}
                 />
               </Field>
-              <Field label="Recovery months" hint="1 = full recovery in one salary month.">
+              <Field
+                label="Recovery months"
+                hint={editingId ? "0 = stop salary recovery." : "e.g. 3 pay months from start."}
+              >
                 <input
                   type="number"
-                  min="1"
+                  min={editingId ? "0" : "1"}
                   step="1"
                   value={form.months}
+                  disabled={busy}
                   onChange={(e) => {
                     const months = e.target.value;
                     setForm((prev) => ({ ...prev, months }));
@@ -264,6 +276,7 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
                   min="0"
                   step="0.01"
                   value={form.recovery}
+                  disabled={busy}
                   onChange={(e) =>
                     setForm((prev) => ({
                       ...prev,
@@ -272,13 +285,24 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
                     }))
                   }
                   className={inputClass}
-                  required
+                  required={Number(form.months) > 0}
                 />
               </Field>
               <Field label="Recovery start month">
                 <MonthInput
                   value={form.start_month}
+                  disabled={busy}
                   onChange={(e) => setForm((prev) => ({ ...prev, start_month: e.target.value }))}
+                  required
+                />
+              </Field>
+              <Field label="Entry date" hint="Day this advance / plan was saved.">
+                <input
+                  type="date"
+                  value={form.entry_date}
+                  disabled={busy}
+                  onChange={(e) => setForm((prev) => ({ ...prev, entry_date: e.target.value }))}
+                  className={inputClass}
                   required
                 />
               </Field>
@@ -287,13 +311,17 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
               <input
                 type="text"
                 value={form.remarks}
+                disabled={busy}
                 onChange={(e) => setForm((prev) => ({ ...prev, remarks: e.target.value }))}
                 className={inputClass}
               />
             </Field>
             <div className="flex flex-wrap gap-2">
-              <PrimaryButton type="submit">{editingId ? "Save plan" : "Save advance"}</PrimaryButton>
+              <PrimaryButton type="submit" disabled={busy}>
+                {busy ? "Saving…" : editingId ? "Save plan" : "Save advance"}
+              </PrimaryButton>
               <SecondaryButton
+                disabled={busy}
                 onClick={() => {
                   setShowForm(false);
                   setEditingId(null);
@@ -308,7 +336,7 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
         {!rows.length && !showForm ? (
           <EmptyState
             title="No salary advances"
-            body="Record an advance amount and how many salary months (and EMI) to recover it. Close when recovered so processing stops."
+            body="Record amount, recovery months, monthly recovery, start month, and entry date. Saved to the salary database."
             action={<PrimaryButton onClick={openCreate}>New advance</PrimaryButton>}
           />
         ) : null}
@@ -323,107 +351,146 @@ export default function EmployeeSalAdvTab({ records, onChange }) {
                   <th className="px-2 py-2 text-right">Monthly recovery</th>
                   <th className="px-2 py-2 text-center">Months left</th>
                   <th className="px-2 py-2 text-left">Status</th>
-                  <th className="px-2 py-2 text-left">Salary feed</th>
+                  <th className="px-2 py-2 text-left">This month</th>
                   <th className="px-2 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <React.Fragment key={row.id}>
-                    <tr className="border-t border-gray-100">
-                      <td className="px-2 py-2">
-                        <MoneyText value={row.amount} strong />
-                        <p className="text-[10px] text-gray-500">
-                          {row.start_month || "—"} → {row.end_month || "—"}
-                        </p>
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        <MoneyText value={row.balance_outstanding} />
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        <MoneyText value={row.recovery_amount} />
-                      </td>
-                      <td className="px-2 py-2 text-center tabular-nums">
-                        {row.months_remaining ?? row.months ?? "—"}
-                      </td>
-                      <td className="px-2 py-2">
-                        <StatusBadge status={row.status} />
-                      </td>
-                      <td className="px-2 py-2">
-                        {feedsSalaryProcessing(row.status) ? "Yes (recovery)" : "No"}
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="flex flex-wrap justify-end gap-1.5">
-                          {row.status !== "closed" ? (
-                            <>
-                              <SecondaryButton onClick={() => openEdit(row)}>
-                                EMI / months
-                              </SecondaryButton>
-                              <SecondaryButton
-                                onClick={() => {
-                                  setRecoverId(row.id);
-                                  setRecoverAmount(String(row.recovery_amount || ""));
-                                  setRecoverMonth(currentYm());
-                                }}
-                              >
-                                Recover
-                              </SecondaryButton>
-                              {row.status === "active" ? (
-                                <SecondaryButton onClick={() => setStatus(row.id, "hold")}>
-                                  Hold
-                                </SecondaryButton>
+                {rows.map((row) => {
+                  const payYm = currentYm();
+                  const hits = deductionActiveForMonth(row, payYm, {
+                    amountKey: "recovery_amount",
+                  });
+                  const hitAmt = deductionAmountForMonth(row, payYm, {
+                    amountKey: "recovery_amount",
+                  });
+                  return (
+                    <React.Fragment key={row.id}>
+                      <tr className="border-t border-gray-100">
+                        <td className="px-2 py-2">
+                          <MoneyText value={row.amount} strong />
+                          <p className="text-[10px] text-gray-500">
+                            {row.start_month || "—"} → {row.end_month || "—"} · Entry{" "}
+                            {row.entry_date || "—"}
+                          </p>
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <MoneyText value={row.balance_outstanding} />
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <MoneyText value={row.recovery_amount} />
+                        </td>
+                        <td className="px-2 py-2 text-center tabular-nums">
+                          {row.months_remaining ?? row.months ?? "—"}
+                        </td>
+                        <td className="px-2 py-2">
+                          <StatusBadge status={row.status} />
+                        </td>
+                        <td className="px-2 py-2">
+                          {!feedsSalaryProcessing(row.status)
+                            ? "No"
+                            : hits ? (
+                                <span className="text-red-700 tabular-nums">−{formatINR(hitAmt)}</span>
                               ) : (
-                                <SecondaryButton onClick={() => setStatus(row.id, "active")}>
-                                  Resume
+                                "—"
+                              )}
+                        </td>
+                        <td className="px-2 py-2">
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            {row.status !== "closed" ? (
+                              <>
+                                <SecondaryButton disabled={busy} onClick={() => openEdit(row)}>
+                                  EMI / months
                                 </SecondaryButton>
-                              )}
-                              <DangerButton onClick={() => setStatus(row.id, "closed")}>
-                                Close
-                              </DangerButton>
-                            </>
-                          ) : (
-                            <span className="text-[11px] text-gray-500">Closed — frozen</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {recoverId === row.id ? (
-                      <tr className="bg-blue-50/60">
-                        <td colSpan={7} className="px-3 py-3">
-                          <div className="flex flex-wrap items-end gap-3">
-                            <Field label="Recovery (₹)">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={recoverAmount}
-                                onChange={(e) => setRecoverAmount(e.target.value)}
-                                className={inputClass + " w-40"}
-                              />
-                            </Field>
-                            <Field label="Month">
-                              <MonthInput
-                                value={recoverMonth}
-                                onChange={(e) => setRecoverMonth(e.target.value)}
-                              />
-                            </Field>
-                            <PrimaryButton onClick={() => applyRecovery(row)}>Apply</PrimaryButton>
-                            <SecondaryButton onClick={() => setRecoverId(null)}>Cancel</SecondaryButton>
-                            <p className="text-[11px] text-gray-600 self-center">
-                              Balance after:{" "}
-                              {formatINR(
-                                Math.max(
-                                  0,
-                                  round2(Number(row.balance_outstanding) - (parseMoney(recoverAmount) || 0))
-                                )
-                              )}
-                            </p>
+                                <SecondaryButton
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setRecoverId(row.id);
+                                    setRecoverAmount(String(row.recovery_amount || ""));
+                                    setRecoverMonth(currentYm());
+                                    setRecoverDate(new Date().toISOString().slice(0, 10));
+                                  }}
+                                >
+                                  Recover
+                                </SecondaryButton>
+                                {row.status === "active" ? (
+                                  <SecondaryButton disabled={busy} onClick={() => setStatus(row.id, "hold")}>
+                                    Hold
+                                  </SecondaryButton>
+                                ) : (
+                                  <SecondaryButton disabled={busy} onClick={() => setStatus(row.id, "active")}>
+                                    Resume
+                                  </SecondaryButton>
+                                )}
+                                <DangerButton disabled={busy} onClick={() => setStatus(row.id, "closed")}>
+                                  Close
+                                </DangerButton>
+                              </>
+                            ) : (
+                              <span className="text-[11px] text-gray-500">Closed — frozen</span>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ) : null}
-                  </React.Fragment>
-                ))}
+                      {recoverId === row.id ? (
+                        <tr className="bg-blue-50/60">
+                          <td colSpan={7} className="px-3 py-3">
+                            <div className="flex flex-wrap items-end gap-3">
+                              <Field label="Recovery (₹)">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={recoverAmount}
+                                  disabled={busy}
+                                  onChange={(e) => setRecoverAmount(e.target.value)}
+                                  className={inputClass + " w-40"}
+                                />
+                              </Field>
+                              <Field label="Pay month">
+                                <MonthInput
+                                  value={recoverMonth}
+                                  disabled={busy}
+                                  onChange={(e) => setRecoverMonth(e.target.value)}
+                                />
+                              </Field>
+                              <Field label="Recovery day">
+                                <input
+                                  type="date"
+                                  value={recoverDate}
+                                  disabled={busy}
+                                  onChange={(e) => setRecoverDate(e.target.value)}
+                                  className={inputClass}
+                                />
+                              </Field>
+                              <PrimaryButton disabled={busy} onClick={() => applyRecovery(row)}>
+                                {busy ? "Saving…" : "Apply"}
+                              </PrimaryButton>
+                              <SecondaryButton disabled={busy} onClick={() => setRecoverId(null)}>
+                                Cancel
+                              </SecondaryButton>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                      {(row.recoveries || []).length ? (
+                        <tr className="bg-gray-50/80">
+                          <td colSpan={7} className="px-3 py-2 text-[11px] text-gray-600">
+                            History:{" "}
+                            {(row.recoveries || []).slice(0, 12).map((r) => (
+                              <span key={r.id} className="inline-block mr-3">
+                                {r.recovery_date || r.at?.slice?.(0, 10) || "—"} ({r.month}):{" "}
+                                {formatINR(r.amount)}
+                                {r.source === "salary_sheet" ? " · salary" : ""}
+                              </span>
+                            ))}
+                            {(row.recoveries || []).length > 12 ? "…" : null}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -10,7 +10,13 @@ import {
   normalizeAttendanceEmpCode,
   registerPresentDayCredit,
 } from "../../../lib/attendanceDaily";
-import { getEmployeeDeductions, applySalarySheetToEmployeeMasters } from "../../admin/employeeMaster/deductions/deductionsStore";
+import {
+  applySalarySheetToEmployeeMasters,
+} from "../../admin/employeeMaster/deductions/deductionsStore";
+import {
+  applySalarySheetLinesToDb,
+  seedSalaryDeductionsMapFromDb,
+} from "../../admin/employeeMaster/deductions/deductionsDb";
 import { resolvePersonComponentsForPayroll } from "./salaryComponentsCatalog";
 import {
   appendProcessBatch,
@@ -171,26 +177,8 @@ function toDbLinePayload(line, { includeRunId = false } = {}) {
   return out;
 }
 
-function seedDeductionsFromProfile(employeeMasterId) {
-  const d = getEmployeeDeductions(employeeMasterId);
-  let loan = 0;
-  for (const l of d.loans || []) {
-    if (l.status === "active") loan += num(l.installment_amount);
-  }
-  let salAdv = 0;
-  for (const a of d.salaryAdvances || []) {
-    if (a.status === "active") salAdv += num(a.recovery_amount);
-  }
-  let unpaidPaid = 0;
-  for (const u of d.unpaidPaid || []) {
-    if (u.status === "open") {
-      const bal = num(u.balance_outstanding);
-      unpaidPaid += u.kind === "paid" ? bal : -bal;
-    }
-  }
-  let tds = 0;
-  if (d.tds?.active && d.tds.mode === "manual") tds = num(d.tds.monthly_amount);
-  return { loan, salAdv, unpaidPaid, tds };
+function emptyDedSeed() {
+  return { loan: 0, salAdv: 0, unpaidPaid: 0, tds: 0 };
 }
 
 /**
@@ -203,7 +191,7 @@ export function buildSheetLineFromSources({
   monthDays = DEFAULT_MONTH_DAYS,
   deductions,
 }) {
-  const ded = deductions || seedDeductionsFromProfile(employee.id);
+  const ded = deductions || emptyDedSeed();
   const computed = computeProcessingRow({
     structure,
     presentDays,
@@ -752,8 +740,10 @@ export function excludeHeldEmployees(employees, holdIds) {
   return (employees || []).filter((emp) => !holdSet.has(String(emp.id)));
 }
 
-function buildLinesForEmployees(employees, { salaryMap, presentMap, monthDays }) {
+async function buildLinesForEmployees(employees, { salaryMap, presentMap, monthDays, monthKey: payMonthKey = "" }) {
   const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
+  const ids = (employees || []).map((e) => e.id);
+  const dedMap = await seedSalaryDeductionsMapFromDb(ids, payMonthKey);
   const lines = [];
   for (const emp of employees || []) {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
@@ -766,7 +756,7 @@ function buildLinesForEmployees(employees, { salaryMap, presentMap, monthDays })
         structure,
         presentDays: present,
         monthDays: days,
-        deductions: seedDeductionsFromProfile(emp.id),
+        deductions: dedMap.get(String(emp.id)) || emptyDedSeed(),
       })
     );
   }
@@ -864,6 +854,10 @@ export async function buildSalaryScopePreviewLines({
   const key = monthKey(year, month);
   // Always re-read bank fields from DB so Excel import → Processing stays in sync
   const bankMap = await fetchMasterPayrollFieldsByIds((employees || []).map((e) => e.id));
+  const dedMap = await seedSalaryDeductionsMapFromDb(
+    (employees || []).map((e) => e.id),
+    key
+  );
   const lines = [];
   for (const emp of employees || []) {
     const structure =
@@ -899,7 +893,7 @@ export async function buildSalaryScopePreviewLines({
       structure,
       presentDays: present,
       monthDays: days,
-      deductions: seedDeductionsFromProfile(emp.id),
+      deductions: dedMap.get(String(emp.id)) || emptyDedSeed(),
     });
     const draft = getScopeLineDraft(key, emp.id);
     if (draft) {
@@ -932,6 +926,8 @@ export async function processSalaryMonth({
   employeeIds = [],
   departments = [],
   forceFullReprocess = false,
+  /** Calendar day (YYYY-MM-DD) Process salary was clicked — stamps payslips */
+  processedOn = "",
 } = {}) {
   const y = Number(year);
   const m = Number(month);
@@ -953,6 +949,11 @@ export async function processSalaryMonth({
   const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
   const user = await currentUserMeta();
   const holdIds = getMonthHoldIds(key);
+  const processDay =
+    processedOn && /^\d{4}-\d{2}-\d{2}$/.test(String(processedOn))
+      ? String(processedOn).slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+  const processAt = new Date().toISOString();
 
   const [{ data: employees, error: empErr }, salaryMap, presentMap, existing] = await Promise.all([
     supabase
@@ -1024,10 +1025,11 @@ export async function processSalaryMonth({
     );
   }
 
-  let newLines = buildLinesForEmployees(toProcess, {
+  let newLines = await buildLinesForEmployees(toProcess, {
     salaryMap,
     presentMap,
     monthDays: days,
+    monthKey: key,
   });
   const bankMap = await fetchMasterPayrollFieldsByIds(toProcess.map((e) => e.id));
   newLines = newLines.map((line) => {
@@ -1089,7 +1091,9 @@ export async function processSalaryMonth({
         updated_by: user.id,
         summary_json: {
           ...summary_json,
-          last_partial_process_at: new Date().toISOString(),
+          last_partial_process_at: processAt,
+          processed_on: processDay,
+          processed_at: processAt,
           added_count: newLines.length,
           skipped_duplicate_count: skippedDuplicates.length,
         },
@@ -1112,7 +1116,9 @@ export async function processSalaryMonth({
         updated_by: user.id,
         summary_json: {
           ...summary_json,
-          reprocessed_at: new Date().toISOString(),
+          reprocessed_at: processAt,
+          processed_on: processDay,
+          processed_at: processAt,
         },
       })
       .eq("id", existing.id)
@@ -1144,6 +1150,8 @@ export async function processSalaryMonth({
         summary_json: {
           ...summary_json,
           added_count: newLines.length,
+          processed_on: processDay,
+          processed_at: processAt,
         },
       })
       .select("*")
@@ -1184,6 +1192,8 @@ export async function processSalaryMonth({
         skipped_duplicate_count: skippedDuplicates.length,
         skipped_duplicate_ids: skippedDuplicates.map((e) => e.id),
         departments: mode === PROCESS_MODES.DEPT ? departments : undefined,
+        processed_on: processDay,
+        processed_at: processAt,
       },
     });
     if (revErr) throw revErr;
@@ -1191,14 +1201,29 @@ export async function processSalaryMonth({
 
   try {
     applySalarySheetToEmployeeMasters(newLines, key);
+    await applySalarySheetLinesToDb(newLines, key);
   } catch (syncErr) {
     console.warn("Salary process: master deduction sync skipped", syncErr);
   }
 
   const bundle = await getMonthRunWithLines(runId);
+  let payslipCount = 0;
   try {
     const { generatePayslipsForRun } = await import("../../../lib/salaryPayslips");
-    generatePayslipsForRun(bundle.run, newLines);
+    const slips = generatePayslipsForRun(
+      {
+        ...bundle.run,
+        processed_on: processDay,
+        summary_json: {
+          ...(bundle.run?.summary_json || {}),
+          processed_on: processDay,
+          processed_at: processAt,
+        },
+      },
+      newLines,
+      { processedOn: processDay, generatedAt: processAt }
+    );
+    payslipCount = slips.length;
   } catch (psErr) {
     console.warn("Salary process: payslip generation skipped", psErr);
   }
@@ -1208,6 +1233,9 @@ export async function processSalaryMonth({
     processMeta: {
       processMode: mode,
       processedCount: newLines.length,
+      payslipCount,
+      processedOn: processDay,
+      processedAt: processAt,
       skippedDuplicateCount: skippedDuplicates.length,
       skippedDuplicates: skippedDuplicates.map((e) => ({
         id: e.id,
@@ -1378,12 +1406,11 @@ export async function saveMonthRunEdits(runId, editedLines) {
     },
   });
 
-  // Sheet → Employee Master monthly components
+  // Sheet → Employee Master monthly components (+ DB loan / advance recoveries)
   try {
-    applySalarySheetToEmployeeMasters(
-      recomputed.map((r) => r.line),
-      run.month_key
-    );
+    const syncLines = recomputed.map((r) => r.line);
+    applySalarySheetToEmployeeMasters(syncLines, run.month_key);
+    await applySalarySheetLinesToDb(syncLines, run.month_key);
   } catch (syncErr) {
     console.warn("Salary save: master deduction sync skipped", syncErr);
   }

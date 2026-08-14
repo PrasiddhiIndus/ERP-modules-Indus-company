@@ -57,10 +57,20 @@ export function payslipId(monthKey, employeeMasterId) {
   return `ps_${monthKey}_${employeeMasterId}`;
 }
 
+/** Calendar day (YYYY-MM-DD) in local time — the day Process salary was clicked. */
+export function todayProcessDate() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /**
  * Build a payslip record from a processed salary line + run meta.
+ * @param {{ processedOn?: string }} [opts] — calendar day Process salary was clicked
  */
-export function buildPayslipFromLine(run, line) {
+export function buildPayslipFromLine(run, line, opts = {}) {
   if (!run || !line?.employee_master_id) return null;
   const monthKey = run.month_key || `${run.pay_year}-${String(run.pay_month).padStart(2, "0")}`;
   const customs = Array.isArray(line.computed_json?.custom_components)
@@ -68,6 +78,13 @@ export function buildPayslipFromLine(run, line) {
     : Array.isArray(line.source_snapshot_json?.custom_components)
       ? line.source_snapshot_json.custom_components
       : [];
+
+  const processedOn =
+    opts.processedOn ||
+    run.processed_on ||
+    run.summary_json?.processed_on ||
+    todayProcessDate();
+  const generatedAt = opts.generatedAt || new Date().toISOString();
 
   return {
     id: payslipId(monthKey, line.employee_master_id),
@@ -111,18 +128,22 @@ export function buildPayslipFromLine(run, line) {
     net_salary: num(line.net_salary),
     bank_amount: num(line.bank_amount),
     status: "generated",
-    generated_at: new Date().toISOString(),
+    /** Calendar day the Process salary button was clicked */
+    processed_on: processedOn,
+    generated_at: generatedAt,
   };
 }
 
-/** Upsert payslips for an entire processed run. */
-export function generatePayslipsForRun(run, lines) {
+/** Upsert payslips for processed employees (one slip per employee for the pay month). */
+export function generatePayslipsForRun(run, lines, opts = {}) {
   if (!run || !Array.isArray(lines) || !lines.length) return [];
+  const processedOn = opts.processedOn || todayProcessDate();
+  const generatedAt = opts.generatedAt || new Date().toISOString();
   const all = readAll();
   const byId = new Map(all.map((p) => [p.id, p]));
   const created = [];
   for (const line of lines) {
-    const slip = buildPayslipFromLine(run, line);
+    const slip = buildPayslipFromLine(run, line, { processedOn, generatedAt });
     if (!slip) continue;
     byId.set(slip.id, slip);
     created.push(slip);
