@@ -12,6 +12,11 @@ import {
   getEmployeeDeductions,
   saveEmployeeDeductions,
 } from "./employeeMaster/deductions/deductionsStore";
+import {
+  fetchEmployeeLoans,
+  fetchEmployeeSalaryAdvances,
+  fetchEmployeeUnpaidPaid,
+} from "./employeeMaster/deductions/deductionsDb";
 import EmployeeLoanTab from "./employeeMaster/deductions/EmployeeLoanTab";
 import EmployeeSalAdvTab from "./employeeMaster/deductions/EmployeeSalAdvTab";
 import EmployeeUnpaidPaidTab from "./employeeMaster/deductions/EmployeeUnpaidPaidTab";
@@ -21,7 +26,6 @@ import EmployeeLeavesTab from "./employeeMaster/EmployeeLeavesTab";
 import EmployeeToursTab from "./employeeMaster/EmployeeToursTab";
 import EmployeeSalaryHistoryTab from "./employeeMaster/EmployeeSalaryHistoryTab";
 import EmployeePayslipsTab from "./employeeMaster/EmployeePayslipsTab";
-import EmployeeSalaryRevisionsTab from "./employeeMaster/EmployeeSalaryRevisionsTab";
 import { fetchOpenVariancesForEmployee } from "../adminOperations/salaryAdmin/salaryMonthProcessing";
 import {
   canAccessSalaryAdmin,
@@ -40,7 +44,6 @@ const TABS = [
   { id: "form-16", label: "Form 16" },
   { id: "salary-history", label: "Salary history" },
   { id: "payslips", label: "Payslips" },
-  { id: "revisions", label: "Salary Revisions" },
   { id: "documents", label: "Documents and Forms" },
   { id: "fnf", label: "F&F" },
 ];
@@ -68,7 +71,6 @@ const CONTENT_TABS = new Set([
   "form-16",
   "salary-history",
   "payslips",
-  "revisions",
 ]);
 
 function statusSeverity(status) {
@@ -141,6 +143,35 @@ export default function IfspEmployeeMasterDetail() {
     [employeeId]
   );
 
+  const reloadLoanAdvanceFromDb = useCallback(async () => {
+    if (!employeeId) return;
+    try {
+      const [loans, salaryAdvances, unpaidPaid] = await Promise.all([
+        fetchEmployeeLoans(employeeId),
+        fetchEmployeeSalaryAdvances(employeeId),
+        fetchEmployeeUnpaidPaid(employeeId).catch(() => []),
+      ]);
+      setDeductions((prev) => {
+        const next = {
+          ...prev,
+          loans,
+          salaryAdvances,
+          unpaidPaid,
+        };
+        const local = getEmployeeDeductions(employeeId);
+        saveEmployeeDeductions(employeeId, {
+          ...local,
+          loans,
+          salaryAdvances,
+          unpaidPaid,
+        });
+        return next;
+      });
+    } catch (err) {
+      console.warn("Employee Master: loan/advance/unpaid reload failed", err);
+    }
+  }, [employeeId]);
+
   const load = useCallback(async (opts = {}) => {
     const soft = Boolean(opts.soft);
     try {
@@ -183,24 +214,38 @@ export default function IfspEmployeeMasterDetail() {
 
       if (!soft) {
         const local = getEmployeeDeductions(employeeId);
-        let merged = local;
+        let merged = { ...local };
 
-        if (!local.loans?.length) {
-          try {
-            const { data: hrLoans, error: hrErr } = await supabase
-              .from("hr_payroll_loans")
-              .select("*")
-              .eq("employee_master_id", employeeId)
-              .order("created_at", { ascending: false });
-            if (!hrErr && hrLoans?.length) {
-              merged = {
-                ...local,
-                loans: hrLoans.map(mapHrLoan),
-              };
-              saveEmployeeDeductions(employeeId, merged);
+        try {
+          const [loans, salaryAdvances, unpaidPaid] = await Promise.all([
+            fetchEmployeeLoans(employeeId),
+            fetchEmployeeSalaryAdvances(employeeId),
+            fetchEmployeeUnpaidPaid(employeeId).catch(() => null),
+          ]);
+          merged = {
+            ...merged,
+            loans,
+            salaryAdvances,
+            ...(unpaidPaid ? { unpaidPaid } : {}),
+          };
+          saveEmployeeDeductions(employeeId, merged);
+        } catch (dbErr) {
+          console.warn("Employee Master: salary loan/advance DB load failed", dbErr);
+          // Soft fallback: local + optional HR loans if DB tables missing
+          if (!local.loans?.length) {
+            try {
+              const { data: hrLoans, error: hrErr } = await supabase
+                .from("hr_payroll_loans")
+                .select("*")
+                .eq("employee_master_id", employeeId)
+                .order("created_at", { ascending: false });
+              if (!hrErr && hrLoans?.length) {
+                merged = { ...merged, loans: hrLoans.map(mapHrLoan) };
+                saveEmployeeDeductions(employeeId, merged);
+              }
+            } catch (hrLoadErr) {
+              console.warn("Employee Master: HR loans soft-load skipped", hrLoadErr);
             }
-          } catch (hrLoadErr) {
-            console.warn("Employee Master: HR loans soft-load skipped", hrLoadErr);
           }
         }
         setDeductions(merged);
@@ -422,22 +467,25 @@ export default function IfspEmployeeMasterDetail() {
 
             {activeTab === "loan" ? (
               <EmployeeLoanTab
+                employeeId={employeeId}
                 records={deductions.loans}
-                onChange={(loans) => persistDeductions({ ...deductions, loans })}
+                onReload={reloadLoanAdvanceFromDb}
               />
             ) : null}
 
             {activeTab === "sal-adv" ? (
               <EmployeeSalAdvTab
+                employeeId={employeeId}
                 records={deductions.salaryAdvances}
-                onChange={(salaryAdvances) => persistDeductions({ ...deductions, salaryAdvances })}
+                onReload={reloadLoanAdvanceFromDb}
               />
             ) : null}
 
             {activeTab === "unpaid-paid" ? (
               <EmployeeUnpaidPaidTab
+                employeeId={employeeId}
                 records={deductions.unpaidPaid}
-                onChange={(unpaidPaid) => persistDeductions({ ...deductions, unpaidPaid })}
+                onReload={reloadLoanAdvanceFromDb}
               />
             ) : null}
 
@@ -460,8 +508,6 @@ export default function IfspEmployeeMasterDetail() {
             {activeTab === "salary-history" ? <EmployeeSalaryHistoryTab employee={employee} /> : null}
 
             {activeTab === "payslips" ? <EmployeePayslipsTab employee={employee} /> : null}
-
-            {activeTab === "revisions" ? <EmployeeSalaryRevisionsTab employee={employee} /> : null}
 
             {!CONTENT_TABS.has(activeTab) ? <PlaceholderPanel tabId={activeTab} /> : null}
           </div>
