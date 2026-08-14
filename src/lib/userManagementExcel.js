@@ -1,6 +1,10 @@
 import * as XLSX from "xlsx";
 import { MODULES } from "../config/roles";
-import { managerDisplayLabel } from "./userManagementHierarchy";
+import {
+  managerDisplayLabel,
+  userManagementDisplayName,
+  userManagementTeamDisplay,
+} from "./userManagementHierarchy";
 import { roleLabel, teamLabel } from "../pages/userManagement/userManagementLabels";
 
 const moduleLabel = (value) =>
@@ -12,7 +16,7 @@ export function buildUserManagementExportRows(profiles, options = {}) {
   return (profiles || []).map((row, idx) => {
     const exportRow = {
       "S.No": idx + 1,
-      Username: row.username || "—",
+      Username: userManagementDisplayName(row),
     };
 
     if (includeEmpCode) {
@@ -20,7 +24,7 @@ export function buildUserManagementExportRows(profiles, options = {}) {
     }
 
     exportRow.Email = row.email || "—";
-    exportRow.Team = teamLabel(row.team);
+    exportRow.Team = userManagementTeamDisplay(row);
     exportRow.Role = roleLabel(row.role);
 
     if (includeHierarchy) {
