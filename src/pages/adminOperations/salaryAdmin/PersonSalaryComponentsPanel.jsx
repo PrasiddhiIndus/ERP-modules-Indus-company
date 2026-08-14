@@ -1,16 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "../components/AdminUi";
 import {
-  evalComponentFormula,
   flattenComponentTree,
-  getDefaultCtcComponents,
+  hydratePersonComponents,
+  isCtcOptionalPresetCode,
+  loadCustomComponentAmounts,
   loadPersonComponents,
   normalizeComponentCode,
   newComponentId,
-  savePersonComponents,
+  persistPersonComponents,
+  saveCustomComponentAmounts,
   suggestComponentCode,
-  validateComponentFormula,
 } from "./salaryComponentsCatalog";
 
 const inputCls =
@@ -19,15 +20,36 @@ const btnGhost =
   "h-8 px-2.5 text-[11px] font-medium rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-1";
 const btnPrimary =
   "h-8 px-2.5 text-[11px] font-medium rounded-md bg-accent text-white disabled:opacity-50 inline-flex items-center gap-1";
+const btnIcon =
+  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-ink disabled:opacity-50";
+const btnIconDanger =
+  "inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-100 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50";
+
+const PART_OPTIONS = [
+  { code: "PART_A", name: "Part A — Gross & Take Home" },
+  { code: "PART_B", name: "Part B — Employer cost" },
+  { code: "BOTH", name: "Both — Part A and Part B" },
+];
+
+function normalizeParentChoice(value) {
+  if (value === "PART_B") return "PART_B";
+  if (value === "BOTH") return "BOTH";
+  return "PART_A";
+}
+
+function partLabel(parentCode) {
+  if (parentCode === "PART_B") return "Part B";
+  return "Part A";
+}
 
 function blankForm(parentCode = "PART_A") {
   return {
     id: "",
     code: "",
     name: "",
-    parent_code: parentCode || "PART_A",
+    parent_code: normalizeParentChoice(parentCode),
     kind: "custom",
-    formula: "BAS * 10%",
+    formula: "Manual",
     formula_label: "",
     active: true,
     show_on_profile: true,
@@ -35,18 +57,37 @@ function blankForm(parentCode = "PART_A") {
   };
 }
 
+function nextSortOrder(list, parentCode) {
+  const target = parentCode === "BOTH" ? null : parentCode;
+  return (
+    Math.max(
+      0,
+      ...list
+        .filter((c) => (target ? c.parent_code === target : true))
+        .map((c) => c.sort_order || 0)
+    ) + 5
+  );
+}
+
+/** Suggest a free Part B twin code when adding under Both. */
+function twinPartBCode(baseCode, knownCodes) {
+  const base = normalizeComponentCode(baseCode);
+  const candidates = [`${base}B`, `${base}_B`, `${base}2`];
+  for (const c of candidates) {
+    if (c && c !== base && !knownCodes.includes(c)) return c;
+  }
+  return suggestComponentCode(`${base} B`, knownCodes);
+}
+
 /**
- * Person-specific salary components — embedded on Employee Master CTC (no page redirect).
+ * Person-specific salary components — Part A, Part B, or both; Manual amounts on CTC sheet.
  */
 export default function PersonSalaryComponentsPanel({
   employeeId,
   employeeName = "Employee",
-  sampleVars = null,
   onChanged,
 }) {
-  const defaults = useMemo(() => getDefaultCtcComponents(), []);
   const [personComponents, setPersonComponents] = useState([]);
-  const [defaultsOpen, setDefaultsOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
@@ -54,76 +95,69 @@ export default function PersonSalaryComponentsPanel({
   const [editingId, setEditingId] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     if (!employeeId) {
       setPersonComponents([]);
-      return;
+      return undefined;
     }
     setPersonComponents(loadPersonComponents(employeeId));
     setNotice("");
     setError("");
+    (async () => {
+      try {
+        const rows = await hydratePersonComponents(employeeId);
+        if (!cancelled) setPersonComponents(rows);
+      } catch (err) {
+        console.warn("Person components load failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [employeeId]);
 
   const persistPerson = useCallback(
-    (next) => {
+    async (next) => {
       if (!employeeId) return;
-      const saved = savePersonComponents(employeeId, next);
-      setPersonComponents(saved);
-      onChanged?.();
+      try {
+        const saved = await persistPersonComponents(employeeId, next);
+        setPersonComponents(saved);
+        setError("");
+        onChanged?.();
+      } catch (err) {
+        console.error("Person components save failed", err);
+        setError(
+          err?.message
+            ? `Could not save to database: ${err.message}`
+            : "Could not save components to the database."
+        );
+        // Still keep local so CTC sheet works
+        setPersonComponents(Array.isArray(next) ? next : []);
+        onChanged?.();
+      }
     },
     [employeeId, onChanged]
   );
 
-  const knownCodes = useMemo(() => {
-    const codes = new Set(defaults.map((c) => c.code));
-    for (const c of personComponents) codes.add(c.code);
-    return [...codes];
-  }, [defaults, personComponents]);
-
-  const parentOptions = useMemo(
-    () => [
-      ...defaults.filter((c) => c.code === "PART_A" || c.code === "PART_B" || c.kind !== "group"),
-      ...personComponents,
-    ],
-    [defaults, personComponents]
+  const knownCodes = useMemo(
+    () => personComponents.map((c) => c.code),
+    [personComponents]
   );
 
-  const personTree = useMemo(() => flattenComponentTree(personComponents), [personComponents]);
-  const defaultTree = useMemo(() => flattenComponentTree(defaults), [defaults]);
+  const personTree = useMemo(
+    () =>
+      flattenComponentTree(personComponents).filter(
+        (row) => !isCtcOptionalPresetCode(row.code)
+      ),
+    [personComponents]
+  );
 
-  const formulaSample = useMemo(() => {
-    if (sampleVars && typeof sampleVars === "object") return sampleVars;
-    return {
-      gross_monthly: 45000,
-      basic_monthly: 22500,
-      hra_monthly: 9000,
-      special_allowance_monthly: 13500,
-      emp_pf_monthly: 1800,
-      pt_monthly: 200,
-      emp_esic_monthly: 0,
-      take_home_monthly: 43000,
-      er_pf_monthly: 1950,
-      er_esic_monthly: 0,
-      gratuity_monthly: 1082,
-      leave_encash_monthly: 0,
-      mediclaim_monthly: 0,
-      lic_monthly: 0,
-      special_perf_bonus_monthly: 0,
-      bonus_monthly: 0,
-      total_b_monthly: 3032,
-      ctc_monthly: 48032,
-    };
-  }, [sampleVars]);
-
-  const openCreate = (parentCode = "PART_A") => {
+  const openCreate = () => {
     if (!employeeId) return;
     setEditingId(null);
-    const draft = blankForm(parentCode);
+    const draft = blankForm("PART_A");
     draft.code = suggestComponentCode("New component", knownCodes);
-    draft.sort_order =
-      Math.max(
-        0,
-        ...personComponents.filter((c) => c.parent_code === parentCode).map((c) => c.sort_order || 0)
-      ) + 5;
+    draft.sort_order = nextSortOrder(personComponents, "PART_A");
     setForm(draft);
     setModalOpen(true);
     setError("");
@@ -135,9 +169,9 @@ export default function PersonSalaryComponentsPanel({
       id: row.id,
       code: row.code,
       name: row.name,
-      parent_code: row.parent_code || "PART_A",
+      parent_code: row.parent_code === "PART_B" ? "PART_B" : "PART_A",
       kind: row.kind || "custom",
-      formula: row.formula || "",
+      formula: "Manual",
       formula_label: row.formula_label || "",
       active: row.active !== false,
       show_on_profile: row.show_on_profile !== false,
@@ -147,21 +181,22 @@ export default function PersonSalaryComponentsPanel({
     setError("");
   };
 
-  const handleSaveForm = (e) => {
+  const handleSaveForm = async (e) => {
     e.preventDefault();
     if (!employeeId) return;
     const code = normalizeComponentCode(form.code);
     const name = String(form.name || "").trim();
+    const parentChoice = normalizeParentChoice(form.parent_code);
     if (!code) {
-      setError("Enter a short code (e.g. CON for Conveyance).");
+      setError("Enter a short code (e.g. CON).");
+      return;
+    }
+    if (isCtcOptionalPresetCode(code)) {
+      setError("LTA, FOOD, and VPI are added with the checkboxes on the CTC sheet.");
       return;
     }
     if (!name) {
       setError("Enter a component name.");
-      return;
-    }
-    if (defaults.some((d) => d.code === code)) {
-      setError(`${code} is a company default code. Choose another code for this person.`);
       return;
     }
     const clash = personComponents.find((c) => c.code === code && c.id !== editingId);
@@ -169,66 +204,114 @@ export default function PersonSalaryComponentsPanel({
       setError(`This employee already has ${code}.`);
       return;
     }
-    const formula = String(form.formula || "").trim();
-    if (formula && !/^manual$/i.test(formula)) {
-      const v = validateComponentFormula(formula, knownCodes.filter((c) => c !== code));
-      if (!v.ok) {
-        setError(v.error || "Invalid formula.");
-        return;
-      }
-    }
 
     const now = new Date().toISOString();
+    const formulaLabel = form.formula_label || "Manual amount on CTC";
+
     if (editingId) {
-      persistPerson(
+      // Edit always targets one existing row — Part A or Part B only
+      const parent = parentChoice === "PART_B" ? "PART_B" : "PART_A";
+      await persistPerson(
         personComponents.map((c) =>
           c.id === editingId
             ? {
                 ...c,
                 code,
                 name,
-                parent_code: form.parent_code || "PART_A",
-                kind: form.kind || "custom",
-                formula: formula || "Manual",
-                formula_label: form.formula_label || "",
-                active: form.active !== false,
-                show_on_profile: form.show_on_profile !== false,
+                parent_code: parent,
+                kind: "custom",
+                formula: "Manual",
+                formula_label: formulaLabel,
+                active: true,
+                show_on_profile: true,
                 sort_order: Number(form.sort_order) || 0,
                 updated_at: now,
               }
             : c
         )
       );
-      setNotice(`Updated ${code}.`);
-    } else {
-      persistPerson([
+      setNotice(`Updated ${code}. Enter monthly / P.A. on the CTC sheet above.`);
+    } else if (parentChoice === "BOTH") {
+      const codeB = twinPartBCode(code, knownCodes);
+      if (isCtcOptionalPresetCode(codeB)) {
+        setError("Could not create a Part B code. Try a different code.");
+        return;
+      }
+      const sortA = nextSortOrder(personComponents, "PART_A");
+      const sortB = nextSortOrder(personComponents, "PART_B");
+      await persistPerson([
         ...personComponents,
         {
           id: newComponentId(),
           code,
           name,
-          parent_code: form.parent_code || "PART_A",
-          kind: form.kind || "custom",
-          formula: formula || "Manual",
-          formula_label: form.formula_label || "Person-specific",
+          parent_code: "PART_A",
+          kind: "custom",
+          formula: "Manual",
+          formula_label: formulaLabel,
           is_system: false,
-          active: form.active !== false,
+          active: true,
           show_on_profile: true,
-          sort_order: Number(form.sort_order) || 55,
+          sort_order: sortA,
+          employee_master_id: Number(employeeId) || employeeId,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: newComponentId(),
+          code: codeB,
+          name,
+          parent_code: "PART_B",
+          kind: "custom",
+          formula: "Manual",
+          formula_label: formulaLabel,
+          is_system: false,
+          active: true,
+          show_on_profile: true,
+          sort_order: sortB,
           employee_master_id: Number(employeeId) || employeeId,
           created_at: now,
           updated_at: now,
         },
       ]);
-      setNotice(`${code} added — reflected on this CTC sheet and salary processing.`);
+      setNotice(
+        `${code} (Part A) and ${codeB} (Part B) added. Enter monthly / P.A. on each CTC section, then Save CTC.`
+      );
+    } else {
+      const parent = parentChoice === "PART_B" ? "PART_B" : "PART_A";
+      await persistPerson([
+        ...personComponents,
+        {
+          id: newComponentId(),
+          code,
+          name,
+          parent_code: parent,
+          kind: "custom",
+          formula: "Manual",
+          formula_label: formulaLabel,
+          is_system: false,
+          active: true,
+          show_on_profile: true,
+          sort_order: Number(form.sort_order) || nextSortOrder(personComponents, parent),
+          employee_master_id: Number(employeeId) || employeeId,
+          created_at: now,
+          updated_at: now,
+        },
+      ]);
+      setNotice(
+        `${code} added under ${parent === "PART_B" ? "Part B" : "Part A"}. Enter monthly / P.A. on the CTC sheet, then Save CTC.`
+      );
     }
     setModalOpen(false);
-    window.setTimeout(() => setNotice(""), 3500);
+    window.setTimeout(() => setNotice(""), 4000);
   };
 
-  const handleDelete = (row) => {
-    if (!window.confirm(`Remove ${row.code} from this employee's CTC?`)) return;
-    persistPerson(personComponents.filter((c) => c.id !== row.id));
+  const handleDelete = async (row) => {
+    if (!window.confirm(`Remove ${row.code} — ${row.name} from this CTC?`)) return;
+    await persistPerson(personComponents.filter((c) => c.id !== row.id));
+    const amts = { ...loadCustomComponentAmounts(employeeId) };
+    delete amts[row.code];
+    saveCustomComponentAmounts(employeeId, amts);
     setNotice(`Removed ${row.code}.`);
     window.setTimeout(() => setNotice(""), 3500);
   };
@@ -239,12 +322,13 @@ export default function PersonSalaryComponentsPanel({
     <div className="rounded-lg border border-border bg-white shadow-[0_1px_3px_rgba(40,35,25,0.04)] overflow-hidden">
       <div className="px-4 sm:px-6 py-3 border-b border-divider flex flex-wrap items-center justify-between gap-2 bg-surface-sunken/50">
         <div>
-          <h3 className="text-sm font-semibold text-ink-strong">Person-specific salary components</h3>
+          <h3 className="text-sm font-semibold text-ink-strong">Add components</h3>
           <p className="text-[11px] text-ink-muted mt-0.5">
-            Extra earnings or deductions for {employeeName} only — company defaults (BAS, HRA…) stay unchanged.
+            Add for {employeeName} under Part A, Part B, or both. Amounts are entered on the CTC
+            sheet (monthly + P.A.). Edit or delete components here.
           </p>
         </div>
-        <button type="button" className={btnPrimary} onClick={() => openCreate("PART_A")}>
+        <button type="button" className={btnPrimary} onClick={openCreate}>
           <Plus className="h-3.5 w-3.5" />
           Add component
         </button>
@@ -260,96 +344,52 @@ export default function PersonSalaryComponentsPanel({
           </p>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] text-ink-secondary">
-            Nest under PART_A (earnings/deductions) or PART_B (employer). Formula e.g.{" "}
-            <span className="font-mono">BAS * 10%</span> or <span className="font-mono">Manual</span>.
+        {!personTree.length ? (
+          <p className="text-[11px] text-ink-muted py-2">
+            No extra components yet. Use Add component above, or tick LTA / Food coupon / Variable
+            performance incentive on the CTC sheet.
           </p>
-          <button
-            type="button"
-            className="text-[11px] text-accent hover:underline shrink-0"
-            onClick={() => setDefaultsOpen((v) => !v)}
-          >
-            {defaultsOpen ? "Hide company defaults" : "View company default codes"}
-          </button>
-        </div>
-
-        {defaultsOpen ? (
-          <div className="overflow-auto max-h-40 rounded border border-slate-200">
-            <table className="w-full text-[11px]">
-              <thead className="sticky top-0 bg-slate-50 text-slate-500 uppercase">
-                <tr>
-                  <th className="text-left px-2 py-1.5">Code</th>
-                  <th className="text-left px-2 py-1.5">Name</th>
-                  <th className="text-left px-2 py-1.5">Formula</th>
-                </tr>
-              </thead>
-              <tbody>
-                {defaultTree
-                  .filter((r) => r.kind !== "group")
-                  .map((row) => (
-                    <tr key={row.code} className="border-t border-slate-100">
-                      <td className="px-2 py-1 font-mono font-semibold">{row.code}</td>
-                      <td className="px-2 py-1">{row.name}</td>
-                      <td className="px-2 py-1 font-mono text-slate-600 truncate max-w-[16rem]">
-                        {row.formula || "—"}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-
-        {!personTree.length ? null : (
+        ) : (
           <div className="overflow-auto max-h-56 rounded border border-slate-200">
-            <table className="w-full text-[11px] min-w-[560px]">
+            <table className="w-full text-[11px] min-w-[480px]">
               <thead className="sticky top-0 bg-slate-50 text-slate-500 uppercase tracking-wide">
                 <tr>
-                  <th className="text-left px-2 py-2">Code</th>
-                  <th className="text-left px-2 py-2">Name</th>
-                  <th className="text-left px-2 py-2">Under</th>
-                  <th className="text-left px-2 py-2">Formula</th>
-                  <th className="text-right px-2 py-2">Est. ₹</th>
-                  <th className="text-right px-2 py-2">Actions</th>
+                  <th className="text-left px-2.5 py-2 font-semibold">Code</th>
+                  <th className="text-left px-2.5 py-2 font-semibold">Name</th>
+                  <th className="text-left px-2.5 py-2 font-semibold">Part</th>
+                  <th className="text-right px-2.5 py-2 font-semibold w-[5.5rem]">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {personTree.map((row) => {
-                  let sample = null;
-                  try {
-                    sample = evalComponentFormula(row.formula, formulaSample);
-                  } catch {
-                    sample = null;
-                  }
-                  return (
-                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/80">
-                      <td className="px-2 py-1.5 font-mono font-semibold">
-                        <span style={{ paddingLeft: `${(Number(row.depth) || 0) * 12}px` }}>{row.code}</span>
-                      </td>
-                      <td className="px-2 py-1.5">{row.name}</td>
-                      <td className="px-2 py-1.5 font-mono text-slate-500">{row.parent_code || "—"}</td>
-                      <td className="px-2 py-1.5 font-mono text-slate-600 truncate max-w-[10rem]" title={row.formula}>
-                        {row.formula || "—"}
-                      </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums">
-                        {sample == null ? "—" : Number(sample).toLocaleString("en-IN")}
-                      </td>
-                      <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                        <button type="button" className="text-accent hover:underline mr-2" onClick={() => openEdit(row)}>
-                          Edit
+                {personTree.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/80">
+                    <td className="px-2.5 py-2 font-mono font-semibold text-ink">{row.code}</td>
+                    <td className="px-2.5 py-2 text-ink">{row.name}</td>
+                    <td className="px-2.5 py-2 text-slate-500">{partLabel(row.parent_code)}</td>
+                    <td className="px-2.5 py-2">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          className={btnIcon}
+                          onClick={() => openEdit(row)}
+                          title="Edit"
+                          aria-label={`Edit ${row.code}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                         </button>
                         <button
                           type="button"
-                          className="text-red-600 hover:underline inline-flex items-center gap-0.5"
+                          className={btnIconDanger}
                           onClick={() => handleDelete(row)}
+                          title="Delete"
+                          aria-label={`Delete ${row.code}`}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -358,9 +398,9 @@ export default function PersonSalaryComponentsPanel({
 
       <Modal
         open={modalOpen}
-        title={editingId ? "Edit salary component" : "Add salary component"}
+        title={editingId ? "Edit component" : "Add component"}
         onClose={() => setModalOpen(false)}
-        widthClass="max-w-lg"
+        widthClass="max-w-md"
         footer={
           <div className="flex justify-end gap-2">
             <button type="button" className={btnGhost} onClick={() => setModalOpen(false)}>
@@ -373,61 +413,69 @@ export default function PersonSalaryComponentsPanel({
         }
       >
         <form id="ctc-person-comp-form" className="space-y-3" onSubmit={handleSaveForm}>
+          <label className="text-[10px] uppercase text-slate-500 space-y-0.5 block">
+            <span className="block">Add under</span>
+            <select
+              className={inputCls}
+              value={
+                editingId
+                  ? form.parent_code === "PART_B"
+                    ? "PART_B"
+                    : "PART_A"
+                  : normalizeParentChoice(form.parent_code)
+              }
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  parent_code: normalizeParentChoice(e.target.value),
+                  sort_order: nextSortOrder(
+                    personComponents,
+                    normalizeParentChoice(e.target.value)
+                  ),
+                }))
+              }
+            >
+              {PART_OPTIONS.filter((p) => !editingId || p.code !== "BOTH").map((p) => (
+                <option key={p.code} value={p.code}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[10px] uppercase text-slate-500 space-y-0.5">
               <span className="block">Code</span>
               <input
                 className={`${inputCls} font-mono`}
                 value={form.code}
-                onChange={(e) => setForm((f) => ({ ...f, code: normalizeComponentCode(e.target.value) }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, code: normalizeComponentCode(e.target.value) }))
+                }
                 placeholder="CON"
+                disabled={Boolean(editingId)}
               />
             </label>
             <label className="text-[10px] uppercase text-slate-500 space-y-0.5">
-              <span className="block">Under parent</span>
-              <select
+              <span className="block">Name</span>
+              <input
                 className={inputCls}
-                value={form.parent_code || "PART_A"}
-                onChange={(e) => setForm((f) => ({ ...f, parent_code: e.target.value }))}
-              >
-                {parentOptions.map((p) => (
-                  <option key={p.code} value={p.code}>
-                    {p.code} — {p.name}
-                  </option>
-                ))}
-              </select>
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Conveyance"
+              />
             </label>
           </div>
-          <label className="text-[10px] uppercase text-slate-500 space-y-0.5 block">
-            <span className="block">Name</span>
-            <input
-              className={inputCls}
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              placeholder="Conveyance"
-            />
-          </label>
-          <label className="text-[10px] uppercase text-slate-500 space-y-0.5 block">
-            <span className="block">Formula</span>
-            <input
-              className={`${inputCls} font-mono`}
-              value={form.formula}
-              onChange={(e) => setForm((f) => ({ ...f, formula: e.target.value }))}
-              placeholder="BAS * 10%"
-            />
-            <span className="text-[10px] normal-case text-slate-400 mt-0.5 block">
-              Use BAS, HRA, GROSS… or Manual for a fixed amount on the CTC sheet.
-            </span>
-          </label>
-          <label className="text-[10px] uppercase text-slate-500 space-y-0.5 block">
-            <span className="block">Hint on profile</span>
-            <input
-              className={inputCls}
-              value={form.formula_label}
-              onChange={(e) => setForm((f) => ({ ...f, formula_label: e.target.value }))}
-              placeholder="Optional note"
-            />
-          </label>
+          <p className="text-[11px] text-slate-500">
+            Amount type is <span className="font-medium text-slate-700">Manual</span> — enter monthly
+            and P.A. on the CTC sheet after save.
+            {!editingId && form.parent_code === "BOTH" ? (
+              <>
+                {" "}
+                <span className="font-medium text-slate-700">Both</span> creates one line in Part A
+                and one in Part B (you enter amounts on each).
+              </>
+            ) : null}
+          </p>
         </form>
       </Modal>
     </div>

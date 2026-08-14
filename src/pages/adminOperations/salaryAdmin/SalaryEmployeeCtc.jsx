@@ -46,10 +46,16 @@ import {
 import SalaryRevisionHistory from "./SalaryRevisionHistory";
 import PersonSalaryComponentsPanel from "./PersonSalaryComponentsPanel";
 import {
+  CTC_OPTIONAL_PRESETS,
   evalComponentFormula,
   getProfileCustomComponents,
+  hydratePersonComponents,
+  isCtcOptionalPresetCode,
   loadCustomComponentAmounts,
+  personHasComponent,
+  persistPersonComponentAmounts,
   saveCustomComponentAmounts,
+  setPersonOptionalPreset,
 } from "./salaryComponentsCatalog";
 
 /** Normalize saved P.A. overrides (DB JSON). Empty = use monthly × 12. */
@@ -732,7 +738,23 @@ export default function SalaryEmployeeCtc({
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
       setSaveMsg("");
-      setCustomAmounts(loadCustomComponentAmounts(employeeId));
+      try {
+        await hydratePersonComponents(employeeId);
+      } catch (hydErr) {
+        console.warn("Salary CTC: person components hydrate failed", hydErr);
+      }
+      const fromStructure = saved?.custom_component_amounts_json;
+      if (fromStructure && typeof fromStructure === "object" && Object.keys(fromStructure).length) {
+        saveCustomComponentAmounts(employeeId, fromStructure);
+        setCustomAmounts(
+          Object.fromEntries(
+            Object.entries(fromStructure).map(([k, v]) => [k, v == null ? "" : String(v)])
+          )
+        );
+      } else {
+        setCustomAmounts(loadCustomComponentAmounts(employeeId));
+      }
+      setCatalogRev((n) => n + 1);
       setPaOverrides(paOverridesFromSaved(saved));
       setPaDrafts({});
       prevAutoPaRef.current = {};
@@ -769,32 +791,45 @@ export default function SalaryEmployeeCtc({
   const profileCustoms = useMemo(() => {
     const all = getProfileCustomComponents(employeeId);
     const partB = all.filter((c) => c.parent_code === "PART_B");
-    const partA = all.filter((c) => c.parent_code !== "PART_B");
+    // Presets (LTA / Food / VPI) render as checkbox rows — not duplicated here
+    const partA = all.filter(
+      (c) => c.parent_code !== "PART_B" && !isCtcOptionalPresetCode(c.code)
+    );
     return { partA, partB };
   }, [employeeId, catalogRev]);
 
-  const componentSampleVars = useMemo(
-    () => ({
-      gross_monthly: parsed.gross_monthly,
-      basic_monthly: parsed.basic_monthly,
-      hra_monthly: parsed.hra_monthly,
-      special_allowance_monthly: parsed.special_allowance_monthly,
-      emp_pf_monthly: parsed.emp_pf_monthly,
-      pt_monthly: parsed.pt_monthly,
-      emp_esic_monthly: parsed.emp_esic_monthly,
-      take_home_monthly: parsed.take_home_monthly,
-      er_pf_monthly: parsed.er_pf_monthly,
-      er_esic_monthly: parsed.er_esic_monthly,
-      gratuity_monthly: parsed.gratuity_monthly,
-      leave_encash_monthly: parsed.leave_encash_monthly,
-      mediclaim_monthly: parsed.mediclaim_monthly,
-      lic_monthly: parsed.lic_monthly,
-      special_perf_bonus_monthly: parsed.special_perf_bonus_monthly,
-      bonus_monthly: parsed.bonus_monthly,
-      total_b_monthly: parsed.total_b_monthly,
-      ctc_monthly: parsed.ctc_monthly,
-    }),
-    [parsed]
+  const optionalPresetsOn = useMemo(() => {
+    const on = {};
+    for (const p of CTC_OPTIONAL_PRESETS) {
+      on[p.code] = personHasComponent(employeeId, p.code);
+    }
+    return on;
+  }, [employeeId, catalogRev]);
+
+  const toggleOptionalPreset = useCallback(
+    async (preset, enabled) => {
+      if (!canEdit || !employeeId) return;
+      try {
+        await setPersonOptionalPreset(employeeId, preset, enabled);
+      } catch (err) {
+        console.warn("Optional CTC component save failed", err);
+      }
+      if (!enabled) {
+        setCustomAmounts((prev) => {
+          const next = { ...prev };
+          delete next[preset.code];
+          saveCustomComponentAmounts(employeeId, next);
+          return next;
+        });
+        setPaOverrides((prev) => {
+          const next = { ...prev };
+          delete next[`custom:${preset.code}`];
+          return next;
+        });
+      }
+      setCatalogRev((n) => n + 1);
+    },
+    [canEdit, employeeId]
   );
 
   const customExtraVars = useMemo(() => {
@@ -922,6 +957,10 @@ export default function SalaryEmployeeCtc({
 
   const customPartAMonthly = useMemo(() => {
     const map = {};
+    for (const preset of CTC_OPTIONAL_PRESETS) {
+      if (!optionalPresetsOn[preset.code]) continue;
+      map[preset.code] = parseRupeeInput(customAmounts[preset.code] ?? "");
+    }
     for (const comp of profileCustoms.partA) {
       const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
       const computed = isManual
@@ -930,7 +969,7 @@ export default function SalaryEmployeeCtc({
       map[comp.code] = computed;
     }
     return map;
-  }, [profileCustoms.partA, customAmounts, parsed, customExtraVars]);
+  }, [optionalPresetsOn, profileCustoms.partA, customAmounts, parsed, customExtraVars]);
 
   const customPartBMonthly = useMemo(() => {
     const map = {};
@@ -971,8 +1010,12 @@ export default function SalaryEmployeeCtc({
     );
     const grossPa = line("gross", parsed.gross_monthly);
 
-    const partACustomPas = profileCustoms.partA.map((comp) =>
-      line(`custom:${comp.code}`, customPartAMonthly[comp.code])
+    const partACustomCodes = [
+      ...CTC_OPTIONAL_PRESETS.filter((p) => optionalPresetsOn[p.code]).map((p) => p.code),
+      ...profileCustoms.partA.map((c) => c.code),
+    ];
+    const partACustomPas = partACustomCodes.map((code) =>
+      line(`custom:${code}`, customPartAMonthly[code])
     );
 
     const empPfPa = line("emp_pf", parsed.emp_pf_monthly);
@@ -1101,7 +1144,7 @@ export default function SalaryEmployeeCtc({
       total_b: totalBPa,
       ctc: ctcPa,
       customPartA: Object.fromEntries(
-        profileCustoms.partA.map((comp, i) => [comp.code, partACustomPas[i]])
+        partACustomCodes.map((code, i) => [code, partACustomPas[i]])
       ),
       customPartB: Object.fromEntries(
         profileCustoms.partB.map((comp, i) => [comp.code, partBCustomPas[i]])
@@ -1111,6 +1154,7 @@ export default function SalaryEmployeeCtc({
     paOverrides,
     paDrafts,
     parsed,
+    optionalPresetsOn,
     profileCustoms.partA,
     profileCustoms.partB,
     customPartAMonthly,
@@ -1622,6 +1666,15 @@ export default function SalaryEmployeeCtc({
       // Manual P.A. + annual CTC only persist when Save CTC is clicked
       ctc_annual: sheetCtcPa ?? structure.ctc_annual,
       pa_overrides_json: paToSave,
+      custom_component_amounts_json: Object.fromEntries(
+        Object.entries(customAmounts || {})
+          .map(([k, v]) => {
+            if (v == null || v === "") return null;
+            const n = Number(String(v).replace(/,/g, ""));
+            return Number.isFinite(n) ? [k, n] : null;
+          })
+          .filter(Boolean)
+      ),
       date_of_birth: employee.date_of_birth || null,
       date_of_joining: employee.date_of_joining || null,
       wef_date: wefToSave,
@@ -1652,6 +1705,16 @@ export default function SalaryEmployeeCtc({
         setSaveError(msg ? `Could not save CTC: ${msg}` : "Could not save CTC. Please try again.");
       }
       return;
+    }
+
+    // Persist person-component amounts onto component rows + history
+    try {
+      await persistPersonComponentAmounts(
+        employee.id,
+        payload.custom_component_amounts_json || {}
+      );
+    } catch (amtErr) {
+      console.warn("Salary CTC: component amounts sync failed", amtErr);
     }
 
     // Reload with revision trail so History + Salary Processing see the latest CTC
@@ -2060,13 +2123,47 @@ export default function SalaryEmployeeCtc({
               pa={renderPaField("special", sheetPa.special, { label: "Special Allowance P.A." })}
             />
 
-            {profileCustoms.partA.length || profileCustoms.partB.length ? (
-              <div className="mx-6 sm:mx-8 lg:mx-10 my-3 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3.5 py-2.5 text-[12px] text-emerald-950 leading-snug">
-                {profileCustoms.partA.length + profileCustoms.partB.length} person-specific component
-                {profileCustoms.partA.length + profileCustoms.partB.length === 1 ? "" : "s"} — included on
-                this CTC sheet and in salary processing. Manage below.
-              </div>
-            ) : null}
+            {CTC_OPTIONAL_PRESETS.map((preset) => {
+              const on = Boolean(optionalPresetsOn[preset.code]);
+              const manualVal = customAmounts[preset.code] ?? "";
+              return (
+                <SheetRow
+                  key={preset.code}
+                  label={
+                    <OptionalAddLabel
+                      label={preset.name}
+                      checked={on}
+                      onCheckedChange={(checked) => toggleOptionalPreset(preset, checked)}
+                      disabled={!canEdit}
+                    />
+                  }
+                  hint={
+                    on
+                      ? "Included in Part A CTC — enter monthly and P.A.; Save CTC to keep."
+                      : "Tick to add this component to CTC"
+                  }
+                  monthly={
+                    on ? (
+                      <AmountInput
+                        value={manualVal}
+                        onChange={canEdit ? (v) => setCustomAmount(preset.code, v) : () => {}}
+                        label={`${preset.name} monthly`}
+                        readOnly={!canEdit}
+                      />
+                    ) : (
+                      <span className="text-[12px] text-ink-disabled">Not included</span>
+                    )
+                  }
+                  pa={
+                    on
+                      ? renderPaField(`custom:${preset.code}`, sheetPa.customPartA?.[preset.code], {
+                          label: `${preset.name} P.A.`,
+                        })
+                      : null
+                  }
+                />
+              );
+            })}
 
             {profileCustoms.partA.map((comp) => {
               const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
@@ -2077,13 +2174,12 @@ export default function SalaryEmployeeCtc({
               return (
                 <SheetRow
                   key={comp.code}
-                  label={
-                    <span>
-                      <span className="font-mono text-[10px] text-ink-muted mr-1.5">{comp.code}</span>
-                      {comp.name}
-                    </span>
+                  label={comp.name}
+                  hint={
+                    isManual
+                      ? "Manual amount — enter monthly and P.A."
+                      : comp.formula_label || comp.effective_formula || null
                   }
-                  hint={comp.formula_label || comp.effective_formula || "Custom component"}
                   monthly={
                     isManual ? (
                       <AmountInput
@@ -2422,13 +2518,12 @@ export default function SalaryEmployeeCtc({
               return (
                 <SheetRow
                   key={comp.code}
-                  label={
-                    <span>
-                      <span className="font-mono text-[10px] text-ink-muted mr-1.5">{comp.code}</span>
-                      {comp.name}
-                    </span>
+                  label={comp.name}
+                  hint={
+                    isManual
+                      ? "Manual amount — enter monthly and P.A."
+                      : comp.formula_label || comp.effective_formula || null
                   }
-                  hint={comp.formula_label || comp.effective_formula || "Custom component"}
                   monthly={
                     isManual ? (
                       <AmountInput
@@ -2539,8 +2634,10 @@ export default function SalaryEmployeeCtc({
             <PersonSalaryComponentsPanel
               employeeId={employeeId}
               employeeName={name}
-              sampleVars={componentSampleVars}
-              onChanged={() => setCatalogRev((n) => n + 1)}
+              onChanged={() => {
+                setCatalogRev((n) => n + 1);
+                setCustomAmounts(loadCustomComponentAmounts(employeeId));
+              }}
             />
           </div>
         </div>

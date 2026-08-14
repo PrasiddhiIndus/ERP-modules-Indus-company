@@ -43,8 +43,8 @@ function blankForm(kind = "company_owes") {
 
 /**
  * Unpaid / Paid (DB-backed), same pattern as Salary advances:
- * - Type: Unpaid (company owes) → credit on salary
- * - Type: Paid / excess → deduct / recover on salary
+ * - Type: Unpaid (company owes employee) → credit on salary
+ * - Type: Unpaid (employee owes company) → deduct on salary
  * Hits Salary Processing by start month + tenure only (no entry date).
  * Set months / monthly / amount to 0 → no hit (blank/null on processing).
  */
@@ -289,7 +289,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
                   className={inputClass}
                 >
                   <option value="company_owes">Unpaid (company owes employee)</option>
-                  <option value="employee_owes">Paid / excess (adjust or recover)</option>
+                  <option value="employee_owes">Unpaid (employee owes company)</option>
                 </select>
               </Field>
               <Field
@@ -394,7 +394,7 @@ export default function EmployeeUnpaidPaidTab({ employeeId, records, onReload })
         {!rows.length && !showForm ? (
           <EmptyState
             title="No unpaid / paid entries"
-            body="Choose type, amount, months, monthly, and month. It hits Salary Processing for that month window. Set amount/months/monthly to 0 after paid to clear processing."
+            body="Choose Unpaid (company owes employee) or Unpaid (employee owes company), set amount, months, monthly, and month. It hits Salary Processing for that month window. Set amount/months/monthly to 0 after paid to clear processing."
             action={<PrimaryButton onClick={openCreate}>New entry</PrimaryButton>}
           />
         ) : null}

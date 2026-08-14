@@ -136,14 +136,14 @@ export function normalizeUnpaidKind(kind) {
 /** UI labels for the 2-value Type dropdown (match Employee Master form). */
 export function unpaidKindLabel(kind) {
   return normalizeUnpaidKind(kind) === "employee_owes"
-    ? "Paid / excess (adjust or recover)"
+    ? "Unpaid (employee owes company)"
     : "Unpaid (company owes employee)";
 }
 
 /**
  * Signed unpaid/paid hit for a pay month (0 when closed / outside tenure / months left 0).
- * company_owes (Unpaid) → negative (credit — reduces total deductions / pays employee)
- * employee_owes (Paid)  → positive (deduct from salary)
+ * company_owes → Unpaid (company owes employee) → credit (negative on sheet)
+ * employee_owes → Unpaid (employee owes company) → deduct (positive on sheet)
  */
 export function unpaidSignedAmountForMonth(record, monthKey) {
   if (!record) return 0;

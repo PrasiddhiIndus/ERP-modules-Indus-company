@@ -6,6 +6,7 @@
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import { normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
+import { canonicalDepartmentLabel } from "../../../lib/employeeMasterDepartments";
 import {
   appendProcessBatch,
   applyRevisionToRunSheet,
@@ -406,7 +407,7 @@ export async function mockFetchSalaryProcessCandidates({
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
       const hasCtc = Boolean(structure?.declared);
       const eligible = includeWithoutCtc ? !hasCtc : hasCtc;
-      const dept = emp.department ? String(emp.department).trim() : "";
+      const dept = emp.department ? canonicalDepartmentLabel(emp.department) : "";
       if (dept) deptSet.add(dept);
       return {
         id: emp.id,
