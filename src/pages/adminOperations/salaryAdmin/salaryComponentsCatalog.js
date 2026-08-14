@@ -1,10 +1,17 @@
 /**
  * Salary Components Master — catalog of CTC components (codes, parents, formulas).
  * Defaults match Admin CTC; custom children nest under parents and show on employee profile.
- * Persisted in localStorage until salary DB rewire.
+ * Person components: local cache + Supabase (admin_salary_person_components).
  */
 
 import { evaluateFormula, validateFormula } from "../../../modules/payroll/formula/evaluator";
+import {
+  dbFetchPersonComponents,
+  dbListAllPersonComponents,
+  dbReplacePersonComponents,
+  dbSyncPersonComponentAmounts,
+  isPersonComponentsDbUnavailable,
+} from "./salaryPersonComponentsDb";
 
 const STORAGE_KEY = "admin_salary_components_master_v1";
 const PERSON_KEY = "admin_salary_component_person_overrides_v1";
@@ -407,7 +414,7 @@ export function listParentOptions(components) {
   return (components || []).filter((c) => c.active !== false);
 }
 
-/** Load custom components for one employee only. */
+/** Load custom components for one employee only (local cache). */
 export function loadPersonComponents(employeeMasterId) {
   if (employeeMasterId == null || employeeMasterId === "") return [];
   const all = readJson(PERSON_COMPONENTS_KEY, {});
@@ -415,7 +422,7 @@ export function loadPersonComponents(employeeMasterId) {
   return Array.isArray(rows) ? rows.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)) : [];
 }
 
-/** Save custom components for one employee. */
+/** Save custom components for one employee (local cache only). */
 export function savePersonComponents(employeeMasterId, list) {
   if (employeeMasterId == null || employeeMasterId === "") return [];
   const all = readJson(PERSON_COMPONENTS_KEY, {});
@@ -425,6 +432,175 @@ export function savePersonComponents(employeeMasterId, list) {
   else all[key] = rows;
   writeJson(PERSON_COMPONENTS_KEY, all);
   return rows;
+}
+
+/**
+ * Load person components from DB into local cache (and migrate local → DB if DB empty).
+ * @returns {Promise<object[]>}
+ */
+export async function hydratePersonComponents(employeeMasterId) {
+  if (employeeMasterId == null || employeeMasterId === "") return [];
+  const local = loadPersonComponents(employeeMasterId);
+  try {
+    const remote = await dbFetchPersonComponents(employeeMasterId);
+    if (remote === null) return local; // table not ready
+    if (remote.length) {
+      savePersonComponents(employeeMasterId, remote);
+      return remote;
+    }
+    if (local.length) {
+      // First-time migrate browser cache → DB
+      const saved = await dbReplacePersonComponents(employeeMasterId, local);
+      if (saved) {
+        savePersonComponents(employeeMasterId, saved);
+        return saved;
+      }
+    }
+    savePersonComponents(employeeMasterId, []);
+    return [];
+  } catch (err) {
+    if (!isPersonComponentsDbUnavailable(err)) {
+      console.warn("Person components hydrate failed", err);
+    }
+    return local;
+  }
+}
+
+/**
+ * Persist person components to DB + local cache.
+ * @returns {Promise<object[]>}
+ */
+export async function persistPersonComponents(employeeMasterId, list, { amounts = null } = {}) {
+  if (employeeMasterId == null || employeeMasterId === "") return [];
+  const rows = Array.isArray(list) ? list : [];
+  savePersonComponents(employeeMasterId, rows);
+  try {
+    const saved = await dbReplacePersonComponents(employeeMasterId, rows, { amounts });
+    if (saved) {
+      savePersonComponents(employeeMasterId, saved);
+      return saved;
+    }
+  } catch (err) {
+    if (!isPersonComponentsDbUnavailable(err)) {
+      console.warn("Person components DB save failed — kept locally", err);
+      throw err;
+    }
+  }
+  return rows;
+}
+
+/** All employee IDs that have cached person components in this browser. */
+export function listCachedPersonComponentEmployeeIds() {
+  const all = readJson(PERSON_COMPONENTS_KEY, {});
+  return Object.keys(all || {}).filter((k) => Array.isArray(all[k]) && all[k].length > 0);
+}
+
+/**
+ * Directory of person CTC extras across employees.
+ * Merges DB + local CTC profile cache; migrates local → DB when possible.
+ * @param {Array<{id:any, full_name?:string, employee_code?:string, department?:string, designation?:string}>} employees
+ */
+export async function collectPersonComponentsDirectory(employees = []) {
+  const empById = new Map(
+    (employees || []).map((e) => [String(e.id), e])
+  );
+
+  /** @type {Map<string, object>} key = empId::code */
+  const byKey = new Map();
+
+  const pushRow = (row, empMeta = {}) => {
+    if (!row?.code) return;
+    const empId = String(row.employee_master_id ?? empMeta.id ?? "");
+    if (!empId) return;
+    const code = String(row.code).toUpperCase();
+    const key = `${empId}::${code}`;
+    const emp = empById.get(empId) || empMeta;
+    const amounts = loadCustomComponentAmounts(empId);
+    const monthly =
+      row.amount_monthly != null && row.amount_monthly !== ""
+        ? Number(row.amount_monthly)
+        : amounts[code] != null && amounts[code] !== ""
+          ? Number(amounts[code])
+          : null;
+    const prev = byKey.get(key);
+    // Prefer DB uuid ids / fresher updated_at
+    if (prev && prev._fromDb && !row.id) return;
+    byKey.set(key, {
+      id: row.id || prev?.id || `${empId}_${code}`,
+      employee_master_id: Number(empId) || empId,
+      employee_code: emp.employee_code || row.employee_code || "",
+      employee_name: emp.full_name || row.employee_name || "",
+      department: emp.department || row.department || "",
+      designation: emp.designation || row.designation || "",
+      code,
+      name: row.name || code,
+      parent_code: row.parent_code === "PART_B" ? "PART_B" : "PART_A",
+      amount_monthly: Number.isFinite(monthly) ? monthly : null,
+      updated_at: row.updated_at || prev?.updated_at || null,
+      _fromDb: Boolean(row.id && String(row.id).includes("-")),
+    });
+  };
+
+  // 1) Database
+  try {
+    const remote = await dbListAllPersonComponents({ limit: 2000 });
+    if (Array.isArray(remote)) {
+      for (const r of remote) pushRow(r, { _fromDb: true });
+    }
+  } catch (err) {
+    console.warn("Person components directory: DB list failed", err);
+  }
+
+  // 2) Local CTC profile cache (this browser)
+  const localIds = new Set(listCachedPersonComponentEmployeeIds());
+  for (const e of employees || []) localIds.add(String(e.id));
+
+  for (const empId of localIds) {
+    const local = loadPersonComponents(empId);
+    if (!local.length) continue;
+    const emp = empById.get(String(empId)) || { id: empId };
+    for (const c of local) {
+      pushRow({ ...c, employee_master_id: empId }, emp);
+    }
+    // Migrate local → DB when this emp has no DB rows yet for these codes
+    const missingOnDb = local.filter((c) => {
+      const key = `${empId}::${String(c.code).toUpperCase()}`;
+      const row = byKey.get(key);
+      return row && !row._fromDb;
+    });
+    if (missingOnDb.length) {
+      try {
+        const amounts = loadCustomComponentAmounts(empId);
+        const saved = await persistPersonComponents(empId, local, { amounts });
+        for (const c of saved) pushRow({ ...c, employee_master_id: empId }, emp);
+      } catch {
+        /* keep local-only rows */
+      }
+    }
+  }
+
+  const rows = [...byKey.values()].map(({ _fromDb, ...rest }) => rest);
+  rows.sort((a, b) => {
+    const na = `${a.employee_name || ""} ${a.employee_code || ""}`.localeCompare(
+      `${b.employee_name || ""} ${b.employee_code || ""}`
+    );
+    if (na !== 0) return na;
+    return String(a.code).localeCompare(String(b.code));
+  });
+  return rows;
+}
+
+/** Sync manual amounts onto person component rows in DB (after CTC Save). */
+export async function persistPersonComponentAmounts(employeeMasterId, amountsMap) {
+  if (employeeMasterId == null) return;
+  saveCustomComponentAmounts(employeeMasterId, amountsMap || {});
+  try {
+    await dbSyncPersonComponentAmounts(employeeMasterId, amountsMap || {});
+  } catch (err) {
+    if (!isPersonComponentsDbUnavailable(err)) {
+      console.warn("Person component amounts DB sync failed", err);
+    }
+  }
 }
 
 /**
@@ -467,6 +643,90 @@ export function saveCustomComponentAmounts(employeeMasterId, map) {
   } catch (err) {
     console.warn("CTC custom amounts persist failed", err);
   }
+}
+
+/** Optional CTC extras — tick to include on profile; amounts entered as Manual monthly / P.A. */
+export const CTC_OPTIONAL_PRESETS = [
+  {
+    code: "LTA",
+    name: "LTA (Leave Travel Allowance)",
+    parent_code: "PART_A",
+    sort_order: 42,
+  },
+  {
+    code: "FOOD",
+    name: "Food coupon",
+    parent_code: "PART_A",
+    sort_order: 43,
+  },
+  {
+    code: "VPI",
+    name: "Variable performance incentive",
+    parent_code: "PART_A",
+    sort_order: 44,
+  },
+];
+
+export const CTC_OPTIONAL_PRESET_CODES = new Set(CTC_OPTIONAL_PRESETS.map((p) => p.code));
+
+export function isCtcOptionalPresetCode(code) {
+  return CTC_OPTIONAL_PRESET_CODES.has(String(code || "").toUpperCase());
+}
+
+export function personHasComponent(employeeMasterId, code) {
+  const want = String(code || "").toUpperCase();
+  return loadPersonComponents(employeeMasterId).some(
+    (c) => String(c.code || "").toUpperCase() === want && c.active !== false
+  );
+}
+
+/**
+ * Enable/disable a preset on the employee. When off, removes the component and its manual amount.
+ * Persists to DB when available.
+ */
+export async function setPersonOptionalPreset(employeeMasterId, presetOrCode, enabled) {
+  if (employeeMasterId == null || employeeMasterId === "") return [];
+  const preset =
+    typeof presetOrCode === "string"
+      ? CTC_OPTIONAL_PRESETS.find((p) => p.code === String(presetOrCode).toUpperCase())
+      : presetOrCode;
+  if (!preset?.code) return loadPersonComponents(employeeMasterId);
+
+  const code = String(preset.code).toUpperCase();
+  let list = loadPersonComponents(employeeMasterId);
+  const idx = list.findIndex((c) => String(c.code || "").toUpperCase() === code);
+
+  if (enabled) {
+    if (idx < 0) {
+      const now = new Date().toISOString();
+      list = [
+        ...list,
+        {
+          id: newComponentId(),
+          code,
+          name: preset.name,
+          parent_code: preset.parent_code || "PART_A",
+          kind: "custom",
+          formula: "Manual",
+          formula_label: "Optional — tick on CTC to include; enter monthly / P.A.",
+          is_system: false,
+          is_optional_preset: true,
+          active: true,
+          show_on_profile: true,
+          sort_order: preset.sort_order || 50,
+          employee_master_id: Number(employeeMasterId) || employeeMasterId,
+          created_at: now,
+          updated_at: now,
+        },
+      ];
+    }
+  } else if (idx >= 0) {
+    list = list.filter((_, i) => i !== idx);
+    const amts = { ...loadCustomComponentAmounts(employeeMasterId) };
+    delete amts[code];
+    saveCustomComponentAmounts(employeeMasterId, amts);
+  }
+  return persistPersonComponents(employeeMasterId, list);
 }
 
 /**

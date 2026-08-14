@@ -11,6 +11,10 @@ import {
   registerPresentDayCredit,
 } from "../../../lib/attendanceDaily";
 import {
+  canonicalDepartmentLabel,
+  departmentInSelection,
+} from "../../../lib/employeeMasterDepartments";
+import {
   applySalarySheetToEmployeeMasters,
 } from "../../admin/employeeMaster/deductions/deductionsStore";
 import {
@@ -469,6 +473,8 @@ export const PROCESS_MODES = {
   DEPT: "dept",
   /** Salary hold management (not a process scope). */
   HOLD: "hold",
+  /** Processed salary report by month / process day. */
+  REPORT: "report",
 };
 
 const HOLD_STORAGE_KEY = "admin_salary_month_holds_v1";
@@ -674,7 +680,30 @@ async function fetchMasterPayrollFieldsByIds(ids = []) {
 }
 
 function normalizeDeptName(v) {
-  return v == null ? "" : String(v).trim();
+  return canonicalDepartmentLabel(v);
+}
+
+/** Load every active employee (Supabase pages at 1000). */
+async function fetchAllActiveEmployeesForSalary() {
+  const pageSize = 1000;
+  let from = 0;
+  const all = [];
+  for (;;) {
+    const { data, error } = await supabase
+      .from(EMPLOYEE_MASTER_TABLE)
+      .select(
+        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
+      )
+      .eq("status", "Active")
+      .order("employee_code", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
 }
 
 export function buildProcessedEmployeeIndex(lines) {
@@ -721,8 +750,9 @@ export function filterEmployeesByMode(employees, { processMode, employeeIds, dep
   }
 
   if (mode === PROCESS_MODES.DEPT) {
-    const deptSet = new Set((departments || []).map(normalizeDeptName).filter(Boolean));
-    return (employees || []).filter((emp) => deptSet.has(normalizeDeptName(emp.department)));
+    return (employees || []).filter((emp) =>
+      departmentInSelection(emp.department, departments)
+    );
   }
 
   if (mode === PROCESS_MODES.HOLD) {
@@ -777,17 +807,10 @@ export async function fetchSalaryProcessCandidates({
     processedIndex = buildProcessedEmployeeIndex(lines);
   }
 
-  const [{ data: employees, error: empErr }, salaryMap] = await Promise.all([
-    supabase
-      .from(EMPLOYEE_MASTER_TABLE)
-      .select(
-        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
-      )
-      .eq("status", "Active")
-      .order("employee_code", { ascending: true }),
+  const [salaryMap, employees] = await Promise.all([
     fetchSalaryStructureMap(),
+    fetchAllActiveEmployeesForSalary(),
   ]);
-  if (empErr) throw empErr;
 
   const holdIdSet = new Set(getMonthHoldIds(key));
   const deptSet = new Set();
@@ -824,7 +847,7 @@ export async function fetchSalaryProcessCandidates({
   return {
     monthKey: key,
     existingRun: existing,
-    departments: [...deptSet].sort((a, b) => a.localeCompare(b)),
+    departments: [...deptSet].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
     departmentStats,
     employees: rows,
     holdIds: [...holdIdSet],
@@ -955,19 +978,12 @@ export async function processSalaryMonth({
       : new Date().toISOString().slice(0, 10);
   const processAt = new Date().toISOString();
 
-  const [{ data: employees, error: empErr }, salaryMap, presentMap, existing] = await Promise.all([
-    supabase
-      .from(EMPLOYEE_MASTER_TABLE)
-      .select(
-        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
-      )
-      .eq("status", "Active")
-      .order("employee_code", { ascending: true }),
+  const [salaryMap, presentMap, existing, employees] = await Promise.all([
     fetchSalaryStructureMap(),
     fetchPresentDaysByEmployeeCode(y, m),
     getMonthRunByKey(key),
+    fetchAllActiveEmployeesForSalary(),
   ]);
-  if (empErr) throw empErr;
 
   let existingLines = [];
   const processedIndex = { ids: new Set(), codes: new Set() };
@@ -1452,4 +1468,102 @@ export async function listMonthRunsWithLines() {
     out.push({ run, lines: lines || [] });
   }
   return out;
+}
+
+function formatProcessDayLabel(ymd) {
+  const raw = String(ymd || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw || "—";
+  return new Date(`${raw}T12:00:00`).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * Salary process report for a pay month: who was processed, grouped by the day
+ * Process salary was clicked.
+ */
+export async function buildSalaryProcessReport({ year, month } = {}) {
+  const y = Number(year);
+  const m = Number(month);
+  const key = monthKey(y, m);
+  const label = monthLabel(y, m);
+
+  const existing = await getMonthRunByKey(key);
+  let lines = [];
+  let run = null;
+  if (existing?.id) {
+    const bundle = await getMonthRunWithLines(existing.id);
+    run = bundle.run;
+    lines = bundle.lines || [];
+  }
+
+  let slipsByEmp = new Map();
+  try {
+    const { listPayslipsForMonth } = await import("../../../lib/salaryPayslips");
+    for (const slip of listPayslipsForMonth(key) || []) {
+      slipsByEmp.set(String(slip.employee_master_id), slip);
+    }
+  } catch {
+    slipsByEmp = new Map();
+  }
+
+  const runDay =
+    run?.summary_json?.processed_on ||
+    (run?.updated_at ? String(run.updated_at).slice(0, 10) : "") ||
+    (run?.created_at ? String(run.created_at).slice(0, 10) : "") ||
+    "";
+
+  const byDay = new Map();
+  for (const line of lines) {
+    const empId = line.employee_master_id;
+    const slip = slipsByEmp.get(String(empId));
+    const processDay =
+      (slip?.processed_on && String(slip.processed_on).slice(0, 10)) ||
+      (slip?.generated_at ? String(slip.generated_at).slice(0, 10) : "") ||
+      runDay ||
+      "—";
+
+    if (!byDay.has(processDay)) byDay.set(processDay, []);
+    byDay.get(processDay).push({
+      employee_master_id: empId,
+      employee_code: line.employee_code || "",
+      employee_name: line.employee_name || "",
+      designation: line.designation || "",
+      department: line.department || "",
+      present_days: line.present_days,
+      gross_wages: line.gross_wages,
+      total_ded: line.total_ded,
+      net_salary: line.net_salary,
+      bank_amount: line.bank_amount,
+      process_day: processDay,
+      payslip_id: slip?.id || null,
+    });
+  }
+
+  const dayKeys = [...byDay.keys()].sort((a, b) => String(b).localeCompare(String(a)));
+  const groups = dayKeys.map((day) => {
+    const employees = (byDay.get(day) || []).sort((a, b) =>
+      String(a.employee_code).localeCompare(String(b.employee_code), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+    return {
+      process_day: day,
+      process_day_label: formatProcessDayLabel(day),
+      employee_count: employees.length,
+      employees,
+    };
+  });
+
+  return {
+    month_key: key,
+    month_label: label,
+    run,
+    has_sheet: Boolean(run?.id),
+    total_employees: lines.length,
+    groups,
+  };
 }
