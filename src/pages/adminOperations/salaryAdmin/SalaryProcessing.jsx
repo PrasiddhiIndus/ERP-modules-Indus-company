@@ -52,13 +52,26 @@ const btnGhost =
 const btnPrimary =
   "h-7 px-2.5 text-[11px] font-medium rounded bg-accent text-white disabled:opacity-50 inline-flex items-center gap-1";
 
-function Money({ value, strong = false }) {
-  if (value == null || value === "") return <span className="text-slate-300">—</span>;
+function Money({ value, strong = false, blankZero = false }) {
+  if (value == null || value === "" || (blankZero && Number(value) === 0)) {
+    return <span className="text-slate-300">—</span>;
+  }
   return (
     <span className={`tabular-nums ${strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>
       {formatINRPlain(value)}
     </span>
   );
+}
+
+/** Blank (—) when unpaid/paid is 0 — no deduction/credit this month. */
+function unpaidCellValue(v) {
+  if (v == null || v === "" || Number(v) === 0) return null;
+  return v;
+}
+
+function unpaidInputValue(v) {
+  if (v == null || v === "" || Number(v) === 0) return "";
+  return v;
 }
 
 /** Truncated cell text — full value on hover when clipped. */
@@ -346,8 +359,9 @@ function EmployeeSalaryDetailPage({
             <input
               type="number"
               className={`${numIn} w-full`}
-              value={line.unpaid_paid ?? 0}
-              onChange={(e) => patch({ unpaid_paid: e.target.value })}
+              placeholder="—"
+              value={unpaidInputValue(line.unpaid_paid)}
+              onChange={(e) => patch({ unpaid_paid: e.target.value === "" ? 0 : e.target.value })}
             />
           </DetailField>
           <DetailField label="TDS">
@@ -608,13 +622,18 @@ function ScopeSalarySheetTable({
                   onClick={(e) => e.stopPropagation()}
                 >
                   {readOnly ? (
-                    <Money value={line.unpaid_paid} />
+                    <Money value={unpaidCellValue(line.unpaid_paid)} />
                   ) : (
                     <input
                       type="number"
                       className={numIn}
-                      value={line.unpaid_paid ?? 0}
-                      onChange={(e) => onUpdateLine(line.id, { unpaid_paid: e.target.value })}
+                      value={unpaidInputValue(line.unpaid_paid)}
+                      placeholder="—"
+                      onChange={(e) =>
+                        onUpdateLine(line.id, {
+                          unpaid_paid: e.target.value === "" ? 0 : e.target.value,
+                        })
+                      }
                     />
                   )}
                 </td>
@@ -1119,7 +1138,9 @@ export default function SalaryProcessing() {
   const doProcess = useCallback(
     async ({ forceFullReprocess = false } = {}) => {
       if (processMode === PROCESS_MODES.HOLD) {
-        setError("Hold employees are excluded from processing. Release them first, or process from All / By department.");
+        setError(
+          "Hold employees are excluded from processing. Release them first, or process from All / By department."
+        );
         return;
       }
       setBusy(true);
@@ -1133,37 +1154,73 @@ export default function SalaryProcessing() {
           if (!existing) {
             forceFullReprocess = false;
           }
-        } else if (isBulk && !forceFullReprocess && !candidates.existingRun) {
-          // first all-run for month — proceed
-        } else if (isBulk && !forceFullReprocess && candidates.existingRun && processPreview.toProcess.length === 0) {
+        } else if (
+          isBulk &&
+          !forceFullReprocess &&
+          candidates.existingRun &&
+          processPreview.toProcess.length === 0
+        ) {
           setExistingRun(candidates.existingRun);
           setConfirmOpen(true);
           setBusy(false);
           return;
         }
 
-        const useSelect = selectedIds.length > 0;
+        // Process exactly the employees on this page list (to process / full pool).
+        const pageIds = (
+          forceFullReprocess && isBulk ? processPreview.pool : processPreview.toProcess
+        )
+          .map((e) => e.id)
+          .filter((id) => id != null);
+
+        if (!pageIds.length && !(forceFullReprocess && isBulk)) {
+          setError(
+            selectedIds.length
+              ? "No selected employees left to process for this month."
+              : "No employees on this list to process for this month."
+          );
+          setBusy(false);
+          return;
+        }
+
+        const processDay = new Date();
+        const processedOn = `${processDay.getFullYear()}-${String(processDay.getMonth() + 1).padStart(2, "0")}-${String(processDay.getDate()).padStart(2, "0")}`;
+        const dayLabel = processDay.toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+
         const result = await api.process({
           year,
           month,
           monthDays,
           includeWithoutCtc,
-          processMode: useSelect
-            ? PROCESS_MODES.SELECT
-            : processMode,
-          employeeIds: useSelect ? selectedIds : [],
-          departments: useSelect ? [] : selectedDepartments,
-          forceFullReprocess: isBulk && forceFullReprocess,
+          processMode:
+            forceFullReprocess && isBulk
+              ? PROCESS_MODES.BULK
+              : PROCESS_MODES.SELECT,
+          employeeIds: forceFullReprocess && isBulk ? [] : pageIds,
+          departments:
+            forceFullReprocess && isBulk
+              ? []
+              : processMode === PROCESS_MODES.DEPT
+                ? selectedDepartments
+                : [],
+          forceFullReprocess: Boolean(forceFullReprocess && isBulk),
+          processedOn,
         });
         const meta = result.processMeta || {};
-        let msg = `Processed ${meta.processedCount ?? result.run.employee_count} employee(s) for ${monthLabel(year, month)}`;
+        const count = meta.processedCount ?? result.run?.employee_count ?? pageIds.length;
+        const slips = meta.payslipCount ?? count;
+        let msg = `Processed ${count} employee(s) for ${monthLabel(year, month)} on ${dayLabel}`;
         if (meta.skippedDuplicateCount > 0) {
           msg += ` · skipped ${meta.skippedDuplicateCount} already on sheet`;
         }
-        if (result.run.revision_no) {
+        if (result.run?.revision_no) {
           msg += ` (rev ${result.run.revision_no})`;
         }
-        msg += ". Payslips generated.";
+        msg += `. ${slips} salary slip(s) created — open each employee → Payslips.`;
         setNotice(msg);
         setSelectedIds([]);
         await loadRuns();
@@ -1190,7 +1247,8 @@ export default function SalaryProcessing() {
       selectedDepartments,
       selectedIds,
       candidates.existingRun,
-      processPreview.toProcess.length,
+      processPreview.toProcess,
+      processPreview.pool,
       loadRuns,
       loadCandidates,
     ]
@@ -1620,8 +1678,13 @@ export default function SalaryProcessing() {
                     <input
                       type="number"
                       className={numIn}
-                      value={line.unpaid_paid ?? 0}
-                      onChange={(e) => updateLine(line.id, { unpaid_paid: e.target.value })}
+                      value={unpaidInputValue(line.unpaid_paid)}
+                      placeholder="—"
+                      onChange={(e) =>
+                        updateLine(line.id, {
+                          unpaid_paid: e.target.value === "" ? 0 : e.target.value,
+                        })
+                      }
                     />
                   </td>
                   <td className="px-0.5 py-0.5 border-b border-slate-100">
@@ -1999,7 +2062,7 @@ export default function SalaryProcessing() {
                       ? "Processing…"
                       : selectedIds.length
                         ? `Process selected (${processPreview.toProcess.length})`
-                        : "Process salary"}
+                        : `Process salary (${processPreview.toProcess.length})`}
                   </button>
                 </>
               )}

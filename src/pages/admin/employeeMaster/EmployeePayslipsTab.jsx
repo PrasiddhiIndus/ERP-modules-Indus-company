@@ -208,8 +208,12 @@ export default function EmployeePayslipsTab({ employee }) {
                     <p className="text-sm font-semibold text-slate-900">{r.month_label}</p>
                     <p className="mt-0.5 text-[11px] text-slate-500">
                       {r.present_days ?? "—"} paid days
-                      {r.generated_at
-                        ? ` · ${new Date(r.generated_at).toLocaleDateString("en-IN", {
+                      {r.processed_on || r.generated_at
+                        ? ` · processed ${new Date(
+                            r.processed_on
+                              ? `${r.processed_on}T12:00:00`
+                              : r.generated_at
+                          ).toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "short",
                             year: "numeric",

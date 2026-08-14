@@ -402,17 +402,24 @@ export default function PayslipTemplate({
           </span>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          Generated{" "}
-          {payslip.generated_at
-            ? new Date(payslip.generated_at).toLocaleString("en-IN", {
-                day: "2-digit",
-                month: "short",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: true,
-              })
-            : "—"}
+          {payslip.processed_on || payslip.generated_at ? (
+            <>
+              Processed on{" "}
+              {payslip.processed_on
+                ? new Date(`${payslip.processed_on}T12:00:00`).toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })
+                : new Date(payslip.generated_at).toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })}
+            </>
+          ) : (
+            "—"
+          )}
         </div>
       </div>
     </div>
