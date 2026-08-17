@@ -32,6 +32,8 @@ import {
   fetchManagerCandidates,
   managerDisplayLabel,
   saveEmployeeHierarchyManagers,
+  userManagementDisplayName,
+  userManagementTeamDisplay,
 } from "../lib/userManagementHierarchy";
 import { ManagerSearchSelect } from "../components/employee/ManagerSearchSelect";
 import {
@@ -1452,14 +1454,14 @@ const UserManagement = () => {
                           checked={selectedUsers.has(row.id)}
                           onChange={() => toggleSelectUser(row)}
                           className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                          aria-label={`Select ${row.email || row.username || "user"}`}
+                          aria-label={`Select ${row.email || userManagementDisplayName(row) || "user"}`}
                         />
                       </td>
                     ) : null}
                     <td className="py-3 px-4 text-center tabular-nums">
                       {rangeStart + idx}
                     </td>
-                    <td className="py-3 px-4 font-medium text-gray-900">{row.username || "—"}</td>
+                    <td className="py-3 px-4 font-medium text-gray-900">{userManagementDisplayName(row)}</td>
                     <td className="py-3 px-4">
                       <span
                         className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -1477,7 +1479,7 @@ const UserManagement = () => {
                       </td>
                     )}
                     <td className="py-3 px-4 text-gray-600">{row.email || "—"}</td>
-                    <td className="py-3 px-4 text-gray-600">{teamLabel(row.team)}</td>
+                    <td className="py-3 px-4 text-gray-600">{userManagementTeamDisplay(row)}</td>
                     <td className="py-3 px-4">
                       <span className="inline-flex items-center gap-1 text-gray-700">
                         <Shield className="w-3.5 h-3.5" />

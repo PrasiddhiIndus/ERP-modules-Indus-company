@@ -1158,7 +1158,9 @@ function isLeaveRequestFullyApproved(row) {
   const status = String(row?.status ?? "")
     .trim()
     .toLowerCase();
-  return (overall || status) === "approved";
+  const terminal = ["approved", "rejected", "cancelled", "withdrawn"];
+  const effective = terminal.includes(overall) ? overall : status;
+  return effective === "approved";
 }
 
 /**

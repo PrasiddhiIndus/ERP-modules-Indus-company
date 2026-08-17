@@ -46,11 +46,12 @@ function formatTs(v) {
   return formatDateTimeDdMmYyyy(d);
 }
 
-/** Display status: Approved / Rejected / Pending only. */
 function statusDisplayLabel(status) {
   const s = String(status || "").toLowerCase();
   if (s === "approved") return "Approved";
   if (s === "rejected") return "Rejected";
+  if (s === "cancelled" || s === "canceled") return "Cancelled";
+  if (s === "withdrawn" || s === "withdraw") return "Withdrawn";
   return "Pending";
 }
 
@@ -58,18 +59,24 @@ function statusChipSeverity(status) {
   const s = String(status || "").toLowerCase();
   if (s === "approved") return "info";
   if (s === "rejected") return "critical";
+  if (s === "cancelled" || s === "canceled" || s === "withdrawn" || s === "withdraw") return "neutral";
   return "warning";
 }
 
-/** Who approved or rejected; blank while pending. */
+/** Who approved or rejected; name only, blank while pending. */
 function decisionByLabel(row) {
   const status = String(row?.status || "").toLowerCase();
-  const name = String(row?.approver_name || "").trim();
-  const code = String(row?.approver_employee_code || "").trim();
-  const who = name || code;
-  if (!who) return "—";
-  if (status === "approved") return `Approved by ${who}`;
-  if (status === "rejected") return `Rejected by ${who}`;
+  const l2Approved = String(row?.l2_status || "").toLowerCase() === "approved";
+  const l1Approved = String(row?.l1_status || "").toLowerCase() === "approved";
+  const name = String(
+    row?.approver_name ||
+      (l2Approved ? row?.l2_action_by_name : "") ||
+      (l1Approved ? row?.l1_action_by_name : "") ||
+      ""
+  ).trim();
+  if (!name) return "—";
+  if (status === "approved") return `Approved by ${name}`;
+  if (status === "rejected") return `Rejected by ${name}`;
   return "—";
 }
 
@@ -226,8 +233,6 @@ export function EmployeeLeavesPage() {
           submitted_at: r.submitted_at,
           decided_at: r.decided_at,
           decisionBy: decisionByLabel(r),
-          approver_name: r.approver_name,
-          approver_employee_code: r.approver_employee_code,
         };
       }),
     [rows, leaveTypes.byCode]
@@ -466,11 +471,8 @@ export function EmployeeLeavesPage() {
                   key: "decisionBy",
                   label: "Approved / Rejected by",
                   render: (r) => (
-                    <div className="text-[11px] text-gray-800 max-w-[180px]">
-                      <div className="font-medium">{r.decisionBy}</div>
-                      {r.approver_name && r.approver_employee_code ? (
-                        <div className="text-[10px] text-gray-500">{r.approver_employee_code}</div>
-                      ) : null}
+                    <div className="text-[11px] text-gray-800 max-w-[180px] font-medium">
+                      {r.decisionBy}
                     </div>
                   ),
                 },
