@@ -139,6 +139,7 @@ import {
   // SalaryMasterPage, // NAV_HIDDEN — CTC lives on Employee Master
   // SalaryEmployeeCtcPage,
   SalaryProcessingPage,
+  SalaryProcessReportPage,
   SalaryComponentsMasterPage,
   // NAV_HIDDEN misc admin pages
   // MiscEventsPage,
@@ -497,6 +498,7 @@ function App() {
               <Route path="dashboard" element={<SalaryDashboardPage />} />
               <Route path="salary-components" element={<SalaryComponentsMasterPage />} />
               <Route path="salary-processing" element={<SalaryProcessingPage />} />
+              <Route path="reports" element={<SalaryProcessReportPage />} />
             </Route>
             <Route path="admin/salary-admin/salary-master" element={<Navigate to="/app/admin/salary-admin/dashboard" replace />} />
             <Route
