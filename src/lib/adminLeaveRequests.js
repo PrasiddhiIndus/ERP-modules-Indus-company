@@ -122,10 +122,24 @@ function normalizeWorkflowStatus(status) {
     .toLowerCase();
 }
 
-/** Effective rollup used by DB triggers (overall_status when set, else status). */
+/** LMS draft / submitted → admin pending (admin table has no draft status). */
+function adminStatusFromLms(status) {
+  const s = normalizeWorkflowStatus(status);
+  if (s === "draft" || s === "submitted" || s === "pending_approval") return "pending";
+  if (s === "canceled") return "cancelled";
+  if (s === "withdraw" || s === "withdrawn") return "withdrawn";
+  return s;
+}
+
+/**
+ * Effective rollup: a decided overall_status wins, but leftover "pending"
+ * must not hide status = approved / rejected / cancelled / withdrawn.
+ */
 export function effectiveLeaveWorkflowStatus(row) {
-  const overall = normalizeWorkflowStatus(row?.overall_status);
-  const status = normalizeWorkflowStatus(row?.status);
+  const overall = adminStatusFromLms(row?.overall_status);
+  const status = adminStatusFromLms(row?.status);
+  if (TERMINAL_STATUSES.includes(overall)) return overall;
+  if (TERMINAL_STATUSES.includes(status)) return status;
   return overall || status;
 }
 
@@ -133,12 +147,24 @@ export function isLeaveFullyApproved(row) {
   return effectiveLeaveWorkflowStatus(row) === "approved";
 }
 
-/** LMS draft / submitted → admin pending (admin table has no draft status). */
-function adminStatusFromLms(status) {
-  const s = normalizeWorkflowStatus(status);
-  if (s === "draft" || s === "submitted" || s === "pending_approval") return "pending";
-  if (s === "withdraw" || s === "withdrawn") return "withdrawn";
-  return s;
+function inboxStatusBucket(status) {
+  const s = adminStatusFromLms(status);
+  if (TERMINAL_STATUSES.includes(s)) return s;
+  return "pending";
+}
+
+function firstNonEmpty(...values) {
+  for (const v of values) {
+    const s = String(v ?? "").trim();
+    if (s) return s;
+  }
+  return null;
+}
+
+/** Status fields Indus One may set; L1 approval often lands here before overall_status. */
+function leaveRowStatusCandidates(row) {
+  if (!row) return [];
+  return [row.status, row.overall_status, row.l1_status, row.l2_status];
 }
 
 function isOpenLmsStatus(status) {
@@ -206,6 +232,31 @@ async function fetchEmployeesByUserIds(userIds) {
     if (!byUserId[row.user_id]) byUserId[row.user_id] = row;
   }
   return byUserId;
+}
+
+async function fetchEmployeesByCodes(codes) {
+  const unique = [
+    ...new Set(
+      (codes || [])
+        .map((c) => String(c || "").trim())
+        .filter(Boolean)
+    ),
+  ];
+  if (!unique.length) return {};
+
+  const { data, error } = await supabase
+    .from(EMPLOYEE_MASTER_TABLE)
+    .select("id, user_id, full_name, employee_id, employee_code, department, designation")
+    .in("employee_code", unique);
+
+  if (error) throw error;
+
+  const byCode = {};
+  for (const row of data || []) {
+    const key = normalizeAttendanceEmpCode(row.employee_code);
+    if (key && !byCode[key]) byCode[key] = row;
+  }
+  return byCode;
 }
 
 async function fetchEmployeesByMasterIds(masterIds) {
@@ -357,7 +408,7 @@ async function ensureAdminLeaveRequestMirror(lmsRow) {
       days: lmsRow.days,
       reason: lmsRow.reason ?? "",
       status: adminStatusFromLms(lmsRow.status),
-      overall_status: adminStatusFromLms(lmsRow.overall_status ?? lmsRow.status),
+      overall_status: effectiveLeaveWorkflowStatus(lmsRow) || adminStatusFromLms(lmsRow.status),
       approver_user_id: lmsRow.approver_user_id,
       approver_name: lmsRow.approver_name,
       remarks: lmsRow.remarks,
@@ -501,13 +552,16 @@ function rowMatchesDateRange(row, fromDate, toDate) {
 
 /**
  * Merge LMS leave_requests + admin_leave_requests by id (read-only inbox).
- * Prefer admin decision fields when the admin row is terminal / ahead of LMS.
+ * Indus One often marks leave_requests.status / l1_status approved while the
+ * admin row still has status/overall_status pending (waiting on L2). Show the
+ * decided status from either table so the list matches what managers already approved.
  */
-function resolveInboxDisplayStatus(adminEffective, lmsStatus) {
-  const a = normalizeWorkflowStatus(adminEffective);
-  const l = adminStatusFromLms(lmsStatus);
-  if (a === "approved" || l === "approved") return "approved";
-  if (a === "rejected" || l === "rejected") return "rejected";
+function resolveInboxDisplayStatus(...statuses) {
+  const mapped = statuses.map((s) => adminStatusFromLms(s)).filter(Boolean);
+  if (mapped.some((s) => s === "approved")) return "approved";
+  if (mapped.some((s) => s === "rejected")) return "rejected";
+  if (mapped.some((s) => s === "cancelled")) return "cancelled";
+  if (mapped.some((s) => s === "withdrawn")) return "withdrawn";
   return "pending";
 }
 
@@ -516,33 +570,34 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
 
   for (const row of adminRows || []) {
     if (!row?.id) continue;
-    const effective = effectiveLeaveWorkflowStatus(row) || normalizeWorkflowStatus(row.status);
     byId.set(row.id, {
       ...row,
-      status: resolveInboxDisplayStatus(effective, effective),
+      status: resolveInboxDisplayStatus(...leaveRowStatusCandidates(row)),
       overall_status: normalizeWorkflowStatus(row.overall_status) || null,
       leave_type_code: leaveTypeCodeFromRow(row),
+      approver_name: firstNonEmpty(row.approver_name, row.l2_action_by_name, row.l1_action_by_name),
+      decided_at: row.decided_at || row.l2_action_at || row.l1_action_at || null,
+      _admin_status: row.status,
+      _admin_overall: row.overall_status,
       _from_admin: true,
     });
   }
 
   for (const row of lmsRows || []) {
     if (!row?.id) continue;
-    const lmsStatus = normalizeWorkflowStatus(row.status);
     const existing = byId.get(row.id);
     if (!existing) {
       byId.set(row.id, {
         ...row,
-        status: resolveInboxDisplayStatus(null, lmsStatus),
+        status: resolveInboxDisplayStatus(...leaveRowStatusCandidates(row)),
         overall_status:
-          normalizeWorkflowStatus(row.overall_status) || adminStatusFromLms(lmsStatus),
+          normalizeWorkflowStatus(row.overall_status) || adminStatusFromLms(row.status),
         leave_type_code: leaveTypeCodeFromRow(row),
         _from_lms: true,
       });
       continue;
     }
 
-    const adminEffective = effectiveLeaveWorkflowStatus(existing);
     byId.set(row.id, {
       ...row,
       ...existing,
@@ -553,19 +608,41 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
       days: existing.days ?? row.days,
       submitted_at: existing.submitted_at || row.submitted_at,
       user_id: existing.user_id || row.user_id,
-      status: resolveInboxDisplayStatus(adminEffective, lmsStatus),
+      status: resolveInboxDisplayStatus(
+        ...leaveRowStatusCandidates(existing),
+        existing._admin_status,
+        existing._admin_overall,
+        ...leaveRowStatusCandidates(row)
+      ),
       overall_status:
-        existing.overall_status ||
+        normalizeWorkflowStatus(existing.overall_status) ||
         normalizeWorkflowStatus(row.overall_status) ||
-        adminStatusFromLms(lmsStatus),
-      approver_name: existing.approver_name ?? row.approver_name ?? null,
-      approver_user_id: existing.approver_user_id ?? row.approver_user_id ?? null,
-      approver_employee_code: existing.approver_employee_code ?? row.approver_employee_code ?? null,
-      approved_by_tier: existing.approved_by_tier ?? row.approved_by_tier ?? null,
-      remarks: existing.remarks ?? row.remarks ?? null,
-      decided_at: existing.decided_at ?? row.decided_at ?? null,
-      employee_master_id: existing.employee_master_id ?? null,
-      employee_code: existing.employee_code ?? null,
+        adminStatusFromLms(row.status),
+      approver_name: firstNonEmpty(
+        existing.approver_name,
+        row.approver_name,
+        existing.l2_action_by_name,
+        existing.l1_action_by_name,
+        row.l2_action_by_name,
+        row.l1_action_by_name
+      ),
+      approver_user_id: existing.approver_user_id || row.approver_user_id || null,
+      approver_employee_code: firstNonEmpty(
+        existing.approver_employee_code,
+        row.approver_employee_code,
+        existing.l2_action_by,
+        existing.l1_action_by
+      ),
+      approved_by_tier: existing.approved_by_tier || row.approved_by_tier || null,
+      remarks: existing.remarks || row.remarks || null,
+      decided_at:
+        existing.decided_at ||
+        row.decided_at ||
+        existing.l2_action_at ||
+        existing.l1_action_at ||
+        null,
+      employee_master_id: existing.employee_master_id || row.employee_master_id || null,
+      employee_code: existing.employee_code || row.employee_code || null,
       _from_lms: true,
       _from_admin: true,
     });
@@ -574,11 +651,13 @@ function mergeLmsAndAdminLeaveRows(lmsRows, adminRows) {
   return [...byId.values()];
 }
 
-function normalizeMergedLeaveRows(rows, employeeByMasterId, employeeByUserId) {
+function normalizeMergedLeaveRows(rows, employeeByMasterId, employeeByUserId, employeeByCode) {
   return (rows || []).map((row) => {
     const byMaster = row.employee_master_id != null ? employeeByMasterId[row.employee_master_id] : null;
     const byUser = row.user_id ? employeeByUserId[row.user_id] : null;
-    const employee = byMaster || byUser || null;
+    const codeKey = normalizeAttendanceEmpCode(row.employee_code);
+    const byCode = codeKey && employeeByCode ? employeeByCode[codeKey] : null;
+    const employee = byMaster || byUser || byCode || null;
     const empCode =
       normalizeAttendanceEmpCode(row.employee_code || employee?.employee_code) || null;
     return {
@@ -630,6 +709,25 @@ export function subscribeLeaveWorkflowRealtime(onChange) {
 }
 
 const LEAVE_FETCH_CAP = 2000;
+const LEAVE_PAGE_SIZE = 1000;
+
+async function fetchAllPagedRows(tableFn) {
+  const all = [];
+  let from = 0;
+  while (from < LEAVE_FETCH_CAP) {
+    const to = Math.min(from + LEAVE_PAGE_SIZE - 1, LEAVE_FETCH_CAP - 1);
+    const { data, error } = await tableFn()
+      .select("*")
+      .order("submitted_at", { ascending: false })
+      .range(from, to);
+    if (error) return { data: all, error };
+    const rows = data || [];
+    all.push(...rows);
+    if (rows.length < LEAVE_PAGE_SIZE) return { data: all, error: null };
+    from += LEAVE_PAGE_SIZE;
+  }
+  return { data: all, error: null };
+}
 
 export async function fetchLeaveTypes() {
   const { data, error } = await supabase
@@ -666,14 +764,8 @@ async function loadLeaveInboxSourceRows() {
   }
 
   const [lmsRes, adminRes] = await Promise.all([
-    lmsLeaveRequestsTable()
-      .select("*")
-      .order("submitted_at", { ascending: false })
-      .range(0, LEAVE_FETCH_CAP - 1),
-    adminLeaveRequestsTable()
-      .select("*")
-      .order("submitted_at", { ascending: false })
-      .range(0, LEAVE_FETCH_CAP - 1),
+    fetchAllPagedRows(lmsLeaveRequestsTable),
+    fetchAllPagedRows(adminLeaveRequestsTable),
   ]);
 
   if (lmsRes.error && adminRes.error) {
@@ -704,10 +796,7 @@ export async function fetchLeaveStatusCounts() {
   const merged = mergeLmsAndAdminLeaveRows(lmsRows, adminRows);
   const counts = { pending: 0, approved: 0, rejected: 0, cancelled: 0, withdrawn: 0, all: merged.length };
   for (const row of merged) {
-    const s = String(row.status || "").toLowerCase();
-    if (s === "approved") counts.approved += 1;
-    else if (s === "rejected") counts.rejected += 1;
-    else counts.pending += 1;
+    counts[inboxStatusBucket(row.status)] += 1;
   }
   return counts;
 }
@@ -750,11 +839,7 @@ export async function fetchLeaveRequests(opts = {}) {
 
   const tab = normalizeWorkflowStatus(status);
   if (tab && tab !== "all") {
-    merged = merged.filter((row) => {
-      const s = String(row.status || "").toLowerCase();
-      if (tab === "pending") return s === "pending";
-      return s === tab;
-    });
+    merged = merged.filter((row) => inboxStatusBucket(row.status) === tab);
   }
 
   if (leaveType) {
@@ -775,12 +860,18 @@ export async function fetchLeaveRequests(opts = {}) {
   const from = (safePage - 1) * pageSize;
   const pageRows = merged.slice(from, from + pageSize);
 
-  const [employeeByMasterId, employeeByUserId] = await Promise.all([
+  const [employeeByMasterId, employeeByUserId, employeeByCode] = await Promise.all([
     fetchEmployeesByMasterIds(pageRows.map((r) => r.employee_master_id)),
     fetchEmployeesByUserIds(pageRows.map((r) => r.user_id)),
+    fetchEmployeesByCodes(pageRows.map((r) => r.employee_code)),
   ]);
 
-  const rows = normalizeMergedLeaveRows(pageRows, employeeByMasterId, employeeByUserId);
+  const rows = normalizeMergedLeaveRows(
+    pageRows,
+    employeeByMasterId,
+    employeeByUserId,
+    employeeByCode
+  );
 
   return {
     rows,
