@@ -1,7 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 
-const LEAVE_FETCH_CAP = 2000;
+const LEAVE_FETCH_CAP = 20000;
+const PAGE_SIZE = 1000;
 const INDUS_ONE = 'indus_one';
+
+async function fetchAllRows(client, table) {
+  const all = [];
+  let from = 0;
+  while (from < LEAVE_FETCH_CAP) {
+    const { data, error } = await client
+      .schema(INDUS_ONE)
+      .from(table)
+      .select('*')
+      .order('submitted_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: all, error };
+    const rows = data || [];
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) return { data: all, error: null };
+    from += PAGE_SIZE;
+  }
+  return { data: all, error: null };
+}
 
 /**
  * Fetch all leave rows for the ERP leave inbox (bypasses RLS via service_role).
@@ -26,18 +46,8 @@ export async function fetchAllLeaveInboxTables({ getSupabaseUrl, getServiceKey }
   });
 
   const [lmsRes, adminRes] = await Promise.all([
-    client
-      .schema(INDUS_ONE)
-      .from('leave_requests')
-      .select('*')
-      .order('submitted_at', { ascending: false })
-      .range(0, LEAVE_FETCH_CAP - 1),
-    client
-      .schema(INDUS_ONE)
-      .from('admin_leave_requests')
-      .select('*')
-      .order('submitted_at', { ascending: false })
-      .range(0, LEAVE_FETCH_CAP - 1),
+    fetchAllRows(client, 'leave_requests'),
+    fetchAllRows(client, 'admin_leave_requests'),
   ]);
 
   const lmsRows = lmsRes.error ? [] : lmsRes.data || [];

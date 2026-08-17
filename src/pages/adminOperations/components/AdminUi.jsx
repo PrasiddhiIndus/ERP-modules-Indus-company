@@ -93,6 +93,7 @@ const severityTone = {
   warning: "bg-warning-soft text-warning border-warning-border",
   high: "bg-warning-soft text-warning border-warning-border",
   critical: "bg-critical-soft text-critical border-critical-border",
+  neutral: "bg-gray-100 text-gray-700 border-gray-200",
 };
 
 export const StatusChip = ({ label, severity = "info" }) => (

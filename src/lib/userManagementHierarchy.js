@@ -9,7 +9,7 @@ export const MANAGER_CANDIDATE_SELECT =
   "id, employee_code, employee_id, full_name, department, designation, status, l1_manager_code, email_id";
 
 export const HIERARCHY_SELECT =
-  "id, employee_code, employee_id, full_name, email_id, l1_manager_code, l1_manager_name, l2_manager_code, l2_manager_name, hierarchy_sort_order";
+  "id, employee_code, employee_id, full_name, department, email_id, l1_manager_code, l1_manager_name, l2_manager_code, l2_manager_name, hierarchy_sort_order";
 
 const EMPTY_LOOKUPS = () => ({ byCode: new Map() });
 
@@ -57,6 +57,32 @@ export function buildEmployeeHierarchyLookups(rows) {
   return lookups;
 }
 
+export function employeeFullNameFromMaster(emp) {
+  const name = String(emp?.full_name ?? "").trim();
+  return name || null;
+}
+
+export function employeeDepartmentFromMaster(emp) {
+  const dept = String(emp?.department ?? "").trim();
+  return dept || null;
+}
+
+/** Display name for User Management: Employee Master full name, else profile username. */
+export function userManagementDisplayName(profile) {
+  const fromMaster = String(profile?.employee_full_name ?? "").trim();
+  if (fromMaster) return fromMaster;
+  const username = String(profile?.username ?? "").trim();
+  return username || "—";
+}
+
+/** Team column: Employee Master department, else profile team. */
+export function userManagementTeamDisplay(profile) {
+  const fromMaster = String(profile?.employee_department ?? "").trim();
+  if (fromMaster) return fromMaster;
+  const team = String(profile?.team ?? "").trim();
+  return team || "—";
+}
+
 export function enrichProfileWithHierarchy(profile, lookups) {
   const emp = resolveEmployeeMasterForProfile(profile, lookups);
   const linkedCode = emp?.employee_code ?? null;
@@ -65,6 +91,8 @@ export function enrichProfileWithHierarchy(profile, lookups) {
     linked_employee_code: linkedCode,
     employee_master_id: emp?.id ?? null,
     employee_master_employee_id: emp?.employee_id ?? null,
+    employee_full_name: employeeFullNameFromMaster(emp),
+    employee_department: employeeDepartmentFromMaster(emp),
     hierarchy_sort_order: emp?.hierarchy_sort_order ?? null,
     l1_manager_code: emp?.l1_manager_code ?? null,
     l1_manager_name: emp?.l1_manager_name ?? null,
