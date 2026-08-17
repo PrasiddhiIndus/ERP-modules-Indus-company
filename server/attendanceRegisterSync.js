@@ -4,6 +4,7 @@
 
 import {
   filterChangedRegisterUpserts,
+  filterUpsertsRespectingManualPriority,
   filterPresentRegisterRowsRespectingMarks,
   marksByEmpDayFromRegisterDbRows,
   punchesToPresentRegisterRows,
@@ -112,7 +113,10 @@ async function upsertRegisterBatch(supabase, rows) {
   if (!normalized.length) return 0;
 
   const existingRows = await fetchExistingRegisterRowsForUpsertDiff(supabase, normalized);
-  const changed = filterChangedRegisterUpserts(normalized, existingRows);
+  const changed = filterUpsertsRespectingManualPriority(
+    filterChangedRegisterUpserts(normalized, existingRows),
+    existingRows
+  );
   if (!changed.length) return 0;
 
   for (let i = 0; i < changed.length; i += UPSERT_CHUNK) {

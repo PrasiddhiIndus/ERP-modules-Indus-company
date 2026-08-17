@@ -6,6 +6,7 @@ import { TOKENS } from "../theme/tokens";
 import {
   filterChangedRegisterUpserts,
   filterPresentRegisterRowsRespectingMarks,
+  filterUpsertsRespectingManualPriority,
   isLeaveMarkSource,
   isManualMarkSource,
   isPunchMarkSource,
@@ -718,8 +719,7 @@ export function buildMonthlyRegisterGrid(
       const manual = overrides[day];
       const hasPunch = presentKeys.has(`${code}|${iso}`);
       if (manual != null && manual !== "") {
-        // Machine punch wins over weekoff on the same day.
-        mark = hasPunch && String(manual).trim() === "WO" ? "P" : manual;
+        mark = manual;
       } else if (hasPunch) {
         mark = "P";
       } else if (isAutoWeekoffDate(iso)) {
@@ -898,6 +898,16 @@ export function patchRegisterRowInCache(rows, patch) {
   if (idx >= 0) list[idx] = nextRow;
   else list.push(nextRow);
   return list;
+}
+
+/** Keep in-memory manual edits when a later fetch races the save. */
+export function mergeManualRowsIntoRegisterCache(fetchedRows, cachedRows) {
+  let next = [...(fetchedRows || [])];
+  for (const row of cachedRows || []) {
+    if (!isManualMarkSource(row?.mark_source)) continue;
+    next = patchRegisterRowInCache(next, row);
+  }
+  return next;
 }
 
 export function manualMarksToDbRows(marksByEmp, monthKey) {
@@ -1383,6 +1393,38 @@ function buildLeaveSourcedDaySet(registerRows, masterCodeMap = null) {
   return byCode;
 }
 
+function buildManualSourcedDaySet(registerRows, masterCodeMap = null) {
+  const byCode = new Map();
+  for (const row of registerRows || []) {
+    if (!isManualMarkSource(row?.mark_source)) continue;
+    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
+    const day = dayOfMonthFromIsoDate(row.register_date);
+    if (!code || !day) continue;
+    if (!byCode.has(code)) byCode.set(code, new Set());
+    byCode.get(code).add(day);
+  }
+  return byCode;
+}
+
+/** Stamp saved manual register rows on top of overlay marks (priority 1). */
+export function applyManualRegisterRowsToMarks(marks, registerRows, masterCodeMap = null) {
+  const next = {};
+  for (const [code, days] of Object.entries(marks || {})) {
+    next[code] = { ...(days || {}) };
+  }
+  for (const row of registerRows || []) {
+    if (!isManualMarkSource(row?.mark_source)) continue;
+    const code = resolveRegisterGridEmpCode(row.employee_code, masterCodeMap);
+    const day = dayOfMonthFromIsoDate(row.register_date);
+    const canonical = normalizeRegisterMarkForDb(row.mark);
+    if (!code || !day) continue;
+    if (!next[code]) next[code] = {};
+    if (canonical) next[code][day] = canonical;
+    else delete next[code][day];
+  }
+  return next;
+}
+
 /**
  * Merge approved leave into register marks for Daily Attendance Register display.
  * When register rows are loaded, leave marks already stored on admin_attendance_register
@@ -1397,6 +1439,7 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
   const presentKeys = buildPresentKeysFromPunches(punches);
   const approvedByCode = buildApprovedLeaveDaySet(approvedLeaveMarks);
   const leaveSourcedByCode = buildLeaveSourcedDaySet(registerRows, masterCodeMap);
+  const manualSourcedByCode = buildManualSourcedDaySet(registerRows, masterCodeMap);
   const preferRegisterMarks = Array.isArray(registerRows) && registerRows.length > 0;
 
   const next = {};
@@ -1434,6 +1477,7 @@ export function mergeApprovedLeaveMarksIntoManualMarks(
       if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = next[code][day];
       if (existing === "P" || existing === "P(OD)" || isRegisterHalfDayAttendanceMark(existing)) continue;
+      if (manualSourcedByCode.get(code)?.has(day)) continue;
       // Register leave/manual marks stay; approved leave may replace blank / auto WO / auto NH.
       if (preferRegisterMarks && existing) {
         const replaceAutoCalendar = existing === "WO" || isRegisterNhphMark(existing);
@@ -1815,16 +1859,17 @@ export async function refreshApprovedToursOnRegister(supabase, monthMeta, option
 }
 
 
-/** Merge approved tour T marks + comments into register view. Punch (P) wins over tour. */
+/** Merge approved tour T marks + comments into register view. Punch (P) wins over tour. Manual wins over both. */
 export function mergeApprovedTourIntoRegisterView(
   manualMarks,
   manualRemarks,
   tourData,
-  { punches = [], monthKey } = {}
+  { punches = [], monthKey, registerRows = null, masterCodeMap = null } = {}
 ) {
   const tourMarks = tourData?.marks || {};
   const tourRemarks = tourData?.remarks || {};
   const presentKeys = buildPresentKeysFromPunches(punches);
+  const manualSourcedByCode = buildManualSourcedDaySet(registerRows, masterCodeMap);
   const nextMarks = {};
   for (const [code, days] of Object.entries(manualMarks || {})) {
     nextMarks[code] = { ...(days || {}) };
@@ -1839,6 +1884,7 @@ export function mergeApprovedTourIntoRegisterView(
       const day = Number(dayKey);
       const canonical = normalizeRegisterMarkForDb(mark);
       if (!Number.isFinite(day) || canonical !== "T") continue;
+      if (manualSourcedByCode.get(code)?.has(day)) continue;
       const iso = monthKey ? registerDateFromDay(monthKey, day) : null;
       if (iso && presentKeys.has(`${code}|${iso}`)) continue;
       const existing = nextMarks[code][day];
@@ -1866,6 +1912,7 @@ export function mergeApprovedTourIntoRegisterView(
     const day = dayOfMonthFromIsoDate(iso);
     if (!code || !day) continue;
     if (nextMarks[code]?.[day] === "T") {
+      if (manualSourcedByCode.get(code)?.has(day)) continue;
       delete nextMarks[code][day];
       if (nextRemarks[code]) delete nextRemarks[code][day];
     }
@@ -1926,12 +1973,15 @@ export function finalizeRegisterMarksAndRemarks({
   const merged = mergeApprovedTourIntoRegisterView(marks, remarks, tourData, {
     punches,
     monthKey,
+    registerRows,
+    masterCodeMap,
   });
+  const marksWithManual = applyManualRegisterRowsToMarks(merged.marks, registerRows, masterCodeMap);
   return {
-    marks: merged.marks,
+    marks: marksWithManual,
     remarks: ensureCommentRemarksForRegisterMarks(
       merged.remarks,
-      merged.marks,
+      marksWithManual,
       registerRows,
       tourData?.remarks,
       masterCodeMap
@@ -2507,7 +2557,10 @@ export async function upsertRegisterMarksBatch(supabase, rows, options = {}) {
 
   // Diff-before-write: skip rows that already match on meaningful columns.
   const existingRows = await fetchExistingRegisterRowsForUpsertDiff(supabase, normalized);
-  const changed = filterChangedRegisterUpserts(normalized, existingRows);
+  const changed = filterUpsertsRespectingManualPriority(
+    filterChangedRegisterUpserts(normalized, existingRows),
+    existingRows
+  );
   if (!changed.length) return;
 
   for (let i = 0; i < changed.length; i += REGISTER_MARK_UPSERT_CHUNK) {
@@ -2623,11 +2676,44 @@ export async function upsertRegisterMark(
         mark_remark: isRegisterCommentMark(canonical) ? String(markRemark || "").trim() || null : null,
         mark_source: "manual",
         leave_request_id: null,
+        tour_request_id: null,
         updated_at: new Date().toISOString(),
       },
     ],
     { masterCodeMap }
   );
+
+  const { data: savedRows, error: verifyError } = await supabase
+    .from(ATTENDANCE_REGISTER_TABLE)
+    .select("employee_code,register_date,mark,mark_source")
+    .eq("register_date", date)
+    .in("employee_code", [...new Set([dbCode, normCode].filter(Boolean))]);
+  if (verifyError) {
+    console.warn("[attendance-register] manual save verify failed", {
+      employee_code: dbCode,
+      register_date: date,
+      mark: canonical,
+      error: verifyError.message,
+    });
+    throw verifyError;
+  }
+  const saved = (savedRows || []).find(
+    (row) =>
+      normalizeAttendanceEmpCode(row.employee_code) === normCode ||
+      String(row.employee_code || "").trim() === dbCode
+  );
+  if (!saved || normalizeRegisterMarkForDb(saved.mark) !== canonical || !isManualMarkSource(saved.mark_source)) {
+    const err = new Error(
+      "Attendance mark was not saved. Refresh the register and try again, or check that you can edit attendance."
+    );
+    console.warn("[attendance-register] manual save did not persist", {
+      employee_code: dbCode,
+      register_date: date,
+      mark: canonical,
+      saved,
+    });
+    throw err;
+  }
 
   // Always recount yearly used/unused for this employee (PL→P, CL mark, clear, etc.).
   try {

@@ -308,3 +308,22 @@ export function filterChangedRegisterUpserts(incomingRows, existingRows) {
     return !isRegisterUpsertNoop(row, existing);
   });
 }
+
+/**
+ * Manual HR edits (mark_source = manual) are priority 1.
+ * Punch / leave / tour / auto WO / holiday upserts must not replace them.
+ */
+export function filterUpsertsRespectingManualPriority(incomingRows, existingRows) {
+  const byKey = indexRegisterRowsForUpsertDiff(existingRows);
+  return (incomingRows || []).filter((row) => {
+    const keys = registerUpsertLookupKeys(row);
+    let existing;
+    for (const key of keys) {
+      existing = byKey.get(key);
+      if (existing) break;
+    }
+    if (!existing) return true;
+    if (!isManualMarkSource(existing.mark_source)) return true;
+    return isManualMarkSource(row?.mark_source);
+  });
+}
