@@ -68,6 +68,7 @@ import {
   upsertRegisterMarksBatch,
   writeStoredRegisterMarks,
   patchRegisterRowInCache,
+  mergeManualRowsIntoRegisterCache,
   toRegisterDbEmployeeCode,
   normalizeAttendanceEmpCode,
   computeDayAttendanceBreakdown,
@@ -505,14 +506,14 @@ export function EmployeeAttendanceDailyPage() {
           // Re-fetch after WO/holiday so punch overwrite checks see the latest WO cells.
           const tourSync = await syncApprovedToursToRegister(supabase, monthMeta.fromDate, monthMeta.toDate, {
             masterCodeMap,
-            existingRegisterRows: monthRegisterRows,
+            existingRegisterRows: monthRegisterRowsRef.current,
           });
           const woResult = await syncRegisterAutoWeekoffMarks(
             supabase,
             registerEmpCodes,
             weekoffDates,
             masterCodeMap,
-            { existingRegisterRows: monthRegisterRows }
+            { existingRegisterRows: monthRegisterRowsRef.current }
           );
 
           const holidayRangeTo =
@@ -527,13 +528,16 @@ export function EmployeeAttendanceDailyPage() {
             registerEmpCodes,
             holidayDates,
             masterCodeMap,
-            { existingRegisterRows: monthRegisterRows }
+            { existingRegisterRows: monthRegisterRowsRef.current }
           );
-          const rowsAfterAutoMarks = await fetchRegisterMarkRowsInRange(supabase, {
-            fromDate: monthMeta.fromDate,
-            toDate: monthMeta.toDate,
-            monthKey: monthMeta.monthKey,
-          });
+          const rowsAfterAutoMarks = mergeManualRowsIntoRegisterCache(
+            await fetchRegisterMarkRowsInRange(supabase, {
+              fromDate: monthMeta.fromDate,
+              toDate: monthMeta.toDate,
+              monthKey: monthMeta.monthKey,
+            }),
+            monthRegisterRowsRef.current
+          );
           const punchSync = await syncRegisterMarksFromPunches(supabase, punchRows, {
             fromDate: monthMeta.fromDate,
             toDate: monthMeta.toDate,
@@ -569,10 +573,14 @@ export function EmployeeAttendanceDailyPage() {
             monthKey: monthMeta.monthKey,
           });
           if (loadGeneration !== loadGenerationRef.current) return;
-          monthRegisterRowsRef.current = refreshedRows;
+          const mergedRows = mergeManualRowsIntoRegisterCache(
+            refreshedRows,
+            monthRegisterRowsRef.current
+          );
+          monthRegisterRowsRef.current = mergedRows;
           const registerView = buildRegisterMonthViewFromPrefetched(
             monthMeta,
-            refreshedRows,
+            mergedRows,
             masterCodeMap
           );
           const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(
@@ -581,7 +589,7 @@ export function EmployeeAttendanceDailyPage() {
             {
               punches: punchRows,
               monthKey: monthMeta.monthKey,
-              registerRows: refreshedRows,
+              registerRows: mergedRows,
               masterCodeMap,
             }
           );
@@ -589,7 +597,7 @@ export function EmployeeAttendanceDailyPage() {
             marks: afterLeave,
             remarks: registerView.remarks || {},
             tourData: freshTourData,
-            registerRows: refreshedRows,
+            registerRows: mergedRows,
             masterCodeMap,
             punches: punchRows,
             monthKey: monthMeta.monthKey,
@@ -672,17 +680,21 @@ export function EmployeeAttendanceDailyPage() {
         if (cancelled) return;
 
         approvedLeaveMarksRef.current = approvedLeaveMarks;
-        monthRegisterRowsRef.current = monthRegisterRows;
+        const mergedRows = mergeManualRowsIntoRegisterCache(
+          monthRegisterRows,
+          monthRegisterRowsRef.current
+        );
+        monthRegisterRowsRef.current = mergedRows;
 
         const registerView = buildRegisterMonthViewFromPrefetched(
           monthMeta,
-          monthRegisterRows,
+          mergedRows,
           masterCodeMap
         );
         const afterLeave = mergeApprovedLeaveMarksIntoManualMarks(registerView.marks, approvedLeaveMarks, {
           punches: punchRows,
           monthKey: monthMeta.monthKey,
-          registerRows: monthRegisterRows,
+          registerRows: mergedRows,
           masterCodeMap,
         });
 
@@ -696,7 +708,7 @@ export function EmployeeAttendanceDailyPage() {
           marks: afterLeave,
           remarks: registerView.remarks || {},
           tourData,
-          registerRows: monthRegisterRows,
+          registerRows: mergedRows,
           masterCodeMap,
           punches: punchRows,
           monthKey: monthMeta.monthKey,
@@ -872,18 +884,26 @@ export function EmployeeAttendanceDailyPage() {
         setLeaveLimitWarning("");
       }
 
-      const next = { ...manualMarks };
-      const empMarks = { ...(next[empCodeKey] || {}) };
-      const nextRemarks = { ...manualRemarks };
-      const empRemarks = { ...(nextRemarks[empCodeKey] || {}) };
-      if (!value) delete empMarks[day];
-      else empMarks[day] = value;
       const isCommentMark = isRegisterCommentMark(value);
-      if (!isCommentMark) delete empRemarks[day];
-      if (Object.keys(empMarks).length) next[empCodeKey] = empMarks;
-      else delete next[empCodeKey];
-      if (Object.keys(empRemarks).length) nextRemarks[empCodeKey] = empRemarks;
-      else delete nextRemarks[empCodeKey];
+      const applyCellToMarks = (prev) => {
+        const next = { ...prev };
+        const empMarks = { ...(next[empCodeKey] || {}) };
+        if (!value) delete empMarks[day];
+        else empMarks[day] = value;
+        if (Object.keys(empMarks).length) next[empCodeKey] = empMarks;
+        else delete next[empCodeKey];
+        return next;
+      };
+      const applyCellToRemarks = (prev) => {
+        const next = { ...prev };
+        const empRemarks = { ...(next[empCodeKey] || {}) };
+        if (!isCommentMark) delete empRemarks[day];
+        if (Object.keys(empRemarks).length) next[empCodeKey] = empRemarks;
+        else delete next[empCodeKey];
+        return next;
+      };
+      const next = applyCellToMarks(manualMarks);
+      const nextRemarks = applyCellToRemarks(manualRemarks);
       setManualMarks(next);
       setManualRemarks(nextRemarks);
       if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
@@ -893,7 +913,7 @@ export function EmployeeAttendanceDailyPage() {
           empCode: empCodeKey,
           day,
           mark: value,
-          value: empRemarks[day] || "",
+          value: nextRemarks[empCodeKey]?.[day] || "",
         });
       }
 
@@ -904,17 +924,24 @@ export function EmployeeAttendanceDailyPage() {
           empCodeKey,
           registerDate,
           value,
-          isCommentMark ? empRemarks[day] || "" : "",
+          isCommentMark ? nextRemarks[empCodeKey]?.[day] || "" : "",
           masterRegisterCodeMap
         );
         monthRegisterRowsRef.current = patchRegisterRowInCache(monthRegisterRowsRef.current, {
           employee_code: toRegisterDbEmployeeCode(empCodeKey, masterRegisterCodeMap) || empCodeKey,
           register_date: registerDate,
           mark: value,
-          mark_remark: isCommentMark ? String(empRemarks[day] || "").trim() || null : null,
+          mark_remark: isCommentMark ? String(nextRemarks[empCodeKey]?.[day] || "").trim() || null : null,
           mark_source: "manual",
+          leave_request_id: null,
+          tour_request_id: null,
         });
-        if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, next);
+        // Re-apply after await so background/realtime refresh cannot clobber the saved cell.
+        setManualMarks((prev) => {
+          const patched = applyCellToMarks(prev);
+          if (monthMeta?.monthKey) writeStoredRegisterMarks(monthMeta.monthKey, patched);
+          return patched;
+        });
         setYearRegisterRows((prev) => {
           const code = normalizeAttendanceEmpCode(empCodeKey);
           const filtered = prev.filter(
@@ -922,7 +949,14 @@ export function EmployeeAttendanceDailyPage() {
               normalizeAttendanceEmpCode(r.employee_code) !== code ||
               String(r.register_date || "").slice(0, 10) !== registerDate
           );
-          if (value) filtered.push({ employee_code: code, register_date: registerDate, mark: value });
+          if (value) {
+            filtered.push({
+              employee_code: code,
+              register_date: registerDate,
+              mark: value,
+              mark_source: "manual",
+            });
+          }
           return filtered;
         });
         dispatchLeaveLimitAlertsChanged();

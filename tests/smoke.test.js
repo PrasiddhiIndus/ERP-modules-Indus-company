@@ -3,6 +3,7 @@ import { computePF } from '../src/modules/payroll/calc/statutory.js';
 import {
   canPunchSyncOverwriteExisting,
   filterChangedRegisterUpserts,
+  filterUpsertsRespectingManualPriority,
   isLeaveMarkSource,
   isPurplePresentPunch,
   isRegisterUpsertNoop,
@@ -10,7 +11,14 @@ import {
   registerMarkFromPunchWindow,
 } from '../shared/attendanceRegisterSync.mjs';
 import { createAuthMiddleware } from '../server/authMiddleware.js';
-import { mergeApprovedLeaveMarksIntoManualMarks, normalizeRegisterMarkForDb, registerMarkCompositeDisplayParts } from '../src/lib/attendanceDaily.js';
+import {
+  applyManualRegisterRowsToMarks,
+  buildMonthlyRegisterGrid,
+  mergeApprovedLeaveMarksIntoManualMarks,
+  mergeApprovedTourIntoRegisterView,
+  normalizeRegisterMarkForDb,
+  registerMarkCompositeDisplayParts,
+} from '../src/lib/attendanceDaily.js';
 
 describe('registerMarkFromPunchWindow', () => {
   it('marks half day when out is on cutoff', () => {
@@ -84,6 +92,12 @@ describe('canPunchSyncOverwriteExisting', () => {
     expect(canPunchSyncOverwriteExisting({ mark: 'P/CL', mark_source: 'punch' })).toBe(false);
   });
 
+  it('does not overwrite manual HR marks', () => {
+    expect(canPunchSyncOverwriteExisting({ mark: 'CL', mark_source: 'manual' })).toBe(false);
+    expect(canPunchSyncOverwriteExisting({ mark: 'WO', mark_source: 'manual' })).toBe(false);
+    expect(canPunchSyncOverwriteExisting({ mark: 'P', mark_source: 'manual' })).toBe(false);
+  });
+
   it('allows punch-derived P and HD to update each other', () => {
     expect(canPunchSyncOverwriteExisting({ mark: 'P', mark_source: 'punch' })).toBe(true);
     expect(canPunchSyncOverwriteExisting({ mark: 'HD', mark_source: 'punch' })).toBe(true);
@@ -142,6 +156,60 @@ describe('filterChangedRegisterUpserts', () => {
     const changed = filterChangedRegisterUpserts(incoming, existing);
     expect(changed).toHaveLength(2);
     expect(changed.map((r) => r.employee_code)).toEqual(['102', '101']);
+  });
+});
+
+describe('filterUpsertsRespectingManualPriority', () => {
+  it('blocks punch/tour/auto writes over a saved manual cell', () => {
+    const existing = [
+      {
+        employee_code: '101',
+        register_date: '2026-08-03',
+        mark: 'CL',
+        mark_source: 'manual',
+      },
+    ];
+    const incoming = [
+      {
+        employee_code: '101',
+        register_date: '2026-08-03',
+        mark: 'P',
+        mark_source: 'punch',
+      },
+      {
+        employee_code: '101',
+        register_date: '2026-08-03',
+        mark: 'T',
+        mark_source: 'tour',
+      },
+      {
+        employee_code: '101',
+        register_date: '2026-08-03',
+        mark: 'WO',
+        mark_source: 'auto_wo',
+      },
+    ];
+    expect(filterUpsertsRespectingManualPriority(incoming, existing)).toEqual([]);
+  });
+
+  it('allows a later manual edit to replace a previous manual mark', () => {
+    const existing = [
+      {
+        employee_code: '101',
+        register_date: '2026-08-03',
+        mark: 'CL',
+        mark_source: 'manual',
+      },
+    ];
+    const incoming = [
+      {
+        employee_code: '101',
+        register_date: '2026-08-03',
+        mark: 'P',
+        mark_source: 'manual',
+      },
+    ];
+    expect(filterUpsertsRespectingManualPriority(incoming, existing)).toHaveLength(1);
   });
 });
 
@@ -265,6 +333,24 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
     expect(merged['101'][12]).toBe('SL');
   });
 
+  it('does not replace a manual weekoff with approved leave', () => {
+    const registerRows = [
+      {
+        employee_code: '101',
+        register_date: '2026-07-12',
+        mark: 'WO',
+        mark_source: 'manual',
+        leave_request_id: null,
+      },
+    ];
+    const merged = mergeApprovedLeaveMarksIntoManualMarks(
+      { '101': { 12: 'WO' } },
+      { '101': { 12: 'SL' } },
+      { monthKey, registerRows }
+    );
+    expect(merged['101'][12]).toBe('WO');
+  });
+
   it('keeps punch-derived HD from register even with stale leave_request_id', () => {
     const registerRows = [
       {
@@ -330,6 +416,38 @@ describe('mergeApprovedLeaveMarksIntoManualMarks', () => {
       leave: 'CL',
       combined: 'P/CL',
     });
+  });
+});
+
+describe('manual register mark priority', () => {
+  it('keeps a manual WO in the grid even when a punch exists that day', () => {
+    const { rows } = buildMonthlyRegisterGrid(
+      [{ empCode: '101', punchDate: '2026-08-02' }],
+      [{ empCode: '101', employeeName: 'Test' }],
+      { year: 2026, month: 8, manualMarks: { '101': { 2: 'WO' } } }
+    );
+    expect(rows[0].dayMarks[2]).toBe('WO');
+  });
+
+  it('does not overlay tour T on a saved manual mark', () => {
+    const merged = mergeApprovedTourIntoRegisterView(
+      { '101': { 3: 'CL' } },
+      {},
+      { marks: { '101': { 3: 'T' } }, remarks: { '101': { 3: 'Site visit' } } },
+      {
+        monthKey: '2026-08',
+        registerRows: [{ employee_code: '101', register_date: '2026-08-03', mark: 'CL', mark_source: 'manual' }],
+      }
+    );
+    expect(merged.marks['101'][3]).toBe('CL');
+  });
+
+  it('stamps manual register rows on top of overlay marks', () => {
+    const marks = applyManualRegisterRowsToMarks(
+      { '101': { 3: 'T' } },
+      [{ employee_code: '101', register_date: '2026-08-03', mark: 'P', mark_source: 'manual' }]
+    );
+    expect(marks['101'][3]).toBe('P');
   });
 });
 
