@@ -1966,7 +1966,7 @@ export default function SalaryEmployeeCtc({
             </div>
 
             <div className="px-6 sm:px-8 lg:px-10 py-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-6 border-b border-divider">
-              <ProfileField label="Location">Indus Headquater</ProfileField>
+              <ProfileField label="Location">Indus Head Office</ProfileField>
               <ProfileField label="Employee Code">{employee.employee_code || "—"}</ProfileField>
               <ProfileField label="Employee Name">{employee.full_name || "—"}</ProfileField>
               <ProfileField label="Designation">{employee.designation || "—"}</ProfileField>
