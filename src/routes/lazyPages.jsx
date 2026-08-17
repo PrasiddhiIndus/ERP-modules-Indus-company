@@ -257,6 +257,9 @@ export const SalaryAdminLayoutPage = lazy(() => import("../pages/adminOperations
 // export const SalaryMasterPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryMaster"));
 export const SalaryEmployeeCtcPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryEmployeeCtc"));
 export const SalaryProcessingPage = lazy(() => import("../pages/adminOperations/salaryAdmin/SalaryProcessing"));
+export const SalaryProcessReportPage = lazy(
+  () => import("../pages/adminOperations/salaryAdmin/SalaryProcessReport.jsx")
+);
 export const SalaryComponentsMasterPage = lazy(
   () => import("../pages/adminOperations/salaryAdmin/SalaryComponentsMaster.jsx")
 );

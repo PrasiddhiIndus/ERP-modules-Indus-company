@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { Calculator, LayoutDashboard, Layers } from "lucide-react";
+import { Calculator, FileBarChart2, LayoutDashboard, Layers } from "lucide-react";
 
 const BASE = "/app/admin/salary-admin";
 
@@ -27,6 +27,13 @@ const MODULES = [
     icon: Calculator,
     match: (p) => p.startsWith(`${BASE}/salary-processing`),
   },
+  {
+    id: "reports",
+    label: "Reports",
+    path: `${BASE}/reports`,
+    icon: FileBarChart2,
+    match: (p) => p.startsWith(`${BASE}/reports`),
+  },
 ];
 
 /**
@@ -44,7 +51,7 @@ export default function SalaryAdminLayout() {
             <h2 className="type-card-title text-ink mt-0.5">Salary Admin</h2>
           </div>
           <p className="type-meta text-ink-secondary hidden sm:block max-w-md text-right">
-            Switch modules here — dashboard, components, and month processing.
+            Switch modules here — dashboard, components, processing, and reports.
           </p>
         </div>
 
