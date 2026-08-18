@@ -53,6 +53,7 @@ export const ROUTE_MODULE_MAP = [
   ['/app/amc', 'AMC management'],
   ['/app/procurement', 'Procurement'],
   ['/app/indus-lms-trainings', 'Indus LMS / trainings'],
+  ['/app/all-employees', 'All employees'],
   ['/app/user-management', 'User management'],
   ['/app/software-subscriptions-reminders', 'Software subscriptions/reminders'],
   ['/app/api-health', 'API health'],

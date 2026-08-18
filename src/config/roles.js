@@ -618,7 +618,7 @@ export const MODULE_PATH_PREFIXES = {
   fireTender: ["/app/fire-tender", "/app/fire-tender-manufacturing"],
   indusLms: ["/app/indus-lms-trainings"],
   settings: ["/app/settings"],
-  userManagement: ["/app/user-management"],
+  userManagement: ["/app/user-management", "/app/all-employees"],
   softwareSubscriptions: ["/app/software-subscriptions-reminders"],
   /** IT/IS team home — same routes as software subscriptions (not Super Admin–only module key). */
   itIs: ["/app/software-subscriptions-reminders", "/app/api-health"],
