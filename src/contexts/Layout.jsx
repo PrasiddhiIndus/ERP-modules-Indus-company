@@ -96,7 +96,7 @@ function resolveWorkspaceContext(pathname) {
     [/\/app\/projects|\/app\/fire-tender/, "Projects", "Delivery & costing"],
     [/\/app\/procurement/, "Procurement", "Vendors & POs"],
     [/\/app\/finance|\/app\/accounts/, "Finance", "Accounts"],
-    [/\/app\/settings|\/app\/user-management/, "System", "Settings"],
+    [/\/app\/settings|\/app\/user-management|\/app\/all-employees/, "System", "Settings"],
     [/\/app\/api-monitoring/, "System", "API health"],
   ];
   for (const [re, eyebrow, title] of rules) {
@@ -1329,6 +1329,13 @@ const Layout = () => {
                 </div>
               )}
             </div>
+            )}
+
+            {userProfile?.role === ROLES.SUPER_ADMIN && (
+            <NavLink to="all-employees" className={topNavClass}>
+              <Users className="w-4 h-4 shrink-0" />
+              <span className="type-body-medium type-truncate">All Employees</span>
+            </NavLink>
             )}
 
             {can("userManagement") && (

@@ -158,6 +158,10 @@ export const EmployeeLeavesPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeLeaveInboxPage"),
   "EmployeeLeavesPage"
 );
+export const AllEmployeesDirectoryPage = lazyNamed(
+  () => import("../pages/adminOperations/employee/AllEmployeesDirectoryPage"),
+  "AllEmployeesDirectoryPage"
+);
 export const EmployeeTourApprovalsPage = lazyNamed(
   () => import("../pages/adminOperations/employee/EmployeeTourInboxPage"),
   "EmployeeTourApprovalsPage"
