@@ -577,9 +577,39 @@ const Layout = () => {
                       }`
                     }
                   >
+<<<<<<< Updated upstream
                     <Wallet className="h-4 w-4 shrink-0 text-ink-muted" />
                     <span className="type-meta type-truncate">Salary Admin</span>
                   </NavLink>
+=======
+                    <span className="flex items-start space-x-2">
+                      <Wallet className="w-4 h-4 shrink-0 text-emerald-700" />
+                      <span className="text-xs font-medium text-left leading-tight">Salary Admin</span>
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 shrink-0 transform transition-transform ${adminSalaryOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {adminSalaryOpen && (
+                    <div className="space-y-0.5">
+                      <NavLink to="admin/salary-admin/dashboard" className={subNavClass}>
+                        <LayoutDashboard className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="type-meta type-truncate">Dashboard</span>
+                      </NavLink>
+                      <NavLink to="admin/salary-admin/salary-master" className={subNavClass}>
+                        <RupeeIcon className="h-4 w-4 shrink-0 text-emerald-600" />
+                        <span className="type-meta type-truncate">Salary Master</span>
+                      </NavLink>
+                      <NavLink to="admin/salary-admin/salary-components" className={subNavClass}>
+                        <Layers className="h-4 w-4 shrink-0 text-emerald-700" />
+                        <span className="type-meta type-truncate">Salary Components</span>
+                      </NavLink>
+                      <NavLink to="admin/salary-admin/salary-processing" className={subNavClass}>
+                        <Calculator className="h-4 w-4 shrink-0 text-teal-600" />
+                        <span className="type-meta type-truncate">Salary Processing</span>
+                      </NavLink>
+                    </div>
+                  )}
+                  </>
+>>>>>>> Stashed changes
                   )}
 
                   {/* NAV_HIDDEN (Aug 2026): Store & Issue Control */}

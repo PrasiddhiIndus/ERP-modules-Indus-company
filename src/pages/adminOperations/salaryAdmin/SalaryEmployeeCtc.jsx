@@ -44,6 +44,7 @@ import {
   todayInputDate,
 } from "./salaryData";
 import SalaryRevisionHistory from "./SalaryRevisionHistory";
+<<<<<<< Updated upstream
 import PersonSalaryComponentsPanel from "./PersonSalaryComponentsPanel";
 import {
   CTC_OPTIONAL_PRESETS,
@@ -84,6 +85,14 @@ function paOverridesFromSaved(saved) {
   }
   return {};
 }
+=======
+import {
+  evalComponentFormula,
+  getProfileCustomComponents,
+  loadCustomComponentAmounts,
+  saveCustomComponentAmounts,
+} from "./salaryComponentsCatalog";
+>>>>>>> Stashed changes
 
 const amountInput =
   "w-[9rem] h-9 px-2.5 text-right text-[15px] font-normal tabular-nums text-ink border border-border-strong rounded bg-white focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent";
@@ -415,6 +424,12 @@ export default function SalaryEmployeeCtc({
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const reviseRequested = persist && searchParams.get("mode") === "revise";
+<<<<<<< Updated upstream
+=======
+  const componentsHref = `/app/admin/salary-admin/salary-components?employee=${encodeURIComponent(
+    String(employeeId || "")
+  )}`;
+>>>>>>> Stashed changes
 
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -429,11 +444,14 @@ export default function SalaryEmployeeCtc({
   const [savedStructure, setSavedStructure] = useState(null);
   const [customAmounts, setCustomAmounts] = useState({});
   const [catalogRev, setCatalogRev] = useState(0);
+<<<<<<< Updated upstream
   /** Manual P.A. overrides (numbers). Empty key = use monthly × 12 / sum. Never feeds monthly. */
   const [paOverrides, setPaOverrides] = useState({});
   /** In-progress P.A. text while typing. */
   const [paDrafts, setPaDrafts] = useState({});
   const prevAutoPaRef = useRef({});
+=======
+>>>>>>> Stashed changes
 
   const [employeeLevel, setEmployeeLevel] = useState(EMP_LEVEL_OFFICE);
   const [gross, setGross] = useState("");
@@ -738,6 +756,7 @@ export default function SalaryEmployeeCtc({
       setWef(reviseRequested && declared ? todayInputDate() : saved?.wef_date || "");
       setSaveError("");
       setSaveMsg("");
+<<<<<<< Updated upstream
       try {
         await hydratePersonComponents(employeeId);
       } catch (hydErr) {
@@ -758,6 +777,9 @@ export default function SalaryEmployeeCtc({
       setPaOverrides(paOverridesFromSaved(saved));
       setPaDrafts({});
       prevAutoPaRef.current = {};
+=======
+      setCustomAmounts(loadCustomComponentAmounts(employeeId));
+>>>>>>> Stashed changes
     } catch (err) {
       console.error("Salary CTC: failed to load employee", err);
       setError("Could not load employee profile. Please try again.");
@@ -791,6 +813,7 @@ export default function SalaryEmployeeCtc({
   const profileCustoms = useMemo(() => {
     const all = getProfileCustomComponents(employeeId);
     const partB = all.filter((c) => c.parent_code === "PART_B");
+<<<<<<< Updated upstream
     // Presets (LTA / Food / VPI) render as checkbox rows — not duplicated here
     const partA = all.filter(
       (c) => c.parent_code !== "PART_B" && !isCtcOptionalPresetCode(c.code)
@@ -832,6 +855,12 @@ export default function SalaryEmployeeCtc({
     [canEdit, employeeId]
   );
 
+=======
+    const partA = all.filter((c) => c.parent_code !== "PART_B");
+    return { partA, partB };
+  }, [employeeId, catalogRev]);
+
+>>>>>>> Stashed changes
   const customExtraVars = useMemo(() => {
     const vars = {};
     for (const [code, val] of Object.entries(customAmounts || {})) {
@@ -852,6 +881,7 @@ export default function SalaryEmployeeCtc({
     [employeeId]
   );
 
+<<<<<<< Updated upstream
   const clearPaKeys = useCallback((keys) => {
     if (!keys?.length) return;
     setPaOverrides((prev) => {
@@ -1220,6 +1250,8 @@ export default function SalaryEmployeeCtc({
     clearPaKeys,
   ]);
 
+=======
+>>>>>>> Stashed changes
   // Keep Auto Basic / HRA / ESIC display values aligned while editing
   useEffect(() => {
     if (!canEdit || !parsed.declared) return;
@@ -1546,7 +1578,11 @@ export default function SalaryEmployeeCtc({
       setSearchParams(next, { replace: true });
       return;
     }
+<<<<<<< Updated upstream
     navigate(`/app/admin/employee/master/${employeeId}?tab=ctc&mode=revise`, {
+=======
+    navigate(`/app/admin/salary-admin/salary-master/${employeeId}?mode=revise`, {
+>>>>>>> Stashed changes
       replace: true,
     });
   };
@@ -1559,7 +1595,11 @@ export default function SalaryEmployeeCtc({
       setSearchParams(next, { replace: true });
       return;
     }
+<<<<<<< Updated upstream
     navigate(`/app/admin/employee/master/${employeeId}?tab=ctc`, { replace: true });
+=======
+    navigate(`/app/admin/salary-admin/salary-master/${employeeId}`, { replace: true });
+>>>>>>> Stashed changes
   };
 
   const handleSave = async () => {
@@ -1803,11 +1843,19 @@ export default function SalaryEmployeeCtc({
       <div className={`${embedded ? "p-6 space-y-3 bg-canvas" : "-m-4 sm:-m-6 min-h-[calc(100vh-4.5rem)] bg-canvas p-6 space-y-3"}`}>
         {!embedded ? (
           <Link
+<<<<<<< Updated upstream
             to={`/app/admin/employee/master/${employeeId}?tab=ctc`}
             className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Employee Master
+=======
+            to="/app/admin/salary-admin/salary-master"
+            className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Salary Master
+>>>>>>> Stashed changes
           </Link>
         ) : null}
         <p className="text-sm text-red-600">{error || "Employee not found."}</p>
@@ -1849,6 +1897,16 @@ export default function SalaryEmployeeCtc({
             ) : null}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+<<<<<<< Updated upstream
+=======
+            <Link
+              to={componentsHref}
+              className="h-9 px-3 rounded-md border border-border-strong bg-white text-xs font-medium text-ink hover:bg-row-hover inline-flex items-center gap-1.5"
+            >
+              Salary components
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+>>>>>>> Stashed changes
             {persist && hasExistingCtc ? (
               <button
                 type="button"
@@ -1886,11 +1944,19 @@ export default function SalaryEmployeeCtc({
         {!embedded ? (
           <div className="w-full px-5 sm:px-8 lg:px-10 xl:px-12 py-2.5 border-t border-border bg-surface-sunken">
             <Link
+<<<<<<< Updated upstream
               to={`/app/admin/employee/master/${employeeId}?tab=ctc`}
               className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary hover:text-accent"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Back to Employee Master
+=======
+              to="/app/admin/salary-admin/salary-master"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-secondary hover:text-accent"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to Salary Master
+>>>>>>> Stashed changes
             </Link>
           </div>
         ) : null}
@@ -2045,7 +2111,21 @@ export default function SalaryEmployeeCtc({
               ) : null}
             </div>
 
+<<<<<<< Updated upstream
             <SheetSectionHead title="PART A — Gross & Take Home" />
+=======
+            <SheetSectionHead
+              title="PART A — Gross & Take Home"
+              right={
+                <Link
+                  to={componentsHref}
+                  className="text-[10px] font-medium text-accent hover:underline normal-case tracking-normal"
+                >
+                  Salary components
+                </Link>
+              }
+            />
+>>>>>>> Stashed changes
             <ColHeads />
 
             <SheetRow
@@ -2123,6 +2203,7 @@ export default function SalaryEmployeeCtc({
               pa={renderPaField("special", sheetPa.special, { label: "Special Allowance P.A." })}
             />
 
+<<<<<<< Updated upstream
             {CTC_OPTIONAL_PRESETS.map((preset) => {
               const on = Boolean(optionalPresetsOn[preset.code]);
               const manualVal = customAmounts[preset.code] ?? "";
@@ -2164,6 +2245,34 @@ export default function SalaryEmployeeCtc({
                 />
               );
             })}
+=======
+            {profileCustoms.partA.length || profileCustoms.partB.length ? (
+              <div className="mx-6 sm:mx-8 lg:mx-10 my-3 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3.5 py-2.5 text-[12px] text-emerald-950 leading-snug flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  {profileCustoms.partA.length + profileCustoms.partB.length} person-specific component
+                  {profileCustoms.partA.length + profileCustoms.partB.length === 1 ? "" : "s"} from Salary
+                  Components — included on this CTC and in Salary Processing.
+                </span>
+                <Link
+                  to={componentsHref}
+                  className="text-[11px] font-medium text-accent hover:underline shrink-0"
+                >
+                  Manage components
+                </Link>
+              </div>
+            ) : (
+              <div className="mx-6 sm:mx-8 lg:mx-10 my-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3.5 py-2.5 text-[12px] text-slate-700 leading-snug flex flex-wrap items-center justify-between gap-2">
+                <span>No person-specific salary components yet. Add earnings or deductions for this employee.</span>
+                <Link
+                  to={componentsHref}
+                  className="text-[11px] font-semibold text-accent hover:underline shrink-0 inline-flex items-center gap-1"
+                >
+                  Open Salary Components
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            )}
+>>>>>>> Stashed changes
 
             {profileCustoms.partA.map((comp) => {
               const isManual = !comp.effective_formula || /^manual$/i.test(String(comp.effective_formula));
@@ -2174,12 +2283,22 @@ export default function SalaryEmployeeCtc({
               return (
                 <SheetRow
                   key={comp.code}
+<<<<<<< Updated upstream
                   label={comp.name}
                   hint={
                     isManual
                       ? "Manual amount — enter monthly and P.A."
                       : comp.formula_label || comp.effective_formula || null
                   }
+=======
+                  label={
+                    <span>
+                      <span className="font-mono text-[10px] text-ink-muted mr-1.5">{comp.code}</span>
+                      {comp.name}
+                    </span>
+                  }
+                  hint={comp.formula_label || comp.effective_formula || "Custom component"}
+>>>>>>> Stashed changes
                   monthly={
                     isManual ? (
                       <AmountInput
@@ -2192,9 +2311,13 @@ export default function SalaryEmployeeCtc({
                       <MoneyCell value={computed} />
                     )
                   }
+<<<<<<< Updated upstream
                   pa={renderPaField(`custom:${comp.code}`, sheetPa.customPartA[comp.code], {
                     label: `${comp.name} P.A.`,
                   })}
+=======
+                  pa={paFromMonthly(isManual ? parseRupeeInput(manualVal) : computed)}
+>>>>>>> Stashed changes
                 />
               );
             })}
@@ -2518,12 +2641,22 @@ export default function SalaryEmployeeCtc({
               return (
                 <SheetRow
                   key={comp.code}
+<<<<<<< Updated upstream
                   label={comp.name}
                   hint={
                     isManual
                       ? "Manual amount — enter monthly and P.A."
                       : comp.formula_label || comp.effective_formula || null
                   }
+=======
+                  label={
+                    <span>
+                      <span className="font-mono text-[10px] text-ink-muted mr-1.5">{comp.code}</span>
+                      {comp.name}
+                    </span>
+                  }
+                  hint={comp.formula_label || comp.effective_formula || "Custom component"}
+>>>>>>> Stashed changes
                   monthly={
                     isManual ? (
                       <AmountInput
@@ -2536,9 +2669,13 @@ export default function SalaryEmployeeCtc({
                       <MoneyCell value={computed} />
                     )
                   }
+<<<<<<< Updated upstream
                   pa={renderPaField(`custom:${comp.code}`, sheetPa.customPartB[comp.code], {
                     label: `${comp.name} P.A.`,
                   })}
+=======
+                  pa={paFromMonthly(isManual ? parseRupeeInput(manualVal) : computed)}
+>>>>>>> Stashed changes
                 />
               );
             })}
@@ -2708,7 +2845,11 @@ export default function SalaryEmployeeCtc({
           open={historyOpen}
           title="CTC revision history"
           onClose={() => setHistoryOpen(false)}
+<<<<<<< Updated upstream
           widthClass="max-w-xl"
+=======
+          widthClass="max-w-md"
+>>>>>>> Stashed changes
         >
           <SalaryRevisionHistory
             employee={employee}

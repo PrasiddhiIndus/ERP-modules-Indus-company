@@ -139,12 +139,19 @@ import {
   // SalaryMasterPage, // NAV_HIDDEN — CTC lives on Employee Master
   // SalaryEmployeeCtcPage,
   SalaryProcessingPage,
+<<<<<<< Updated upstream
   SalaryProcessReportPage,
   SalaryComponentsMasterPage,
   // NAV_HIDDEN misc admin pages
   // MiscEventsPage,
   // MiscTravelPage,
   // MiscTasksPage,
+=======
+  SalaryComponentsMasterPage,
+  MiscEventsPage,
+  MiscTravelPage,
+  MiscTasksPage,
+>>>>>>> Stashed changes
   FireTenderManufacturing,
   AMC,
   Settings,
@@ -471,8 +478,12 @@ function App() {
             <Route path="admin/payroll/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/master/:employeeId" element={<IfspEmployeeMasterDetail />} />
+<<<<<<< Updated upstream
             {/* NAV_HIDDEN (Aug 2026): hidden admin modules redirect to dashboard */}
             <Route path="admin/employee/onboarding" element={<Navigate to="/app/admin/dashboard" replace />} />
+=======
+            <Route path="admin/employee/onboarding" element={<EmployeeOnboardingPage />} />
+>>>>>>> Stashed changes
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
             <Route path="admin/employee/attendance-daily" element={<EmployeeAttendanceDailyPage />} />
             <Route path="admin/employee/national-holidays" element={<NationalPublicHolidaysPage />} />
@@ -480,6 +491,7 @@ function App() {
             <Route path="admin/employee/attendance-sheets" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/leaves-permissions" element={<EmployeeLeavesPage />} />
             <Route path="admin/employee/tour-approvals" element={<EmployeeTourApprovalsPage />} />
+<<<<<<< Updated upstream
             <Route path="admin/employee/compliance-documents" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/salary-inputs" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/exit-ff" element={<Navigate to="/app/admin/dashboard" replace />} />
@@ -506,6 +518,34 @@ function App() {
               element={<SalaryAdminGuard><SalaryMasterCtcRedirect /></SalaryAdminGuard>}
             />
             <Route path="admin/misc/*" element={<Navigate to="/app/admin/dashboard" replace />} />
+=======
+            <Route path="admin/employee/compliance-documents" element={<EmployeeCompliancePage />} />
+            <Route path="admin/employee/salary-inputs" element={<EmployeeSalaryInputsPage />} />
+            <Route path="admin/employee/exit-ff" element={<EmployeeExitPage />} />
+            <Route path="admin/employee/inactive" element={<InactiveEmployeesPage />} />
+            <Route path="admin/store/item-master" element={<StoreItemMasterPage />} />
+            <Route path="admin/store/store-master" element={<StoreMasterPage />} />
+            <Route path="admin/store/site-stock" element={<StoreSiteStockPage />} />
+            <Route path="admin/store/issue-entry" element={<StoreIssuePage />} />
+            <Route path="admin/store/return-entry" element={<StoreReturnPage />} />
+            <Route path="admin/store/transfer-transit" element={<StoreTransferPage />} />
+            <Route path="admin/store/requirement-planner" element={<StorePlannerPage />} />
+            <Route path="admin/store/reconciliation" element={<StoreReconciliationPage />} />
+            <Route path="admin/gate/employee-movement" element={<GateEmployeeMovementPage />} />
+            <Route path="admin/gate/goods-in-out" element={<GateGoodsPage />} />
+            <Route path="admin/gate/visitor-guest-passes" element={<GateVisitorsPage />} />
+            <Route path="admin/gate/vehicle-passes" element={<GateVehiclesPage />} />
+            <Route path="admin/gate/delivery-courier-post" element={<GateDeliveryPage />} />
+            <Route path="admin/gate/security-console" element={<GateSecurityConsolePage />} />
+            <Route path="admin/salary-admin/dashboard" element={<SalaryAdminGuard><SalaryDashboardPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-master" element={<SalaryAdminGuard><SalaryMasterPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-master/:employeeId" element={<SalaryAdminGuard><SalaryEmployeeCtcPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-processing" element={<SalaryAdminGuard><SalaryProcessingPage /></SalaryAdminGuard>} />
+            <Route path="admin/salary-admin/salary-components" element={<SalaryAdminGuard><SalaryComponentsMasterPage /></SalaryAdminGuard>} />
+            <Route path="admin/misc/events-coordination" element={<MiscEventsPage />} />
+            <Route path="admin/misc/tour-travel-details" element={<MiscTravelPage />} />
+            <Route path="admin/misc/admin-tasks-other-requests" element={<MiscTasksPage />} />
+>>>>>>> Stashed changes
             <Route path="admin/alerts-notifications" element={<AdminOpsAlerts />} />
             <Route path="admin/reports-analytics" element={<AdminOpsReports />} />
             <Route path="admin/settings-masters" element={<Navigate to="/app/admin/dashboard" replace />} />

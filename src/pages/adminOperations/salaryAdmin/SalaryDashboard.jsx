@@ -5,6 +5,7 @@ import {
   KpiTile,
   PageTaskHeader,
   SectionCard,
+  StatusChip,
   FilterBar,
 } from "../components/AdminUi";
 import {
@@ -240,6 +241,7 @@ export default function SalaryDashboard() {
         title="Salary Dashboard"
         subtitle="Spends, component splits, and employee search across processed salary months."
       >
+        {USE_MOCK_SALARY_PROCESSING ? <StatusChip label="Mock data" severity="warning" /> : null}
         <Link
           to="/app/admin/salary-admin/salary-processing"
           className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md bg-accent text-white text-[11px] font-medium"
@@ -441,12 +443,12 @@ export default function SalaryDashboard() {
               <ArrowRight className="h-3.5 w-3.5 text-slate-300" />
             </Link>
             <Link
-              to="/app/admin/employee/master"
+              to="/app/admin/salary-admin/salary-master"
               className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-2.5 py-2 hover:bg-slate-50"
             >
               <span className="flex items-center gap-2 text-[11px] font-medium text-slate-800">
                 <Wallet className="h-3.5 w-3.5 text-emerald-600" />
-                Employee Master (CTC)
+                Salary Master
               </span>
               <ArrowRight className="h-3.5 w-3.5 text-slate-300" />
             </Link>

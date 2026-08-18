@@ -22,12 +22,17 @@ import {
 } from '../../lib/employeeHierarchy';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
 import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../lib/employeeMasterDepartments';
+<<<<<<< Updated upstream
 import { syncScopeDraftBankFromMaster } from '../adminOperations/salaryAdmin/salaryMonthProcessing';
 import { normalizeAttendanceEmpCode } from '../../lib/attendanceDaily';
 import { parseSalaryBankImportFile } from '../../lib/salaryBankExcel';
 import { applySalaryBankImportToMaster } from '../../lib/salaryBankImportApply';
 import * as XLSX from 'xlsx';
 import FormDateInput from "../../components/FormDateInput";
+=======
+import * as XLSX from 'xlsx';;
+import EmployeeMasterPersonalForm from './employeeMaster/EmployeeMasterPersonalForm';
+>>>>>>> Stashed changes
 import { 
   Users, 
   Plus, 
