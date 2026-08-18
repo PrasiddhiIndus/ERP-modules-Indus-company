@@ -110,6 +110,7 @@ import {
   EmployeeAttendanceInputsPage,
   // EmployeeAttendanceSheetsPage,
   EmployeeLeavesPage,
+  AllEmployeesDirectoryPage,
   EmployeeTourApprovalsPage,
   // EmployeeCompliancePage,
   // EmployeeSalaryInputsPage,
@@ -471,6 +472,7 @@ function App() {
             <Route path="admin/payroll/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/master" element={<IfspEmployeeMaster />} />
             <Route path="admin/employee/master/:employeeId" element={<IfspEmployeeMasterDetail />} />
+            <Route path="admin/employee/all" element={<Navigate to="/app/all-employees" replace />} />
             {/* NAV_HIDDEN (Aug 2026): hidden admin modules redirect to dashboard */}
             <Route path="admin/employee/onboarding" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/attendance-inputs" element={<EmployeeAttendanceInputsPage />} />
@@ -672,6 +674,7 @@ function App() {
 
             {/* Super Admin-only modules */}
             <Route path="user-management" element={<UserManagement />} />
+            <Route path="all-employees" element={<AllEmployeesDirectoryPage />} />
             <Route path="software-subscriptions-reminders" element={<SoftwareSubscriptions />} />
             <Route path="api-health" element={<ApiHealthDashboard />} />
 

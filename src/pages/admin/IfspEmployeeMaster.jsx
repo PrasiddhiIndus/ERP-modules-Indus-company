@@ -1591,10 +1591,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] gap-4 items-start shrink-0 min-w-0">
         <div className="min-w-0">
           <h1 className={`font-bold text-gray-900 ${embedded ? "text-lg" : "text-2xl"}`}>
-            {embedded ? "Employee Master" : "IFSPL Employee Master"}
+            {embedded ? "Employee Master" : "IFSPL In-house Employee Master"}
           </h1>
           <p className="text-sm text-gray-600 mt-1">
-            Find employees, open a record for the full profile, or import/export for bulk updates.
+            This screen is only for in-house employee records. Use All Employees when you need the combined in-house and site directory view.
           </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:flex-wrap xl:justify-end items-stretch sm:items-center gap-2 w-full xl:w-auto">
