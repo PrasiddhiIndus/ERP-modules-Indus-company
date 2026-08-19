@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock, Clock } from "lucide-react";
+import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock, Clock, ArrowLeft } from "lucide-react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import FormDateInput from "../../../components/FormDateInput";
 import {
@@ -119,9 +119,56 @@ function resolveLineProcessStatus(line) {
   return "ctc_required";
 }
 
-const DETAIL_FIELD_CLASS =
-  "rounded border border-slate-200 bg-white px-2.5 py-2 min-h-[3.25rem] flex flex-col justify-center gap-0.5";
-const DETAIL_LABEL_CLASS = "text-[9px] font-semibold uppercase tracking-wide text-slate-500";
+const DETAIL_INPUT =
+  "h-8 w-full max-w-[9.5rem] border border-slate-200 rounded-md bg-white px-2 text-[12px] tabular-nums text-right focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
+const DETAIL_TEXT_INPUT =
+  "h-8 w-full border border-slate-200 rounded-md bg-white px-2 text-[12px] focus:outline-none focus:ring-1 focus:ring-accent/30 focus:border-accent";
+
+function nameInitials(name) {
+  const parts = String(name || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  const letters = parts.map((p) => p[0]?.toUpperCase() || "").join("");
+  return letters || "—";
+}
+
+function ProfileFact({ label, children }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="mt-1 text-[13px] text-slate-900 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function StatementRow({ label, hint, children, strong = false, total = false }) {
+  return (
+    <div
+      className={`grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,1fr)_7.5rem_7.5rem] items-center gap-x-3 gap-y-0.5 py-2.5 ${
+        total
+          ? "border-t border-slate-200 mt-1 pt-3"
+          : "border-b border-slate-100"
+      }`}
+    >
+      <div className="min-w-0">
+        <p className={`text-[13px] ${strong || total ? "font-semibold text-slate-900" : "text-slate-700"}`}>
+          {label}
+        </p>
+        {hint ? <p className="text-[10px] text-slate-400 mt-0.5">{hint}</p> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function StatementAmt({ children, strong = false, className = "" }) {
+  return (
+    <div className={`text-right tabular-nums text-[13px] ${strong ? "font-semibold text-slate-900" : "text-slate-800"} ${className}`}>
+      {children}
+    </div>
+  );
+}
 
 /** Overview list tabs — all staff / already processed / held. */
 const VIEW_TABS = [
@@ -278,18 +325,6 @@ function OverviewProcessTable({
   );
 }
 
-function DetailField({ label, children, className = "" }) {
-  return (
-    <div className={`${DETAIL_FIELD_CLASS} ${className}`}>
-      <span className={DETAIL_LABEL_CLASS}>{label}</span>
-      <div className="text-[12px] text-slate-800 min-w-0">{children}</div>
-    </div>
-  );
-}
-
-/**
- * Full employee salary detail page — all sheet columns, same manual + formula fields.
- */
 function EmployeeSalaryDetailPage({
   line,
   monthLabelText,
@@ -304,6 +339,7 @@ function EmployeeSalaryDetailPage({
 }) {
   if (!line) return null;
   const patch = (p) => onUpdate(line.id, p);
+  const status = resolveLineProcessStatus(line);
   const customEarnTitle = Array.isArray(line.computed_json?.custom_components)
     ? line.computed_json.custom_components
         .filter((c) => c.kind === "earning")
@@ -318,254 +354,364 @@ function EmployeeSalaryDetailPage({
     : "Person components (deduct)";
 
   return (
-    <div className="space-y-3 max-w-[1100px] w-full mx-auto">
-      <PageTaskHeader
-        className="mb-0"
-        title={line.employee_name || "Employee"}
-        subtitle={
-          <>
-            <span className="font-mono text-[11px] text-slate-600">{line.employee_code || "—"}</span>
-            <span className="mx-1.5 text-slate-300">·</span>
-            {line.designation || "—"}
-            <span className="mx-1.5 text-slate-300">·</span>
-            {monthLabelText}
-            <span className="mx-1.5 text-slate-300">·</span>
-            {monthDays} days
-          </>
-        }
-      >
-        {line.alreadyProcessed ? <StatusChip label="On sheet" severity="info" /> : null}
-        {dirty ? <StatusChip label="Unsaved" severity="warning" /> : null}
+    <div className="space-y-4 max-w-[1120px] w-full mx-auto">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <button
           type="button"
-          className={btnGhost}
+          className={`${btnGhost} inline-flex items-center gap-1.5`}
           onClick={() => {
             if (dirty && !window.confirm("Discard unsaved changes?")) return;
             onBack();
           }}
         >
-          Back
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to list
         </button>
-        <button
-          type="button"
-          className={btnPrimary}
-          disabled={saving || !dirty}
-          onClick={() => onSave?.(line)}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </PageTaskHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          {dirty ? <StatusChip label="Unsaved" severity="warning" /> : null}
+          <button
+            type="button"
+            className={btnPrimary}
+            disabled={saving || !dirty}
+            onClick={() => onSave?.(line)}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
 
       {saveError ? (
-        <p className="text-xs text-red-600 rounded border border-red-100 bg-red-50 px-2.5 py-1.5">{saveError}</p>
+        <p className="text-xs text-red-600 rounded-lg border border-red-100 bg-red-50 px-3 py-2">{saveError}</p>
       ) : null}
       {saveMsg ? (
-        <p className="text-xs text-emerald-800 rounded border border-emerald-100 bg-emerald-50 px-2.5 py-1.5">
+        <p className="text-xs text-emerald-800 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
           {saveMsg}
         </p>
       ) : null}
 
-      <SectionCard
-        title="Employee & bank"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          <DetailField label="Code">
-            <span className="font-mono font-medium" title={line.employee_code || undefined}>
-              {line.employee_code || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="Name" className="sm:col-span-2">
-            <span className="font-medium" title={line.employee_name || undefined}>
-              {line.employee_name || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="Desig.">
-            <span title={line.designation || undefined}>{line.designation || "—"}</span>
-          </DetailField>
-          <DetailField label="Account">
-            <input
-              className={`${textIn} w-full`}
-              value={line.account_no || ""}
-              title={line.account_no || undefined}
-              onChange={(e) => patch({ account_no: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="IFSC">
-            <input
-              className={`${textIn} w-full`}
-              value={line.ifsc || ""}
-              title={line.ifsc || undefined}
-              onChange={(e) => patch({ ifsc: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="UAN">
-            <span className="font-mono text-[11px]" title={line.uan_no || undefined}>
-              {line.uan_no || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="ESIC no.">
-            <span className="text-[11px]" title={line.esic_no || undefined}>
-              {line.esic_no || "—"}
-            </span>
-          </DetailField>
-          <DetailField label="DOJ">
-            {line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
-          </DetailField>
-          <DetailField label="Conf.">
-            <FormDateInput
-              compact
-              className="h-7 text-[11px] w-full"
-              value={line.confirmation_date ? String(line.confirmation_date).slice(0, 10) : ""}
-              onChange={(e) => patch({ confirmation_date: e?.target?.value || null })}
-            />
-          </DetailField>
+      <section className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+        <div className="px-4 sm:px-5 py-4 flex flex-wrap items-center gap-4 bg-slate-50/80 border-b border-slate-200">
+          <div
+            className="h-14 w-14 rounded-full bg-accent/15 text-accent flex items-center justify-center text-[15px] font-semibold shrink-0"
+            aria-hidden
+          >
+            {nameInitials(line.employee_name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[18px] font-semibold text-slate-900 leading-tight truncate">
+              {line.employee_name || "Employee"}
+            </h1>
+            <p className="text-[12px] text-slate-500 mt-0.5">
+              <span className="font-mono text-slate-700">{line.employee_code || "—"}</span>
+              <span className="mx-1.5 text-slate-300">·</span>
+              {line.designation || "—"}
+              {line.department ? (
+                <>
+                  <span className="mx-1.5 text-slate-300">·</span>
+                  {line.department}
+                </>
+              ) : null}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Salary for {monthLabelText} · {monthDays} days
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <CtcStatusCell hasCtc={Boolean(line.hasCtc ?? line.declared)} />
+            <ProcessStatusBadge status={status} />
+          </div>
         </div>
-      </SectionCard>
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-slate-100">
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Gross wages</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-slate-900">
+              <Money value={line.gross_wages} strong />
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Deductions</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-slate-900">
+              <Money value={line.total_ded} strong />
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Net salary</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-emerald-800">
+              <Money value={line.net_salary} strong />
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Credit to bank</p>
+            <p className="mt-1 text-[16px] font-semibold tabular-nums text-slate-900">
+              <Money value={line.bank_amount} strong />
+            </p>
+          </div>
+        </div>
+      </section>
 
-      <SectionCard
-        title="Earnings"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <DetailField label="Gross">
-            <Money value={line.salary_rate} strong />
-          </DetailField>
-          <DetailField label="P.Days">
-            <input
-              type="number"
-              step="0.5"
-              className={`${numIn} w-full`}
-              value={line.present_days ?? ""}
-              onChange={(e) => patch({ present_days: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="PF Basic">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.pf_basic ?? ""}
-              onChange={(e) => patch({ pf_basic: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="PF earn">
-            <Money value={line.pf_earned_basic} />
-          </DetailField>
-          <DetailField label="Basic">
-            <Money value={line.basic_full} />
-          </DetailField>
-          <DetailField label="B.earn">
-            <Money value={line.basic_earned} />
-          </DetailField>
-          <DetailField label="HRA">
-            <Money value={line.hra_earned} />
-          </DetailField>
-          <DetailField label="Special">
-            <Money value={line.special_allowance} />
-          </DetailField>
-          <DetailField label="Custom+">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              title={customEarnTitle}
-              value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
-              onChange={(e) =>
-                patch({
-                  custom_earn_full: e.target.value,
-                  computed_json: {
-                    ...(line.computed_json || {}),
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <h2 className="text-[13px] font-semibold text-slate-900 mb-3">Identity &amp; bank</h2>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <ProfileFact label="Employee code">
+              <span className="font-mono text-[12px]">{line.employee_code || "—"}</span>
+            </ProfileFact>
+            <ProfileFact label="Designation">{line.designation || "—"}</ProfileFact>
+            <ProfileFact label="Date of joining">
+              {line.date_of_joining ? formatDateDdMmYyyy(line.date_of_joining) : "—"}
+            </ProfileFact>
+            <ProfileFact label="Confirmation">
+              <FormDateInput
+                compact
+                className="h-8 text-[12px] w-full"
+                value={line.confirmation_date ? String(line.confirmation_date).slice(0, 10) : ""}
+                onChange={(e) => patch({ confirmation_date: e?.target?.value || null })}
+              />
+            </ProfileFact>
+            <ProfileFact label="Account number">
+              <input
+                className={DETAIL_TEXT_INPUT}
+                value={line.account_no || ""}
+                onChange={(e) => patch({ account_no: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="IFSC">
+              <input
+                className={DETAIL_TEXT_INPUT}
+                value={line.ifsc || ""}
+                onChange={(e) => patch({ ifsc: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="UAN">
+              <span className="font-mono text-[12px]">{line.uan_no || "—"}</span>
+            </ProfileFact>
+            <ProfileFact label="ESIC number">
+              <span className="text-[12px]">{line.esic_no || "—"}</span>
+            </ProfileFact>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <h2 className="text-[13px] font-semibold text-slate-900 mb-3">This month</h2>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <ProfileFact label="Salary rate (gross)">
+              <Money value={line.salary_rate} strong />
+            </ProfileFact>
+            <ProfileFact label="Present days">
+              <input
+                type="number"
+                step="0.5"
+                className={`${DETAIL_INPUT} max-w-none`}
+                value={line.present_days ?? ""}
+                onChange={(e) => patch({ present_days: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="PF basic">
+              <input
+                type="number"
+                className={`${DETAIL_INPUT} max-w-none`}
+                value={line.pf_basic ?? ""}
+                onChange={(e) => patch({ pf_basic: e.target.value })}
+              />
+            </ProfileFact>
+            <ProfileFact label="Month days">
+              <span className="tabular-nums">{monthDays}</span>
+            </ProfileFact>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-4">
+            Present days come from the attendance register. Change them only if this month needs a
+            correction before processing.
+          </p>
+        </section>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <div className="flex items-end justify-between gap-2 mb-1">
+            <h2 className="text-[13px] font-semibold text-slate-900">Earnings</h2>
+            <p className="hidden sm:block text-[10px] uppercase tracking-wide text-slate-400">
+              Full rate · This month
+            </p>
+          </div>
+          <StatementRow label="Basic" hint="Monthly basic">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.basic_full} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.basic_earned} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="HRA">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.hra_full} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.hra_earned} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Special allowance">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.special_full} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.special_allowance} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="PF earned basic" hint="From PF basic × days">
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.pf_basic} />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.pf_earned_basic} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Custom earnings" hint={customEarnTitle}>
+            <StatementAmt className="hidden sm:block">
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                title={customEarnTitle}
+                value={line.custom_earn_full ?? line.computed_json?.custom_earn_full ?? 0}
+                onChange={(e) =>
+                  patch({
                     custom_earn_full: e.target.value,
-                  },
-                })
-              }
-            />
-          </DetailField>
-          <DetailField label="Gross W">
-            <Money value={line.gross_wages} strong />
-          </DetailField>
-        </div>
-      </SectionCard>
+                    computed_json: {
+                      ...(line.computed_json || {}),
+                      custom_earn_full: e.target.value,
+                    },
+                  })
+                }
+              />
+            </StatementAmt>
+            <StatementAmt>
+              <Money value={line.custom_earn} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Gross wages" total strong>
+            <StatementAmt className="hidden sm:block">
+              <Money value={line.salary_rate} />
+            </StatementAmt>
+            <StatementAmt strong>
+              <Money value={line.gross_wages} strong />
+            </StatementAmt>
+          </StatementRow>
+        </section>
 
-      <SectionCard
-        title="Deductions & net"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <DetailField label="PF 12%">
-            <Money value={line.emp_pf} />
-          </DetailField>
-          <DetailField label="ESIC">
-            <Money value={line.emp_esic} />
-          </DetailField>
-          <DetailField label="PT">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.pt_amount ?? ""}
-              onChange={(e) => patch({ pt_amount: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Loan">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.loan ?? 0}
-              onChange={(e) => patch({ loan: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Sal Adv">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.sal_adv ?? 0}
-              onChange={(e) => patch({ sal_adv: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="U/P">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              placeholder="—"
-              value={unpaidInputValue(line.unpaid_paid)}
-              onChange={(e) => patch({ unpaid_paid: e.target.value === "" ? 0 : e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="TDS">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              value={line.tds ?? 0}
-              onChange={(e) => patch({ tds: e.target.value })}
-            />
-          </DetailField>
-          <DetailField label="Custom−">
-            <input
-              type="number"
-              className={`${numIn} w-full`}
-              title={customDedTitle}
-              value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
-              onChange={(e) =>
-                patch({
-                  custom_ded_full: e.target.value,
-                  computed_json: {
-                    ...(line.computed_json || {}),
+        <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+          <div className="flex items-end justify-between gap-2 mb-1">
+            <h2 className="text-[13px] font-semibold text-slate-900">Deductions &amp; net</h2>
+            <p className="hidden sm:block text-[10px] uppercase tracking-wide text-slate-400">
+              This month
+            </p>
+          </div>
+          <StatementRow label="PF 12%">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <Money value={line.emp_pf} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="ESIC">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <Money value={line.emp_esic} />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Professional tax">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.pt_amount ?? ""}
+                onChange={(e) => patch({ pt_amount: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Loan">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.loan ?? 0}
+                onChange={(e) => patch({ loan: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Salary advance">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.sal_adv ?? 0}
+                onChange={(e) => patch({ sal_adv: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Unpaid / paid" hint="Leave unpaid or extra paid days">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                placeholder="—"
+                value={unpaidInputValue(line.unpaid_paid)}
+                onChange={(e) => patch({ unpaid_paid: e.target.value === "" ? 0 : e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="TDS">
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                value={line.tds ?? 0}
+                onChange={(e) => patch({ tds: e.target.value })}
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Custom deductions" hint={customDedTitle}>
+            <span className="hidden sm:block" />
+            <StatementAmt>
+              <input
+                type="number"
+                className={DETAIL_INPUT}
+                title={customDedTitle}
+                value={line.custom_ded_full ?? line.computed_json?.custom_ded_full ?? 0}
+                onChange={(e) =>
+                  patch({
                     custom_ded_full: e.target.value,
-                  },
-                })
-              }
-            />
-          </DetailField>
-          <DetailField label="Tot Ded">
-            <Money value={line.total_ded} />
-          </DetailField>
-          <DetailField label="Net">
-            <Money value={line.net_salary} strong />
-          </DetailField>
-          <DetailField label="Bank">
-            <Money value={line.bank_amount} strong />
-          </DetailField>
-        </div>
-      </SectionCard>
+                    computed_json: {
+                      ...(line.computed_json || {}),
+                      custom_ded_full: e.target.value,
+                    },
+                  })
+                }
+              />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Total deductions" total>
+            <span className="hidden sm:block" />
+            <StatementAmt strong>
+              <Money value={line.total_ded} strong />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Net salary" strong>
+            <span className="hidden sm:block" />
+            <StatementAmt strong>
+              <Money value={line.net_salary} strong />
+            </StatementAmt>
+          </StatementRow>
+          <StatementRow label="Credit to bank" strong>
+            <span className="hidden sm:block" />
+            <StatementAmt strong>
+              <Money value={line.bank_amount} strong />
+            </StatementAmt>
+          </StatementRow>
+        </section>
+      </div>
     </div>
   );
 }
@@ -909,7 +1055,6 @@ export default function SalaryProcessing() {
   const [exporting, setExporting] = useState(false);
   const [viewTab, setViewTab] = useState("all");
   const [listView, setListView] = useState("sheet"); // sheet | overview
-  const [filterSite, setFilterSite] = useState("all");
   const [filterCtc, setFilterCtc] = useState("all"); // all | ready | missing
   const [processMode, setProcessMode] = useState(PROCESS_MODES.BULK);
   const [selectedDepartments, setSelectedDepartments] = useState([]);
@@ -1079,7 +1224,6 @@ export default function SalaryProcessing() {
       if (selectedDepartments.length > 0 && !departmentInSelection(e.department, selectedDepartments)) {
         return false;
       }
-      if (filterSite !== "all" && String(e.location || "—") !== filterSite) return false;
       // All Employees always lists everyone (with or without CTC).
       // CTC Saved / Missing is only an optional extra filter on that tab.
       if (viewTab === "all" && filterCtc === "ready" && !e.hasCtc) return false;
@@ -1091,7 +1235,6 @@ export default function SalaryProcessing() {
     candidates.employees,
     holdIds,
     viewTab,
-    filterSite,
     filterCtc,
     selectedDepartments,
   ]);
@@ -1251,7 +1394,7 @@ export default function SalaryProcessing() {
   // Clear row selection / search when month / tab / CTC filter changes
   useEffect(() => {
     setSelectedIds([]);
-  }, [year, month, viewTab, selectedDepartments, filterSite, filterCtc]);
+  }, [year, month, viewTab, selectedDepartments, filterCtc]);
 
   useEffect(() => {
     setTableSearch("");
@@ -2029,7 +2172,7 @@ export default function SalaryProcessing() {
         August). P.Days are taken from that month’s Attendance Daily Register Total Present.
         Use All Employees / Processed / Held. All Employees lists every staff member, with or
         without CTC. Processed shows the salary rows saved for this month. Filter by department
-        or site. Download Excel for the open tab.
+        or CTC. Download Excel for the open tab.
       </CollapsibleHelp>
 
       {error ? (
@@ -2161,21 +2304,6 @@ export default function SalaryProcessing() {
               />
             </label>
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
-              <span className="block">Site</span>
-              <select
-                className={`${selectIn} min-w-[9rem]`}
-                value={filterSite}
-                onChange={(e) => setFilterSite(e.target.value)}
-              >
-                <option value="all">All sites</option>
-                {(candidates.sites || []).map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
               <span className="block">CTC status</span>
               <select
                 className={`${selectIn} min-w-[8rem]`}
@@ -2255,7 +2383,7 @@ export default function SalaryProcessing() {
                     ? "No processed employees for this month yet."
                     : tableSearch.trim()
                       ? "No employees match this search."
-                      : selectedDepartments.length || filterSite !== "all" || filterCtc !== "all"
+                      : selectedDepartments.length || filterCtc !== "all"
                         ? "No employees match the current filters."
                         : "No active employees found."
               }
@@ -2278,7 +2406,7 @@ export default function SalaryProcessing() {
                     ? "No processed employees for this month yet."
                     : tableSearch.trim()
                       ? "No employees match this search."
-                      : selectedDepartments.length || filterSite !== "all" || filterCtc !== "all"
+                      : selectedDepartments.length || filterCtc !== "all"
                         ? "No employees match the current filters."
                         : "No active employees found."
               }
