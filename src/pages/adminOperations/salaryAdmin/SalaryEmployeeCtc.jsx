@@ -231,20 +231,25 @@ function ColHeads() {
   );
 }
 
+/** Editable monthly — decimals allowed (e.g. 1000.50), same as P.A. */
 function AmountInput({ value, onChange, label, readOnly = false }) {
   return (
     <input
       type="text"
-      inputMode="numeric"
-      pattern="[0-9]*"
+      inputMode="decimal"
       autoComplete="off"
       value={value}
       onChange={(e) => {
-        const raw = e.target.value.replace(/[^\d]/g, "");
-        onChange(raw);
+        const raw = e.target.value.replace(/[^\d.]/g, "");
+        const parts = raw.split(".");
+        const cleaned =
+          parts.length <= 1
+            ? raw
+            : `${parts[0]}.${parts.slice(1).join("").slice(0, 2)}`;
+        onChange(cleaned);
       }}
       onBlur={() => {
-        if (readOnly || value === "") return;
+        if (readOnly || value === "" || value === ".") return;
         const n = parseRupeeInput(value);
         if (n != null && String(n) !== String(value)) onChange(String(n));
       }}
@@ -256,6 +261,7 @@ function AmountInput({ value, onChange, label, readOnly = false }) {
       className={`${amountInput} ${readOnly ? "bg-surface-sunken text-ink-secondary cursor-default" : ""}`}
       placeholder=""
       aria-label={label}
+      title="Monthly amounts accept decimals (e.g. 1000.50)."
     />
   );
 }
@@ -1681,7 +1687,7 @@ export default function SalaryEmployeeCtc({
     };
 
     let savedRow;
-    const wasRevision = isRevisionMode;
+    let didRevision = isRevisionMode;
     try {
       if (isRevisionMode) {
         savedRow = await reviseSalaryStructure(employee.id, payload, {
@@ -1690,8 +1696,25 @@ export default function SalaryEmployeeCtc({
         });
         setSaveMsg(savedRow?.__local ? "Revision saved on this device" : "Revision saved");
       } else {
-        savedRow = await saveSalaryStructure(employee.id, payload);
-        setSaveMsg(savedRow?.__local ? "Saved on this device" : "Saved");
+        // If a CTC row already exists in DB (e.g. loaded from cache gap), update/revise
+        // instead of inserting a duplicate for the same employee.
+        let already = null;
+        try {
+          already = await getSalaryStructure(employee.id);
+        } catch {
+          already = null;
+        }
+        if (already?.declared) {
+          didRevision = true;
+          savedRow = await reviseSalaryStructure(employee.id, payload, {
+            reason: revisionReason || "Updated CTC",
+            wef_date: wefToSave || todayInputDate(),
+          });
+          setSaveMsg(savedRow?.__local ? "Revision saved on this device" : "Revision saved");
+        } else {
+          savedRow = await saveSalaryStructure(employee.id, payload);
+          setSaveMsg(savedRow?.__local ? "Saved on this device" : "Saved");
+        }
       }
     } catch (err) {
       console.error("Salary CTC: save failed", err);
@@ -1699,13 +1722,38 @@ export default function SalaryEmployeeCtc({
       const code = String(err?.code || "");
       if (/42501|row-level security|permission denied|RLS/i.test(`${code} ${msg}`)) {
         setSaveError("You do not have permission to save salary CTC. Sign in with an allowed Salary Admin account.");
-      } else if (/foreign key|employee_master|23503/i.test(`${code} ${msg}`)) {
+        return;
+      }
+      if (/foreign key|employee_master|23503/i.test(`${code} ${msg}`)) {
         setSaveError("This employee is missing from Employee Master. Save the employee first, then save CTC.");
+        return;
+      }
+      if (
+        code === "23505" ||
+        /admin_salary_structures_pub_employee_unique|duplicate key/i.test(msg)
+      ) {
+        // Last resort: force update path
+        try {
+          didRevision = true;
+          savedRow = await reviseSalaryStructure(employee.id, payload, {
+            reason: revisionReason || "Updated CTC",
+            wef_date: wefToSave || todayInputDate(),
+          });
+          setSaveMsg(savedRow?.__local ? "Revision saved on this device" : "Revision saved");
+        } catch (retryErr) {
+          console.error("Salary CTC: save retry failed", retryErr);
+          setSaveError(
+            "Could not save CTC because a record already exists for this employee. Please refresh the page and try Save revision again."
+          );
+          return;
+        }
       } else {
         setSaveError(msg ? `Could not save CTC: ${msg}` : "Could not save CTC. Please try again.");
+        return;
       }
-      return;
     }
+
+    if (!savedRow) return;
 
     // Persist person-component amounts onto component rows + history
     try {
@@ -1734,7 +1782,7 @@ export default function SalaryEmployeeCtc({
         (Array.isArray(nextSaved?.revisions) ? nextSaved.revisions.length : 0) ||
         0
     );
-    if (wasRevision) {
+    if (didRevision) {
       setHistoryOpen(true);
     }
     const apply = nextSaved || structure;

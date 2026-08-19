@@ -351,8 +351,44 @@ export async function dbGetRevisionCount(employeeMasterId) {
   return Number(row.revision_count) || 0;
 }
 
+function isUniqueEmployeeStructureConflict(err) {
+  const code = String(err?.code || "");
+  const msg = `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""}`;
+  return (
+    code === "23505" ||
+    /admin_salary_structures_pub_employee_unique|duplicate key value.*employee/i.test(msg)
+  );
+}
+
+/** Lightweight lookup — avoids full-column select failures blocking upsert. */
+async function findStructureLiteByEmployee(employeeMasterId) {
+  const id = toMasterId(employeeMasterId);
+  if (id == null) return null;
+  const { data, error } = await salaryTable("structures")
+    .select("id, revision_count, declared")
+    .eq("employee_master_id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+async function updateStructureById(structureId, body, revisionCount, userId) {
+  return withStructureColumnFallback((selectCols, shapeCols) =>
+    salaryTable("structures")
+      .update({
+        ...shapeCols(body),
+        revision_count: Number(revisionCount) || 0,
+        updated_by: userId,
+      })
+      .eq("id", structureId)
+      .select(selectCols)
+      .single()
+  );
+}
+
 /**
  * First-time CTC save / upsert current without creating a revision.
+ * Always updates when a row already exists for the employee (never duplicate-insert).
  */
 export async function dbSaveSalaryStructure(employeeMasterId, payload) {
   const id = toMasterId(employeeMasterId);
@@ -361,37 +397,30 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
   const userId = await currentAuthUserId();
 
   const cols = uiPayloadToStructureColumns(payload, id);
-  cols.updated_by = userId;
 
-  const existing = await dbGetSalaryStructure(id, { withRevisions: false });
+  // Prefer lite id lookup so we update even when full-column get fails/returns empty.
+  let existingLite = await findStructureLiteByEmployee(id);
+  if (!existingLite?.id) {
+    try {
+      const full = await dbGetSalaryStructure(id, { withRevisions: false });
+      if (full?.id) {
+        existingLite = {
+          id: full.id,
+          revision_count: full.revision_count,
+          declared: full.declared,
+        };
+      }
+    } catch {
+      /* keep lite null — insert path handles unique conflict */
+    }
+  }
 
-  const runUpdate = async (body, selectCols) => {
-    const { data, error } = await salaryTable("structures")
-      .update({
-        ...body,
-        revision_count: Number(existing.revision_count) || 0,
-      })
-      .eq("id", existing.id)
-      .select(selectCols)
-      .single();
-    return { data, error };
-  };
-
-  const runInsert = async (body, selectCols) => {
-    const { data, error } = await salaryTable("structures")
-      .insert({
-        ...body,
-        revision_count: 0,
-        created_by: userId,
-      })
-      .select(selectCols)
-      .single();
-    return { data, error };
-  };
-
-  if (existing?.id) {
-    const { data, error } = await withStructureColumnFallback((selectCols, shapeCols) =>
-      runUpdate(shapeCols(cols), selectCols)
+  if (existingLite?.id) {
+    const { data, error } = await updateStructureById(
+      existingLite.id,
+      cols,
+      existingLite.revision_count,
+      userId
     );
     if (error) throw error;
     const revisions = await dbGetSalaryRevisions(id);
@@ -399,8 +428,26 @@ export async function dbSaveSalaryStructure(employeeMasterId, payload) {
   }
 
   const { data, error } = await withStructureColumnFallback((selectCols, shapeCols) =>
-    runInsert(shapeCols(cols), selectCols)
+    salaryTable("structures")
+      .insert({
+        ...shapeCols(cols),
+        revision_count: 0,
+        created_by: userId,
+        updated_by: userId,
+      })
+      .select(selectCols)
+      .single()
   );
+
+  if (error && isUniqueEmployeeStructureConflict(error)) {
+    // Row exists (race / stale read) — update instead of failing
+    const again = await findStructureLiteByEmployee(id);
+    if (!again?.id) throw error;
+    const retry = await updateStructureById(again.id, cols, again.revision_count, userId);
+    if (retry.error) throw retry.error;
+    const revisions = await dbGetSalaryRevisions(id);
+    return structureRowToUi(retry.data, revisions);
+  }
   if (error) throw error;
   return structureRowToUi(data, []);
 }
@@ -412,7 +459,38 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
   const id = toMasterId(employeeMasterId);
   if (id == null) throw new Error("Invalid employee.");
 
-  const prev = await dbGetSalaryStructure(id, { withRevisions: false });
+  let prev = null;
+  try {
+    prev = await dbGetSalaryStructure(id, { withRevisions: false });
+  } catch (err) {
+    console.warn("Salary Admin: full CTC get failed before revise, using lite lookup", err);
+  }
+
+  if (!prev?.id) {
+    const lite = await findStructureLiteByEmployee(id);
+    if (!lite?.id) {
+      // No DB row yet — first save
+      return dbSaveSalaryStructure(id, {
+        ...payload,
+        wef_date: meta.wef_date ?? payload.wef_date ?? null,
+        revision_reason: meta.reason?.trim() || payload.revision_reason || null,
+      });
+    }
+    // Row exists but full get failed — try once more, else update without archive
+    try {
+      prev = await dbGetSalaryStructure(id, { withRevisions: false });
+    } catch {
+      prev = null;
+    }
+    if (!prev?.id) {
+      return dbSaveSalaryStructure(id, {
+        ...payload,
+        wef_date: meta.wef_date ?? payload.wef_date ?? null,
+        revision_reason: meta.reason?.trim() || payload.revision_reason || null,
+      });
+    }
+  }
+
   if (!prev?.declared) {
     return dbSaveSalaryStructure(id, {
       ...payload,
@@ -423,12 +501,25 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
 
   const userId = await currentAuthUserId();
 
-  const nextCount = (Number(prev.revision_count) || 0) + 1;
+  let nextCount = (Number(prev.revision_count) || 0) + 1;
+  try {
+    const { data: maxRev } = await salaryTable("structure_revisions")
+      .select("revision_no")
+      .eq("employee_master_id", id)
+      .order("revision_no", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const maxNo = Number(maxRev?.revision_no) || 0;
+    if (maxNo >= nextCount) nextCount = maxNo + 1;
+  } catch {
+    /* keep nextCount from structure.revision_count */
+  }
+
   const archivedWef = prev.wef_date || null;
   const archivedReason = prev.revision_reason || null;
   const snapshot = structureSnapshotForRevision(prev);
 
-  const { error: revError } = await salaryTable("structure_revisions").insert({
+  const revisionInsert = {
     structure_id: prev.id,
     employee_master_id: id,
     revision_no: nextCount,
@@ -476,7 +567,22 @@ export async function dbReviseSalaryStructure(employeeMasterId, payload, meta = 
     date_of_birth: prev.date_of_birth,
     date_of_joining: prev.date_of_joining,
     snapshot_json: snapshot,
-  });
+  };
+
+  let { error: revError } = await salaryTable("structure_revisions").insert(revisionInsert);
+  if (
+    revError &&
+    (String(revError.code) === "23505" ||
+      /admin_salary_structure_revisions_pub_unique|duplicate key/i.test(
+        `${revError.message || ""} ${revError.details || ""}`
+      ))
+  ) {
+    nextCount += 1;
+    ({ error: revError } = await salaryTable("structure_revisions").insert({
+      ...revisionInsert,
+      revision_no: nextCount,
+    }));
+  }
   if (revError) throw revError;
 
   const cols = uiPayloadToStructureColumns(

@@ -88,23 +88,34 @@ export const HRA_PERCENT = 40;
 export const EMP_LEVEL_OFFICE = "office";
 export const EMP_LEVEL_HELPER = "helper";
 
+/** Round money to 2 decimal places (paisa). Formula rates are unchanged. */
+export function roundPa(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.round(x * 100) / 100;
+}
+
 /**
- * Round to whole rupees. Stabilizes float noise (e.g. 15999.999999 → 16000)
- * so entered amounts never display/store as off-by-one.
+ * Money rounding used by CTC calc helpers.
+ * Keeps up to 2 decimals so monthly/P.A. entries like 1000.50 are preserved.
+ * Does not change % rates, caps, or formula structure.
  */
 function round0(n) {
   const x = Number(n);
   if (!Number.isFinite(x) || x === 0) return 0;
   const cleaned = Math.round(x * 1e6) / 1e6;
-  return Math.round(cleaned);
+  return roundPa(cleaned);
 }
 
-/** Parse a money input to whole rupees (null if empty/invalid). */
+/**
+ * Parse a monthly money input — decimals allowed (e.g. 1000.50, .50).
+ * Null if empty/invalid.
+ */
 export function parseRupeeInput(raw) {
   if (raw == null || raw === "") return null;
   const n = Number(String(raw).replace(/,/g, "").trim());
   if (!Number.isFinite(n)) return null;
-  return round0(n);
+  return roundPa(n);
 }
 
 /** Parse a percentage / decimal setting (null if empty/invalid). */
@@ -117,23 +128,17 @@ export function parseRateInput(raw) {
 
 export function formatINR(value) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
-  const n = round0(value);
+  const n = roundPa(value);
+  const hasDec = Math.abs(n % 1) > 1e-9;
   return `₹${n.toLocaleString("en-IN", {
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+    minimumFractionDigits: hasDec ? 2 : 0,
   })}`;
-}
-
-/** Round P.A. to 2 decimal places (paisa). */
-export function roundPa(n) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return 0;
-  return Math.round(x * 100) / 100;
 }
 
 /**
  * Parse a P.A. input — allows decimals (e.g. 480030.50, .50, 30).
- * Null if empty/invalid. Does not affect monthly amounts.
+ * Null if empty/invalid. Does not write back into monthly.
  */
 export function parsePaInput(raw) {
   if (raw == null || raw === "") return null;
@@ -185,7 +190,7 @@ export function formatSalaryDate(isoOrDate) {
  */
 export function paFromMonthly(monthly) {
   if (monthly == null || monthly === "") return null;
-  return round0(Number(monthly)) * 12;
+  return roundPa(Number(monthly) * 12);
 }
 
 /** Today's date as YYYY-MM-DD for date inputs (W.E.F.). */
@@ -288,7 +293,7 @@ export async function migrateLegacySalaryStructuresToDb() {
     if (!row?.declared) continue;
     try {
       const existing = await dbGetSalaryStructure(id, { withRevisions: false });
-      if (existing?.declared) continue;
+      if (existing?.id) continue;
       await dbSaveSalaryStructure(id, { ...row, declared: true });
       migrated += 1;
     } catch (err) {
@@ -1087,8 +1092,10 @@ export function processingHelpText() {
 
 export function formatINRPlain(value) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return "—";
-  return round0(value).toLocaleString("en-IN", {
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
+  const n = roundPa(value);
+  const hasDec = Math.abs(n % 1) > 1e-9;
+  return n.toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: hasDec ? 2 : 0,
   });
 }

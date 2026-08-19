@@ -6,9 +6,8 @@
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
 import {
-  ATTENDANCE_REGISTER_TABLE,
+  fetchMonthlyRegisterPayrollTotals,
   normalizeAttendanceEmpCode,
-  registerPresentDayCredit,
 } from "../../../lib/attendanceDaily";
 import {
   canonicalDepartmentLabel,
@@ -98,29 +97,39 @@ export function monthDateRange(year, month) {
 }
 
 /**
- * Present-day credits by employee_code for a month (attendance register).
+ * P.Days by employee_code for the selected pay month.
+ * Same Total Present as Attendance → Daily Register (punches + marks +
+ * auto weekoff / 3rd-Saturday rules). Use the month being paid
+ * (e.g. process July salary → July register totals).
  */
 export async function fetchPresentDaysByEmployeeCode(year, month) {
-  const { from, to } = monthDateRange(year, month);
+  const y = Number(year);
+  const m = Number(month);
   const map = {};
+  if (!Number.isFinite(y) || m < 1 || m > 12) return map;
   try {
-    const { data, error } = await supabase
-      .from(ATTENDANCE_REGISTER_TABLE)
-      .select("employee_code, register_date, mark")
-      .gte("register_date", from)
-      .lte("register_date", to);
-    if (error) throw error;
-    for (const row of data || []) {
-      const code = normalizeAttendanceEmpCode(row.employee_code);
+    const monthValue = `${y}-${String(m).padStart(2, "0")}`;
+    const result = await fetchMonthlyRegisterPayrollTotals(supabase, monthValue);
+    for (const row of result.rows || []) {
+      const code = normalizeAttendanceEmpCode(row.empCode);
       if (!code) continue;
-      const credit = registerPresentDayCredit(row.mark);
-      if (!credit) continue;
-      map[code] = round0((map[code] || 0) + credit * 10) / 10;
+      const total = Number(row.summary?.totalPresent);
+      map[code] = Number.isFinite(total) ? Math.round(total * 10) / 10 : 0;
     }
   } catch (err) {
     console.warn("Salary processing: present days from register unavailable", err);
   }
   return map;
+}
+
+/** Resolve P.Days from register map; fall back only when code has no register row. */
+export function presentDaysFromRegisterMap(presentMap, empCode, fallbackDays) {
+  const code = normalizeAttendanceEmpCode(empCode);
+  const days = Number(fallbackDays) > 0 ? Number(fallbackDays) : DEFAULT_MONTH_DAYS;
+  if (!code || !presentMap || typeof presentMap !== "object") return days;
+  if (!Object.prototype.hasOwnProperty.call(presentMap, code)) return days;
+  const v = Number(presentMap[code]);
+  return Number.isFinite(v) ? v : days;
 }
 
 const LINE_DB_COLUMNS = [
@@ -692,7 +701,7 @@ async function fetchAllActiveEmployeesForSalary() {
     const { data, error } = await supabase
       .from(EMPLOYEE_MASTER_TABLE)
       .select(
-        "id, employee_id, employee_code, full_name, designation, department, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
+        "id, employee_id, employee_code, full_name, designation, department, location, date_of_joining, confirmation_date, bank_account_no, ifsc_code, uan_no, esic_no, status"
       )
       .eq("status", "Active")
       .order("employee_code", { ascending: true })
@@ -777,9 +786,11 @@ async function buildLinesForEmployees(employees, { salaryMap, presentMap, monthD
   const lines = [];
   for (const emp of employees || []) {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
-    const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id);
-    const present =
-      code && presentMap[code] != null && presentMap[code] > 0 ? presentMap[code] : days;
+    const present = presentDaysFromRegisterMap(
+      presentMap,
+      emp.employee_code || emp.employee_id,
+      days
+    );
     lines.push(
       buildSheetLineFromSources({
         employee: emp,
@@ -814,6 +825,7 @@ export async function fetchSalaryProcessCandidates({
 
   const holdIdSet = new Set(getMonthHoldIds(key));
   const deptSet = new Set();
+  const siteSet = new Set();
   const rows = (employees || []).map((emp) => {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
     const hasCtc = Boolean(structure?.declared);
@@ -821,12 +833,17 @@ export async function fetchSalaryProcessCandidates({
     const eligible = includeWithoutCtc ? !hasCtc : hasCtc;
     const dept = normalizeDeptName(emp.department);
     if (dept) deptSet.add(dept);
+    const site = String(emp.location || "").trim();
+    if (site) siteSet.add(site);
+    const alreadyProcessed = employeeAlreadyProcessed(emp, processedIndex);
+    const onHold = holdIdSet.has(String(emp.id));
     return {
       id: emp.id,
       employee_code: emp.employee_code || emp.employee_id || "",
       full_name: emp.full_name || "",
       designation: emp.designation || "",
       department: dept || "—",
+      location: site || "—",
       date_of_joining: emp.date_of_joining || null,
       confirmation_date: emp.confirmation_date || null,
       bank_account_no: emp.bank_account_no || "",
@@ -836,8 +853,18 @@ export async function fetchSalaryProcessCandidates({
       employee_id: emp.employee_id || "",
       hasCtc,
       eligible,
-      alreadyProcessed: employeeAlreadyProcessed(emp, processedIndex),
-      onHold: holdIdSet.has(String(emp.id)),
+      alreadyProcessed,
+      onHold,
+      ctc_monthly: hasCtc ? Number(structure?.ctc_monthly) || 0 : null,
+      take_home_monthly: hasCtc ? Number(structure?.take_home_monthly) || 0 : null,
+      gross_monthly: hasCtc ? Number(structure?.gross_monthly) || 0 : null,
+      processStatus: onHold
+        ? "held"
+        : alreadyProcessed
+          ? "processed"
+          : hasCtc
+            ? "pending"
+            : "ctc_required",
       _structure: structure,
     };
   });
@@ -848,6 +875,7 @@ export async function fetchSalaryProcessCandidates({
     monthKey: key,
     existingRun: existing,
     departments: [...deptSet].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+    sites: [...siteSet].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
     departmentStats,
     employees: rows,
     holdIds: [...holdIdSet],
@@ -896,9 +924,11 @@ export async function buildSalaryScopePreviewLines({
       uan_no: fresh.uan_no ?? emp.uan_no,
       esic_no: fresh.esic_no ?? emp.esic_no,
     };
-    const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id);
-    const present =
-      code && presentMap[code] != null && presentMap[code] > 0 ? presentMap[code] : days;
+    const present = presentDaysFromRegisterMap(
+      presentMap,
+      emp.employee_code || emp.employee_id,
+      days
+    );
     let line = buildSheetLineFromSources({
       employee: {
         id: emp.id,
@@ -929,6 +959,18 @@ export async function buildSalaryScopePreviewLines({
       employee_master_id: emp.id,
       department: emp.department || "—",
       alreadyProcessed: Boolean(emp.alreadyProcessed),
+      hasCtc: emp.hasCtc != null ? Boolean(emp.hasCtc) : Boolean(structure?.declared),
+      onHold: Boolean(emp.onHold),
+      processStatus:
+        emp.processStatus ||
+        (emp.onHold
+          ? "held"
+          : emp.alreadyProcessed
+            ? "processed"
+            : structure?.declared
+              ? "pending"
+              : "ctc_required"),
+      declared: Boolean(structure?.declared),
     });
   }
   return lines;

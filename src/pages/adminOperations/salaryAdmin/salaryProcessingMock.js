@@ -5,7 +5,6 @@
 
 import { supabase } from "../../../lib/supabase";
 import { EMPLOYEE_MASTER_TABLE } from "../../../modules/payroll/integrations";
-import { normalizeAttendanceEmpCode } from "../../../lib/attendanceDaily";
 import { canonicalDepartmentLabel } from "../../../lib/employeeMasterDepartments";
 import {
   appendProcessBatch,
@@ -18,6 +17,7 @@ import {
   DEFAULT_MONTH_DAYS,
   buildSheetLineFromSources,
   fetchPresentDaysByEmployeeCode,
+  presentDaysFromRegisterMap,
   recomputeLineFromEdits,
   PROCESS_MODES,
   filterEmployeesByMode,
@@ -581,9 +581,11 @@ export async function mockProcessSalaryMonth({
     }
     for (const emp of toProcess) {
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
-      const code = normalizeAttendanceEmpCode(emp.employee_code || emp.employee_id);
-      const present =
-        code && presentMap[code] != null && presentMap[code] > 0 ? presentMap[code] : days;
+      const present = presentDaysFromRegisterMap(
+        presentMap,
+        emp.employee_code || emp.employee_id,
+        days
+      );
       let line = buildSheetLineFromSources({
         employee: emp,
         structure,
