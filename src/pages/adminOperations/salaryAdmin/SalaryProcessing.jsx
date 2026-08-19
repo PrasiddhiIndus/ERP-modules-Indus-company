@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, RefreshCw, Search, Upload } from "lucide-react";
+import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock } from "lucide-react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import FormDateInput from "../../../components/FormDateInput";
 import {
@@ -91,6 +91,8 @@ const SCOPE_HEADERS = [
   "Account",
   "IFSC",
   "Desig.",
+  "CTC",
+  "Status",
   "P.Days",
   "Gross W",
   "PF 12%",
@@ -106,9 +108,169 @@ const SCOPE_HEADERS = [
   "Bank",
 ];
 
+function resolveLineProcessStatus(line) {
+  if (line?.onHold || line?.processStatus === "held") return "held";
+  if (line?.alreadyProcessed || line?.processStatus === "processed") return "processed";
+  if (line?.hasCtc === false || line?.processStatus === "ctc_required") return "ctc_required";
+  if (line?.processStatus === "pending") return "pending";
+  if (line?.hasCtc) return "pending";
+  return "ctc_required";
+}
+
 const DETAIL_FIELD_CLASS =
   "rounded border border-slate-200 bg-white px-2.5 py-2 min-h-[3.25rem] flex flex-col justify-center gap-0.5";
 const DETAIL_LABEL_CLASS = "text-[9px] font-semibold uppercase tracking-wide text-slate-500";
+
+/** Overview list tabs — who is ready / pending / already processed / held. */
+const VIEW_TABS = [
+  { id: "all", label: "All Employees" },
+  { id: "pending", label: "Pending" },
+  { id: "processed", label: "Processed" },
+  { id: "held", label: "Held" },
+];
+
+function ProcessStatusBadge({ status }) {
+  if (status === "processed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Processed
+      </span>
+    );
+  }
+  if (status === "held") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
+        <Lock className="h-3.5 w-3.5" />
+        Held
+      </span>
+    );
+  }
+  if (status === "ctc_required") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600">
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+        CTC required
+      </span>
+    );
+  }
+  return <span className="text-[11px] font-medium text-slate-700">Pending</span>;
+}
+
+function CtcStatusCell({ hasCtc }) {
+  if (hasCtc) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-800">
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+        Saved
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
+      <AlertTriangle className="h-3.5 w-3.5" />
+      Missing
+    </span>
+  );
+}
+
+function OverviewProcessTable({
+  rows,
+  loading,
+  emptyHint,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  onOpenEmployee,
+}) {
+  const selectedSet = useMemo(() => new Set((selectedIds || []).map(String)), [selectedIds]);
+  const allSelected =
+    rows.length > 0 && rows.every((r) => selectedSet.has(String(r.id)));
+
+  if (loading) {
+    return <p className="text-xs text-slate-500 py-8 text-center">Loading employees…</p>;
+  }
+  if (!rows.length) {
+    return <p className="text-xs text-slate-500 py-8 text-center">{emptyHint}</p>;
+  }
+
+  return (
+    <div className="w-full overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full min-w-[720px] text-[12px]">
+        <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+          <tr>
+            <th className="w-10 px-3 py-2.5 text-left">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={allSelected}
+                onChange={(e) => onToggleSelectAll?.(e.target.checked)}
+                aria-label="Select all visible"
+              />
+            </th>
+            <th className="text-left font-semibold px-3 py-2.5">Employee</th>
+            <th className="text-left font-semibold px-3 py-2.5">Department</th>
+            <th className="text-left font-semibold px-3 py-2.5">Site</th>
+            <th className="text-left font-semibold px-3 py-2.5">CTC</th>
+            <th className="text-right font-semibold px-3 py-2.5">Salary</th>
+            <th className="text-left font-semibold px-3 py-2.5">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {rows.map((emp) => {
+            const id = String(emp.id);
+            const checked = selectedSet.has(id);
+            return (
+              <tr
+                key={id}
+                className={`hover:bg-slate-50/80 ${checked ? "bg-accent-soft/30" : ""}`}
+              >
+                <td className="px-3 py-2.5 align-middle">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300"
+                    checked={checked}
+                    onChange={() => onToggleSelect?.(emp.id)}
+                    aria-label={`Select ${emp.full_name || emp.employee_code}`}
+                  />
+                </td>
+                <td className="px-3 py-2.5 align-middle min-w-[12rem]">
+                  <button
+                    type="button"
+                    className="text-left group"
+                    onClick={() => onOpenEmployee?.(emp)}
+                  >
+                    <span className="block font-medium text-slate-900 group-hover:text-accent">
+                      {emp.full_name || "—"}
+                    </span>
+                    <span className="block font-mono text-[10px] text-slate-500 mt-0.5">
+                      {emp.employee_code || "—"}
+                    </span>
+                  </button>
+                </td>
+                <td className="px-3 py-2.5 align-middle text-slate-700">{emp.department || "—"}</td>
+                <td className="px-3 py-2.5 align-middle text-slate-600">{emp.location || "—"}</td>
+                <td className="px-3 py-2.5 align-middle">
+                  <CtcStatusCell hasCtc={emp.hasCtc} />
+                </td>
+                <td className="px-3 py-2.5 align-middle text-right tabular-nums text-slate-800">
+                  {emp.hasCtc && emp.ctc_monthly != null ? (
+                    <span>₹{formatINRPlain(emp.ctc_monthly)}</span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2.5 align-middle">
+                  <ProcessStatusBadge status={emp.processStatus} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function DetailField({ label, children, className = "" }) {
   return (
@@ -421,12 +583,12 @@ function ScopeSalarySheetTable({
   const colCount = SCOPE_HEADERS.length + (showSelect ? 1 : 0);
 
   return (
-    <div className="overflow-auto rounded border border-slate-200 max-h-[min(28rem,50vh)]">
-      <table className="min-w-[1180px] w-full border-collapse">
-        <thead className="sticky top-0 z-10 bg-slate-50">
+    <div className="overflow-auto rounded-lg border border-slate-200 max-h-[min(42rem,70vh)] shadow-sm">
+      <table className="min-w-[1420px] w-full border-collapse text-[11px]">
+        <thead className="sticky top-0 z-10 bg-slate-100">
           <tr>
             {showSelect ? (
-              <th className="w-9 px-1.5 py-1.5 border-b border-slate-200">
+              <th className="w-9 px-2 py-2.5 border-b border-slate-200 bg-slate-100">
                 <input
                   type="checkbox"
                   className="rounded border-slate-300"
@@ -441,7 +603,13 @@ function ScopeSalarySheetTable({
             {SCOPE_HEADERS.map((h) => (
               <th
                 key={h}
-                className="px-1.5 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-200 whitespace-nowrap"
+                className={`px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-slate-700 border-b border-slate-200 whitespace-nowrap bg-slate-100 ${
+                  ["Gross W", "PF 12%", "ESIC", "PT", "Loan", "Sal Adv", "U/P", "TDS", "Custom−", "Tot Ded", "Net", "Bank"].includes(
+                    h
+                  )
+                    ? "text-right"
+                    : "text-left"
+                }`}
               >
                 {h}
               </th>
@@ -542,6 +710,12 @@ function ScopeSalarySheetTable({
                 </td>
                 <td className="px-1.5 py-1 text-[11px] border-b border-slate-100 max-w-[6rem]">
                   <TruncateTip text={line.designation} />
+                </td>
+                <td className="px-1.5 py-1 border-b border-slate-100 whitespace-nowrap">
+                  <CtcStatusCell hasCtc={Boolean(line.hasCtc ?? line.declared)} />
+                </td>
+                <td className="px-1.5 py-1 border-b border-slate-100 whitespace-nowrap">
+                  <ProcessStatusBadge status={resolveLineProcessStatus(line)} />
                 </td>
                 <td
                   className="px-0.5 py-0.5 border-b border-slate-100"
@@ -692,8 +866,12 @@ function ScopeSalarySheetTable({
   );
 }
 
-function currentYearMonth() {
+function previousPayYearMonth() {
   const d = new Date();
+  // Salary for a month is normally run at the start of the next month
+  // (Aug processing → July pay month / July register P.Days).
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
   return { year: d.getFullYear(), month: d.getMonth() + 1 };
 }
 
@@ -717,12 +895,17 @@ const api = {
 };
 
 export default function SalaryProcessing() {
-  const now = currentYearMonth();
+  const now = previousPayYearMonth();
   const [year, setYear] = useState(now.year);
   const [month, setMonth] = useState(now.month);
   const [monthDays, setMonthDays] = useState(DEFAULT_MONTH_DAYS);
   const [includeWithoutCtc, setIncludeWithoutCtc] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
+  const [viewTab, setViewTab] = useState("all");
+  const [listView, setListView] = useState("sheet"); // sheet | overview
+  const [filterDept, setFilterDept] = useState("all");
+  const [filterSite, setFilterSite] = useState("all");
+  const [filterCtc, setFilterCtc] = useState("all"); // all | ready | missing
   const [processMode, setProcessMode] = useState(PROCESS_MODES.BULK);
   const [selectedDepartments, setSelectedDepartments] = useState([]);
   const [holdIds, setHoldIds] = useState([]);
@@ -819,17 +1002,124 @@ export default function SalaryProcessing() {
     };
   }, [loadCandidates]);
 
+  // Sync process mode with list tab (Hold tab → hold workflow)
+  useEffect(() => {
+    if (viewTab === "held") setProcessMode(PROCESS_MODES.HOLD);
+    else setProcessMode(PROCESS_MODES.BULK);
+  }, [viewTab]);
+
+  // Keep selectedDepartments in sync with department filter (for process scope)
+  useEffect(() => {
+    if (filterDept === "all") setSelectedDepartments([]);
+    else setSelectedDepartments([filterDept]);
+  }, [filterDept]);
+
+  const rosterKpis = useMemo(() => {
+    const rows = candidates.employees || [];
+    const holdSet = new Set(holdIds.map(String));
+    let ctcReady = 0;
+    let pending = 0;
+    let processed = 0;
+    let held = 0;
+    for (const e of rows) {
+      const onHold = holdSet.has(String(e.id)) || e.onHold;
+      if (onHold) held += 1;
+      else if (e.alreadyProcessed) processed += 1;
+      else if (e.hasCtc) pending += 1;
+      if (e.hasCtc) ctcReady += 1;
+    }
+    return { total: rows.length, ctcReady, pending, processed, held };
+  }, [candidates.employees, holdIds]);
+
+  /** Shared tab + filter list — All shows every employee name even without CTC. */
+  const tabEmployees = useMemo(() => {
+    const holdSet = new Set(holdIds.map(String));
+
+    return (candidates.employees || []).filter((e) => {
+      const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
+      const status = onHold
+        ? "held"
+        : e.alreadyProcessed
+          ? "processed"
+          : e.hasCtc
+            ? "pending"
+            : "ctc_required";
+
+      if (viewTab === "pending" && status !== "pending") return false;
+      if (viewTab === "processed" && status !== "processed") return false;
+      if (viewTab === "held" && status !== "held") return false;
+
+      if (filterDept !== "all" && !departmentInSelection(e.department, [filterDept])) {
+        return false;
+      }
+      if (filterSite !== "all" && String(e.location || "—") !== filterSite) return false;
+      if (filterCtc === "ready" && !e.hasCtc) return false;
+      if (filterCtc === "missing" && e.hasCtc) return false;
+      if (includeWithoutCtc && e.hasCtc) return false;
+
+      return true;
+    });
+  }, [
+    candidates.employees,
+    holdIds,
+    viewTab,
+    filterDept,
+    filterSite,
+    filterCtc,
+    includeWithoutCtc,
+  ]);
+
+  const overviewRows = useMemo(() => {
+    const holdSet = new Set(holdIds.map(String));
+    const needle = tableSearch.trim().toLowerCase();
+    const enriched = tabEmployees.map((e) => {
+      const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
+      const processStatus = onHold
+        ? "held"
+        : e.alreadyProcessed
+          ? "processed"
+          : e.hasCtc
+            ? "pending"
+            : "ctc_required";
+      return { ...e, onHold, processStatus };
+    });
+    if (!needle) return enriched;
+    return enriched.filter((e) => {
+      const hay = [e.employee_code, e.full_name, e.department, e.location, e.designation]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [tabEmployees, holdIds, tableSearch]);
+
+  const overviewTotals = useMemo(() => {
+    let totalCtc = 0;
+    let totalNet = 0;
+    for (const e of overviewRows) {
+      if (e.hasCtc) {
+        totalCtc += Number(e.ctc_monthly) || 0;
+        totalNet += Number(e.take_home_monthly) || 0;
+      }
+    }
+    return { totalCtc, totalNet };
+  }, [overviewRows]);
+
   const processPreview = useMemo(() => {
     const rows = candidates.employees || [];
     const holdSet = new Set(holdIds.map(String));
     const selectedSet = new Set(selectedIds.map(String));
-    let pool = rows.filter((e) => e.eligible && !holdSet.has(String(e.id)));
-    if (processMode === PROCESS_MODES.DEPT) {
-      pool = pool.filter((e) => departmentInSelection(e.department, selectedDepartments));
-    } else if (processMode === PROCESS_MODES.HOLD) {
+    let pool = rows.filter((e) => {
+      if (holdSet.has(String(e.id)) || e.onHold) return false;
+      if (includeWithoutCtc) return !e.hasCtc;
+      return Boolean(e.hasCtc);
+    });
+    if (filterDept !== "all") {
+      pool = pool.filter((e) => departmentInSelection(e.department, [filterDept]));
+    }
+    if (processMode === PROCESS_MODES.HOLD) {
       pool = [];
     }
-    // If user ticked employees, process only those (still not held)
     if (
       (processMode === PROCESS_MODES.BULK || processMode === PROCESS_MODES.DEPT) &&
       selectedSet.size
@@ -840,45 +1130,23 @@ export default function SalaryProcessing() {
     const skipped = pool.filter((e) => e.alreadyProcessed);
     const inScope = rows.filter((e) => {
       if (processMode === PROCESS_MODES.HOLD) return holdSet.has(String(e.id));
-      if (processMode === PROCESS_MODES.DEPT) {
-        return (
-          departmentInSelection(e.department, selectedDepartments) &&
-          !holdSet.has(String(e.id))
-        );
+      if (filterDept !== "all") {
+        return departmentInSelection(e.department, [filterDept]) && !holdSet.has(String(e.id));
       }
       return !holdSet.has(String(e.id));
     });
     const withoutCtc = inScope.filter((e) => !e.hasCtc).length;
     const onHoldCount = rows.filter((e) => holdSet.has(String(e.id))).length;
     return { pool, toProcess, skipped, inScope, withoutCtc, onHoldCount };
-  }, [candidates.employees, processMode, selectedDepartments, holdIds, selectedIds]);
+  }, [candidates.employees, processMode, filterDept, holdIds, selectedIds, includeWithoutCtc]);
 
   const toggleDepartment = useCallback((dept) => {
-    setSelectedDepartments((prev) => {
-      const already = prev.some((d) => departmentInSelection(dept, [d]));
-      if (already) {
-        return prev.filter((d) => !departmentInSelection(dept, [d]));
-      }
-      return [...prev, dept];
-    });
+    setFilterDept((prev) => (prev === dept ? "all" : dept));
     setSelectedIds([]);
   }, []);
 
-  const scopeEmployees = useMemo(() => {
-    const holdSet = new Set(holdIds.map(String));
-    if (processMode === PROCESS_MODES.HOLD) {
-      // Hold tab: everyone marked hold for this month
-      return (candidates.employees || []).filter((e) => holdSet.has(String(e.id)));
-    }
-    let rows = (candidates.employees || []).filter(
-      (e) => e.eligible && !holdSet.has(String(e.id))
-    );
-    if (processMode === PROCESS_MODES.DEPT) {
-      if (!selectedDepartments.length) return [];
-      rows = rows.filter((e) => departmentInSelection(e.department, selectedDepartments));
-    }
-    return rows;
-  }, [candidates.employees, processMode, selectedDepartments, holdIds]);
+  /** Salary sheet uses the same tab list so All / Pending / Processed / Held stay in sync. */
+  const scopeEmployees = tabEmployees;
 
   const visibleScopeLines = useMemo(() => {
     const needle = tableSearch.trim().toLowerCase();
@@ -908,7 +1176,10 @@ export default function SalaryProcessing() {
 
   const toggleSelectAllVisible = useCallback(
     (selectAll) => {
-      const visible = visibleScopeLines.map((l) => String(l.employee_master_id)).filter(Boolean);
+      const visible =
+        listView === "overview"
+          ? overviewRows.map((e) => String(e.id)).filter(Boolean)
+          : visibleScopeLines.map((l) => String(l.employee_master_id)).filter(Boolean);
       if (!selectAll) {
         const drop = new Set(visible);
         setSelectedIds((prev) => prev.filter((id) => !drop.has(String(id))));
@@ -920,7 +1191,7 @@ export default function SalaryProcessing() {
         return [...merged];
       });
     },
-    [visibleScopeLines]
+    [listView, overviewRows, visibleScopeLines]
   );
 
   const holdSelectedEmployees = useCallback(() => {
@@ -959,11 +1230,11 @@ export default function SalaryProcessing() {
   // Clear row selection / search when month / tab / CTC filter changes
   useEffect(() => {
     setSelectedIds([]);
-  }, [year, month, processMode, includeWithoutCtc]);
+  }, [year, month, viewTab, includeWithoutCtc, filterDept, filterSite, filterCtc]);
 
   useEffect(() => {
     setTableSearch("");
-  }, [year, month, processMode, includeWithoutCtc]);
+  }, [year, month, viewTab, includeWithoutCtc]);
 
   useEffect(() => {
     let cancelled = false;
@@ -977,10 +1248,22 @@ export default function SalaryProcessing() {
       return undefined;
     }
     setScopeLinesLoading(true);
+    const holdSet = new Set(holdIds.map(String));
+    const employeesForSheet = scopeEmployees.map((e) => {
+      const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
+      const processStatus = onHold
+        ? "held"
+        : e.alreadyProcessed
+          ? "processed"
+          : e.hasCtc
+            ? "pending"
+            : "ctc_required";
+      return { ...e, onHold, processStatus };
+    });
     (async () => {
       try {
         const built = await buildSalaryScopePreviewLines({
-          employees: scopeEmployees,
+          employees: employeesForSheet,
           year,
           month,
           monthDays,
@@ -996,7 +1279,7 @@ export default function SalaryProcessing() {
     return () => {
       cancelled = true;
     };
-  }, [scopeEmployees, year, month, monthDays, processMode, detailLineId]);
+  }, [scopeEmployees, holdIds, year, month, monthDays, processMode, detailLineId]);
 
   useEffect(() => {
     if (detailLineId && !scopeLines.some((l) => l.id === detailLineId)) {
@@ -1035,6 +1318,42 @@ export default function SalaryProcessing() {
       setDetailSaveError("");
     }
   }, []);
+
+  const openOverviewEmployee = useCallback(
+    async (emp) => {
+      if (!emp?.id) return;
+      const existing = scopeLines.find(
+        (l) => String(l.employee_master_id) === String(emp.id)
+      );
+      if (existing?.id) {
+        openEmployeeDetail(existing);
+        return;
+      }
+      setScopeLinesLoading(true);
+      try {
+        const built = await buildSalaryScopePreviewLines({
+          employees: [emp],
+          year,
+          month,
+          monthDays,
+        });
+        const line = built?.[0];
+        if (line) {
+          setScopeLines((prev) => {
+            if (prev.some((l) => String(l.employee_master_id) === String(emp.id))) return prev;
+            return [...prev, line];
+          });
+          openEmployeeDetail(line);
+        }
+      } catch (err) {
+        console.warn("Open employee salary detail failed", err);
+        setError("Could not open employee salary detail.");
+      } finally {
+        setScopeLinesLoading(false);
+      }
+    },
+    [scopeLines, year, month, monthDays, openEmployeeDetail]
+  );
 
   const saveEmployeeDetail = useCallback(
     async (line) => {
@@ -1120,7 +1439,7 @@ export default function SalaryProcessing() {
     async ({ forceFullReprocess = false } = {}) => {
       if (processMode === PROCESS_MODES.HOLD) {
         setError(
-          "Hold employees are excluded from processing. Release them first, or process from All / By department."
+          "Hold employees are excluded from processing. Release them first, or process from All / Pending."
         );
         return;
       }
@@ -1185,9 +1504,11 @@ export default function SalaryProcessing() {
           departments:
             forceFullReprocess && isBulk
               ? []
-              : processMode === PROCESS_MODES.DEPT
-                ? selectedDepartments
-                : [],
+              : filterDept !== "all"
+                ? [filterDept]
+                : processMode === PROCESS_MODES.DEPT
+                  ? selectedDepartments
+                  : [],
           forceFullReprocess: Boolean(forceFullReprocess && isBulk),
           processedOn,
         });
@@ -1224,6 +1545,7 @@ export default function SalaryProcessing() {
       monthDays,
       includeWithoutCtc,
       processMode,
+      filterDept,
       selectedDepartments,
       selectedIds,
       candidates.existingRun,
@@ -1630,7 +1952,7 @@ export default function SalaryProcessing() {
       <PageTaskHeader
         className="mb-0"
         title="Salary Processing"
-        subtitle="Build monthly salary sheets from Employee Master."
+        subtitle="Build monthly salary sheets from Employee Master. P.Days = Daily Register Total Present for the selected pay month."
       >
         <button
           type="button"
@@ -1654,10 +1976,10 @@ export default function SalaryProcessing() {
       </PageTaskHeader>
 
       <CollapsibleHelp label="how this works">
-        Import bank details (or use Employee Master Excel) to save Account / IFSC / UAN / ESIC by employee
-        code. Tick employees on All or By department, then Hold selected or Process salary. CTC from
-        Employee Master drives Gross / PF / ESIC; imported account details fill Account and IFSC on the
-        sheet. Manual cells recompute with the same sheet formulas.
+        Select the pay month you are closing (usually last month — e.g. in September process
+        August). P.Days are taken from that month’s Attendance Daily Register Total Present.
+        Use All / Pending / Processed / Held to see who still needs salary. Filter by department,
+        site, or CTC status. Tick employees to Hold or Process.
       </CollapsibleHelp>
 
       {error ? (
@@ -1670,37 +1992,148 @@ export default function SalaryProcessing() {
       ) : null}
 
       <SectionCard
-        title="Process month"
-        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2 [&_.erp-card-body]:p-2.5"
+        title="Salary Processing"
+        className="[&_.erp-card-header]:min-h-0 [&_.erp-card-header]:py-2.5 [&_.erp-card-body]:p-3"
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className={selectIn}
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              aria-label="Pay month"
+              title="Pay month — P.Days from this month’s attendance register (usually last month)"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  {new Date(2000, m - 1, 1).toLocaleString("en-IN", { month: "long" })}
+                </option>
+              ))}
+            </select>
+            <select
+              className={selectIn}
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              aria-label="Pay year"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+        }
       >
         <div className="space-y-3">
-          <div className="flex flex-wrap items-end gap-2.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-600">
+            <span>
+              <span className="font-semibold text-slate-900 tabular-nums">{rosterKpis.total}</span>{" "}
+              Employees
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-emerald-700 tabular-nums">
+                {rosterKpis.ctcReady}
+              </span>{" "}
+              CTC ready
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-amber-700 tabular-nums">
+                {rosterKpis.pending}
+              </span>{" "}
+              Pending
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-slate-800 tabular-nums">
+                {rosterKpis.processed}
+              </span>{" "}
+              Processed
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-amber-800 tabular-nums">{rosterKpis.held}</span>{" "}
+              Held
+            </span>
+          </div>
+
+          <div role="tablist" aria-label="Process status" className="flex flex-wrap gap-1">
+            {VIEW_TABS.map((opt) => {
+              const active = viewTab === opt.id;
+              const count =
+                opt.id === "all"
+                  ? rosterKpis.total
+                  : opt.id === "pending"
+                    ? rosterKpis.pending
+                    : opt.id === "processed"
+                      ? rosterKpis.processed
+                      : rosterKpis.held;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setViewTab(opt.id)}
+                  className={`h-8 px-3 text-[11px] font-semibold rounded-md border transition-colors ${
+                    active
+                      ? "bg-ink-strong text-white border-ink-strong"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
+                  }`}
+                >
+                  {opt.label}
+                  <span
+                    className={`ml-1.5 tabular-nums ${active ? "text-white/70" : "text-slate-400"}`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
-              <span className="block">Month</span>
+              <span className="block">Department</span>
               <select
-                className={selectIn}
-                value={month}
-                onChange={(e) => setMonth(Number(e.target.value))}
+                className={`${selectIn} min-w-[9rem]`}
+                value={filterDept}
+                onChange={(e) => setFilterDept(e.target.value)}
               >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>
-                    {new Date(2000, m - 1, 1).toLocaleString("en-IN", { month: "short" })}
+                <option value="all">All departments</option>
+                {(candidates.departments || []).map((d) => (
+                  <option key={d} value={d}>
+                    {d}
                   </option>
                 ))}
               </select>
             </label>
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
-              <span className="block">Year</span>
+              <span className="block">Site</span>
               <select
-                className={selectIn}
-                value={year}
-                onChange={(e) => setYear(Number(e.target.value))}
+                className={`${selectIn} min-w-[9rem]`}
+                value={filterSite}
+                onChange={(e) => setFilterSite(e.target.value)}
               >
-                {years.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
+                <option value="all">All sites</option>
+                {(candidates.sites || []).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
+              <span className="block">CTC status</span>
+              <select
+                className={`${selectIn} min-w-[8rem]`}
+                value={filterCtc}
+                onChange={(e) => setFilterCtc(e.target.value)}
+              >
+                <option value="all">All</option>
+                <option value="ready">Saved</option>
+                <option value="missing">Missing</option>
               </select>
             </label>
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
@@ -1714,7 +2147,17 @@ export default function SalaryProcessing() {
                 onChange={(e) => setMonthDays(Number(e.target.value) || DEFAULT_MONTH_DAYS)}
               />
             </label>
-            <label className="flex items-center gap-1.5 text-[11px] text-slate-600 pb-1">
+            <div className="relative pb-0.5">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+              <input
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                className={`${textIn} pl-6 w-52`}
+                placeholder="Search employee"
+                aria-label="Search employees"
+              />
+            </div>
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-600 pb-1.5">
               <input
                 type="checkbox"
                 className="rounded border-slate-300"
@@ -1723,131 +2166,50 @@ export default function SalaryProcessing() {
               />
               Without CTC only
             </label>
-          </div>
-
-          <div
-            role="tablist"
-            aria-label="Process scope"
-            className="flex flex-wrap gap-0 border-b border-slate-200"
-          >
-            {[
-              { id: PROCESS_MODES.BULK, label: "All" },
-              { id: PROCESS_MODES.DEPT, label: "By department" },
-              { id: PROCESS_MODES.HOLD, label: "Hold" },
-            ].map((opt) => {
-              const active = processMode === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setProcessMode(opt.id)}
-                  className={`h-8 px-3 text-[11px] font-semibold border-b-2 -mb-px transition-colors ${
-                    active
-                      ? "border-accent text-accent"
-                      : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  {opt.label}
-                  {opt.id === PROCESS_MODES.HOLD && holdIds.length > 0 ? (
-                    <span className={`ml-1 tabular-nums ${active ? "text-accent/80" : "text-slate-400"}`}>
-                      ({holdIds.length})
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-
-          {processMode === PROCESS_MODES.DEPT ? (
-            <div className="rounded border border-slate-200 bg-slate-50/80 p-2.5 space-y-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                Departments from Employee Master
-              </p>
-              {candidatesLoading ? (
-                <p className="text-xs text-slate-500">Loading…</p>
-              ) : !(candidates.departments || []).length ? (
-                <p className="text-xs text-slate-500">No departments found on active employees.</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {(candidates.departments || []).map((dept) => {
-                    const stats = candidates.departmentStats?.[dept] || {
-                      total: 0,
-                      pending: 0,
-                      eligible: 0,
-                      processed: 0,
-                    };
-                    const selected = selectedDepartments.some((d) =>
-                      departmentInSelection(dept, [d])
-                    );
-                    return (
-                      <button
-                        key={dept}
-                        type="button"
-                        onClick={() => toggleDepartment(dept)}
-                        className={`h-7 px-2 text-[11px] rounded border ${
-                          selected
-                            ? "bg-indigo-600 text-white border-indigo-600"
-                            : "bg-white text-slate-700 border-slate-200"
-                        }`}
-                        title={`${stats.pending} ready · ${stats.eligible} ${includeWithoutCtc ? "without CTC" : "with CTC"} · ${stats.total} active in this department`}
-                      >
-                        {dept}
-                        <span className={`ml-1 ${selected ? "text-indigo-100" : "text-slate-400"}`}>
-                          ({stats.pending}/{stats.total})
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {selectedDepartments.length ? (
-                <p className="text-[11px] text-slate-600">
-                  Showing employees in:{" "}
-                  <span className="font-medium text-slate-800">
-                    {selectedDepartments.join(", ")}
-                  </span>
-                </p>
-              ) : (
-                <p className="text-[11px] text-slate-500">
-                  Click a department to list its employees from Employee Master.
-                </p>
-              )}
+            <div className="flex items-center gap-1 ml-auto pb-0.5">
+              <button
+                type="button"
+                className={`h-7 px-2.5 text-[11px] font-medium rounded border ${
+                  listView === "sheet"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200"
+                }`}
+                onClick={() => setListView("sheet")}
+              >
+                Salary sheet
+              </button>
+              <button
+                type="button"
+                className={`h-7 px-2.5 text-[11px] font-medium rounded border ${
+                  listView === "overview"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200"
+                }`}
+                onClick={() => setListView("overview")}
+              >
+                Overview
+              </button>
             </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
-              <input
-                value={tableSearch}
-                onChange={(e) => setTableSearch(e.target.value)}
-                className={`${textIn} pl-6 w-56`}
-                placeholder="Search code / name / dept"
-                aria-label="Search employees in table"
-              />
-            </div>
-            <span className="text-[11px] text-slate-500">
-              {visibleScopeLines.length}
-              {tableSearch.trim() ? ` of ${scopeLines.length}` : ""} row
-              {visibleScopeLines.length === 1 ? "" : "s"}
-            </span>
           </div>
 
-          <ScopeSalarySheetTable
+          {listView === "sheet" ? (
+            <ScopeSalarySheetTable
               lines={visibleScopeLines}
               loading={candidatesLoading || scopeLinesLoading}
               emptyHint={
-                processMode === PROCESS_MODES.HOLD
-                  ? "No employees on hold. Select staff on All / By department and click Hold selected."
-                  : processMode === PROCESS_MODES.DEPT && !selectedDepartments.length
-                    ? "Select one or more departments to preview employees."
-                    : tableSearch.trim()
-                      ? "No employees match this search."
-                      : includeWithoutCtc
-                        ? "No employees without CTC in this scope."
-                        : "No employees with CTC in this scope."
+                viewTab === "held"
+                  ? "No employees on hold. Select staff and click Hold selected."
+                  : viewTab === "pending"
+                    ? "No pending employees — everyone with CTC is processed or held."
+                    : viewTab === "processed"
+                      ? "No processed employees for this month yet."
+                      : tableSearch.trim()
+                        ? "No employees match this search."
+                        : includeWithoutCtc
+                          ? "No employees without CTC for the current filters."
+                          : filterDept !== "all" || filterSite !== "all" || filterCtc !== "all"
+                            ? "No employees match the current filters."
+                            : "No active employees found."
               }
               onUpdateLine={updateScopeLine}
               onOpenEmployee={openEmployeeDetail}
@@ -1857,66 +2219,81 @@ export default function SalaryProcessing() {
               readOnly={false}
               showSelect
             />
+          ) : (
+            <OverviewProcessTable
+              rows={overviewRows}
+              loading={candidatesLoading}
+              emptyHint={
+                viewTab === "held"
+                  ? "No employees on hold. Select staff and click Hold selected."
+                  : viewTab === "pending"
+                    ? "No pending employees — everyone with CTC is processed or held."
+                    : viewTab === "processed"
+                      ? "No processed employees for this month yet."
+                      : tableSearch.trim()
+                        ? "No employees match this search."
+                        : includeWithoutCtc
+                          ? "No employees without CTC for the current filters."
+                          : filterDept !== "all" || filterSite !== "all" || filterCtc !== "all"
+                            ? "No employees match the current filters."
+                            : "No active employees found."
+              }
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelectEmployee}
+              onToggleSelectAll={toggleSelectAllVisible}
+              onOpenEmployee={openOverviewEmployee}
+            />
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
             <p className="text-[11px] text-slate-600">
-              {candidatesLoading || scopeLinesLoading ? (
-                "Checking eligibility…"
-              ) : processMode === PROCESS_MODES.HOLD ? (
+              Showing{" "}
+              <span className="font-semibold text-slate-800">
+                {listView === "overview" ? overviewRows.length : visibleScopeLines.length}
+              </span>{" "}
+              employee
+              {(listView === "overview" ? overviewRows.length : visibleScopeLines.length) === 1
+                ? ""
+                : "s"}
+              {selectedIds.length ? (
                 <>
-                  <span className="font-semibold text-slate-800">{holdIds.length}</span> on hold
-                  {selectedIds.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-800">{selectedIds.length} selected</span>
-                    </>
-                  ) : null}
-                  <span className="text-slate-500"> · not included in Process salary</span>
+                  {" "}
+                  · <span className="text-amber-800">{selectedIds.length} selected</span>
                 </>
-              ) : (
+              ) : null}
+              {listView === "overview" && overviewTotals.totalCtc > 0 ? (
                 <>
-                  <span className="font-semibold text-slate-800">{scopeLines.length}</span> in sheet
+                  {" "}
+                  · Total CTC{" "}
+                  <span className="font-semibold text-slate-800">
+                    ₹{formatINRPlain(overviewTotals.totalCtc)}
+                  </span>
                   {" · "}
-                  <span className="font-semibold text-slate-800">{processPreview.toProcess.length}</span> to
-                  process
-                  {selectedIds.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-800">{selectedIds.length} selected</span>
-                    </>
-                  ) : null}
-                  {holdIds.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-800">{holdIds.length} on hold</span>
-                    </>
-                  ) : null}
-                  {processPreview.skipped.length ? (
-                    <>
-                      {" "}
-                      · <span className="text-amber-700">{processPreview.skipped.length} already on sheet</span>
-                    </>
-                  ) : null}
-                  {processPreview.withoutCtc > 0 && !includeWithoutCtc ? (
-                    <>
-                      {" "}
-                      ·{" "}
-                      <span className="text-slate-500">
-                        {processPreview.withoutCtc} without CTC (use Without CTC only)
-                      </span>
-                    </>
-                  ) : null}
-                  {candidates.existingRun ? (
-                    <>
-                      {" "}
-                      · sheet rev {candidates.existingRun.revision_no}
-                    </>
-                  ) : null}
+                  Net{" "}
+                  <span className="font-semibold text-slate-800">
+                    ₹{formatINRPlain(overviewTotals.totalNet)}
+                  </span>
                 </>
-              )}
+              ) : null}
+              {processPreview.toProcess.length && viewTab !== "held" ? (
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="font-semibold text-slate-800">
+                    {processPreview.toProcess.length}
+                  </span>{" "}
+                  to process
+                </>
+              ) : null}
+              {candidates.existingRun ? (
+                <>
+                  {" "}
+                  · sheet rev {candidates.existingRun.revision_no}
+                </>
+              ) : null}
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {processMode === PROCESS_MODES.HOLD ? (
+              {viewTab === "held" || processMode === PROCESS_MODES.HOLD ? (
                 <button
                   type="button"
                   className={btnGhost}
@@ -2009,7 +2386,7 @@ export default function SalaryProcessing() {
               : monthLabel(year, month)}
           </span>
           {existingRun ? ` (rev ${existingRun.revision_no})` : ""}. Open the sheet, process by
-          department for remaining staff, or run a full reprocess from All.
+          department for remaining staff, or run a full reprocess from All Employees.
         </p>
       </Modal>
 

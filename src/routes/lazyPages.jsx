@@ -268,6 +268,16 @@ export const SalaryComponentsMasterPage = lazy(
   () => import("../pages/adminOperations/salaryAdmin/SalaryComponentsMaster.jsx")
 );
 
+export const CompliancePayrollLayoutPage = lazy(
+  () => import("../pages/compliance/payroll/CompliancePayrollLayout")
+);
+export const ComplianceDashboardPage = lazy(
+  () => import("../pages/compliance/payroll/ComplianceDashboard")
+);
+export const CompliancePayrollProcessPage = lazy(
+  () => import("../pages/compliance/payroll/CompliancePayrollProcess")
+);
+
 // NAV_HIDDEN (Aug 2026): misc admin module
 // export const MiscEventsPage = lazyNamed(
 //   () => import("../pages/adminOperations/misc/MiscAdminPages"),
