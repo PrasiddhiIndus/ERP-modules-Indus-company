@@ -379,7 +379,6 @@ export function mockGetMonthRunWithLines(runId) {
 export async function mockFetchSalaryProcessCandidates({
   year,
   month,
-  includeWithoutCtc = false,
 } = {}) {
   const key = `${year}-${String(month).padStart(2, "0")}`;
   const existing = mockGetMonthRunByKey(key);
@@ -406,7 +405,7 @@ export async function mockFetchSalaryProcessCandidates({
     const rows = (employees || []).map((emp) => {
       const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
       const hasCtc = Boolean(structure?.declared);
-      const eligible = includeWithoutCtc ? !hasCtc : hasCtc;
+      const eligible = hasCtc;
       const dept = emp.department ? canonicalDepartmentLabel(emp.department) : "";
       if (dept) deptSet.add(dept);
       return {

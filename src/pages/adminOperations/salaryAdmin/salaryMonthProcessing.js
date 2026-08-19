@@ -434,17 +434,25 @@ export async function getMonthRunByKey(monthKeyStr) {
 }
 
 export async function getMonthRunWithLines(runId) {
-  const [runRes, linesRes] = await Promise.all([
-    supabase.from(MONTH_RUNS_TABLE).select("*").eq("id", runId).maybeSingle(),
-    supabase
+  const runRes = await supabase.from(MONTH_RUNS_TABLE).select("*").eq("id", runId).maybeSingle();
+  if (runRes.error) throw runRes.error;
+  const raw = [];
+  let from = 0;
+  const pageSize = 1000;
+  for (;;) {
+    const { data, error } = await supabase
       .from(MONTH_LINES_TABLE)
       .select("*")
       .eq("run_id", runId)
-      .order("employee_code", { ascending: true }),
-  ]);
-  if (runRes.error) throw runRes.error;
-  if (linesRes.error) throw linesRes.error;
-  const lines = (linesRes.data || []).map((line) => {
+      .order("employee_code", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const chunk = data || [];
+    raw.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  const lines = raw.map((line) => {
     const cj = line.computed_json && typeof line.computed_json === "object" ? line.computed_json : {};
     return {
       ...line,
@@ -734,6 +742,79 @@ export function employeeAlreadyProcessed(emp, processedIndex) {
   return Boolean(code && processedIndex.codes.has(code));
 }
 
+function findSavedMonthLine(savedLines, emp) {
+  const id = emp?.id != null ? String(emp.id) : "";
+  if (id) {
+    const byId = (savedLines || []).find((l) => String(l.employee_master_id) === id);
+    if (byId) return byId;
+  }
+  const code = str(emp?.employee_code || emp?.employee_id).toUpperCase();
+  if (!code) return null;
+  return (savedLines || []).find((l) => str(l.employee_code).toUpperCase() === code) || null;
+}
+
+/** Instant roster row — name / bank / CTC status without waiting on formula preview. */
+export function emptyPreviewLineFromEmployee(emp, monthDays = DEFAULT_MONTH_DAYS) {
+  const hasCtc = Boolean(emp?.hasCtc ?? emp?.declared);
+  const onHold = Boolean(emp?.onHold);
+  const alreadyProcessed = Boolean(emp?.alreadyProcessed);
+  const processStatus =
+    emp?.processStatus ||
+    (onHold ? "held" : alreadyProcessed ? "processed" : hasCtc ? "pending" : "ctc_required");
+  return {
+    id: `preview_${emp.id}`,
+    employee_master_id: emp.id,
+    employee_code: emp.employee_code || emp.employee_id || "",
+    employee_name: emp.full_name || emp.employee_name || "",
+    account_no: emp.bank_account_no || emp.account_no || "",
+    ifsc: emp.ifsc_code || emp.ifsc || "",
+    designation: emp.designation || "",
+    department: emp.department || "—",
+    present_days: 0,
+    total_days: monthDays,
+    salary_rate: 0,
+    pf_basic: 0,
+    basic_full: 0,
+    hra_full: 0,
+    special_full: 0,
+    gross_wages: 0,
+    emp_pf: 0,
+    emp_esic: 0,
+    pt_amount: 0,
+    loan: 0,
+    sal_adv: 0,
+    unpaid_paid: 0,
+    tds: 0,
+    total_ded: 0,
+    net_salary: 0,
+    bank_amount: 0,
+    hasCtc,
+    declared: hasCtc,
+    alreadyProcessed,
+    onHold,
+    processStatus,
+  };
+}
+
+function decorateScopeLine(line, emp, extras = {}) {
+  const hasCtc = extras.hasCtc != null ? extras.hasCtc : Boolean(emp.hasCtc ?? emp.declared);
+  const onHold = Boolean(emp.onHold);
+  const alreadyProcessed =
+    extras.alreadyProcessed != null ? extras.alreadyProcessed : Boolean(emp.alreadyProcessed);
+  return {
+    ...line,
+    employee_master_id: emp.id,
+    department: emp.department || line.department || "—",
+    alreadyProcessed,
+    hasCtc,
+    onHold,
+    processStatus:
+      emp.processStatus ||
+      (onHold ? "held" : alreadyProcessed ? "processed" : hasCtc ? "pending" : "ctc_required"),
+    declared: hasCtc,
+  };
+}
+
 export function departmentStatsForEmployees(employees) {
   const stats = {};
   for (const emp of employees || []) {
@@ -808,7 +889,6 @@ async function buildLinesForEmployees(employees, { salaryMap, presentMap, monthD
 export async function fetchSalaryProcessCandidates({
   year,
   month,
-  includeWithoutCtc = false,
 } = {}) {
   const key = monthKey(year, month);
   const existing = await getMonthRunByKey(key);
@@ -829,8 +909,7 @@ export async function fetchSalaryProcessCandidates({
   const rows = (employees || []).map((emp) => {
     const structure = salaryMap.get(String(emp.id)) || salaryMap.get(emp.id) || null;
     const hasCtc = Boolean(structure?.declared);
-    // Default: only declared CTC. Toggle: only employees still without CTC.
-    const eligible = includeWithoutCtc ? !hasCtc : hasCtc;
+    const eligible = hasCtc;
     const dept = normalizeDeptName(emp.department);
     if (dept) deptSet.add(dept);
     const site = String(emp.location || "").trim();
@@ -885,7 +964,8 @@ export async function fetchSalaryProcessCandidates({
 
 /**
  * Build editable salary-sheet preview lines for employees in the process scope.
- * Uses CTC + attendance present days + same formulas as Process / editor.
+ * Uses saved month-run rows when already processed; otherwise CTC + attendance.
+ * Employees without CTC get a name/bank placeholder so All Employees lists everyone.
  */
 export async function buildSalaryScopePreviewLines({
   employees = [],
@@ -893,87 +973,113 @@ export async function buildSalaryScopePreviewLines({
   month,
   monthDays = DEFAULT_MONTH_DAYS,
   salaryMap = null,
+  savedLines = [],
 } = {}) {
   const days = Number(monthDays) > 0 ? Number(monthDays) : DEFAULT_MONTH_DAYS;
-  // Always refresh CTC map so Employee Master "Save CTC" is visible here.
-  // Do not trust an empty Map from a prior candidates load.
-  let map = salaryMap instanceof Map && salaryMap.size > 0 ? salaryMap : null;
-  if (!map) {
-    map = await fetchSalaryStructureMap();
-  }
-  const presentMap = await fetchPresentDaysByEmployeeCode(year, month);
   const key = monthKey(year, month);
-  // Always re-read bank fields from DB so Excel import → Processing stays in sync
-  const bankMap = await fetchMasterPayrollFieldsByIds((employees || []).map((e) => e.id));
-  const dedMap = await seedSalaryDeductionsMapFromDb(
-    (employees || []).map((e) => e.id),
-    key
-  );
-  const lines = [];
-  for (const emp of employees || []) {
-    const structure =
-      map.get(String(emp.id)) ||
-      map.get(emp.id) ||
-      emp._structure ||
-      null;
-    const fresh = bankMap.get(String(emp.id)) || {};
-    const bankEmp = {
-      ...emp,
-      bank_account_no: fresh.bank_account_no ?? emp.bank_account_no,
-      ifsc_code: fresh.ifsc_code ?? emp.ifsc_code,
-      uan_no: fresh.uan_no ?? emp.uan_no,
-      esic_no: fresh.esic_no ?? emp.esic_no,
-    };
-    const present = presentDaysFromRegisterMap(
-      presentMap,
-      emp.employee_code || emp.employee_id,
-      days
-    );
-    let line = buildSheetLineFromSources({
-      employee: {
-        id: emp.id,
-        employee_id: emp.employee_id || emp.employee_code,
-        employee_code: emp.employee_code,
-        full_name: emp.full_name,
-        designation: emp.designation,
-        date_of_joining: emp.date_of_joining,
-        confirmation_date: emp.confirmation_date,
-        bank_account_no: bankEmp.bank_account_no,
-        ifsc_code: bankEmp.ifsc_code,
-        uan_no: bankEmp.uan_no,
-        esic_no: bankEmp.esic_no,
-      },
-      structure,
-      presentDays: present,
-      monthDays: days,
-      deductions: dedMap.get(String(emp.id)) || emptyDedSeed(),
-    });
-    const draft = getScopeLineDraft(key, emp.id);
-    if (draft) {
-      line = applyScopeLineDraft(line, draft, days);
+
+  const toCompute = [];
+  const planned = (employees || []).map((emp) => {
+    const saved = findSavedMonthLine(savedLines, emp);
+    if (saved) {
+      return {
+        kind: "saved",
+        emp,
+        line: decorateScopeLine(
+          {
+            ...saved,
+            id: saved.id || `preview_${emp.id}`,
+          },
+          emp,
+          { alreadyProcessed: true, hasCtc: Boolean(emp.hasCtc) || Number(saved.salary_rate) > 0 }
+        ),
+      };
     }
-    line = overlayMasterBankOnLine(line, bankEmp);
-    lines.push({
-      ...line,
-      id: `preview_${emp.id}`,
-      employee_master_id: emp.id,
-      department: emp.department || "—",
-      alreadyProcessed: Boolean(emp.alreadyProcessed),
-      hasCtc: emp.hasCtc != null ? Boolean(emp.hasCtc) : Boolean(structure?.declared),
-      onHold: Boolean(emp.onHold),
-      processStatus:
-        emp.processStatus ||
-        (emp.onHold
-          ? "held"
-          : emp.alreadyProcessed
-            ? "processed"
-            : structure?.declared
-              ? "pending"
-              : "ctc_required"),
-      declared: Boolean(structure?.declared),
+    const hasCtc = Boolean(emp.hasCtc ?? emp._structure?.declared);
+    if (!hasCtc) {
+      return { kind: "empty", emp, line: emptyPreviewLineFromEmployee(emp, days) };
+    }
+    toCompute.push(emp);
+    return { kind: "compute", emp, line: null };
+  });
+
+  if (toCompute.length) {
+    let map = salaryMap instanceof Map && salaryMap.size > 0 ? salaryMap : null;
+    if (!map) {
+      map = await fetchSalaryStructureMap();
+    }
+    const presentMap = await fetchPresentDaysByEmployeeCode(year, month);
+    const bankMap = await fetchMasterPayrollFieldsByIds(toCompute.map((e) => e.id));
+    const dedMap = await seedSalaryDeductionsMapFromDb(
+      toCompute.map((e) => e.id),
+      key
+    );
+    const computedById = new Map();
+    for (const emp of toCompute) {
+      const structure =
+        map.get(String(emp.id)) ||
+        map.get(emp.id) ||
+        emp._structure ||
+        null;
+      const fresh = bankMap.get(String(emp.id)) || {};
+      const bankEmp = {
+        ...emp,
+        bank_account_no: fresh.bank_account_no ?? emp.bank_account_no,
+        ifsc_code: fresh.ifsc_code ?? emp.ifsc_code,
+        uan_no: fresh.uan_no ?? emp.uan_no,
+        esic_no: fresh.esic_no ?? emp.esic_no,
+      };
+      const present = presentDaysFromRegisterMap(
+        presentMap,
+        emp.employee_code || emp.employee_id,
+        days
+      );
+      let line = buildSheetLineFromSources({
+        employee: {
+          id: emp.id,
+          employee_id: emp.employee_id || emp.employee_code,
+          employee_code: emp.employee_code,
+          full_name: emp.full_name,
+          designation: emp.designation,
+          date_of_joining: emp.date_of_joining,
+          confirmation_date: emp.confirmation_date,
+          bank_account_no: bankEmp.bank_account_no,
+          ifsc_code: bankEmp.ifsc_code,
+          uan_no: bankEmp.uan_no,
+          esic_no: bankEmp.esic_no,
+        },
+        structure,
+        presentDays: present,
+        monthDays: days,
+        deductions: dedMap.get(String(emp.id)) || emptyDedSeed(),
+      });
+      const draft = getScopeLineDraft(key, emp.id);
+      if (draft) {
+        line = applyScopeLineDraft(line, draft, days);
+      }
+      line = overlayMasterBankOnLine(line, bankEmp);
+      computedById.set(String(emp.id), decorateScopeLine(
+        { ...line, id: `preview_${emp.id}` },
+        emp,
+        { hasCtc: Boolean(structure?.declared || emp.hasCtc) }
+      ));
+    }
+    planned.forEach((item) => {
+      if (item.kind === "compute") {
+        item.line = computedById.get(String(item.emp.id)) || emptyPreviewLineFromEmployee(item.emp, days);
+      }
     });
   }
-  return lines;
+
+  return planned.map((item) => {
+    if (item.kind !== "saved") return item.line;
+    const draft = getScopeLineDraft(key, item.emp.id);
+    if (!draft) return item.line;
+    return decorateScopeLine(applyScopeLineDraft(item.line, draft, days), item.emp, {
+      alreadyProcessed: true,
+      hasCtc: item.line.hasCtc,
+    });
+  });
 }
 
 /**

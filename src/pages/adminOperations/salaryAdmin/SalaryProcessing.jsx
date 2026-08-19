@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock } from "lucide-react";
+import { Download, RefreshCw, Search, Upload, CheckCircle2, AlertTriangle, Lock, Clock } from "lucide-react";
 import { formatDateDdMmYyyy } from "../../../utils/dateDisplay";
 import FormDateInput from "../../../components/FormDateInput";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../components/AdminUi";
 import { formatINRPlain } from "./salaryData";
 import { departmentInSelection } from "../../../lib/employeeMasterDepartments";
+import { RegisterDepartmentFilter } from "../employee/RegisterDepartmentFilter";
 import {
   DEFAULT_MONTH_DAYS,
   getMonthRunByKey,
@@ -23,6 +24,7 @@ import {
   PROCESS_MODES,
   fetchSalaryProcessCandidates,
   buildSalaryScopePreviewLines,
+  emptyPreviewLineFromEmployee,
   getRunSheetNo,
   getMonthHoldIds,
   setMonthHoldIds,
@@ -121,10 +123,9 @@ const DETAIL_FIELD_CLASS =
   "rounded border border-slate-200 bg-white px-2.5 py-2 min-h-[3.25rem] flex flex-col justify-center gap-0.5";
 const DETAIL_LABEL_CLASS = "text-[9px] font-semibold uppercase tracking-wide text-slate-500";
 
-/** Overview list tabs — who is ready / pending / already processed / held. */
+/** Overview list tabs — all staff / already processed / held. */
 const VIEW_TABS = [
   { id: "all", label: "All Employees" },
-  { id: "pending", label: "Pending" },
   { id: "processed", label: "Processed" },
   { id: "held", label: "Held" },
 ];
@@ -154,7 +155,12 @@ function ProcessStatusBadge({ status }) {
       </span>
     );
   }
-  return <span className="text-[11px] font-medium text-slate-700">Pending</span>;
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700">
+      <Clock className="h-3.5 w-3.5 text-slate-500" />
+      Pending processing
+    </span>
+  );
 }
 
 function CtcStatusCell({ hasCtc }) {
@@ -617,7 +623,7 @@ function ScopeSalarySheetTable({
           </tr>
         </thead>
         <tbody>
-          {loading ? (
+          {loading && !lines.length ? (
             <tr>
               <td colSpan={colCount} className="px-3 py-6 text-center text-xs text-slate-500">
                 Building sheet preview…
@@ -899,11 +905,10 @@ export default function SalaryProcessing() {
   const [year, setYear] = useState(now.year);
   const [month, setMonth] = useState(now.month);
   const [monthDays, setMonthDays] = useState(DEFAULT_MONTH_DAYS);
-  const [includeWithoutCtc, setIncludeWithoutCtc] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [viewTab, setViewTab] = useState("all");
   const [listView, setListView] = useState("sheet"); // sheet | overview
-  const [filterDept, setFilterDept] = useState("all");
   const [filterSite, setFilterSite] = useState("all");
   const [filterCtc, setFilterCtc] = useState("all"); // all | ready | missing
   const [processMode, setProcessMode] = useState(PROCESS_MODES.BULK);
@@ -912,6 +917,7 @@ export default function SalaryProcessing() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [scopeLines, setScopeLines] = useState([]);
   const [scopeLinesLoading, setScopeLinesLoading] = useState(false);
+  const [savedMonthLines, setSavedMonthLines] = useState([]);
   const [detailLineId, setDetailLineId] = useState(null);
   const [detailDirty, setDetailDirty] = useState(false);
   const [detailSaving, setDetailSaving] = useState(false);
@@ -948,7 +954,7 @@ export default function SalaryProcessing() {
   const loadCandidates = useCallback(async () => {
     setCandidatesLoading(true);
     try {
-      const data = await api.fetchCandidates({ year, month, includeWithoutCtc });
+      const data = await api.fetchCandidates({ year, month });
       setCandidates(data);
       const holds = Array.isArray(data.holdIds)
         ? data.holdIds.map(String)
@@ -966,11 +972,32 @@ export default function SalaryProcessing() {
     } finally {
       setCandidatesLoading(false);
     }
-  }, [year, month, includeWithoutCtc]);
+  }, [year, month]);
 
   useEffect(() => {
     loadCandidates();
   }, [loadCandidates]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const runId = candidates.existingRun?.id;
+    if (!runId) {
+      setSavedMonthLines([]);
+      return undefined;
+    }
+    (async () => {
+      try {
+        const { lines } = await api.getWithLines(runId);
+        if (!cancelled) setSavedMonthLines(lines || []);
+      } catch (err) {
+        console.warn("Salary processed lines load failed", err);
+        if (!cancelled) setSavedMonthLines([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [candidates.existingRun?.id]);
 
   const handleBankImported = useCallback(
     async ({ message, rows } = {}) => {
@@ -1008,12 +1035,6 @@ export default function SalaryProcessing() {
     else setProcessMode(PROCESS_MODES.BULK);
   }, [viewTab]);
 
-  // Keep selectedDepartments in sync with department filter (for process scope)
-  useEffect(() => {
-    if (filterDept === "all") setSelectedDepartments([]);
-    else setSelectedDepartments([filterDept]);
-  }, [filterDept]);
-
   const rosterKpis = useMemo(() => {
     const rows = candidates.employees || [];
     const holdSet = new Set(holdIds.map(String));
@@ -1028,7 +1049,14 @@ export default function SalaryProcessing() {
       else if (e.hasCtc) pending += 1;
       if (e.hasCtc) ctcReady += 1;
     }
-    return { total: rows.length, ctcReady, pending, processed, held };
+    return {
+      total: rows.length,
+      ctcReady,
+      ctcMissing: Math.max(0, rows.length - ctcReady),
+      pending,
+      processed,
+      held,
+    };
   }, [candidates.employees, holdIds]);
 
   /** Shared tab + filter list — All shows every employee name even without CTC. */
@@ -1045,17 +1073,17 @@ export default function SalaryProcessing() {
             ? "pending"
             : "ctc_required";
 
-      if (viewTab === "pending" && status !== "pending") return false;
       if (viewTab === "processed" && status !== "processed") return false;
       if (viewTab === "held" && status !== "held") return false;
 
-      if (filterDept !== "all" && !departmentInSelection(e.department, [filterDept])) {
+      if (selectedDepartments.length > 0 && !departmentInSelection(e.department, selectedDepartments)) {
         return false;
       }
       if (filterSite !== "all" && String(e.location || "—") !== filterSite) return false;
-      if (filterCtc === "ready" && !e.hasCtc) return false;
-      if (filterCtc === "missing" && e.hasCtc) return false;
-      if (includeWithoutCtc && e.hasCtc) return false;
+      // All Employees always lists everyone (with or without CTC).
+      // CTC Saved / Missing is only an optional extra filter on that tab.
+      if (viewTab === "all" && filterCtc === "ready" && !e.hasCtc) return false;
+      if (viewTab === "all" && filterCtc === "missing" && e.hasCtc) return false;
 
       return true;
     });
@@ -1063,10 +1091,9 @@ export default function SalaryProcessing() {
     candidates.employees,
     holdIds,
     viewTab,
-    filterDept,
     filterSite,
     filterCtc,
-    includeWithoutCtc,
+    selectedDepartments,
   ]);
 
   const overviewRows = useMemo(() => {
@@ -1111,11 +1138,10 @@ export default function SalaryProcessing() {
     const selectedSet = new Set(selectedIds.map(String));
     let pool = rows.filter((e) => {
       if (holdSet.has(String(e.id)) || e.onHold) return false;
-      if (includeWithoutCtc) return !e.hasCtc;
       return Boolean(e.hasCtc);
     });
-    if (filterDept !== "all") {
-      pool = pool.filter((e) => departmentInSelection(e.department, [filterDept]));
+    if (selectedDepartments.length > 0) {
+      pool = pool.filter((e) => departmentInSelection(e.department, selectedDepartments));
     }
     if (processMode === PROCESS_MODES.HOLD) {
       pool = [];
@@ -1130,22 +1156,17 @@ export default function SalaryProcessing() {
     const skipped = pool.filter((e) => e.alreadyProcessed);
     const inScope = rows.filter((e) => {
       if (processMode === PROCESS_MODES.HOLD) return holdSet.has(String(e.id));
-      if (filterDept !== "all") {
-        return departmentInSelection(e.department, [filterDept]) && !holdSet.has(String(e.id));
+      if (selectedDepartments.length > 0) {
+        return departmentInSelection(e.department, selectedDepartments) && !holdSet.has(String(e.id));
       }
       return !holdSet.has(String(e.id));
     });
     const withoutCtc = inScope.filter((e) => !e.hasCtc).length;
     const onHoldCount = rows.filter((e) => holdSet.has(String(e.id))).length;
     return { pool, toProcess, skipped, inScope, withoutCtc, onHoldCount };
-  }, [candidates.employees, processMode, filterDept, holdIds, selectedIds, includeWithoutCtc]);
+  }, [candidates.employees, processMode, selectedDepartments, holdIds, selectedIds]);
 
-  const toggleDepartment = useCallback((dept) => {
-    setFilterDept((prev) => (prev === dept ? "all" : dept));
-    setSelectedIds([]);
-  }, []);
-
-  /** Salary sheet uses the same tab list so All / Pending / Processed / Held stay in sync. */
+  /** Salary sheet uses the same tab list so All / Processed / Held stay in sync. */
   const scopeEmployees = tabEmployees;
 
   const visibleScopeLines = useMemo(() => {
@@ -1230,11 +1251,12 @@ export default function SalaryProcessing() {
   // Clear row selection / search when month / tab / CTC filter changes
   useEffect(() => {
     setSelectedIds([]);
-  }, [year, month, viewTab, includeWithoutCtc, filterDept, filterSite, filterCtc]);
+  }, [year, month, viewTab, selectedDepartments, filterSite, filterCtc]);
 
   useEffect(() => {
     setTableSearch("");
-  }, [year, month, viewTab, includeWithoutCtc]);
+    setFilterCtc("all");
+  }, [year, month, viewTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1247,7 +1269,6 @@ export default function SalaryProcessing() {
       setScopeLinesLoading(false);
       return undefined;
     }
-    setScopeLinesLoading(true);
     const holdSet = new Set(holdIds.map(String));
     const employeesForSheet = scopeEmployees.map((e) => {
       const onHold = holdSet.has(String(e.id)) || Boolean(e.onHold);
@@ -1260,6 +1281,9 @@ export default function SalaryProcessing() {
             : "ctc_required";
       return { ...e, onHold, processStatus };
     });
+    // Show every employee immediately (All Employees includes missing CTC).
+    setScopeLines(employeesForSheet.map((e) => emptyPreviewLineFromEmployee(e, monthDays)));
+    setScopeLinesLoading(false);
     (async () => {
       try {
         const built = await buildSalaryScopePreviewLines({
@@ -1267,19 +1291,17 @@ export default function SalaryProcessing() {
           year,
           month,
           monthDays,
+          savedLines: savedMonthLines,
         });
         if (!cancelled) setScopeLines(built);
       } catch (err) {
         console.warn("Salary scope preview failed", err);
-        if (!cancelled) setScopeLines([]);
-      } finally {
-        if (!cancelled) setScopeLinesLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [scopeEmployees, holdIds, year, month, monthDays, processMode, detailLineId]);
+  }, [scopeEmployees, holdIds, year, month, monthDays, processMode, detailLineId, savedMonthLines]);
 
   useEffect(() => {
     if (detailLineId && !scopeLines.some((l) => l.id === detailLineId)) {
@@ -1439,7 +1461,7 @@ export default function SalaryProcessing() {
     async ({ forceFullReprocess = false } = {}) => {
       if (processMode === PROCESS_MODES.HOLD) {
         setError(
-          "Hold employees are excluded from processing. Release them first, or process from All / Pending."
+          "Hold employees are excluded from processing. Release them first, or process from All Employees."
         );
         return;
       }
@@ -1495,7 +1517,6 @@ export default function SalaryProcessing() {
           year,
           month,
           monthDays,
-          includeWithoutCtc,
           processMode:
             forceFullReprocess && isBulk
               ? PROCESS_MODES.BULK
@@ -1504,11 +1525,9 @@ export default function SalaryProcessing() {
           departments:
             forceFullReprocess && isBulk
               ? []
-              : filterDept !== "all"
-                ? [filterDept]
-                : processMode === PROCESS_MODES.DEPT
-                  ? selectedDepartments
-                  : [],
+              : selectedDepartments.length
+                ? selectedDepartments
+                : [],
           forceFullReprocess: Boolean(forceFullReprocess && isBulk),
           processedOn,
         });
@@ -1543,9 +1562,7 @@ export default function SalaryProcessing() {
       year,
       month,
       monthDays,
-      includeWithoutCtc,
       processMode,
-      filterDept,
       selectedDepartments,
       selectedIds,
       candidates.existingRun,
@@ -1597,6 +1614,38 @@ export default function SalaryProcessing() {
       setError(err?.message || "Excel export failed.");
     }
   }, [run, lines]);
+
+  const handleTabExport = useCallback(async () => {
+    const rows = visibleScopeLines;
+    if (!rows.length) {
+      setError("No employees on this tab to download.");
+      return;
+    }
+    setExporting(true);
+    setError("");
+    try {
+      const tabMeta = VIEW_TABS.find((t) => t.id === viewTab) || VIEW_TABS[0];
+      await exportSalaryProcessingWorkbook(
+        {
+          run: {
+            pay_year: year,
+            pay_month: month,
+            month_days: monthDays,
+            revision_no: candidates.existingRun?.revision_no || 1,
+          },
+          lines: rows,
+        },
+        { tabLabel: tabMeta.label, tabId: viewTab }
+      );
+      setNotice(`Downloaded ${rows.length} employee(s) from ${tabMeta.label}.`);
+      window.setTimeout(() => setNotice(""), 2500);
+    } catch (err) {
+      console.error(err);
+      setError(err?.message || "Excel download failed.");
+    } finally {
+      setExporting(false);
+    }
+  }, [visibleScopeLines, year, month, monthDays, candidates.existingRun, viewTab]);
 
   const filteredLines = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -1978,8 +2027,9 @@ export default function SalaryProcessing() {
       <CollapsibleHelp label="how this works">
         Select the pay month you are closing (usually last month — e.g. in September process
         August). P.Days are taken from that month’s Attendance Daily Register Total Present.
-        Use All / Pending / Processed / Held to see who still needs salary. Filter by department,
-        site, or CTC status. Tick employees to Hold or Process.
+        Use All Employees / Processed / Held. All Employees lists every staff member, with or
+        without CTC. Processed shows the salary rows saved for this month. Filter by department
+        or site. Download Excel for the open tab.
       </CollapsibleHelp>
 
       {error ? (
@@ -2035,14 +2085,21 @@ export default function SalaryProcessing() {
               <span className="font-semibold text-emerald-700 tabular-nums">
                 {rosterKpis.ctcReady}
               </span>{" "}
-              CTC ready
+              CTC saved
             </span>
             <span className="text-slate-300">·</span>
             <span>
               <span className="font-semibold text-amber-700 tabular-nums">
+                {rosterKpis.ctcMissing}
+              </span>{" "}
+              CTC missing
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>
+              <span className="font-semibold text-slate-700 tabular-nums">
                 {rosterKpis.pending}
               </span>{" "}
-              Pending
+              Pending processing
             </span>
             <span className="text-slate-300">·</span>
             <span>
@@ -2064,18 +2121,19 @@ export default function SalaryProcessing() {
               const count =
                 opt.id === "all"
                   ? rosterKpis.total
-                  : opt.id === "pending"
-                    ? rosterKpis.pending
-                    : opt.id === "processed"
-                      ? rosterKpis.processed
-                      : rosterKpis.held;
+                  : opt.id === "processed"
+                    ? rosterKpis.processed
+                    : rosterKpis.held;
               return (
                 <button
                   key={opt.id}
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => setViewTab(opt.id)}
+                  onClick={() => {
+                    setViewTab(opt.id);
+                    if (opt.id === "all") setFilterCtc("all");
+                  }}
                   className={`h-8 px-3 text-[11px] font-semibold rounded-md border transition-colors ${
                     active
                       ? "bg-ink-strong text-white border-ink-strong"
@@ -2096,18 +2154,11 @@ export default function SalaryProcessing() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
               <span className="block">Department</span>
-              <select
-                className={`${selectIn} min-w-[9rem]`}
-                value={filterDept}
-                onChange={(e) => setFilterDept(e.target.value)}
-              >
-                <option value="all">All departments</option>
-                {(candidates.departments || []).map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+              <RegisterDepartmentFilter
+                options={candidates.departments || []}
+                selected={selectedDepartments}
+                onChange={setSelectedDepartments}
+              />
             </label>
             <label className="text-[10px] uppercase tracking-wide text-slate-500 space-y-0.5">
               <span className="block">Site</span>
@@ -2157,16 +2208,17 @@ export default function SalaryProcessing() {
                 aria-label="Search employees"
               />
             </div>
-            <label className="flex items-center gap-1.5 text-[11px] text-slate-600 pb-1.5">
-              <input
-                type="checkbox"
-                className="rounded border-slate-300"
-                checked={includeWithoutCtc}
-                onChange={(e) => setIncludeWithoutCtc(e.target.checked)}
-              />
-              Without CTC only
-            </label>
             <div className="flex items-center gap-1 ml-auto pb-0.5">
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={handleTabExport}
+                disabled={exporting || candidatesLoading || scopeLinesLoading || !visibleScopeLines.length}
+                title={`Download ${VIEW_TABS.find((t) => t.id === viewTab)?.label || "this tab"} as Excel`}
+              >
+                <Download className="h-3 w-3 inline mr-1 -mt-0.5" />
+                {exporting ? "Downloading…" : "Download Excel"}
+              </button>
               <button
                 type="button"
                 className={`h-7 px-2.5 text-[11px] font-medium rounded border ${
@@ -2199,17 +2251,13 @@ export default function SalaryProcessing() {
               emptyHint={
                 viewTab === "held"
                   ? "No employees on hold. Select staff and click Hold selected."
-                  : viewTab === "pending"
-                    ? "No pending employees — everyone with CTC is processed or held."
-                    : viewTab === "processed"
-                      ? "No processed employees for this month yet."
-                      : tableSearch.trim()
-                        ? "No employees match this search."
-                        : includeWithoutCtc
-                          ? "No employees without CTC for the current filters."
-                          : filterDept !== "all" || filterSite !== "all" || filterCtc !== "all"
-                            ? "No employees match the current filters."
-                            : "No active employees found."
+                  : viewTab === "processed"
+                    ? "No processed employees for this month yet."
+                    : tableSearch.trim()
+                      ? "No employees match this search."
+                      : selectedDepartments.length || filterSite !== "all" || filterCtc !== "all"
+                        ? "No employees match the current filters."
+                        : "No active employees found."
               }
               onUpdateLine={updateScopeLine}
               onOpenEmployee={openEmployeeDetail}
@@ -2226,17 +2274,13 @@ export default function SalaryProcessing() {
               emptyHint={
                 viewTab === "held"
                   ? "No employees on hold. Select staff and click Hold selected."
-                  : viewTab === "pending"
-                    ? "No pending employees — everyone with CTC is processed or held."
-                    : viewTab === "processed"
-                      ? "No processed employees for this month yet."
-                      : tableSearch.trim()
-                        ? "No employees match this search."
-                        : includeWithoutCtc
-                          ? "No employees without CTC for the current filters."
-                          : filterDept !== "all" || filterSite !== "all" || filterCtc !== "all"
-                            ? "No employees match the current filters."
-                            : "No active employees found."
+                  : viewTab === "processed"
+                    ? "No processed employees for this month yet."
+                    : tableSearch.trim()
+                      ? "No employees match this search."
+                      : selectedDepartments.length || filterSite !== "all" || filterCtc !== "all"
+                        ? "No employees match the current filters."
+                        : "No active employees found."
               }
               selectedIds={selectedIds}
               onToggleSelect={toggleSelectEmployee}
