@@ -16,6 +16,11 @@ import {
   isSalaryAdminPath,
   SALARY_ADMIN_SUBMODULE_KEY,
 } from '../pages/adminOperations/salaryAdmin/salaryAccess';
+import {
+  canAccessCompliance,
+  isCompliancePath,
+  COMPLIANCE_SUBMODULE_KEY,
+} from '../pages/compliance/payroll/complianceAccess';
 
 export const ROLES = {
   EXECUTIVE: "executive",
@@ -183,6 +188,13 @@ export function canSeeSubModule(profile, accessibleModules, subModuleKey, userMe
   // Salary Admin: email allowlist is the only gate (not full Admin module).
   if (subModuleKey === SALARY_ADMIN_SUBMODULE_KEY) {
     return canAccessSalaryAdmin(profile, {
+      email: userMetadata?.email || profile?.email,
+    });
+  }
+
+  // Compliance payroll (dashboard + PF/ESIC): same allowlist as Salary Admin.
+  if (subModuleKey === COMPLIANCE_SUBMODULE_KEY) {
+    return canAccessCompliance(profile, {
       email: userMetadata?.email || profile?.email,
     });
   }
@@ -422,6 +434,7 @@ export const NAV_MODULE_TREE = [
     subModules: [
       { value: "compliance.ifspl",    label: "IFSPL Employee Compliance", pathPrefix: "/app/ifsp-employee-compliance" },
       { value: "compliance.general",  label: "General Compliance",        pathPrefix: "/app/general-compliance" },
+      { value: "compliance.payroll",  label: "Payroll Compliance",        pathPrefix: "/app/compliance" },
     ],
   },
   {
@@ -589,7 +602,7 @@ export const MODULES = NAV_MODULE_TREE.map(({ value, label }) => ({ value, label
 export const MODULE_PATH_PREFIXES = {
   overview: ["/app/dashboard"],
   hr: ["/app/hr", "/app/hr/payroll/salary", "/app/attendance", "/app/salary", "/app/people-management", "/app/hr/site-iom"],
-  compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance"],
+  compliance: ["/app/ifsp-employee-compliance", "/app/general-compliance", "/app/compliance"],
   admin: ["/app/admin", "/app/ifsp-employee", "/app/store-inventory", "/app/gate-pass"],
   // Legacy bucket: Sales historically owned /manpower + /commercial routes.
   // Keep this broad so refresh/deep-links don't get redirected to /app/dashboard.
@@ -1072,6 +1085,11 @@ export function isPathAllowed(pathname, accessibleModules, subModulePaths, acces
   // Hard gate: Salary Admin only for allowlisted emails
   if (isSalaryAdminPath(pathname)) {
     return canAccessSalaryAdmin(accessIdentity, accessIdentity);
+  }
+
+  // Hard gate: Compliance PF/ESIC — same allowlist as Salary Admin
+  if (isCompliancePath(pathname)) {
+    return canAccessCompliance(accessIdentity, accessIdentity);
   }
 
   if (accessibleModules.has("overview") && pathname === "/app/dashboard") return true;
