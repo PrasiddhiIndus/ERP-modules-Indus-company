@@ -1223,16 +1223,34 @@ function buildTaxInvoiceDoc(inv, options = {}) {
 
   y = termsTop + termsH + 1;
 
-  // Digital signature (optional) — right column under terms area
+  const dscAppearance = options.dscAppearance && typeof options.dscAppearance === 'object' ? options.dscAppearance : null;
   const sig = inv.digitalSignatureDataUrl || inv.digital_signature_data_url;
-  if (typeof sig === 'string' && sig.startsWith('data:image/')) {
+  if (dscAppearance && Array.isArray(dscAppearance.lines) && dscAppearance.lines.length) {
+    const dscX = signLineLeft;
+    const dscMaxW = Math.max(20, signLineRight - signLineLeft);
+    let dscY = signForY + 3.4;
+    dscAppearance.lines.forEach((row) => {
+      const text = String(row?.text || '').trim();
+      if (!text) return;
+      const fontSize = Number(row.fontSize) > 0 ? Number(row.fontSize) : 6.2;
+      const color = Array.isArray(row.color) && row.color.length >= 3 ? row.color : [51, 65, 85];
+      doc.setFont('helvetica', row.bold ? 'bold' : 'normal');
+      doc.setFontSize(fontSize);
+      doc.setTextColor(color[0], color[1], color[2]);
+      const wrapped = doc.splitTextToSize(text, dscMaxW);
+      wrapped.forEach((line) => {
+        doc.text(line, dscX, dscY);
+        dscY += fontSize * 0.42 + 1.15;
+      });
+    });
+  } else if (typeof sig === 'string' && sig.startsWith('data:image/') && !options.skipSignatureImage) {
     try {
       const sigType = sig.startsWith('data:image/jpeg') || sig.startsWith('data:image/jpg') ? 'JPEG' : 'PNG';
-      const sigW = 34;
-      const sigH = 14;
+      const sigW = Number(options.signatureWidthMm) > 0 ? Number(options.signatureWidthMm) : 34;
+      const sigH = Number(options.signatureHeightMm) > 0 ? Number(options.signatureHeightMm) : 14;
       const sigX = signLineCenter - sigW / 2;
       const sigY = signLineY - sigH + 1.5;
-      doc.addImage(sig, sigType, sigX, sigY, sigW, sigH);
+      doc.addImage(sig, sigType, sigX, sigY, sigW, sigH, undefined, 'NONE');
     } catch {
       /* ignore bad image */
     }
@@ -1343,6 +1361,13 @@ export async function getTaxInvoicePdfBlobUrl(inv, options = {}) {
   if (!built?.doc) return null;
   const blob = built.doc.output('blob');
   return URL.createObjectURL(blob);
+}
+
+export async function getTaxInvoicePdfBytes(inv, options = {}) {
+  const logoDataUrl = await fetchCompanyLogoDataUrlForPdf();
+  const built = buildTaxInvoiceDoc(inv, { ...options, logoDataUrl });
+  if (!built?.doc) return null;
+  return built.doc.output('arraybuffer');
 }
 
 export async function downloadTaxInvoicePdf(inv, options = {}) {

@@ -30,6 +30,8 @@ import { adminBulkDeleteUsers } from './adminBulkDeleteUserApi.js';
 import { fetchAllLeaveInboxTables } from './adminLeaveRequestsApi.js';
 import { fetchAllTourInboxTables } from './adminTourRequestsApi.js';
 import { createAuthMiddleware } from './authMiddleware.js';
+import { listUsbDscCertificatesFromWindows } from './dscUsbCertificates.js';
+import { signPdfWithWindowsDsc } from './dscSignPdf.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -353,7 +355,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '8mb' }));
 
 const { requireAuth, requireAdmin, requireBillingAccess, requireHrOrAdmin, requireAttendanceAdmin } =
   createAuthMiddleware({
@@ -1405,6 +1407,67 @@ app.post('/api/admin/attendance/sync', requireAttendanceAdmin, async (req, res) 
       details: err?.details || null,
       partialUpserted: err?.partialUpserted ?? null,
     });
+  }
+});
+
+async function handleUsbDscCertificates(req, res) {
+  try {
+    const pin = typeof req.body?.pin === 'string' ? req.body.pin : '';
+    const result = await listUsbDscCertificatesFromWindows({ pin });
+    res.json({
+      certificates: result.certificates || [],
+      readers: result.readers || [],
+      usbIssues: result.usbIssues || [],
+      pcscStatus: result.pcscStatus || '',
+      warning: result.warning || '',
+    });
+  } catch (err) {
+    console.error('[dsc] usb-certificates failed', err);
+    res.json({
+      message: err?.message || 'Could not list USB DSC certificates.',
+      certificates: [],
+      readers: [],
+      usbIssues: [],
+      pcscStatus: 'error',
+    });
+  }
+}
+
+app.get('/api/billing/dsc/usb-certificates', einvoiceRateLimit, requireBillingAccess, handleUsbDscCertificates);
+app.post('/api/billing/dsc/usb-certificates', einvoiceRateLimit, requireBillingAccess, handleUsbDscCertificates);
+
+app.post('/api/billing/dsc/sign-pdf', einvoiceRateLimit, requireBillingAccess, async (req, res) => {
+  try {
+    const pdfBase64 = String(req.body?.pdfBase64 || '').replace(/^data:application\/pdf;base64,/i, '');
+    const thumbprint = String(req.body?.thumbprint || '').trim();
+    if (!pdfBase64 || !thumbprint) {
+      return res.status(400).json({ message: 'PDF and USB DSC certificate are required to sign.' });
+    }
+    const pdfBytes = Buffer.from(pdfBase64, 'base64');
+    if (!pdfBytes.length) {
+      return res.status(400).json({ message: 'The invoice PDF could not be read for signing.' });
+    }
+    const signed = await signPdfWithWindowsDsc(pdfBytes, {
+      thumbprint,
+      pin: typeof req.body?.pin === 'string' ? req.body.pin : '',
+      name: String(req.body?.name || ''),
+      reason: String(req.body?.reason || 'I am the author of this document'),
+      location: String(req.body?.location || ''),
+    });
+    res.json({
+      pdfBase64: signed.toString('base64'),
+      contentType: 'application/pdf',
+    });
+  } catch (err) {
+    console.error('[dsc] sign-pdf failed', err);
+    const status = Number(err?.status) || 500;
+    const raw = String(err?.message || 'Could not cryptographically sign the PDF with the USB DSC.');
+    const message = raw
+      .replace(/D:\\[^:]+:\d+\s*:/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 500);
+    res.status(status).json({ message: message || 'Could not cryptographically sign the PDF with the USB DSC.' });
   }
 });
 

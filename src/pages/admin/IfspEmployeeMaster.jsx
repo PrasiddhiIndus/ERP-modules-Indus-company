@@ -21,7 +21,6 @@ import {
   validateEmployeeHierarchy,
 } from '../../lib/employeeHierarchy';
 import { formatDateDdMmYyyy } from '../../utils/dateDisplay';
-import { EMPLOYEE_MASTER_BASE_DEPARTMENTS } from '../../lib/employeeMasterDepartments';
 import { syncScopeDraftBankFromMaster } from '../adminOperations/salaryAdmin/salaryMonthProcessing';
 import { normalizeAttendanceEmpCode } from '../../lib/attendanceDaily';
 import { parseSalaryBankImportFile } from '../../lib/salaryBankExcel';
@@ -72,6 +71,30 @@ const EMPLOYEE_LIST_SUMMARY_FIELDS = new Set([
   "department",
   "status",
 ]);
+
+const DEPARTMENT_FILTER_STORAGE_KEY = 'ifsp_employee_master_department_filter';
+
+function readStoredDepartmentFilter() {
+  try {
+    const stored = sessionStorage.getItem(DEPARTMENT_FILTER_STORAGE_KEY);
+    if (stored == null || stored === '') return 'All';
+    return stored;
+  } catch {
+    return 'All';
+  }
+}
+
+function persistDepartmentFilter(value) {
+  try {
+    if (!value || value === 'All') {
+      sessionStorage.removeItem(DEPARTMENT_FILTER_STORAGE_KEY);
+      return;
+    }
+    sessionStorage.setItem(DEPARTMENT_FILTER_STORAGE_KEY, value);
+  } catch {
+    /* ignore quota / private-mode failures */
+  }
+}
 
 const EMPLOYEE_FIELD_LABELS = {
   employee_id: "Machine ID",
@@ -182,7 +205,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
   const [filterFullName, setFilterFullName] = useState('');
   const [filterSystemId, setFilterSystemId] = useState('');
   const [filterEmployeeCode, setFilterEmployeeCode] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('All');
+  const [departmentFilter, setDepartmentFilter] = useState(readStoredDepartmentFilter);
   const [designationFilter, setDesignationFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [sortField, setSortField] = useState('employee_id');
@@ -288,11 +311,6 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
       );
   }, [employees, editingEmployee?.id]);
 
-  // Curated fallback list (used in the form so standard departments can always be
-  // assigned even if no employee currently uses them). Live values from the
-  // database are merged in below so the dropdowns reflect actual data.
-  const BASE_DEPARTMENTS = EMPLOYEE_MASTER_BASE_DEPARTMENTS;
-
   // Distinct department values that actually exist in the employee records.
   const departmentsFromData = useMemo(() => {
     const seen = new Map();
@@ -307,19 +325,18 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     );
   }, [employees]);
 
-  // Form dropdown: real values + curated defaults, deduped (case-insensitive).
-  const departments = useMemo(() => {
+  const designationsFromData = useMemo(() => {
     const seen = new Map();
-    [...departmentsFromData, ...BASE_DEPARTMENTS].forEach((value) => {
-      const trimmed = String(value || '').trim();
-      if (!trimmed) return;
-      const key = trimmed.toLowerCase();
-      if (!seen.has(key)) seen.set(key, trimmed);
+    (employees || []).forEach((row) => {
+      const value = String(row?.designation || '').trim();
+      if (!value) return;
+      const key = value.toLowerCase();
+      if (!seen.has(key)) seen.set(key, value);
     });
     return Array.from(seen.values()).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: 'base' })
     );
-  }, [departmentsFromData]);
+  }, [employees]);
 
   const designations = [
     'Manager', 'Senior Manager', 'Assistant Manager', 'Executive', 'Senior Executive',
@@ -1127,6 +1144,10 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
     fetchEmployees();
   }, [fetchEmployees]);
 
+  useEffect(() => {
+    persistDepartmentFilter(departmentFilter);
+  }, [departmentFilter]);
+
   const buildPayload = (userEmail) => {
     const ifsplExperience = computeIfsplExperienceYears(formData.date_of_joining);
     const totalExperience = computeTotalExperienceYears(formData.date_of_joining, formData.other_experience);
@@ -1725,7 +1746,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               className={filterInputClass}
             >
               <option value="All">All Departments</option>
-              {departments.map((dept) => (
+              {departmentsFromData.map((dept) => (
                 <option key={dept} value={dept}>{dept}</option>
               ))}
             </select>
@@ -1735,7 +1756,7 @@ const IfspEmployeeMaster = ({ embedded = false }) => {
               className={filterInputClass}
             >
               <option value="All">All Designations</option>
-              {designations.map((d) => (
+              {designationsFromData.map((d) => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
