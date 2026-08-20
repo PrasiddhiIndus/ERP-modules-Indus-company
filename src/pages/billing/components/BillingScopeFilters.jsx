@@ -30,7 +30,7 @@ export default function BillingScopeFilters({
     <div className={`flex flex-col xl:flex-row xl:items-end gap-3 w-full ${className}`}>
       <div className="flex flex-1 flex-wrap items-end gap-3 min-w-0">
         <div className="w-full min-w-[10rem] sm:w-[11rem] shrink-0">
-          <label className={labelClassName}>Business line (team)</label>
+          <label className={labelClassName}>Team</label>
           <div className={selectWrapClassName}>
             <select
               value={billingVerticalFilter || ''}
@@ -51,7 +51,7 @@ export default function BillingScopeFilters({
         </div>
 
         <div className="w-full min-w-[12rem] flex-1">
-          <label className={labelClassName}>How the job was set up</label>
+          <label className={labelClassName}>PO / without PO</label>
           <div className={selectWrapClassName}>
             <select
               value={billingPoBasisFilter || PO_BASIS_FILTER_ALL}

@@ -34,8 +34,37 @@ import { syncScopeDraftBankFromMaster } from '../../adminOperations/salaryAdmin/
 
 const BANK_FIELD_KEYS = ['uan_no', 'esic_no', 'bank_name', 'bank_account_no', 'ifsc_code'];
 
+function uniqueDepartmentsFromEmployees(employees) {
+  const seen = new Map();
+  (employees || []).forEach((row) => {
+    const value = String(row?.department || '').trim();
+    if (!value || value.toLowerCase() === 'other') return;
+    const key = value.toLowerCase();
+    if (!seen.has(key)) seen.set(key, value);
+  });
+  return Array.from(seen.values()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  );
+}
+
+function departmentSelectOptions(employees) {
+  const seen = new Map();
+  [...uniqueDepartmentsFromEmployees(employees), ...EMPLOYEE_MASTER_BASE_DEPARTMENTS].forEach((value) => {
+    const trimmed = String(value || '').trim();
+    if (!trimmed || trimmed === 'Other') return;
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) seen.set(key, trimmed);
+  });
+  const options = Array.from(seen.values()).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  );
+  options.push('Other');
+  return options;
+}
+
 function initFormData(employee, employees) {
-  if (employee) return employeeToFormData(employee);
+  const departments = departmentSelectOptions(employees);
+  if (employee) return employeeToFormData(employee, departments);
   const employment_type = 'permanent';
   return {
     ...emptyEmployeeMasterForm(),
@@ -124,31 +153,7 @@ export default function EmployeeMasterPersonalForm({
       );
   }, [employees, employee?.id]);
 
-  const departmentsFromData = useMemo(() => {
-    const seen = new Map();
-    (employees || []).forEach((row) => {
-      const value = String(row?.department || '').trim();
-      if (!value) return;
-      const key = value.toLowerCase();
-      if (!seen.has(key)) seen.set(key, value);
-    });
-    return Array.from(seen.values()).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    );
-  }, [employees]);
-
-  const departments = useMemo(() => {
-    const seen = new Map();
-    [...departmentsFromData, ...EMPLOYEE_MASTER_BASE_DEPARTMENTS].forEach((value) => {
-      const trimmed = String(value || '').trim();
-      if (!trimmed) return;
-      const key = trimmed.toLowerCase();
-      if (!seen.has(key)) seen.set(key, trimmed);
-    });
-    return Array.from(seen.values()).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' }),
-    );
-  }, [departmentsFromData]);
+  const departments = useMemo(() => departmentSelectOptions(employees), [employees]);
 
   const designations = EMPLOYEE_MASTER_DESIGNATIONS;
   const genders = EMPLOYEE_MASTER_GENDERS;
@@ -200,6 +205,10 @@ export default function EmployeeMasterPersonalForm({
     e.preventDefault();
     if (formData.designation === 'Other' && !String(formData.designation_other || '').trim()) {
       alert('Please enter a designation when Other is selected.');
+      return;
+    }
+    if (formData.department === 'Other' && !String(formData.department_other || '').trim()) {
+      alert('Please enter a department when Other is selected.');
       return;
     }
     if (formData.status === 'Inactive' && !String(formData.date_of_leaving || '').trim()) {
@@ -827,7 +836,14 @@ export default function EmployeeMasterPersonalForm({
             <label className="block text-sm font-medium text-gray-700 mb-2">Department *</label>
             <select
               value={formData.department}
-              onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFormData((prev) => ({
+                  ...prev,
+                  department: value,
+                  department_other: value === 'Other' ? prev.department_other : '',
+                }));
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
             >
@@ -838,6 +854,16 @@ export default function EmployeeMasterPersonalForm({
                 </option>
               ))}
             </select>
+            {formData.department === 'Other' ? (
+              <input
+                type="text"
+                value={formData.department_other}
+                onChange={(e) => setFormData({ ...formData, department_other: e.target.value })}
+                placeholder="Enter department"
+                className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+            ) : null}
           </div>
 
           <div>

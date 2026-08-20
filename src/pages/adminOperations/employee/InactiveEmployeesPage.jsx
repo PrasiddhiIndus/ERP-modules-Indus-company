@@ -1,4 +1,4 @@
-/** NAV_HIDDEN (Aug 2026): Inactive Employees — re-enable in Layout.jsx, navConfig.js, App.jsx */
+/** Inactive Employees — exit document generation for Left/Inactive staff */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, FileDown, FileStack, RefreshCw, UserX, X } from "lucide-react";
 import {
@@ -81,7 +81,6 @@ function compareInactiveRows(a, b, field, direction) {
   return mul * va.localeCompare(vb);
 }
 
-/* NAV_HIDDEN (Aug 2026): full implementation preserved below — uncomment to restore
 export function InactiveEmployeesPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -606,4 +605,3 @@ function DocButton({ label, onClick, loading, disabled }) {
 }
 
 export default InactiveEmployeesPage;
-*/
