@@ -117,7 +117,7 @@ import {
   // EmployeeExitPage,
   EmployeeAttendanceDailyPage,
   EmployeeLeaveManagementPage,
-  // InactiveEmployeesPage,
+  InactiveEmployeesPage,
   NationalPublicHolidaysPage,
   // NAV_HIDDEN store pages
   // StoreItemMasterPage,
@@ -485,7 +485,7 @@ function App() {
             <Route path="admin/employee/compliance-documents" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/salary-inputs" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/employee/exit-ff" element={<Navigate to="/app/admin/dashboard" replace />} />
-            <Route path="admin/employee/inactive" element={<Navigate to="/app/admin/dashboard" replace />} />
+            <Route path="admin/employee/inactive" element={<InactiveEmployeesPage />} />
             <Route path="admin/store/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route path="admin/gate/*" element={<Navigate to="/app/admin/dashboard" replace />} />
             <Route

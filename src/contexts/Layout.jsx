@@ -546,23 +546,11 @@ const Layout = () => {
                         <CalendarDays className="h-4 w-4 shrink-0 text-indigo-600" />
                         <span className="type-meta type-truncate">Leave Management</span>
                       </NavLink>
-                      {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs, Exit & F&F, Inactive Employees */}
-                      {/* <NavLink to="admin/employee/compliance-documents" className={subNavClass}>
-                        <ClipboardCheck className="h-4 w-4 shrink-0 text-green-600" />
-                        <span className="type-meta type-truncate">Compliance & Documents</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/salary-inputs" className={subNavClass}>
-                        <RupeeIcon className="h-4 w-4 shrink-0 text-emerald-600" />
-                        <span className="type-meta type-truncate">Salary Inputs</span>
-                      </NavLink>
-                      <NavLink to="admin/employee/exit-ff" className={subNavClass}>
-                        <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
-                        <span className="type-meta type-truncate">Exit & F&F</span>
-                      </NavLink>
                       <NavLink to="admin/employee/inactive" className={subNavClass}>
                         <UserX className="h-4 w-4 shrink-0 text-ink-muted" />
                         <span className="type-meta type-truncate">Inactive Employees</span>
-                      </NavLink> */}
+                      </NavLink>
+                      {/* NAV_HIDDEN: Compliance & Documents, Salary Inputs, Exit & F&F */}
                   </>
                   )}
 

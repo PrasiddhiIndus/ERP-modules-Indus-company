@@ -84,14 +84,15 @@ export async function fetchApiHealth(options = {}) {
 
 async function fetchApiWithBearer(path, token, options = {}) {
   const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 60_000;
+  const { timeoutMs: _ignoredTimeout, forceRefresh: _ignoredRefresh, ...fetchOptions } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(apiUrl(path), {
-      ...options,
+      ...fetchOptions,
       signal: controller.signal,
       headers: {
-        ...(options.headers || {}),
+        ...(fetchOptions.headers || {}),
         Authorization: `Bearer ${token}`,
       },
     });

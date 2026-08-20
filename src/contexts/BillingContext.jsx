@@ -107,9 +107,9 @@ const BILLING_PO_BASIS_STORAGE_KEY = 'billing_po_basis_filter';
 const BILLING_VERTICAL_LABELS = BILLING_VERTICAL_CATALOG.map((v) => v.label);
 
 const BILLING_PO_BASIS_OPTIONS = [
-  { id: PO_BASIS_FILTER_ALL, label: 'Everything — jobs with or without a PO paper' },
-  { id: 'with_po', label: 'Only jobs that have a PO / WO number' },
-  { id: 'without_po', label: 'Only jobs billed without a PO (still has a dummy WO)' },
+  { id: PO_BASIS_FILTER_ALL, label: 'All' },
+  { id: 'with_po', label: 'With PO' },
+  { id: 'without_po', label: 'Without PO' },
 ];
 
 function normalizeVerticalKey(v) {

@@ -1,7 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  FileText,
   Eye,
   Pencil,
   Download,
@@ -12,6 +11,8 @@ import {
   ChevronRight,
   Ban,
   X,
+  PenLine,
+  Usb,
 } from 'lucide-react';
 import { useBilling } from '../../contexts/BillingContext';
 import { generateEInvoice, resolveBuyerGstinForBill } from '../../services/eInvoiceApi';
@@ -19,16 +20,14 @@ import { resolveBuyerStateAndPin } from '../../utils/gstStatePin';
 import { resolveInvoicePartyAddresses } from '../../utils/invoicePartyAddresses';
 import { resolveInvoicePartyPincodes } from '../../utils/poPincodeFields';
 import { formatDateDdMmYyyy, formatDateTimeDdMmYyyy } from "../../utils/dateDisplay";
-import { downloadTaxInvoicePdf, downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
+import { getTaxInvoicePdfBlobUrl, getTaxInvoicePdfBytes, downloadCreditDebitNotePdf } from '../../utils/taxInvoicePdf';
 import { roundInvoiceAmount } from '../../utils/invoiceRound';
 import InvoiceHtmlPreview from './components/InvoiceHtmlPreview';
 import ManagePAModal from './ManagePAModal';
 import GenerateEInvoiceModal from './GenerateEInvoiceModal';
 import { netAfterCnDn } from '../../utils/cnDn';
-import { enrichInvoiceWithPo, findPoForInvoice } from '../../utils/billingPoInvoiceFields';;
-import FormDateInput from "../../components/FormDateInput";
-
-
+import { enrichInvoiceWithPo, findPoForInvoice } from '../../utils/billingPoInvoiceFields';
+import { fetchSignatureFromUsbToken, listUsbDscCertificates, buildFoxitDscAppearance, signInvoicePdfWithUsbToken } from '../../lib/usbDscToken';
 import { toast } from "../../lib/toast";
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -57,6 +56,95 @@ function getRealIrn(inv) {
   return String(irn).toUpperCase().startsWith('MOCK-IRN-') ? '' : irn;
 }
 
+function invoiceSignatureUrl(inv) {
+  const sig = inv?.digitalSignatureDataUrl || inv?.digital_signature_data_url || '';
+  return typeof sig === 'string' && sig.startsWith('data:image/') ? sig : '';
+}
+
+function hasDigitalSignature(inv) {
+  if (invoiceSignatureUrl(inv)) return true;
+  return !!loadDscCert(inv?.id)?.thumbprint;
+}
+
+function dscCertStorageKey(invoiceId) {
+  return `billing_dsc_cert:${invoiceId}`;
+}
+
+function loadDscCert(invoiceId) {
+  if (!invoiceId) return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(dscCertStorageKey(invoiceId)) || 'null');
+    if (parsed && parsed.thumbprint) return parsed;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function persistDscCert(invoiceId, cert) {
+  if (!invoiceId) return;
+  try {
+    if (!cert?.thumbprint) window.localStorage.removeItem(dscCertStorageKey(invoiceId));
+    else window.localStorage.setItem(dscCertStorageKey(invoiceId), JSON.stringify(cert));
+  } catch {
+    /* ignore */
+  }
+}
+
+function manageInvoicePdfFileName(inv) {
+  const invoiceNumberForFile = String(inv.taxInvoiceNumber || inv.bill_number || 'Invoice')
+    .trim()
+    .replace(/\s+/g, '-');
+  if (hasDigitalSignature(inv)) return `DSC_Signed_Invoice_${invoiceNumberForFile}.pdf`;
+  const invoiceKind = String(inv.invoiceKind || inv.invoice_kind || 'tax').toLowerCase();
+  return `${invoiceKind === 'proforma' ? 'Proforma' : invoiceKind === 'draft' ? 'Draft' : 'Tax'}_Invoice_${invoiceNumberForFile}.pdf`;
+}
+
+function dscRegionStorageKey(invoiceId) {
+  return `billing_dsc_region:${invoiceId}`;
+}
+
+function loadDscRegion(invoiceId) {
+  if (!invoiceId) return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(dscRegionStorageKey(invoiceId)) || 'null');
+    if (
+      parsed &&
+      Number.isFinite(parsed.left) &&
+      Number.isFinite(parsed.top) &&
+      Number.isFinite(parsed.width) &&
+      Number.isFinite(parsed.height)
+    ) {
+      return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function persistDscRegion(invoiceId, region) {
+  if (!invoiceId) return;
+  try {
+    if (!region) window.localStorage.removeItem(dscRegionStorageKey(invoiceId));
+    else window.localStorage.setItem(dscRegionStorageKey(invoiceId), JSON.stringify(region));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clampPct(n) {
+  return Math.min(100, Math.max(0, n));
+}
+
+function rectFromPoints(a, b) {
+  const left = clampPct(Math.min(a.x, b.x));
+  const top = clampPct(Math.min(a.y, b.y));
+  const width = clampPct(Math.abs(a.x - b.x));
+  const height = clampPct(Math.abs(a.y - b.y));
+  return { left, top, width, height };
+}
+
 function isProformaInvoiceKind(inv) {
   return String(inv?.invoiceKind || inv?.invoice_kind || 'tax').toLowerCase() === 'proforma';
 }
@@ -69,20 +157,59 @@ function firstWordsWithEllipsis(text, wordCount = 4) {
   return `${words.slice(0, wordCount).join(' ')}…`;
 }
 
-function dateInputValue(value) {
-  const d = value ? new Date(value) : new Date();
-  if (Number.isNaN(d.getTime())) return '';
-  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
-}
-
-function invoiceDateInputValue(inv) {
-  return dateInputValue(inv?.invoiceDate || inv?.invoice_date || inv?.created_at || inv?.createdAt);
-}
-
 function formatManageInvoiceDate(value) {
   if (!value) return '–';
   return formatDateDdMmYyyy(value) || String(value);
+}
+
+function monthKeyFromYmd(raw) {
+  if (!raw) return '';
+  const s = String(raw);
+  if (/^\d{4}-\d{2}/.test(s)) return s.slice(0, 7);
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function formatMonthOptionLabel(ym) {
+  if (!ym || ym === 'all') return 'All months';
+  const [y, m] = String(ym).split('-');
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  if (Number.isNaN(d.getTime())) return ym;
+  return d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+}
+
+function invoiceSearchHaystack(inv, po) {
+  return [
+    inv?.taxInvoiceNumber,
+    inv?.bill_number,
+    inv?.ocNumber,
+    inv?.oc_number,
+    inv?.clientLegalName,
+    inv?.client_name,
+    inv?.poWoNumber,
+    inv?.po_wo_number,
+    inv?.siteId,
+    inv?.site_id,
+    inv?.locationName,
+    inv?.location_name,
+    po?.ocNumber,
+    po?.oc_number,
+    po?.poWoNumber,
+    po?.po_wo_number,
+    po?.legalName,
+    po?.siteId,
+    po?.site_id,
+    po?.locationName,
+    po?.location_name,
+  ]
+    .map((v) => String(v || '').toLowerCase())
+    .join(' ');
 }
 
 function sortInvoicesNewestFirst(list) {
@@ -94,14 +221,14 @@ function sortInvoicesNewestFirst(list) {
   });
 }
 
-const BILLING_TYPE_TABS_MANPOWER = [
+const BILLING_TYPE_OPTIONS_MANPOWER = [
   { id: 'All', label: 'All' },
   { id: 'Monthly', label: 'Monthly' },
   { id: 'Per Day', label: 'Per Day' },
   { id: 'Lump Sum', label: 'Lump Sum' },
   { id: 'Custom Calculator', label: 'Custom Calculator' },
 ];
-const BILLING_TYPE_TABS_RM = [
+const BILLING_TYPE_OPTIONS_RM = [
   { id: 'All', label: 'All' },
   { id: 'Service', label: 'Service' },
   { id: 'Supply', label: 'Supply' },
@@ -121,13 +248,28 @@ const ManageInvoices = ({ onNavigateTab }) => {
     setInvoiceDraft,
     creditDebitNotes,
     billingVerticalFilter,
-    billingPoBasisFilter,
     useBillingDb,
     refreshBilling,
   } = useBilling();
-  const [billingTypeFilter, setBillingTypeFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [billingTypeFilter, setBillingTypeFilter] = useState('All');
   const [viewId, setViewId] = useState(null);
+  const [viewSigDraft, setViewSigDraft] = useState('');
+  const [viewSigError, setViewSigError] = useState('');
+  const [viewSigSaving, setViewSigSaving] = useState(false);
+  const [viewDscRegion, setViewDscRegion] = useState(null);
+  const [dscDrag, setDscDrag] = useState(null);
+  const [usbModalOpen, setUsbModalOpen] = useState(false);
+  const [usbPin, setUsbPin] = useState('');
+  const [usbBusy, setUsbBusy] = useState(false);
+  const [usbError, setUsbError] = useState('');
+  const [usbCerts, setUsbCerts] = useState([]);
+  const [usbReaders, setUsbReaders] = useState([]);
+  const [usbIssues, setUsbIssues] = useState([]);
+  const [usbCertsLoading, setUsbCertsLoading] = useState(false);
+  const [usbSelectedThumb, setUsbSelectedThumb] = useState('');
+  const [viewDscCert, setViewDscCert] = useState(null);
+  const invoiceWrapRef = useRef(null);
   const [managePAInvoiceId, setManagePAInvoiceId] = useState(null);
   const [generatingEInvoiceId, setGeneratingEInvoiceId] = useState(null);
   const [generateEInvoiceModalId, setGenerateEInvoiceModalId] = useState(null);
@@ -135,10 +277,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
   const [manageTab, setManageTab] = useState('billing-types');
   const [mainSortConfig, setMainSortConfig] = useState({ key: 'created', direction: 'asc' });
   const [addOnSortConfig, setAddOnSortConfig] = useState({ key: 'created', direction: 'asc' });
-  const todayForDateFilter = useMemo(() => dateInputValue(), []);
-  const [dateFilterMode, setDateFilterMode] = useState('all');
-  const [dateFrom, setDateFrom] = useState(todayForDateFilter);
-  const [dateTo, setDateTo] = useState(todayForDateFilter);
+  const [monthFilter, setMonthFilter] = useState(() => currentMonthKey());
   const [cancelModalInv, setCancelModalInv] = useState(null);
   const [cancelModalMode, setCancelModalMode] = useState('cancel'); // 'cancel' | 'edit-remark'
   const [cancelRemark, setCancelRemark] = useState('');
@@ -156,12 +295,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
   };
 
   const verticalNotSelected = false;
-  const billingPoBasisLabel =
-    billingPoBasisFilter === 'with_po'
-      ? 'With PO only'
-      : billingPoBasisFilter === 'without_po'
-        ? 'Without PO only'
-        : 'All — With PO & Without PO';
   const isRmVertical = useMemo(() => {
     const v = String(billingVerticalFilter || '').trim().toLowerCase();
     return v === 'rm' || v === 'mm' || v === 'amc' || v === 'iev' || v === 'projects';
@@ -171,14 +304,61 @@ const ManageInvoices = ({ onNavigateTab }) => {
     return v === 'training';
   }, [billingVerticalFilter]);
   const showBillingTypeColumn = !isTrainingVertical;
-  const billingTypeTabs = useMemo(
-    () => (isTrainingVertical ? [{ id: 'All', label: 'All' }] : isRmVertical ? BILLING_TYPE_TABS_RM : BILLING_TYPE_TABS_MANPOWER),
-    [isRmVertical, isTrainingVertical]
+  const showBillingTypeDropdown = !isTrainingVertical;
+  const billingTypeOptions = useMemo(
+    () => (isRmVertical ? BILLING_TYPE_OPTIONS_RM : BILLING_TYPE_OPTIONS_MANPOWER),
+    [isRmVertical]
   );
-
+                                                          
   const getPoByInvoice = React.useCallback(
     (inv) => findPoForInvoice(inv, commercialPOs),
     [commercialPOs]
+  );
+
+  const downloadManageInvoicePdf = React.useCallback(
+    async (inv) => {
+      if (!inv) return;
+      const po = getPoByInvoice(inv);
+      const cert = loadDscCert(inv.id);
+      if (cert?.thumbprint) {
+        try {
+          const appearance = buildFoxitDscAppearance(cert);
+          const pdfBytes = await getTaxInvoicePdfBytes(inv, {
+            po,
+            skipSignatureImage: true,
+            dscAppearance: appearance,
+          });
+          if (!pdfBytes) return;
+          const signed = await signInvoicePdfWithUsbToken({ pdfBytes, certificate: cert, pin: usbPin });
+          const blob = new Blob([signed], { type: 'application/pdf' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = manageInvoicePdfFileName(inv);
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          toast.success('Cryptographically signed PDF downloaded. Adobe/Foxit can validate the DSC.');
+        } catch (err) {
+          toast.error(err?.message || 'Could not sign the PDF with the USB DSC. Keep the token plugged in and try again.');
+        }
+        return;
+      }
+      const url = await getTaxInvoicePdfBlobUrl(inv, {
+        po,
+        ...(hasDigitalSignature(inv) ? { signatureWidthMm: 52, signatureHeightMm: 24 } : {}),
+      });
+      if (!url) return;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = manageInvoicePdfFileName(inv);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    [getPoByInvoice, usbPin]
   );
 
   const withLatestBuyerDetails = React.useCallback(
@@ -240,65 +420,64 @@ const ManageInvoices = ({ onNavigateTab }) => {
     return po?.billingType || 'Monthly';
   };
 
+  const matchesSearch = (inv, extra = '') => {
+    if (!searchTerm.trim()) return true;
+    const s = searchTerm.toLowerCase();
+    const po = getPoByInvoice(inv);
+    return invoiceSearchHaystack(inv, po).includes(s) || String(extra || '').toLowerCase().includes(s);
+  };
+
+  const matchesMonth = (inv) => {
+    if (!monthFilter || monthFilter === 'all') return true;
+    return monthKeyFromYmd(inv?.invoiceDate || inv?.invoice_date || inv?.created_at || inv?.createdAt) === monthFilter;
+  };
+
+  const monthOptions = useMemo(() => {
+    const set = new Set();
+    hydratedInvoices.forEach((inv) => {
+      const ym = monthKeyFromYmd(inv?.invoiceDate || inv?.invoice_date || inv?.created_at || inv?.createdAt);
+      if (ym) set.add(ym);
+    });
+    set.add(currentMonthKey());
+    if (monthFilter && monthFilter !== 'all') set.add(monthFilter);
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [hydratedInvoices, monthFilter]);
+
+  const invoicesForTypeCounts = useMemo(
+    () => hydratedInvoices.filter((inv) => !inv.isAddOn && !inv.isCancelled).filter(matchesMonth),
+    [hydratedInvoices, monthFilter]
+  );
+
+  const billingTypeCounts = useMemo(() => {
+    const counts = { All: invoicesForTypeCounts.length };
+    billingTypeOptions.forEach((t) => {
+      if (t.id === 'All') return;
+      counts[t.id] = invoicesForTypeCounts.filter((inv) => getInvoiceBillingType(inv) === t.id).length;
+    });
+    return counts;
+  }, [invoicesForTypeCounts, billingTypeOptions, commercialPOs]);
+
   const filteredInvoices = useMemo(() => {
-    let list =
-      isTrainingVertical || billingTypeFilter === 'All'
-        ? hydratedInvoices.filter((inv) => !inv.isAddOn)
-        : hydratedInvoices.filter((inv) => !inv.isAddOn && getInvoiceBillingType(inv) === billingTypeFilter);
-    if (dateFilterMode === 'today') {
-      list = list.filter((inv) => invoiceDateInputValue(inv) === todayForDateFilter);
-    } else if (dateFilterMode === 'range') {
-      const rangeStart = dateFrom && dateTo && dateFrom > dateTo ? dateTo : dateFrom;
-      const rangeEnd = dateFrom && dateTo && dateFrom > dateTo ? dateFrom : dateTo;
-      list = list.filter((inv) => {
-        const invDate = invoiceDateInputValue(inv);
-        if (!invDate) return false;
-        if (rangeStart && invDate < rangeStart) return false;
-        if (rangeEnd && invDate > rangeEnd) return false;
-        return true;
-      });
+    let list = hydratedInvoices.filter((inv) => !inv.isAddOn && !inv.isCancelled);
+    list = list.filter(matchesMonth);
+    if (showBillingTypeDropdown && billingTypeFilter && billingTypeFilter !== 'All') {
+      list = list.filter((inv) => getInvoiceBillingType(inv) === billingTypeFilter);
     }
-    if (searchTerm.trim()) {
-      const s = searchTerm.toLowerCase();
-      list = list.filter(
-        (inv) =>
-          inv.taxInvoiceNumber?.toLowerCase().includes(s) ||
-          inv.ocNumber?.toLowerCase().includes(s) ||
-          inv.clientLegalName?.toLowerCase().includes(s)
-      );
-    }
+    list = list.filter((inv) => matchesSearch(inv));
     return sortInvoicesNewestFirst(list);
-  }, [hydratedInvoices, commercialPOs, billingTypeFilter, dateFilterMode, dateFrom, dateTo, searchTerm, isTrainingVertical, todayForDateFilter]);
+  }, [hydratedInvoices, monthFilter, searchTerm, commercialPOs, billingTypeFilter, showBillingTypeDropdown]);
 
   const addOnInvoices = useMemo(() => {
     let list = hydratedInvoices.filter((inv) => !!inv.isAddOn && !inv.isCancelled);
-    if (searchTerm.trim()) {
-      const s = searchTerm.toLowerCase();
-      list = list.filter(
-        (inv) =>
-          inv.taxInvoiceNumber?.toLowerCase().includes(s) ||
-          inv.ocNumber?.toLowerCase().includes(s) ||
-          inv.clientLegalName?.toLowerCase().includes(s) ||
-          inv.addOnType?.toLowerCase().includes(s)
-      );
-    }
+    list = list.filter((inv) => matchesSearch(inv, inv.addOnType));
     return sortInvoicesNewestFirst(list);
-  }, [hydratedInvoices, searchTerm]);
+  }, [hydratedInvoices, searchTerm, commercialPOs]);
 
   const cancelledInvoices = useMemo(() => {
     let list = hydratedInvoices.filter((inv) => !!inv.isCancelled);
-    if (searchTerm.trim()) {
-      const s = searchTerm.toLowerCase();
-      list = list.filter(
-        (inv) =>
-          inv.taxInvoiceNumber?.toLowerCase().includes(s) ||
-          inv.ocNumber?.toLowerCase().includes(s) ||
-          inv.clientLegalName?.toLowerCase().includes(s) ||
-          (inv.cancelReason || '').toLowerCase().includes(s)
-      );
-    }
+    list = list.filter((inv) => matchesSearch(inv, inv.cancelReason));
     return sortInvoicesNewestFirst(list);
-  }, [hydratedInvoices, searchTerm]);
+  }, [hydratedInvoices, searchTerm, commercialPOs]);
 
   const sortedFilteredInvoices = useMemo(() => {
     const dir = mainSortConfig.direction === 'asc' ? 1 : -1;
@@ -540,6 +719,277 @@ const ManageInvoices = ({ onNavigateTab }) => {
   };
 
   const selectedInv = viewId ? hydratedInvoices.find((i) => i.id === viewId) : null;
+  const savedViewSig = invoiceSignatureUrl(selectedInv);
+  const viewSigDirty = String(viewSigDraft || '') !== String(savedViewSig || '');
+  const canEditViewDsc = !!selectedInv && !selectedInv.isCancelled && !getRealIrn(selectedInv);
+
+  React.useEffect(() => {
+    if (!selectedInv) {
+      setViewSigDraft('');
+      setViewSigError('');
+      setViewSigSaving(false);
+      setViewDscRegion(null);
+      setDscDrag(null);
+      setUsbModalOpen(false);
+      setUsbPin('');
+      setUsbError('');
+      setUsbBusy(false);
+      setUsbCerts([]);
+      setUsbReaders([]);
+      setUsbIssues([]);
+      setUsbCertsLoading(false);
+      setUsbSelectedThumb('');
+      setViewDscCert(null);
+      return;
+    }
+    setViewSigDraft(invoiceSignatureUrl(selectedInv));
+    setViewDscRegion(loadDscRegion(selectedInv.id));
+    setViewDscCert(loadDscCert(selectedInv.id));
+    setViewSigError('');
+    setDscDrag(null);
+    setUsbModalOpen(false);
+    setUsbPin('');
+    setUsbError('');
+    setUsbCerts([]);
+    setUsbReaders([]);
+    setUsbIssues([]);
+    setUsbSelectedThumb('');
+  }, [viewId, selectedInv?.id, savedViewSig]);
+
+  const closeInvoiceViewer = () => {
+    setViewId(null);
+    setViewSigDraft('');
+    setViewSigError('');
+    setViewSigSaving(false);
+    setViewDscRegion(null);
+    setDscDrag(null);
+    setUsbModalOpen(false);
+    setUsbPin('');
+    setUsbError('');
+    setUsbCerts([]);
+    setUsbReaders([]);
+    setUsbIssues([]);
+    setUsbSelectedThumb('');
+    setViewDscCert(null);
+  };
+
+  const pointerPct = (event) => {
+    const el = invoiceWrapRef.current;
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    if (!box.width || !box.height) return null;
+    return {
+      x: clampPct(((event.clientX - box.left) / box.width) * 100),
+      y: clampPct(((event.clientY - box.top) / box.height) * 100),
+    };
+  };
+
+  const beginDscSelect = (event) => {
+    if (!canEditViewDsc || usbModalOpen) return;
+    if (event.button != null && event.button !== 0) return;
+    const pt = pointerPct(event);
+    if (!pt) return;
+    event.preventDefault();
+    setDscDrag({ start: pt, current: pt });
+  };
+
+  const moveDscSelect = (event) => {
+    if (!dscDrag) return;
+    const pt = pointerPct(event);
+    if (!pt) return;
+    setDscDrag((prev) => (prev ? { ...prev, current: pt } : prev));
+  };
+
+  const endDscSelect = async () => {
+    if (!dscDrag) return;
+    const region = rectFromPoints(dscDrag.start, dscDrag.current);
+    setDscDrag(null);
+    if (region.width < 3 || region.height < 2.5) {
+      setViewSigError('Drag a larger box on the invoice for the DSC.');
+      return;
+    }
+    setViewDscRegion(region);
+    setViewSigError('');
+    setUsbPin('');
+    setUsbError('');
+    setUsbCerts([]);
+    setUsbSelectedThumb('');
+    setUsbReaders([]);
+    setUsbIssues([]);
+    setUsbModalOpen(true);
+  };
+
+  const applyUsbListResult = (result) => {
+    const list = Array.isArray(result.certificates) ? result.certificates : [];
+    const readers = Array.isArray(result.readers) ? result.readers : [];
+    const issues = Array.isArray(result.usbIssues) ? result.usbIssues : [];
+    setUsbCerts(list);
+    setUsbReaders(readers);
+    setUsbIssues(issues);
+    const preferred =
+      list.find((c) => c.onHardwareToken && c.hasPrivateKey) ||
+      list.find((c) => c.onHardwareToken) ||
+      list.find((c) => c.hasPrivateKey) ||
+      list[0];
+    setUsbSelectedThumb(preferred?.thumbprint ? String(preferred.thumbprint) : '');
+    if (list.length) {
+      setUsbError('');
+      return;
+    }
+    const liveReaders = readers.filter((row) => row?.status === 'card_present' || row?.atr || /token|dsc|hyper/i.test(String(row?.name || '')));
+    if (liveReaders.length) {
+      setUsbError(
+        `Token detected (${liveReaders.map((row) => row.name).join(', ')}). Enter the token PIN and click Refresh to read certificates.`
+      );
+      return;
+    }
+    if (issues.length && !readers.length) {
+      setUsbError(issues.map((row) => row.hint || row.name).filter(Boolean).join(' '));
+      return;
+    }
+    if (result.pcscStatus === 'no_readers' || !readers.length) {
+      setUsbError(
+        'No live USB DSC token was found. Plug the token in, wait until Windows finishes installing it, then click Refresh. If it still fails, install the token manufacturer software and try a USB 2.0 port on the PC.'
+      );
+      return;
+    }
+    setUsbError('The reader is connected but no certificate was on the token. Enter the token PIN and click Refresh.');
+  };
+
+  const refreshUsbCerts = async (pin) => {
+    setUsbCertsLoading(true);
+    setUsbError('');
+    try {
+      const result = await listUsbDscCertificates(pin);
+      applyUsbListResult(result);
+    } catch (err) {
+      setUsbCerts([]);
+      setUsbReaders([]);
+      setUsbIssues([]);
+      setUsbSelectedThumb('');
+      setUsbError(err?.message || 'Could not read certificates from the USB token.');
+    } finally {
+      setUsbCertsLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (!usbModalOpen) return undefined;
+    let cancelled = false;
+    setUsbCertsLoading(true);
+    setUsbError('');
+    void listUsbDscCertificates('')
+      .then((result) => {
+        if (!cancelled) applyUsbListResult(result);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setUsbCerts([]);
+        setUsbReaders([]);
+        setUsbIssues([]);
+        setUsbSelectedThumb('');
+        setUsbError(err?.message || 'Could not read certificates from the USB token.');
+      })
+      .finally(() => {
+        if (!cancelled) setUsbCertsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [usbModalOpen]);
+
+  const confirmUsbDsc = async () => {
+    if (!selectedInv || !viewDscRegion) return;
+    const certificate = usbCerts.find((c) => String(c.thumbprint) === String(usbSelectedThumb));
+    if (!certificate) {
+      setUsbError('Select a certificate from the token list.');
+      return;
+    }
+    setUsbBusy(true);
+    setUsbError('');
+    try {
+      const wrap = invoiceWrapRef.current;
+      const boxW = wrap ? (viewDscRegion.width / 100) * wrap.clientWidth : 220;
+      const boxH = wrap ? (viewDscRegion.height / 100) * wrap.clientHeight : 80;
+      const result = await fetchSignatureFromUsbToken({
+        pin: usbPin,
+        invoiceNumber: selectedInv.taxInvoiceNumber || selectedInv.bill_number || '',
+        boxWidth: boxW,
+        boxHeight: boxH,
+        certificate,
+      });
+      setViewSigDraft(result.imageDataUrl);
+      setViewDscCert(certificate);
+      persistDscCert(selectedInv.id, certificate);
+      setUsbModalOpen(false);
+      setUsbPin('');
+      toast.success('DSC certificate applied in the selected area. Save the invoice to keep it.');
+    } catch (err) {
+      setUsbError(err?.message || 'Could not apply the USB DSC certificate.');
+    } finally {
+      setUsbBusy(false);
+    }
+  };
+
+  const saveViewDigitalSignature = () => {
+    if (!selectedInv || !canEditViewDsc) return;
+    const nextSig = String(viewSigDraft || '').trim() || null;
+    setViewSigSaving(true);
+    try {
+      persistDscRegion(selectedInv.id, nextSig ? viewDscRegion : null);
+      persistDscCert(selectedInv.id, nextSig ? viewDscCert : null);
+      setInvoices((prev) =>
+        prev.map((row) => {
+          if (String(row.id) !== String(selectedInv.id)) return row;
+          return {
+            ...row,
+            digitalSignatureDataUrl: nextSig,
+            digital_signature_data_url: nextSig,
+            updated_at: new Date().toISOString(),
+          };
+        })
+      );
+      toast.success(nextSig ? 'DSC-signed invoice saved. You can generate e-invoice next.' : 'Digital signature removed.');
+    } finally {
+      setViewSigSaving(false);
+    }
+  };
+
+  const liveSelectRegion = dscDrag ? rectFromPoints(dscDrag.start, dscDrag.current) : null;
+  const overlayRegion = liveSelectRegion || viewDscRegion;
+  const foxitAppearance = viewDscCert ? buildFoxitDscAppearance(viewDscCert) : null;
+
+  const renderTaxInvoiceOpener = (inv) => {
+    const number = inv.taxInvoiceNumber || inv.bill_number || '–';
+    return (
+      <button
+        type="button"
+        onClick={() => setViewId(inv.id)}
+        className="truncate max-w-full font-mono font-semibold text-red-700 hover:text-red-800 hover:underline"
+        title="Open invoice (DSC)"
+      >
+        {number}
+      </button>
+    );
+  };
+
+  const renderDscAction = (inv) => {
+    const signed = hasDigitalSignature(inv);
+    return (
+      <button
+        type="button"
+        onClick={() => setViewId(inv.id)}
+        title={signed ? 'Digitally signed — open invoice' : 'Not digitally signed — open to add DSC'}
+        className={`inline-flex items-center justify-center w-8 h-8 rounded-full border ${
+          signed
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            : 'border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100'
+        }`}
+      >
+        <PenLine className="w-4 h-4" />
+      </button>
+    );
+  };
 
   React.useEffect(() => {
     if (verticalNotSelected) return;
@@ -548,14 +998,14 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
   React.useEffect(() => {
     setPage(1);
-  }, [billingTypeFilter, dateFilterMode, dateFrom, dateTo, searchTerm, mainSortConfig]);
+  }, [monthFilter, searchTerm, mainSortConfig, billingTypeFilter]);
 
   React.useEffect(() => {
-    const allowed = new Set(billingTypeTabs.map((t) => t.id));
+    const allowed = new Set(billingTypeOptions.map((t) => t.id));
     if (!allowed.has(billingTypeFilter)) {
       setBillingTypeFilter('All');
     }
-  }, [billingTypeTabs, billingTypeFilter]);
+  }, [billingTypeOptions, billingTypeFilter]);
 
   React.useEffect(() => {
     if (showBillingTypeColumn) return;
@@ -564,13 +1014,10 @@ const ManageInvoices = ({ onNavigateTab }) => {
   }, [showBillingTypeColumn]);
 
   return (
-    <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-6">
+    <div className="w-full overflow-y-auto p-4 sm:p-6 space-y-4">
       {verticalNotSelected ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-600">
           <p className="text-lg font-semibold text-gray-900">Pick a team first</p>
-          <p className="text-sm mt-1 max-w-lg mx-auto">
-            Use the dropdown at the top — same team as Commercial. Then you see every bill, print, and GST filing.
-          </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <button
               type="button"
@@ -588,55 +1035,12 @@ const ManageInvoices = ({ onNavigateTab }) => {
           </div>
         </div>
       ) : null}
-      <div className="flex items-center space-x-3">
-        <div className="bg-red-50 p-3 rounded-xl ring-1 ring-red-100 shrink-0">
-          <FileText className="w-6 h-6 text-red-600" />
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">All bills</h2>
-          <p className="text-sm text-gray-600">Open · change · print · get GST number · add payment proof</p>
-          {!verticalNotSelected ? (
-            <p className="text-xs text-slate-600 mt-1">
-              Job-type filter (top): <strong>{billingPoBasisLabel}</strong>
-            </p>
-          ) : null}
-        </div>
-      </div>
 
-      {!verticalNotSelected ? (
-        <div className="rounded-xl border border-red-100 bg-red-50/40 px-4 py-3 text-sm text-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <p className="min-w-0 leading-snug">
-            <strong>New bills</strong> start from <strong>Make bill</strong> or <strong>Extra bill</strong> after Commercial
-            approves the job. This screen is for bills that are already saved.
-          </p>
-          <div className="flex flex-wrap gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => onNavigateTab && onNavigateTab('create-invoice')}
-              className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-red-700 shadow-sm ring-1 ring-red-200 hover:bg-red-50"
-            >
-              Make bill
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigateTab && onNavigateTab('add-on-invoices')}
-              className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-violet-700 shadow-sm ring-1 ring-violet-200 hover:bg-violet-50"
-            >
-              Extra bill
-            </button>
-            <Link
-              to="/app/commercial/rm-mm-amc-iev/po-entry"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              PO Entry (R&amp;M line)
-            </Link>
-          </div>
-        </div>
-      ) : null}
+      <h2 className="text-xl font-bold text-gray-900">All bills</h2>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200/90 ring-1 ring-slate-900/5 overflow-hidden">
         {verticalNotSelected ? (
-          <div className="p-6 text-sm text-gray-600">Pick a team above — then your bills load here.</div>
+          <div className="p-6 text-sm text-gray-600">Pick a team above.</div>
         ) : null}
         <div className="flex gap-1 px-4 sm:px-6 border-b border-slate-100 bg-slate-50/40 overflow-x-auto">
           {MANAGE_INVOICE_TABS.map((tab) => (
@@ -657,91 +1061,55 @@ const ManageInvoices = ({ onNavigateTab }) => {
       </div>
 
       {manageTab !== 'issued-cndn' ? (
-        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[12rem]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             <input
               type="text"
-              placeholder={
-                manageTab === 'add-on-invoices'
-                  ? 'Search add-on invoice number, OC, client, type...'
-                  : 'Search by invoice number, OC, client...'
-              }
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-red-500/35 focus:border-red-400"
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Search master: OC, PO/WO, client, site..."
+              className="w-full min-h-[36px] rounded-lg border border-slate-200 bg-white pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+              aria-label="Search invoices"
             />
           </div>
+          {manageTab === 'billing-types' && showBillingTypeDropdown ? (
+            <select
+              value={billingTypeFilter}
+              onChange={(e) => {
+                setBillingTypeFilter(e.target.value);
+                setPage(1);
+              }}
+              className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+              aria-label="Billing type"
+            >
+              {billingTypeOptions.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label} ({billingTypeCounts[t.id] ?? 0})
+                </option>
+              ))}
+            </select>
+          ) : null}
           {manageTab === 'billing-types' ? (
-            <div className="flex items-center gap-1.5 shrink-0 self-stretch">
-              <div
-                className="inline-flex h-[42px] items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5"
-                role="group"
-                aria-label="Filter by invoice date"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDateFilterMode('all');
-                    setPage(1);
-                  }}
-                  className={`h-full rounded-md px-2.5 text-xs font-semibold transition-colors ${
-                    dateFilterMode === 'all'
-                      ? 'bg-white text-red-700 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDateFrom(todayForDateFilter);
-                    setDateTo(todayForDateFilter);
-                    setDateFilterMode('today');
-                    setPage(1);
-                  }}
-                  className={`h-full rounded-md px-2.5 text-xs font-semibold transition-colors ${
-                    dateFilterMode === 'today'
-                      ? 'bg-white text-red-700 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Today
-                </button>
-              </div>
-              {dateFilterMode !== 'today' ? (
-                <div className="inline-flex h-[42px] items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
-                  <FormDateInput
-                    id="manage-inv-date-from"
-                    compact
-                    value={dateFrom}
-                    onChange={(e) => {
-                      setDateFrom(e.target.value);
-                      setDateFilterMode('range');
-                      setPage(1);
-                    }}
-                    aria-label="From date"
-                    className="!w-[6.5rem] shrink-0 border-0 bg-transparent shadow-none"
-                  />
-                  <span className="text-slate-400 text-xs select-none" aria-hidden>
-                    –
-                  </span>
-                  <FormDateInput
-                    id="manage-inv-date-to"
-                    compact
-                    value={dateTo}
-                    onChange={(e) => {
-                      setDateTo(e.target.value);
-                      setDateFilterMode('range');
-                      setPage(1);
-                    }}
-                    aria-label="To date"
-                    className="!w-[6.5rem] shrink-0 border-0 bg-transparent shadow-none"
-                  />
-                </div>
-              ) : null}
-            </div>
+          <select
+            value={monthFilter}
+            onChange={(e) => {
+              setMonthFilter(e.target.value);
+              setPage(1);
+            }}
+            className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+            aria-label="Month"
+          >
+            <option value="all">All months</option>
+            {monthOptions.map((ym) => (
+              <option key={ym} value={ym}>
+                {formatMonthOptionLabel(ym)}
+              </option>
+            ))}
+          </select>
           ) : null}
           <select
             value={manageTab === 'add-on-invoices' ? addOnSortConfig.key : mainSortConfig.key}
@@ -749,20 +1117,11 @@ const ManageInvoices = ({ onNavigateTab }) => {
               const setter = manageTab === 'add-on-invoices' ? setAddOnSortConfig : setMainSortConfig;
               setter((prev) => ({ ...prev, key: e.target.value }));
             }}
-            className="min-h-[42px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+            className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
             aria-label="Sort invoice list by"
           >
             <option value="modified">Last modified</option>
             <option value="created">Last created</option>
-            <option value="invoiceDate">Invoice date</option>
-            <option value="taxInvoice">Tax invoice</option>
-            <option value="billingType">Billing type</option>
-            <option value="ocNumber">OC number</option>
-            <option value="client">Client name</option>
-            <option value="amount">Amount</option>
-            <option value="net">Net after CN/DN</option>
-            {manageTab === 'billing-types' ? <option value="poRemaining">PO remaining</option> : null}
-            <option value="eInvoice">E-Invoice</option>
           </select>
           <select
             value={manageTab === 'add-on-invoices' ? addOnSortConfig.direction : mainSortConfig.direction}
@@ -770,7 +1129,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
               const setter = manageTab === 'add-on-invoices' ? setAddOnSortConfig : setMainSortConfig;
               setter((prev) => ({ ...prev, direction: e.target.value }));
             }}
-            className="min-h-[42px] rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+            className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-red-300 focus:ring-2 focus:ring-red-100"
             aria-label="Sort invoice list direction"
           >
             <option value="desc">Descending</option>
@@ -783,7 +1142,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-violet-50/60">
           <h3 className="text-sm font-semibold text-violet-800">Extra bills</h3>
-          <p className="text-xs text-violet-700 mt-0.5">Appraisal / gratuity / reimbursement and other add-on bills</p>
         </div>
         <div className="w-full overflow-x-auto">
                   <table className="w-full min-w-[1220px] table-fixed border-collapse">
@@ -823,7 +1181,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono overflow-hidden min-w-0" title={inv.taxInvoiceNumber || inv.bill_number || '–'}>
                             <div className="flex flex-col items-center gap-0.5 min-w-0">
-                              <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
+                              <span className="truncate max-w-full">{renderTaxInvoiceOpener(inv)}</span>
                               {isProformaInvoiceKind(inv) ? (
                                 <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 whitespace-nowrap">Proforma</span>
                               ) : null}
@@ -888,6 +1246,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                   </button>
                                 );
                               })()}
+                              {renderDscAction(inv)}
                               <button
                                 type="button"
                                 onClick={() => setViewId(inv.id)}
@@ -898,8 +1257,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void downloadTaxInvoicePdf(inv, { po: getPoByInvoice(inv) })}
-                                title="Download Tax Invoice PDF"
+                                onClick={() => void downloadManageInvoicePdf(inv)}
+                                title={hasDigitalSignature(inv) ? 'Download DSC-signed invoice' : 'Download Tax Invoice PDF'}
                                 className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                               >
                                 <Download className="w-4 h-4" />
@@ -939,33 +1298,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
 
       {manageTab === 'billing-types' ? (
       <>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-4 sm:px-6 py-2 border-b border-gray-100 flex items-center justify-between gap-3">
-            <p className="text-sm font-medium text-gray-600">Billing type</p>
-            <span className="text-sm text-gray-500 tabular-nums">
-              {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-          {!isTrainingVertical ? (
-          <div className="flex gap-1 px-4 sm:px-6 border-t border-gray-100 overflow-x-auto">
-            {billingTypeTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setBillingTypeFilter(tab.id)}
-                className={`px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  billingTypeFilter === tab.id
-                    ? 'border-red-600 text-red-700'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          ) : null}
-        </div>
-
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="w-full overflow-x-auto">
                   <table className="w-full min-w-[1320px] table-fixed border-collapse">
@@ -1021,7 +1353,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                 </td>
                                 <td className="px-3 py-2 text-xs text-gray-900 text-center font-semibold font-mono" title={inv.taxInvoiceNumber || inv.bill_number || ''}>
                                   <div className="flex flex-col items-center gap-0.5 min-w-0">
-                                    <span className="truncate max-w-full">{inv.taxInvoiceNumber || inv.bill_number}</span>
+                                    <span className="truncate max-w-full">{renderTaxInvoiceOpener(inv)}</span>
                                     {isCancelled ? (
                                       <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-900 whitespace-nowrap">
                                         Cancelled
@@ -1113,6 +1445,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                         </button>
                                       );
                                     })()}
+                                    {renderDscAction(inv)}
                                     <button
                                       type="button"
                                       onClick={() => setViewId(inv.id)}
@@ -1142,8 +1475,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => void downloadTaxInvoicePdf(inv, { po: getPoByInvoice(inv) })}
-                                      title="Download Tax Invoice PDF"
+                                      onClick={() => void downloadManageInvoicePdf(inv)}
+                                      title={hasDigitalSignature(inv) ? 'Download DSC-signed invoice' : 'Download Tax Invoice PDF'}
                                       className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                                     >
                                       <Download className="w-4 h-4" />
@@ -1177,9 +1510,9 @@ const ManageInvoices = ({ onNavigateTab }) => {
         </div>
         {filteredInvoices.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            {billingTypeFilter === 'All'
-              ? 'No bills yet — start from Make bill.'
-              : `No bills for “${billingTypeFilter}”. Try Make bill or pick “All”.`}
+            {searchTerm.trim() || (monthFilter && monthFilter !== 'all')
+              ? 'No bills for this search or month. Try All months.'
+              : 'No bills yet — start from Make bill.'}
           </div>
         ) : (
           <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-2">
@@ -1221,9 +1554,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
       <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-amber-100 bg-amber-50/90">
           <h3 className="text-sm font-semibold text-amber-950">Issued credit & debit notes</h3>
-          <p className="text-xs text-amber-900/85 mt-0.5">
-            Same document layout as tax invoices; note numbers follow their own CN/DN series.
-          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] border-collapse text-sm">
@@ -1276,7 +1606,6 @@ const ManageInvoices = ({ onNavigateTab }) => {
         <div className="bg-white rounded-xl border border-rose-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-rose-100 bg-rose-50/80">
             <h3 className="text-sm font-semibold text-rose-900">Cancelled billings</h3>
-            <p className="text-xs text-rose-800/80 mt-0.5">Cancelled invoices are kept for audit proof; invoice number series continues.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1120px] border-collapse text-sm">
@@ -1297,7 +1626,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                 {sortedCancelledInvoices.map((inv, idx) => (
                   <tr key={`cancel-${inv.id}`} className="bg-rose-50/30 hover:bg-rose-50/50">
                     <td className="px-3 py-2 text-center tabular-nums text-gray-700">{idx + 1}</td>
-                    <td className="px-3 py-2 font-mono text-gray-900">{inv.taxInvoiceNumber || inv.bill_number || '–'}</td>
+                    <td className="px-3 py-2 font-mono text-gray-900">{renderTaxInvoiceOpener(inv)}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">
                       {formatManageInvoiceDate(inv.invoiceDate || inv.invoice_date || inv.created_at || inv.createdAt)}
                     </td>
@@ -1327,6 +1656,7 @@ const ManageInvoices = ({ onNavigateTab }) => {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {renderDscAction(inv)}
                         <button
                           type="button"
                           onClick={() => openEditCancelRemarkModal(inv)}
@@ -1337,8 +1667,8 @@ const ManageInvoices = ({ onNavigateTab }) => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void downloadTaxInvoicePdf(inv, { po: getPoByInvoice(inv) })}
-                          title="Download Tax Invoice PDF"
+                          onClick={() => void downloadManageInvoicePdf(inv)}
+                          title={hasDigitalSignature(inv) ? 'Download DSC-signed invoice' : 'Download Tax Invoice PDF'}
                           className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                         >
                           <Download className="w-4 h-4" />
@@ -1356,26 +1686,294 @@ const ManageInvoices = ({ onNavigateTab }) => {
         </div>
       ) : null}
 
-      {selectedInv &&
-        (() => {
-          const inv = selectedInv;
-          return (
-            <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-xl shadow-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
-                <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
-                  <h3 className="text-lg font-semibold text-gray-900">Tax Invoice Preview – {inv.taxInvoiceNumber || '–'}</h3>
-                  <button type="button" onClick={() => setViewId(null)} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Close">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-
-                <div className="p-4 sm:p-6 bg-gray-100">
-                  <InvoiceHtmlPreview inv={inv} po={getPoByInvoice(inv)} showEInvoiceMeta={false} />
-                </div>
-              </div>
+      {selectedInv ? (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 flex flex-col">
+          <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <div className="min-w-0">
+              <h3 className="text-lg font-semibold text-gray-900 truncate">
+                Tax invoice – {selectedInv.taxInvoiceNumber || selectedInv.bill_number || '–'}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {canEditViewDsc
+                  ? 'Invoice is locked. Drag a box on the page where the USB DSC should appear.'
+                  : 'View only.'}
+              </p>
             </div>
-          );
-        })()}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {canEditViewDsc ? (
+                <>
+                  {viewDscRegion && !viewSigDraft ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUsbPin('');
+                        setUsbError('');
+                        setUsbModalOpen(true);
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Open USB token
+                    </button>
+                  ) : null}
+                  {viewSigDraft || viewDscRegion ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewSigDraft('');
+                        setViewDscRegion(null);
+                        setViewDscCert(null);
+                        persistDscCert(selectedInv.id, null);
+                        setViewSigError('');
+                      }}
+                      className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                    >
+                      Clear DSC area
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={saveViewDigitalSignature}
+                    disabled={!viewSigDirty || viewSigSaving}
+                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {viewSigSaving ? 'Saving…' : 'Save DSC-signed invoice'}
+                  </button>
+                </>
+              ) : (
+                <p className="text-xs text-slate-600 max-w-xs">
+                  {selectedInv.isCancelled
+                    ? 'Cancelled invoices cannot be signed.'
+                    : 'E-invoice already filed — DSC cannot be changed.'}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={closeInvoiceViewer}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          {viewSigError ? (
+            <p className="shrink-0 px-4 sm:px-6 py-2 text-sm text-rose-700 bg-rose-50 border-b border-rose-100">{viewSigError}</p>
+          ) : null}
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 bg-gray-100">
+            <div
+              ref={invoiceWrapRef}
+              className={`relative mx-auto max-w-[210mm] select-none ${canEditViewDsc ? 'cursor-crosshair' : ''}`}
+              onMouseDown={beginDscSelect}
+              onMouseMove={moveDscSelect}
+              onMouseUp={endDscSelect}
+              onMouseLeave={() => {
+                if (dscDrag) endDscSelect();
+              }}
+            >
+              <InvoiceHtmlPreview
+                inv={{
+                  ...selectedInv,
+                  digitalSignatureDataUrl: viewDscRegion ? null : viewSigDraft || null,
+                  digital_signature_data_url: viewDscRegion ? null : viewSigDraft || null,
+                }}
+                po={getPoByInvoice(selectedInv)}
+                showEInvoiceMeta={false}
+                hideAuthorisedSignature={!!viewDscRegion && !foxitAppearance}
+              />
+              {overlayRegion ? (
+                <div
+                  className={`absolute z-10 box-border pointer-events-none overflow-hidden ${
+                    foxitAppearance && !dscDrag
+                      ? ''
+                      : 'border-2 border-emerald-600 bg-emerald-500/10'
+                  }`}
+                  style={{
+                    left: `${overlayRegion.left}%`,
+                    top: `${overlayRegion.top}%`,
+                    width: `${overlayRegion.width}%`,
+                    height: `${overlayRegion.height}%`,
+                  }}
+                >
+                  {foxitAppearance && !dscDrag ? (
+                    <div className="h-full w-full px-1 py-0.5 text-left leading-[1.25]">
+                      {foxitAppearance.lines.map((row) => (
+                        <p
+                          key={row.text}
+                          className={`m-0 ${row.bold ? 'font-semibold text-[8px] text-slate-900' : 'font-normal text-[7px] text-slate-600'}`}
+                        >
+                          {row.text}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {usbModalOpen ? (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-start gap-3">
+              <div className="rounded-lg bg-slate-100 p-2 text-slate-700">
+                <Usb className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-semibold text-gray-900">USB DSC token</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Certificates from the plugged-in USB token. Choose one to place in the selected box.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (usbBusy) return;
+                  setUsbModalOpen(false);
+                  setUsbPin('');
+                  setUsbError('');
+                }}
+                className="p-2 rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form
+              className="p-5 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void confirmUsbDsc();
+              }}
+            >
+              {usbReaders.length ? (
+                <p className="text-xs text-slate-600">
+                  USB reader: {usbReaders.map((r) => r.name).filter(Boolean).join(', ')}
+                  {usbReaders.some((r) => r.atr) ? ` (card ${usbReaders.map((r) => r.atr).filter(Boolean).join(', ')})` : ''}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-600">No live USB DSC reader is connected.</p>
+              )}
+              {usbIssues.length ? (
+                <ul className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 space-y-1">
+                  {usbIssues.map((issue) => (
+                    <li key={issue.instanceId || issue.name}>
+                      {issue.name}
+                      {issue.hint ? ` — ${issue.hint}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+                {usbCertsLoading ? (
+                  <p className="px-3 py-4 text-sm text-slate-600">Reading certificates from the USB token…</p>
+                ) : usbCerts.length ? (
+                  usbCerts.map((cert) => {
+                    const thumb = String(cert.thumbprint || '');
+                    const selected = thumb === String(usbSelectedThumb);
+                    const from = cert.notBefore ? new Date(cert.notBefore) : null;
+                    const to = cert.notAfter ? new Date(cert.notAfter) : null;
+                    const validLabel =
+                      from && !Number.isNaN(from.getTime()) && to && !Number.isNaN(to.getTime())
+                        ? `${from.toLocaleDateString('en-IN')} – ${to.toLocaleDateString('en-IN')}`
+                        : '';
+                    return (
+                      <label
+                        key={thumb || cert.serialNumber}
+                        className={`flex gap-3 px-3 py-2.5 cursor-pointer ${selected ? 'bg-emerald-50' : 'bg-white hover:bg-slate-50'}`}
+                      >
+                        <input
+                          type="radio"
+                          name="usb-dsc-cert"
+                          className="mt-1"
+                          checked={selected}
+                          onChange={() => setUsbSelectedThumb(thumb)}
+                        />
+                        <span className="min-w-0 text-xs text-slate-700 space-y-0.5">
+                          <span className="block text-sm font-semibold text-slate-900 truncate">
+                            {cert.commonName || cert.subject || 'Certificate'}
+                          </span>
+                          {cert.subject && cert.commonName ? (
+                            <span className="block text-slate-500 break-all">{cert.subject}</span>
+                          ) : null}
+                          {cert.serialNumber ? (
+                            <span className="block">Serial: {cert.serialNumber}</span>
+                          ) : null}
+                          {cert.issuerCn || cert.issuer ? (
+                            <span className="block">Issuer: {cert.issuerCn || cert.issuer}</span>
+                          ) : null}
+                          {validLabel ? <span className="block">Valid: {validLabel}</span> : null}
+                          {cert.thumbprint ? (
+                            <span className="block break-all">Thumbprint: {cert.thumbprint}</span>
+                          ) : null}
+                          {cert.provider ? (
+                            <span className="block text-slate-500">{cert.provider}</span>
+                          ) : null}
+                          {cert.onHardwareToken ? (
+                            <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                              Hardware token
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p className="px-3 py-4 text-sm text-slate-600">No certificates listed yet.</p>
+                )}
+              </div>
+              <label className="block text-sm font-medium text-gray-700">
+                Token PIN
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={usbPin}
+                  onChange={(e) => {
+                    setUsbPin(e.target.value);
+                    if (usbError) setUsbError('');
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                  placeholder="If Windows asks, enter the same PIN"
+                />
+              </label>
+              {usbError ? <p className="text-xs text-rose-700">{usbError}</p> : null}
+              <p className="text-xs text-slate-500">
+                Keep the token plugged in. After Windows recognises it, click Refresh. Enter the token PIN if the list is empty.
+              </p>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={usbBusy || usbCertsLoading}
+                  onClick={() => {
+                    setUsbModalOpen(false);
+                    setUsbPin('');
+                    setUsbError('');
+                  }}
+                  className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={usbBusy || usbCertsLoading}
+                  onClick={() => void refreshUsbCerts(usbPin)}
+                  className="px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm font-medium text-emerald-800 hover:bg-emerald-50"
+                >
+                  {usbCertsLoading ? 'Reading token…' : 'Refresh'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={usbBusy || usbCertsLoading || !usbSelectedThumb}
+                  className="px-3 py-2 rounded-lg bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {usbBusy ? 'Applying certificate…' : 'Apply selected certificate'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
 
       {managePAInvoiceId && (
         <ManagePAModal

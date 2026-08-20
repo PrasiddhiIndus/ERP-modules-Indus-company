@@ -67,7 +67,13 @@ function docTitleForKind(kind) {
  * Static HTML invoice preview — shared by Create Invoice and Manage Invoices.
  * Field order and layout mirror buildTaxInvoiceDoc in taxInvoicePdf.js.
  */
-export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = true, hideQtyRateColumns = false }) {
+export default function InvoiceHtmlPreview({
+  inv,
+  po = null,
+  showEInvoiceMeta = true,
+  hideQtyRateColumns = false,
+  hideAuthorisedSignature = false,
+}) {
   if (!inv) return null;
 
   const viewInv = enrichInvoiceWithPo(inv, po);
@@ -614,7 +620,7 @@ export default function InvoiceHtmlPreview({ inv, po = null, showEInvoiceMeta = 
               <p className="text-[9px] font-bold text-[#1a3a6c] leading-snug m-0">For {COMPANY_DISPLAY_NAME}</p>
               <div className="w-[120px] ml-auto">
                 <div className="h-12 flex items-end justify-center">
-                  {typeof sig === 'string' && sig.startsWith('data:image/') ? (
+                  {!hideAuthorisedSignature && typeof sig === 'string' && sig.startsWith('data:image/') ? (
                     <img src={sig} alt="" className="max-h-12 max-w-[7.5rem] object-contain" />
                   ) : null}
                 </div>

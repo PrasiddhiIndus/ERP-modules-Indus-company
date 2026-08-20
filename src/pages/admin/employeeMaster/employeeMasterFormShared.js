@@ -64,6 +64,7 @@ export function emptyEmployeeMasterForm() {
     birthday_reminder: true,
     anniversary_reminder: true,
     department: '',
+    department_other: '',
     other_experience: '',
     ifspl_experience: '',
     date_of_leaving: '',
@@ -100,7 +101,24 @@ export function resolveDesignationForSave(designation, designationOther) {
   return designation || null;
 }
 
-export function employeeToFormData(employee) {
+export function departmentFieldsFromStored(stored, departments = []) {
+  const value = String(stored || '').trim();
+  if (!value) return { department: '', department_other: '' };
+  const known = (departments || []).filter((d) => d !== 'Other');
+  const match = known.find((d) => String(d).toLowerCase() === value.toLowerCase());
+  if (match) return { department: match, department_other: '' };
+  return { department: 'Other', department_other: value === 'Other' ? '' : value };
+}
+
+export function resolveDepartmentForSave(department, departmentOther) {
+  if (department === 'Other') {
+    const custom = String(departmentOther || '').trim();
+    return custom || null;
+  }
+  return department || null;
+}
+
+export function employeeToFormData(employee, departments = []) {
   if (!employee) return emptyEmployeeMasterForm();
   return {
     employee_id: employee.employee_id || '',
@@ -139,7 +157,7 @@ export function employeeToFormData(employee) {
     attachments: employee.attachments || [],
     birthday_reminder: employee.birthday_reminder !== false,
     anniversary_reminder: employee.anniversary_reminder !== false,
-    department: employee.department || '',
+    ...departmentFieldsFromStored(employee.department, departments),
     other_experience: employee.other_experience || '',
     ifspl_experience: computeIfsplExperienceYears(employee.date_of_joining) ?? '',
     date_of_leaving: employee.date_of_leaving || '',
@@ -211,7 +229,7 @@ export function buildEmployeeMasterPayload(formData, userEmail) {
     attachments: Array.isArray(formData.attachments) ? formData.attachments : [],
     birthday_reminder: formData.birthday_reminder !== false,
     anniversary_reminder: formData.anniversary_reminder !== false,
-    department: formData.department || null,
+    department: resolveDepartmentForSave(formData.department, formData.department_other),
     other_experience: formData.other_experience ? parseFloat(formData.other_experience) : null,
     ifspl_experience: ifsplExperience,
     date_of_leaving: formData.date_of_leaving || null,
